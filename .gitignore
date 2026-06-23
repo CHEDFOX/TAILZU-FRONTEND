@@ -1,0 +1,32 @@
+# Secrets — NEVER commit
+.env
+.env.local
+*.env
+!.env.example
+
+# Node
+node_modules/
+dist/
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+# Backend test artifacts + sample audio (keep the README)
+tulmi/test-assets/*
+!tulmi/test-assets/README.md
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+android/captures/
+android/.cxx/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp

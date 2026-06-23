@@ -1,0 +1,68 @@
+/**
+ * SDUI transport. Talks to the Experience service (/v1/app/*) with the same
+ * base URL + dev auth as src/api.ts.
+ */
+import { Platform } from "react-native";
+import { getBaseUrl } from "../storage";
+import { getAccessToken } from "../auth/auth";
+import type { BootstrapResponse, ScreenResponse } from "./types";
+import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
+
+export const APP_VERSION = "1.0.0";
+const SDUI_SCHEMA_VERSION = 1;
+
+async function token(): Promise<string> {
+  // Signed-in user's Supabase JWT; "dev" fallback for DEV_SKIP_AUTH backends.
+  return (await getAccessToken()) ?? "dev";
+}
+
+export function buildCapabilities() {
+  return {
+    schemaVersion: SDUI_SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    platform: Platform.OS === "ios" ? "ios" : "android",
+    components: CORE_COMPONENTS,
+    actions: CORE_ACTIONS,
+    templates: CORE_TEMPLATES,
+  };
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const base = await getBaseUrl();
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export async function bootstrap(): Promise<BootstrapResponse> {
+  return post<BootstrapResponse>("/v1/app/bootstrap", { capabilities: buildCapabilities() });
+}
+
+export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
+  return post<ScreenResponse>("/v1/app/screen", {
+    screenId,
+    params,
+    capabilities: buildCapabilities(),
+  });
+}
+
+/** Generic call used by the `callEndpoint` action. */
+export async function callEndpoint(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<any> {
+  const base = await getBaseUrl();
+  const res = await fetch(`${base}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    body: body != null && method !== "GET" ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  const ct = res.headers.get("content-type") ?? "";
+  return ct.includes("application/json") ? res.json() : res.text();
+}
