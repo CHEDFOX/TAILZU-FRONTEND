@@ -24,6 +24,10 @@ const config: ExpoConfig = {
     bundleIdentifier: "com.tulmi.app",
     appleTeamId: "6552H8HYA4",
     supportsTablet: false,
+    // Tulmi only uses standard HTTPS — exempt from export-compliance. Setting
+    // this clears the "encryption" question that otherwise blocks every
+    // TestFlight build until answered by hand in App Store Connect.
+    config: { usesNonExemptEncryption: false },
     infoPlist: {
       NSMicrophoneUsageDescription:
         "Tulmi uses the microphone to turn your speech into clean text.",
