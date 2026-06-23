@@ -12,6 +12,11 @@ const config: ExpoConfig = {
   orientation: "portrait",
   scheme: "tulmi",
   userInterfaceStyle: "dark",
+  // OTA updates (EAS Update). The fingerprint policy ties each update to the
+  // native build's fingerprint, so a JS-only OTA can never land on an
+  // incompatible binary (e.g. after a keyboard/permission/native change).
+  // `eas update:configure` fills in `updates.url` + the EAS projectId.
+  runtimeVersion: { policy: "fingerprint" },
   ios: {
     bundleIdentifier: "com.tulmi.app",
     supportsTablet: false,
