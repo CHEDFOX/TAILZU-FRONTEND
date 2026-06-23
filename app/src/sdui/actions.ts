@@ -13,6 +13,8 @@ export interface NavApi {
   back: () => void;
   switchTab: (tabId: string) => void;
   reloadCurrent: () => void;
+  /** Re-fetch bootstrap (labels + direction) and the current screen in place. */
+  refreshLocale: () => void;
 }
 
 export interface Ctx {
@@ -100,6 +102,17 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         const res = await callEndpoint(action.method, action.path, body);
         if (action.assignTo) ctx.store.set(action.assignTo, res);
         await runAction(action.onSuccess, ctx);
+        // Changing the language preference re-localizes the whole UI: pull a
+        // fresh bootstrap (translated labels + RTL direction) and re-fetch the
+        // current screen, with no need to tap "Reload".
+        if (
+          action.path === "/v1/profile" &&
+          body != null &&
+          typeof body === "object" &&
+          "language" in body
+        ) {
+          ctx.nav.refreshLocale();
+        }
       } catch {
         await runAction(action.onError, ctx);
       }

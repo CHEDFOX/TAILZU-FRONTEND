@@ -22,6 +22,7 @@ const config: ExpoConfig = {
   },
   ios: {
     bundleIdentifier: "com.tulmi.app",
+    appleTeamId: "6552H8HYA4",
     supportsTablet: false,
     infoPlist: {
       NSMicrophoneUsageDescription:

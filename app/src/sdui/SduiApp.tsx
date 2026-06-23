@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  I18nManager,
   Linking,
   Platform,
   Pressable,
@@ -14,6 +15,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as Updates from "expo-updates";
 import { bootstrap, fetchScreen, APP_VERSION } from "./client";
 import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
@@ -29,6 +31,25 @@ import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
+
+/**
+ * Apply the layout direction the backend asked for (RTL for Arabic/Hebrew/…).
+ * React Native only flips layout after a reload, so when the direction actually
+ * changes we force it and restart the bundle. It's a no-op when already correct,
+ * so this never loops.
+ */
+async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
+  const wantRTL = flags?.textDirection === "rtl";
+  if (I18nManager.isRTL === wantRTL) return false;
+  try {
+    I18nManager.allowRTL(wantRTL);
+    I18nManager.forceRTL(wantRTL);
+    await Updates.reloadAsync(); // restart so the new direction takes effect
+  } catch {
+    // Expo Go / no updates runtime: direction applies on the next launch.
+  }
+  return true;
+}
 
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
@@ -51,6 +72,9 @@ export default function SduiApp() {
     setPhase("loading");
     try {
       const b = await bootstrap();
+      // If the user's language flips the layout direction, this restarts the
+      // app — so do it before we commit the rest of the boot state.
+      if (await applyDirection(b.flags)) return;
       setBoot(b);
       const firstTab = b.navigation.kind === "tabs" ? b.navigation.tabs[0]?.id ?? "" : "";
       setTabId(firstTab);
@@ -107,6 +131,20 @@ export default function SduiApp() {
         setStack([{ screenId: tab.screenId }]);
       },
       reloadCurrent: () => setReload((n) => n + 1),
+      refreshLocale: () => {
+        // Re-pull bootstrap so labels + direction reflect the new language,
+        // then re-fetch the current screen in place (stack is preserved).
+        (async () => {
+          try {
+            const b = await bootstrap();
+            if (await applyDirection(b.flags)) return; // RTL change → app restarts
+            setBoot(b);
+            setReload((n) => n + 1);
+          } catch {
+            /* keep current UI if the refresh fails */
+          }
+        })();
+      },
     }),
     [boot],
   );
