@@ -1,8 +1,8 @@
 /**
- * SDUI types (client mirror of ../../../shared/types/sdui.ts).
+ * SDUI types — the client mirror of the backend's server-driven UI contract.
  *
  * Kept local so the Expo bundler doesn't reach outside the app package — same
- * pattern as src/api.ts. Keep in sync with the shared source of truth.
+ * pattern as src/api.ts. Keep in sync with the backend's shared SDUI schema.
  */
 
 export interface ThemeTokens {

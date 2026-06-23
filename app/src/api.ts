@@ -1,11 +1,12 @@
 /**
- * Tulmi backend client. Talks to the Fastify backend in ../../tulmi.
+ * Tulmi backend client. Talks to the Fastify backend (deployed on the VPS;
+ * lives in its own repo). Set the base URL in the app's ⚙ Connection screen.
  *
- * Auth is skipped for now (backend runs with DEV_SKIP_AUTH=true), so we send a
- * placeholder bearer token. When real Supabase login is added, swap getToken().
+ * Auth sends the signed-in user's Supabase JWT (see src/auth); a "dev" token is
+ * used as a fallback against a backend running with DEV_SKIP_AUTH=true.
  *
- * The request/response shapes mirror ../../shared/types/api.ts (the single
- * source of truth). Keep them in sync.
+ * The request/response shapes mirror the backend's shared API contract. Keep
+ * them in sync when the contract changes.
  */
 import { getBaseUrl } from "./storage";
 import { getAccessToken } from "./auth/auth";
