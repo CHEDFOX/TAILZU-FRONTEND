@@ -29,7 +29,13 @@ then:
 
 ```bash
 npm i @fastify/websocket @deepgram/sdk
+# only if you route any language to Google Chirp (see "Per-language routing"):
+npm i @google-cloud/speech
+# Sarvam needs no extra dep — it reuses the `ws` that @fastify/websocket pulls in.
 ```
+
+Engine SDKs load **lazily**, so you only need the dep + key for the engines your
+routing table actually uses. Deepgram-only? You can skip the Google install.
 
 (If your backend is plain JS, not TypeScript, tell me and I'll hand you a `.js`
 version — the logic is identical.)
@@ -45,13 +51,20 @@ import transcribeStream from "./routes/transcribe-stream";
 await fastify.register(transcribeStream);
 ```
 
-## 4. Set the key + redeploy
+## 4. Set the keys + redeploy
 
-Add to the server's environment (the same place your other secrets live):
+Add to the server's environment (the same place your other secrets live) — only
+the engines you actually route to:
 
 ```
-DEEPGRAM_API_KEY=your_key_here
+DEEPGRAM_API_KEY=your_key_here                          # Western / European
+SARVAM_API_KEY=your_key_here                            # Indic + Hinglish
+GOOGLE_APPLICATION_CREDENTIALS=/app/shared/gcp-sa.json  # Google Chirp (path to JSON)
 ```
+
+> Google reads a **service-account JSON file**, not an API key — set the env var
+> to its path and make sure the file is inside the container (e.g. mount it or
+> bake it into `shared/`). The other two are plain API keys.
 
 Then deploy/restart the backend as you normally do.
 
@@ -80,6 +93,30 @@ The in-app voice button goes live when the server-driven UI sets the node prop
 
 That's it. No app rebuild needed for the keyboards — they pick up `liveVoice` on
 their next config refresh.
+
+---
+
+## Per-language routing (best engine per language)
+
+The app is a renderer — the **backend owns all control**. The user picks a
+language in the app; it arrives in the `start` message, and `transcribe-stream.ts`
+routes it to the engine that's best for that language group. Every engine is
+normalised to the same `ready/partial/final/done` protocol, so the phone never
+knows which one answered.
+
+| Language group | Engine | Why |
+|---|---|---|
+| Western / European (`en`,`es`,`fr`,`de`,`pt`,`ru`,…) | **Deepgram** | fast, cheap, top accuracy |
+| Indic + Hinglish (`hi`,`ta`,`te`,`bn`,`mr`,`gu`,…) | **Sarvam** | best Indic + native code-switching |
+| MENA / CJK / long tail (`ar`,`ur`,`he`,`zh`,`ja`,…) | **Google Chirp** | 100+ languages, universal fallback |
+
+To change the mapping, edit the `ENGINE_BY_LANG` table near the top of
+`transcribe-stream.ts` — one row per language. `DEFAULT_ENGINE` (Google) catches
+anything unmapped. Adding a new engine = one adapter + one row; **no app change**.
+
+> **Sarvam adapter:** the realtime endpoint/auth/message-shape in `openSarvam()`
+> is marked with a `⚠️ VERIFY` comment — confirm it against the current Sarvam
+> docs (their realtime API shape can change) before relying on the Indic path.
 
 ---
 
