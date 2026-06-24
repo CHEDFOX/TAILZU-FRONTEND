@@ -32,6 +32,11 @@ const config: ExpoConfig = {
       NSMicrophoneUsageDescription:
         "Tulmi uses the microphone to turn your speech into clean text.",
     },
+    // Shared container so the keyboard extension can read the app's backend URL
+    // + the user's token (written by the tulmi-bridge native module).
+    entitlements: {
+      "com.apple.security.application-groups": ["group.com.tulmi.app"],
+    },
   },
   android: {
     package: "com.tulmi.app",

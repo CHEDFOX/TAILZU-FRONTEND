@@ -63,6 +63,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         keyboardView.keyboard = keyboard
         keyboardView.setOnKeyboardActionListener(this)
         rootView = root
+        // Pick up the backend URL + user token the app shared before any request.
+        Net.load(this)
         loadAndApplyConfig()
         return root
     }

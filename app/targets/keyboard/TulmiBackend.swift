@@ -2,12 +2,23 @@ import Foundation
 
 /// Tiny backend client for the iOS keyboard. Mirrors Android's Net.kt.
 ///
-/// NOTE: until we bridge the app's saved backend URL into the keyboard (via a
-/// shared App Group), set baseUrl here. iOS Simulator → your PC = localhost; a
-/// physical iPhone → your PC's LAN IP, or your VPS URL.
+/// The backend URL + user token are shared by the main app through an App Group
+/// (written by the tulmi-bridge native module). We read them here, falling back
+/// to localhost + a "dev" token (DEV_SKIP_AUTH) when the app hasn't written yet.
 enum TulmiBackend {
-  static var baseUrl = "http://localhost:8770"
-  private static let token = "dev" // backend runs with DEV_SKIP_AUTH for now
+  // Must match the App Group in the app + keyboard entitlements.
+  private static let appGroup = "group.com.tulmi.app"
+  private static var shared: UserDefaults? { UserDefaults(suiteName: appGroup) }
+
+  static var baseUrl: String {
+    let v = shared?.string(forKey: "tulmi.baseUrl")
+    return (v?.isEmpty == false) ? v! : "http://localhost:8770"
+  }
+
+  private static var token: String {
+    let v = shared?.string(forKey: "tulmi.token")
+    return (v?.isEmpty == false) ? v! : "dev"
+  }
 
   enum BackendError: LocalizedError {
     case http(Int, String)

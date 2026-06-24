@@ -1,0 +1,13 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'expo.modules.tulmibridge'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.tulmibridge"
+  defaultConfig {
+    minSdkVersion 24
+  }
+}

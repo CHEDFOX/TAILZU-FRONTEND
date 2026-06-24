@@ -20,11 +20,23 @@ import java.util.concurrent.TimeUnit
  */
 object Net {
     var baseUrl: String = "http://10.0.2.2:8770"
-    private const val TOKEN = "dev" // backend runs with DEV_SKIP_AUTH for now
+    private var token = "dev" // shared by the app via SharedPreferences (see load)
 
     private val client = OkHttpClient.Builder()
         .callTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Load the backend URL + user token the main app shared (it writes them to
+     * the "tulmi" SharedPreferences via the tulmi-bridge native module). The IME
+     * runs in the same package, so it can read them directly. Keeps the baked
+     * defaults when nothing has been shared yet.
+     */
+    fun load(context: android.content.Context) {
+        val p = context.getSharedPreferences("tulmi", android.content.Context.MODE_PRIVATE)
+        p.getString("tulmi.baseUrl", null)?.let { if (it.isNotBlank()) baseUrl = it }
+        p.getString("tulmi.token", null)?.let { if (it.isNotBlank()) token = it }
+    }
 
     /** Server-driven keyboard config (theme/labels/flags). Fetched + cached. */
     data class KbConfig(
@@ -57,7 +69,7 @@ object Net {
     fun getKeyboardConfigJson(): String {
         val req = Request.Builder()
             .url("$baseUrl/v1/keyboard/config")
-            .addHeader("Authorization", "Bearer $TOKEN")
+            .addHeader("Authorization", "Bearer $token")
             .get()
             .build()
         client.newCall(req).execute().use { res ->
@@ -75,7 +87,7 @@ object Net {
             .toString()
         val req = Request.Builder()
             .url("$baseUrl/v1/refine")
-            .addHeader("Authorization", "Bearer $TOKEN")
+            .addHeader("Authorization", "Bearer $token")
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(req).execute().use { res ->
@@ -93,7 +105,7 @@ object Net {
             .build()
         val req = Request.Builder()
             .url("$baseUrl/v1/transcribe-clean")
-            .addHeader("Authorization", "Bearer $TOKEN")
+            .addHeader("Authorization", "Bearer $token")
             .post(body)
             .build()
         client.newCall(req).execute().use { res ->

@@ -7,9 +7,24 @@ import { getBaseUrl } from "../storage";
 import { getAccessToken } from "../auth/auth";
 import type { BootstrapResponse, ScreenResponse } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
+import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
 
 export const APP_VERSION = "1.0.0";
 const SDUI_SCHEMA_VERSION = 1;
+
+/**
+ * Share the current backend URL + the user's token with the native keyboard
+ * extension so the keyboard reaches the same backend and authenticates as the
+ * user. Safe to call often; no-op in Expo Go.
+ */
+export async function syncKeyboardCredentials(): Promise<void> {
+  try {
+    const [base, tok] = await Promise.all([getBaseUrl(), getAccessToken()]);
+    setKeyboardCredentials(base, tok ?? "dev");
+  } catch {
+    // best-effort: never block the app on bridging
+  }
+}
 
 async function token(): Promise<string> {
   // Signed-in user's Supabase JWT; "dev" fallback for DEV_SKIP_AUTH backends.

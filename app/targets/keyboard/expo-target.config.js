@@ -8,6 +8,10 @@
  * Open Access (RequestsOpenAccess) is required so the keyboard can reach the
  * Tulmi backend for ✨ Refine; it is set in Info.plist in this folder.
  *
+ * The App Group lets the keyboard read the backend URL + user token the main
+ * app shares (written by the tulmi-bridge native module). It MUST match the
+ * group in the main app's ios.entitlements (app.config.ts).
+ *
  * @type {import('@bacons/apple-targets').Config}
  */
 module.exports = {
@@ -15,4 +19,7 @@ module.exports = {
   name: "Tulmi Keyboard",
   // The keyboard talks to the backend over the network; Open Access is granted
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
+  entitlements: {
+    "com.apple.security.application-groups": ["group.com.tulmi.app"],
+  },
 };

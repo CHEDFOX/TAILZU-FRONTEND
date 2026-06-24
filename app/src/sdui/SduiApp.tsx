@@ -16,7 +16,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, fetchScreen, APP_VERSION } from "./client";
+import { bootstrap, fetchScreen, syncKeyboardCredentials, APP_VERSION } from "./client";
 import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
 import { Store } from "./state";
@@ -83,6 +83,8 @@ export default function SduiApp() {
       setStack([{ screenId: b.initialScreenId }]);
       setShowConnection(false);
       setPhase("ready");
+      // Hand the keyboard the live backend URL + user token.
+      void syncKeyboardCredentials();
     } catch {
       setPhase("connect");
     }
