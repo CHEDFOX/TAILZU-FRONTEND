@@ -38,6 +38,19 @@ object Net {
         p.getString("tulmi.token", null)?.let { if (it.isNotBlank()) token = it }
     }
 
+    /** The user token, exposed for the live streaming client (Stream.kt). */
+    fun bearer(): String = token
+
+    /** WebSocket URL for live dictation: same host as baseUrl, ws/wss scheme. */
+    fun streamUrl(): String {
+        val ws = when {
+            baseUrl.startsWith("https://") -> "wss://" + baseUrl.removePrefix("https://")
+            baseUrl.startsWith("http://") -> "ws://" + baseUrl.removePrefix("http://")
+            else -> baseUrl
+        }
+        return "$ws/v1/transcribe-stream"
+    }
+
     /** Server-driven keyboard config (theme/labels/flags). Fetched + cached. */
     data class KbConfig(
         val background: String,
@@ -45,6 +58,7 @@ object Net {
         val accent: String,
         val voice: Boolean,
         val refine: Boolean,
+        val liveVoice: Boolean,
         val labels: Map<String, String>,
     )
 
@@ -61,6 +75,7 @@ object Net {
             accent = t.optString("accent", "#5b4bff"),
             voice = f.optBoolean("voice", true),
             refine = f.optBoolean("refine", true),
+            liveVoice = f.optBoolean("liveVoice", false),
             labels = labels,
         )
     }

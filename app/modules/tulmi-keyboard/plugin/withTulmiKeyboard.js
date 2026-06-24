@@ -80,7 +80,7 @@ function withNativeFiles(config) {
 
       const javaDest = path.join(androidMain, "java", JAVA_PKG_PATH);
       fs.mkdirSync(javaDest, { recursive: true });
-      for (const f of ["TulmiKeyboardService.kt", "Net.kt"]) {
+      for (const f of ["TulmiKeyboardService.kt", "Net.kt", "Stream.kt"]) {
         fs.copyFileSync(path.join(moduleDir, f), path.join(javaDest, f));
       }
       copyDir(path.join(moduleDir, "res"), path.join(androidMain, "res"));

@@ -20,6 +20,24 @@ enum TulmiBackend {
     return (v?.isEmpty == false) ? v! : "dev"
   }
 
+  /// The user token, exposed for the live streaming client (TulmiStream).
+  static var bearer: String { token }
+
+  /// WebSocket URL for live dictation: same host as baseUrl, ws/wss scheme.
+  /// See STREAMING.md.
+  static var streamURL: URL? {
+    let b = baseUrl
+    let ws: String
+    if b.hasPrefix("https://") {
+      ws = "wss://" + b.dropFirst("https://".count)
+    } else if b.hasPrefix("http://") {
+      ws = "ws://" + b.dropFirst("http://".count)
+    } else {
+      ws = b
+    }
+    return URL(string: "\(ws)/v1/transcribe-stream")
+  }
+
   enum BackendError: LocalizedError {
     case http(Int, String)
     case badResponse
@@ -42,6 +60,7 @@ enum TulmiBackend {
     let accent: String
     let voice: Bool
     let refine: Bool
+    let liveVoice: Bool
     let labels: [String: String]
   }
 
@@ -79,6 +98,7 @@ enum TulmiBackend {
       accent: theme["accent"] as? String ?? "#5b4bff",
       voice: features["voice"] as? Bool ?? true,
       refine: features["refine"] as? Bool ?? true,
+      liveVoice: features["liveVoice"] as? Bool ?? false,
       labels: labels
     )
   }

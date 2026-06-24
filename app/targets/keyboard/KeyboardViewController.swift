@@ -24,10 +24,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Server-driven config (theme/labels/flags); nil until fetched/cached.
   private var kbConfig: TulmiBackend.KbConfig?
 
-  // Microphone / dictation state.
+  // Microphone / dictation state (file-based, one-shot).
   private var audioRecorder: AVAudioRecorder?
   private var recordingURL: URL?
   private var isRecording = false
+
+  // Live (streaming) dictation state. Used when the server enables
+  // features.liveVoice; otherwise we fall back to the file-based path above.
+  private var stream: TulmiStream?
+  private var isStreaming = false
+  private var pendingPartial = "" // partial text currently shown in the field
 
   // QWERTY rows (the action row is built separately).
   private let rows: [[String]] = [
@@ -197,7 +203,83 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Mic / dictation (inline; requires Full Access)
 
   @objc private func micTapped() {
-    if isRecording { stopAndTranscribe() } else { startRecording() }
+    if kbConfig?.liveVoice == true {
+      if isStreaming { stopStreaming() } else { startStreaming() }
+    } else {
+      if isRecording { stopAndTranscribe() } else { startRecording() }
+    }
+  }
+
+  // MARK: - Live (streaming) dictation
+
+  private func startStreaming() {
+    AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        guard granted else {
+          self.setStatus("Open the Tulmi app once to allow microphone access.")
+          return
+        }
+        self.beginStreaming()
+      }
+    }
+  }
+
+  private func beginStreaming() {
+    pendingPartial = ""
+    isStreaming = true
+    micButton.setTitle("■", for: .normal)
+    setStatus(label("listening", "🎙️ Listening…"))
+    let s = TulmiStream { [weak self] event in
+      DispatchQueue.main.async { self?.handleStreamEvent(event) }
+    }
+    stream = s
+    s.start(targetApp: "Generic", language: "auto")
+  }
+
+  private func handleStreamEvent(_ event: TulmiStream.Event) {
+    switch event {
+    case .ready:
+      setStatus(label("listening", "🎙️ Listening…"))
+    case .partial(let text):
+      replacePartial(with: text)
+    case .finalText(let text):
+      commitFinal(text)
+    case .error(let msg):
+      setStatus("Error: \(msg)")
+      endStreaming()
+    case .closed:
+      endStreaming()
+    }
+  }
+
+  /// Swap the on-screen interim text for the latest hypothesis.
+  private func replacePartial(with text: String) {
+    let proxy = textDocumentProxy
+    for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
+    proxy.insertText(text)
+    pendingPartial = text
+  }
+
+  /// Commit a finalized segment (keep it) and reset the interim tracker.
+  private func commitFinal(_ text: String) {
+    let proxy = textDocumentProxy
+    for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
+    proxy.insertText(text.hasSuffix(" ") ? text : text + " ")
+    pendingPartial = ""
+  }
+
+  private func stopStreaming() {
+    setStatus(label("transcribing", "Finishing…"))
+    stream?.finish()
+    endStreaming()
+  }
+
+  private func endStreaming() {
+    isStreaming = false
+    stream = nil
+    micButton.setTitle("🎙️", for: .normal)
+    if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
   }
 
   private func startRecording() {
@@ -330,6 +412,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       audioRecorder?.stop()
       try? AVAudioSession.sharedInstance().setActive(false)
       cleanupRecorder()
+      setStatus("")
+    }
+    if isStreaming {
+      stream?.cancel()
+      endStreaming()
       setStatus("")
     }
   }

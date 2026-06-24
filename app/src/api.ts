@@ -106,6 +106,20 @@ export async function transcribeClean(
   return res.json();
 }
 
+// --- Voice: live (streaming) dictation --------------------------------------
+
+/**
+ * Connection details for live dictation: the WebSocket URL (same host as the
+ * REST base, with the ws/wss scheme) and the current auth token. Passed to the
+ * native TulmiStream module. See STREAMING.md.
+ */
+export async function streamConfig(): Promise<{ url: string; token: string }> {
+  const base = await getBaseUrl();
+  // http→ws, https→wss (https starts with "http", so the prefix swap gives wss).
+  const ws = base.replace(/^http/, "ws");
+  return { url: `${ws}/v1/transcribe-stream`, token: await getToken() };
+}
+
 // --- Screen: draft a personalized reply -------------------------------------
 
 export async function draft(

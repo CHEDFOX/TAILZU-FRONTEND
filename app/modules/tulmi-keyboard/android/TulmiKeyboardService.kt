@@ -41,6 +41,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private var audioFile: File? = null
     private var recording = false
 
+    // Live (streaming) dictation state. Used when the server enables
+    // features.liveVoice; otherwise we fall back to the file-based path.
+    private var stream: Stream? = null
+    private var streaming = false
+    private var pendingPartial = "" // interim text currently shown in the field
+
     private val main = Handler(Looper.getMainLooper())
 
     companion object {
@@ -114,7 +120,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
             CODE_SPACE -> ic.commitText(" ", 1)
-            CODE_MIC -> if (kbConfig?.voice != false) toggleRecording() else setStatus(label("voiceOff", "Voice is off."))
+            CODE_MIC -> if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."))
             CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."))
             else -> {
                 var ch = primaryCode.toChar()
@@ -126,8 +132,67 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     // --- mic / dictation ----------------------------------------------------
 
+    /** Route to live streaming or the file-based path based on server config. */
+    private fun toggleVoice() {
+        if (kbConfig?.liveVoice == true) {
+            if (streaming) stopStreaming() else startStreaming()
+        } else {
+            toggleRecording()
+        }
+    }
+
     private fun toggleRecording() {
         if (recording) stopAndTranscribe() else startRecording()
+    }
+
+    // --- live (streaming) dictation -----------------------------------------
+
+    private fun startStreaming() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            setStatus("Open the Tulmi app once to allow microphone access.")
+            return
+        }
+        pendingPartial = ""
+        streaming = true
+        setStatus(label("listening", "🎙️ Listening…"))
+        val target = targetAppName()
+        stream = Stream(
+            onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
+            onPartial = { t -> main.post { replacePartial(t) } },
+            onFinal = { t -> main.post { commitFinal(t) } },
+            onError = { e -> main.post { setStatus("Error: $e"); endStreaming() } },
+            onClosed = { main.post { endStreaming() } },
+        ).also { it.start(target, "auto") }
+    }
+
+    /** Swap the on-screen interim text for the latest hypothesis. */
+    private fun replacePartial(text: String) {
+        val ic = currentInputConnection ?: return
+        if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
+        ic.commitText(text, 1)
+        pendingPartial = text
+    }
+
+    /** Commit a finalized segment (keep it) and reset the interim tracker. */
+    private fun commitFinal(text: String) {
+        val ic = currentInputConnection ?: return
+        if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
+        ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
+        pendingPartial = ""
+    }
+
+    private fun stopStreaming() {
+        setStatus(label("transcribing", "Finishing…"))
+        stream?.finish()
+        endStreaming()
+    }
+
+    private fun endStreaming() {
+        streaming = false
+        stream = null
+        if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
     }
 
     private fun startRecording() {
@@ -250,6 +315,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (recording) {
             recording = false
             cleanupRecorder()
+        }
+        if (streaming) {
+            stream?.cancel()
+            endStreaming()
         }
         setStatus("")
     }

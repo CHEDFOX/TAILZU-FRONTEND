@@ -1,0 +1,19 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'expo.modules.tulmistream'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.tulmistream"
+  defaultConfig {
+    minSdkVersion 24
+  }
+}
+
+dependencies {
+  // OkHttp ships with React Native; pin it so this library module compiles
+  // standalone. Gradle resolves to a single version on the app classpath.
+  implementation "com.squareup.okhttp3:okhttp:4.12.0"
+}

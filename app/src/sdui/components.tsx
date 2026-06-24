@@ -3,7 +3,7 @@
  * token-aware styling. The renderer (Renderer.tsx) resolves props/bind/style
  * and hands them to these.
  */
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -23,6 +23,7 @@ import {
 import type { Node, NodeEvent, ThemeTokens } from "./types";
 import { Store, getPath } from "./state";
 import * as api from "../api";
+import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -305,9 +306,15 @@ const Hero = ({ props, style }: CompProps) => {
 };
 
 /**
- * VoiceButton — records the mic (expo-audio), uploads to /v1/transcribe-clean,
- * and writes the cleaned text to bind.value. A server-declared native capability
- * so the main app can dictate, not just the keyboard.
+ * VoiceButton — dictation for the main app, written to bind.value.
+ *
+ * Two modes, picked by the server:
+ *   • Live (props.live === true, native module present): streams mic audio over
+ *     a WebSocket and fills the field word-by-word as you speak. See STREAMING.md.
+ *   • File-based (default / fallback): records the mic (expo-audio), uploads to
+ *     /v1/transcribe-clean, writes the cleaned text once.
+ *
+ * Live falls back to file-based automatically if the native module is missing.
  */
 const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   const theme = useTheme();
@@ -315,6 +322,61 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const bindPath = node.bind?.value;
+
+  // Live (streaming) session + the text committed so far this dictation.
+  const live = useRef<{ session: LiveSession | null; committed: string }>({
+    session: null,
+    committed: "",
+  });
+  const wantLive = props.live === true && isStreamAvailable();
+
+  async function startLive() {
+    try {
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        fire("onError", "Microphone permission denied");
+        return;
+      }
+      const { url, token } = await api.streamConfig();
+      live.current.committed = "";
+      setRecording(true);
+      const write = (text: string) => {
+        if (bindPath) store.set(bindPath, text);
+      };
+      live.current.session = startStream(
+        { url, token, targetApp: props.targetApp, language: props.language },
+        {
+          onPartial: (t) => write(live.current.committed + t),
+          onFinal: (t) => {
+            live.current.committed += t.endsWith(" ") ? t : `${t} `;
+            write(live.current.committed);
+          },
+          onError: (m) => {
+            fire("onError", m);
+            endLive();
+          },
+          onClosed: () => {
+            endLive();
+            fire("onChange", live.current.committed.trim());
+          },
+        },
+      );
+    } catch (e: any) {
+      fire("onError", e?.message ?? "mic error");
+      endLive();
+    }
+  }
+
+  function stopLive() {
+    setBusy(true);
+    live.current.session?.stop();
+  }
+
+  function endLive() {
+    setRecording(false);
+    setBusy(false);
+    live.current.session = null;
+  }
 
   async function start() {
     try {
@@ -359,9 +421,17 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     : (props.label ?? "🎙️ Record");
   const bg = recording ? theme.color.danger : theme.color.primary;
 
+  const onPress = wantLive
+    ? recording
+      ? stopLive
+      : startLive
+    : recording
+    ? stop
+    : start;
+
   return (
     <Pressable
-      onPress={recording ? stop : start}
+      onPress={onPress}
       disabled={busy}
       style={[
         { backgroundColor: bg, borderRadius: theme.radius.md, paddingVertical: 13, alignItems: "center", opacity: busy ? 0.6 : 1 },
