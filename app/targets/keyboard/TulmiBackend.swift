@@ -12,7 +12,7 @@ enum TulmiBackend {
 
   static var baseUrl: String {
     let v = shared?.string(forKey: "tulmi.baseUrl")
-    return (v?.isEmpty == false) ? v! : "http://localhost:8770"
+    return (v?.isEmpty == false) ? v! : "https://api.tailzu.space"
   }
 
   private static var token: String {

@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  * PC's LAN IP, or your VPS URL.
  */
 object Net {
-    var baseUrl: String = "http://10.0.2.2:8770"
+    var baseUrl: String = "https://api.tailzu.space"
     private var token = "dev" // shared by the app via SharedPreferences (see load)
 
     private val client = OkHttpClient.Builder()

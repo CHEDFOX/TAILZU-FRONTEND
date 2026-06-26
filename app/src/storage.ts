@@ -6,11 +6,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY_BASE_URL = "tulmi.baseUrl";
 
-// Default for testing:
-//  - Android emulator reaches your PC's localhost at 10.0.2.2
-//  - On a physical phone, change this (in the app's Settings) to your PC's LAN
-//    IP (e.g. http://192.168.1.20:8770) or your VPS URL (https://...).
-export const DEFAULT_BASE_URL = "http://10.0.2.2:8770";
+// Default = the live production backend, so a fresh (TestFlight) install reaches
+// it with no setup. Override in the app's ⚙ Connection screen to point at a PC
+// (Android emulator → 10.0.2.2:8770) or LAN IP during local development.
+export const DEFAULT_BASE_URL = "https://api.tailzu.space";
 
 export async function getBaseUrl(): Promise<string> {
   const v = await AsyncStorage.getItem(KEY_BASE_URL);
