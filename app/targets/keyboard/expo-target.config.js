@@ -15,8 +15,12 @@
  * @type {import('@bacons/apple-targets').Config}
  */
 module.exports = {
+  // No space: the Xcode target `name` must equal the sanitized `productName`
+  // ("Tailzu") or EAS's "Configure Xcode project" step can't find the target to
+  // attach the provisioning profile. The user-facing keyboard name comes from
+  // CFBundleDisplayName in Info.plist (also "Tailzu").
   type: "keyboard",
-  name: "Tulmi Keyboard",
+  name: "Tailzu",
   // The keyboard talks to the backend over the network; Open Access is granted
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
   entitlements: {
