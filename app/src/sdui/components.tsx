@@ -355,9 +355,28 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
             fire("onError", m);
             endLive();
           },
-          onClosed: () => {
+          onClosed: async () => {
             endLive();
-            fire("onChange", live.current.committed.trim());
+            const raw = live.current.committed.trim();
+            write(raw);
+            fire("onChange", raw);
+            if (!raw) return;
+            // Auto-refine: the raw dictation shows live, then is replaced by the
+            // backend's cleaned-up version — no manual "Refine" step.
+            try {
+              setBusy(true);
+              const { refinedText } = await api.refine(raw, {
+                targetApp: props.targetApp,
+                language: props.language,
+              });
+              const finalText = refinedText?.trim() || raw;
+              write(finalText);
+              fire("onChange", finalText);
+            } catch {
+              // keep the raw transcript if refine fails
+            } finally {
+              setBusy(false);
+            }
           },
         },
       );
