@@ -46,6 +46,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private var stream: Stream? = null
     private var streaming = false
     private var pendingPartial = "" // interim text currently shown in the field
+    private var dictatedSomething = false // a final landed this session → auto-refine on close
 
     private val main = Handler(Looper.getMainLooper())
 
@@ -155,6 +156,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             return
         }
         pendingPartial = ""
+        dictatedSomething = false
         streaming = true
         setStatus(label("listening", "🎙️ Listening…"))
         val target = targetAppName()
@@ -163,7 +165,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             onPartial = { t -> main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
             onError = { e -> main.post { setStatus("Error: $e"); endStreaming() } },
-            onClosed = { main.post { endStreaming() } },
+            onClosed = { main.post { onDictationClosed() } },
         ).also { it.start(target, "auto") }
     }
 
@@ -181,6 +183,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
         pendingPartial = ""
+        dictatedSomething = true
     }
 
     private fun stopStreaming() {
@@ -193,6 +196,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         streaming = false
         stream = null
         if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
+    }
+
+    /** Dictation closed → auto-refine what was just spoken (replaces the old ✨ key). */
+    private fun onDictationClosed() {
+        endStreaming()
+        if (dictatedSomething && kbConfig?.refine != false) refineField()
+        dictatedSomething = false
     }
 
     private fun startRecording() {

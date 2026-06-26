@@ -34,6 +34,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var stream: TulmiStream?
   private var isStreaming = false
   private var pendingPartial = "" // partial text currently shown in the field
+  private var dictatedSomething = false // a final landed this session → auto-refine on close
 
   // QWERTY rows (the action row is built separately).
   private let rows: [[String]] = [
@@ -227,6 +228,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func beginStreaming() {
     pendingPartial = ""
+    dictatedSomething = false
     isStreaming = true
     micButton.setTitle("■", for: .normal)
     setStatus(label("listening", "🎙️ Listening…"))
@@ -250,6 +252,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       endStreaming()
     case .closed:
       endStreaming()
+      // Dictation closed → auto-refine what was spoken (replaces the old ✨ key).
+      if dictatedSomething && (kbConfig?.refine ?? true) { refineTapped() }
+      dictatedSomething = false
     }
   }
 
@@ -267,6 +272,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     proxy.insertText(text.hasSuffix(" ") ? text : text + " ")
     pendingPartial = ""
+    dictatedSomething = true
   }
 
   private func stopStreaming() {
