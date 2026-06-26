@@ -3,9 +3,10 @@
  * token-aware styling. The renderer (Renderer.tsx) resolves props/bind/style
  * and hands them to these.
  */
-import React, { createContext, useContext, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Platform,
   Pressable,
@@ -462,8 +463,96 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   );
 };
 
+/**
+ * LanguageGreetingGrid — Plutto-style language picker: a large serif greeting
+ * that rotates through each language's own "hello", over a centered grid of
+ * hairline pills. Pure Animated (no native deps) → ships over OTA.
+ *
+ * Backend node: { type:"LanguageGreetingGrid", bind:{ value:"language" },
+ *   props:{ items:[{ value, label, greeting }] },
+ *   on:{ onChange:<set state>, onSubmit:<save + navigate> } }
+ * `onSubmit` lets a tap proceed immediately (like Plutto); omit it to keep a
+ * separate Continue button. Falls back to a built-in list if items is absent.
+ */
+const LANG_GREETINGS_FALLBACK = [
+  { value: "en", label: "English", greeting: "Hello" },
+  { value: "hi", label: "Hindi", greeting: "नमस्ते" },
+  { value: "hinglish", label: "Hinglish", greeting: "Namaste" },
+  { value: "es", label: "Spanish", greeting: "Hola" },
+  { value: "fr", label: "French", greeting: "Bonjour" },
+  { value: "ar", label: "Arabic", greeting: "مرحبا" },
+  { value: "pt", label: "Portuguese", greeting: "Olá" },
+  { value: "auto", label: "Auto-detect", greeting: "Welcome" },
+];
+
+const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
+  const theme = useTheme();
+  const items: Array<{ value: string; label: string; greeting?: string }> =
+    Array.isArray(props.items) && props.items.length ? props.items : LANG_GREETINGS_FALLBACK;
+  const bindPath = node.bind?.value;
+  const greetings = items.map((i) => i.greeting).filter(Boolean) as string[];
+
+  const [gi, setGi] = useState(0);
+  const fade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+  }, [fade]);
+
+  useEffect(() => {
+    if (greetings.length < 2) return;
+    const id = setInterval(() => {
+      Animated.timing(fade, { toValue: 0, duration: 280, useNativeDriver: true }).start(({ finished }) => {
+        if (!finished) return;
+        setGi((p) => (p + 1) % greetings.length);
+        Animated.timing(fade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+      });
+    }, 2500);
+    return () => clearInterval(id);
+  }, [greetings.length, fade]);
+
+  const select = (value: string) => {
+    if (bindPath) store.set(bindPath, value);
+    fire("onChange", value);
+    fire("onSubmit", value); // backend may map → save + navigate (Plutto proceeds on tap)
+  };
+
+  const white = theme.color.text ?? "rgba(255,255,255,0.96)";
+  const hair = theme.color.hairline ?? "rgba(255,255,255,0.12)";
+  const fam = theme.font?.family ?? SERIF;
+
+  return (
+    <View style={{ alignItems: "center", paddingVertical: 28 }}>
+      <Animated.Text
+        style={{
+          fontFamily: fam, fontSize: 46, fontWeight: "300", color: white,
+          textAlign: "center", letterSpacing: 0.2, marginBottom: 40, opacity: fade,
+        }}
+      >
+        {greetings.length ? greetings[gi % greetings.length] : "Hello"}
+      </Animated.Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
+        {items.map((l) => (
+          <Pressable
+            key={l.value}
+            onPress={() => select(l.value)}
+            style={({ pressed }) => ({
+              minWidth: 104, height: 52, borderRadius: 26, borderWidth: 0.5, borderColor: hair,
+              alignItems: "center", justifyContent: "center", paddingHorizontal: 18,
+              opacity: pressed ? 0.55 : 1,
+            })}
+          >
+            <Text style={{ color: white, fontSize: 15, fontWeight: "300", letterSpacing: 0.5 }}>{l.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+};
+
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
+  LanguageGreetingGrid,
 };
