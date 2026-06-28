@@ -36,6 +36,7 @@ const config: ExpoConfig = {
     // + the user's token (written by the tulmi-bridge native module).
     entitlements: {
       "com.apple.security.application-groups": ["group.com.tulmi.app"],
+      "com.apple.developer.applesignin": ["Default"],
     },
   },
   android: {
@@ -48,6 +49,7 @@ const config: ExpoConfig = {
   // @bacons/apple-targets adds the iOS keyboard extension (see targets/keyboard).
   plugins: [
     "expo-audio",
+    "expo-apple-authentication",
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "@bacons/apple-targets",
   ],

@@ -25,8 +25,8 @@ import type { Ctx, NavApi } from "./actions";
 import type { BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl } from "../storage";
 import * as api from "../api";
-import AuthScreen from "../auth/AuthScreen";
-import { loadSession, onAuthChange } from "../auth/auth";
+import AuthGateScreen from "../auth/AuthGateScreen";
+import { supabaseAuth } from "../auth/supabaseClient";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
@@ -94,13 +94,14 @@ export default function SduiApp() {
     let unsub = () => {};
     (async () => {
       // Gate on auth first: the app needs a JWT to talk to the backend.
-      const session = await loadSession();
+      const { data: { session } } = await supabaseAuth.getSession();
       if (SUPABASE_CONFIGURED && !session) setPhase("auth");
       else await loadBoot();
       // React to sign-out from anywhere (e.g. Settings → Sign out).
-      unsub = onAuthChange((s) => {
+      const { data: { subscription } } = supabaseAuth.onAuthStateChange((_e, s) => {
         if (!s && SUPABASE_CONFIGURED) setPhase("auth");
       });
+      unsub = () => subscription.unsubscribe();
     })();
     return () => unsub();
   }, [loadBoot]);
@@ -160,7 +161,7 @@ export default function SduiApp() {
   // --- Render states --------------------------------------------------------
 
   if (phase === "auth") {
-    return <AuthScreen onAuthed={loadBoot} />;
+    return <AuthGateScreen onAuthed={loadBoot} />;
   }
 
   if (phase === "connect" || showConnection) {
