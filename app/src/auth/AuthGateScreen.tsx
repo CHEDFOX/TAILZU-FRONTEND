@@ -18,9 +18,7 @@ import {
 } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { supabaseAuth } from "./supabaseClient";
-import { GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 
 const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
 const C = {
@@ -34,13 +32,6 @@ const C = {
   error: "#FF453A",
 };
 const CODE_LEN = 6;
-
-if (isGoogleConfigured()) {
-  GoogleSignin.configure({
-    webClientId: GOOGLE_OAUTH.webClientId,
-    iosClientId: GOOGLE_OAUTH.iosClientId,
-  });
-}
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const [phase, setPhase] = useState<"email" | "code">("email");
@@ -104,21 +95,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   }
 
-  async function onGoogle() {
-    try {
-      setError(null);
-      await GoogleSignin.hasPlayServices();
-      const res: any = await GoogleSignin.signIn();
-      const idToken = res?.data?.idToken ?? res?.idToken;
-      if (!idToken) throw new Error("No Google id token");
-      const { error } = await supabaseAuth.signInWithGoogle(idToken);
-      if (error) throw error;
-      onAuthed();
-    } catch (e: any) {
-      if (e?.code !== "SIGN_IN_CANCELLED") setError(e?.message ?? "Google sign-in failed");
-    }
-  }
-
   return (
     <KeyboardAvoidingView
       style={s.wrap}
@@ -162,11 +138,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             {Platform.OS === "ios" ? (
               <Pressable style={s.social} onPress={onApple}>
                 <Text style={s.socialText}> Continue with Apple</Text>
-              </Pressable>
-            ) : null}
-            {isGoogleConfigured() ? (
-              <Pressable style={s.social} onPress={onGoogle}>
-                <Text style={s.socialText}>Continue with Google</Text>
               </Pressable>
             ) : null}
           </>
