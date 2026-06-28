@@ -12,6 +12,7 @@ const config: ExpoConfig = {
   orientation: "portrait",
   scheme: "tulmi",
   userInterfaceStyle: "dark",
+  icon: "./assets/icon.png",
   owner: "chadfox",
   // OTA updates (EAS Update). The fingerprint policy ties each update to the
   // native build's fingerprint, so a JS-only OTA can never land on an
@@ -42,6 +43,7 @@ const config: ExpoConfig = {
   android: {
     package: "com.tulmi.app",
     permissions: ["android.permission.RECORD_AUDIO", "android.permission.INTERNET"],
+    adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#000000" },
   },
   // expo-audio provides mic-permission config; usesCleartextTraffic is enabled in
   // the dev build so the app can reach a plain-HTTP backend during testing.
