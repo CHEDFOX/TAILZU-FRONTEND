@@ -9,7 +9,7 @@
  * them in sync when the contract changes.
  */
 import { getBaseUrl } from "./storage";
-import { getAccessToken } from "./auth/auth";
+import { getSupabaseAccessToken as getAccessToken } from "./auth/supabaseClient";
 
 export type LanguageHint = "auto" | "hi" | "en" | "hinglish" | string;
 export type TargetApp = string;
