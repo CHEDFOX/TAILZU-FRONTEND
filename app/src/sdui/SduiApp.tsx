@@ -312,7 +312,10 @@ export default function SduiApp() {
       {/* Post-onboarding name + gender card — blurs Home behind it and blocks
           the app until name + gender are set. Shown once, only on Home. */}
       {!profileDone && current?.screenId === "home" && (
-        <ProfileGate onDone={() => setProfileDoneState(true)} />
+        <ProfileGate
+          onDone={() => setProfileDoneState(true)}
+          mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
+        />
       )}
     </View>
   );

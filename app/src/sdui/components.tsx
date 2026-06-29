@@ -47,6 +47,19 @@ export const useTheme = (): ThemeTokens => {
 
 // --- Styling ----------------------------------------------------------------
 
+/**
+ * Title Case: capitalize the first letter of every word, leaving the rest as-is
+ * (so contractions/acronyms aren't mangled). Applied to app COPY only — never to
+ * user-entered or bound/dynamic text (see staticText).
+ */
+function titleCase(s: string): string {
+  return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+}
+/** Title-case static copy, but pass bound/dynamic text (user data) through untouched. */
+function staticText(node: Node, raw: string): string {
+  return node.bind?.content != null ? raw : titleCase(raw);
+}
+
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
 function tok(value: any, theme: ThemeTokens): any {
   if (typeof value === "string" && value.startsWith("$")) return getPath(theme, value.slice(1));
@@ -175,9 +188,9 @@ const Stack = ({ children, style }: CompProps) => <View style={style}>{children}
 
 const Spacer = ({ style }: CompProps) => <View style={style.height || style.width ? style : { flex: 1 }} />;
 
-const TextC = ({ props, style }: CompProps) => {
+const TextC = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[textVariant(props.variant, theme), style]}>{props.content ?? ""}</Text>;
+  return <Text style={[textVariant(props.variant, theme), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
 const ImageC = ({ props, style }: CompProps) => (
@@ -207,7 +220,7 @@ const Button = ({ props, style, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{props.label}</Text>
+      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{titleCase(props.label ?? "")}</Text>
     </Pressable>
   );
 };
@@ -257,7 +270,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label}</Text>
+      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{titleCase(props.label ?? "")}</Text>
     </Pressable>
   );
 };
@@ -287,20 +300,20 @@ const ListPlaceholder = ({ children }: CompProps) => <View>{children}</View>;
 // --- SDUI v2 content blocks -------------------------------------------------
 
 // Tiny uppercase kicker above a heading (the Plutto "overline").
-const Overline = ({ props, style }: CompProps) => {
+const Overline = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[{ color: theme.color.label, fontSize: theme.font.sizes.overline, letterSpacing: 3, fontWeight: "500", textTransform: "uppercase", marginBottom: 10 }, style]}>{props.content ?? ""}</Text>;
+  return <Text style={[{ color: theme.color.label, fontSize: theme.font.sizes.overline, letterSpacing: 3, fontWeight: "500", textTransform: "uppercase", marginBottom: 10 }, style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
-const Heading = ({ props, style }: CompProps) => {
+const Heading = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
   const fam = theme.font.family ?? SERIF;
-  return <Text style={[{ fontFamily: fam, color: theme.color.text, fontSize: theme.font.sizes.h1, lineHeight: 34, letterSpacing: 0.3, marginBottom: 24 }, style]}>{props.content ?? ""}</Text>;
+  return <Text style={[{ fontFamily: fam, color: theme.color.text, fontSize: theme.font.sizes.h1, lineHeight: 34, letterSpacing: 0.3, marginBottom: 24 }, style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
-const Paragraph = ({ props, style }: CompProps) => {
+const Paragraph = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[{ color: theme.color.body ?? theme.color.text, fontSize: theme.font.sizes.body, lineHeight: 26, fontWeight: "300", marginBottom: 18 }, style]}>{props.content ?? ""}</Text>;
+  return <Text style={[{ color: theme.color.body ?? theme.color.text, fontSize: theme.font.sizes.body, lineHeight: 26, fontWeight: "300", marginBottom: 18 }, style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
 const Quote = ({ props, style }: CompProps) => {

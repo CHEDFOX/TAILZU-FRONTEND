@@ -12,7 +12,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Easing,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -29,6 +29,7 @@ import { callEndpoint } from "../sdui/client";
 
 const WHITE = "#FFFFFF";
 const MUTED = "rgba(255,255,255,0.42)";
+const ORANGE = "#E8A23C"; // brand (icon background) color
 
 type Gender = "male" | "female" | "other";
 const GENDERS: { key: Gender; label: string }[] = [
@@ -65,7 +66,7 @@ function GenderGlyph({ type, color, size = 28 }: { type: Gender; color: string; 
   );
 }
 
-export default function ProfileGate({ onDone }: { onDone: () => void }) {
+export default function ProfileGate({ onDone, mediaUri }: { onDone: () => void; mediaUri?: string }) {
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender | null>(null);
   const [saving, setSaving] = useState(false);
@@ -115,13 +116,22 @@ export default function ProfileGate({ onDone }: { onDone: () => void }) {
       <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.45)" }]} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.center}>
         <Animated.View style={[styles.card, cardStyle]}>
+          {/* Backend-supplied background media (optional) + a scrim so the card
+              content stays readable over it. */}
+          {mediaUri ? (
+            <>
+              <Image source={{ uri: mediaUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(8,8,12,0.55)" }]} />
+            </>
+          ) : null}
+
           <Text style={styles.hello}>Hello,</Text>
 
           <TextInput
             style={styles.nameInput}
             value={name}
             onChangeText={setName}
-            placeholder="your name"
+            placeholder="Your Name"
             placeholderTextColor={MUTED}
             autoCapitalize="words"
             autoCorrect={false}
@@ -149,7 +159,7 @@ export default function ProfileGate({ onDone }: { onDone: () => void }) {
             disabled={!canContinue || saving}
             style={[styles.cta, { opacity: canContinue && !saving ? 1 : 0.4 }]}
           >
-            <Text style={styles.ctaText}>{saving ? "…" : "Continue"}</Text>
+            <Text style={styles.ctaText}>{saving ? "…" : "Go"}</Text>
           </Pressable>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -162,9 +172,9 @@ const styles = StyleSheet.create({
   card: {
     width: "100%", maxWidth: 360, borderRadius: 26, paddingVertical: 36, paddingHorizontal: 28,
     backgroundColor: "rgba(14,14,18,0.92)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.14)",
-    alignItems: "center",
+    alignItems: "center", overflow: "hidden",
   },
-  hello: { color: WHITE, fontSize: 32, fontWeight: "700", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "serif" }), marginBottom: 18 },
+  hello: { color: ORANGE, fontSize: 32, fontWeight: "700", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "serif" }), marginBottom: 18 },
   nameInput: { width: "100%", textAlign: "center", color: WHITE, fontSize: 22, fontWeight: "300", paddingVertical: 6 },
   nameUnderline: { width: 160, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.25)", marginTop: 2, marginBottom: 34 },
   genderRow: { flexDirection: "row", justifyContent: "center", gap: 26, marginBottom: 38 },
@@ -175,6 +185,6 @@ const styles = StyleSheet.create({
   },
   genderCircleOn: { backgroundColor: WHITE, borderColor: WHITE },
   genderLabel: { color: MUTED, fontSize: 12, fontWeight: "400" },
-  cta: { width: "100%", height: 54, borderRadius: 27, backgroundColor: WHITE, alignItems: "center", justifyContent: "center" },
+  cta: { alignSelf: "center", minWidth: 110, height: 50, borderRadius: 25, paddingHorizontal: 36, backgroundColor: WHITE, alignItems: "center", justifyContent: "center" },
   ctaText: { color: "#000", fontSize: 16, fontWeight: "700" },
 });
