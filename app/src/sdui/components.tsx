@@ -13,6 +13,7 @@ import {
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import {
@@ -25,7 +26,7 @@ import type { Node, NodeEvent, ThemeTokens } from "./types";
 import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
-import { VoiceToggle, RefineButton } from "./morphControls";
+import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -586,9 +587,62 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
   );
 };
 
+/**
+ * Pager — horizontal, full-width paged swipe between child "pages" (e.g. the
+ * Refine and Reply playgrounds on Home). On arrival it gives a one-time peek
+ * nudge (scrolls a touch and springs back) so the user knows there's more to
+ * the side, and shows page dots. Pure RN ScrollView — no extra deps.
+ */
+const Pager = ({ children, props }: CompProps) => {
+  const { width } = useWindowDimensions();
+  const ref = useRef<ScrollView>(null);
+  const [idx, setIdx] = useState(0);
+  const pages = React.Children.toArray(children);
+  const hint = props.hint !== false && pages.length > 1;
+  const peek = Number(props.peek) || 42;
+
+  useEffect(() => {
+    if (!hint) return;
+    const t = setTimeout(() => {
+      ref.current?.scrollTo({ x: peek, animated: true });
+      setTimeout(() => ref.current?.scrollTo({ x: 0, animated: true }), 480);
+    }, 650);
+    return () => clearTimeout(t);
+  }, [hint, peek]);
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        ref={ref}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / Math.max(1, width)))}
+      >
+        {pages.map((p, i) => (
+          <View key={i} style={{ width }}>{p}</View>
+        ))}
+      </ScrollView>
+      {pages.length > 1 && (
+        <View style={styles_dots.row} pointerEvents="none">
+          {pages.map((_, i) => (
+            <View key={i} style={[styles_dots.dot, { backgroundColor: i === idx ? "#fff" : "rgba(255,255,255,0.28)" }]} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+const styles_dots = {
+  row: { position: "absolute" as const, bottom: 12, left: 0, right: 0, flexDirection: "row" as const, justifyContent: "center" as const, gap: 7 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+};
+
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
-  LanguageGreetingGrid, VoiceToggle, RefineButton,
+  LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager,
 };
