@@ -16,16 +16,17 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, fetchScreen, syncKeyboardCredentials, APP_VERSION } from "./client";
+import { bootstrap, fetchScreen, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
 import { Store } from "./state";
 import { composeTemplate } from "./templates";
 import type { Ctx, NavApi } from "./actions";
 import type { BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl } from "../storage";
+import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage } from "../storage";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
+import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
@@ -54,7 +55,7 @@ async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
 
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
-  const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth" | "language">("loading");
   const [tabId, setTabId] = useState("");
   const [stack, setStack] = useState<NavItem[]>([]);
   const [screen, setScreen] = useState<ScreenResponse | null>(null);
@@ -79,16 +80,34 @@ export default function SduiApp() {
       setBoot(b);
       const firstTab = b.navigation.kind === "tabs" ? b.navigation.tabs[0]?.id ?? "" : "";
       setTabId(firstTab);
-      // The server owns onboarding: initialScreenId is "onboarding" until the
-      // user's profile is marked onboarded, then "home".
-      setStack([{ screenId: b.initialScreenId }]);
       setShowConnection(false);
-      setPhase("ready");
       // Hand the keyboard the live backend URL + user token.
       void syncKeyboardCredentials();
+
+      // First screen after auth: the native (Plutto-style) language picker.
+      // Shown once for users still in onboarding (initialScreenId !== "home")
+      // who haven't chosen a language yet; afterwards we resume at the keyboard
+      // step. The server owns the rest of onboarding.
+      const needsOnboarding = b.initialScreenId !== "home";
+      const langPicked = !!(await getLanguage());
+      if (needsOnboarding && !langPicked) {
+        setPhase("language");
+        return;
+      }
+      setStack([{ screenId: needsOnboarding ? "onboarding_keyboard" : b.initialScreenId }]);
+      setPhase("ready");
     } catch {
       setPhase("connect");
     }
+  }, []);
+
+  // Language chosen on the post-auth screen → persist locally + to the profile
+  // (best-effort), then continue into the app at the keyboard-setup step.
+  const onLanguageSelect = useCallback(async (code: string) => {
+    await setLanguage(code);
+    callEndpoint("PUT", "/v1/profile", { language: code }).catch(() => {});
+    setStack([{ screenId: "onboarding_keyboard" }]);
+    setPhase("ready");
   }, []);
 
   useEffect(() => {
@@ -172,6 +191,10 @@ export default function SduiApp() {
 
   if (phase === "auth") {
     return <AuthGateScreen onAuthed={loadBoot} />;
+  }
+
+  if (phase === "language") {
+    return <LanguageSelectScreen onSelect={onLanguageSelect} />;
   }
 
   if (phase === "connect" || showConnection) {

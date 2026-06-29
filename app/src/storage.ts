@@ -30,3 +30,15 @@ export async function getOnboarded(): Promise<boolean> {
 export async function setOnboarded(): Promise<void> {
   await AsyncStorage.setItem(KEY_ONBOARDED, "1");
 }
+
+// Whether the user has picked their language on the post-auth language screen
+// (so it shows once, even if the rest of onboarding isn't finished yet).
+const KEY_LANGUAGE = "tulmi.language";
+
+export async function getLanguage(): Promise<string | null> {
+  return AsyncStorage.getItem(KEY_LANGUAGE);
+}
+
+export async function setLanguage(code: string): Promise<void> {
+  await AsyncStorage.setItem(KEY_LANGUAGE, code);
+}
