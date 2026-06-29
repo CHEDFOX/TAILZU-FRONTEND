@@ -82,6 +82,7 @@ export type ActionSpec =
   | { kind: "navigateBack" }
   | { kind: "switchTab"; tabId: string }
   | { kind: "openUrl"; url: string; external?: boolean }
+  | { kind: "openSettings"; target?: "app" | "keyboard" }
   | { kind: "dismiss" }
   | {
       kind: "callEndpoint";

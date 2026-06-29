@@ -2,7 +2,7 @@
  * The action interpreter — turns declarative ActionSpecs from the server into
  * real behavior (navigation, network, state, haptics, toasts…).
  */
-import { Linking, Vibration } from "react-native";
+import { Linking, Platform, Vibration } from "react-native";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
 import { callEndpoint } from "./client";
@@ -81,6 +81,21 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "openUrl":
       Linking.openURL(action.url).catch(() => ctx.toast("Couldn't open link", "error"));
       break;
+    case "openSettings": {
+      // Jump the user to device Settings to flip a permission (e.g. enable the
+      // keyboard / Allow Full Access). iOS can only deep-link to the app's own
+      // settings page (Apple disallows deep-linking into Keyboards); Android can
+      // open the on-screen-keyboard settings directly.
+      const failed = () => ctx.toast("Couldn't open Settings", "error");
+      if (Platform.OS === "android" && action.target === "keyboard") {
+        Linking.sendIntent("android.settings.INPUT_METHOD_SETTINGS").catch(() =>
+          Linking.openSettings().catch(failed),
+        );
+      } else {
+        Linking.openSettings().catch(failed);
+      }
+      break;
+    }
     case "refresh":
       ctx.nav.reloadCurrent();
       break;

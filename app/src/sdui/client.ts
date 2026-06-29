@@ -3,7 +3,7 @@
  * base URL + dev auth as src/api.ts.
  */
 import { Platform } from "react-native";
-import { getBaseUrl } from "../storage";
+import { getBaseUrl, getLanguage } from "../storage";
 import { getAccessToken } from "../auth/auth";
 import type { BootstrapResponse, ScreenResponse } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
@@ -31,6 +31,22 @@ async function token(): Promise<string> {
   return (await getAccessToken()) ?? "dev";
 }
 
+/**
+ * Standard headers for every backend call: auth + the user's chosen language.
+ * The language token (X-App-Language, plus Accept-Language) lets the backend
+ * localize ANY endpoint's response to the selected language — so adding more
+ * languages later is purely a backend concern. Omitted until a language is set.
+ */
+async function commonHeaders(): Promise<Record<string, string>> {
+  const [tok, lang] = await Promise.all([token(), getLanguage()]);
+  const h: Record<string, string> = { Authorization: `Bearer ${tok}` };
+  if (lang) {
+    h["X-App-Language"] = lang;
+    h["Accept-Language"] = lang;
+  }
+  return h;
+}
+
 export function buildCapabilities() {
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
@@ -46,7 +62,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
@@ -93,7 +109,7 @@ export async function callEndpoint(
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+    headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
     body: body != null && method !== "GET" ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);

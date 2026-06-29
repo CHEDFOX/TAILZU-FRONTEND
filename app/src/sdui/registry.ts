@@ -10,7 +10,7 @@ export const CORE_COMPONENTS = [
 ] as const;
 
 export const CORE_ACTIONS = [
-  "navigate", "navigateBack", "switchTab", "openUrl", "dismiss",
+  "navigate", "navigateBack", "switchTab", "openUrl", "openSettings", "dismiss",
   "callEndpoint", "refresh", "setState", "toggleState", "haptic",
   "toast", "playMedia", "speak", "signOut", "sequence", "condition",
 ] as const;

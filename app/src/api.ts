@@ -8,7 +8,7 @@
  * The request/response shapes mirror the backend's shared API contract. Keep
  * them in sync when the contract changes.
  */
-import { getBaseUrl } from "./storage";
+import { getBaseUrl, getLanguage } from "./storage";
 import { getSupabaseAccessToken as getAccessToken } from "./auth/supabaseClient";
 
 export type LanguageHint = "auto" | "hi" | "en" | "hinglish" | string;
@@ -42,7 +42,15 @@ async function getToken(): Promise<string> {
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
-  return { Authorization: `Bearer ${await getToken()}` };
+  // Auth + the user's chosen language, so the backend can follow the selected
+  // language on every endpoint (see src/sdui/client commonHeaders).
+  const [tok, lang] = await Promise.all([getToken(), getLanguage()]);
+  const h: Record<string, string> = { Authorization: `Bearer ${tok}` };
+  if (lang) {
+    h["X-App-Language"] = lang;
+    h["Accept-Language"] = lang;
+  }
+  return h;
 }
 
 async function jsonPost<T>(path: string, body: unknown): Promise<T> {
@@ -117,7 +125,9 @@ export async function streamConfig(): Promise<{ url: string; token: string }> {
   const base = await getBaseUrl();
   // http→ws, https→wss (https starts with "http", so the prefix swap gives wss).
   const ws = base.replace(/^http/, "ws");
-  return { url: `${ws}/v1/transcribe-stream`, token: await getToken() };
+  const lang = await getLanguage();
+  const query = lang ? `?language=${encodeURIComponent(lang)}` : "";
+  return { url: `${ws}/v1/transcribe-stream${query}`, token: await getToken() };
 }
 
 // --- Screen: draft a personalized reply -------------------------------------
