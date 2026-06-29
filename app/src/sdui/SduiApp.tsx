@@ -101,14 +101,21 @@ export default function SduiApp() {
     }
   }, []);
 
-  // Language chosen on the post-auth screen → persist locally + to the profile
-  // (best-effort), then continue into the app at the keyboard-setup step.
+  // Language chosen on the post-auth screen → persist it to the profile, THEN
+  // re-bootstrap so everything (bootstrap labels + every screen the app fetches)
+  // comes back from the backend translated into the selected language — exactly
+  // like Plutto. We await the profile write first so the next bootstrap/screen
+  // is localized, not raced. loadBoot then routes on to the keyboard-setup step.
   const onLanguageSelect = useCallback(async (code: string) => {
     await setLanguage(code);
-    callEndpoint("PUT", "/v1/profile", { language: code }).catch(() => {});
-    setStack([{ screenId: "onboarding_keyboard" }]);
-    setPhase("ready");
-  }, []);
+    setPhase("loading");
+    try {
+      await callEndpoint("PUT", "/v1/profile", { language: code });
+    } catch {
+      /* best-effort: even if the write fails, fall through and continue */
+    }
+    await loadBoot();
+  }, [loadBoot]);
 
   useEffect(() => {
     let unsub = () => {};
