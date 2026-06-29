@@ -207,13 +207,29 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return b
   }
 
+  /// The Tailzu brand mark (the soundwave logo) bundled in the keyboard
+  /// target's Assets.xcassets. Rendered as-is (already black) so it reads as
+  /// the logo on the white circle. Falls back to the SF mic symbol if the
+  /// asset is somehow missing from the bundle.
+  private func brandMarkImage() -> UIImage {
+    if let mark = UIImage(named: "TailzuMark") {
+      return mark.withRenderingMode(.alwaysOriginal)
+    }
+    return UIImage(systemName: "mic.fill") ?? UIImage()
+  }
+
   private func makeCircleButton(symbol: String) -> UIButton {
     let b = UIButton(type: .system)
-    b.setImage(UIImage(systemName: symbol), for: .normal)
+    // Idle state shows the Tailzu soundwave mark (not an SF mic); the white
+    // rounded toggle is kept. The active state swaps to `stop.fill`.
+    b.setImage(brandMarkImage(), for: .normal)
     b.tintColor = .black
     b.backgroundColor = .white
     b.layer.cornerRadius = 19
     b.clipsToBounds = true
+    b.imageView?.contentMode = .scaleAspectFit
+    // The mark is wider than tall; inset so it sits comfortably in the circle.
+    b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 5, bottom: 8, right: 5)
     b.translatesAutoresizingMaskIntoConstraints = false
     b.widthAnchor.constraint(equalToConstant: 38).isActive = true
     b.heightAnchor.constraint(equalToConstant: 38).isActive = true
@@ -385,7 +401,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func endStreaming() {
     isStreaming = false
     stream = nil
-    micButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal)
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
   }
 
@@ -432,7 +448,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func stopAndTranscribe() {
     isRecording = false
-    micButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal)
     audioRecorder?.stop()
     try? AVAudioSession.sharedInstance().setActive(false)
 
