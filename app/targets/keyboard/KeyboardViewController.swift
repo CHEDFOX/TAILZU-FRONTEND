@@ -19,7 +19,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private let statusLabel = UILabel()
   private var nextKeyboardButton: UIButton!
   private var micButton: UIButton!
-  private var refineButton: UIButton?
+  private var refineButton: UIButton?   // no longer shown; kept for auto-refine after dictation
+  private var tonePill: UIButton!
+  private var returnButton: UIButton?
+  private var currentTone = "Formal"
+  private let tones = ["Formal", "Casual", "Very Casual", "Excited"]
 
   // Server-driven config (theme/labels/flags); nil until fetched/cached.
   private var kbConfig: TulmiBackend.KbConfig?
@@ -73,13 +77,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       b.backgroundColor = UIColor(tulmiHex: cfg.key)
       b.setTitleColor(UIColor(tulmiHex: cfg.keyText), for: .normal)
     }
-    refineButton?.backgroundColor = UIColor(tulmiHex: cfg.accent)
-    if let r = cfg.labels["refine"] { refineButton?.setTitle(r, for: .normal) }
+    returnButton?.backgroundColor = UIColor(tulmiHex: cfg.accent)   // config-driven accent
     statusLabel.textColor = UIColor(tulmiHex: cfg.keyText)
     micButton?.isEnabled = cfg.voice
     micButton?.alpha = cfg.voice ? 1 : 0.4
-    refineButton?.isEnabled = cfg.refine
-    refineButton?.alpha = cfg.refine ? 1 : 0.4
   }
 
   private func label(_ key: String, _ fallback: String) -> String {
@@ -92,71 +93,96 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let stack = UIStackView()
     stack.axis = .vertical
     stack.alignment = .fill
-    stack.distribution = .fillEqually
-    stack.spacing = 6
+    stack.distribution = .fill
+    stack.spacing = 7
     stack.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(stack)
 
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
-      stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+      stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 5),
+      stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -5),
       stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
-      stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+      stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
     ])
+
+    // ── Top bar: menu · undo · (flex) · tone pill · mic ── (Wispr-style)
+    let topBar = UIStackView()
+    topBar.axis = .horizontal
+    topBar.alignment = .center
+    topBar.spacing = 10
+    let menuBtn = makeGlyphButton(symbol: "line.3.horizontal")
+    menuBtn.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
+    let undoBtn = makeGlyphButton(symbol: "arrow.uturn.backward")
+    undoBtn.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+    let flex = UIView()
+    flex.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    flex.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    tonePill = makeTonePill(title: currentTone)
+    micButton = makeCircleButton(symbol: "mic.fill")
+    micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
+    [menuBtn, undoBtn, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
+    topBar.heightAnchor.constraint(equalToConstant: 40).isActive = true
+    stack.addArrangedSubview(topBar)
 
     // Status line (hidden until there's something to say).
     statusLabel.textColor = UIColor(white: 0.7, alpha: 1)
     statusLabel.font = .systemFont(ofSize: 12)
     statusLabel.textAlignment = .center
-    statusLabel.text = ""
     statusLabel.isHidden = true
-    statusLabel.setContentHuggingPriority(.required, for: .vertical)
     stack.addArrangedSubview(statusLabel)
 
-    // Letter rows.
-    for row in rows {
+    // Letter rows 1 & 2.
+    for i in 0..<2 {
       let rowStack = makeRowStack()
-      for key in row {
+      for key in rows[i] {
         let b = makeKeyButton(title: key)
         b.addTarget(self, action: #selector(letterTapped(_:)), for: .touchUpInside)
         letterButtons.append(b)
         rowStack.addArrangedSubview(b)
       }
+      rowStack.heightAnchor.constraint(equalToConstant: 44).isActive = true
       stack.addArrangedSubview(rowStack)
     }
 
-    // Row 4: shift, space, delete.
-    let utilRow = makeRowStack()
+    // Row 3: shift · z x c v b n m · delete.
+    let row3 = makeRowStack()
     let shift = makeKeyButton(title: "⇧")
     shift.addTarget(self, action: #selector(shiftTapped), for: .touchUpInside)
-    let space = makeKeyButton(title: "space")
-    space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
+    row3.addArrangedSubview(shift)
+    for key in rows[2] {
+      let b = makeKeyButton(title: key)
+      b.addTarget(self, action: #selector(letterTapped(_:)), for: .touchUpInside)
+      letterButtons.append(b)
+      row3.addArrangedSubview(b)
+    }
     let del = makeKeyButton(title: "⌫")
     del.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
-    utilRow.addArrangedSubview(shift)
-    utilRow.addArrangedSubview(space)
-    space.widthAnchor.constraint(equalTo: shift.widthAnchor, multiplier: 4).isActive = true
-    utilRow.addArrangedSubview(del)
-    stack.addArrangedSubview(utilRow)
+    row3.addArrangedSubview(del)
+    shift.widthAnchor.constraint(equalTo: del.widthAnchor).isActive = true
+    row3.heightAnchor.constraint(equalToConstant: 44).isActive = true
+    stack.addArrangedSubview(row3)
 
-    // Row 5: 🌐 next keyboard, 🎙️ mic, ✨ refine, return.
-    let actionRow = makeRowStack()
-    nextKeyboardButton = makeKeyButton(title: "🌐")
-    nextKeyboardButton.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
-    micButton = makeKeyButton(title: "🎙️")
-    micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
-    let refine = makeKeyButton(title: "✨ Refine")
-    refine.backgroundColor = UIColor(red: 0.357, green: 0.294, blue: 1, alpha: 1) // #5b4bff
-    refine.addTarget(self, action: #selector(refineTapped), for: .touchUpInside)
-    refineButton = refine
+    // Bottom row: 123 · globe · space("Tailzu") · return(accent).
+    let bottom = makeRowStack()
+    let numBtn = makeKeyButton(title: "123")
+    numBtn.titleLabel?.font = .systemFont(ofSize: 15)
+    let globeBtn = makeGlyphButton(symbol: "globe")
+    globeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
+    globeBtn.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+    nextKeyboardButton = globeBtn
+    let space = makeKeyButton(title: "Tailzu")
+    space.titleLabel?.font = .systemFont(ofSize: 14)
+    space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
+    space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
     let ret = makeKeyButton(title: "return")
+    ret.backgroundColor = UIColor(red: 0.20, green: 0.47, blue: 0.96, alpha: 1) // #3478f7 (overridden by accent in applyConfig)
     ret.addTarget(self, action: #selector(returnTapped), for: .touchUpInside)
-    actionRow.addArrangedSubview(nextKeyboardButton)
-    actionRow.addArrangedSubview(micButton)
-    actionRow.addArrangedSubview(refine)
-    refine.widthAnchor.constraint(equalTo: nextKeyboardButton.widthAnchor, multiplier: 3).isActive = true
-    actionRow.addArrangedSubview(ret)
-    stack.addArrangedSubview(actionRow)
+    returnButton = ret
+    [numBtn, globeBtn, space, ret].forEach { bottom.addArrangedSubview($0) }
+    space.widthAnchor.constraint(equalTo: numBtn.widthAnchor, multiplier: 3.4).isActive = true
+    ret.widthAnchor.constraint(equalTo: numBtn.widthAnchor, multiplier: 1.5).isActive = true
+    bottom.heightAnchor.constraint(equalToConstant: 44).isActive = true
+    stack.addArrangedSubview(bottom)
   }
 
   private func makeRowStack() -> UIStackView {
@@ -166,6 +192,71 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     s.distribution = .fillProportionally
     s.spacing = 5
     return s
+  }
+
+  // ── Wispr-style control makers ──
+  private func makeGlyphButton(symbol: String) -> UIButton {
+    let b = UIButton(type: .system)
+    b.setImage(UIImage(systemName: symbol), for: .normal)
+    b.tintColor = UIColor(white: 0.92, alpha: 1)
+    b.translatesAutoresizingMaskIntoConstraints = false
+    b.widthAnchor.constraint(equalToConstant: 38).isActive = true
+    return b
+  }
+
+  private func makeCircleButton(symbol: String) -> UIButton {
+    let b = UIButton(type: .system)
+    b.setImage(UIImage(systemName: symbol), for: .normal)
+    b.tintColor = .black
+    b.backgroundColor = .white
+    b.layer.cornerRadius = 19
+    b.clipsToBounds = true
+    b.translatesAutoresizingMaskIntoConstraints = false
+    b.widthAnchor.constraint(equalToConstant: 38).isActive = true
+    b.heightAnchor.constraint(equalToConstant: 38).isActive = true
+    return b
+  }
+
+  private func makeTonePill(title: String) -> UIButton {
+    let b = UIButton(type: .system)
+    b.setTitle(title, for: .normal)
+    b.setTitleColor(.black, for: .normal)
+    b.titleLabel?.font = .boldSystemFont(ofSize: 15)
+    b.backgroundColor = .white
+    b.layer.cornerRadius = 18
+    b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+    b.translatesAutoresizingMaskIntoConstraints = false
+    b.heightAnchor.constraint(equalToConstant: 36).isActive = true
+    b.menu = toneMenu()
+    b.showsMenuAsPrimaryAction = true
+    return b
+  }
+
+  private func toneMenu() -> UIMenu {
+    UIMenu(title: "", children: tones.map { t in
+      UIAction(title: t, state: t == currentTone ? .on : .off) { [weak self] _ in self?.selectTone(t) }
+    })
+  }
+
+  private func selectTone(_ tone: String) {
+    currentTone = tone
+    tonePill.setTitle(tone, for: .normal)
+    tonePill.menu = toneMenu()
+  }
+
+  @objc private func menuTapped() { /* options menu — wired later */ }
+
+  @objc private func undoTapped() {
+    // Undo the last word.
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    if before.isEmpty { return }
+    var count = 0
+    var started = false
+    for ch in before.reversed() {
+      if ch == " " || ch == "\n" { if started { break } } else { started = true }
+      count += 1
+    }
+    for _ in 0..<max(count, 1) { textDocumentProxy.deleteBackward() }
   }
 
   private func makeKeyButton(title: String) -> UIButton {
@@ -230,7 +321,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     pendingPartial = ""
     dictatedSomething = false
     isStreaming = true
-    micButton.setTitle("■", for: .normal)
+    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
     setStatus(label("listening", "🎙️ Listening…"))
     let s = TulmiStream { [weak self] event in
       DispatchQueue.main.async { self?.handleStreamEvent(event) }
@@ -284,7 +375,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func endStreaming() {
     isStreaming = false
     stream = nil
-    micButton.setTitle("🎙️", for: .normal)
+    micButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
   }
 
@@ -321,7 +412,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       audioRecorder = recorder
       recordingURL = url
       isRecording = true
-      micButton.setTitle("■", for: .normal)
+      micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
       setStatus(label("listening", "🎙️ Listening… tap to stop"))
     } catch {
       setStatus("Mic error: \(error.localizedDescription)")
@@ -331,7 +422,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func stopAndTranscribe() {
     isRecording = false
-    micButton.setTitle("🎙️", for: .normal)
+    micButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
     audioRecorder?.stop()
     try? AVAudioSession.sharedInstance().setActive(false)
 
