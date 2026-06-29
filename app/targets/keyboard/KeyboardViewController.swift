@@ -288,7 +288,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
     let ret = makeKeyButton(title: "return")
-    ret.backgroundColor = UIColor(red: 0.20, green: 0.47, blue: 0.96, alpha: 1) // #3478f7 (overridden by accent)
+    ret.backgroundColor = UIColor(red: 0.91, green: 0.635, blue: 0.235, alpha: 1) // #e8a23c Tailzu orange (overridden by accent)
     ret.addTarget(self, action: #selector(returnTapped), for: .touchUpInside)
     returnButton = ret
     [numBtn, globeBtn, space, ret].forEach { bottom.addArrangedSubview($0) }

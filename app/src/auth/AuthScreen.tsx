@@ -27,7 +27,7 @@ const C = {
   surface: "#101015",
   inputBg: "#16161d",
   border: "rgba(255,255,255,0.10)",
-  primary: "#5b4bff",
+  primary: "#E8A23C",
   text: "rgba(255,255,255,0.94)",
   body: "rgba(255,255,255,0.72)",
   muted: "rgba(255,255,255,0.55)",

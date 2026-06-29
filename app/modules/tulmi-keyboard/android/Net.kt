@@ -72,7 +72,7 @@ object Net {
         return KbConfig(
             background = t.optString("background", "#15151b"),
             keyText = t.optString("keyText", "#ffffff"),
-            accent = t.optString("accent", "#5b4bff"),
+            accent = t.optString("accent", "#E8A23C"),
             voice = f.optBoolean("voice", true),
             refine = f.optBoolean("refine", true),
             liveVoice = f.optBoolean("liveVoice", false),

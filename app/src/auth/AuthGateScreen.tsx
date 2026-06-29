@@ -134,7 +134,7 @@ function CountryPickerModal({
               return (
                 <TouchableOpacity style={s.cRow} activeOpacity={0.6} onPress={() => { onSelect(item); onClose(); }}>
                   <Text style={s.cFlag}>{item.flag}</Text>
-                  <Text style={[s.cName, sel ? { color: "#D4AF37" } : null]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={[s.cName, sel ? { color: "#E8A23C" } : null]} numberOfLines={1}>{item.name}</Text>
                   <Text style={s.cDial}>{item.dial}</Text>
                 </TouchableOpacity>
               );
