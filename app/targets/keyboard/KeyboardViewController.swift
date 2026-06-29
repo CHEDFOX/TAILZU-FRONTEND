@@ -24,6 +24,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var returnButton: UIButton?
   private var currentTone = "Formal"
   private let tones = ["Formal", "Casual", "Very Casual", "Excited"]
+  // Native-feel key press haptic (KeyboardKit standard = selectionChanged on tap).
+  // Requires "Allow Full Access"; UISelectionFeedbackGenerator is silent without it.
+  private let selectionHaptic = UISelectionFeedbackGenerator()
 
   // Server-driven config (theme/labels/flags); nil until fetched/cached.
   private var kbConfig: TulmiBackend.KbConfig?
@@ -265,10 +268,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     b.setTitleColor(.white, for: .normal)
     b.titleLabel?.font = .systemFont(ofSize: 18)
     b.backgroundColor = UIColor(red: 0.11, green: 0.11, blue: 0.15, alpha: 1) // #1c1c25
-    b.layer.cornerRadius = 6
+    b.layer.cornerRadius = 5 // native iPhone key radius (confirmed)
     b.translatesAutoresizingMaskIntoConstraints = false
+    b.addTarget(self, action: #selector(keyTouchDown), for: .touchDown) // native-feel haptic on press
     allKeys.append(b)
     return b
+  }
+
+  @objc private func keyTouchDown() {
+    guard hasFullAccess else { return } // haptics are suppressed without Full Access
+    selectionHaptic.selectionChanged()
+    selectionHaptic.prepare() // keep the Taptic engine warm for the next tap
   }
 
   // MARK: - Key actions
