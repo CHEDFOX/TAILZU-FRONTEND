@@ -1,19 +1,25 @@
 /**
- * AuthGate — a faithful port of Plutto's sign-in screen. Pure black, centered:
- * a glassy email "pill" (envelope badge you can swipe → or tap the white arrow)
- * → animated send → round 6-digit code boxes that auto-verify. Apple below a
- * hairline divider. No titles/branding — exactly like Plutto.
+ * AuthGate — a faithful port of Plutto's sign-in screen. Pure black, centered,
+ * no titles/branding. Backend-/config-driven methods:
+ *   • email / phone "pills" — swipe the badge → (or tap the white arrow) to send
+ *   • Apple + Google as plain circular sign-in buttons below a hairline divider
+ * → Plutto send animation (envelope + sonar) → round code boxes that auto-verify.
  *
- * Email + Apple are wired now. Phone (needs SMS) and Google (needs setup) are
- * backend-/config-gated additions that drop into the same layout later.
+ * Phone shows when AUTH_METHODS.enablePhone (needs an SMS provider in Supabase);
+ * Google shows when GOOGLE_OAUTH is configured (expo-auth-session, no native pod).
+ *
+ * Back from the code step: top-left arrow OR swipe-right-from-the-left-edge
+ * (the app-wide edge-swipe capability, src/sdui/gestures) — swipe, haptic, back.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
   Easing,
+  FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -26,13 +32,26 @@ import {
 import Svg, { Path, Rect } from "react-native-svg";
 import { BlurView } from "expo-blur";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as Google from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
 import * as Crypto from "expo-crypto";
+import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
 import { supabaseAuth } from "./supabaseClient";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
+import {
+  GOOGLE_OAUTH,
+  isGoogleConfigured,
+  AUTH_METHODS,
+  COUNTRIES,
+  pickCountry,
+  Country,
+} from "./authConfig";
 
-const { width: SW } = Dimensions.get("window");
+WebBrowser.maybeCompleteAuthSession();
+
+const { width: SW, height: SH } = Dimensions.get("window");
 const PILL_W = Math.min(320, SW - 56);
 const PILL_H = 56;
 const PILL_PAD = 5;
@@ -48,6 +67,9 @@ const WHITE = "#FFFFFF";
 const VOID = "#000000";
 const ABYSS = "#050508";
 
+interface Field { id: string; type: "email" | "phone" }
+interface ActiveMethod { type: "email" | "phone"; value: string }
+
 // ── Glyphs (Plutto's exact paths) ────────────────────────────────────────────
 const Envelope = ({ c = WHITE }: { c?: string }) => (
   <Svg width={19} height={19} viewBox="0 0 24 24">
@@ -55,14 +77,32 @@ const Envelope = ({ c = WHITE }: { c?: string }) => (
     <Path d="M3.5 7 L12 13 L20.5 7" stroke={c} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
+const PhoneMark = ({ c = WHITE }: { c?: string }) => (
+  <Svg width={19} height={19} viewBox="0 0 24 24">
+    <Path d="M6.6 10.8c1.4 2.8 3.8 5.2 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C10.7 21 3 13.3 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.4 0 .8-.3 1l-2.2 2.2z" fill={c} />
+  </Svg>
+);
 const Arrow = ({ c = "#000" }: { c?: string }) => (
   <Svg width={18} height={18} viewBox="0 0 24 24">
     <Path d="M5 12h14M13 6l6 6-6 6" stroke={c} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
+const Chevron = ({ c = "rgba(255,255,255,0.5)" }: { c?: string }) => (
+  <Svg width={12} height={12} viewBox="0 0 24 24">
+    <Path d="M6 9l6 6 6-6" stroke={c} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
 const AppleMark = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
     <Path fill={WHITE} d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.46 1.58-1.51 3.14-.9 1.36-1.84 2.71-3.32 2.71-1.48 0-1.86-.88-3.56-.88-1.66 0-2.25.91-3.6.91-1.36 0-2.3-1.27-3.22-2.61-1.87-2.61-3.34-7.53-1.42-10.86.95-1.66 2.65-2.7 4.5-2.73 1.4-.03 2.72.95 3.58.95.85 0 2.45-1.18 4.12-1.01.7.03 2.67.28 3.93 2.13-.1.06-2.35 1.37-2.33 4.07.03 3.22 2.83 4.29 2.86 4.31z" />
+  </Svg>
+);
+const GoogleMark = () => (
+  <Svg width={20} height={20} viewBox="0 0 24 24">
+    <Path d="M22 12.2c0-.7-.06-1.4-.18-2H12v3.8h5.6c-.24 1.3-.97 2.4-2.07 3.14v2.6h3.35C20.85 17.85 22 15.27 22 12.2z" fill="#4285F4" />
+    <Path d="M12 22c2.7 0 4.97-.9 6.63-2.43l-3.35-2.6c-.93.62-2.12.99-3.28.99-2.52 0-4.66-1.7-5.43-3.99H3.13v2.5C4.78 19.78 8.13 22 12 22z" fill="#34A853" />
+    <Path d="M6.57 13.97c-.2-.6-.31-1.24-.31-1.97 0-.73.11-1.37.31-1.97V7.53H3.13C2.41 8.92 2 10.42 2 12c0 1.58.41 3.08 1.13 4.47l3.44-2.5z" fill="#FBBC05" />
+    <Path d="M12 6.05c1.42 0 2.7.49 3.71 1.45l2.78-2.78C16.97 3.16 14.7 2.25 12 2.25 8.13 2.25 4.78 4.47 3.13 7.53l3.44 2.5C7.34 7.75 9.48 6.05 12 6.05z" fill="#EA4335" />
   </Svg>
 );
 const Back = () => (
@@ -76,15 +116,69 @@ const Resend = () => (
   </Svg>
 );
 
-// ── Email pill: swipe the envelope badge → or tap the white arrow ────────────
-function EmailPill({ onSubmit, hintDelay }: { onSubmit: (email: string) => void; hintDelay: number }) {
+// ── Country picker (phone only) ──────────────────────────────────────────────
+function CountryPickerModal({
+  visible, current, onClose, onSelect,
+}: { visible: boolean; current: Country; onClose: () => void; onSelect: (c: Country) => void }) {
+  const [q, setQ] = useState("");
+  const term = q.trim().toLowerCase();
+  const data = term
+    ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(term) || c.dial.includes(term))
+    : COUNTRIES;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={s.modalRoot}>
+        <TouchableOpacity style={s.modalBackdrop} activeOpacity={1} onPress={onClose} />
+        <View style={s.modalSheet}>
+          <View style={s.modalHandle} />
+          <TextInput
+            style={s.modalSearch}
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <FlatList
+            data={data}
+            keyExtractor={(c) => c.iso}
+            keyboardShouldPersistTaps="handled"
+            initialNumToRender={20}
+            renderItem={({ item }) => {
+              const sel = current.iso === item.iso;
+              return (
+                <TouchableOpacity style={s.cRow} activeOpacity={0.6} onPress={() => { onSelect(item); onClose(); }}>
+                  <Text style={s.cFlag}>{item.flag}</Text>
+                  <Text style={[s.cName, sel ? { color: "#D4AF37" } : null]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={s.cDial}>{item.dial}</Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ── One method pill (email or phone): swipe the badge → or tap the arrow ──────
+function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f: Field, value: string) => void; hintDelay: number }) {
+  const isPhone = field.type === "phone";
   const [value, setValue] = useState("");
-  const valid = EMAIL_RX.test(value.trim());
+  const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
+  const [country, setCountry] = useState<Country>(() => pickCountry(region));
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const digits = value.replace(/\D/g, "");
+  const valid = isPhone ? digits.length >= 6 && digits.length <= 14 : EMAIL_RX.test(value.trim());
+  const submitValue = isPhone ? `${country.dial}${digits}` : value.trim();
+
   const validRef = useRef(valid);
-  const valRef = useRef(value);
+  const valRef = useRef(submitValue);
   const crossed = useRef(false);
   useEffect(() => { validRef.current = valid; }, [valid]);
-  useEffect(() => { valRef.current = value.trim(); }, [value]);
+  useEffect(() => { valRef.current = submitValue; }, [submitValue]);
 
   const envX = useRef(new Animated.Value(0)).current;
   const arrowAppear = useRef(new Animated.Value(0)).current;
@@ -106,8 +200,8 @@ function EmailPill({ onSubmit, hintDelay }: { onSubmit: (email: string) => void;
 
   const commit = useCallback(() => {
     Animated.timing(envX, { toValue: MAX_DRAG, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: false })
-      .start(() => { onSubmit(valRef.current); envX.setValue(0); });
-  }, [envX, onSubmit]);
+      .start(() => { onSubmit(field, valRef.current); envX.setValue(0); });
+  }, [envX, field, onSubmit]);
 
   const pan = useRef(
     PanResponder.create({
@@ -141,37 +235,57 @@ function EmailPill({ onSubmit, hintDelay }: { onSubmit: (email: string) => void;
       <View style={s.pillBorder} pointerEvents="none" />
 
       <Animated.View style={[s.contentRow, { opacity: inputOpacity }]} pointerEvents="box-none">
+        {isPhone && (
+          <TouchableOpacity
+            style={s.countryChip}
+            activeOpacity={0.7}
+            onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+          >
+            <Text style={s.flag}>{country.flag}</Text>
+            <Text style={s.dial}>{country.dial}</Text>
+            <Chevron />
+          </TouchableOpacity>
+        )}
         <TextInput
           style={s.input}
           value={value}
           onChangeText={setValue}
-          placeholder="Email"
+          placeholder={isPhone ? "Phone" : "Email"}
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
           autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
+          keyboardType={isPhone ? "phone-pad" : "email-address"}
+          textContentType={isPhone ? "telephoneNumber" : "emailAddress"}
           returnKeyType="go"
           onSubmitEditing={() => validRef.current && commit()}
         />
       </Animated.View>
 
-      {/* envelope badge — swipe me */}
+      {/* badge — swipe me (envelope / phone) */}
       <Animated.View style={[s.envWrap, { transform: [{ translateX: envX }] }]} {...pan.panHandlers}>
-        <View style={s.envCircle}><Envelope /></View>
+        <View style={s.envCircle}>{isPhone ? <PhoneMark /> : <Envelope />}</View>
       </Animated.View>
 
       {/* white arrow badge — tap to send (appears when valid) */}
       <Animated.View style={[s.arrowWrap, { opacity: arrowOpacity }]} pointerEvents={valid ? "auto" : "none"}>
-        <TouchableOpacity style={s.arrowCircle} activeOpacity={0.85} onPress={commit}>
+        <TouchableOpacity style={s.arrowCircle} activeOpacity={0.85} onPress={() => validRef.current && commit()}>
           <Arrow />
         </TouchableOpacity>
       </Animated.View>
+
+      {isPhone && (
+        <CountryPickerModal
+          visible={pickerOpen}
+          current={country}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(c) => { setCountry(c); Haptics.selectionAsync().catch(() => {}); }}
+        />
+      )}
     </View>
   );
 }
 
-// tiny spinner for the sending/verifying moments
+// tiny spinner for the verifying moment
 function MicroLoader() {
   const spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -185,7 +299,7 @@ function MicroLoader() {
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying">("entry");
-  const [email, setEmail] = useState("");
+  const [active, setActive] = useState<ActiveMethod | null>(null);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
@@ -196,6 +310,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const shake = useRef(new Animated.Value(0)).current;
   const codeRef = useRef<TextInput>(null);
   const seq = useRef(0);
+
+  // Methods (config-driven; structured to be backend-fed later).
+  const fields: Field[] = [
+    { id: "email", type: "email" },
+    ...(AUTH_METHODS.enablePhone ? [{ id: "phone", type: "phone" as const }] : []),
+  ];
+  const googleEnabled = isGoogleConfigured();
+
+  const [, googleResp, promptGoogle] = Google.useIdTokenAuthRequest({
+    clientId: GOOGLE_OAUTH.webClientId,
+    iosClientId: GOOGLE_OAUTH.iosClientId,
+    androidClientId: GOOGLE_OAUTH.androidClientId,
+    scopes: ["openid", "profile", "email"],
+  });
 
   useEffect(() => {
     Animated.timing(arrival, { toValue: 1, duration: 900, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
@@ -229,28 +357,34 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     ]).start(() => setTimeout(() => setCodeError(false), 400));
   }, [shake]);
 
-  const sendCode = useCallback(async (addr: string) => {
+  const send = useCallback(async (type: "email" | "phone", value: string) => {
     Keyboard.dismiss();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setEmail(addr);
+    setActive({ type, value });
     const my = ++seq.current;
     setPhase("sending");
     const animMin = new Promise((r) => setTimeout(r, 1600));
-    const [, res]: any = await Promise.all([animMin, supabaseAuth.sendEmailCode(addr)]);
+    const apiCall = type === "phone" ? supabaseAuth.sendPhoneCode(value) : supabaseAuth.sendEmailCode(value);
+    const [, res]: any = await Promise.all([animMin, apiCall]);
     if (my !== seq.current) return;
     if (res?.error) { setPhase("entry"); flashError(); return; }
     setCode(""); setPhase("verify");
   }, [flashError]);
 
+  const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
+
   const verify = useCallback(async (token: string) => {
+    if (!active) return;
     Keyboard.dismiss();
     const my = ++seq.current;
     setPhase("verifying");
-    const { error } = await supabaseAuth.verifyEmailCode(email.trim(), token);
+    const { error } = active.type === "phone"
+      ? await supabaseAuth.verifyPhoneCode(active.value, token)
+      : await supabaseAuth.verifyEmailCode(active.value, token);
     if (my !== seq.current) return;
     if (error) { setPhase("verify"); setCode(""); flashError(); setTimeout(() => codeRef.current?.focus?.(), 60); return; }
     onAuthed();
-  }, [email, flashError, onAuthed]);
+  }, [active, flashError, onAuthed]);
 
   useEffect(() => {
     if (phase === "verify" && code.length === CODE_LEN && /^\d+$/.test(code)) verify(code);
@@ -261,14 +395,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     Keyboard.dismiss();
     seq.current++;
     verifyFade.setValue(0); entryFade.setValue(1);
-    setCode(""); setCodeError(false); setPhase("entry");
+    setCode(""); setCodeError(false); setActive(null); setPhase("entry");
   }, [entryFade, verifyFade]);
 
-  const resend = useCallback(() => { if (email) sendCode(email); }, [email, sendCode]);
+  const resend = useCallback(() => { if (active) send(active.type, active.value); }, [active, send]);
 
-  // Swipe-right-from-the-left-edge to go back to the email screen — the same
-  // general capability used across the app (src/sdui/gestures). Rendered only
-  // on the code step (below). Physics + medium-impact haptic on commit.
+  // App-wide edge-swipe-back (swipe → haptic → back). No on-screen hint.
   const { edgeZone } = useEdgeSwipeBack(goBack);
 
   const onApple = useCallback(async () => {
@@ -292,7 +424,25 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   }, [flashError, onAuthed]);
 
+  const onGoogle = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (!googleEnabled) { flashError(); return; }
+    promptGoogle().catch(() => flashError());
+  }, [googleEnabled, promptGoogle, flashError]);
+
+  // Complete the Google flow once expo-auth-session returns an id_token.
+  useEffect(() => {
+    if (googleResp?.type === "success" && googleResp.params?.id_token) {
+      (async () => {
+        const { error } = await supabaseAuth.signInWithGoogle(googleResp.params.id_token);
+        if (error) { flashError(); return; }
+        onAuthed();
+      })();
+    }
+  }, [googleResp, flashError, onAuthed]);
+
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const onCode = phase === "verify" || phase === "verifying";
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
@@ -300,26 +450,34 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (
             <Animated.View style={[s.block, { opacity: entryFade }]}>
-              <EmailPill onSubmit={sendCode} hintDelay={1100} />
+              {fields.map((f, i) => (
+                <View key={f.id} style={{ marginTop: i === 0 ? 0 : 18 }}>
+                  <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} />
+                </View>
+              ))}
               <View style={s.divider} />
-              {appleAvailable ? (
-                <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple}>
-                  <AppleMark />
-                </TouchableOpacity>
-              ) : null}
+              <View style={s.socialRow}>
+                {appleAvailable && (
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple} accessibilityRole="button" accessibilityLabel="Sign in with Apple">
+                    <AppleMark />
+                  </TouchableOpacity>
+                )}
+                {googleEnabled && (
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} accessibilityRole="button" accessibilityLabel="Sign in with Google">
+                    <GoogleMark />
+                  </TouchableOpacity>
+                )}
+              </View>
             </Animated.View>
           )}
 
           {phase === "sending" && <EmailSendAnimation />}
 
-          {(phase === "verify" || phase === "verifying") && (
+          {onCode && (
             <Animated.View style={[s.block, { opacity: verifyFade }]}>
               <Pressable style={s.codeRow} onPress={() => codeRef.current?.focus?.()}>
                 {Array.from({ length: CODE_LEN }).map((_, i) => (
-                  <View
-                    key={i}
-                    style={[s.codeBox, code[i] ? s.codeBoxFilled : null, codeError ? s.codeBoxError : null]}
-                  >
+                  <View key={i} style={[s.codeBox, code[i] ? s.codeBoxFilled : null, codeError ? s.codeBoxError : null]}>
                     {code[i] ? <Text style={s.codeDigit}>{code[i]}</Text> : null}
                   </View>
                 ))}
@@ -337,8 +495,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               />
               <View style={s.verifyStatus}>{phase === "verifying" ? <MicroLoader /> : null}</View>
               <View style={s.divider} />
-              {/* Code step: just the resend control. Back is the top-left arrow
-                  / edge-swipe (both below) — exactly like Plutto. */}
+              {/* code step: resend only — back is the top-left arrow / edge-swipe */}
               <View style={s.verifyActions}>
                 <TouchableOpacity onPress={resend} style={s.social} activeOpacity={0.6}><Resend /></TouchableOpacity>
               </View>
@@ -347,15 +504,15 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         </Animated.View>
       </KeyboardAvoidingView>
 
-      {/* Top-left back arrow (code step) — return to the email screen. */}
-      {(phase === "verify" || phase === "verifying") && (
+      {/* top-left back arrow (code step) */}
+      {onCode && (
         <TouchableOpacity onPress={goBack} style={s.backTopLeft} activeOpacity={0.6} hitSlop={12}>
           <Back />
         </TouchableOpacity>
       )}
 
-      {/* Edge-swipe-back zone — only on the code step. */}
-      {(phase === "verify" || phase === "verifying") ? edgeZone : null}
+      {/* edge-swipe-back zone — only on the code step */}
+      {onCode ? edgeZone : null}
     </Animated.View>
   );
 }
@@ -371,6 +528,9 @@ const s = StyleSheet.create({
   pill: { ...StyleSheet.absoluteFillObject, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
   pillBorder: { ...StyleSheet.absoluteFillObject, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
+  countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
+  flag: { fontSize: 18, marginRight: 5 },
+  dial: { fontSize: 15, fontWeight: "300", color: WHITE, marginRight: 4 },
   input: { flex: 1, fontSize: 15, fontWeight: "300", color: WHITE, letterSpacing: 0.3, padding: 0 },
 
   envWrap: { position: "absolute", left: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE, zIndex: 5 },
@@ -380,6 +540,7 @@ const s = StyleSheet.create({
 
   divider: { width: PILL_W * 0.66, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 48, marginBottom: 48 },
 
+  socialRow: { flexDirection: "row", gap: SOCIAL_GAP },
   social: { width: SOCIAL_SIZE, height: SOCIAL_SIZE, borderRadius: SOCIAL_SIZE / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.03)", alignItems: "center", justifyContent: "center" },
   verifyActions: { flexDirection: "row", gap: SOCIAL_GAP },
 
@@ -390,4 +551,14 @@ const s = StyleSheet.create({
   codeDigit: { fontSize: 17, fontWeight: "300", color: WHITE },
   hiddenInput: { position: "absolute", opacity: 0, width: 1, height: 1 },
   verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center" },
+
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  modalSheet: { height: SH * 0.72, backgroundColor: ABYSS, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingHorizontal: 18 },
+  modalHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)", marginBottom: 12 },
+  modalSearch: { height: 44, borderRadius: 12, paddingHorizontal: 12, backgroundColor: "rgba(255,255,255,0.06)", color: WHITE, fontSize: 15, marginBottom: 8 },
+  cRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.06)" },
+  cFlag: { fontSize: 22, marginRight: 12 },
+  cName: { flex: 1, fontSize: 15, fontWeight: "300", color: WHITE },
+  cDial: { fontSize: 14, color: "rgba(255,255,255,0.5)" },
 });
