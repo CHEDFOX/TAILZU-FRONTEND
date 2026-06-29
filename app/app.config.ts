@@ -43,7 +43,7 @@ const config: ExpoConfig = {
   android: {
     package: "com.tulmi.app",
     permissions: ["android.permission.RECORD_AUDIO", "android.permission.INTERNET"],
-    adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#000000" },
+    adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#E8A23C" },
   },
   // expo-audio provides mic-permission config; usesCleartextTraffic is enabled in
   // the dev build so the app can reach a plain-HTTP backend during testing.
