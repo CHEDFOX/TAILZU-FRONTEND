@@ -1,12 +1,14 @@
 /**
  * AuthGate — a faithful port of Plutto's sign-in screen. Pure black, centered,
- * no titles/branding. Backend-/config-driven methods:
+ * no titles/branding. Methods:
  *   • email / phone "pills" — swipe the badge → (or tap the white arrow) to send
- *   • Apple + Google as plain circular sign-in buttons below a hairline divider
+ *   • Apple as a plain circular sign-in button below a hairline divider
  * → Plutto send animation (envelope + sonar) → round code boxes that auto-verify.
  *
- * Phone shows when AUTH_METHODS.enablePhone (needs an SMS provider in Supabase);
- * Google shows when GOOGLE_OAUTH is configured (expo-auth-session, no native pod).
+ * Phone is OFF by default and turned on FROM THE BACKEND — bootstrap flag
+ * auth.enablePhone (needs an SMS provider in Supabase); no app update required.
+ * Google is intentionally off for now (the scaffold lives in authConfig); it
+ * needs a native iOS URL scheme, so it can't be flipped on via OTA.
  *
  * Back from the code step: top-left arrow OR swipe-right-from-the-left-edge
  * (the app-wide edge-swipe capability, src/sdui/gestures) — swipe, haptic, back.
@@ -32,24 +34,14 @@ import {
 import Svg, { Path, Rect } from "react-native-svg";
 import { BlurView } from "expo-blur";
 import * as AppleAuthentication from "expo-apple-authentication";
-import * as Google from "expo-auth-session/providers/google";
-import * as WebBrowser from "expo-web-browser";
 import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
 import { supabaseAuth } from "./supabaseClient";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
-import {
-  GOOGLE_OAUTH,
-  isGoogleConfigured,
-  AUTH_METHODS,
-  COUNTRIES,
-  pickCountry,
-  Country,
-} from "./authConfig";
-
-WebBrowser.maybeCompleteAuthSession();
+import { fetchAuthConfig } from "../sdui/client";
+import { AUTH_METHODS, COUNTRIES, pickCountry, Country } from "./authConfig";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 const PILL_W = Math.min(320, SW - 56);
@@ -95,14 +87,6 @@ const Chevron = ({ c = "rgba(255,255,255,0.5)" }: { c?: string }) => (
 const AppleMark = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
     <Path fill={WHITE} d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.46 1.58-1.51 3.14-.9 1.36-1.84 2.71-3.32 2.71-1.48 0-1.86-.88-3.56-.88-1.66 0-2.25.91-3.6.91-1.36 0-2.3-1.27-3.22-2.61-1.87-2.61-3.34-7.53-1.42-10.86.95-1.66 2.65-2.7 4.5-2.73 1.4-.03 2.72.95 3.58.95.85 0 2.45-1.18 4.12-1.01.7.03 2.67.28 3.93 2.13-.1.06-2.35 1.37-2.33 4.07.03 3.22 2.83 4.29 2.86 4.31z" />
-  </Svg>
-);
-const GoogleMark = () => (
-  <Svg width={20} height={20} viewBox="0 0 24 24">
-    <Path d="M22 12.2c0-.7-.06-1.4-.18-2H12v3.8h5.6c-.24 1.3-.97 2.4-2.07 3.14v2.6h3.35C20.85 17.85 22 15.27 22 12.2z" fill="#4285F4" />
-    <Path d="M12 22c2.7 0 4.97-.9 6.63-2.43l-3.35-2.6c-.93.62-2.12.99-3.28.99-2.52 0-4.66-1.7-5.43-3.99H3.13v2.5C4.78 19.78 8.13 22 12 22z" fill="#34A853" />
-    <Path d="M6.57 13.97c-.2-.6-.31-1.24-.31-1.97 0-.73.11-1.37.31-1.97V7.53H3.13C2.41 8.92 2 10.42 2 12c0 1.58.41 3.08 1.13 4.47l3.44-2.5z" fill="#FBBC05" />
-    <Path d="M12 6.05c1.42 0 2.7.49 3.71 1.45l2.78-2.78C16.97 3.16 14.7 2.25 12 2.25 8.13 2.25 4.78 4.47 3.13 7.53l3.44 2.5C7.34 7.75 9.48 6.05 12 6.05z" fill="#EA4335" />
   </Svg>
 );
 const Back = () => (
@@ -311,23 +295,22 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const codeRef = useRef<TextInput>(null);
   const seq = useRef(0);
 
-  // Methods (config-driven; structured to be backend-fed later).
+  // Phone sign-in is OFF by default and turned on FROM THE BACKEND (bootstrap
+  // flag auth.enablePhone) — no app update needed once an SMS provider is live.
+  // The local AUTH_METHODS.enablePhone is just the offline fallback default.
+  const [phoneEnabled, setPhoneEnabled] = useState(AUTH_METHODS.enablePhone);
   const fields: Field[] = [
     { id: "email", type: "email" },
-    ...(AUTH_METHODS.enablePhone ? [{ id: "phone", type: "phone" as const }] : []),
+    ...(phoneEnabled ? [{ id: "phone", type: "phone" as const }] : []),
   ];
-  const googleEnabled = isGoogleConfigured();
-
-  const [, googleResp, promptGoogle] = Google.useIdTokenAuthRequest({
-    clientId: GOOGLE_OAUTH.webClientId,
-    iosClientId: GOOGLE_OAUTH.iosClientId,
-    androidClientId: GOOGLE_OAUTH.androidClientId,
-    scopes: ["openid", "profile", "email"],
-  });
 
   useEffect(() => {
     Animated.timing(arrival, { toValue: 1, duration: 900, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
+    let alive = true;
+    fetchAuthConfig().then((cfg) => { if (alive && cfg) setPhoneEnabled(cfg.enablePhone); }).catch(() => {});
+    return () => { alive = false; };
   }, [arrival]);
 
   useEffect(() => {
@@ -424,23 +407,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   }, [flashError, onAuthed]);
 
-  const onGoogle = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    if (!googleEnabled) { flashError(); return; }
-    promptGoogle().catch(() => flashError());
-  }, [googleEnabled, promptGoogle, flashError]);
-
-  // Complete the Google flow once expo-auth-session returns an id_token.
-  useEffect(() => {
-    if (googleResp?.type === "success" && googleResp.params?.id_token) {
-      (async () => {
-        const { error } = await supabaseAuth.signInWithGoogle(googleResp.params.id_token);
-        if (error) { flashError(); return; }
-        onAuthed();
-      })();
-    }
-  }, [googleResp, flashError, onAuthed]);
-
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
 
@@ -460,11 +426,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 {appleAvailable && (
                   <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple} accessibilityRole="button" accessibilityLabel="Sign in with Apple">
                     <AppleMark />
-                  </TouchableOpacity>
-                )}
-                {googleEnabled && (
-                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} accessibilityRole="button" accessibilityLabel="Sign in with Google">
-                    <GoogleMark />
                   </TouchableOpacity>
                 )}
               </View>

@@ -65,6 +65,25 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
   });
 }
 
+/**
+ * Pre-session auth config, read from the public SDUI bootstrap `flags`. Lets the
+ * backend turn auth methods on/off without an app update — e.g. flip phone
+ * sign-in on once an SMS provider is live. Resilient: returns null on any
+ * failure so the gate falls back to its safe local defaults (never bricks).
+ *
+ *   flags["auth.enablePhone"] → boolean   (default off)
+ */
+export async function fetchAuthConfig(): Promise<{ enablePhone: boolean } | null> {
+  try {
+    const b = await bootstrap();
+    const f = b.flags ?? {};
+    const on = f["auth.enablePhone"];
+    return { enablePhone: on === true || on === "true" };
+  } catch {
+    return null;
+  }
+}
+
 /** Generic call used by the `callEndpoint` action. */
 export async function callEndpoint(
   method: string,
