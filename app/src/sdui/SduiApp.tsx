@@ -24,10 +24,11 @@ import { Store } from "./state";
 import { composeTemplate } from "./templates";
 import type { Ctx, NavApi } from "./actions";
 import type { BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage } from "../storage";
+import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone } from "../storage";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
+import ProfileGate from "../onboarding/ProfileGate";
 import { getKeyboardStatus } from "../../modules/tulmi-bridge";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
@@ -66,6 +67,11 @@ export default function SduiApp() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [showConnection, setShowConnection] = useState(false);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  // Whether the post-onboarding name + gender card is done (loaded from storage;
+  // default true so it never flashes before we know).
+  const [profileDone, setProfileDoneState] = useState(true);
+
+  useEffect(() => { getProfileDone().then(setProfileDoneState).catch(() => {}); }, []);
 
   const showToast = useCallback((message: string, tone?: string) => {
     setToast({ message, tone });
@@ -302,6 +308,12 @@ export default function SduiApp() {
       {/* Backend-driven edge-swipe-back zone (left edge). Rendered last so it
           sits above the screen content; null when there's no back / disabled. */}
       {edgeZone}
+
+      {/* Post-onboarding name + gender card — blurs Home behind it and blocks
+          the app until name + gender are set. Shown once, only on Home. */}
+      {!profileDone && current?.screenId === "home" && (
+        <ProfileGate onDone={() => setProfileDoneState(true)} />
+      )}
     </View>
   );
 }

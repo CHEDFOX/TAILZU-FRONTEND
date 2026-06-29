@@ -42,3 +42,26 @@ export async function getLanguage(): Promise<string | null> {
 export async function setLanguage(code: string): Promise<void> {
   await AsyncStorage.setItem(KEY_LANGUAGE, code);
 }
+
+// Name captured from the auth provider (Apple gives it only on first consent),
+// used to pre-fill the post-onboarding name card.
+const KEY_AUTH_NAME = "tulmi.authName";
+
+export async function getAuthName(): Promise<string | null> {
+  return AsyncStorage.getItem(KEY_AUTH_NAME);
+}
+
+export async function setAuthName(name: string): Promise<void> {
+  await AsyncStorage.setItem(KEY_AUTH_NAME, name.trim());
+}
+
+// Whether the user has completed the name + gender card (shown once).
+const KEY_PROFILE = "tulmi.profileDone";
+
+export async function getProfileDone(): Promise<boolean> {
+  return (await AsyncStorage.getItem(KEY_PROFILE)) === "1";
+}
+
+export async function setProfileDone(): Promise<void> {
+  await AsyncStorage.setItem(KEY_PROFILE, "1");
+}

@@ -41,6 +41,7 @@ import { supabaseAuth } from "./supabaseClient";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { fetchAuthConfig } from "../sdui/client";
+import { setAuthName } from "../storage";
 import { AUTH_METHODS, COUNTRIES, pickCountry, Country } from "./authConfig";
 
 const { width: SW, height: SH } = Dimensions.get("window");
@@ -401,6 +402,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (!cred.identityToken) throw new Error("no identity token");
       const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw);
       if (error) { flashError(); return; }
+      // Apple gives the name only on first consent — stash it to pre-fill the
+      // post-onboarding name card.
+      const given = cred.fullName?.givenName ?? "";
+      const family = cred.fullName?.familyName ?? "";
+      const full = [given, family].filter(Boolean).join(" ").trim();
+      if (full) setAuthName(full).catch(() => {});
       onAuthed();
     } catch (e: any) {
       if (e?.code !== "ERR_REQUEST_CANCELED") flashError();
