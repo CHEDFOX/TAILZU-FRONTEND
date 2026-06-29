@@ -2,32 +2,30 @@
  * Edge-swipe-back — a general, backend-driven gesture capability.
  *
  * "Swipe right from the left edge to go back", available anywhere in the app.
- * The whole thing is tunable from the server via bootstrap `flags`, so the
- * backend can turn it off or retune the feel without an app build:
+ * Tunable from the server via bootstrap `flags` (no app build):
  *
  *   flags["gestures.swipeBack"]          → boolean   (default true)   on/off
  *   flags["gestures.swipeBackEdge"]      → number px (default 30)     hot-zone width
  *   flags["gestures.swipeBackDistance"]  → number px (default 64)     commit distance
- *   flags["gestures.swipeBackVelocity"]  → number    (default 600)    fling velocity
+ *   flags["gestures.swipeBackVelocity"]  → number    (default 600)    fling velocity (px/s)
  *
  * Physics-proof + haptic: a rightward drag past the distance OR a fast fling
- * commits with a medium impact; a vertical scroll cancels it.
+ * commits with a medium impact; a vertical scroll cancels it. Built on RN's
+ * PanResponder (no extra native deps) so it works everywhere.
  *
  * Usage:
  *   const { edgeZone } = useEdgeSwipeBack(goBack, resolveEdgeSwipe(flags));
  *   return (<View>…{edgeZone}</View>);   // render edgeZone LAST so it sits on top
  */
-import React, { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { runOnJS } from "react-native-reanimated";
+import React, { useMemo, useRef } from "react";
+import { PanResponder, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 
 export interface EdgeSwipeConfig {
   enabled: boolean;
   edgeWidth: number;
   distance: number;
-  velocity: number;
+  velocity: number; // px/s
 }
 
 const DEFAULTS: EdgeSwipeConfig = { enabled: true, edgeWidth: 30, distance: 64, velocity: 600 };
@@ -47,41 +45,41 @@ export function resolveEdgeSwipe(flags?: Record<string, boolean | number | strin
 }
 
 /**
- * Returns an `edgeZone` element (an invisible, gesture-detecting strip pinned to
- * the screen's left edge) that fires `onBack` on a committed swipe. Returns
- * `edgeZone: null` when disabled (by config) or when `onBack` is falsy.
+ * Returns an `edgeZone` element (an invisible strip pinned to the left edge)
+ * that fires `onBack` on a committed rightward swipe. `edgeZone: null` when
+ * disabled by config or when `onBack` is falsy.
  */
 export function useEdgeSwipeBack(
   onBack: (() => void) | null | undefined,
   config: Partial<EdgeSwipeConfig> = {},
 ): { edgeZone: React.ReactNode } {
   const cfg = { ...DEFAULTS, ...config };
+  const fired = useRef(false);
+  // PanResponder velocity is px/ms; the config velocity is px/s.
+  const velPerMs = cfg.velocity / 1000;
 
-  const gesture = useMemo(() => {
-    const fire = () => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      onBack && onBack();
-    };
-    return Gesture.Pan()
-      .activeOffsetX(12) // only a rightward drag arms it
-      .failOffsetY([-14, 14]) // a vertical scroll cancels it
-      .onEnd((e) => {
-        "worklet";
-        if (e.translationX > cfg.distance || e.velocityX > cfg.velocity) {
-          runOnJS(fire)();
-        }
-      });
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        // Arm only on a clearly rightward drag; a vertical scroll won't grab it.
+        onMoveShouldSetPanResponder: (_, g) => g.dx > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.4,
+        onPanResponderGrant: () => { fired.current = false; },
+        onPanResponderRelease: (_, g) => {
+          if (!fired.current && (g.dx > cfg.distance || g.vx > velPerMs)) {
+            fired.current = true;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            onBack && onBack();
+          }
+        },
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onBack, cfg.distance, cfg.velocity]);
+    [onBack, cfg.distance, velPerMs],
+  );
 
   if (!cfg.enabled || !onBack) return { edgeZone: null };
 
   return {
-    edgeZone: (
-      <GestureDetector gesture={gesture}>
-        <View style={[styles.edgeZone, { width: cfg.edgeWidth }]} />
-      </GestureDetector>
-    ),
+    edgeZone: <View style={[styles.edgeZone, { width: cfg.edgeWidth }]} {...pan.panHandlers} />,
   };
 }
 

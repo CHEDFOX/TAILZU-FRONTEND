@@ -25,6 +25,7 @@ import type { Node, NodeEvent, ThemeTokens } from "./types";
 import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
+import { VoiceToggle, RefineButton } from "./morphControls";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -92,6 +93,23 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   if (s.fontSize != null) out.fontSize = tok(s.fontSize, theme);
   if (s.fontWeight != null) out.fontWeight = tok(s.fontWeight, theme);
   if (s.textAlign != null) out.textAlign = s.textAlign;
+  // Positioning + insets + per-side spacing — lets the backend lay out overlays
+  // (e.g. the voice toggle pinned to the type box's right edge) declaratively.
+  if (s.position) out.position = s.position;
+  if (s.top != null) out.top = tok(s.top, theme);
+  if (s.right != null) out.right = tok(s.right, theme);
+  if (s.bottom != null) out.bottom = tok(s.bottom, theme);
+  if (s.left != null) out.left = tok(s.left, theme);
+  if (s.zIndex != null) out.zIndex = s.zIndex;
+  if (s.alignSelf) out.alignSelf = ALIGN[s.alignSelf] ?? s.alignSelf;
+  if (s.overflow) out.overflow = s.overflow;
+  if (s.minHeight != null) out.minHeight = tok(s.minHeight, theme);
+  if (s.minWidth != null) out.minWidth = tok(s.minWidth, theme);
+  if (s.maxWidth != null) out.maxWidth = tok(s.maxWidth, theme);
+  for (const k of ["marginTop", "marginBottom", "marginLeft", "marginRight", "marginHorizontal", "marginVertical",
+                   "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "paddingHorizontal", "paddingVertical"]) {
+    if (s[k] != null) out[k] = tok(s[k], theme);
+  }
   return out;
 }
 
@@ -572,5 +590,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
-  LanguageGreetingGrid,
+  LanguageGreetingGrid, VoiceToggle, RefineButton,
 };
