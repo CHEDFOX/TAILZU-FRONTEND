@@ -21,7 +21,13 @@ import {
 import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
 
-const { height: SH } = Dimensions.get("window");
+const { width: SW, height: SH } = Dimensions.get("window");
+
+// Exactly two pills per row: inner width (screen − 18·2 side insets) minus one
+// 12pt column gap, split in two.
+const LIST_INSET = 18;
+const GRID_GAP = 12;
+const BOX_W = (SW - LIST_INSET * 2 - GRID_GAP) / 2;
 
 const ARRIVAL_HOLD_MS = 2400;   // greeting sits centred…
 const ARRIVAL_MOVE_MS = 1100;   // …then glides up
@@ -169,12 +175,12 @@ const s = StyleSheet.create({
     fontSize: 52, fontWeight: "300", color: WHITE, textAlign: "center", letterSpacing: 0,
     paddingHorizontal: 24,
   },
-  listContainer: { position: "absolute", top: LIST_TOP, bottom: LIST_BOTTOM, left: 18, right: 18 },
-  listGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingBottom: 18 },
+  listContainer: { position: "absolute", top: LIST_TOP, bottom: LIST_BOTTOM, left: LIST_INSET, right: LIST_INSET },
+  listGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: GRID_GAP, paddingBottom: 18 },
   langBox: {
-    width: 105, height: 52, borderRadius: 26,
+    width: BOX_W, height: 54, borderRadius: 27,
     borderWidth: 0.5, borderColor: "rgba(255,255,255,0.12)",
-    justifyContent: "center", alignItems: "center", margin: 8,
+    justifyContent: "center", alignItems: "center",
   },
   langText: { fontSize: 15, fontWeight: "300", color: WHITE, letterSpacing: 0.5 },
 });
