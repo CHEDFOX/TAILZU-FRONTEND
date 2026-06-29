@@ -50,6 +50,20 @@ function tok(value: any, theme: ThemeTokens): any {
   return value;
 }
 
+/**
+ * Black or white, whichever reads on `bg` — so a white button gets dark text
+ * and a dark button gets white. Lets the backend set any primary color (white
+ * for the app's white buttons, or the sacred orange) without breaking labels.
+ */
+function readableOn(bg: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec((bg || "").trim());
+  if (!m) return "#fff";
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? "#000000" : "#ffffff";
+}
+
 const ALIGN: Record<string, any> = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch" };
 const JUSTIFY: Record<string, any> = {
   start: "flex-start", center: "center", end: "flex-end", between: "space-between", around: "space-around",
@@ -157,9 +171,13 @@ const Icon = ({ props, style }: CompProps) => {
 
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
+  const isSecondary = props.variant === "secondary";
   const bg =
     props.variant === "danger" ? theme.color.danger :
-    props.variant === "secondary" ? "#3a3a44" : theme.color.primary;
+    isSecondary ? "#3a3a44" : theme.color.primary;
+  // Secondary stays white text on its dark chip; primary/danger auto-contrast so
+  // a white button reads with black text (and orange/dark with white).
+  const labelColor = isSecondary ? "#fff" : readableOn(bg);
   return (
     <Pressable
       onPress={() => fire("onPress")}
@@ -169,7 +187,7 @@ const Button = ({ props, style, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{props.label}</Text>
+      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{props.label}</Text>
     </Pressable>
   );
 };
@@ -219,7 +237,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: selected ? "#fff" : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label}</Text>
+      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label}</Text>
     </Pressable>
   );
 };
@@ -458,7 +476,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{label}</Text>
+      <Text style={{ color: recording ? "#fff" : readableOn(theme.color.primary), fontWeight: "700", fontSize: 15 }}>{label}</Text>
     </Pressable>
   );
 };

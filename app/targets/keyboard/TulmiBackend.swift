@@ -95,7 +95,7 @@ enum TulmiBackend {
       background: theme["background"] as? String ?? "#15151b",
       key: theme["key"] as? String ?? "#1c1c25",
       keyText: theme["keyText"] as? String ?? "#ffffff",
-      accent: theme["accent"] as? String ?? "#E8A23C",
+      accent: theme["accent"] as? String ?? "#FFFFFF",
       voice: features["voice"] as? Bool ?? true,
       refine: features["refine"] as? Bool ?? true,
       liveVoice: features["liveVoice"] as? Bool ?? false,

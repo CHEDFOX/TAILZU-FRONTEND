@@ -1,9 +1,9 @@
 /**
  * EmailSendAnimation — the "we're sending your code" moment.
  *
- * A centered white envelope that springs in, with a single sonar ring (the
- * Tailzu brand orange) pulsing outward. No dots, no extra rings — plays
- * full-screen while the OTP is in flight.
+ * A centered white envelope that springs in, with a single white sonar ring
+ * pulsing outward. No dots, no extra rings — plays full-screen while the OTP is
+ * in flight. (Black + white only; the brand orange is reserved for the icon.)
  *
  * Physics: spring-in on the envelope; eased ring expansion. Haptics: a light
  * tick as it leaves, a success notification as it lands.
@@ -16,7 +16,7 @@ import * as Haptics from "expo-haptics";
 const ENV_W = 84;
 const ENV_H = 60;
 const RING = 240;
-const ORANGE = "#E8A23C"; // Tailzu brand accent
+const RING_COLOR = "#FFFFFF";
 const WHITE = "#FFFFFF";
 
 export default function EmailSendAnimation() {
@@ -63,5 +63,5 @@ export default function EmailSendAnimation() {
 
 const styles = StyleSheet.create({
   container: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
-  ring: { position: "absolute", width: RING, height: RING, borderRadius: RING / 2, borderWidth: 1, borderColor: ORANGE },
+  ring: { position: "absolute", width: RING, height: RING, borderRadius: RING / 2, borderWidth: 1, borderColor: RING_COLOR },
 });

@@ -132,7 +132,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       b.backgroundColor = UIColor(tulmiHex: cfg.key)
       b.setTitleColor(UIColor(tulmiHex: cfg.keyText), for: .normal)
     }
-    returnButton?.backgroundColor = UIColor(tulmiHex: cfg.accent)   // config-driven accent
+    let accentColor = UIColor(tulmiHex: cfg.accent)                 // config-driven accent
+    returnButton?.backgroundColor = accentColor
+    // Contrast the "return" label against the accent (black on a white/light
+    // accent, white on a dark one) so it's always legible.
+    returnButton?.setTitleColor(accentColor.tulmiIsLight ? .black : .white, for: .normal)
     statusLabel.textColor = UIColor(tulmiHex: cfg.keyText)
     micButton?.isEnabled = cfg.voice
     micButton?.alpha = cfg.voice ? 1 : 0.4
@@ -288,7 +292,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
     let ret = makeKeyButton(title: "return")
-    ret.backgroundColor = UIColor(red: 0.91, green: 0.635, blue: 0.235, alpha: 1) // #e8a23c Tailzu orange (overridden by accent)
+    ret.backgroundColor = .white            // white "button" (overridden by cfg.accent)
+    ret.setTitleColor(.black, for: .normal) // dark text for contrast on white/light accents
     ret.addTarget(self, action: #selector(returnTapped), for: .touchUpInside)
     returnButton = ret
     [numBtn, globeBtn, space, ret].forEach { bottom.addArrangedSubview($0) }
@@ -810,6 +815,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 // MARK: - Hex color helper
 
 extension UIColor {
+  /// True for light colors (so callers can pick black vs white text for contrast).
+  var tulmiIsLight: Bool {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    getRed(&r, green: &g, blue: &b, alpha: &a)
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 0.6
+  }
+
   /// Parse "#rrggbb" (server theme tokens) into a UIColor; falls back to gray.
   convenience init(tulmiHex hex: String) {
     var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -222,7 +222,7 @@ export default function SduiApp() {
   if (phase === "loading" || !theme) {
     return (
       <View style={[styles.center, { backgroundColor: "#000000" }]}>
-        <ActivityIndicator color="#E8A23C" size="large" />
+        <ActivityIndicator color="#FFFFFF" size="large" />
         <Text style={{ color: "#8a8a96", marginTop: 12 }}>Loading Tulmi…</Text>
       </View>
     );
@@ -441,8 +441,8 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
         Emulator → your PC = http://10.0.2.2:8770. Physical phone → your PC's LAN IP, or your VPS URL.
       </Text>
       <View style={{ height: 16 }} />
-      <Pressable style={[styles.btn, { backgroundColor: "#E8A23C" }]} onPress={connect}>
-        <Text style={styles.btnText}>Connect</Text>
+      <Pressable style={[styles.btn, { backgroundColor: "#FFFFFF" }]} onPress={connect}>
+        <Text style={[styles.btnText, { color: "#000000" }]}>Connect</Text>
       </Pressable>
       <View style={{ height: 8 }} />
       <Pressable style={[styles.btn, { backgroundColor: "#3a3a44" }]} onPress={test}>
