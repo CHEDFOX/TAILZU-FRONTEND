@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   I18nManager,
   Linking,
   Platform,
@@ -27,6 +28,7 @@ import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage } fr
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
+import { getKeyboardStatus } from "../../modules/tulmi-bridge";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
@@ -88,6 +90,10 @@ export default function SduiApp() {
       // Shown once for users still in onboarding (initialScreenId !== "home")
       // who haven't chosen a language yet; afterwards we resume at the keyboard
       // step. The server owns the rest of onboarding.
+      // Onboarding: the language picker is the one native step (Plutto-style),
+      // fed by the backend; everything else — including the keyboard-permission
+      // screen — is a backend SDUI screen. The server owns initialScreenId; once
+      // a language is chosen we hand off to the backend's keyboard step.
       const needsOnboarding = b.initialScreenId !== "home";
       const langPicked = !!(await getLanguage());
       if (needsOnboarding && !langPicked) {
@@ -105,7 +111,7 @@ export default function SduiApp() {
   // re-bootstrap so everything (bootstrap labels + every screen the app fetches)
   // comes back from the backend translated into the selected language — exactly
   // like Plutto. We await the profile write first so the next bootstrap/screen
-  // is localized, not raced. loadBoot then routes on to the keyboard-setup step.
+  // is localized, not raced. loadBoot then routes on to the keyboard step.
   const onLanguageSelect = useCallback(async (code: string) => {
     await setLanguage(code);
     setPhase("loading");
@@ -201,7 +207,7 @@ export default function SduiApp() {
   }
 
   if (phase === "language") {
-    return <LanguageSelectScreen onSelect={onLanguageSelect} />;
+    return <LanguageSelectScreen onSelect={onLanguageSelect} languages={boot?.languages} />;
   }
 
   if (phase === "connect" || showConnection) {
@@ -215,7 +221,7 @@ export default function SduiApp() {
 
   if (phase === "loading" || !theme) {
     return (
-      <View style={[styles.center, { backgroundColor: "#0e0e12" }]}>
+      <View style={[styles.center, { backgroundColor: "#000000" }]}>
         <ActivityIndicator color="#5b4bff" size="large" />
         <Text style={{ color: "#8a8a96", marginTop: 12 }}>Loading Tulmi…</Text>
       </View>
@@ -363,6 +369,26 @@ function ScreenHost({
 }) {
   const store = useMemo(() => new Store(screen.state ?? {}), [screen]);
   const ctx: Ctx = { store, actions: screen.actions ?? {}, flags, labels, nav, toast };
+
+  // Inject live device signals into screen state so the BACKEND can gate on them
+  // declaratively (e.g. only show the "continue" button when the keyboard has
+  // Full Access): $state.keyboardReady / $state.keyboardEnabled. No bridge
+  // (Expo Go) → report ready so nothing is ever blocked in development. Polls
+  // while not-yet-ready and re-checks when the app returns from Settings.
+  useEffect(() => {
+    let stop = false;
+    const sync = () => {
+      const s = getKeyboardStatus();
+      store.set("keyboardEnabled", s ? s.enabled : true);
+      store.set("keyboardReady", s ? s.fullAccess : true);
+      if (s && s.fullAccess) { stop = true; clearInterval(iv); }
+    };
+    sync();
+    const iv = setInterval(() => { if (!stop) sync(); }, 1500);
+    const subAS = AppState.addEventListener("change", (st) => { if (st === "active") sync(); });
+    return () => { clearInterval(iv); subAS.remove(); };
+  }, [store]);
+
   // A screen is either a full `root` tree, or a named `template` + `blocks`.
   const root = screen.root ?? composeTemplate(screen);
   return <RenderNode node={root} ctx={ctx} />;

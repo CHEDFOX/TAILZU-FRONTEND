@@ -1,7 +1,17 @@
 import { requireNativeModule } from "expo-modules-core";
 
+export interface KeyboardStatus {
+  /** The keyboard has run at least once (iOS) / the IME is enabled (Android). */
+  enabled: boolean;
+  /** iOS: "Allow Full Access" granted. Android: same as enabled. */
+  fullAccess: boolean;
+  /** iOS: epoch-ms the keyboard last ran (0 if never). */
+  lastActiveMs: number;
+}
+
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
+  getKeyboardStatus?(): KeyboardStatus | undefined;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -29,6 +39,21 @@ export function setKeyboardCredentials(baseUrl: string, token: string): void {
     native?.setKeyboardCredentials(baseUrl, token);
   } catch {
     // Bridging is best-effort; never let it break the app.
+  }
+}
+
+/**
+ * The keyboard's current state (enabled + Full Access), read from the shared
+ * container. Returns null when the bridge isn't available (Expo Go) so callers
+ * can fall back gracefully instead of trapping the user.
+ */
+export function getKeyboardStatus(): KeyboardStatus | null {
+  try {
+    const s = native?.getKeyboardStatus?.();
+    if (!s) return null;
+    return { enabled: !!s.enabled, fullAccess: !!s.fullAccess, lastActiveMs: Number(s.lastActiveMs) || 0 };
+  } catch {
+    return null;
   }
 }
 

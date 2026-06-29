@@ -15,5 +15,20 @@ public class TulmiBridgeModule: Module {
       defaults?.set(baseUrl, forKey: "tulmi.baseUrl")
       defaults?.set(token, forKey: "tulmi.token")
     }
+
+    // Read the keyboard's published state from the shared App Group. The
+    // keyboard writes these whenever it runs (see KeyboardViewController), so a
+    // non-zero lastActive means it's enabled, and fullAccess reflects whether
+    // the user granted "Allow Full Access".
+    Function("getKeyboardStatus") { () -> [String: Any] in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      let fullAccess = d?.bool(forKey: "tulmi.kb.fullAccess") ?? false
+      let lastActive = d?.double(forKey: "tulmi.kb.lastActive") ?? 0
+      return [
+        "enabled": lastActive > 0,
+        "fullAccess": fullAccess,
+        "lastActiveMs": lastActive,
+      ]
+    }
   }
 }

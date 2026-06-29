@@ -25,6 +25,13 @@ export interface UpdateGate {
   url?: { ios?: string; android?: string; default?: string };
 }
 
+export interface LanguageOption {
+  code: string;
+  name: string;      // endonym shown on the pill
+  greeting: string;  // "hello" in that language (the rotating greeting)
+  regions?: string[];
+}
+
 export interface BootstrapResponse {
   schemaVersion: number;
   theme: ThemeTokens;
@@ -33,6 +40,9 @@ export interface BootstrapResponse {
   flags?: Record<string, boolean | number | string>;
   labels?: Record<string, string>;
   update?: UpdateGate;
+  // The post-auth language picker is fed from here; the app falls back to a
+  // built-in list only when the backend doesn't send one.
+  languages?: LanguageOption[];
   cacheTtlSeconds?: number;
 }
 

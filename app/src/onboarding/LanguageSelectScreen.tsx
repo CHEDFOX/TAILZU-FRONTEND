@@ -49,8 +49,12 @@ export interface Language {
   regions?: string[];
 }
 
-/** Supported languages with native names + greetings (drives the rotation). */
-const LANGUAGES: Language[] = [
+/**
+ * Fallback language list (native names + greetings). Used only when the backend
+ * doesn't send `languages` in bootstrap — the backend list takes priority so
+ * adding/reordering languages is a server-side change.
+ */
+const FALLBACK_LANGUAGES: Language[] = [
   { code: "en", name: "English", greeting: "Hello", regions: ["US", "GB", "CA", "AU", "IN"] },
   { code: "hi", name: "हिन्दी", greeting: "नमस्ते", regions: ["IN"] },
   { code: "es", name: "Español", greeting: "Hola", regions: ["ES", "MX", "AR"] },
@@ -78,11 +82,11 @@ const LANGUAGES: Language[] = [
 ];
 
 /** Device language first, then same-region cluster, then a shuffled remainder. */
-function orderLanguages(deviceLang: string, deviceRegion: string): Language[] {
+function orderLanguages(list: Language[], deviceLang: string, deviceRegion: string): Language[] {
   const matches: Language[] = [];
   const cluster: Language[] = [];
   const rest: Language[] = [];
-  LANGUAGES.forEach((l) => {
+  list.forEach((l) => {
     if (l.code === deviceLang) matches.push(l);
     else if (deviceRegion && l.regions?.includes(deviceRegion)) cluster.push(l);
     else rest.push(l);
@@ -94,13 +98,21 @@ function orderLanguages(deviceLang: string, deviceRegion: string): Language[] {
   return [...matches, ...cluster, ...rest];
 }
 
-export default function LanguageSelectScreen({ onSelect }: { onSelect: (code: string) => void }) {
+export default function LanguageSelectScreen({
+  onSelect,
+  languages,
+}: {
+  onSelect: (code: string) => void;
+  languages?: Language[];
+}) {
   const [arrivalDone, setArrivalDone] = useState(false);
   const [index, setIndex] = useState(0);
 
   const deviceLang = useMemo(() => Localization.getLocales?.()?.[0]?.languageCode || "en", []);
   const deviceRegion = useMemo(() => Localization.getLocales?.()?.[0]?.regionCode || "", []);
-  const langs = useMemo(() => orderLanguages(deviceLang, deviceRegion), [deviceLang, deviceRegion]);
+  // Backend-provided list wins; the built-in list is only a fallback.
+  const source = languages && languages.length ? languages : FALLBACK_LANGUAGES;
+  const langs = useMemo(() => orderLanguages(source, deviceLang, deviceRegion), [source, deviceLang, deviceRegion]);
 
   const arrival = useRef(new Animated.Value(0)).current;
   const greetingFade = useRef(new Animated.Value(1)).current;

@@ -91,8 +91,24 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1) // #15151b-ish
+    writeKeyboardStatus()
     buildKeyboard()
     loadAndApplyConfig()
+  }
+
+  override func viewWillAppear(_ animated: Bool) {
+    super.viewWillAppear(animated)
+    writeKeyboardStatus()
+  }
+
+  /// Publish the keyboard's live state to the shared App Group so the main app
+  /// can detect that the keyboard is enabled and whether Full Access is granted
+  /// (used to gate the onboarding "you're all set" step). Written every time the
+  /// keyboard runs; the presence of a recent timestamp means it's enabled.
+  private func writeKeyboardStatus() {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set(hasFullAccess, forKey: "tulmi.kb.fullAccess")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.lastActive")
   }
 
   // MARK: - Server-driven config (theme/labels/flags), cached for offline
