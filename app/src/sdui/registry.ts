@@ -9,6 +9,8 @@ export const CORE_COMPONENTS = [
   "Overline", "Heading", "Paragraph", "Quote", "Badge", "KeyValue", "Hero",
   // Morphing playground controls (Home):
   "VoiceToggle", "RefineButton", "DraftButton", "Pager",
+  // Settings / list row:
+  "Row",
 ] as const;
 
 export const CORE_ACTIONS = [

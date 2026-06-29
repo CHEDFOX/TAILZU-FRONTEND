@@ -11,6 +11,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
@@ -588,6 +589,39 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
 };
 
 /**
+ * Row — a tappable settings/list row: label on the left, an optional value +
+ * chevron on the right, separated by a hairline. `danger` tints the label (e.g.
+ * Delete account). Fires onPress.
+ */
+const Row = ({ props, style, fire }: CompProps) => {
+  const theme = useTheme();
+  const danger = !!props.danger;
+  const showChevron = props.chevron !== false;
+  return (
+    <Pressable
+      onPress={() => fire("onPress")}
+      style={({ pressed }) => [
+        {
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 17,
+          borderBottomWidth: props.divider === false ? 0 : StyleSheet.hairlineWidth,
+          borderBottomColor: theme.color.border,
+          opacity: pressed ? 0.55 : 1,
+        },
+        style,
+      ]}
+    >
+      <Text style={{ flex: 1, color: danger ? theme.color.danger : theme.color.text, fontSize: 16, fontWeight: "400" }}>
+        {props.label}
+      </Text>
+      {props.value ? <Text style={{ color: theme.color.muted, fontSize: 15, marginRight: showChevron ? 8 : 0 }}>{props.value}</Text> : null}
+      {showChevron ? <Text style={{ color: theme.color.muted, fontSize: 20, marginTop: -2 }}>›</Text> : null}
+    </Pressable>
+  );
+};
+
+/**
  * Pager — horizontal, full-width paged swipe between child "pages" (e.g. the
  * Refine and Reply playgrounds on Home). On arrival it gives a one-time peek
  * nudge (scrolls a touch and springs back) so the user knows there's more to
@@ -651,5 +685,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
-  LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager,
+  LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
 };
