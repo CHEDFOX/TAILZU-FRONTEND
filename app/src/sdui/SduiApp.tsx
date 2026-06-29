@@ -27,6 +27,7 @@ import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl } from "../storage";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import { supabaseAuth } from "../auth/supabaseClient";
+import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
@@ -158,6 +159,15 @@ export default function SduiApp() {
     return { ...boot.theme, color: { ...boot.theme.color, ...(screen.theme.color ?? {}) } };
   }, [boot, screen]);
 
+  // Edge-swipe-back: a general, backend-driven capability (src/sdui/gestures).
+  // Swiping right from the left edge pops the nav stack. Called unconditionally
+  // (before any early return) so hook order stays stable; the zone only renders
+  // when there's somewhere to go back to and the backend hasn't disabled it.
+  const { edgeZone } = useEdgeSwipeBack(
+    stack.length > 1 ? nav.back : null,
+    resolveEdgeSwipe(boot?.flags),
+  );
+
   // --- Render states --------------------------------------------------------
 
   if (phase === "auth") {
@@ -252,6 +262,10 @@ export default function SduiApp() {
           onDismiss={() => setUpdateDismissed(true)}
         />
       )}
+
+      {/* Backend-driven edge-swipe-back zone (left edge). Rendered last so it
+          sits above the screen content; null when there's no back / disabled. */}
+      {edgeZone}
     </View>
   );
 }

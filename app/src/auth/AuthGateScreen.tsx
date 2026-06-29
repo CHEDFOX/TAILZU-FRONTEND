@@ -29,6 +29,8 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import { supabaseAuth } from "./supabaseClient";
+import EmailSendAnimation from "./EmailSendAnimation";
+import { useEdgeSwipeBack } from "../sdui/gestures";
 
 const { width: SW } = Dimensions.get("window");
 const PILL_W = Math.min(320, SW - 56);
@@ -264,6 +266,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const resend = useCallback(() => { if (email) sendCode(email); }, [email, sendCode]);
 
+  // Swipe-right-from-the-left-edge to go back to the email screen — the same
+  // general capability used across the app (src/sdui/gestures). Rendered only
+  // on the code step (below). Physics + medium-impact haptic on commit.
+  const { edgeZone } = useEdgeSwipeBack(goBack);
+
   const onApple = useCallback(async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -303,7 +310,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             </Animated.View>
           )}
 
-          {phase === "sending" && <MicroLoader />}
+          {phase === "sending" && <EmailSendAnimation />}
 
           {(phase === "verify" || phase === "verifying") && (
             <Animated.View style={[s.block, { opacity: verifyFade }]}>
@@ -330,14 +337,25 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               />
               <View style={s.verifyStatus}>{phase === "verifying" ? <MicroLoader /> : null}</View>
               <View style={s.divider} />
+              {/* Code step: just the resend control. Back is the top-left arrow
+                  / edge-swipe (both below) — exactly like Plutto. */}
               <View style={s.verifyActions}>
-                <TouchableOpacity onPress={goBack} style={s.social} activeOpacity={0.6}><Back /></TouchableOpacity>
                 <TouchableOpacity onPress={resend} style={s.social} activeOpacity={0.6}><Resend /></TouchableOpacity>
               </View>
             </Animated.View>
           )}
         </Animated.View>
       </KeyboardAvoidingView>
+
+      {/* Top-left back arrow (code step) — return to the email screen. */}
+      {(phase === "verify" || phase === "verifying") && (
+        <TouchableOpacity onPress={goBack} style={s.backTopLeft} activeOpacity={0.6} hitSlop={12}>
+          <Back />
+        </TouchableOpacity>
+      )}
+
+      {/* Edge-swipe-back zone — only on the code step. */}
+      {(phase === "verify" || phase === "verifying") ? edgeZone : null}
     </Animated.View>
   );
 }
@@ -345,6 +363,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: VOID },
   kav: { flex: 1 },
+  backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   stack: { flex: 1, alignItems: "center", justifyContent: "center" },
   block: { alignItems: "center", width: "100%" },
 
