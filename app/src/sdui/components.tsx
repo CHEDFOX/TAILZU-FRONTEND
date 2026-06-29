@@ -600,15 +600,22 @@ const Pager = ({ children, props }: CompProps) => {
   const pages = React.Children.toArray(children);
   const hint = props.hint !== false && pages.length > 1;
   const peek = Number(props.peek) || 42;
+  // A real spring-driven nudge (not a flat scroll): the page physically slides a
+  // little to reveal the next section, then settles back with a soft bounce —
+  // so the swipe is discoverable. Drives the ScrollView offset via a listener.
+  const nudge = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!hint) return;
+    const sub = nudge.addListener(({ value }) => ref.current?.scrollTo({ x: value, animated: false }));
     const t = setTimeout(() => {
-      ref.current?.scrollTo({ x: peek, animated: true });
-      setTimeout(() => ref.current?.scrollTo({ x: 0, animated: true }), 480);
+      Animated.sequence([
+        Animated.spring(nudge, { toValue: peek, friction: 6, tension: 70, useNativeDriver: false }),
+        Animated.spring(nudge, { toValue: 0, friction: 7, tension: 55, useNativeDriver: false }),
+      ]).start(() => nudge.removeListener(sub));
     }, 650);
-    return () => clearTimeout(t);
-  }, [hint, peek]);
+    return () => { clearTimeout(t); nudge.removeListener(sub); };
+  }, [hint, peek, nudge]);
 
   return (
     <View style={{ flex: 1 }}>
