@@ -16,6 +16,13 @@ public class TulmiBridgeModule: Module {
       defaults?.set(token, forKey: "tulmi.token")
     }
 
+    // Text-expansion dictionary (JSON array of { word, replacement }). The
+    // keyboard reads this from the App Group and expands typed triggers.
+    Function("setDictionary") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(json, forKey: "tulmi.dictionary")
+    }
+
     // Read the keyboard's published state from the shared App Group. The
     // keyboard writes these whenever it runs (see KeyboardViewController), so a
     // non-zero lastActive means it's enabled, and fullAccess reflects whether

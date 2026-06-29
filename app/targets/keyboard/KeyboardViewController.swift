@@ -92,6 +92,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     super.viewDidLoad()
     view.backgroundColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1) // #15151b-ish
     writeKeyboardStatus()
+    loadDictionary()
     buildKeyboard()
     loadAndApplyConfig()
   }
@@ -99,6 +100,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
+    loadDictionary() // pick up edits made in the app
   }
 
   /// Publish the keyboard's live state to the shared App Group so the main app
@@ -109,6 +111,42 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
     d?.set(hasFullAccess, forKey: "tulmi.kb.fullAccess")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.lastActive")
+  }
+
+  // MARK: - Text-expansion dictionary (trigger → replacement, from the app)
+
+  /// trigger (lowercased) → replacement. Loaded from the shared App Group, which
+  /// the app writes when the user edits their Dictionary on Home.
+  private var expansions: [String: String] = [:]
+
+  private func loadDictionary() {
+    guard let json = UserDefaults(suiteName: "group.com.tulmi.app")?.string(forKey: "tulmi.dictionary"),
+          let data = json.data(using: .utf8),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+    var map: [String: String] = [:]
+    for e in arr {
+      if let w = e["word"] as? String, let r = e["replacement"] as? String, !w.isEmpty {
+        map[w.lowercased()] = r
+      }
+    }
+    expansions = map
+  }
+
+  /// If the word right before the cursor is a trigger, replace it. Returns true
+  /// when an expansion happened.
+  private func expandLastWord() -> Bool {
+    guard !expansions.isEmpty else { return false }
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    var word = ""
+    for ch in before.reversed() {
+      if ch == " " || ch == "\n" || ch == "\t" { break }
+      word.insert(ch, at: word.startIndex)
+    }
+    guard !word.isEmpty, let repl = expansions[word.lowercased()] else { return false }
+    for _ in 0..<word.count { textDocumentProxy.deleteBackward() }
+    textDocumentProxy.insertText(repl)
+    if hasFullAccess { selectionHaptic.selectionChanged() }
+    return true
   }
 
   // MARK: - Server-driven config (theme/labels/flags), cached for offline
@@ -525,6 +563,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   @objc private func spaceTapped() {
     let now = Date().timeIntervalSince1970
+    // Text-expansion: if the just-typed word is a dictionary trigger, swap it
+    // for its replacement before inserting the space.
+    if expandLastWord() {
+      textDocumentProxy.insertText(" ")
+      lastSpaceTime = now
+      return
+    }
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
     // Double-space → ". " (when the char before the trailing space is a letter/number).
     if (now - lastSpaceTime) < 0.6, before.hasSuffix(" "), before.count >= 2 {

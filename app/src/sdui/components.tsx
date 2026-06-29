@@ -28,6 +28,7 @@ import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
+import { DictionaryEditor, WordChips } from "./dictionary";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -665,7 +666,7 @@ const Pager = ({ children, props }: CompProps) => {
   }, [hint, peek, nudge]);
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={props.height ? { height: Number(props.height) } : { flex: 1 }}>
       <ScrollView
         ref={ref}
         horizontal
@@ -699,4 +700,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
+  DictionaryEditor, WordChips,
 };

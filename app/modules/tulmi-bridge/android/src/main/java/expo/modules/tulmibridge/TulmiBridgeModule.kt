@@ -22,6 +22,15 @@ class TulmiBridgeModule : Module() {
         .apply()
     }
 
+    // Text-expansion dictionary (JSON array of { word, replacement }).
+    Function("setDictionary") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      ctx.getSharedPreferences("tulmi", Context.MODE_PRIVATE)
+        .edit()
+        .putString("tulmi.dictionary", json)
+        .apply()
+    }
+
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being
     // enabled is the permission the onboarding gate waits for.

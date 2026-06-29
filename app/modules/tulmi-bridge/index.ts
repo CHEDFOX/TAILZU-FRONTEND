@@ -12,6 +12,7 @@ export interface KeyboardStatus {
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
+  setDictionary?(json: string): void;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -54,6 +55,20 @@ export function getKeyboardStatus(): KeyboardStatus | null {
     return { enabled: !!s.enabled, fullAccess: !!s.fullAccess, lastActiveMs: Number(s.lastActiveMs) || 0 };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Push the user's text-expansion dictionary to the keyboard via the shared
+ * container (App Group on iOS / SharedPreferences on Android). The keyboard
+ * reads this and expands a typed trigger word into its replacement.
+ * `entries` is a list of { word, replacement }.
+ */
+export function setKeyboardDictionary(entries: { word: string; replacement: string }[]): void {
+  try {
+    native?.setDictionary?.(JSON.stringify(entries ?? []));
+  } catch {
+    // best-effort; never block the app
   }
 }
 

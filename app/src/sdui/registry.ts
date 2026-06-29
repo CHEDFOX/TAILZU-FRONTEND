@@ -11,6 +11,8 @@ export const CORE_COMPONENTS = [
   "VoiceToggle", "RefineButton", "DraftButton", "Pager",
   // Settings / list row:
   "Row",
+  // Dictionary (keyboard text-expansion) + frequent words:
+  "DictionaryEditor", "WordChips",
 ] as const;
 
 export const CORE_ACTIONS = [
