@@ -37,8 +37,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var returnButton: UIButton?
   private var shiftButton: UIButton?
   private var pageToggleButton: UIButton?         // bottom-left 123 / ABC
+  private var undoButton: UIButton!               // top-bar undo — reverts the last insert
   private var currentTone = "Formal"
   private let tones = ["Formal", "Casual", "Very Casual", "Excited"]
+
+  // Last insert tracking for the top-bar UNDO. Whenever we insert cleaned voice
+  // text, refined text, or a paste, we record what we inserted here so a single
+  // undo tap can delete exactly that string. `lastRawTranscript` (if set) is
+  // re-inserted in its place — used by refine to revert to the pre-refine text.
+  private var lastInserted: String?
+  private var lastRawTranscript: String?
 
   // Native-feel key press haptic (KeyboardKit standard = selectionChanged on tap).
   // Requires "Allow Full Access"; UISelectionFeedbackGenerator is silent without it.
@@ -210,15 +218,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     topBar.spacing = 10
     let menuBtn = makeGlyphButton(symbol: "line.3.horizontal")
     menuBtn.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
-    let undoBtn = makeGlyphButton(symbol: "arrow.uturn.backward")
-    undoBtn.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+    undoButton = makeGlyphButton(symbol: "arrow.uturn.backward")
+    undoButton.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
     let flex = UIView()
     flex.setContentHuggingPriority(.defaultLow, for: .horizontal)
     flex.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     tonePill = makeTonePill(title: currentTone)
     micButton = makeCircleButton(symbol: "mic.fill")
     micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
-    [menuBtn, undoBtn, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
+    [menuBtn, undoButton!, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
     topBar.heightAnchor.constraint(equalToConstant: 40).isActive = true
     stack.addArrangedSubview(topBar)
 
@@ -418,7 +426,21 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   @objc private func menuTapped() { /* options menu — wired later */ }
 
   @objc private func undoTapped() {
-    // Undo the last word.
+    // Priority 1: if we tracked the last insert (voice-clean, streaming final,
+    // or refine), delete exactly that many chars and optionally re-insert the
+    // pre-refine raw so undo reads as "revert refine".
+    if let last = lastInserted, !last.isEmpty {
+      let proxy = textDocumentProxy
+      for _ in 0..<last.count { proxy.deleteBackward() }
+      if let raw = lastRawTranscript, !raw.isEmpty { proxy.insertText(raw) }
+      lastInserted = nil
+      lastRawTranscript = nil
+      if hasFullAccess { selectionHaptic.selectionChanged() }
+      flashUndoCheckmark()
+      return
+    }
+    // Fallback: last-word delete (original behavior — useful for keys typed by
+    // hand, which aren't tracked as a single insert).
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
     if before.isEmpty { return }
     var count = 0
@@ -428,6 +450,19 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       count += 1
     }
     for _ in 0..<max(count, 1) { textDocumentProxy.deleteBackward() }
+    if hasFullAccess { selectionHaptic.selectionChanged() }
+    flashUndoCheckmark()
+  }
+
+  /// Briefly swap the undo glyph for a checkmark so the user sees the action
+  /// landed. Matches the native "confirmed" affordance without any new colors.
+  private func flashUndoCheckmark() {
+    guard let btn = undoButton else { return }
+    let original = UIImage(systemName: "arrow.uturn.backward")
+    btn.setImage(UIImage(systemName: "checkmark"), for: .normal)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak btn] in
+      btn?.setImage(original, for: .normal)
+    }
   }
 
   private func makeKeyButton(title: String) -> UIButton {
@@ -707,9 +742,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func commitFinal(_ text: String) {
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
-    proxy.insertText(text.hasSuffix(" ") ? text : text + " ")
+    let inserted = text.hasSuffix(" ") ? text : text + " "
+    proxy.insertText(inserted)
     pendingPartial = ""
     dictatedSomething = true
+    // Track for the top-bar UNDO. Multiple finals in one session collapse to
+    // "undo the most recent final" — matches user expectation of "take back
+    // what just appeared".
+    lastInserted = inserted
+    lastRawTranscript = nil
   }
 
   private func stopStreaming() {
@@ -791,6 +832,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         switch result {
         case .success(let cleaned):
           self.textDocumentProxy.insertText(cleaned)
+          self.lastInserted = cleaned
+          self.lastRawTranscript = nil
           self.setStatus("")
         case .failure(let err):
           self.setStatus("Error: \(err.localizedDescription)")
@@ -837,6 +880,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     proxy.adjustTextPosition(byCharacterOffset: after.count)
     for _ in 0..<(before.count + after.count) { proxy.deleteBackward() }
     proxy.insertText(newText)
+    // Track for UNDO: keep the pre-refine text as "raw" so a single undo tap
+    // reverts refine back to what the user originally had.
+    lastInserted = newText
+    lastRawTranscript = before + after
   }
 
   // MARK: - Status

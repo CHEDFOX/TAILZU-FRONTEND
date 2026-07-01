@@ -37,6 +37,19 @@ class Stream(
     private var record: AudioRecord? = null
     @Volatile private var capturing = false
 
+    /**
+     * Backpressure cap — mirrors iOS TulmiStream.swift `sendCapBytes`. The IME
+     * process has a hard memory ceiling and unbounded audio queuing on a
+     * slow/failing socket gets it OOM-killed. We rely on OkHttp's own accounting
+     * via `WebSocket.queueSize()` (bytes queued to be transmitted) rather than
+     * a manual counter, since OkHttp's `send()` has no completion callback that
+     * would let us decrement one accurately. We drop the NEWEST frames when
+     * over cap (iOS drops newest too), and log the first drop only so a bad
+     * network doesn't flood logcat.
+     */
+    private val sendCapBytes = 2 * 1024 * 1024
+    @Volatile private var dropLogged = false
+
     fun start(targetApp: String, language: String) {
         val req = Request.Builder()
             .url(Net.streamUrl())
@@ -112,7 +125,20 @@ class Stream(
             val buf = ByteArray(bufSize)
             while (capturing) {
                 val n = rec.read(buf, 0, buf.size)
-                if (n > 0) webSocket.send(ByteString.of(buf, 0, n))
+                if (n <= 0) continue
+                // Drop newest frames when the socket is backlogged rather than
+                // queuing forever (keyboard process would OOM). Matches iOS.
+                if (webSocket.queueSize() + n > sendCapBytes) {
+                    if (!dropLogged) {
+                        dropLogged = true
+                        android.util.Log.w(
+                            "TulmiStream",
+                            "backpressure: dropping audio frames (queueSize=${webSocket.queueSize()}, cap=$sendCapBytes)",
+                        )
+                    }
+                    continue
+                }
+                webSocket.send(ByteString.of(buf, 0, n))
             }
         }
     }

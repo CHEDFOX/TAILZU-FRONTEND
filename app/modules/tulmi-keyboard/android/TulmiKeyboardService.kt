@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.Keyboard
 import android.inputmethodservice.KeyboardView
@@ -13,7 +14,9 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.inputmethod.ExtractedTextRequest
+import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import java.io.File
@@ -32,9 +35,22 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private lateinit var keyboard: Keyboard
     private var statusView: TextView? = null
     private var rootView: View? = null
+    private var tonePill: Button? = null
 
     /** Server-driven config (theme/labels/flags); null until fetched/cached. */
     private var kbConfig: Net.KbConfig? = null
+
+    // Tone / emoji preferences persist in SharedPreferences under the same file
+    // the config cache uses ("tulmi_kb") — keeps everything keyboard-scoped in
+    // one place. Loaded on onCreateInputView, saved on every menu selection.
+    private var currentTone = "Neutral"
+    private var emojiOn = true
+
+    // One-shot command from the tone menu (Shorter / Longer / Bullet points).
+    // Consumed by the next successful transcription: we append it to the field
+    // as a trailing "…make it shorter" so the backend's command-mode detector
+    // picks it up on refine. Reset once consumed.
+    private var pendingCommand: String? = null
 
     private var caps = false
     private var recorder: MediaRecorder? = null
@@ -70,10 +86,96 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         keyboardView.keyboard = keyboard
         keyboardView.setOnKeyboardActionListener(this)
         rootView = root
+
+        // Tone pill (top-bar). Mirrors the iOS tonePill: shows the current tone,
+        // opens a PopupMenu with tones + emoji toggle + one-shot commands.
+        val pillId = resources.getIdentifier("tone_pill", "id", packageName)
+        if (pillId != 0) {
+            tonePill = root.findViewById(pillId)
+        }
+        loadTonePrefs()
+        setupTonePill()
+
         // Pick up the backend URL + user token the app shared before any request.
         Net.load(this)
         loadAndApplyConfig()
         return root
+    }
+
+    // --- tone pill / command palette ---------------------------------------
+
+    private fun loadTonePrefs() {
+        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        currentTone = prefs.getString("tone", "Neutral") ?: "Neutral"
+        emojiOn = prefs.getBoolean("emoji", true)
+    }
+
+    private fun persistTonePrefs() {
+        getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE).edit()
+            .putString("tone", currentTone)
+            .putBoolean("emoji", emojiOn)
+            .apply()
+    }
+
+    private fun setupTonePill() {
+        val pill = tonePill ?: return
+        pill.text = currentTone
+        // Rounded background built at runtime so we don't need a new drawable
+        // resource file. Corner radius = half the pill height for a full pill.
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 18f * resources.displayMetrics.density
+            setColor(Color.WHITE)
+        }
+        pill.background = bg
+        pill.setOnClickListener { anchor -> showToneMenu(anchor) }
+    }
+
+    /** Popup: three tones + Emoji On/Off + one-shot Shorter/Longer/Bullet points. */
+    private fun showToneMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        val menu = popup.menu
+        val tones = arrayOf("Casual", "Neutral", "Formal")
+        // Menu item IDs: use stable index-based ids so we can identify selection
+        // without enum overhead. 1-3 = tones, 4 = emoji, 5-7 = one-shot commands.
+        tones.forEachIndexed { i, t ->
+            val label = if (t == currentTone) "$t ✓" else t
+            menu.add(0, i + 1, i, label)
+        }
+        menu.add(0, 4, 3, if (emojiOn) "Emoji: On ✓" else "Emoji: Off")
+        menu.add(0, 5, 4, "Shorter")
+        menu.add(0, 6, 5, "Longer")
+        menu.add(0, 7, 6, "Bullet points")
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1, 2, 3 -> {
+                    currentTone = tones[item.itemId - 1]
+                    tonePill?.text = currentTone
+                    persistTonePrefs()
+                }
+                4 -> {
+                    emojiOn = !emojiOn
+                    persistTonePrefs()
+                }
+                5 -> pendingCommand = "make it shorter"
+                6 -> pendingCommand = "make it longer"
+                7 -> pendingCommand = "format as bullet points"
+            }
+            true
+        }
+        popup.show()
+    }
+
+    /**
+     * If the user picked a one-shot command from the tone menu, append it to
+     * the field as a trailing suffix like "…make it shorter" so the backend's
+     * command-mode detector catches it on the next refine call. Consumed once.
+     */
+    private fun applyPendingCommandToField() {
+        val cmd = pendingCommand ?: return
+        val ic = currentInputConnection ?: return
+        ic.commitText(" …$cmd", 1)
+        pendingCommand = null
     }
 
     // --- server-driven config (theme/labels/flags), cached for offline -------
@@ -102,6 +204,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             rootView?.setBackgroundColor(bg)
             keyboardView.setBackgroundColor(bg)
             statusView?.setTextColor(Color.parseColor(cfg.keyText))
+            // Theme the tone pill from cfg.accent so it inherits the same white
+            // (or brand-tinted) affordance as the return key on iOS.
+            try {
+                val accent = Color.parseColor(cfg.accent)
+                (tonePill?.background as? GradientDrawable)?.setColor(accent)
+                val lum = 0.299 * Color.red(accent) + 0.587 * Color.green(accent) + 0.114 * Color.blue(accent)
+                tonePill?.setTextColor(if (lum > 153) Color.BLACK else Color.WHITE)
+            } catch (_: Exception) { /* keep default */ }
         } catch (_: Exception) { /* malformed color → ignore */ }
     }
 
@@ -201,7 +311,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     /** Dictation closed → auto-refine what was just spoken (replaces the old ✨ key). */
     private fun onDictationClosed() {
         endStreaming()
-        if (dictatedSomething && kbConfig?.refine != false) refineField()
+        if (dictatedSomething) {
+            // If the user picked a one-shot command from the tone menu, drop it
+            // in as a trailing suffix before refine — the backend command-mode
+            // detector reads the field and rewrites accordingly.
+            applyPendingCommandToField()
+            if (kbConfig?.refine != false) refineField()
+        }
         dictatedSomething = false
     }
 
@@ -251,6 +367,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 val cleaned = Net.transcribeClean(file, target)
                 main.post {
                     currentInputConnection?.commitText(cleaned, 1)
+                    applyPendingCommandToField()
                     setStatus("")
                 }
             } catch (e: Exception) {
