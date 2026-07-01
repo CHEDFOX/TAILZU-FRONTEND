@@ -3,10 +3,11 @@
  * real behavior (navigation, network, state, haptics, toasts…).
  */
 import { Linking, Platform, Vibration } from "react-native";
+import * as Haptics from "expo-haptics";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
 import { callEndpoint } from "./client";
-import { signOut } from "../auth/auth";
+import { supabase } from "../auth/supabaseClient";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -106,7 +107,39 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       ctx.store.toggle(action.path);
       break;
     case "haptic":
-      Vibration.vibrate(action.style === "heavy" ? 30 : action.style === "medium" ? 18 : 10);
+      // iOS gets true Taptic Engine feedback for every schema style; Android
+      // falls back to Vibration for impact styles (notification patterns are
+      // iOS-only). Silent on unsupported styles rather than throwing.
+      if (Platform.OS === "ios") {
+        try {
+          switch (action.style) {
+            case "light":
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); break;
+            case "medium":
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); break;
+            case "heavy":
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); break;
+            case "selection":
+              await Haptics.selectionAsync(); break;
+            case "success":
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); break;
+            case "warning":
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); break;
+            case "error":
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); break;
+          }
+        } catch {
+          /* haptics blocked in some contexts (e.g. background) — ignore */
+        }
+      } else {
+        Vibration.vibrate(
+          action.style === "heavy" ? 30
+          : action.style === "medium" ? 18
+          : action.style === "success" ? [0, 15, 40, 15]
+          : action.style === "error" ? [0, 15, 40, 15, 40, 15]
+          : 10,
+        );
+      }
       break;
     case "toast":
       ctx.toast(action.message, action.tone);
@@ -140,8 +173,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       await runAction(evalCondition(action.if, ctx) ? action.then : action.else, ctx);
       break;
     case "signOut":
-      // Clears the session; SduiApp's onAuthChange listener shows the gate.
-      await signOut();
+      // Clears the SecureStore-persisted Supabase session; SduiApp's
+      // onAuthStateChange listener flips back to the auth gate.
+      await supabase.auth.signOut();
       break;
     case "speak":
     case "playMedia":

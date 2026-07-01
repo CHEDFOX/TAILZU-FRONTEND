@@ -1,10 +1,11 @@
 /**
  * SDUI transport. Talks to the Experience service (/v1/app/*) with the same
- * base URL + dev auth as src/api.ts.
+ * base URL + Supabase auth as src/api.ts.
  */
-import { Platform } from "react-native";
+import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
+import * as Localization from "expo-localization";
 import { getBaseUrl, getLanguage } from "../storage";
-import { getAccessToken } from "../auth/auth";
+import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type { BootstrapResponse, ScreenResponse } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
@@ -48,6 +49,9 @@ async function commonHeaders(): Promise<Record<string, string>> {
 }
 
 export function buildCapabilities() {
+  const { width, height } = Dimensions.get("window");
+  const colorScheme = Appearance.getColorScheme() === "dark" ? "dark" : "light";
+  const locale = Localization.getLocales?.()[0]?.languageTag ?? "en-US";
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
@@ -55,6 +59,18 @@ export function buildCapabilities() {
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
+    device: {
+      width: Math.round(width),
+      height: Math.round(height),
+      scale: PixelRatio.get(),
+      colorScheme,
+      locale,
+      // The renderer disables non-essential motion when the OS asks (a11y).
+      // We don't currently plumb AccessibilityInfo through this synchronous
+      // capability builder; the server-side default is "assume off".
+      reduceMotion: false,
+      rtl: I18nManager.isRTL,
+    },
   };
 }
 

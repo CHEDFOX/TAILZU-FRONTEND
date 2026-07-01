@@ -647,11 +647,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Live (streaming) dictation
 
   private func startStreaming() {
+    // Full Access is required for network AND mic in a keyboard extension.
+    // Without it, requestRecordPermission returns false with no explanation,
+    // so we check first and route the user to Settings with a clear message.
+    guard self.hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."))
+      return
+    }
     AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
         guard granted else {
-          self.setStatus("Open the Tulmi app once to allow microphone access.")
+          self.setStatus(label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
           return
         }
         self.beginStreaming()
@@ -719,12 +726,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func startRecording() {
+    guard self.hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."))
+      return
+    }
     let session = AVAudioSession.sharedInstance()
     session.requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
         guard granted else {
-          self.setStatus("Open the Tulmi app once to allow microphone access.")
+          self.setStatus(label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
           return
         }
         self.beginRecording(session: session)

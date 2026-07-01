@@ -30,6 +30,19 @@ final class TulmiStream: NSObject {
   )!
   private var tapInstalled = false
 
+  /// Backpressure: track in-flight WS sends so a slow/failing socket can't queue
+  /// audio indefinitely. Keyboard extensions have a ~60 MB memory ceiling —
+  /// unbounded queuing gets the process killed. When we hit the cap we drop
+  /// the newest frames (aka "spill from the end") rather than the oldest,
+  /// which keeps the transcript in temporal order.
+  private let sendCapBytes = 2 * 1024 * 1024   // 2 MB in-flight ≈ 60s of 16k PCM
+  private var inFlightBytes = 0
+  private let sendQueue = DispatchQueue(label: "TulmiStream.send")
+
+  /// Set when the caller invoked finish(); differentiates a graceful close
+  /// from a mid-stream socket failure in receiveLoop.
+  private var finishing = false
+
   init(onEvent: @escaping (Event) -> Void) {
     self.onEvent = onEvent
     super.init()
@@ -69,6 +82,7 @@ final class TulmiStream: NSObject {
 
   /// Stop the mic, tell the server we're done, and close gracefully.
   func finish() {
+    finishing = true
     stopCapture()
     if let task = task {
       task.send(.string("{\"type\":\"stop\"}")) { _ in
@@ -80,6 +94,7 @@ final class TulmiStream: NSObject {
 
   /// Abort immediately (keyboard dismissed, error, etc.).
   func cancel() {
+    finishing = true
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
@@ -118,7 +133,10 @@ final class TulmiStream: NSObject {
       tapInstalled = false
     }
     if engine.isRunning { engine.stop() }
-    try? AVAudioSession.sharedInstance().setActive(false)
+    // Notify other apps (Music, Podcasts) so they resume playback where they
+    // were paused when we activated the session. Without this flag the user's
+    // music stays silent until they tap play again.
+    try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
   }
 
   /// Resample the mic buffer to 16 kHz mono Int16 and send it as a binary frame.
@@ -141,7 +159,19 @@ final class TulmiStream: NSObject {
     }
     guard status != .error, out.frameLength > 0, let ch = out.int16ChannelData else { return }
     let data = Data(bytes: ch[0], count: Int(out.frameLength) * MemoryLayout<Int16>.size)
-    task.send(.data(data)) { _ in }
+
+    // Drop new frames if the socket is backlogged — better a small audio gap
+    // than an OOM kill of the keyboard extension.
+    var willDrop = false
+    sendQueue.sync {
+      if inFlightBytes + data.count > sendCapBytes { willDrop = true }
+      else { inFlightBytes += data.count }
+    }
+    if willDrop { return }
+
+    task.send(.data(data)) { [weak self] _ in
+      self?.sendQueue.async { self?.inFlightBytes -= data.count }
+    }
   }
 
   // MARK: - Receive
@@ -150,8 +180,15 @@ final class TulmiStream: NSObject {
     task?.receive { [weak self] result in
       guard let self = self else { return }
       switch result {
-      case .failure:
-        self.onEvent(.closed)
+      case .failure(let err):
+        // Distinguish a graceful close from a mid-stream network failure so
+        // the keyboard doesn't auto-refine a partial-that-never-finalized.
+        if self.finishing {
+          self.onEvent(.closed)
+        } else {
+          self.onEvent(.error("stream lost: \(err.localizedDescription)"))
+          self.onEvent(.closed)
+        }
       case .success(let message):
         switch message {
         case .string(let text): self.handleMessage(text)

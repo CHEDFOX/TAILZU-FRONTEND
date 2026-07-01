@@ -1,8 +1,15 @@
 /**
  * SDUI types — the client mirror of the backend's server-driven UI contract.
  *
- * Kept local so the Expo bundler doesn't reach outside the app package — same
- * pattern as src/api.ts. Keep in sync with the backend's shared SDUI schema.
+ * SOURCE OF TRUTH: TAILZU-BACKEND/shared/types/sdui.ts. Keep this file in sync
+ * with that one by hand. Same rules for TAILZU-BACKEND/shared/types/api.ts →
+ * ../api.ts (in src/api.ts).
+ *
+ * Divergence-catching: we mirror the backend's exact enums (HapticStyle,
+ * MotionPreset) so a payload that names one the client can't handle turns into
+ * a TS error at review time instead of a silent runtime miss. The `props`/
+ * `style` bags stay `Record<string, any>` here because the RN renderer reads
+ * them polymorphically — a stricter shape would fight the component registry.
  */
 
 export interface ThemeTokens {
@@ -51,9 +58,19 @@ export type NodeEvent =
   | "onAppear" | "onDisappear" | "onRefresh" | "onEndReached"
   | "onResult" | "onError";
 
+/** Server-authored motion preset. The registry rejects anything else. */
+export type MotionPreset =
+  | "fade"
+  | "fadeInUp"
+  | "fadeInDown"
+  | "scaleIn"
+  | "slideInLeft"
+  | "slideInRight"
+  | "pulse";
+
 export interface MotionSpec {
-  appear?: string;
-  exit?: string;
+  appear?: MotionPreset;
+  exit?: MotionPreset;
   durationMs?: number;
   delayMs?: number;
   loop?: boolean;
@@ -87,6 +104,17 @@ export interface ScreenResponse {
 
 export type ActionRef = string | ActionSpec;
 
+/** Feedback style the action interpreter maps to real haptics/vibration.
+ *  Kept aligned with the backend so an unknown value is a TS error. */
+export type HapticStyle =
+  | "light"
+  | "medium"
+  | "heavy"
+  | "selection"
+  | "success"
+  | "warning"
+  | "error";
+
 export type ActionSpec =
   | { kind: "navigate"; screenId: string; params?: Record<string, any> }
   | { kind: "navigateBack" }
@@ -106,7 +134,7 @@ export type ActionSpec =
   | { kind: "refresh" }
   | { kind: "setState"; path: string; value: any }
   | { kind: "toggleState"; path: string }
-  | { kind: "haptic"; style: string }
+  | { kind: "haptic"; style: HapticStyle }
   | { kind: "toast"; message: string; tone?: "info" | "success" | "error" }
   | { kind: "playMedia"; url: string }
   | { kind: "speak"; text: string }
@@ -121,3 +149,35 @@ export type Condition =
   | { not: Condition }
   | { all: Condition[] }
   | { any: Condition[] };
+
+// ===========================================================================
+// Keyboard config — the OS-legal "SDUI" for the native keyboard extension.
+// ===========================================================================
+// Kept here (not just in the native code) so the app can preview / validate
+// what the keyboard will render, and so a config regression turns into a TS
+// error rather than a silent runtime miss.
+
+export interface KeyboardConfigResponse {
+  schemaVersion: number;
+  theme: {
+    background: string;
+    key: string;
+    keyText: string;
+    accent: string;
+    keyPressed: string;
+  };
+  layouts: KeyboardLayout[];
+  features: {
+    voice: boolean;
+    refine: boolean;
+    /** Show a live-streaming dictation UI vs. one-shot. */
+    streaming: boolean;
+  };
+  labels: Record<string, string>;
+  cacheTtlSeconds: number;
+}
+
+export interface KeyboardLayout {
+  language: string;
+  rows: string[][];
+}
