@@ -51,6 +51,12 @@ export interface BootstrapResponse {
   // built-in list only when the backend doesn't send one.
   languages?: LanguageOption[];
   cacheTtlSeconds?: number;
+  /**
+   * Opaque cache token; the client compares against the value it last saw and
+   * drops any cached screens when it differs. Bumped on server restart or via
+   * the admin `/v1/admin/cache/bump` endpoint.
+   */
+  cacheVersion?: string;
 }
 
 export type NodeEvent =
@@ -139,6 +145,7 @@ export type ActionSpec =
   | { kind: "playMedia"; url: string }
   | { kind: "speak"; text: string }
   | { kind: "signOut" }
+  | { kind: "clearCache" }
   | { kind: "sequence"; actions: ActionRef[] }
   | { kind: "condition"; if: Condition; then: ActionRef; else?: ActionRef };
 
