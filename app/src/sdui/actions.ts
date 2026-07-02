@@ -177,6 +177,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // onAuthStateChange listener flips back to the auth gate.
       await supabase.auth.signOut();
       break;
+    case "clearCache":
+      // Server-triggered cache invalidation. Today the client has no
+      // persistent SDUI cache to wipe (screens are always fetched fresh
+      // under `no-store`), so all we need to do is re-run the current
+      // screen fetch. When persistent screen caching lands, wire it here.
+      ctx.nav.reloadCurrent();
+      break;
     case "speak":
     case "playMedia":
       // Wired in a later phase (uses /v1/speak); no-op for now.

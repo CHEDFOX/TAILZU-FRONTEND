@@ -74,6 +74,18 @@ export function buildCapabilities() {
   };
 }
 
+/**
+ * Retryable-error tag. 429 (rate-limited) and 5xx (transient backend errors)
+ * are worth retrying; 4xx client errors are not. Kept as a class so
+ * `withRetry` can type-check the branch without brittle string parsing.
+ */
+class RetryableFetchError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "RetryableFetchError";
+  }
+}
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
@@ -81,20 +93,56 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  if (!res.ok) {
+    // 429 (rate-limit) and 5xx (server) → let `withRetry` back off and try
+    // again; other 4xx are permanent (bad screen id, unauthorized) — throw a
+    // plain Error and stop.
+    if (res.status === 429 || res.status >= 500) {
+      throw new RetryableFetchError(res.status, `${path} → ${res.status}`);
+    }
+    throw new Error(`${path} → ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
+/**
+ * Retry-with-backoff for transient failures (429 / 5xx / network). Exponential:
+ * ~200 ms, 400 ms, 800 ms, capped at 2 s. Only retries the `RetryableFetchError`
+ * class and native network errors (TypeError from fetch); permanent 4xx errors
+ * short-circuit on the first attempt.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const retryable =
+        err instanceof RetryableFetchError || err instanceof TypeError;
+      if (!retryable || i === attempts - 1) throw err;
+      const backoff = Math.min(2000, 200 * Math.pow(2, i));
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  // TS control-flow appeaser: unreachable in practice.
+  throw lastErr;
+}
+
 export async function bootstrap(): Promise<BootstrapResponse> {
-  return post<BootstrapResponse>("/v1/app/bootstrap", { capabilities: buildCapabilities() });
+  return withRetry(() =>
+    post<BootstrapResponse>("/v1/app/bootstrap", { capabilities: buildCapabilities() }),
+  );
 }
 
 export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
-  return post<ScreenResponse>("/v1/app/screen", {
-    screenId,
-    params,
-    capabilities: buildCapabilities(),
-  });
+  return withRetry(() =>
+    post<ScreenResponse>("/v1/app/screen", {
+      screenId,
+      params,
+      capabilities: buildCapabilities(),
+    }),
+  );
 }
 
 /**

@@ -18,7 +18,7 @@ export const CORE_COMPONENTS = [
 export const CORE_ACTIONS = [
   "navigate", "navigateBack", "switchTab", "openUrl", "openSettings", "dismiss",
   "callEndpoint", "refresh", "setState", "toggleState", "haptic",
-  "toast", "playMedia", "speak", "signOut", "sequence", "condition",
+  "toast", "playMedia", "speak", "signOut", "clearCache", "sequence", "condition",
 ] as const;
 
 /** Named layouts the app can compose from `template` + `blocks`. */

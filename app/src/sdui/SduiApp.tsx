@@ -63,6 +63,7 @@ export default function SduiApp() {
   const [stack, setStack] = useState<NavItem[]>([]);
   const [screen, setScreen] = useState<ScreenResponse | null>(null);
   const [screenLoading, setScreenLoading] = useState(false);
+  const [screenError, setScreenError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [toast, setToast] = useState<Toast | null>(null);
   const [showConnection, setShowConnection] = useState(false);
@@ -148,18 +149,64 @@ export default function SduiApp() {
   const current = stack[stack.length - 1];
 
   // Fetch the current screen whenever the top of the stack (or reload) changes.
+  // On failure we surface a visible error state with a retry button instead of
+  // silently keeping the previous (or empty) screen — the old behavior looked
+  // identical to a successful empty render, which is what surfaced as "Home
+  // and Settings are blank" in the field.
   useEffect(() => {
     if (phase !== "ready" || !current) return;
     let alive = true;
     setScreenLoading(true);
+    setScreenError(null);
     fetchScreen(current.screenId, current.params)
-      .then((s) => alive && setScreen(s))
-      .catch(() => alive && showToast("Couldn't load screen", "error"))
+      .then((s) => {
+        if (!alive) return;
+        setScreen(s);
+        setScreenError(null);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        // We DON'T reset `screen` to null on error — if the user had a valid
+        // previous render we keep it visible and layer the retry banner on
+        // top. Only when there was NEVER a successful load do we render a
+        // full-screen error card (handled in the render section below).
+        const msg = err instanceof Error ? err.message : "Couldn't load screen";
+        setScreenError(msg);
+      })
       .finally(() => alive && setScreenLoading(false));
     return () => {
       alive = false;
     };
-  }, [phase, current, reload, showToast]);
+  }, [phase, current, reload]);
+
+  // Refetch bootstrap + current screen when the app returns to the foreground
+  // — so a user who left the app open, backgrounded it for hours, and comes
+  // back doesn't stare at stale UI. Also picks up a bumped cacheVersion.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      if (phase !== "ready") return;
+      // Force a bootstrap re-fetch (cheap, no-store on the backend), then
+      // re-fetch the current screen via the standard reload counter.
+      (async () => {
+        try {
+          const b = await bootstrap();
+          setBoot((prev) => {
+            // If cacheVersion changed, the whole screen cache is stale — bump
+            // reload so the current screen refetches. Otherwise still update
+            // theme/labels but don't force screen work.
+            if (prev?.cacheVersion !== b.cacheVersion) {
+              setReload((n) => n + 1);
+            }
+            return b;
+          });
+        } catch {
+          /* offline / transient — user's next interaction retries */
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [phase]);
 
   const nav: NavApi = useMemo(
     () => ({
@@ -264,8 +311,39 @@ export default function SduiApp() {
           <ThemeContext.Provider value={theme}>
             <ScreenHost screen={screen} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
           </ThemeContext.Provider>
+        ) : screenError ? (
+          // Never-loaded-once + failure: render a real error card with a
+          // Retry button. The old behavior showed a spinner or nothing at
+          // all, which read as "the app is broken."
+          <View style={[styles.center, { paddingHorizontal: 24 }]}>
+            <Text style={{ color: theme.color.text, fontSize: 18, fontWeight: "700", marginBottom: 8 }}>
+              Couldn't load this screen
+            </Text>
+            <Text style={{ color: theme.color.muted, textAlign: "center", marginBottom: 20 }}>
+              {screenError}
+            </Text>
+            <Pressable
+              onPress={() => setReload((n) => n + 1)}
+              style={{ backgroundColor: theme.color.primary, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 28 }}
+            >
+              <Text style={{ color: "#000", fontWeight: "700" }}>Retry</Text>
+            </Pressable>
+          </View>
         ) : (
           <View style={styles.center}><ActivityIndicator color={theme.color.primary} /></View>
+        )}
+        {/* Screen-loaded-but-refresh-failed: keep the stale render visible
+            and layer a small tap-to-retry banner at the top so the user
+            knows the content is stale. */}
+        {screen && screenError && (
+          <Pressable
+            onPress={() => setReload((n) => n + 1)}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, backgroundColor: "#3a1417", paddingVertical: 10, alignItems: "center" }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "600" }}>
+              Couldn't refresh — tap to retry
+            </Text>
+          </Pressable>
         )}
         {screenLoading && (
           <View style={styles.loadingOverlay} pointerEvents="none">
