@@ -693,7 +693,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       DispatchQueue.main.async {
         guard let self = self else { return }
         guard granted else {
-          self.setStatus(label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
+          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
           return
         }
         self.beginStreaming()
@@ -776,7 +776,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       DispatchQueue.main.async {
         guard let self = self else { return }
         guard granted else {
-          self.setStatus(label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
+          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
           return
         }
         self.beginRecording(session: session)
