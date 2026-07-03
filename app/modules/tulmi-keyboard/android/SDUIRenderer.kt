@@ -356,7 +356,7 @@ class SDUIRenderer(
             else -> "⇧"
         }
         val b = keyButton(label, node)
-        if (active) b.setTextColor(Color.parseColor(kbConfig.theme.accent))
+        if (active) b.setTextColor(parseHex(kbConfig.theme.accent))
         b.setOnClickListener {
             hapticTap(b)
             val s = host.state()
@@ -518,7 +518,13 @@ class SDUIRenderer(
     private fun renderWaveform(node: KBNode, parent: ViewGroup) {
         val bars = (node.props["bars"] as? Number)?.toInt() ?: 24
         val color = (node.props["color"] as? String) ?: kbConfig.theme.accent
-        val wf = WaveformView(host.context(), bars, parseHex(color)) { host.state().micLevel }
+        val wf = WaveformView(
+            host.context(),
+            bars,
+            parseHex(color),
+            levelProvider = { host.state().micLevel },
+            activeProvider = { host.state().dictating },
+        )
         addChildWithStyle(parent, wf, node.style, isRow = parent.isHorizontal())
     }
 
@@ -556,7 +562,13 @@ class SDUIRenderer(
     private fun renderBlurBackdrop(node: KBNode, parent: ViewGroup) {
         val wrapper = FrameLayout(host.context())
         val backdrop = View(host.context())
-        val style = (node.props["style"] as? String) ?: "regular"
+        // Schema parity with iOS: BlurBackdrop reads blur style from node.effect
+        // (which is a KBEffect discriminated by kind). Fall back to node.props
+        // for compatibility with older backend emits.
+        val style = when (val eff = node.effect) {
+            is KBEffect.Blur -> eff.style
+            else -> (node.props["style"] as? String) ?: "regular"
+        }
         val (radius, fallbackAlpha) = when (style) {
             "systemUltraThinMaterial" -> 8f to 0x40
             "systemThinMaterial" -> 16f to 0x66
@@ -800,10 +812,11 @@ class SDUIRenderer(
     /** Look back for a word boundary and delete that many chars. */
     private fun deleteWord() {
         val ic = host.ic() ?: return
-        val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: return
+        // 1024-char lookback is plenty for any real word (longest German
+        // compound is ~64 chars). Bigger buffers just waste an IPC roundtrip.
+        val before = ic.getTextBeforeCursor(1024, 0)?.toString() ?: return
         if (before.isEmpty()) return
         var i = before.length - 1
-        // Skip trailing whitespace first.
         while (i >= 0 && before[i].isWhitespace()) i--
         while (i >= 0 && !before[i].isWhitespace()) i--
         val toDelete = before.length - (i + 1)
@@ -970,12 +983,17 @@ class SDUIRenderer(
     // Waveform view — draws N bars whose heights follow state.micLevel. Level
     // is polled per-frame via the supplied provider so this View doesn't need
     // to be re-rendered by the tree walker every time the mic level ticks.
+    //
+    // Battery: the redraw loop only runs while `activeProvider()` returns true
+    // (typically `state.dictating`) — otherwise onDraw returns after the initial
+    // paint, leaving a static bar row instead of a permanent 60 FPS repaint.
     // -----------------------------------------------------------------------
     private class WaveformView(
         ctx: Context,
         private val barCount: Int,
         private val color: Int,
         private val levelProvider: () -> Float,
+        private val activeProvider: () -> Boolean,
     ) : View(ctx) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this@apply.color = this@WaveformView.color
@@ -1002,7 +1020,7 @@ class SDUIRenderer(
                     paint,
                 )
             }
-            postInvalidateOnAnimation()
+            if (activeProvider()) postInvalidateOnAnimation()
         }
     }
 

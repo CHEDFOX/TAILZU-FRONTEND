@@ -13,6 +13,7 @@ interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
+  consumeKeyboardDeepLink?(): string;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -75,4 +76,22 @@ export function setKeyboardDictionary(entries: { word: string; replacement: stri
 /** True when the native bridge is available (a dev/prod build, not Expo Go). */
 export function isBridgeAvailable(): boolean {
   return native != null;
+}
+
+/**
+ * Read (and clear) any deep-link path the keyboard extension left for the app
+ * — since keyboard extensions can't call openURL, they drop the target in the
+ * shared App Group and the app picks it up here on foreground.
+ *
+ * Returns null when nothing is pending. Path shapes:
+ *   "screen/<screenId>"  → navigate to that SDUI screen
+ *   "openSettings"       → open the app's system settings page
+ */
+export function consumeKeyboardDeepLink(): string | null {
+  try {
+    const s = native?.consumeKeyboardDeepLink?.();
+    return s && s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
 }

@@ -29,7 +29,7 @@ import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
 import ProfileGate from "../onboarding/ProfileGate";
-import { getKeyboardStatus } from "../../modules/tulmi-bridge";
+import { getKeyboardStatus, consumeKeyboardDeepLink } from "../../modules/tulmi-bridge";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
@@ -210,6 +210,19 @@ export default function SduiApp() {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
       if (phase !== "ready") return;
+      // Consume any deep-link tombstone the keyboard extension left — it
+      // couldn't call openURL itself, so it dropped a target in the shared
+      // App Group. Handle it before the boot refresh so the user lands on
+      // the right screen if they came here via a keyboard action.
+      const pending = consumeKeyboardDeepLink();
+      if (pending) {
+        if (pending === "openSettings") {
+          Linking.openSettings().catch(() => {});
+        } else if (pending.startsWith("screen/")) {
+          const screenId = pending.slice("screen/".length);
+          if (screenId) setStack([{ screenId }]);
+        }
+      }
       // Force a bootstrap re-fetch (cheap, no-store on the backend), then
       // re-fetch the current screen via the standard reload counter.
       (async () => {

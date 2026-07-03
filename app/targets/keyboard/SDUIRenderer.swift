@@ -550,16 +550,23 @@ final class SDUIRenderer: NSObject {
   }
   private func handleShiftTap() {
     let now = Date().timeIntervalSince1970
+    // If we're currently caps-locked, tap 1 turns everything off — and we
+    // reset lastShiftTapTime so a follow-up tap is NOT treated as the
+    // second half of a double-tap-to-caps. Previously this promoted the
+    // "turn caps off" into "turn caps back on" (audit finding).
+    if state.capsLock {
+      state.capsLock = false
+      state.shift = false
+      lastShiftTapTime = 0
+      stateChanged()
+      return
+    }
     if now - lastShiftTapTime < 0.3 {
+      // Fast double-tap → promote to caps-lock.
       state.capsLock = true
       state.shift = true
     } else {
-      if state.capsLock {
-        state.capsLock = false
-        state.shift = false
-      } else {
-        state.shift.toggle()
-      }
+      state.shift.toggle()
     }
     lastShiftTapTime = now
     stateChanged()
@@ -1033,14 +1040,15 @@ final class SDUIRenderer: NSObject {
       stateChanged()
       host?.hostRunRefine()
     case .openApp(let screenId):
-      let url: URL?
-      if let s = screenId, !s.isEmpty { url = URL(string: "tulmi://screen/\(s)") }
-      else { url = URL(string: "tulmi://") }
-      if let u = url { host?.hostExtensionContext?.open(u, completionHandler: nil) }
+      // Apple restricts NSExtensionContext.open to Today extensions; keyboard
+      // extensions cannot launch URLs directly. We drop a tombstone in the
+      // shared App Group and the main app picks it up on next foreground.
+      let target = (screenId?.isEmpty == false) ? "screen/\(screenId!)" : ""
+      writeDeepLinkTombstone(path: target)
     case .openSettings:
-      if let u = URL(string: "app-settings:") {
-        host?.hostExtensionContext?.open(u, completionHandler: nil)
-      }
+      // Same restriction — tombstone with a well-known path that the app
+      // routes to `openSettings()` on foreground.
+      writeDeepLinkTombstone(path: "openSettings")
     case .haptic(let style):
       fireHaptic(style)
     case .sequence(let actions):
@@ -1074,6 +1082,15 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  /// Write a deep-link target into the shared App Group. The main app checks
+  /// UserDefaults(suiteName:)?.string(forKey: "tulmi.kb.pendingDeepLink") on
+  /// launch/foreground; if present, it routes to that path and clears the key.
+  private func writeDeepLinkTombstone(path: String) {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set(path, forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
+  }
+
   private func presentLanguageMenu() {
     guard let layouts = config.layouts, !layouts.isEmpty else { return }
     let sheet = UIAlertController(title: host?.hostLabel("language", "Language"),
@@ -1086,6 +1103,17 @@ final class SDUIRenderer: NSObject {
       })
     }
     sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    // iPad requires a sourceView for action sheets or presentation raises.
+    // Anchoring on mountContainer keeps the popover on the keyboard surface.
+    if let popover = sheet.popoverPresentationController {
+      popover.sourceView = mountContainer
+      popover.sourceRect = CGRect(
+        x: (mountContainer?.bounds.midX ?? 0),
+        y: (mountContainer?.bounds.midY ?? 0),
+        width: 0, height: 0,
+      )
+      popover.permittedArrowDirections = []
+    }
     host?.hostPresent(sheet)
   }
 
@@ -1192,6 +1220,13 @@ final class SDUIRenderer: NSObject {
   func reflectDictating(_ v: Bool) {
     if state.dictating == v { return }
     state.dictating = v
+    // Stop the 30 FPS timer when dictation ends so the extension isn't
+    // draining CPU/battery for a static bar row. It'll be recreated on the
+    // next buildWaveform call when dictation restarts.
+    if !v {
+      waveformTimer?.invalidate()
+      waveformTimer = nil
+    }
     stateChanged()
   }
   func reflectRefining(_ v: Bool) {
