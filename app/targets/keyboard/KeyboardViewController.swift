@@ -27,7 +27,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var allKeys: [UIButton] = []            // themable keys currently on screen
   private var bottomKeys: [UIButton] = []         // persistent bottom-row themable keys
   private var keyRowStacks: [UIStackView] = []    // the 3 rebuilt rows (per page)
-  private var mainStack: UIStackView!
+  private var mainStack: UIStackView!  // nil-safe after SDUI takeover (see loadAndApplyConfig)
 
   private let statusLabel = UILabel()
   private var nextKeyboardButton: UIButton!
@@ -64,6 +64,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   // Server-driven config (theme/labels/flags); nil until fetched/cached.
   private var kbConfig: TulmiBackend.KbConfig?
+
+  // SDUI (server-driven UI) renderer. Non-nil when `features.sdui == true` and
+  // the fetched config carries a `root` KeyboardNode tree — in that case the
+  // hand-built UI below is torn down and the renderer owns the keyboard view.
+  // When nil, the hand-built path stays as the fallback.
+  private var sduiRenderer: SDUIRenderer?
 
   // Microphone / dictation state (file-based, one-shot).
   private var audioRecorder: AVAudioRecorder?
@@ -119,6 +125,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
     d?.set(hasFullAccess, forKey: "tulmi.kb.fullAccess")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.lastActive")
+    // Reflect to the SDUI renderer so visibleIf conditions gated on
+    // state.hasFullAccess update on Full Access flips.
+    sduiRenderer?.reflectHasFullAccess(hasFullAccess)
   }
 
   // MARK: - Text-expansion dictionary (trigger → replacement, from the app)
@@ -160,15 +169,42 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Server-driven config (theme/labels/flags), cached for offline
 
   private func loadAndApplyConfig() {
-    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config"),
-       let cfg = TulmiBackend.parseConfig(data) {
-      applyConfig(cfg)
+    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config") {
+      if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }
+      applySDUIIfAvailable(data)
     }
     TulmiBackend.keyboardConfigData { result in
-      guard case .success(let data) = result, let cfg = TulmiBackend.parseConfig(data) else { return }
+      guard case .success(let data) = result else { return }
       UserDefaults.standard.set(data, forKey: "tulmi_kb_config")
-      DispatchQueue.main.async { self.applyConfig(cfg) }
+      if let cfg = TulmiBackend.parseConfig(data) {
+        DispatchQueue.main.async { self.applyConfig(cfg) }
+      }
+      DispatchQueue.main.async { self.applySDUIIfAvailable(data) }
     }
+  }
+
+  /// Try to decode the config as a full SDUI response and, if `features.sdui`
+  /// is on AND `root` is present, hand off the whole keyboard view to the
+  /// SDUIRenderer. Otherwise this is a no-op and the hand-built path remains
+  /// on screen — that's the fallback contract.
+  private func applySDUIIfAvailable(_ data: Data) {
+    guard sduiRenderer == nil,
+          let kb = SDUIRenderer.decodeConfig(data),
+          kb.features?.sdui == true,
+          let _ = kb.root
+    else { return }
+    // Tear down the hand-built subtree (rows, top bar, callouts). The renderer
+    // will mount its own subtree spanning the whole keyboard view.
+    for sub in view.subviews { sub.removeFromSuperview() }
+    mainStack = nil
+    keyRowStacks.removeAll()
+    letterButtons.removeAll()
+    allKeys.removeAll()
+    bottomKeys.removeAll()
+    calloutLabel = nil
+    let renderer = SDUIRenderer(controller: self, config: kb)
+    sduiRenderer = renderer
+    renderer.mount(into: view)
   }
 
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
@@ -707,6 +743,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     isStreaming = true
     micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
     setStatus(label("listening", "🎙️ Listening…"))
+    sduiRenderer?.reflectDictating(true)
     let s = TulmiStream { [weak self] event in
       DispatchQueue.main.async { self?.handleStreamEvent(event) }
     }
@@ -764,6 +801,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     stream = nil
     micButton.setImage(brandMarkImage(), for: .normal)
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
+    sduiRenderer?.reflectDictating(false)
   }
 
   private func startRecording() {
@@ -805,6 +843,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       isRecording = true
       micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
       setStatus(label("listening", "🎙️ Listening… tap to stop"))
+      sduiRenderer?.reflectDictating(true)
     } catch {
       setStatus("Mic error: \(error.localizedDescription)")
       cleanupRecorder()
@@ -814,6 +853,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func stopAndTranscribe() {
     isRecording = false
     micButton.setImage(brandMarkImage(), for: .normal)
+    sduiRenderer?.reflectDictating(false)
     audioRecorder?.stop()
     try? AVAudioSession.sharedInstance().setActive(false)
 
@@ -860,6 +900,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       return
     }
     setStatus(label("refining", "Refining…"))
+    sduiRenderer?.reflectRefining(true)
 
     TulmiBackend.refine(text: full, targetApp: "Generic") { [weak self] result in
       DispatchQueue.main.async {
@@ -871,6 +912,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         case .failure(let err):
           self.setStatus("Error: \(err.localizedDescription)")
         }
+        self.sduiRenderer?.reflectRefining(false)
       }
     }
   }
@@ -891,6 +933,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func setStatus(_ text: String) {
     statusLabel.text = text
     statusLabel.isHidden = text.isEmpty
+    // Mirror to the SDUI renderer so any StatusLabel node re-renders too.
+    sduiRenderer?.reflectStatus(text)
   }
 
   override func textWillChange(_ textInput: UITextInput?) {}
@@ -925,20 +969,60 @@ extension UIColor {
     return (0.299 * r + 0.587 * g + 0.114 * b) > 0.6
   }
 
-  /// Parse "#rrggbb" (server theme tokens) into a UIColor; falls back to gray.
+  /// Parse "#rrggbb" or "#rrggbbaa" (server theme tokens) into a UIColor.
+  /// 8-char adds the trailing alpha byte (0-255). Falls back to gray on
+  /// anything else — the SDUI schema uses hex strings throughout.
   convenience init(tulmiHex hex: String) {
     var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
     if s.hasPrefix("#") { s.removeFirst() }
     var rgb: UInt64 = 0
-    guard s.count == 6, Scanner(string: s).scanHexInt64(&rgb) else {
-      self.init(white: 0.15, alpha: 1)
+    if s.count == 6, Scanner(string: s).scanHexInt64(&rgb) {
+      self.init(
+        red: CGFloat((rgb & 0xFF0000) >> 16) / 255.0,
+        green: CGFloat((rgb & 0x00FF00) >> 8) / 255.0,
+        blue: CGFloat(rgb & 0x0000FF) / 255.0,
+        alpha: 1
+      )
       return
     }
-    self.init(
-      red: CGFloat((rgb & 0xFF0000) >> 16) / 255.0,
-      green: CGFloat((rgb & 0x00FF00) >> 8) / 255.0,
-      blue: CGFloat(rgb & 0x0000FF) / 255.0,
-      alpha: 1
-    )
+    if s.count == 8, Scanner(string: s).scanHexInt64(&rgb) {
+      self.init(
+        red: CGFloat((rgb & 0xFF000000) >> 24) / 255.0,
+        green: CGFloat((rgb & 0x00FF0000) >> 16) / 255.0,
+        blue: CGFloat((rgb & 0x0000FF00) >> 8) / 255.0,
+        alpha: CGFloat(rgb & 0x000000FF) / 255.0
+      )
+      return
+    }
+    self.init(white: 0.15, alpha: 1)
+  }
+}
+
+// MARK: - SDUI host bridge
+
+/// The renderer holds `self` weakly and calls into these host hooks so that
+/// dictation / refine / text-proxy semantics stay in the existing code path.
+extension KeyboardViewController: KBHostControllerProtocol {
+  var hostTextDocumentProxy: UITextDocumentProxy { textDocumentProxy }
+  var hostHasFullAccess: Bool { hasFullAccess }
+  var hostExtensionContext: NSExtensionContext? { extensionContext }
+
+  func hostLabel(_ key: String, _ fallback: String) -> String { label(key, fallback) }
+
+  func hostStartDictation() {
+    // Route through the same entry point the mic button uses so the streaming
+    // vs file-based branch is chosen from cfg.liveVoice.
+    if !isStreaming && !isRecording {
+      micTapped()
+    }
+  }
+  func hostStopDictation() {
+    if isStreaming { stopStreaming() }
+    else if isRecording { stopAndTranscribe() }
+  }
+  func hostRunRefine() { refineTapped() }
+  func hostAdvanceInputMode() { advanceToNextInputMode() }
+  func hostPresent(_ vc: UIViewController) {
+    present(vc, animated: true, completion: nil)
   }
 }
