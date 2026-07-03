@@ -33,6 +33,11 @@ import { getKeyboardStatus } from "../../modules/tulmi-bridge";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
+import { initAnalytics } from "../telemetry/analytics";
+import { initSentry } from "../telemetry/sentry";
+import { initBilling } from "../billing/purchases";
+import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
+import { installLinkListener } from "../deeplinks/router";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
@@ -73,6 +78,25 @@ export default function SduiApp() {
   const [profileDone, setProfileDoneState] = useState(true);
 
   useEffect(() => { getProfileDone().then(setProfileDoneState).catch(() => {}); }, []);
+
+  // One-time boot: crash reporting, analytics, IAP, push token, deep links.
+  // Each init is a silent no-op when its env key is unset, so the same binary
+  // works for dev/beta/prod builds without code changes.
+  useEffect(() => {
+    initSentry();
+    void initAnalytics();
+    void initBilling();
+    void registerForPushToken();
+    const linkSub = installLinkListener((target) => {
+      if (target.kind === "screen") {
+        setStack([{ screenId: target.screenId, params: target.params }]);
+      }
+    });
+    const notifSub = addNotificationResponseListener((data) => {
+      if (data?.screenId) setStack([{ screenId: String(data.screenId), params: data }]);
+    });
+    return () => { linkSub(); notifSub.remove(); };
+  }, []);
 
   const showToast = useCallback((message: string, tone?: string) => {
     setToast({ message, tone });

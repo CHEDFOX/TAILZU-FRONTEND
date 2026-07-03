@@ -1,25 +1,90 @@
 /**
  * What this renderer build can draw + do. Sent to the server in the capability
  * handshake so it never emits a node/action we can't handle.
+ *
+ * This list is the KITCHEN-SINK build — every component/action we might want
+ * to server-drive within 12 months. The renderer implementations live in
+ * components.tsx (nodes) and actions.ts (actions).
  */
 export const CORE_COMPONENTS = [
+  // v1 primitives
   "Screen", "Stack", "Spacer", "Text", "Image", "Icon", "Button",
   "TextField", "Chip", "Card", "List", "Divider", "ProgressBar", "VoiceButton",
-  // SDUI v2 content blocks (editorial / Plutto-style):
+
+  // v2 content blocks
   "Overline", "Heading", "Paragraph", "Quote", "Badge", "KeyValue", "Hero",
-  // Morphing playground controls (Home):
+
+  // v2 playground controls
   "VoiceToggle", "RefineButton", "DraftButton", "Pager",
-  // Settings / list row:
+
+  // v2 settings row + dictionary
   "Row",
-  // Dictionary (keyboard text-expansion) + frequent words:
   "DictionaryEditor", "WordChips",
+
+  // v3 layout / navigation
+  "Grid", "MasonryGrid", "Modal", "BottomSheet", "ActionSheet",
+  "Popover", "Tooltip", "Collapsible", "StickyHeader", "SwipeableRow",
+  "PullToRefresh", "SafeArea", "Tabs",
+
+  // v3 inputs
+  "Switch", "Slider", "Stepper", "SegmentedControl", "SearchField",
+  "Picker", "DatePicker",
+
+  // v3 data viz
+  "LineChart", "BarChart", "Sparkline", "ProgressRing", "Gauge",
+  "StatCard", "Waveform",
+
+  // v3 media
+  "Video", "Audio", "Camera", "QRScanner", "ImagePickerButton",
+  "Avatar", "AvatarStack",
+
+  // v3 feedback
+  "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
+  "EmptyState", "Countdown", "LottieAnimation",
+
+  // v3 meta / helpers
+  "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
+  "IfElse", "ForEach", "Portal",
 ] as const;
 
 export const CORE_ACTIONS = [
-  "navigate", "navigateBack", "switchTab", "openUrl", "openSettings", "dismiss",
-  "callEndpoint", "refresh", "setState", "toggleState", "haptic",
-  "toast", "playMedia", "speak", "signOut", "clearCache", "sequence", "condition",
+  // nav & flow
+  "navigate", "navigateBack", "switchTab", "openUrl", "openSettings",
+  "openInAppBrowser", "dismiss",
+  // data
+  "callEndpoint", "refresh",
+  // state
+  "setState", "toggleState", "incrementState", "clearState",
+  // feedback
+  "haptic", "toast", "snackbar", "playMedia", "stopMedia", "speak", "confetti",
+  // system / share / clipboard
+  "share", "shareFile", "copyToClipboard", "readClipboard",
+  "sms", "email", "phone", "download", "saveToPhotos",
+  // media pickers
+  "pickImage", "pickDocument", "scanQR",
+  // permissions
+  "requestPermission",
+  // auth
+  "biometricPrompt", "signOut",
+  // IAP
+  "iap.showPaywall", "iap.subscribe", "iap.restore", "iap.checkEntitlement",
+  // notifications
+  "scheduleNotification", "cancelNotification", "requestPushPermission",
+  // analytics
+  "analytics.track", "analytics.identify", "analytics.reset",
+  // calendar
+  "calendar.addEvent",
+  // review
+  "requestReview",
+  // keyboard bridge
+  "keyboard.reload", "keyboard.setLayout",
+  // cache / dev
+  "clearCache", "reloadApp",
+  // composition
+  "sequence", "parallel", "condition", "delay", "log",
 ] as const;
 
 /** Named layouts the app can compose from `template` + `blocks`. */
-export const CORE_TEMPLATES = ["scroll", "feature", "list", "centered"] as const;
+export const CORE_TEMPLATES = [
+  "scroll", "feature", "list", "centered", "detail", "grid", "hero",
+] as const;

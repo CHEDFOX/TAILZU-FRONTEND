@@ -2,8 +2,12 @@ import { ExpoConfig } from "expo/config";
 
 /**
  * Expo app config for Tulmi (Android + iOS from one codebase).
- * The native keyboard (Android IME / iOS keyboard extension) is added on top of
- * this via a config plugin + native target in a later step.
+ *
+ * DESIGN NOTE: This build is intentionally "kitchen-sink" — every plugin,
+ * permission string, native module, and entitlement we might plausibly want
+ * within 12 months is baked in NOW. The goal is that after this build ships,
+ * new features arrive as backend JSON pushes or JS-only OTAs, without another
+ * App Store review. Extra binary weight is a few MB and worth it.
  */
 const config: ExpoConfig = {
   name: "Tulmi",
@@ -29,34 +33,161 @@ const config: ExpoConfig = {
     // this clears the "encryption" question that otherwise blocks every
     // TestFlight build until answered by hand in App Store Connect.
     config: { usesNonExemptEncryption: false },
+    // Universal Links: taps on tailzu.space URLs open the app directly. Backing
+    // JSON must be hosted at https://tailzu.space/.well-known/apple-app-site-association.
+    associatedDomains: ["applinks:tailzu.space", "applinks:app.tailzu.space"],
     infoPlist: {
+      // Permission strings — Apple rejects any app whose binary CAN request a
+      // permission but doesn't ship a Usage Description. Bake all of them in
+      // so backend-driven features can call the corresponding permission
+      // APIs without a rebuild.
       NSMicrophoneUsageDescription:
         "Tulmi uses the microphone to turn your speech into clean text.",
+      NSCameraUsageDescription:
+        "Tulmi uses the camera to scan text and QR codes, and for optional video features.",
+      NSPhotoLibraryUsageDescription:
+        "Tulmi reads photos when you attach them to a message or import them.",
+      NSPhotoLibraryAddUsageDescription:
+        "Tulmi saves outputs (audio, transcripts) to your Photos when you tap Save.",
+      NSSpeechRecognitionUsageDescription:
+        "Tulmi uses on-device speech recognition for faster dictation.",
+      NSFaceIDUsageDescription:
+        "Tulmi uses Face ID to keep your account and drafts private.",
+      NSContactsUsageDescription:
+        "Tulmi reads contacts when you attach or mention people in a draft.",
+      NSCalendarsUsageDescription:
+        "Tulmi adds events to your calendar when you dictate a meeting.",
+      NSRemindersUsageDescription:
+        "Tulmi creates reminders from voice notes when you ask.",
+      NSAppleMusicUsageDescription:
+        "Tulmi lets you attach audio to messages from your library.",
+      NSLocationWhenInUseUsageDescription:
+        "Tulmi uses your location only when you dictate a check-in or location-tagged note.",
+      NSUserTrackingUsageDescription:
+        "Turning this on lets Tulmi personalize suggestions to how you write.",
+      NSMotionUsageDescription:
+        "Tulmi uses motion sensors for tap-to-record shortcuts.",
+      NSBluetoothAlwaysUsageDescription:
+        "Tulmi uses Bluetooth to connect to your headset for voice input.",
+      NSLocalNetworkUsageDescription:
+        "Tulmi uses your local network to sync with nearby devices.",
+      // Enable background audio so dictation can continue if the app briefly
+      // loses foreground focus (call, notification).
+      UIBackgroundModes: ["audio", "remote-notification", "fetch"],
+      // Detect installed apps so share targets can prefer WhatsApp/Telegram/etc.
+      LSApplicationQueriesSchemes: [
+        "whatsapp",
+        "tg",
+        "telegram",
+        "instagram",
+        "instagram-stories",
+        "twitter",
+        "x",
+        "discord",
+        "slack",
+        "linkedin",
+        "sms",
+        "tel",
+        "mailto",
+        "fb-messenger",
+        "snapchat",
+        "reddit",
+        "signal",
+        "line",
+        "wechat",
+        "kakaotalk",
+      ],
+      ITSAppUsesNonExemptEncryption: false,
     },
     // Shared container so the keyboard extension can read the app's backend URL
     // + the user's token (written by the tulmi-bridge native module).
     entitlements: {
       "com.apple.security.application-groups": ["group.com.tulmi.app"],
       "com.apple.developer.applesignin": ["Default"],
+      "aps-environment": "production",
+      "com.apple.developer.associated-domains": [
+        "applinks:tailzu.space",
+        "applinks:app.tailzu.space",
+      ],
     },
   },
   android: {
     package: "com.tulmi.app",
-    permissions: ["android.permission.RECORD_AUDIO", "android.permission.INTERNET"],
+    // Every permission we might want in the next year. Runtime prompts are
+    // still gated by user consent, but they cannot be REQUESTED at all
+    // without being declared in the manifest.
+    permissions: [
+      "android.permission.RECORD_AUDIO",
+      "android.permission.INTERNET",
+      "android.permission.CAMERA",
+      "android.permission.READ_EXTERNAL_STORAGE",
+      "android.permission.WRITE_EXTERNAL_STORAGE",
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.READ_MEDIA_VIDEO",
+      "android.permission.READ_MEDIA_AUDIO",
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.VIBRATE",
+      "android.permission.ACCESS_NETWORK_STATE",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      "android.permission.READ_CONTACTS",
+      "android.permission.READ_CALENDAR",
+      "android.permission.WRITE_CALENDAR",
+      "android.permission.USE_BIOMETRIC",
+      "android.permission.USE_FINGERPRINT",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "com.android.vending.BILLING",
+      "com.google.android.gms.permission.AD_ID",
+    ],
     adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#E8A23C" },
+    intentFilters: [
+      {
+        action: "VIEW",
+        autoVerify: true,
+        data: [
+          { scheme: "https", host: "tailzu.space" },
+          { scheme: "https", host: "app.tailzu.space" },
+        ],
+        category: ["BROWSABLE", "DEFAULT"],
+      },
+    ],
+    blockedPermissions: [],
   },
-  // expo-audio provides mic-permission config; usesCleartextTraffic is enabled in
-  // the dev build so the app can reach a plain-HTTP backend during testing.
-  // The keyboard plugin injects the native Android IME (Kotlin) at build time.
-  // @bacons/apple-targets adds the iOS keyboard extension (see targets/keyboard).
+  // Every plugin we might need — installed once, gated by env or by not being
+  // referenced from JS if unused. Removing any of these later is a rebuild.
   plugins: [
     "expo-audio",
     "expo-apple-authentication",
+    "expo-camera",
+    "expo-image-picker",
+    "expo-media-library",
+    "expo-document-picker",
+    "expo-local-authentication",
+    "expo-notifications",
+    "expo-tracking-transparency",
+    "expo-contacts",
+    "expo-calendar",
+    "expo-video",
+    "expo-web-browser",
+    "expo-linking",
+    "expo-updates",
+    "expo-secure-store",
+    "expo-splash-screen",
+    "@sentry/react-native/expo",
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "@bacons/apple-targets",
   ],
   extra: {
     eas: { projectId: "fd5ee89f-3326-473c-a194-61c60f32bb1e" },
+    // Third-party keys read by the SDKs at runtime. Any of these can be
+    // populated in EAS environment variables without a rebuild — the SDKs
+    // gracefully no-op when unset, so the same binary works with or without.
+    sentryDsn: process.env.SENTRY_DSN ?? "",
+    posthogApiKey: process.env.POSTHOG_API_KEY ?? "",
+    posthogHost: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
+    revenueCatIosKey: process.env.REVENUECAT_IOS_KEY ?? "",
+    revenueCatAndroidKey: process.env.REVENUECAT_ANDROID_KEY ?? "",
   },
 };
 
