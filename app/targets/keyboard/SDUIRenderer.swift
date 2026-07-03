@@ -166,7 +166,9 @@ struct KBNode: Decodable {
 
 /// ActionRef = a string alias (looked up in config.actions) OR an inline
 /// ActionSpec. Modeled as an enum so both forms decode transparently.
-enum KBActionRef: Decodable {
+/// `indirect` is required because KBActionSpec.condition references KBActionRef,
+/// creating a cycle Swift needs a heap indirection to size.
+indirect enum KBActionRef: Decodable {
   case named(String)
   case inline(KBActionSpec)
 
@@ -179,8 +181,9 @@ enum KBActionRef: Decodable {
 }
 
 /// Tagged union of keyboard actions. Custom-decoded because Swift Codable
-/// doesn't handle string-discriminated JSON unions natively.
-enum KBActionSpec: Decodable {
+/// doesn't handle string-discriminated JSON unions natively. `indirect`
+/// because `.condition` holds KBActionRef which wraps KBActionSpec.
+indirect enum KBActionSpec: Decodable {
   case insertText(text: String)
   case insertKey(char: String)
   case deleteBackward
