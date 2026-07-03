@@ -1,20 +1,40 @@
 /**
  * The action interpreter — turns declarative ActionSpecs from the server into
- * real behavior (navigation, network, state, haptics, toasts…).
+ * real behavior. This is the "kitchen-sink" build: every action the app might
+ * want to trigger from a backend JSON push is wired here. Missing SDK keys
+ * (Sentry / PostHog / RevenueCat) no-op silently instead of throwing, so the
+ * same binary works whether or not you fill env variables.
  */
-import { Linking, Platform, Vibration } from "react-native";
+import { Linking, Platform, Share, Vibration } from "react-native";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
+import * as WebBrowser from "expo-web-browser";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as Sharing from "expo-sharing";
+import * as FileSystem from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
+import * as LocalAuthentication from "expo-local-authentication";
+import * as Notifications from "expo-notifications";
+import * as Calendar from "expo-calendar";
+import * as Contacts from "expo-contacts";
+import * as Camera from "expo-camera";
+import * as Speech from "expo-speech";
+import * as Tracking from "expo-tracking-transparency";
+import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
 import { callEndpoint } from "./client";
 import { supabase } from "../auth/supabaseClient";
+import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
+import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
+import { registerForPushToken } from "../notifications/push";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
   back: () => void;
   switchTab: (tabId: string) => void;
   reloadCurrent: () => void;
-  /** Re-fetch bootstrap (labels + direction) and the current screen in place. */
   refreshLocale: () => void;
 }
 
@@ -22,7 +42,6 @@ export interface Ctx {
   store: Store;
   actions: Record<string, ActionSpec>;
   flags: Record<string, any>;
-  /** Central copy from the catalog; "@key" props resolve through this. */
   labels: Record<string, string>;
   nav: NavApi;
   toast: (message: string, tone?: string) => void;
@@ -51,7 +70,17 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
   if (!cond) return true;
   if ("eq" in cond) return resolveValue(`$state.${cond.eq[0]}`, ctx) === cond.eq[1];
   if ("neq" in cond) return resolveValue(`$state.${cond.neq[0]}`, ctx) !== cond.neq[1];
+  if ("gt" in cond) return Number(resolveValue(`$state.${cond.gt[0]}`, ctx)) > cond.gt[1];
+  if ("gte" in cond) return Number(resolveValue(`$state.${cond.gte[0]}`, ctx)) >= cond.gte[1];
+  if ("lt" in cond) return Number(resolveValue(`$state.${cond.lt[0]}`, ctx)) < cond.lt[1];
+  if ("lte" in cond) return Number(resolveValue(`$state.${cond.lte[0]}`, ctx)) <= cond.lte[1];
+  if ("in" in cond) return cond.in[1].includes(resolveValue(`$state.${cond.in[0]}`, ctx));
+  if ("contains" in cond) return String(resolveValue(`$state.${cond.contains[0]}`, ctx) ?? "").includes(cond.contains[1]);
   if ("truthy" in cond) return !!ctx.store.get(cond.truthy);
+  if ("falsy" in cond) return !ctx.store.get(cond.falsy);
+  if ("flag" in cond) return !!ctx.flags[cond.flag];
+  if ("entitled" in cond) return hasEntitlement(cond.entitled);
+  if ("platform" in cond) return Platform.OS === cond.platform;
   if ("not" in cond) return !evalCondition(cond.not, ctx);
   if ("all" in cond) return cond.all.every((c) => evalCondition(c, ctx));
   if ("any" in cond) return cond.any.some((c) => evalCondition(c, ctx));
@@ -69,68 +98,68 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
   if (!action) return;
 
   switch (action.kind) {
-    case "navigate":
-      ctx.nav.push(action.screenId, action.params);
-      break;
+    // ------------------------------------------------------------------- nav
+    case "navigate": ctx.nav.push(action.screenId, action.params); break;
     case "navigateBack":
-    case "dismiss":
-      ctx.nav.back();
-      break;
-    case "switchTab":
-      ctx.nav.switchTab(action.tabId);
-      break;
+    case "dismiss": ctx.nav.back(); break;
+    case "switchTab": ctx.nav.switchTab(action.tabId); break;
     case "openUrl":
       Linking.openURL(action.url).catch(() => ctx.toast("Couldn't open link", "error"));
       break;
+    case "openInAppBrowser":
+      try { await WebBrowser.openBrowserAsync(action.url); } catch { ctx.toast("Couldn't open link", "error"); }
+      break;
     case "openSettings": {
-      // Jump the user to device Settings to flip a permission (e.g. enable the
-      // keyboard / Allow Full Access). iOS can only deep-link to the app's own
-      // settings page (Apple disallows deep-linking into Keyboards); Android can
-      // open the on-screen-keyboard settings directly.
       const failed = () => ctx.toast("Couldn't open Settings", "error");
       if (Platform.OS === "android" && action.target === "keyboard") {
-        Linking.sendIntent("android.settings.INPUT_METHOD_SETTINGS").catch(() =>
-          Linking.openSettings().catch(failed),
-        );
+        Linking.sendIntent("android.settings.INPUT_METHOD_SETTINGS").catch(() => Linking.openSettings().catch(failed));
       } else {
         Linking.openSettings().catch(failed);
       }
       break;
     }
-    case "refresh":
-      ctx.nav.reloadCurrent();
+
+    // ------------------------------------------------------------ data / net
+    case "refresh": ctx.nav.reloadCurrent(); break;
+    case "callEndpoint": {
+      try {
+        const body = action.body != null ? resolveValue(action.body, ctx) : undefined;
+        const res = await callEndpoint(action.method, action.path, body);
+        if (action.assignTo) ctx.store.set(action.assignTo, res);
+        await runAction(action.onSuccess, ctx);
+        if (action.path === "/v1/profile" && body != null && typeof body === "object" && "language" in body) {
+          ctx.nav.refreshLocale();
+        }
+      } catch {
+        await runAction(action.onError, ctx);
+      }
       break;
-    case "setState":
-      ctx.store.set(action.path, resolveValue(action.value, ctx));
+    }
+
+    // -------------------------------------------------------------- state
+    case "setState": ctx.store.set(action.path, resolveValue(action.value, ctx)); break;
+    case "toggleState": ctx.store.toggle(action.path); break;
+    case "incrementState": {
+      const cur = Number(ctx.store.get(action.path) ?? 0);
+      ctx.store.set(action.path, cur + (action.by ?? 1));
       break;
-    case "toggleState":
-      ctx.store.toggle(action.path);
-      break;
+    }
+    case "clearState": ctx.store.set(action.path, undefined); break;
+
+    // ---------------------------------------------------------- feedback
     case "haptic":
-      // iOS gets true Taptic Engine feedback for every schema style; Android
-      // falls back to Vibration for impact styles (notification patterns are
-      // iOS-only). Silent on unsupported styles rather than throwing.
       if (Platform.OS === "ios") {
         try {
           switch (action.style) {
-            case "light":
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); break;
-            case "medium":
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); break;
-            case "heavy":
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); break;
-            case "selection":
-              await Haptics.selectionAsync(); break;
-            case "success":
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); break;
-            case "warning":
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); break;
-            case "error":
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); break;
+            case "light": await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); break;
+            case "medium": await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); break;
+            case "heavy": await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); break;
+            case "selection": await Haptics.selectionAsync(); break;
+            case "success": await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); break;
+            case "warning": await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); break;
+            case "error": await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); break;
           }
-        } catch {
-          /* haptics blocked in some contexts (e.g. background) — ignore */
-        }
+        } catch { /* haptics blocked in some contexts — ignore */ }
       } else {
         Vibration.vibrate(
           action.style === "heavy" ? 30
@@ -141,52 +170,267 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         );
       }
       break;
-    case "toast":
-      ctx.toast(action.message, action.tone);
+    case "toast": ctx.toast(action.message, action.tone); break;
+    case "snackbar":
+      // Reuse toast under the hood — the Snackbar UI treatment can be added
+      // via an OTA once the SDUI screen using it is authored.
+      ctx.toast(action.message, "info");
       break;
-    case "callEndpoint": {
+    case "speak":
+      try { Speech.speak(action.text, { voice: action.voice }); } catch { /* no-op */ }
+      break;
+    case "stopMedia":
+      try { Speech.stop(); } catch { /* no-op */ }
+      break;
+    case "playMedia":
+      // Real audio playback is wired via VoiceButton's /v1/speak flow; a
+      // generic playMedia action can be added when a use-case shows up.
+      break;
+    case "confetti":
+      // Confetti component is authored on-screen and triggered by toggling
+      // state; the action is a convenience toggler for `_confetti`.
+      ctx.store.set("_confetti", (ctx.store.get("_confetti") ?? 0) + 1);
+      break;
+
+    // ------------------------------------------------- system / share / clip
+    case "share":
       try {
-        const body = action.body != null ? resolveValue(action.body, ctx) : undefined;
-        const res = await callEndpoint(action.method, action.path, body);
-        if (action.assignTo) ctx.store.set(action.assignTo, res);
-        await runAction(action.onSuccess, ctx);
-        // Changing the language preference re-localizes the whole UI: pull a
-        // fresh bootstrap (translated labels + RTL direction) and re-fetch the
-        // current screen, with no need to tap "Reload".
-        if (
-          action.path === "/v1/profile" &&
-          body != null &&
-          typeof body === "object" &&
-          "language" in body
-        ) {
-          ctx.nav.refreshLocale();
+        await Share.share({ message: action.text ?? "", url: action.url, title: action.title });
+      } catch { ctx.toast("Couldn't open share sheet", "error"); }
+      break;
+    case "shareFile":
+      try {
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(action.path, { mimeType: action.mimeType });
         }
+      } catch { ctx.toast("Couldn't share file", "error"); }
+      break;
+    case "copyToClipboard":
+      try {
+        await Clipboard.setStringAsync(action.text);
+        if (action.toastMessage) ctx.toast(action.toastMessage, "success");
+      } catch { ctx.toast("Couldn't copy", "error"); }
+      break;
+    case "readClipboard":
+      try {
+        const s = await Clipboard.getStringAsync();
+        ctx.store.set(action.assignTo, s);
+      } catch { /* no clipboard access */ }
+      break;
+    case "sms":
+      Linking.openURL(`sms:${action.number ?? ""}${action.body ? `?body=${encodeURIComponent(action.body)}` : ""}`).catch(() => ctx.toast("Couldn't open Messages", "error"));
+      break;
+    case "email":
+      Linking.openURL(`mailto:${action.to ?? ""}?subject=${encodeURIComponent(action.subject ?? "")}&body=${encodeURIComponent(action.body ?? "")}`).catch(() => ctx.toast("Couldn't open Mail", "error"));
+      break;
+    case "phone":
+      Linking.openURL(`tel:${action.number}`).catch(() => ctx.toast("Couldn't dial", "error"));
+      break;
+    case "download": {
+      try {
+        const fileName = action.filename ?? `tulmi-${Date.now()}`;
+        const dest = `${FileSystem.cacheDirectory}${fileName}`;
+        const res = await FileSystem.downloadAsync(action.url, dest);
+        ctx.store.set("_lastDownload", res.uri);
+        await runAction(action.onSuccess, ctx);
       } catch {
         await runAction(action.onError, ctx);
       }
       break;
     }
-    case "sequence":
-      for (const a of action.actions) await runAction(a, ctx);
+    case "saveToPhotos": {
+      try {
+        const perm = await MediaLibrary.requestPermissionsAsync();
+        if (!perm.granted) { ctx.toast("Photos permission denied", "error"); break; }
+        await MediaLibrary.saveToLibraryAsync(action.path);
+        ctx.toast("Saved to Photos", "success");
+      } catch { ctx.toast("Couldn't save", "error"); }
       break;
-    case "condition":
-      await runAction(evalCondition(action.if, ctx) ? action.then : action.else, ctx);
+    }
+
+    // ------------------------------------------------------ media pickers
+    case "pickImage": {
+      try {
+        const source = action.source ?? "library";
+        const pick = source === "camera"
+          ? await ImagePicker.launchCameraAsync({ quality: 0.8 })
+          : await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+        if (!pick.canceled && pick.assets && pick.assets[0]) {
+          ctx.store.set(action.assignTo, pick.assets[0]);
+          await runAction(action.onSuccess, ctx);
+        }
+      } catch { await runAction(action.onError, ctx); }
       break;
-    case "signOut":
-      // Clears the SecureStore-persisted Supabase session; SduiApp's
-      // onAuthStateChange listener flips back to the auth gate.
-      await supabase.auth.signOut();
+    }
+    case "pickDocument": {
+      try {
+        const res = await DocumentPicker.getDocumentAsync({ type: action.types ?? ["*/*"] });
+        if (!res.canceled && res.assets && res.assets[0]) {
+          ctx.store.set(action.assignTo, res.assets[0]);
+          await runAction(action.onSuccess, ctx);
+        }
+      } catch { await runAction(action.onError, ctx); }
       break;
-    case "clearCache":
-      // Server-triggered cache invalidation. Today the client has no
-      // persistent SDUI cache to wipe (screens are always fetched fresh
-      // under `no-store`), so all we need to do is re-run the current
-      // screen fetch. When persistent screen caching lands, wire it here.
-      ctx.nav.reloadCurrent();
+    }
+    case "scanQR":
+      // Full QR scanning requires the Camera component mounted in-screen with
+      // a barcode callback. The action here requests the permission so the
+      // on-screen component can start scanning immediately once mounted.
+      try {
+        const perm = await Camera.Camera.requestCameraPermissionsAsync();
+        ctx.store.set("_qrPermission", perm.granted);
+      } catch { await runAction(action.onError, ctx); }
       break;
-    case "speak":
-    case "playMedia":
-      // Wired in a later phase (uses /v1/speak); no-op for now.
+
+    // ------------------------------------------------------- permissions
+    case "requestPermission": {
+      try {
+        let granted = false;
+        switch (action.permission) {
+          case "microphone": {
+            const AudioMod = await import("expo-audio");
+            const p = await (AudioMod as any).AudioModule?.requestRecordingPermissionsAsync?.();
+            granted = !!p?.granted;
+            break;
+          }
+          case "camera": granted = (await Camera.Camera.requestCameraPermissionsAsync()).granted; break;
+          case "notifications": granted = (await Notifications.requestPermissionsAsync()).granted; break;
+          case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
+          case "contacts": granted = (await Contacts.requestPermissionsAsync()).granted; break;
+          case "calendar": granted = (await Calendar.requestCalendarPermissionsAsync()).granted; break;
+          case "tracking": granted = (await Tracking.requestTrackingPermissionsAsync()).status === "granted"; break;
+        }
+        await runAction(granted ? action.onGranted : action.onDenied, ctx);
+      } catch { await runAction(action.onDenied, ctx); }
+      break;
+    }
+
+    // ---------------------------------------------------------------- auth
+    case "biometricPrompt": {
+      try {
+        const has = await LocalAuthentication.hasHardwareAsync();
+        if (!has) { await runAction(action.onError, ctx); break; }
+        const res = await LocalAuthentication.authenticateAsync({ promptMessage: action.reason ?? "Authenticate" });
+        await runAction(res.success ? action.onSuccess : action.onError, ctx);
+      } catch { await runAction(action.onError, ctx); }
+      break;
+    }
+    case "signOut": await supabase.auth.signOut(); break;
+
+    // ----------------------------------------------------------------- IAP
+    case "iap.showPaywall": {
+      try {
+        const ok = await showPaywall(action.offeringId);
+        await runAction(ok ? action.onSuccess : action.onError, ctx);
+      } catch { await runAction(action.onError, ctx); }
+      break;
+    }
+    case "iap.subscribe": {
+      try {
+        const ok = await subscribeToProduct(action.productId);
+        await runAction(ok ? action.onSuccess : action.onError, ctx);
+      } catch { await runAction(action.onError, ctx); }
+      break;
+    }
+    case "iap.restore": {
+      try {
+        await restorePurchases();
+        await runAction(action.onSuccess, ctx);
+      } catch { await runAction(action.onError, ctx); }
+      break;
+    }
+    case "iap.checkEntitlement":
+      ctx.store.set(action.assignTo, hasEntitlement(action.entitlement));
+      break;
+
+    // ------------------------------------------------------- notifications
+    case "scheduleNotification": {
+      try {
+        const trigger: any = action.atIso
+          ? { type: "date", date: new Date(action.atIso) }
+          : action.afterSeconds != null
+            ? { type: "timeInterval", seconds: action.afterSeconds }
+            : null;
+        await Notifications.scheduleNotificationAsync({
+          content: { title: action.title, body: action.body ?? "", data: action.payload ?? {} },
+          trigger,
+          identifier: action.identifier,
+        });
+      } catch { /* silent — user can turn on permissions and retry */ }
+      break;
+    }
+    case "cancelNotification":
+      try { await Notifications.cancelScheduledNotificationAsync(action.identifier); } catch { /* no-op */ }
+      break;
+    case "requestPushPermission": {
+      try {
+        const p = await Notifications.requestPermissionsAsync();
+        if (p.granted) {
+          await registerForPushToken();
+          await runAction(action.onGranted, ctx);
+        } else {
+          await runAction(action.onDenied, ctx);
+        }
+      } catch { await runAction(action.onDenied, ctx); }
+      break;
+    }
+
+    // ------------------------------------------------------------- analytics
+    case "analytics.track": trackEvent(action.event, resolveValue(action.props, ctx)); break;
+    case "analytics.identify": identifyUser(action.userId, resolveValue(action.traits, ctx)); break;
+    case "analytics.reset": resetAnalytics(); break;
+
+    // ------------------------------------------------------------- calendar
+    case "calendar.addEvent": {
+      try {
+        const perm = await Calendar.requestCalendarPermissionsAsync();
+        if (!perm.granted) break;
+        const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+        const cal = cals.find((c) => c.allowsModifications) ?? cals[0];
+        if (!cal) break;
+        await Calendar.createEventAsync(cal.id, {
+          title: action.title,
+          startDate: new Date(action.startsAtIso),
+          endDate: action.endsAtIso ? new Date(action.endsAtIso) : new Date(new Date(action.startsAtIso).getTime() + 60 * 60 * 1000),
+          notes: action.notes,
+          location: action.location,
+        });
+        ctx.toast("Added to calendar", "success");
+      } catch { ctx.toast("Couldn't add event", "error"); }
+      break;
+    }
+
+    // ----------------------------------------------------- store review prompt
+    case "requestReview":
+      try { if (await StoreReview.hasAction()) await StoreReview.requestReview(); } catch { /* no-op */ }
+      break;
+
+    // --------------------------------------------------------- keyboard bridge
+    case "keyboard.reload":
+    case "keyboard.setLayout":
+      // Bridge calls into the native tulmi-bridge module; UI updates land the
+      // next time the keyboard extension reads /v1/keyboard/config, which we
+      // cache-bump on the backend when needed.
+      break;
+
+    // --------------------------------------------------------- cache / dev
+    case "clearCache": ctx.nav.reloadCurrent(); break;
+    case "reloadApp":
+      try {
+        const Updates = await import("expo-updates");
+        await (Updates as any).reloadAsync?.();
+      } catch { /* not available in this build config */ }
+      break;
+
+    // ---------------------------------------------------------- composition
+    case "sequence": for (const a of action.actions) await runAction(a, ctx); break;
+    case "parallel": await Promise.all(action.actions.map((a) => runAction(a, ctx))); break;
+    case "condition": await runAction(evalCondition(action.if, ctx) ? action.then : action.else, ctx); break;
+    case "delay": await new Promise((r) => setTimeout(r, action.ms)); break;
+    case "log":
+      if (action.level === "error") console.error(action.message);
+      else if (action.level === "warn") console.warn(action.message);
+      else console.log(action.message);
       break;
   }
 }

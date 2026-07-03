@@ -5,11 +5,9 @@
  * with that one by hand. Same rules for TAILZU-BACKEND/shared/types/api.ts →
  * ../api.ts (in src/api.ts).
  *
- * Divergence-catching: we mirror the backend's exact enums (HapticStyle,
- * MotionPreset) so a payload that names one the client can't handle turns into
- * a TS error at review time instead of a silent runtime miss. The `props`/
- * `style` bags stay `Record<string, any>` here because the RN renderer reads
- * them polymorphically — a stricter shape would fight the component registry.
+ * The `props`/`style` bags stay `Record<string, any>` here because the RN
+ * renderer reads them polymorphically — a stricter shape would fight the
+ * component registry.
  */
 
 export interface ThemeTokens {
@@ -34,8 +32,8 @@ export interface UpdateGate {
 
 export interface LanguageOption {
   code: string;
-  name: string;      // endonym shown on the pill
-  greeting: string;  // "hello" in that language (the rotating greeting)
+  name: string;
+  greeting: string;
   regions?: string[];
 }
 
@@ -47,32 +45,25 @@ export interface BootstrapResponse {
   flags?: Record<string, boolean | number | string>;
   labels?: Record<string, string>;
   update?: UpdateGate;
-  // The post-auth language picker is fed from here; the app falls back to a
-  // built-in list only when the backend doesn't send one.
   languages?: LanguageOption[];
   cacheTtlSeconds?: number;
-  /**
-   * Opaque cache token; the client compares against the value it last saw and
-   * drops any cached screens when it differs. Bumped on server restart or via
-   * the admin `/v1/admin/cache/bump` endpoint.
-   */
   cacheVersion?: string;
 }
 
 export type NodeEvent =
-  | "onPress" | "onLongPress" | "onChange" | "onSubmit"
-  | "onAppear" | "onDisappear" | "onRefresh" | "onEndReached"
+  | "onPress" | "onLongPress" | "onDoubleTap"
+  | "onChange" | "onSubmit"
+  | "onFocus" | "onBlur"
+  | "onAppear" | "onDisappear"
+  | "onRefresh" | "onEndReached"
+  | "onSwipeLeft" | "onSwipeRight"
+  | "onScroll" | "onScrollEnd"
+  | "onSelect" | "onDismiss" | "onComplete"
   | "onResult" | "onError";
 
-/** Server-authored motion preset. The registry rejects anything else. */
 export type MotionPreset =
-  | "fade"
-  | "fadeInUp"
-  | "fadeInDown"
-  | "scaleIn"
-  | "slideInLeft"
-  | "slideInRight"
-  | "pulse";
+  | "fade" | "fadeInUp" | "fadeInDown" | "scaleIn"
+  | "slideInLeft" | "slideInRight" | "pulse";
 
 export interface MotionSpec {
   appear?: MotionPreset;
@@ -110,24 +101,20 @@ export interface ScreenResponse {
 
 export type ActionRef = string | ActionSpec;
 
-/** Feedback style the action interpreter maps to real haptics/vibration.
- *  Kept aligned with the backend so an unknown value is a TS error. */
 export type HapticStyle =
-  | "light"
-  | "medium"
-  | "heavy"
-  | "selection"
-  | "success"
-  | "warning"
-  | "error";
+  | "light" | "medium" | "heavy"
+  | "selection" | "success" | "warning" | "error";
 
 export type ActionSpec =
+  // navigation & flow
   | { kind: "navigate"; screenId: string; params?: Record<string, any> }
   | { kind: "navigateBack" }
   | { kind: "switchTab"; tabId: string }
   | { kind: "openUrl"; url: string; external?: boolean }
   | { kind: "openSettings"; target?: "app" | "keyboard" }
+  | { kind: "openInAppBrowser"; url: string }
   | { kind: "dismiss" }
+  // data & network
   | {
       kind: "callEndpoint";
       method: "GET" | "POST" | "PUT" | "DELETE";
@@ -138,31 +125,104 @@ export type ActionSpec =
       onError?: ActionRef;
     }
   | { kind: "refresh" }
+  // local state
   | { kind: "setState"; path: string; value: any }
   | { kind: "toggleState"; path: string }
+  | { kind: "incrementState"; path: string; by?: number }
+  | { kind: "clearState"; path: string }
+  // feedback
   | { kind: "haptic"; style: HapticStyle }
   | { kind: "toast"; message: string; tone?: "info" | "success" | "error" }
+  | { kind: "snackbar"; message: string; actionLabel?: string; onAction?: ActionRef }
   | { kind: "playMedia"; url: string }
-  | { kind: "speak"; text: string }
+  | { kind: "stopMedia" }
+  | { kind: "speak"; text: string; voice?: string }
+  | { kind: "confetti" }
+  // system / sharing / clipboard
+  | { kind: "share"; text?: string; url?: string; title?: string }
+  | { kind: "shareFile"; path: string; mimeType?: string }
+  | { kind: "copyToClipboard"; text: string; toastMessage?: string }
+  | { kind: "readClipboard"; assignTo: string }
+  | { kind: "sms"; number?: string; body?: string }
+  | { kind: "email"; to?: string; subject?: string; body?: string }
+  | { kind: "phone"; number: string }
+  | { kind: "download"; url: string; filename?: string; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "saveToPhotos"; path: string }
+  // media pickers
+  | { kind: "pickImage"; assignTo: string; source?: "library" | "camera"; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "pickDocument"; assignTo: string; types?: string[]; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "scanQR"; assignTo: string; onSuccess?: ActionRef; onError?: ActionRef }
+  // permissions
+  | {
+      kind: "requestPermission";
+      permission:
+        | "microphone" | "camera" | "notifications" | "photoLibrary"
+        | "contacts" | "calendar" | "location" | "tracking";
+      onGranted?: ActionRef;
+      onDenied?: ActionRef;
+    }
+  // auth
+  | { kind: "biometricPrompt"; reason?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "signOut" }
+  // IAP
+  | { kind: "iap.showPaywall"; offeringId?: string; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "iap.subscribe"; productId: string; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "iap.restore"; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "iap.checkEntitlement"; entitlement: string; assignTo: string }
+  // notifications
+  | {
+      kind: "scheduleNotification";
+      title: string;
+      body?: string;
+      afterSeconds?: number;
+      atIso?: string;
+      identifier?: string;
+      payload?: Record<string, any>;
+    }
+  | { kind: "cancelNotification"; identifier: string }
+  | { kind: "requestPushPermission"; onGranted?: ActionRef; onDenied?: ActionRef }
+  // analytics
+  | { kind: "analytics.track"; event: string; props?: Record<string, any> }
+  | { kind: "analytics.identify"; userId: string; traits?: Record<string, any> }
+  | { kind: "analytics.reset" }
+  // calendar
+  | { kind: "calendar.addEvent"; title: string; startsAtIso: string; endsAtIso?: string; notes?: string; location?: string }
+  // app store review prompt
+  | { kind: "requestReview" }
+  // keyboard bridge
+  | { kind: "keyboard.reload" }
+  | { kind: "keyboard.setLayout"; language: string }
+  // cache / dev
   | { kind: "clearCache" }
+  | { kind: "reloadApp" }
+  // composition
   | { kind: "sequence"; actions: ActionRef[] }
-  | { kind: "condition"; if: Condition; then: ActionRef; else?: ActionRef };
+  | { kind: "parallel"; actions: ActionRef[] }
+  | { kind: "condition"; if: Condition; then: ActionRef; else?: ActionRef }
+  | { kind: "delay"; ms: number }
+  | { kind: "log"; message: string; level?: "info" | "warn" | "error" };
 
 export type Condition =
   | { eq: [string, any] }
   | { neq: [string, any] }
+  | { gt: [string, number] }
+  | { gte: [string, number] }
+  | { lt: [string, number] }
+  | { lte: [string, number] }
+  | { in: [string, any[]] }
+  | { contains: [string, string] }
   | { truthy: string }
+  | { falsy: string }
+  | { entitled: string }
+  | { flag: string }
+  | { platform: "ios" | "android" }
   | { not: Condition }
   | { all: Condition[] }
   | { any: Condition[] };
 
 // ===========================================================================
-// Keyboard config — the OS-legal "SDUI" for the native keyboard extension.
+// Keyboard config — v2 supports the SDUI-driven renderer.
 // ===========================================================================
-// Kept here (not just in the native code) so the app can preview / validate
-// what the keyboard will render, and so a config regression turns into a TS
-// error rather than a silent runtime miss.
 
 export interface KeyboardConfigResponse {
   schemaVersion: number;
@@ -172,19 +232,64 @@ export interface KeyboardConfigResponse {
     keyText: string;
     accent: string;
     keyPressed: string;
+    backgroundEffect?: KeyboardEffect;
+    keyEffect?: KeyboardEffect;
+    keyRadius?: number;
+    keyShadow?: boolean;
   };
   layouts: KeyboardLayout[];
   features: {
     voice: boolean;
     refine: boolean;
-    /** Show a live-streaming dictation UI vs. one-shot. */
     streaming: boolean;
+    sdui?: boolean;
   };
   labels: Record<string, string>;
   cacheTtlSeconds: number;
+  root?: KeyboardNode;
+  actions?: Record<string, KeyboardActionSpec>;
+  cacheVersion?: string;
 }
 
 export interface KeyboardLayout {
   language: string;
+  displayName?: string;
   rows: string[][];
 }
+
+export type KeyboardEffect =
+  | { kind: "solid"; color: string }
+  | { kind: "blur"; style: "regular" | "chromeMaterialDark" | "chromeMaterialLight" | "systemThinMaterial" | "systemUltraThinMaterial" }
+  | { kind: "gradient"; colors: string[]; direction?: "vertical" | "horizontal" };
+
+export interface KeyboardNode {
+  type: string;
+  id?: string;
+  props?: Record<string, any>;
+  style?: Record<string, any>;
+  children?: KeyboardNode[];
+  bind?: Record<string, string>;
+  on?: Partial<Record<"onPress" | "onLongPress" | "onDoubleTap", KeyboardActionRef>>;
+  effect?: KeyboardEffect;
+  visibleIf?: Condition;
+}
+
+export type KeyboardActionRef = string | KeyboardActionSpec;
+export type KeyboardActionSpec =
+  | { kind: "insertText"; text: string }
+  | { kind: "insertKey"; char: string }
+  | { kind: "deleteBackward" }
+  | { kind: "deleteWord" }
+  | { kind: "shift" }
+  | { kind: "capsLock" }
+  | { kind: "return" }
+  | { kind: "switchLayout"; language?: string }
+  | { kind: "showLanguageMenu" }
+  | { kind: "startDictation" }
+  | { kind: "stopDictation" }
+  | { kind: "runRefine" }
+  | { kind: "openApp"; screenId?: string }
+  | { kind: "openSettings" }
+  | { kind: "haptic"; style: HapticStyle }
+  | { kind: "sequence"; actions: KeyboardActionRef[] }
+  | { kind: "condition"; if: Condition; then: KeyboardActionRef; else?: KeyboardActionRef };

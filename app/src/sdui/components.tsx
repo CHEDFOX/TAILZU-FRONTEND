@@ -57,12 +57,12 @@ function titleCase(s: string): string {
   return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 }
 /** Title-case static copy, but pass bound/dynamic text (user data) through untouched. */
-function staticText(node: Node, raw: string): string {
+export function staticText(node: Node, raw: string): string {
   return node.bind?.content != null ? raw : titleCase(raw);
 }
 
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
-function tok(value: any, theme: ThemeTokens): any {
+export function tok(value: any, theme: ThemeTokens): any {
   if (typeof value === "string" && value.startsWith("$")) return getPath(theme, value.slice(1));
   return value;
 }
@@ -695,10 +695,13 @@ const styles_dots = {
   dot: { width: 6, height: 6, borderRadius: 3 },
 };
 
+import { REGISTRY_V3 } from "./componentsV3";
+
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips,
+  ...REGISTRY_V3,
 };
