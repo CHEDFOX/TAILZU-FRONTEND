@@ -175,7 +175,13 @@ const config: ExpoConfig = {
     "expo-calendar",
     "expo-video",
     "expo-splash-screen",
-    "@sentry/react-native/expo",
+    // Sentry's Expo plugin injects a "Upload Debug Symbols" build phase that
+    // runs sentry-cli. Without SENTRY_ORG / SENTRY_PROJECT / SENTRY_AUTH_TOKEN
+    // (i.e. every build until you configure Sentry), sentry-cli hard-fails and
+    // takes the whole build down. `disableAutoUpload: true` skips the upload
+    // step; the runtime SDK still reports errors normally. Once you have a
+    // Sentry project, flip this back OFF and add the three env vars.
+    ["@sentry/react-native/expo", { disableAutoUpload: true }],
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "@bacons/apple-targets",
   ],
