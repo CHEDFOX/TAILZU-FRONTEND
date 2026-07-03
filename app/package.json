@@ -7,9 +7,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "postinstall": "expo install --check --fix || true",
     "check-deps": "expo install --check",
-    "fix-deps": "expo install --check --fix"
+    "fix-deps": "expo install --fix"
   },
   "dependencies": {
     "@bacons/apple-targets": "^4.0.7",
