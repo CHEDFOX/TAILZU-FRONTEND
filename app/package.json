@@ -61,6 +61,7 @@
     "react-native": "0.85.3",
     "react-native-gesture-handler": "~2.31.1",
     "react-native-mmkv": "latest",
+    "react-native-nitro-modules": "latest",
     "react-native-purchases": "latest",
     "react-native-qrcode-svg": "latest",
     "react-native-reanimated": "4.3.1",
