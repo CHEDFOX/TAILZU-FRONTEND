@@ -154,8 +154,13 @@ const config: ExpoConfig = {
     ],
     blockedPermissions: [],
   },
-  // Every plugin we might need — installed once, gated by env or by not being
-  // referenced from JS if unused. Removing any of these later is a rebuild.
+  // Config plugins — ONLY the packages that ship an `app.plugin.js` and actually
+  // need to mutate native config (permissions strings, entitlements, manifest
+  // entries, splash config). Packages like expo-linking / expo-web-browser /
+  // expo-secure-store / expo-crypto / expo-clipboard DON'T need entries here
+  // — you just `import` them and they work. Listing them causes Expo to
+  // require() their main entry as if it were a plugin, which throws on
+  // "Unexpected token 'export'".
   plugins: [
     "expo-audio",
     "expo-apple-authentication",
@@ -169,10 +174,6 @@ const config: ExpoConfig = {
     "expo-contacts",
     "expo-calendar",
     "expo-video",
-    "expo-web-browser",
-    "expo-linking",
-    "expo-updates",
-    "expo-secure-store",
     "expo-splash-screen",
     "@sentry/react-native/expo",
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
