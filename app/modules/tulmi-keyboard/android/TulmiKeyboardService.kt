@@ -13,8 +13,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
@@ -29,16 +33,27 @@ import java.io.File
  * Talks to the Tulmi backend (see Net.kt). Uses the deprecated Keyboard/
  * KeyboardView for a minimal, working keyboard surface in v1.
  */
-class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardActionListener {
+class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardActionListener, KBHost {
 
-    private lateinit var keyboardView: KeyboardView
-    private lateinit var keyboard: Keyboard
+    private var keyboardView: KeyboardView? = null
+    private var keyboard: Keyboard? = null
     private var statusView: TextView? = null
     private var rootView: View? = null
     private var tonePill: Button? = null
 
     /** Server-driven config (theme/labels/flags); null until fetched/cached. */
     private var kbConfig: Net.KbConfig? = null
+
+    // -- SDUI wiring ---------------------------------------------------------
+    // When the backend flips features.sdui=true AND ships a root tree, we hand
+    // the whole keyboard surface to SDUIRenderer instead of inflating
+    // res/layout/keyboard.xml. The hand-built path stays intact as a fallback
+    // so old configs (and offline first-run before the cache lands) still work.
+    private var sduiConfig: KBConfig? = null
+    private var sduiRenderer: SDUIRenderer? = null
+    private var sduiContainer: FrameLayout? = null
+    private val kbState = KBState()
+    private var sduiActive = false
 
     // Tone / emoji preferences persist in SharedPreferences under the same file
     // the config cache uses ("tulmi_kb") — keeps everything keyboard-scoped in
@@ -76,16 +91,62 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     override fun onCreateInputView(): View {
+        // Pick up shared prefs + preload cached config synchronously so we can
+        // decide SDUI vs fallback BEFORE inflating anything.
+        Net.load(this)
+        loadTonePrefs()
+
+        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        val cached = prefs.getString("config_json", null)
+        val useSdui = cached != null && SDUIRenderer.isSDUI(cached)
+
+        return if (useSdui) buildSduiInputView(cached!!) else buildFallbackInputView()
+    }
+
+    /**
+     * SDUI path: create a bare FrameLayout container and hand it to the renderer.
+     * The renderer walks config.root and produces the entire view subtree. When
+     * the background config refetch returns, `applyConfig` updates the renderer
+     * via `updateConfig` so pushed changes take effect without a keyboard reopen.
+     */
+    private fun buildSduiInputView(rawJson: String): View {
+        val container = FrameLayout(this)
+        sduiContainer = container
+        rootView = container
+        sduiActive = true
+        try {
+            val cfg = SDUIRenderer.parseKBConfig(rawJson)
+            sduiConfig = cfg
+            val renderer = SDUIRenderer(this, cfg, container)
+            sduiRenderer = renderer
+            cfg.root?.let { renderer.mount(it) }
+        } catch (t: Throwable) {
+            android.util.Log.w("SDUI", "parse failed, falling back: ${t.message}")
+            sduiActive = false
+            return buildFallbackInputView()
+        }
+
+        // Kick off the background refresh — same policy as fallback.
+        loadAndApplyConfig()
+        setupTonePill() // no-op if pill isn't in the tree; harmless
+        return container
+    }
+
+    /** Legacy hand-built keyboard — inflates keyboard.xml + Keyboard(qwerty). */
+    private fun buildFallbackInputView(): View {
         val root = layoutInflater.inflate(
             resources.getIdentifier("keyboard", "layout", packageName),
             null,
         ) as LinearLayout
-        keyboardView = root.findViewById(resources.getIdentifier("keyboard_view", "id", packageName))
+        val kv: KeyboardView = root.findViewById(resources.getIdentifier("keyboard_view", "id", packageName))
+        keyboardView = kv
         statusView = root.findViewById(resources.getIdentifier("status", "id", packageName))
-        keyboard = Keyboard(this, resources.getIdentifier("qwerty", "xml", packageName))
-        keyboardView.keyboard = keyboard
-        keyboardView.setOnKeyboardActionListener(this)
+        val kb = Keyboard(this, resources.getIdentifier("qwerty", "xml", packageName))
+        keyboard = kb
+        kv.keyboard = kb
+        kv.setOnKeyboardActionListener(this)
         rootView = root
+        sduiActive = false
 
         // Tone pill (top-bar). Mirrors the iOS tonePill: shows the current tone,
         // opens a PopupMenu with tones + emoji toggle + one-shot commands.
@@ -93,11 +154,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (pillId != 0) {
             tonePill = root.findViewById(pillId)
         }
-        loadTonePrefs()
         setupTonePill()
 
-        // Pick up the backend URL + user token the app shared before any request.
-        Net.load(this)
         loadAndApplyConfig()
         return root
     }
@@ -183,37 +241,66 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private fun loadAndApplyConfig() {
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         // Apply last-known config immediately so the keyboard never waits on the network.
-        prefs.getString("config_json", null)?.let {
-            try { applyConfig(Net.parseConfig(it)) } catch (_: Exception) {}
-        }
+        prefs.getString("config_json", null)?.let { applyRawJson(it) }
         // Refresh in the background; cache the result for next time.
         Thread {
             try {
                 val json = Net.getKeyboardConfigJson()
-                val cfg = Net.parseConfig(json)
                 prefs.edit().putString("config_json", json).apply()
-                main.post { applyConfig(cfg) }
+                main.post { applyRawJson(json) }
             } catch (_: Exception) { /* offline → keep cached/defaults */ }
         }.start()
     }
 
+    /**
+     * Apply raw config JSON to whichever renderer is active. For the fallback
+     * path we parse into Net.KbConfig and repaint the hand-built keyboard. For
+     * the SDUI path we parse into the full tree model and push it into the
+     * renderer via `updateConfig` (which triggers a cheap re-render).
+     */
+    private fun applyRawJson(json: String) {
+        // Fallback theme/labels always parsed — used for label() lookups and
+        // for the tone pill even when SDUI is driving the tree.
+        try { applyConfig(Net.parseConfig(json)) } catch (_: Exception) {}
+        if (sduiActive) {
+            try {
+                val cfg = SDUIRenderer.parseKBConfig(json)
+                sduiConfig = cfg
+                sduiRenderer?.updateConfig(cfg)
+            } catch (t: Throwable) {
+                android.util.Log.w("SDUI", "config apply failed: ${t.message}")
+            }
+        }
+    }
+
     private fun applyConfig(cfg: Net.KbConfig) {
         kbConfig = cfg
+        // If we're rendering via SDUI, the theme lives in the tree, not on the
+        // fallback views — skip the legacy color-apply and let the SDUI path
+        // pick up the fresh JSON (see applyRawJson below).
+        if (sduiActive) return
         try {
             val bg = Color.parseColor(cfg.background)
             rootView?.setBackgroundColor(bg)
-            keyboardView.setBackgroundColor(bg)
-            statusView?.setTextColor(Color.parseColor(cfg.keyText))
+            keyboardView?.setBackgroundColor(bg)
+            statusView?.setTextColor(parseHexColor(cfg.keyText))
             // Theme the tone pill from cfg.accent so it inherits the same white
             // (or brand-tinted) affordance as the return key on iOS.
             try {
-                val accent = Color.parseColor(cfg.accent)
+                val accent = parseHexColor(cfg.accent)
                 (tonePill?.background as? GradientDrawable)?.setColor(accent)
                 val lum = 0.299 * Color.red(accent) + 0.587 * Color.green(accent) + 0.114 * Color.blue(accent)
                 tonePill?.setTextColor(if (lum > 153) Color.BLACK else Color.WHITE)
             } catch (_: Exception) { /* keep default */ }
         } catch (_: Exception) { /* malformed color → ignore */ }
     }
+
+    /**
+     * Color parser that extends `Color.parseColor` with 8-char `#RRGGBBAA`
+     * support (Android's built-in expects `#AARRGGBB`). Used across both the
+     * fallback and SDUI paths so themes can push whichever ordering.
+     */
+    private fun parseHexColor(hex: String): Int = SDUIRenderer.parseHex(hex)
 
     private fun label(key: String, default: String): String =
         kbConfig?.labels?.get(key) ?: default
@@ -226,8 +313,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             CODE_DELETE -> ic.deleteSurroundingText(1, 0)
             CODE_SHIFT -> {
                 caps = !caps
-                keyboard.isShifted = caps
-                keyboardView.invalidateAllKeys()
+                keyboard?.let { it.isShifted = caps }
+                keyboardView?.invalidateAllKeys()
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
             CODE_SPACE -> ic.commitText(" ", 1)
@@ -268,6 +355,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         pendingPartial = ""
         dictatedSomething = false
         streaming = true
+        kbState.dictating = true
+        sduiRenderer?.stateChanged()
         setStatus(label("listening", "🎙️ Listening…"))
         val target = targetAppName()
         stream = Stream(
@@ -305,6 +394,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private fun endStreaming() {
         streaming = false
         stream = null
+        kbState.dictating = false
+        sduiRenderer?.stateChanged()
         if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
     }
 
@@ -341,6 +432,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             recorder = rec
             audioFile = file
             recording = true
+            kbState.dictating = true
+            sduiRenderer?.stateChanged()
             setStatus(label("listening", "🎙️ Listening… tap mic to stop"))
         } catch (e: Exception) {
             setStatus("Mic error: ${e.message}")
@@ -350,6 +443,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     private fun stopAndTranscribe() {
         recording = false
+        kbState.dictating = false
+        sduiRenderer?.stateChanged()
         val file = audioFile
         try {
             recorder?.stop()
@@ -396,6 +491,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             setStatus("Type something first, then tap ✨")
             return
         }
+        kbState.refining = true
+        sduiRenderer?.stateChanged()
         setStatus(label("refining", "Refining…"))
         val target = targetAppName()
         Thread {
@@ -405,10 +502,16 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     val conn = currentInputConnection
                     conn?.deleteSurroundingText(before.length, after.length)
                     conn?.commitText(refined, 1)
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
                     setStatus("")
                 }
             } catch (e: Exception) {
-                main.post { setStatus("Error: ${e.message}") }
+                main.post {
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    setStatus("Error: ${e.message}")
+                }
             }
         }.start()
     }
@@ -430,11 +533,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
     }
 
-    private fun setStatus(text: String) {
+    override fun setStatus(text: String) {
+        // Mirror status into KBState so SDUI-driven StatusLabel components can
+        // subscribe to the same value the fallback status TextView shows.
+        kbState.status = text
         statusView?.let {
             it.text = text
             it.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
         }
+        if (sduiActive) sduiRenderer?.stateChanged()
     }
 
     override fun onFinishInput() {
@@ -458,4 +565,65 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun swipeRight() {}
     override fun swipeDown() {}
     override fun swipeUp() {}
+
+    // =======================================================================
+    // KBHost — implementation the SDUIRenderer calls back into. Everything is
+    // a thin adapter over existing methods so the fallback path continues to
+    // reuse the same dictation/refine/status helpers.
+    // =======================================================================
+    override fun context(): Context = this
+
+    override fun ic(): InputConnection? = currentInputConnection
+
+    override fun startDictation() {
+        if (kbConfig?.voice == false) {
+            setStatus(label("voiceOff", "Voice is off."))
+            return
+        }
+        if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
+    }
+
+    override fun stopDictation() {
+        if (streaming) stopStreaming()
+        if (recording) stopAndTranscribe()
+    }
+
+    override fun runRefine() {
+        if (kbConfig?.refine == false) {
+            setStatus(label("refineOff", "Refine is off."))
+            return
+        }
+        refineField()
+    }
+
+    override fun switchLayout(language: String?) {
+        val target = language ?: return cycleLayout()
+        kbState.layoutId = target
+        sduiRenderer?.stateChanged()
+    }
+
+    override fun cycleLayout() {
+        val layouts = sduiConfig?.layouts ?: return
+        if (layouts.isEmpty()) return
+        val idx = layouts.indexOfFirst { it.language == kbState.layoutId }
+        val next = layouts[(idx + 1).coerceAtLeast(0) % layouts.size]
+        kbState.layoutId = next.language
+        sduiRenderer?.stateChanged()
+    }
+
+    override fun showLanguageMenu() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showInputMethodPicker()
+    }
+
+    override fun state(): KBState = kbState
+
+    override fun config(): KBConfig =
+        sduiConfig ?: throw IllegalStateException("SDUI config not loaded")
+
+    override fun rootView(): View? = rootView
+
+    override fun onStateChanged() {
+        sduiRenderer?.stateChanged()
+    }
 }
