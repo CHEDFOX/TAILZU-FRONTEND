@@ -857,16 +857,20 @@ final class SDUIRenderer: NSObject {
     case .solid(let color):
       view.backgroundColor = UIColor(tulmiHex: color)
     case .gradient(let colors, let direction):
-      let g = CAGradientLayer()
-      g.colors = colors.map { UIColor(tulmiHex: $0).cgColor }
-      if direction == "horizontal" {
-        g.startPoint = CGPoint(x: 0, y: 0.5); g.endPoint = CGPoint(x: 1, y: 0.5)
-      }
-      // CAGradientLayer needs an explicit frame — pin it to the view's bounds
-      // in layoutSubviews via a resize mask.
-      g.frame = view.bounds
-      g.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-      view.layer.insertSublayer(g, at: 0)
+      // Wrap in the GradientView subclass (same one used by makeEffectBackdrop)
+      // so the CAGradientLayer resizes via layoutSubviews. Raw CALayer
+      // autoresizing masks are Mac-only — iOS refuses them.
+      let g = GradientView()
+      g.gradientColors = colors.map { UIColor(tulmiHex: $0).cgColor }
+      g.horizontal = (direction == "horizontal")
+      g.translatesAutoresizingMaskIntoConstraints = false
+      view.insertSubview(g, at: 0)
+      NSLayoutConstraint.activate([
+        g.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        g.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        g.topAnchor.constraint(equalTo: view.topAnchor),
+        g.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ])
       view.layer.masksToBounds = true
     case .blur(let style):
       let blur = UIVisualEffectView(effect: UIBlurEffect(style: mapBlur(style)))
