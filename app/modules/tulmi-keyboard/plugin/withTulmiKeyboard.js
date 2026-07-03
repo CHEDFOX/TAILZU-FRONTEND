@@ -80,7 +80,11 @@ function withNativeFiles(config) {
 
       const javaDest = path.join(androidMain, "java", JAVA_PKG_PATH);
       fs.mkdirSync(javaDest, { recursive: true });
-      for (const f of ["TulmiKeyboardService.kt", "Net.kt", "Stream.kt"]) {
+      // Copy every .kt file that lives next to the module — a glob avoids the
+      // "we added a new file and forgot to add it here, so the whole build
+      // fails at Kotlin compile" landmine that just bit us with SDUIRenderer.kt.
+      const ktFiles = fs.readdirSync(moduleDir).filter((f) => f.endsWith(".kt"));
+      for (const f of ktFiles) {
         fs.copyFileSync(path.join(moduleDir, f), path.join(javaDest, f));
       }
       copyDir(path.join(moduleDir, "res"), path.join(androidMain, "res"));

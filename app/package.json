@@ -6,7 +6,10 @@
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
-    "ios": "expo start --ios"
+    "ios": "expo start --ios",
+    "postinstall": "expo install --check --fix || true",
+    "check-deps": "expo install --check",
+    "fix-deps": "expo install --check --fix"
   },
   "dependencies": {
     "@bacons/apple-targets": "^4.0.7",
@@ -46,6 +49,7 @@
     "expo-secure-store": "~56.0.4",
     "expo-sharing": "~15.0.4",
     "expo-speech": "~15.0.4",
+    "expo-splash-screen": "~56.0.5",
     "expo-store-review": "~9.0.4",
     "expo-task-manager": "~14.0.4",
     "expo-tracking-transparency": "~7.0.4",

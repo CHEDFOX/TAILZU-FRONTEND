@@ -92,6 +92,28 @@ function spec(ref: ActionRef, ctx: Ctx): ActionSpec | null {
   return ref;
 }
 
+/**
+ * Defensive Camera permission request across expo-camera API generations:
+ * older versions exported the method on the `Camera` class; newer ones
+ * (SDK 51+) also expose it as a top-level module function. Fall through
+ * every plausible shape so we don't crash on a version bump.
+ */
+async function requestCameraPermission(): Promise<{ granted: boolean; status?: string }> {
+  const mod = Camera as any;
+  const req =
+    mod.requestCameraPermissionsAsync ??
+    mod.Camera?.requestCameraPermissionsAsync ??
+    mod.CameraView?.requestCameraPermissionsAsync ??
+    mod.default?.requestCameraPermissionsAsync;
+  if (typeof req !== "function") return { granted: false };
+  try {
+    const r = await req();
+    return { granted: !!r?.granted, status: r?.status };
+  } catch {
+    return { granted: false };
+  }
+}
+
 export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<void> {
   if (!ref) return;
   const action = spec(ref, ctx);
@@ -277,7 +299,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // a barcode callback. The action here requests the permission so the
       // on-screen component can start scanning immediately once mounted.
       try {
-        const perm = await Camera.Camera.requestCameraPermissionsAsync();
+        const perm = await requestCameraPermission();
         ctx.store.set("_qrPermission", perm.granted);
       } catch { await runAction(action.onError, ctx); }
       break;
@@ -293,7 +315,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             granted = !!p?.granted;
             break;
           }
-          case "camera": granted = (await Camera.Camera.requestCameraPermissionsAsync()).granted; break;
+          case "camera": granted = (await requestCameraPermission()).granted; break;
           case "notifications": granted = (await Notifications.requestPermissionsAsync()).granted; break;
           case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
           case "contacts": granted = (await Contacts.requestPermissionsAsync()).granted; break;

@@ -37,5 +37,19 @@ public class TulmiBridgeModule: Module {
         "lastActiveMs": lastActive,
       ]
     }
+
+    // Deep-link tombstone: keyboard extensions cannot call open(_:) from
+    // NSExtensionContext, so `openApp` / `openSettings` actions leave a
+    // pending path here. The app reads + clears it on foreground.
+    // Returns "" when nothing is pending.
+    Function("consumeKeyboardDeepLink") { () -> String in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      let path = d?.string(forKey: "tulmi.kb.pendingDeepLink") ?? ""
+      if !path.isEmpty {
+        d?.removeObject(forKey: "tulmi.kb.pendingDeepLink")
+        d?.removeObject(forKey: "tulmi.kb.pendingDeepLinkAt")
+      }
+      return path
+    }
   }
 }
