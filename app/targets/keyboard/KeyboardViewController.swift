@@ -104,7 +104,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    view.backgroundColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1) // #15151b-ish
+    // Do NOT paint an opaque background on the extension view. Native iOS
+    // keyboards leave the inputView transparent and let the theme's
+    // backgroundEffect (a UIVisualEffectView blur) do all the frosting — that's
+    // why native keys look like they're floating on frosted glass instead of
+    // sitting on a solid slab. Any opaque paint here defeats the blur.
+    view.backgroundColor = .clear
     writeKeyboardStatus()
     loadDictionary()
     buildKeyboard()
@@ -220,7 +225,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
     kbConfig = cfg
-    view.backgroundColor = UIColor(tulmiHex: cfg.background)
+    // Legacy path: also keep the extension view transparent so the OS-provided
+    // keyboard region + backdrop show through. cfg.background is still applied
+    // as the fallback color the blur/effect sits over (see SDUIRenderer),
+    // but the ROOT view itself must stay clear or the blur has nothing to frost.
+    view.backgroundColor = .clear
     for b in allKeys {
       b.backgroundColor = UIColor(tulmiHex: cfg.key)
       b.setTitleColor(UIColor(tulmiHex: cfg.keyText), for: .normal)
