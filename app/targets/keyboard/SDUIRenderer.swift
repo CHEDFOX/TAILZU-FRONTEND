@@ -38,6 +38,15 @@ protocol KBHostControllerProtocol: AnyObject {
   /// The current field's returnKeyType, so the Return key can render its
   /// context-appropriate label (Go / Search / Send / Done…) + accent color.
   func hostReturnKeyType() -> UIReturnKeyType
+  /// True when the user has multiple keyboards enabled (Apple exposes this as
+  /// UIInputViewController.needsInputModeSwitchKey). When true, the space bar
+  /// shows the current language code (e.g. "EN") like native iOS; when false
+  /// it just shows "space".
+  func hostNeedsInputModeSwitchKey() -> Bool
+  /// Two-letter code of the currently active primary language (e.g. "EN",
+  /// "FR"), used as the space bar label when multiple keyboards are enabled.
+  /// Falls back to a locale-derived code if the primary language isn't set.
+  func hostPrimaryLanguageCode() -> String
 }
 
 // MARK: - Polymorphic JSON value (for props / style bags)
@@ -805,7 +814,16 @@ final class SDUIRenderer: NSObject {
   ///    tap semantics).
   private func buildSpaceKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setTitle(host?.hostLabel("space", "space") ?? "space", for: .normal)
+    // Native iOS shows "space" if only Tulmi is enabled, but the language code
+    // (e.g. "EN") if the user has multiple keyboards installed — the code
+    // doubles as a hint about which layout they're on. Mirror that here.
+    let label: String
+    if host?.hostNeedsInputModeSwitchKey() == true, let code = host?.hostPrimaryLanguageCode(), !code.isEmpty {
+      label = code
+    } else {
+      label = host?.hostLabel("space", "space") ?? "space"
+    }
+    btn.setTitle(label, for: .normal)
     btn.titleLabel?.font = .systemFont(ofSize: 15)
     // Single-tap insertion is deferred to touchUpInside so slide-off cancels
     // cleanly (Apple's slide-off pattern) — see bindTap.
@@ -1428,8 +1446,11 @@ final class SDUIRenderer: NSObject {
     } else {
       pressed = UIColor(white: 0.5, alpha: 0.3)
     }
-    btn.backgroundColor = pressed
     objc_setAssociatedObject(btn, &Self.keyPressedColorKey, pressed, .OBJC_ASSOCIATION_RETAIN)
+    // Instant background swap on touch-down (Apple's key press is instant on
+    // press-in — the *release* is what's animated). Combined with the animated
+    // touchUp below, this gives the "soft glow fade" that reads as premium.
+    btn.backgroundColor = pressed
     // System input-click sound. Only plays when the extension conforms to
     // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
     // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
@@ -1439,7 +1460,15 @@ final class SDUIRenderer: NSObject {
 
   @objc private func keyTouchUp(_ btn: UIButton) {
     let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
-    btn.backgroundColor = base
+    // Animated fade-back on release (~120ms curveEaseOut) — Apple's exact
+    // "the key stays lit for a beat then fades back" pattern. Without this
+    // the release reads as an instant snap and the whole keyboard feels
+    // "cheap" vs the native soft glow.
+    UIView.animate(withDuration: 0.12,
+                   delay: 0,
+                   options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                   animations: { btn.backgroundColor = base },
+                   completion: nil)
   }
 
   /// Selection-changed haptic on every key. Requires Full Access to fire; the
@@ -1850,6 +1879,19 @@ final class SDUIRenderer: NSObject {
   }
   func reflectMicLevel(_ l: CGFloat) {
     state.micLevel = l  // no remount — the display link picks it up
+  }
+
+  /// Field-context refresh — called by the host on textDidChange (which fires
+  /// when the user switches focus between text fields, not just on typing).
+  /// Rebuilds the mounted tree only if the returnKeyType actually changed so
+  /// we're not remounting on every keystroke — the return key label + accent
+  /// is the only thing tied to field traits right now.
+  private var lastReflectedReturnKey: UIReturnKeyType?
+  func reflectFieldContext() {
+    let rt = host?.hostReturnKeyType() ?? .default
+    if lastReflectedReturnKey == rt { return }
+    lastReflectedReturnKey = rt
+    stateChanged()
   }
 
   deinit {

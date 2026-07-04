@@ -694,6 +694,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   /// Re-evaluate shift after the document text changes (sentence start → cap).
   override func textDidChange(_ textInput: UITextInput?) {
+    // Refresh the SDUI renderer's field-context cache first — this fires when
+    // the user switches focus between fields too, so it's the right hook for
+    // "return key label changed from Go → Send". Cheap (no-op if unchanged).
+    sduiRenderer?.reflectFieldContext()
     if isStreaming || isRecording { return }
     if shiftState == .locked { return } // caps-lock overrides auto-cap
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
@@ -1057,5 +1061,20 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// with the system-blue accent on action keys.
   func hostReturnKeyType() -> UIReturnKeyType {
     (textDocumentProxy as? UITextInputTraits)?.returnKeyType ?? .default
+  }
+
+  /// Whether the OS wants a next-keyboard switch key visible. This is true iff
+  /// the user has more than one keyboard installed — the same flag native iOS
+  /// checks before rendering the language code on space.
+  func hostNeedsInputModeSwitchKey() -> Bool { needsInputModeSwitchKey }
+
+  /// The two-letter primary language code (uppercased) of the currently active
+  /// input mode — matches what native iOS labels its space bar with when
+  /// multiple keyboards are enabled. Falls back to the device locale.
+  func hostPrimaryLanguageCode() -> String {
+    // primaryLanguage returns "en-US"-style; take the language part and upper-case.
+    let raw = textInputMode?.primaryLanguage ?? Locale.current.language.languageCode?.identifier
+    guard let head = raw?.split(separator: "-").first, !head.isEmpty else { return "EN" }
+    return head.uppercased()
   }
 }
