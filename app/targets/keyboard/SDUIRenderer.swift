@@ -1056,11 +1056,28 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Mic key — toggles startDictation / stopDictation based on state.dictating.
+  /// Idle: shows the Tulmi brand mark (bundled asset "TailzuMark" — the actual
+  /// voice button, not the generic SF Symbol mic). Recording: switches to
+  /// stop.fill so the state is unmistakable. If the bundled image is missing
+  /// for any reason we fall back to the SF Symbol so the key is never blank.
   private func buildMicKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    let icon = state.dictating ? "stop.fill" : "mic.fill"
-    btn.setImage(UIImage(systemName: icon), for: .normal)
-    btn.tintColor = keyTextColor()
+    if state.dictating {
+      btn.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+      btn.tintColor = keyTextColor()
+    } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
+      // Render the mark as a template so keyTextColor tints it — the asset is
+      // a monochrome shape, and template rendering makes it match the same
+      // white/black the surrounding icons use in dark vs light appearance.
+      btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
+      btn.tintColor = keyTextColor()
+      // The bundled asset is ~1024px; UIButton scales to fit. Nudge it a hair
+      // smaller than the SF Symbol so the mark reads as an icon, not a splash.
+      btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+    } else {
+      btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+      btn.tintColor = keyTextColor()
+    }
     let action = UIAction { [weak self] _ in
       guard let self = self else { return }
       if self.state.dictating {
