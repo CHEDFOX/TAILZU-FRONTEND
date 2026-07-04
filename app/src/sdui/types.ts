@@ -270,6 +270,22 @@ export type KeyboardEffect =
   | { kind: "blur"; style: "regular" | "chromeMaterialDark" | "chromeMaterialLight" | "systemThinMaterial" | "systemUltraThinMaterial" }
   | { kind: "gradient"; colors: string[]; direction?: "vertical" | "horizontal" };
 
+/**
+ * Extras (bind, visibleIf) are evaluated against the keyboard's state store,
+ * which now exposes:
+ *
+ *   state.shift / capsLock / dictating / refining / hasFullAccess
+ *   state.layoutId / tone / trackpadActive / status / micLevel
+ *   state.primaryLanguage      → "EN" / "FR" / "DE" (follows input mode)
+ *   state.hasMultipleKeyboards → true when needsInputModeSwitchKey is on
+ *   state.appearance           → "dark" | "light" (trait collection)
+ *
+ * Backend can use any of these in bind or visibleIf without a native rebuild.
+ *
+ * Icon shapes accepted by IconKey.props.icon (also no rebuild required):
+ *   { sf: "mic.fill" } / { asset: "TailzuMark" } / { url: "https://…" } / { emoji: "🎙️" }
+ *   String shorthand: "sf:mic.fill" | "asset:TailzuMark" | "https://…"
+ */
 export interface KeyboardNode {
   type: string;
   id?: string;

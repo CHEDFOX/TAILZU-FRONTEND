@@ -371,6 +371,9 @@ enum JSONEncoderSafe {
 // MARK: - State
 
 /// Small state store. Actions mutate this and call stateChanged() to re-render.
+/// Anything readable here is bind-able + visibleIf-able from the backend tree,
+/// which is what lets us push changes without rebuilding — the more state we
+/// expose, the more the backend can control without a Swift release.
 final class KBState {
   var shift: Bool = false
   var capsLock: Bool = false
@@ -388,6 +391,16 @@ final class KBState {
   /// true, other keys visually dim and touch tracking on space becomes cursor
   /// movement instead of insertion.
   var trackpadActive: Bool = false
+  // -------- OS-derived state exposed to the backend tree --------------------
+  // These read via bind: { text: "primaryLanguage" } / visibleIf conditions,
+  // so backend can drive things like "show EN when multi-keyboard, else space"
+  // WITHOUT needing new Swift logic. Kept in sync by reflectFieldContext().
+  /// Two-letter primary language code (e.g. "EN"). Follows the active input mode.
+  var primaryLanguage: String = "EN"
+  /// True when the user has more than one keyboard installed (needsInputModeSwitchKey).
+  var hasMultipleKeyboards: Bool = false
+  /// Current appearance — "dark" or "light". Follows userInterfaceStyle.
+  var appearance: String = "dark"
 }
 
 // MARK: - Renderer
@@ -420,6 +433,10 @@ final class SDUIRenderer: NSObject {
     super.init()
     self.state.hasFullAccess = controller.hostHasFullAccess
     self.state.layoutId = config.layouts?.first?.language ?? ""
+    self.state.primaryLanguage = controller.hostPrimaryLanguageCode()
+    self.state.hasMultipleKeyboards = controller.hostNeedsInputModeSwitchKey()
+    // state.appearance follows the trait collection; can't read here reliably
+    // because the controller may not be attached to a window yet.
   }
 
   // MARK: Dark/light adaptation
@@ -444,8 +461,10 @@ final class SDUIRenderer: NSObject {
 
   /// Called by the host controller from traitCollectionDidChange. Re-applies
   /// the backdrop with the new blur style and rebuilds the tree so keys pick
-  /// up the new palette.
+  /// up the new palette. Also syncs state.appearance so backend bind/visibleIf
+  /// can key off dark vs light without shipping two Swift builds.
   func appearanceDidChange() {
+    state.appearance = currentAppearance == .light ? "light" : "dark"
     if let container = mountContainer { applyRootBackground(to: container) }
     remount()
   }
@@ -649,12 +668,21 @@ final class SDUIRenderer: NSObject {
 
   /// Read a KBState value by name for a `bind` in the tree. Used by
   /// components (LetterKey) that show live state text (e.g. tone pill).
+  /// Every case here is a "backend can drive this without a rebuild" hook.
   private func stateValue(for key: String) -> String? {
     switch key {
-    case "tone":       return state.tone
-    case "status":     return state.status
-    case "layoutId":   return state.layoutId
-    default:           return nil
+    case "tone":                 return state.tone
+    case "status":               return state.status
+    case "layoutId":             return state.layoutId
+    case "primaryLanguage":      return state.primaryLanguage
+    case "appearance":           return state.appearance
+    case "hasMultipleKeyboards": return state.hasMultipleKeyboards ? "true" : "false"
+    case "hasFullAccess":        return state.hasFullAccess ? "true" : "false"
+    case "dictating":            return state.dictating ? "true" : "false"
+    case "refining":             return state.refining ? "true" : "false"
+    case "shift":                return state.shift ? "true" : "false"
+    case "capsLock":             return state.capsLock ? "true" : "false"
+    default:                     return nil
     }
   }
 
@@ -792,12 +820,56 @@ final class SDUIRenderer: NSObject {
     activeAccentTray = nil
   }
 
-  /// Icon key — an SF Symbol from props.icon. Any tap semantics come from `on`.
+  /// Generic icon-bearing key. `props.icon` accepts any of:
+  ///   - "sf:name"                     (SF Symbol shorthand)
+  ///   - "asset:name"                  (bundled UIImage)
+  ///   - "https://…" (or "http://…")   (remote — auto-cached to disk)
+  ///   - { sf: "…" } / { asset: "…" } / { url: "…" } / { emoji: "…" }
+  ///   - A bare SF Symbol name (backwards compat with older backend trees)
+  ///
+  /// This is the "end the rebuild cycle" hook — every icon-changing keyboard
+  /// tweak is a backend push instead of a Swift release. `on.onPress` carries
+  /// the KBActionSpec that fires when tapped (startDictation, insertText,
+  /// switchLayout, etc.) so the same node covers mic-like, refine-like, and
+  /// arbitrary future buttons.
   private func buildIconKey(node: KBNode) -> UIView {
-    let icon = node.props?["icon"]?.asString ?? "questionmark"
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: icon), for: .normal)
-    btn.tintColor = keyTextColor()
+    let spec = node.props?["icon"]
+    // Emoji-as-title path: renders as text so multi-color glyphs display right.
+    if let emoji = iconEmoji(spec) {
+      btn.setTitle(emoji, for: .normal)
+      btn.titleLabel?.font = .systemFont(ofSize: 22)
+    } else {
+      // Weak-ref the button so the remote-image callback can update it without
+      // retaining it beyond the tree lifetime. If a URL fetch completes after
+      // the button was already replaced by a re-render, this just no-ops.
+      let img = resolveIcon(spec) { [weak btn, weak self] in
+        guard let btn = btn else { return }
+        btn.setImage(self?.resolveIcon(spec) ?? nil, for: .normal)
+      }
+      if let img = img {
+        btn.setImage(img, for: .normal)
+      } else if case .string(let raw) = spec ?? .null,
+                !raw.hasPrefix("sf:"), !raw.hasPrefix("asset:"),
+                !raw.hasPrefix("http") {
+        // Bare "mic.fill"-style names — treat as SF Symbol for compat.
+        btn.setImage(UIImage(systemName: raw), for: .normal)
+      } else if spec == nil {
+        btn.setImage(UIImage(systemName: "questionmark"), for: .normal)
+      }
+      btn.tintColor = keyTextColor()
+      // Optional per-side icon inset so backend can control padding without
+      // shipping different assets. Reads props.iconInset (uniform) or
+      // props.iconInsetTop/… (per side).
+      let uni = node.props?["iconInset"]?.asCGFloat
+      let top = node.props?["iconInsetTop"]?.asCGFloat ?? uni ?? 0
+      let bot = node.props?["iconInsetBottom"]?.asCGFloat ?? uni ?? 0
+      let lef = node.props?["iconInsetLeft"]?.asCGFloat ?? uni ?? 0
+      let rig = node.props?["iconInsetRight"]?.asCGFloat ?? uni ?? 0
+      if top != 0 || bot != 0 || lef != 0 || rig != 0 {
+        btn.imageEdgeInsets = UIEdgeInsets(top: top, left: lef, bottom: bot, right: rig)
+      }
+    }
     bindTap(btn, node: node, defaultAction: nil)
     return btn
   }
@@ -815,11 +887,12 @@ final class SDUIRenderer: NSObject {
   private func buildSpaceKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
     // Native iOS shows "space" if only Tulmi is enabled, but the language code
-    // (e.g. "EN") if the user has multiple keyboards installed — the code
-    // doubles as a hint about which layout they're on. Mirror that here.
+    // (e.g. "EN") if the user has multiple keyboards installed. Read via
+    // state.* so this stays consistent with backend bind: { text: "..." } and
+    // the two paths never drift out of sync.
     let label: String
-    if host?.hostNeedsInputModeSwitchKey() == true, let code = host?.hostPrimaryLanguageCode(), !code.isEmpty {
-      label = code
+    if state.hasMultipleKeyboards, !state.primaryLanguage.isEmpty {
+      label = state.primaryLanguage
     } else {
       label = host?.hostLabel("space", "space") ?? "space"
     }
@@ -1491,6 +1564,131 @@ final class SDUIRenderer: NSObject {
     return .white
   }
 
+  // MARK: - Generic icon resolver + remote cache
+  //
+  // Backend can specify a button's icon in any of these shapes:
+  //
+  //   props: { icon: { sf: "mic.fill" } }                 // SF Symbol
+  //   props: { icon: { asset: "TailzuMark" } }            // bundled asset
+  //   props: { icon: { url: "https://cdn/mark@3x.png" } } // remote — cached
+  //   props: { icon: { emoji: "🎙️" } }                  // renders as text
+  //   props: { icon: "sf:mic.fill" }                      // string shorthand
+  //   props: { icon: "asset:TailzuMark" }
+  //   props: { icon: "https://cdn/mark.png" }
+  //
+  // The whole point: no Swift change is needed to swap an icon. Bundled + SF
+  // are instant; remote resolves async and the button re-renders when the
+  // download finishes.
+  private var remoteImageCache: [String: UIImage] = [:]
+  private var remoteImageInflight: Set<String> = []
+
+  /// Resolve an icon spec from `props.icon` (or similar). Returns a UIImage
+  /// synchronously for SF symbols and bundled assets; for URLs, returns any
+  /// cached image immediately and kicks off a fetch. `onLoad` fires when a
+  /// URL fetch completes so the caller can refresh the affected button.
+  fileprivate func resolveIcon(_ spec: KBJSON?, onLoad: (() -> Void)? = nil) -> UIImage? {
+    guard let spec = spec else { return nil }
+    // Object form: { sf } / { asset } / { url } / { emoji }.
+    if case .object(let o) = spec {
+      if case .string(let sf) = (o["sf"] ?? .null) {
+        return UIImage(systemName: sf)?.withRenderingMode(.alwaysTemplate)
+      }
+      if case .string(let asset) = (o["asset"] ?? .null) {
+        return UIImage(named: asset, in: Bundle.main, compatibleWith: nil)?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if case .string(let url) = (o["url"] ?? .null) {
+        return fetchRemoteImage(url, onLoad: onLoad)
+      }
+      // emoji is rendered by the button title path — resolveIcon returns nil so
+      // the caller falls through to setTitle. Callers should check emojiText
+      // via iconEmoji(spec) helper below.
+      return nil
+    }
+    // Shorthand string form.
+    if case .string(let s) = spec {
+      if s.hasPrefix("sf:") {
+        return UIImage(systemName: String(s.dropFirst(3)))?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if s.hasPrefix("asset:") {
+        return UIImage(named: String(s.dropFirst(6)), in: Bundle.main, compatibleWith: nil)?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if s.hasPrefix("https://") || s.hasPrefix("http://") {
+        return fetchRemoteImage(s, onLoad: onLoad)
+      }
+    }
+    return nil
+  }
+
+  /// Extract an emoji glyph from an icon spec, if that's how it was specified.
+  /// Used by button builders to `setTitle(emoji)` instead of an image.
+  fileprivate func iconEmoji(_ spec: KBJSON?) -> String? {
+    guard let spec = spec else { return nil }
+    if case .object(let o) = spec, case .string(let e) = (o["emoji"] ?? .null) { return e }
+    return nil
+  }
+
+  /// Return a cached remote image if we have one; else start a URLSession
+  /// download and call `onLoad` when it lands. The cache is persistent across
+  /// keyboard sessions via the app-group container so a single fetch serves
+  /// every open of the keyboard until the URL changes.
+  private func fetchRemoteImage(_ url: String, onLoad: (() -> Void)?) -> UIImage? {
+    if let img = remoteImageCache[url] { return img }
+    // Persistent-disk lookup.
+    if let img = loadPersistedRemoteImage(url) {
+      remoteImageCache[url] = img
+      return img
+    }
+    // Start the download (only once per URL per session).
+    if remoteImageInflight.contains(url) { return nil }
+    guard let u = URL(string: url) else { return nil }
+    remoteImageInflight.insert(url)
+    URLSession.shared.dataTask(with: u) { [weak self] data, _, _ in
+      guard let self = self else { return }
+      DispatchQueue.main.async {
+        self.remoteImageInflight.remove(url)
+        guard let d = data, let img = UIImage(data: d) else { return }
+        self.remoteImageCache[url] = img
+        self.persistRemoteImage(data: d, url: url)
+        onLoad?()
+      }
+    }.resume()
+    return nil
+  }
+
+  private func remoteImageCacheDir() -> URL? {
+    let fm = FileManager.default
+    // Prefer the app-group container so main app + extension share the cache.
+    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.tulmi.shared")
+    let base = group ?? fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+    guard let root = base?.appendingPathComponent("keyboard-icons", isDirectory: true) else { return nil }
+    if !fm.fileExists(atPath: root.path) {
+      try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+    return root
+  }
+
+  private func remoteImageFile(for url: String) -> URL? {
+    guard let dir = remoteImageCacheDir() else { return nil }
+    // Cheap URL → filename hash (djb2-ish). Not for security — just uniqueness.
+    var h: UInt64 = 5381
+    for ch in url.unicodeScalars { h = (h << 5) &+ h &+ UInt64(ch.value) }
+    return dir.appendingPathComponent(String(h, radix: 36) + ".img")
+  }
+
+  private func loadPersistedRemoteImage(_ url: String) -> UIImage? {
+    guard let f = remoteImageFile(for: url),
+          let data = try? Data(contentsOf: f) else { return nil }
+    return UIImage(data: data)
+  }
+
+  private func persistRemoteImage(data: Data, url: String) {
+    guard let f = remoteImageFile(for: url) else { return }
+    try? data.write(to: f, options: .atomic)
+  }
+
   // MARK: - Tap binding
 
   /// Attach the primary tap handler for a component. Priority: an explicit
@@ -1806,15 +2004,20 @@ final class SDUIRenderer: NSObject {
     case "state":
       let key = parts.dropFirst().joined(separator: ".")
       switch key {
-      case "shift":         return .bool(state.shift)
-      case "capsLock":      return .bool(state.capsLock)
-      case "layoutId":      return .string(state.layoutId)
-      case "dictating":     return .bool(state.dictating)
-      case "refining":      return .bool(state.refining)
-      case "hasFullAccess": return .bool(state.hasFullAccess)
-      case "status":        return .string(state.status)
-      case "micLevel":      return .number(Double(state.micLevel))
-      default:              return .null
+      case "shift":                return .bool(state.shift)
+      case "capsLock":             return .bool(state.capsLock)
+      case "layoutId":             return .string(state.layoutId)
+      case "dictating":            return .bool(state.dictating)
+      case "refining":             return .bool(state.refining)
+      case "hasFullAccess":        return .bool(state.hasFullAccess)
+      case "status":               return .string(state.status)
+      case "micLevel":             return .number(Double(state.micLevel))
+      case "tone":                 return .string(state.tone)
+      case "trackpadActive":       return .bool(state.trackpadActive)
+      case "primaryLanguage":      return .string(state.primaryLanguage)
+      case "hasMultipleKeyboards": return .bool(state.hasMultipleKeyboards)
+      case "appearance":           return .string(state.appearance)
+      default:                     return .null
       }
     case "flags":
       let key = parts.dropFirst().joined(separator: ".")
@@ -1883,14 +2086,28 @@ final class SDUIRenderer: NSObject {
 
   /// Field-context refresh — called by the host on textDidChange (which fires
   /// when the user switches focus between text fields, not just on typing).
-  /// Rebuilds the mounted tree only if the returnKeyType actually changed so
-  /// we're not remounting on every keystroke — the return key label + accent
-  /// is the only thing tied to field traits right now.
+  /// Rebuilds the mounted tree only if something the tree actually depends on
+  /// changed (returnKeyType / primaryLanguage / hasMultipleKeyboards) so we're
+  /// not remounting on every keystroke.
   private var lastReflectedReturnKey: UIReturnKeyType?
   func reflectFieldContext() {
     let rt = host?.hostReturnKeyType() ?? .default
-    if lastReflectedReturnKey == rt { return }
-    lastReflectedReturnKey = rt
+    let lang = host?.hostPrimaryLanguageCode() ?? "EN"
+    let multi = host?.hostNeedsInputModeSwitchKey() ?? false
+    var changed = false
+    if lastReflectedReturnKey != rt         { lastReflectedReturnKey = rt; changed = true }
+    if state.primaryLanguage != lang        { state.primaryLanguage = lang; changed = true }
+    if state.hasMultipleKeyboards != multi  { state.hasMultipleKeyboards = multi; changed = true }
+    if changed { stateChanged() }
+  }
+
+  /// Appearance refresh — called by the host on traitCollectionDidChange when
+  /// the user flips dark/light. Also syncs the state.appearance string so the
+  /// backend tree can bind against it (visibleIf, etc.).
+  func reflectAppearance(_ dark: Bool) {
+    let val = dark ? "dark" : "light"
+    if state.appearance == val { return }
+    state.appearance = val
     stateChanged()
   }
 
