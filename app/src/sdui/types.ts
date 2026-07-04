@@ -272,19 +272,24 @@ export type KeyboardEffect =
 
 /**
  * Extras (bind, visibleIf) are evaluated against the keyboard's state store,
- * which now exposes:
+ * which exposes:
  *
  *   state.shift / capsLock / dictating / refining / hasFullAccess
  *   state.layoutId / tone / trackpadActive / status / micLevel
- *   state.primaryLanguage      → "EN" / "FR" / "DE" (follows input mode)
- *   state.hasMultipleKeyboards → true when needsInputModeSwitchKey is on
- *   state.appearance           → "dark" | "light" (trait collection)
+ *   state.primaryLanguage / hasMultipleKeyboards / appearance
+ *   state.deviceModel / systemVersion / isNetworkReachable / keyboardHeight
+ *   state.user.<any>           → backend scratch dict (setState / toggleState /
+ *                                 incrementState / clearState / readClipboard /
+ *                                 callEndpoint.assignTo all write here)
  *
- * Backend can use any of these in bind or visibleIf without a native rebuild.
- *
- * Icon shapes accepted by IconKey.props.icon (also no rebuild required):
+ * Icon shapes for IconKey.props.icon AND Image.props.source (no rebuild required):
  *   { sf: "mic.fill" } / { asset: "TailzuMark" } / { url: "https://…" } / { emoji: "🎙️" }
  *   String shorthand: "sf:mic.fill" | "asset:TailzuMark" | "https://…"
+ *
+ * Generic components: TextLabel / Image / ProgressBar / Toggle / ScrollView.
+ * Style bag additions: opacity, borderColor+borderWidth, shadow{color,opacity,radius,offset}.
+ * Extension slot: { kind: "extension", name, params? } routes to a native
+ * handler registered via SDUIRenderer.registerExtension().
  */
 export interface KeyboardNode {
   type: string;

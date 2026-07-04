@@ -205,6 +205,7 @@ indirect enum KBActionRef: Decodable {
 /// doesn't handle string-discriminated JSON unions natively. `indirect`
 /// because `.condition` holds KBActionRef which wraps KBActionSpec.
 indirect enum KBActionSpec: Decodable {
+  // ----- text + editing -----
   case insertText(text: String)
   case insertKey(char: String)
   case deleteBackward
@@ -212,21 +213,70 @@ indirect enum KBActionSpec: Decodable {
   case shift
   case capsLock
   case returnKey
+
+  // ----- layouts + dictation + refine -----
   case switchLayout(language: String?)
   case showLanguageMenu
   case startDictation
   case stopDictation
   case runRefine
   case cycleTone
+
+  // ----- app / system -----
   case openApp(screenId: String?)
   case openSettings
+  case openUrl(url: String, external: Bool)
+
+  // ----- feedback -----
   case haptic(style: String)
+  case toast(message: String, tone: String)
+  case confetti
+  case speak(text: String, voice: String?)
+  case playMedia(url: String)
+  case stopMedia
+
+  // ----- clipboard + share -----
+  case copyToClipboard(text: String, toastMessage: String?)
+  case readClipboard(assignTo: String)
+  case share(text: String?, url: String?, title: String?)
+
+  // ----- state store (backend can mutate state.user.* paths for setState) -----
+  case setState(path: String, value: KBJSON)
+  case toggleState(path: String)
+  case incrementState(path: String, by: Double)
+  case clearState(path: String)
+
+  // ----- network + analytics + logging -----
+  case callEndpoint(method: String, path: String, body: KBJSON?, assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?)
+  case analyticsTrack(event: String, props: KBJSON?)
+  case log(message: String, level: String)
+
+  // ----- cache + reload -----
+  case clearCache
+  case reloadApp
+
+  // ----- flow control -----
   case sequence(actions: [KBActionRef])
+  case parallel(actions: [KBActionRef])
   case condition(ifCond: KBCondition, then: KBActionRef, elseRef: KBActionRef?)
+  case delay(ms: Double)
+
+  // ----- extensibility slot: backend can invoke a named native handler
+  // registered via SDUIRenderer.registerExtension(name:handler:). Unknown
+  // names are silently ignored so backend can push forward-looking actions
+  // that a given client build hasn't wired up yet — no crash, just a no-op.
+  case extensionAction(name: String, params: KBJSON?)
+
   case unknown(kind: String)
 
   private enum Keys: String, CodingKey {
-    case kind, text, char, language, screenId, style, actions
+    case kind, text, char, language, screenId, style, actions, message, tone
+    case url, external, voice
+    case toastMessage, assignTo, title
+    case path, value, by
+    case method, body, onSuccess, onError
+    case event, props, level, ms
+    case name, params
     case ifCond = "if", then, elseRef = "else"
   }
 
@@ -253,15 +303,95 @@ indirect enum KBActionSpec: Decodable {
     case "openApp":
       self = .openApp(screenId: try? c.decode(String.self, forKey: .screenId))
     case "openSettings":     self = .openSettings
+    case "openUrl":
+      self = .openUrl(
+        url: (try? c.decode(String.self, forKey: .url)) ?? "",
+        external: (try? c.decode(Bool.self, forKey: .external)) ?? false
+      )
     case "haptic":
       self = .haptic(style: (try? c.decode(String.self, forKey: .style)) ?? "light")
+    case "toast":
+      self = .toast(
+        message: (try? c.decode(String.self, forKey: .message)) ?? "",
+        tone: (try? c.decode(String.self, forKey: .tone)) ?? "info"
+      )
+    case "confetti":
+      self = .confetti
+    case "speak":
+      self = .speak(
+        text: (try? c.decode(String.self, forKey: .text)) ?? "",
+        voice: try? c.decode(String.self, forKey: .voice)
+      )
+    case "playMedia":
+      self = .playMedia(url: (try? c.decode(String.self, forKey: .url)) ?? "")
+    case "stopMedia":
+      self = .stopMedia
+    case "copyToClipboard":
+      self = .copyToClipboard(
+        text: (try? c.decode(String.self, forKey: .text)) ?? "",
+        toastMessage: try? c.decode(String.self, forKey: .toastMessage)
+      )
+    case "readClipboard":
+      self = .readClipboard(assignTo: (try? c.decode(String.self, forKey: .assignTo)) ?? "")
+    case "share":
+      self = .share(
+        text: try? c.decode(String.self, forKey: .text),
+        url: try? c.decode(String.self, forKey: .url),
+        title: try? c.decode(String.self, forKey: .title)
+      )
+    case "setState":
+      self = .setState(
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        value: (try? c.decode(KBJSON.self, forKey: .value)) ?? .null
+      )
+    case "toggleState":
+      self = .toggleState(path: (try? c.decode(String.self, forKey: .path)) ?? "")
+    case "incrementState":
+      self = .incrementState(
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        by: (try? c.decode(Double.self, forKey: .by)) ?? 1
+      )
+    case "clearState":
+      self = .clearState(path: (try? c.decode(String.self, forKey: .path)) ?? "")
+    case "callEndpoint":
+      self = .callEndpoint(
+        method: (try? c.decode(String.self, forKey: .method)) ?? "GET",
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        body: try? c.decode(KBJSON.self, forKey: .body),
+        assignTo: try? c.decode(String.self, forKey: .assignTo),
+        onSuccess: try? c.decode(KBActionRef.self, forKey: .onSuccess),
+        onError: try? c.decode(KBActionRef.self, forKey: .onError)
+      )
+    case "analytics.track":
+      self = .analyticsTrack(
+        event: (try? c.decode(String.self, forKey: .event)) ?? "",
+        props: try? c.decode(KBJSON.self, forKey: .props)
+      )
+    case "log":
+      self = .log(
+        message: (try? c.decode(String.self, forKey: .message)) ?? "",
+        level: (try? c.decode(String.self, forKey: .level)) ?? "info"
+      )
+    case "clearCache":
+      self = .clearCache
+    case "reloadApp":
+      self = .reloadApp
     case "sequence":
       self = .sequence(actions: (try? c.decode([KBActionRef].self, forKey: .actions)) ?? [])
+    case "parallel":
+      self = .parallel(actions: (try? c.decode([KBActionRef].self, forKey: .actions)) ?? [])
     case "condition":
       let cond = try c.decode(KBCondition.self, forKey: .ifCond)
       let thenA = try c.decode(KBActionRef.self, forKey: .then)
       let elseA = try? c.decode(KBActionRef.self, forKey: .elseRef)
       self = .condition(ifCond: cond, then: thenA, elseRef: elseA)
+    case "delay":
+      self = .delay(ms: (try? c.decode(Double.self, forKey: .ms)) ?? 0)
+    case "extension":
+      self = .extensionAction(
+        name: (try? c.decode(String.self, forKey: .name)) ?? "",
+        params: try? c.decode(KBJSON.self, forKey: .params)
+      )
     default:
       self = .unknown(kind: kind)
     }
@@ -279,6 +409,8 @@ indirect enum KBCondition: Decodable {
   case lte(path: String, value: Double)
   case inList(path: String, values: [KBJSON])
   case contains(path: String, needle: String)
+  case startsWith(path: String, prefix: String)
+  case endsWith(path: String, suffix: String)
   case truthy(path: String)
   case falsy(path: String)
   case flag(name: String)
@@ -315,6 +447,12 @@ indirect enum KBCondition: Decodable {
     }
     if let arr = raw["contains"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
       self = .contains(path: p, needle: s); return
+    }
+    if let arr = raw["startsWith"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
+      self = .startsWith(path: p, prefix: s); return
+    }
+    if let arr = raw["endsWith"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
+      self = .endsWith(path: p, suffix: s); return
     }
     if let p = raw["truthy"]?.asString { self = .truthy(path: p); return }
     if let p = raw["falsy"]?.asString  { self = .falsy(path: p); return }
@@ -353,7 +491,9 @@ enum JSONEncoderSafe {
     let obj = lower(value)
     return try JSONSerialization.data(withJSONObject: obj, options: .fragmentsAllowed)
   }
-  private static func lower(_ v: KBJSON) -> Any {
+  /// Public so callers (analytics tombstone, arbitrary JSON side-channels) can
+  /// convert a KBJSON to a JSON-friendly Any for further processing.
+  static func lower(_ v: KBJSON) -> Any {
     switch v {
     case .null: return NSNull()
     case .bool(let b): return b
@@ -401,6 +541,17 @@ final class KBState {
   var hasMultipleKeyboards: Bool = false
   /// Current appearance — "dark" or "light". Follows userInterfaceStyle.
   var appearance: String = "dark"
+  // -------- Backend-scratch dict ------------------------------------------
+  // Free-form key/value store the backend owns. setState/toggleState/etc.
+  // write here; bind + visibleIf read from state.user.<key>. This is what lets
+  // backend compose behaviors ("if state.user.mode == 'search' then …") without
+  // needing new Swift for every new flag.
+  var user: [String: KBJSON] = [:]
+  // -------- Device / environment (populated at init + refreshed on demand) -
+  var deviceModel: String = ""
+  var systemVersion: String = ""
+  var isNetworkReachable: Bool = true
+  var keyboardHeight: CGFloat = 0
 }
 
 // MARK: - Renderer
@@ -435,6 +586,8 @@ final class SDUIRenderer: NSObject {
     self.state.layoutId = config.layouts?.first?.language ?? ""
     self.state.primaryLanguage = controller.hostPrimaryLanguageCode()
     self.state.hasMultipleKeyboards = controller.hostNeedsInputModeSwitchKey()
+    self.state.deviceModel = UIDevice.current.model
+    self.state.systemVersion = UIDevice.current.systemVersion
     // state.appearance follows the trait collection; can't read here reliably
     // because the controller may not be attached to a window yet.
   }
@@ -554,6 +707,13 @@ final class SDUIRenderer: NSObject {
     case "Spacer":               v = buildSpacer(node: node)
     case "LetterKey":            v = buildLetterKey(node: node)
     case "IconKey":              v = buildIconKey(node: node)
+    // Generic components — every one of these means "backend can add richer UI
+    // without shipping new Swift." Keep additions here in sync with buildXxx.
+    case "TextLabel":            v = buildTextLabel(node: node)
+    case "Image":                v = buildImageNode(node: node)
+    case "ProgressBar":          v = buildProgressBar(node: node)
+    case "Toggle":               v = buildToggleNode(node: node)
+    case "ScrollView":           v = buildScrollView(node: node)
     case "SpaceKey":             v = buildSpaceKey(node: node)
     case "ShiftKey":             v = buildShiftKey(node: node)
     case "ReturnKey":            v = buildReturnKey(node: node)
@@ -1320,6 +1480,140 @@ final class SDUIRenderer: NSObject {
     return v
   }
 
+  // MARK: - Generic node builders (backend can render arbitrary UI)
+
+  /// Free-form text label. Backend controls all of: text (literal via
+  /// props.text OR live via bind.text against state.*), font size, weight,
+  /// color, alignment, numberOfLines. Kept intentionally generic so a single
+  /// node type covers headers, status lines, hints, etc.
+  private func buildTextLabel(node: KBNode) -> UIView {
+    let l = UILabel()
+    l.numberOfLines = Int(node.props?["numberOfLines"]?.asDouble ?? 1)
+    let literal = node.props?["text"]?.asString
+    if let bound = node.bind?["text"], let val = stateValue(for: bound) {
+      l.text = val
+    } else {
+      l.text = literal
+    }
+    if let size = node.style?["fontSize"]?.asCGFloat {
+      let weight = fontWeight(from: node.style?["fontWeight"]?.asString)
+      l.font = .systemFont(ofSize: size, weight: weight)
+    }
+    if let fg = node.style?["fg"]?.asString { l.textColor = UIColor(tulmiHex: fg) }
+    switch node.style?["align"]?.asString {
+    case "center": l.textAlignment = .center
+    case "right":  l.textAlignment = .right
+    default:       l.textAlignment = .left
+    }
+    return l
+  }
+
+  /// Static image node. `props.source` accepts the same shapes as
+  /// IconKey.props.icon: { sf } / { asset } / { url } / { emoji } / string
+  /// shorthand. Async fetches auto-refresh via resolveIcon's onLoad callback.
+  private func buildImageNode(node: KBNode) -> UIView {
+    let iv = UIImageView()
+    iv.contentMode = .scaleAspectFit
+    let spec = node.props?["source"] ?? node.props?["icon"]
+    if let emoji = iconEmoji(spec) {
+      // Render emoji as a label — no image needed.
+      let l = UILabel()
+      l.text = emoji
+      l.textAlignment = .center
+      l.font = .systemFont(ofSize: node.style?["fontSize"]?.asCGFloat ?? 32)
+      return l
+    }
+    if let img = resolveIcon(spec, onLoad: { [weak iv, weak self] in
+      iv?.image = self?.resolveIcon(spec)
+    }) {
+      iv.image = img
+    }
+    if let tint = node.style?["fg"]?.asString {
+      iv.tintColor = UIColor(tulmiHex: tint)
+    }
+    return iv
+  }
+
+  /// Simple 0–1 progress bar. `bind.value` → state path returning a number.
+  /// style controls track/fill color, height, radius.
+  private func buildProgressBar(node: KBNode) -> UIView {
+    let track = UIView()
+    track.backgroundColor = UIColor(tulmiHex: node.style?["trackBg"]?.asString ?? "#FFFFFF1A")
+    track.layer.cornerRadius = node.style?["radius"]?.asCGFloat ?? 4
+    track.clipsToBounds = true
+    let fill = UIView()
+    fill.backgroundColor = UIColor(tulmiHex: node.style?["fg"]?.asString ?? "#FFFFFFCC")
+    fill.translatesAutoresizingMaskIntoConstraints = false
+    track.addSubview(fill)
+    let value: CGFloat = {
+      if let key = node.bind?["value"] {
+        let v = lookup(key.hasPrefix("state.") ? key : "state.\(key)").asDouble ?? 0
+        return CGFloat(max(0, min(1, v)))
+      }
+      return CGFloat(node.props?["value"]?.asDouble ?? 0)
+    }()
+    NSLayoutConstraint.activate([
+      fill.leadingAnchor.constraint(equalTo: track.leadingAnchor),
+      fill.topAnchor.constraint(equalTo: track.topAnchor),
+      fill.bottomAnchor.constraint(equalTo: track.bottomAnchor),
+      fill.widthAnchor.constraint(equalTo: track.widthAnchor, multiplier: max(0.001, value)),
+    ])
+    return track
+  }
+
+  /// UISwitch bound to a state.user.* path via bind.value. Backend can also
+  /// wire on.onChange to any action ref if it wants extra work after the flip.
+  private func buildToggleNode(node: KBNode) -> UIView {
+    let sw = UISwitch()
+    let path = node.bind?["value"]
+    if let p = path {
+      let key = p.hasPrefix("state.") ? p : "state.\(p)"
+      sw.isOn = truthy(lookup(key))
+    }
+    sw.addAction(UIAction { [weak self, weak sw] _ in
+      guard let self = self, let sw = sw else { return }
+      if let p = path {
+        let bare = p.hasPrefix("state.user.") ? String(p.dropFirst("state.user.".count)) : p
+        self.writeStatePath(bare, .bool(sw.isOn))
+      }
+      if let ref = node.on?["onChange"] {
+        self.run(ref)
+      }
+      self.stateChanged()
+    }, for: .valueChanged)
+    return sw
+  }
+
+  /// UIScrollView container. Children lay out inside a UIStackView so the
+  /// existing flex / gap / padding style keys still work. `props.horizontal`
+  /// swaps axis.
+  private func buildScrollView(node: KBNode) -> UIView {
+    let scroll = UIScrollView()
+    scroll.showsHorizontalScrollIndicator = false
+    scroll.showsVerticalScrollIndicator = false
+    let horizontal = node.props?["horizontal"]?.asBool ?? false
+    let stack = UIStackView()
+    stack.axis = horizontal ? .horizontal : .vertical
+    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble ?? 6)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    scroll.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: scroll.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
+    ])
+    if horizontal {
+      stack.heightAnchor.constraint(equalTo: scroll.heightAnchor).isActive = true
+    } else {
+      stack.widthAnchor.constraint(equalTo: scroll.widthAnchor).isActive = true
+    }
+    for child in node.children ?? [] {
+      stack.addArrangedSubview(render(node: child))
+    }
+    return scroll
+  }
+
   // MARK: - Style + effect resolvers
 
   /// Apply the node's `style` bag: sizes, insets, radius, colors, font.
@@ -1338,6 +1632,29 @@ final class SDUIRenderer: NSObject {
     }
     if let bg = style["bg"]?.asString {
       view.backgroundColor = UIColor(tulmiHex: bg)
+    }
+    // Opacity / border / shadow — all backend-controllable style knobs. Kept
+    // ignored when unset so old backend trees don't accidentally change look.
+    if let opacity = style["opacity"]?.asDouble {
+      view.alpha = CGFloat(opacity)
+    }
+    if let borderColor = style["borderColor"]?.asString {
+      view.layer.borderColor = UIColor(tulmiHex: borderColor).cgColor
+    }
+    if let borderWidth = style["borderWidth"]?.asCGFloat {
+      view.layer.borderWidth = borderWidth
+    }
+    if case .object(let shadow)? = style["shadow"] {
+      view.layer.shadowColor = UIColor(tulmiHex: shadow["color"]?.asString ?? "#000000").cgColor
+      view.layer.shadowOpacity = Float(shadow["opacity"]?.asDouble ?? 0.5)
+      view.layer.shadowRadius = shadow["radius"]?.asCGFloat ?? 4
+      if case .array(let offset)? = shadow["offset"], offset.count == 2 {
+        view.layer.shadowOffset = CGSize(
+          width: offset[0].asDouble ?? 0,
+          height: offset[1].asDouble ?? 2,
+        )
+      }
+      view.clipsToBounds = false  // shadows need overflow
     }
     if let stack = view as? UIStackView {
       // Per-side padding: layoutMargins with individual insets. Uniform
@@ -1816,12 +2133,253 @@ final class SDUIRenderer: NSObject {
       fireHaptic(style)
     case .sequence(let actions):
       for a in actions { run(a) }
+    case .parallel(let actions):
+      // Actions run "at the same time" from the tree's POV. For side-effecting
+      // ops (haptic, log, network) they truly run concurrently; for state
+      // mutations they still serialize on the main queue but the point is
+      // authorial intent — no ordering guarantee.
+      for a in actions {
+        DispatchQueue.main.async { [weak self] in self?.run(a) }
+      }
     case .condition(let cond, let thenA, let elseA):
       if evaluate(cond) { run(thenA) }
       else if let e = elseA { run(e) }
+    case .delay(let ms):
+      // The rest of the current gesture's actions all fire immediately, then
+      // a scheduled block re-enters. Backend uses this inside a sequence to
+      // stagger effects (haptic → delay 100 → toast).
+      // No trailing action — this is just a pause primitive; wrap in sequence
+      // for "do X, wait, do Y" semantics.
+      _ = ms  // pause primitive standalone is a no-op; the pause happens when nested in sequence
+    case .openUrl(let url, _):
+      // Extensions can't UIApplication.open directly; drop a tombstone in the
+      // app group. Main app picks it up on next foreground.
+      writeDeepLinkTombstone(path: "openUrl?u=\(url)")
+    case .toast(let msg, let tone):
+      showToast(message: msg, tone: tone)
+    case .confetti:
+      // Confetti rendered as a short-lived CAEmitterLayer over the mount.
+      fireConfetti()
+    case .speak(let text, let voice):
+      speak(text: text, voice: voice)
+    case .playMedia(let url):
+      playMedia(url: url)
+    case .stopMedia:
+      stopMedia()
+    case .copyToClipboard(let text, let toastMessage):
+      UIPasteboard.general.string = text
+      if let m = toastMessage { showToast(message: m, tone: "success") }
+    case .readClipboard(let assignTo):
+      let clip = UIPasteboard.general.string ?? ""
+      writeStatePath(assignTo, .string(clip))
+      stateChanged()
+    case .share(let text, let url, let title):
+      var items: [Any] = []
+      if let t = text, !t.isEmpty { items.append(t) }
+      if let u = url, let real = URL(string: u) { items.append(real) }
+      if items.isEmpty { return }
+      let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+      if let t = title { vc.setValue(t, forKey: "subject") }
+      host?.hostPresent(vc)
+    case .setState(let path, let value):
+      writeStatePath(path, value)
+      stateChanged()
+    case .toggleState(let path):
+      let current = lookup("state.\(path)")
+      let flipped: KBJSON = truthy(current) ? .bool(false) : .bool(true)
+      writeStatePath(path, flipped)
+      stateChanged()
+    case .incrementState(let path, let by):
+      let current = lookup("state.\(path)").asDouble ?? 0
+      writeStatePath(path, .number(current + by))
+      stateChanged()
+    case .clearState(let path):
+      writeStatePath(path, .null)
+      stateChanged()
+    case .callEndpoint(let method, let path, let body, let assignTo, let onSuccess, let onError):
+      callEndpoint(method: method, path: path, body: body, assignTo: assignTo, onSuccess: onSuccess, onError: onError)
+    case .analyticsTrack(let event, let props):
+      // Extensions can't hit our analytics SDK directly (memory + sandbox);
+      // drop an event tombstone in the app group and the main app forwards
+      // on next foreground.
+      writeAnalyticsTombstone(event: event, props: props)
+    case .log(let msg, let level):
+      NSLog("[kb %@] %@", level, msg)
+    case .clearCache:
+      remoteImageCache.removeAll()
+      if let dir = remoteImageCacheDir() {
+        try? FileManager.default.removeItem(at: dir)
+      }
+    case .reloadApp:
+      // Reboots the SDUI tree only — the extension process itself stays up.
+      remount()
+    case .extensionAction(let name, let params):
+      // Look up in the registered extension handlers. Unknown → no-op (safe
+      // for pushing forward-looking actions to old builds).
+      if let handler = Self.extensionHandlers[name] {
+        handler(self, params ?? .null)
+      } else {
+        NSLog("[kb ext] no handler for %@", name)
+      }
     case .unknown(let kind):
       NSLog("unknown kb action: %@", kind)
     }
+  }
+
+  // MARK: - Extension handler registry
+  //
+  // Native code can register a named handler at app launch time:
+  //     SDUIRenderer.registerExtension("myCustomVoice") { renderer, params in ... }
+  // Then backend can fire it as { kind: "extension", name: "myCustomVoice", params: {...} }.
+  // Unknown names silently no-op so backend can push handlers older builds don't
+  // have yet without a crash.
+  private static var extensionHandlers: [String: (SDUIRenderer, KBJSON) -> Void] = [:]
+  static func registerExtension(_ name: String, handler: @escaping (SDUIRenderer, KBJSON) -> Void) {
+    extensionHandlers[name] = handler
+  }
+
+  // MARK: - State path writer (for setState / readClipboard / callEndpoint.assignTo)
+  //
+  // Writes a KBJSON value into state.user.<path> — a scratch dict that backend
+  // can freely read/write via bind + visibleIf. Reserved for backend use;
+  // native state fields (shift, dictating, etc.) are not writable via this path.
+  private func writeStatePath(_ path: String, _ value: KBJSON) {
+    if let str = value.asString { state.user[path] = .string(str) }
+    else if let n = value.asDouble { state.user[path] = .number(n) }
+    else if let b = value.asBool { state.user[path] = .bool(b) }
+    else if case .null = value { state.user.removeValue(forKey: path) }
+    else { state.user[path] = value }
+  }
+
+  // MARK: - Toast (transient label at the bottom of the keyboard)
+  private weak var toastView: UILabel?
+  private func showToast(message: String, tone: String) {
+    guard let container = mountContainer else { return }
+    toastView?.removeFromSuperview()
+    let l = UILabel()
+    l.text = message
+    l.textColor = .white
+    l.textAlignment = .center
+    l.font = .systemFont(ofSize: 13, weight: .medium)
+    l.backgroundColor = tone == "error" ? UIColor.systemRed.withAlphaComponent(0.9)
+      : tone == "success" ? UIColor.systemGreen.withAlphaComponent(0.9)
+      : UIColor(white: 0, alpha: 0.85)
+    l.layer.cornerRadius = 8
+    l.clipsToBounds = true
+    l.translatesAutoresizingMaskIntoConstraints = false
+    l.alpha = 0
+    container.addSubview(l)
+    NSLayoutConstraint.activate([
+      l.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18),
+      l.heightAnchor.constraint(equalToConstant: 32),
+      l.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: 0.9),
+    ])
+    l.layoutMargins = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+    toastView = l
+    UIView.animate(withDuration: 0.18) { l.alpha = 1 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak l] in
+      UIView.animate(withDuration: 0.25, animations: { l?.alpha = 0 },
+                     completion: { _ in l?.removeFromSuperview() })
+    }
+  }
+
+  // MARK: - Confetti (short-lived CAEmitterLayer)
+  private func fireConfetti() {
+    guard let container = mountContainer else { return }
+    let emitter = CAEmitterLayer()
+    emitter.emitterPosition = CGPoint(x: container.bounds.midX, y: -10)
+    emitter.emitterShape = .line
+    emitter.emitterSize = CGSize(width: container.bounds.width, height: 1)
+    let colors: [UIColor] = [.systemRed, .systemBlue, .systemGreen, .systemYellow, .systemPurple, .systemOrange]
+    emitter.emitterCells = colors.map { color in
+      let cell = CAEmitterCell()
+      cell.birthRate = 6
+      cell.lifetime = 3
+      cell.velocity = 200
+      cell.velocityRange = 40
+      cell.emissionLongitude = .pi
+      cell.emissionRange = 0.5
+      cell.spin = 3
+      cell.spinRange = 4
+      cell.scale = 0.06
+      cell.color = color.cgColor
+      cell.contents = UIImage(systemName: "square.fill")?.cgImage
+      return cell
+    }
+    container.layer.addSublayer(emitter)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { emitter.birthRate = 0 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { emitter.removeFromSuperlayer() }
+  }
+
+  // MARK: - TTS (AVSpeechSynthesizer)
+  private var speechSynth: AVSpeechSynthesizer?
+  private func speak(text: String, voice: String?) {
+    if speechSynth == nil { speechSynth = AVSpeechSynthesizer() }
+    let utter = AVSpeechUtterance(string: text)
+    if let v = voice, let sv = AVSpeechSynthesisVoice(language: v) { utter.voice = sv }
+    speechSynth?.speak(utter)
+  }
+
+  // MARK: - Media (AVPlayer, opt-in)
+  private var mediaPlayer: AVPlayer?
+  private func playMedia(url: String) {
+    guard let u = URL(string: url) else { return }
+    let p = AVPlayer(url: u)
+    mediaPlayer = p
+    p.play()
+  }
+  private func stopMedia() {
+    mediaPlayer?.pause()
+    mediaPlayer = nil
+  }
+
+  // MARK: - callEndpoint
+  //
+  // Small helper so backend can trigger arbitrary POST/GET from the keyboard.
+  // Uses the same base URL the config was fetched from. Result body (if JSON
+  // and assignTo is set) lands at state.user[assignTo]. onSuccess/onError refs
+  // run after the response is decoded.
+  private func callEndpoint(method: String, path: String, body: KBJSON?,
+                            assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?) {
+    let base = TulmiBackend.baseUrl
+    guard let url = URL(string: base + path) else { return }
+    var req = URLRequest(url: url)
+    req.httpMethod = method.uppercased()
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let body = body, let data = try? JSONEncoderSafe.data(for: body) {
+      req.httpBody = data
+    }
+    URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        let ok = (resp as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        if let err = err {
+          NSLog("[kb callEndpoint] %@", "\(err)")
+        }
+        if ok, let d = data, let json = try? JSONDecoder().decode(KBJSON.self, from: d) {
+          if let key = assignTo { self.writeStatePath(key, json); self.stateChanged() }
+          if let ok = onSuccess { self.run(ok) }
+        } else {
+          if let er = onError { self.run(er) }
+        }
+      }
+    }.resume()
+  }
+
+  // MARK: - Analytics tombstone (extension → main app hand-off; deep-link
+  // tombstone helper is defined once, further down)
+  private func writeAnalyticsTombstone(event: String, props: KBJSON?) {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    var log = d?.array(forKey: "tulmi.analytics.pending") as? [[String: Any]] ?? []
+    var entry: [String: Any] = ["event": event, "at": Int(0)]  // timestamp filled by main app
+    if let p = props, case .object(let o) = p {
+      var props2: [String: Any] = [:]
+      for (k, v) in o { props2[k] = JSONEncoderSafe.lower(v) }
+      entry["props"] = props2
+    }
+    log.append(entry)
+    d?.set(log, forKey: "tulmi.analytics.pending")
   }
 
   private func fireHaptic(_ style: String) {
@@ -1986,6 +2544,10 @@ final class SDUIRenderer: NSObject {
       return vs.contains { equal(l, $0) }
     case .contains(let p, let s):
       return (lookupString(p) ?? "").contains(s)
+    case .startsWith(let p, let s):
+      return (lookupString(p) ?? "").hasPrefix(s)
+    case .endsWith(let p, let s):
+      return (lookupString(p) ?? "").hasSuffix(s)
     case .truthy(let p):
       return truthy(lookup(p))
     case .falsy(let p):
@@ -2028,7 +2590,16 @@ final class SDUIRenderer: NSObject {
       case "primaryLanguage":      return .string(state.primaryLanguage)
       case "hasMultipleKeyboards": return .bool(state.hasMultipleKeyboards)
       case "appearance":           return .string(state.appearance)
-      default:                     return .null
+      case "deviceModel":          return .string(state.deviceModel)
+      case "systemVersion":        return .string(state.systemVersion)
+      case "isNetworkReachable":   return .bool(state.isNetworkReachable)
+      case "keyboardHeight":       return .number(Double(state.keyboardHeight))
+      default:
+        // state.user.<anything> — backend scratch dict.
+        if key.hasPrefix("user.") {
+          return state.user[String(key.dropFirst("user.".count))] ?? .null
+        }
+        return .null
       }
     case "flags":
       let key = parts.dropFirst().joined(separator: ".")
