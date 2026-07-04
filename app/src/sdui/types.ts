@@ -249,6 +249,14 @@ export interface KeyboardConfigResponse {
   root?: KeyboardNode;
   actions?: Record<string, KeyboardActionSpec>;
   cacheVersion?: string;
+  /**
+   * v3 (dark/light adaptive): explicit per-appearance palettes. Used by the
+   * next SDUI-renderer build to pick a palette based on the extension's
+   * current userInterfaceStyle. The shipped renderer ignores these and reads
+   * top-level `theme` — kept populated as a backward-compatible dark default.
+   */
+  themeDark?: KeyboardConfigResponse["theme"];
+  themeLight?: KeyboardConfigResponse["theme"];
 }
 
 export interface KeyboardLayout {
@@ -288,6 +296,7 @@ export type KeyboardActionSpec =
   | { kind: "startDictation" }
   | { kind: "stopDictation" }
   | { kind: "runRefine" }
+  | { kind: "cycleTone" }
   | { kind: "openApp"; screenId?: string }
   | { kind: "openSettings" }
   | { kind: "haptic"; style: HapticStyle }
