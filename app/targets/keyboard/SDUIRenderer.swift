@@ -504,9 +504,20 @@ final class SDUIRenderer: NSObject {
 
   /// The theme's `backgroundEffect` sits on the container itself (not on the
   /// root node) so blur / gradient covers the whole keyboard area.
+  ///
+  /// IMPORTANT: we do NOT paint container.backgroundColor from theme.background
+  /// as an opaque layer — that was making the blur backdrop useless (it was
+  /// frosting a solid black rectangle instead of the OS keyboard region behind
+  /// it). Native iOS keyboards let the underlying region show through the blur
+  /// so keys read as "floating on frosted glass" instead of sitting on a slab.
+  /// theme.background is kept as a *fallback* color, applied only when no
+  /// backgroundEffect is set — that way older client builds without the blur
+  /// still get a solid backdrop.
   private func applyRootBackground(to container: UIView) {
-    if let bg = theme?.background {
+    if theme?.backgroundEffect == nil, let bg = theme?.background {
       container.backgroundColor = UIColor(tulmiHex: bg)
+    } else {
+      container.backgroundColor = .clear
     }
     guard let effect = theme?.backgroundEffect else { return }
     // Remove any previous backdrop we installed.
