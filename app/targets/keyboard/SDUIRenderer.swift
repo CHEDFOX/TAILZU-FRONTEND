@@ -32,6 +32,12 @@ protocol KBHostControllerProtocol: AnyObject {
   func hostRunRefine()
   func hostAdvanceInputMode()
   func hostPresent(_ vc: UIViewController)
+  /// The current field's autocap trait. Used by the renderer to decide when to
+  /// arm state.shift after inserts. Default `.sentences` matches iOS default.
+  func hostAutocapitalizationType() -> UITextAutocapitalizationType
+  /// The current field's returnKeyType, so the Return key can render its
+  /// context-appropriate label (Go / Search / Send / Done…) + accent color.
+  func hostReturnKeyType() -> UIReturnKeyType
 }
 
 // MARK: - Polymorphic JSON value (for props / style bags)
@@ -87,6 +93,12 @@ enum KBJSON: Decodable {
 struct KBConfig: Decodable {
   let schemaVersion: Int?
   let theme: KBTheme?
+  // v3 dark/light adaptive palettes. When present, the renderer picks between
+  // themeDark and themeLight based on the extension's current userInterface-
+  // Style and re-renders on traitCollectionDidChange. When absent, `theme` is
+  // the sole palette used (backward-compatible).
+  let themeDark: KBTheme?
+  let themeLight: KBTheme?
   let layouts: [KBLayout]?
   let features: KBFeatures?
   let labels: [String: String]?
@@ -196,6 +208,7 @@ indirect enum KBActionSpec: Decodable {
   case startDictation
   case stopDictation
   case runRefine
+  case cycleTone
   case openApp(screenId: String?)
   case openSettings
   case haptic(style: String)
@@ -227,6 +240,7 @@ indirect enum KBActionSpec: Decodable {
     case "startDictation":   self = .startDictation
     case "stopDictation":    self = .stopDictation
     case "runRefine":        self = .runRefine
+    case "cycleTone":        self = .cycleTone
     case "openApp":
       self = .openApp(screenId: try? c.decode(String.self, forKey: .screenId))
     case "openSettings":     self = .openSettings
@@ -358,6 +372,13 @@ final class KBState {
   var status: String = ""
   var micLevel: CGFloat = 0
   var suggestions: [String] = []
+  /// Tone the tools-bar pill cycles through. Values chosen server-side via
+  /// config.flags["kb.tones"] or the default set below when unset.
+  var tone: String = "Neutral"
+  /// True while space is held long enough to enter trackpad-cursor mode. When
+  /// true, other keys visually dim and touch tracking on space becomes cursor
+  /// movement instead of insertion.
+  var trackpadActive: Bool = false
 }
 
 // MARK: - Renderer
@@ -373,7 +394,11 @@ final class SDUIRenderer: NSObject {
   private var mountedRoot: UIView?
 
   private var lastShiftTapTime: TimeInterval = 0
+  private var _lastSpaceTapTime: TimeInterval = 0
+  private var _trackpadAnchor: CGFloat = 0
+  private var _trackpadOffset: Int = 0
   private var deleteTimer: Timer?
+  private var deleteRepeatCount: Int = 0
   // Timer + [weak self] avoids the retain cycle CADisplayLink would create
   // (it retains its target). Renderer is held by the controller and needs to
   // die when the keyboard extension dismisses.
@@ -386,6 +411,34 @@ final class SDUIRenderer: NSObject {
     super.init()
     self.state.hasFullAccess = controller.hostHasFullAccess
     self.state.layoutId = config.layouts?.first?.language ?? ""
+  }
+
+  // MARK: Dark/light adaptation
+
+  /// The current appearance the host is in — dark or light. Read from the
+  /// host controller's trait collection so the picker below matches whatever
+  /// UIVisualEffectView is actually rendering the backdrop.
+  private var currentAppearance: UIUserInterfaceStyle {
+    (host as? UIViewController)?.traitCollection.userInterfaceStyle ?? .dark
+  }
+
+  /// Pick between config.themeDark / themeLight based on the current
+  /// appearance. Falls back to config.theme when the adaptive palettes are
+  /// absent (backend hasn't emitted them yet). Every color read in the
+  /// renderer routes through this so a trait-collection change picks up
+  /// automatically on remount().
+  var theme: KBTheme? {
+    if currentAppearance == .light, let l = config.themeLight { return l }
+    if currentAppearance == .dark, let d = config.themeDark { return d }
+    return config.theme
+  }
+
+  /// Called by the host controller from traitCollectionDidChange. Re-applies
+  /// the backdrop with the new blur style and rebuilds the tree so keys pick
+  /// up the new palette.
+  func appearanceDidChange() {
+    if let container = mountContainer { applyRootBackground(to: container) }
+    remount()
   }
 
   // MARK: Mount
@@ -424,10 +477,10 @@ final class SDUIRenderer: NSObject {
   /// The theme's `backgroundEffect` sits on the container itself (not on the
   /// root node) so blur / gradient covers the whole keyboard area.
   private func applyRootBackground(to container: UIView) {
-    if let bg = config.theme?.background {
+    if let bg = theme?.background {
       container.backgroundColor = UIColor(tulmiHex: bg)
     }
-    guard let effect = config.theme?.backgroundEffect else { return }
+    guard let effect = theme?.backgroundEffect else { return }
     // Remove any previous backdrop we installed.
     container.subviews
       .filter { $0.tag == Self.backdropTag }
@@ -487,15 +540,54 @@ final class SDUIRenderer: NSObject {
   /// If the node has an `effect` too, `applyEffectIfChildlessBackdrop` inserts
   /// it as a background subview at layer index 0 — UIStackView still lays out
   /// its arrangedSubviews above it.
+  ///
+  /// Proportional flex: children with a numeric `flex` on their style get a
+  /// widthAnchor (row) / heightAnchor (column) constraint whose multiplier is
+  /// their `flex / totalFlex` share of the stack's usable size. That's what
+  /// makes space:5.79 actually occupy 5.79× a letter key's width instead of
+  /// tied-with-everything-at-defaultLow behavior. Explicit `width` still wins
+  /// over flex when both are set.
   private func buildStack(node: KBNode, axis: NSLayoutConstraint.Axis) -> UIView {
     let stack = UIStackView()
     stack.axis = axis
     stack.alignment = .fill
     stack.distribution = .fill
-    stack.spacing = CGFloat(node.style?["spacing"]?.asDouble ?? 5)
-    for child in node.children ?? [] {
+    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble ?? 5)
+
+    let kids = node.children ?? []
+    var built: [(node: KBNode, view: UIView)] = []
+    for child in kids {
       let cv = render(node: child)
       stack.addArrangedSubview(cv)
+      built.append((child, cv))
+    }
+
+    // Second pass: apply proportional flex constraints. Sum every child's flex
+    // (default 0). If the total is > 0 AND the child has flex but no explicit
+    // width/height in its dimension, tie its size to a reference child (the
+    // first flex sibling) at the ratio flex_i / flex_ref.
+    let flexes: [Double] = built.map { $0.node.style?["flex"]?.asDouble ?? 0 }
+    let sizeKey = axis == .horizontal ? "width" : "height"
+    let hasSizeInAxis: [Bool] = built.map { $0.node.style?[sizeKey]?.asCGFloat != nil }
+    // Find the first flex>0 child that DOESN'T have explicit size — becomes the
+    // ratio anchor.
+    let refIndex = flexes.enumerated().first { (i, f) in f > 0 && !hasSizeInAxis[i] }?.offset
+    if let ref = refIndex {
+      let refFlex = flexes[ref]
+      let refView = built[ref].view
+      for i in 0..<built.count {
+        guard i != ref else { continue }
+        let f = flexes[i]
+        if f <= 0 { continue }             // no flex → intrinsic / explicit width
+        if hasSizeInAxis[i] { continue }   // explicit width wins
+        let child = built[i].view
+        let ratio = CGFloat(f / refFlex)
+        if axis == .horizontal {
+          child.widthAnchor.constraint(equalTo: refView.widthAnchor, multiplier: ratio).isActive = true
+        } else {
+          child.heightAnchor.constraint(equalTo: refView.heightAnchor, multiplier: ratio).isActive = true
+        }
+      }
     }
     return stack
   }
@@ -512,14 +604,183 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Letter key — the workhorse. Title honors shift/capsLock; tap inserts.
+  /// Long-press (500ms) reveals an accent tray for letters that have one
+  /// (English: a e i o u n c y s d h; Latin extended can be added by locale).
+  /// When `bind.content` names a KBState key (e.g. "tone"), the title reads
+  /// from that key at render time — used for the tone pill in the tools bar.
   private func buildLetterKey(node: KBNode) -> UIView {
-    let ch = node.props?["char"]?.asString ?? ""
+    var ch = node.props?["char"]?.asString ?? ""
+    if let boundKey = node.bind?["content"], let live = stateValue(for: boundKey) {
+      ch = live
+    }
     let btn = makeKeyButton()
     let uppercased = state.shift || state.capsLock
-    btn.setTitle(uppercased ? ch.uppercased() : ch.lowercased(), for: .normal)
+    // Only apply case swap for single-character labels — multi-char titles
+    // (like "Neutral") stay as-is regardless of shift.
+    let displayed = ch.count == 1 ? (uppercased ? ch.uppercased() : ch.lowercased()) : ch
+    btn.setTitle(displayed, for: .normal)
     let payload = node.props?["char"]?.asString ?? ch
     bindTap(btn, node: node, defaultAction: .insertKey(char: uppercased ? payload.uppercased() : payload))
+
+    // Attach an accent popover if this letter has one in the map.
+    if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
+      let lp = UILongPressGestureRecognizer(target: self, action: #selector(letterLongPress(_:)))
+      lp.minimumPressDuration = 0.5
+      lp.allowableMovement = 500
+      objc_setAssociatedObject(lp, &Self.accentsKey, accents, .OBJC_ASSOCIATION_RETAIN)
+      objc_setAssociatedObject(lp, &Self.accentsBaseKey, ch, .OBJC_ASSOCIATION_RETAIN)
+      btn.addGestureRecognizer(lp)
+    }
     return btn
+  }
+
+  private static var accentsKey: UInt8 = 0
+  private static var accentsBaseKey: UInt8 = 0
+  private weak var activeAccentTray: UIView?
+
+  /// Read a KBState value by name for a `bind` in the tree. Used by
+  /// components (LetterKey) that show live state text (e.g. tone pill).
+  private func stateValue(for key: String) -> String? {
+    switch key {
+    case "tone":       return state.tone
+    case "status":     return state.status
+    case "layoutId":   return state.layoutId
+    default:           return nil
+    }
+  }
+
+  /// Tones the cycleTone action rotates through. Backend can override via
+  /// config.flags["kb.tones"] (comma-separated). Default matches the ones
+  /// the app's Personality screen uses.
+  private func configuredTones() -> [String] {
+    if let raw = config.flags?["kb.tones"]?.asString {
+      let parts = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+      if !parts.isEmpty { return parts }
+    }
+    return ["Neutral", "Casual", "Formal", "Excited"]
+  }
+
+  /// English accent map. Order matches Apple's stock keyboard. When a locale
+  /// needs a different set, config.flags["kb.accents.<locale>"] can eventually
+  /// override this.
+  private var accentMap: [String: [String]] {
+    [
+      "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
+      "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
+      "i": ["î", "ï", "í", "ī", "į", "ì"],
+      "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
+      "u": ["û", "ü", "ù", "ú", "ū"],
+      "y": ["ÿ"],
+      "s": ["ß", "ś", "š"],
+      "l": ["ł"],
+      "z": ["ž", "ź", "ż"],
+      "c": ["ç", "ć", "č"],
+      "n": ["ñ", "ń"],
+      "d": ["ď"],
+      "h": ["ĥ", "ħ"],
+    ]
+  }
+
+  @objc private func letterLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard let btn = gr.view as? UIButton else { return }
+    let accents = (objc_getAssociatedObject(gr, &Self.accentsKey) as? [String]) ?? []
+    let base = (objc_getAssociatedObject(gr, &Self.accentsBaseKey) as? String) ?? ""
+    switch gr.state {
+    case .began:
+      showAccentTray(for: btn, base: base, options: accents)
+    case .changed:
+      if let tray = activeAccentTray {
+        let loc = gr.location(in: tray)
+        tray.subviews.forEach { chip in
+          let inside = chip.frame.contains(loc)
+          if inside { chip.backgroundColor = .systemBlue }
+          else { chip.backgroundColor = keyBgColor() }
+        }
+      }
+    case .ended:
+      pickAccentAndDismiss(gestureRecognizer: gr)
+    case .cancelled, .failed:
+      dismissAccentTray()
+    default:
+      break
+    }
+  }
+
+  private func showAccentTray(for anchor: UIButton, base: String, options: [String]) {
+    dismissAccentTray()
+    guard let container = mountContainer else { return }
+    let uppercased = state.shift || state.capsLock
+    let items = ([base] + options).map { uppercased ? $0.uppercased() : $0 }
+
+    let tray = UIStackView()
+    tray.axis = .horizontal
+    tray.distribution = .fillEqually
+    tray.alignment = .fill
+    tray.spacing = 4
+    tray.translatesAutoresizingMaskIntoConstraints = false
+    tray.backgroundColor = keyBgColor()
+    tray.layer.cornerRadius = 8
+    tray.layer.masksToBounds = true
+    tray.isLayoutMarginsRelativeArrangement = true
+    tray.layoutMargins = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+
+    let chipW: CGFloat = 40
+    let chipCount = items.count
+    let width: CGFloat = CGFloat(chipCount) * chipW + CGFloat(chipCount - 1) * 4 + 8
+
+    for text in items {
+      let chip = UIButton(type: .system)
+      chip.setTitle(text, for: .normal)
+      chip.setTitleColor(keyTextColor(), for: .normal)
+      chip.titleLabel?.font = .systemFont(ofSize: 22, weight: .regular)
+      chip.backgroundColor = .clear
+      chip.layer.cornerRadius = 6
+      chip.isUserInteractionEnabled = false
+      tray.addArrangedSubview(chip)
+    }
+
+    container.addSubview(tray)
+    let anchorFrame = anchor.convert(anchor.bounds, to: container)
+    // Position tray above the key. Clamped to container bounds so it can't
+    // draw off-screen. Apple would draw ABOVE the keyboard's top edge — we
+    // can't, so we place it inside the keyboard's own frame directly above
+    // the key. Reads slightly different from Apple's but stays within API
+    // limits (App Extension Programming Guide: no draw above input view).
+    let desiredX = anchorFrame.midX - width / 2
+    let clampedX = max(4, min(container.bounds.width - width - 4, desiredX))
+    let desiredY = anchorFrame.minY - 52
+    let clampedY = max(4, desiredY)
+    NSLayoutConstraint.activate([
+      tray.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: clampedX),
+      tray.topAnchor.constraint(equalTo: container.topAnchor, constant: clampedY),
+      tray.widthAnchor.constraint(equalToConstant: width),
+      tray.heightAnchor.constraint(equalToConstant: 48),
+    ])
+    activeAccentTray = tray
+  }
+
+  private func pickAccentAndDismiss(gestureRecognizer gr: UILongPressGestureRecognizer) {
+    defer { dismissAccentTray() }
+    guard let tray = activeAccentTray else { return }
+    let loc = gr.location(in: tray)
+    // Find the chip whose frame contains the release point.
+    guard let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+          let ch = chip.title(for: .normal), !ch.isEmpty else {
+      // Slid off the tray — no insert (matches Apple).
+      return
+    }
+    host?.hostTextDocumentProxy.insertText(ch)
+    if state.shift && !state.capsLock {
+      state.shift = false
+      stateChanged()
+    }
+    updateAutoCap()
+  }
+
+  private func dismissAccentTray() {
+    activeAccentTray?.removeFromSuperview()
+    activeAccentTray = nil
   }
 
   /// Icon key — an SF Symbol from props.icon. Any tap semantics come from `on`.
@@ -533,12 +794,100 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Big space bar. Custom label from `labels.space` falls back to "space".
+  /// Behaviors baked in:
+  ///  - Single tap → inserts " ". Double-tap within 500ms → replaces the
+  ///    trailing space with ". " (Apple's "quick period" pattern).
+  ///  - Long-press (~300ms) → trackpad-cursor mode. Finger drags become
+  ///    horizontal cursor moves via adjustTextPosition(byCharacterOffset:).
+  ///    Two-finger drag reserved for a future selection extension.
+  ///  - Sound + haptic fire on the touch-down when Full Access is granted
+  ///    (shared with makeKeyButton — this override just handles the special
+  ///    tap semantics).
   private func buildSpaceKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
     btn.setTitle(host?.hostLabel("space", "space") ?? "space", for: .normal)
-    btn.titleLabel?.font = .systemFont(ofSize: 14)
-    bindTap(btn, node: node, defaultAction: .insertText(text: " "))
+    btn.titleLabel?.font = .systemFont(ofSize: 15)
+    // Single-tap insertion is deferred to touchUpInside so slide-off cancels
+    // cleanly (Apple's slide-off pattern) — see bindTap.
+    let action = UIAction { [weak self] _ in self?.handleSpaceTap() }
+    btn.addAction(action, for: .touchUpInside)
+
+    // Long-press → trackpad cursor. UILongPressGestureRecognizer fires .began
+    // once the 300ms threshold passes; while active we intercept touches
+    // moved and translate them into cursor deltas.
+    let lp = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPress(_:)))
+    lp.minimumPressDuration = 0.3
+    lp.allowableMovement = 1000  // don't cancel on drag; that's the whole point
+    btn.addGestureRecognizer(lp)
     return btn
+  }
+
+  /// Fires when the user taps space. Handles the double-space-→-". " pattern.
+  private func handleSpaceTap() {
+    let now = Date().timeIntervalSince1970
+    if state.trackpadActive {
+      // Trackpad was ending — swallow this tap; the touchUp inside long-press
+      // already released the cursor.
+      state.trackpadActive = false
+      stateChanged()
+      return
+    }
+    let proxy = host?.hostTextDocumentProxy
+    let recent = now - _lastSpaceTapTime < 0.5
+    let smartPeriodOn: Bool = {
+      if let f = config.flags?["kb.smartPeriod"]?.asBool { return f }
+      return true
+    }()
+    if recent && smartPeriodOn,
+       let ctx = proxy?.documentContextBeforeInput,
+       ctx.hasSuffix(" "),
+       let prevChar = ctx.dropLast().last,
+       !prevChar.isPunctuation, prevChar != "\n" {
+      // Replace the trailing " " with ". ".
+      proxy?.deleteBackward()
+      proxy?.insertText(". ")
+      _lastSpaceTapTime = 0
+    } else {
+      proxy?.insertText(" ")
+      _lastSpaceTapTime = now
+    }
+    updateAutoCap()
+  }
+
+  /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
+  /// we track the finger and issue adjustTextPosition calls in proportion to
+  /// horizontal movement. Ends when the finger lifts.
+  @objc private func spaceLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard let view = gr.view else { return }
+    switch gr.state {
+    case .began:
+      state.trackpadActive = true
+      _trackpadAnchor = gr.location(in: view).x
+      _trackpadOffset = 0
+      // Subtle haptic to signal mode entry.
+      if let host = host, host.hostHasFullAccess {
+        let g = UIImpactFeedbackGenerator(style: .light)
+        g.prepare(); g.impactOccurred()
+      }
+      stateChanged()
+    case .changed:
+      let cur = gr.location(in: view).x
+      // 7pt per character — matches Apple's feel. Sub-character deltas
+      // accumulate in _trackpadOffset so slow drags still move.
+      let raw = Double(cur - _trackpadAnchor) / 7.0
+      let steps = Int(raw)
+      if steps != _trackpadOffset {
+        let delta = steps - _trackpadOffset
+        host?.hostTextDocumentProxy.adjustTextPosition(byCharacterOffset: delta)
+        _trackpadOffset = steps
+      }
+    case .ended, .cancelled, .failed:
+      state.trackpadActive = false
+      _lastSpaceTapTime = 0  // don't count the release as a tap
+      stateChanged()
+    default:
+      break
+    }
   }
 
   /// Shift toggle. Single-tap flips state.shift; double-tap within 300ms
@@ -575,17 +924,52 @@ final class SDUIRenderer: NSObject {
     stateChanged()
   }
 
-  /// Return key — inserts newline; uses labels.return (default "return").
+  /// Return key — inserts newline. Adapts label + tint to the current field's
+  /// UIReturnKeyType so Go / Send / Search / Done render correctly with the
+  /// system-blue accent (Apple's convention for action returns).
   private func buildReturnKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setTitle(host?.hostLabel("return", "return") ?? "return", for: .normal)
-    if let accent = config.theme?.accent {
-      btn.backgroundColor = UIColor(tulmiHex: accent)
-      let isLight = UIColor(tulmiHex: accent).tulmiIsLight
-      btn.setTitleColor(isLight ? .black : .white, for: .normal)
+    let rt = host?.hostReturnKeyType() ?? .default
+    btn.setTitle(returnKeyLabel(for: rt), for: .normal)
+    if returnKeyIsAction(rt) {
+      // System-blue accent for action returns. Apple uses UIColor.systemBlue
+      // (#0A84FF-ish in dark mode).
+      btn.backgroundColor = .systemBlue
+      btn.setTitleColor(.white, for: .normal)
+      // Update the pressed-color cache so touch feedback doesn't jarringly
+      // revert to the base gray.
+      objc_setAssociatedObject(btn, &Self.keyBaseColorKey, UIColor.systemBlue, .OBJC_ASSOCIATION_RETAIN)
     }
     bindTap(btn, node: node, defaultAction: .returnKey)
     return btn
+  }
+
+  /// Localized label for a UIReturnKeyType. Values pulled from Apple's own
+  /// UIKit table (matched empirically). Return "return" for default.
+  private func returnKeyLabel(for type: UIReturnKeyType) -> String {
+    switch type {
+    case .go:              return host?.hostLabel("return.go", "Go") ?? "Go"
+    case .join:            return host?.hostLabel("return.join", "Join") ?? "Join"
+    case .next:            return host?.hostLabel("return.next", "Next") ?? "Next"
+    case .route:           return host?.hostLabel("return.route", "Route") ?? "Route"
+    case .search:          return host?.hostLabel("return.search", "Search") ?? "Search"
+    case .send:            return host?.hostLabel("return.send", "Send") ?? "Send"
+    case .yahoo:           return host?.hostLabel("return.yahoo", "Yahoo") ?? "Yahoo"
+    case .google:          return host?.hostLabel("return.google", "Google") ?? "Google"
+    case .done:            return host?.hostLabel("return.done", "Done") ?? "Done"
+    case .emergencyCall:   return host?.hostLabel("return.emergency", "Emergency") ?? "Emergency"
+    case .continue:        return host?.hostLabel("return.continue", "Continue") ?? "Continue"
+    case .default:         return host?.hostLabel("return", "return") ?? "return"
+    @unknown default:      return host?.hostLabel("return", "return") ?? "return"
+    }
+  }
+
+  /// True for the return types Apple accents in system-blue (action returns).
+  private func returnKeyIsAction(_ type: UIReturnKeyType) -> Bool {
+    switch type {
+    case .default, .next: return false
+    default: return true
+    }
   }
 
   /// Backspace — tap deletes one; long-press repeats (200ms initial then 40ms).
@@ -599,15 +983,52 @@ final class SDUIRenderer: NSObject {
     return btn
   }
   @objc private func deleteDown() {
+    // First delete fires immediately on touch-down (Apple's pattern).
     host?.hostTextDocumentProxy.deleteBackward()
+    deleteRepeatCount = 1
     deleteTimer?.invalidate()
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { [weak self] _ in
-      self?.deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { [weak self] _ in
-        self?.host?.hostTextDocumentProxy.deleteBackward()
+    // 500ms initial delay before repeat begins, then 90ms per char for the
+    // first 20 chars, then accelerate to whole-word deletion. Matches Apple's
+    // measured timings (see research report).
+    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+      self?.startDeleteRepeat()
+    }
+    // Selection haptic on first press so touch-down feels alive even when the
+    // repeat hasn't kicked in yet.
+    fireKeyHaptic()
+  }
+
+  private func startDeleteRepeat() {
+    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.09, repeats: true) { [weak self] _ in
+      guard let self = self else { return }
+      self.deleteRepeatCount += 1
+      if self.deleteRepeatCount > 20 {
+        // Word-boundary delete: back to the last whitespace/newline.
+        self.deleteWordBoundary()
+      } else {
+        self.host?.hostTextDocumentProxy.deleteBackward()
       }
     }
   }
-  @objc private func deleteUp() { deleteTimer?.invalidate(); deleteTimer = nil }
+
+  private func deleteWordBoundary() {
+    guard let p = host?.hostTextDocumentProxy else { return }
+    var deleted = 0
+    while deleted < 64 {
+      let ctx = p.documentContextBeforeInput ?? ""
+      guard let last = ctx.last else { break }
+      p.deleteBackward()
+      deleted += 1
+      if last.isWhitespace || last.isNewline { break }
+    }
+  }
+
+  @objc private func deleteUp() {
+    deleteTimer?.invalidate()
+    deleteTimer = nil
+    deleteRepeatCount = 0
+    updateAutoCap()
+  }
 
   /// Globe key — advances to next input mode (system behavior). Long-press
   /// falls through to a `showLanguageMenu` action if `on.onLongPress` is set.
@@ -800,14 +1221,25 @@ final class SDUIRenderer: NSObject {
       view.backgroundColor = UIColor(tulmiHex: bg)
     }
     if let stack = view as? UIStackView {
-      if let pad = style["padding"]?.asCGFloat {
+      // Per-side padding: layoutMargins with individual insets. Uniform
+      // `padding` still works as the fallback when specific sides aren't set.
+      let pad = style["padding"]?.asCGFloat
+      let padTop = style["paddingTop"]?.asCGFloat ?? pad
+      let padBottom = style["paddingBottom"]?.asCGFloat ?? pad
+      let padLeft = style["paddingLeft"]?.asCGFloat ?? pad
+      let padRight = style["paddingRight"]?.asCGFloat ?? pad
+      if padTop != nil || padBottom != nil || padLeft != nil || padRight != nil {
         stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: pad, left: pad, bottom: pad, right: pad)
+        stack.layoutMargins = UIEdgeInsets(
+          top: padTop ?? 0,
+          left: padLeft ?? 0,
+          bottom: padBottom ?? 0,
+          right: padRight ?? 0,
+        )
       }
-      // flex on a stack maps to whether it fills or hugs — treat >0 as fill.
-      if let flex = style["flex"]?.asDouble, flex > 0 {
-        stack.distribution = .fillEqually
-      }
+      // flex on the stack itself no longer forces fillEqually — the parent
+      // buildStack now applies proportional widthAnchor multipliers per-child
+      // based on their flex ratio. fillEqually would blow that away.
     }
     if let btn = view as? UIButton {
       if let fg = style["fg"]?.asString {
@@ -921,21 +1353,26 @@ final class SDUIRenderer: NSObject {
   // MARK: - Key styling helpers
 
   /// A generic button matching the hand-built path's default look; overridden
-  /// by node-level `style`.
+  /// by node-level `style`. Handles:
+  ///   - Base fill + shadow + radius from theme
+  ///   - Optional per-key blur from theme.keyEffect
+  ///   - Press-down visual highlight (Apple's inversion swap) via touch handlers
+  ///   - Sound + haptic on touch-down (Full Access gated)
   private func makeKeyButton() -> UIButton {
     let b = UIButton(type: .system)
     b.setTitleColor(keyTextColor(), for: .normal)
     b.titleLabel?.font = .systemFont(ofSize: 18)
-    b.backgroundColor = keyBgColor()
-    b.layer.cornerRadius = CGFloat(config.theme?.keyRadius ?? 5)
-    if config.theme?.keyShadow == true {
+    let base = keyBgColor()
+    b.backgroundColor = base
+    b.layer.cornerRadius = CGFloat(theme?.keyRadius ?? 5)
+    if theme?.keyShadow == true {
       b.layer.shadowColor = UIColor.black.cgColor
       b.layer.shadowOffset = CGSize(width: 0, height: 1)
       b.layer.shadowRadius = 0
       b.layer.shadowOpacity = 0.4
     }
     // If the theme carries a keyEffect blur, drop it under the button.
-    if case .blur(let s) = config.theme?.keyEffect ?? .solid(color: "#00000000") {
+    if case .blur(let s) = theme?.keyEffect ?? .solid(color: "#00000000") {
       let blur = UIVisualEffectView(effect: UIBlurEffect(style: mapBlur(s)))
       blur.translatesAutoresizingMaskIntoConstraints = false
       blur.layer.cornerRadius = b.layer.cornerRadius
@@ -949,15 +1386,62 @@ final class SDUIRenderer: NSObject {
       ])
       b.backgroundColor = .clear
     }
+    // Press feedback (visual + sound + haptic). Firing on touchDown so the key
+    // feels alive at the moment of contact — Apple's exact behavior.
+    b.addTarget(self, action: #selector(keyTouchDown(_:)), for: .touchDown)
+    b.addTarget(self, action: #selector(keyTouchUp(_:)),
+                for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+    // Remember the resting background so touchUp can restore it after the
+    // inversion swap. Uses associated object so per-instance color survives
+    // across renderer rebuilds.
+    objc_setAssociatedObject(b, &Self.keyBaseColorKey, base, .OBJC_ASSOCIATION_RETAIN)
     return b
   }
 
+  private static var keyBaseColorKey: UInt8 = 0
+  private static var keyPressedColorKey: UInt8 = 0
+
+  @objc private func keyTouchDown(_ btn: UIButton) {
+    // Apple's inversion: letter keys press to function color, function keys
+    // press to letter color. We don't know which side a key is on, so use
+    // theme.keyPressed if present, else lighten the base color.
+    let pressed: UIColor
+    if let hex = theme?.keyPressed {
+      pressed = UIColor(tulmiHex: hex)
+    } else {
+      pressed = UIColor(white: 0.5, alpha: 0.3)
+    }
+    btn.backgroundColor = pressed
+    objc_setAssociatedObject(btn, &Self.keyPressedColorKey, pressed, .OBJC_ASSOCIATION_RETAIN)
+    // System input-click sound. Only plays when the extension conforms to
+    // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
+    // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
+    UIDevice.current.playInputClick()
+    fireKeyHaptic()
+  }
+
+  @objc private func keyTouchUp(_ btn: UIButton) {
+    let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
+    btn.backgroundColor = base
+  }
+
+  /// Selection-changed haptic on every key. Requires Full Access to fire; the
+  /// generator silently no-ops without it. Cheaper than instantiating a new
+  /// generator per tap.
+  private var selectionGenerator: UISelectionFeedbackGenerator?
+  fileprivate func fireKeyHaptic() {
+    guard host?.hostHasFullAccess == true else { return }
+    if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
+    selectionGenerator?.selectionChanged()
+    selectionGenerator?.prepare() // pre-cache the next one
+  }
+
   private func keyBgColor() -> UIColor {
-    if let key = config.theme?.key { return UIColor(tulmiHex: key) }
+    if let key = theme?.key { return UIColor(tulmiHex: key) }
     return UIColor(red: 0.11, green: 0.11, blue: 0.15, alpha: 1)
   }
   private func keyTextColor() -> UIColor {
-    if let t = config.theme?.keyText { return UIColor(tulmiHex: t) }
+    if let t = theme?.keyText { return UIColor(tulmiHex: t) }
     return .white
   }
 
@@ -993,15 +1477,18 @@ final class SDUIRenderer: NSObject {
     let proxy = host?.hostTextDocumentProxy
     switch spec {
     case .insertText(let text):
-      proxy?.insertText(text)
+      proxy?.insertText(applySmartPunctuation(text))
+      updateAutoCap()
     case .insertKey(let char):
-      proxy?.insertText(char)
+      proxy?.insertText(applySmartPunctuation(char))
       if state.shift && !state.capsLock {
         state.shift = false
         stateChanged()
       }
+      updateAutoCap()
     case .deleteBackward:
       proxy?.deleteBackward()
+      updateAutoCap()
     case .deleteWord:
       guard let p = proxy else { return }
       // Delete back until a whitespace/newline or the document is empty.
@@ -1046,6 +1533,20 @@ final class SDUIRenderer: NSObject {
       state.refining = true
       stateChanged()
       host?.hostRunRefine()
+    case .cycleTone:
+      // Cycle through the tones list — either the backend-provided list at
+      // config.flags["kb.tones"] or the shipped default set. Result stored
+      // in state.tone; the SDUI tools bar rebinds on remount.
+      let tones = configuredTones()
+      let idx = tones.firstIndex(of: state.tone) ?? -1
+      state.tone = tones[(idx + 1) % max(1, tones.count)]
+      stateChanged()
+      // Publish to the shared App Group so the main app can pick up the
+      // current tone selection when it needs to (e.g. for the tone-based
+      // refine prompt).
+      let d = UserDefaults(suiteName: "group.com.tulmi.app")
+      d?.set(state.tone, forKey: "tulmi.kb.tone")
+      fireKeyHaptic()
     case .openApp(let screenId):
       // Apple restricts NSExtensionContext.open to Today extensions; keyboard
       // extensions cannot launch URLs directly. We drop a tombstone in the
@@ -1086,6 +1587,95 @@ final class SDUIRenderer: NSObject {
       UINotificationFeedbackGenerator().notificationOccurred(.error)
     default:
       UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+  }
+
+  // MARK: - Auto-capitalization
+
+  /// Called after every insert / delete. Reads the text before the cursor and
+  /// arms state.shift when the next character is at a sentence boundary:
+  ///   - field start (nothing before cursor)
+  ///   - immediately after ". " or "? " or "! " or newline
+  /// Respects the field's autocapitalizationType — off entirely on URL /
+  /// email / password fields, .allCharacters keeps shift on always,
+  /// .words fires on every word boundary.
+  private func updateAutoCap() {
+    guard let host = host else { return }
+    let mode = host.hostAutocapitalizationType()
+    if mode == .none { return }
+    let ctx = host.hostTextDocumentProxy.documentContextBeforeInput ?? ""
+    let shouldCap: Bool
+    switch mode {
+    case .allCharacters:
+      shouldCap = true
+    case .words:
+      shouldCap = ctx.isEmpty || (ctx.last?.isWhitespace ?? true)
+    case .sentences:
+      if ctx.isEmpty { shouldCap = true }
+      else {
+        // Look back past trailing whitespace, then check the last non-space
+        // for a sentence-ending mark.
+        let trimmed = ctx.reversed().drop(while: { $0.isWhitespace })
+        let hadSpace = ctx.count != trimmed.count
+        if let last = trimmed.first {
+          shouldCap = hadSpace && (last == "." || last == "?" || last == "!" || last == "\n")
+        } else {
+          shouldCap = true
+        }
+      }
+    @unknown default:
+      shouldCap = false
+    }
+    if state.capsLock { return } // caps lock wins; don't fight the user
+    if shouldCap != state.shift {
+      state.shift = shouldCap
+      stateChanged()
+    }
+  }
+
+  // MARK: - Smart punctuation
+
+  /// Server-controlled toggle key. When flags["kb.smartPunctuation"] is truthy
+  /// (default), we run typed characters through this cleaner:
+  ///   `"` → curly quote (open/close by odd/even count in the buffer)
+  ///   `--` → em-dash (delete the trailing "-" first)
+  ///   `...` → single ellipsis codepoint (delete the trailing ".." first)
+  /// Everything else passes through untouched.
+  private func applySmartPunctuation(_ text: String) -> String {
+    let on: Bool = {
+      if let f = config.flags?["kb.smartPunctuation"]?.asBool { return f }
+      return true
+    }()
+    guard on, text.count == 1 else { return text }
+    let ch = text.first!
+    guard let proxy = host?.hostTextDocumentProxy else { return text }
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    switch ch {
+    case "\"":
+      // Toggle straight → curly. Count existing straight " in the paragraph
+      // is unreliable; simplest heuristic: last char is a word char → close.
+      let last = ctx.last
+      if last == nil || last?.isWhitespace == true || last == "\n" { return "\u{201C}" }
+      return "\u{201D}"
+    case "'":
+      let last = ctx.last
+      if last == nil || last?.isWhitespace == true || last == "\n" { return "\u{2018}" }
+      return "\u{2019}"
+    case "-":
+      if ctx.hasSuffix("-") {
+        proxy.deleteBackward()
+        return "\u{2014}" // em-dash
+      }
+      return text
+    case ".":
+      if ctx.hasSuffix("..") {
+        proxy.deleteBackward()
+        proxy.deleteBackward()
+        return "\u{2026}" // ellipsis
+      }
+      return text
+    default:
+      return text
     }
   }
 

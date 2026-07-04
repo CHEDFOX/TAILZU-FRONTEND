@@ -117,6 +117,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     loadDictionary() // pick up edits made in the app
   }
 
+  /// System appearance flipped (Settings → dark mode toggle, or the user's
+  /// automatic-appearance schedule). Route to the SDUI renderer so it picks
+  /// the right theme palette + re-renders. No-op when the hand-built path
+  /// is active.
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+      sduiRenderer?.appearanceDidChange()
+    }
+  }
+
   /// Publish the keyboard's live state to the shared App Group so the main app
   /// can detect that the keyboard is enabled and whether Full Access is granted
   /// (used to gate the onboarding "you're all set" step). Written every time the
@@ -1000,6 +1011,14 @@ extension UIColor {
 
 // MARK: - SDUI host bridge
 
+/// UIInputViewAudioFeedback conformance — required for playInputClick() to
+/// actually play the system click. Returning true whenever Full Access is on
+/// lets Apple respect the user's "Keyboard Feedback → Sound" toggle. When
+/// Full Access is off, the sound API silently no-ops anyway.
+extension KeyboardViewController: UIInputViewAudioFeedback {
+  var enableInputClicksWhenVisible: Bool { hasFullAccess }
+}
+
 /// The renderer holds `self` weakly and calls into these host hooks so that
 /// dictation / refine / text-proxy semantics stay in the existing code path.
 extension KeyboardViewController: KBHostControllerProtocol {
@@ -1024,5 +1043,19 @@ extension KeyboardViewController: KBHostControllerProtocol {
   func hostAdvanceInputMode() { advanceToNextInputMode() }
   func hostPresent(_ vc: UIViewController) {
     present(vc, animated: true, completion: nil)
+  }
+
+  /// The current field's autocap trait, read via the text-input traits on the
+  /// text document proxy. Defaults to `.sentences` (Apple's default) when the
+  /// proxy doesn't expose the trait.
+  func hostAutocapitalizationType() -> UITextAutocapitalizationType {
+    (textDocumentProxy as? UITextInputTraits)?.autocapitalizationType ?? .sentences
+  }
+
+  /// The current field's returnKeyType. Same lookup path — mirrors what
+  /// Apple's system keyboard reads to render "Go / Send / Search / Done…"
+  /// with the system-blue accent on action keys.
+  func hostReturnKeyType() -> UIReturnKeyType {
+    (textDocumentProxy as? UITextInputTraits)?.returnKeyType ?? .default
   }
 }
