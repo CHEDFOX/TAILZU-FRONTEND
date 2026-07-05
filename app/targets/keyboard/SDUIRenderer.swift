@@ -1270,16 +1270,25 @@ final class SDUIRenderer: NSObject {
     // 500ms initial delay before repeat begins, then 90ms per char for the
     // first 20 chars, then accelerate to whole-word deletion. Matches Apple's
     // measured timings (see research report).
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+    //
+    // CRITICAL: scheduledTimer(withTimeInterval:...) adds to .default runloop
+    // mode. While a finger is on the screen iOS switches to .tracking mode
+    // and .default timers pause. So the repeat would NEVER fire because
+    // touch is held the whole time. Add explicitly to .common (which
+    // includes .default + .tracking) so the timer fires during the hold.
+    let initial = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
       self?.startDeleteRepeat()
     }
+    RunLoop.main.add(initial, forMode: .common)
+    deleteTimer = initial
     // Selection haptic on first press so touch-down feels alive even when the
     // repeat hasn't kicked in yet.
     fireKeyHaptic()
   }
 
   private func startDeleteRepeat() {
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.09, repeats: true) { [weak self] _ in
+    // Same .common-mode requirement — see deleteDown for why.
+    let repeatTimer = Timer(timeInterval: 0.09, repeats: true) { [weak self] _ in
       guard let self = self else { return }
       self.deleteRepeatCount += 1
       if self.deleteRepeatCount > 20 {
@@ -1289,6 +1298,8 @@ final class SDUIRenderer: NSObject {
         self.host?.hostTextDocumentProxy.deleteBackward()
       }
     }
+    RunLoop.main.add(repeatTimer, forMode: .common)
+    deleteTimer = repeatTimer
   }
 
   private func deleteWordBoundary() {
@@ -1421,10 +1432,15 @@ final class SDUIRenderer: NSObject {
     w.tintColor = keyTextColor()
     w.setLevel(state.micLevel)
     if waveformTimer == nil {
-      waveformTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) {
-        [weak self] _ in
+      // Add to .common so the animation keeps ticking while the user is
+      // holding a key (which switches the runloop into .tracking mode). A
+      // .default-mode timer would freeze mid-dictation the moment they touch
+      // anything — including the stop button.
+      let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
         self?.waveformView?.setLevel(self?.state.micLevel ?? 0)
       }
+      RunLoop.main.add(t, forMode: .common)
+      waveformTimer = t
     }
     waveformView = w
     return w
