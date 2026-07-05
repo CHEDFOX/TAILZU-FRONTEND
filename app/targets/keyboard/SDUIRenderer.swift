@@ -1046,7 +1046,14 @@ final class SDUIRenderer: NSObject {
       } else if spec == nil {
         btn.setImage(UIImage(systemName: "questionmark"), for: .normal)
       }
-      btn.tintColor = keyTextColor()
+      // Icon tint: prefer node.style.fg override so backend can force a
+      // specific icon color (mic on orange bg needs black icon, etc.), fall
+      // back to theme's keyText for the general case.
+      if let hex = node.style?["fg"]?.asString {
+        btn.tintColor = UIColor(tulmiHex: hex)
+      } else {
+        btn.tintColor = keyTextColor()
+      }
       // Optional per-side icon inset so backend can control padding without
       // shipping different assets. Reads props.iconInset (uniform) or
       // props.iconInsetTop/… (per side).
@@ -1347,37 +1354,53 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Mic key — toggles startDictation / stopDictation based on state.dictating.
-  /// Idle: shows the Tulmi brand mark (bundled asset "TailzuMark" — the actual
-  /// voice button, not the generic SF Symbol mic). Recording: switches to
-  /// stop.fill so the state is unmistakable. If the bundled image is missing
-  /// for any reason we fall back to the SF Symbol so the key is never blank.
+  /// Icon tint respects node.style.fg (backend can override the theme's white
+  /// keyText — the tools-row mic uses black-on-orange). Stop-dictation now
+  /// auto-fires runRefine so the captured message moves straight into the
+  /// refinement pipeline without a second button press.
+  ///
+  /// The default action wiring here still exists so old backend trees (that
+  /// don't specify on.onPress) keep working. New trees can override with
+  /// on.onPress: { kind: "condition", ... } for custom flows — see
+  /// makeToolsRow() in the backend catalog.
   private func buildMicKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
+    // Icon tint: prefer explicit style.fg override, else keyTextColor().
+    let tint: UIColor = {
+      if let hex = node.style?["fg"]?.asString { return UIColor(tulmiHex: hex) }
+      return keyTextColor()
+    }()
     if state.dictating {
       btn.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-      btn.tintColor = keyTextColor()
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
-      // Render the mark as a template so keyTextColor tints it — the asset is
-      // a monochrome shape, and template rendering makes it match the same
-      // white/black the surrounding icons use in dark vs light appearance.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
-      btn.tintColor = keyTextColor()
-      // The bundled asset is ~1024px; UIButton scales to fit. Nudge it a hair
-      // smaller than the SF Symbol so the mark reads as an icon, not a splash.
-      btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+      btn.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
     } else {
       btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
-      btn.tintColor = keyTextColor()
     }
-    let action = UIAction { [weak self] _ in
-      guard let self = self else { return }
-      if self.state.dictating {
-        self.run(.inline(.stopDictation))
-      } else {
-        self.run(.inline(.startDictation))
+    btn.tintColor = tint
+    // If the backend provided an explicit on.onPress, use that (backend can
+    // wire condition + sequence to do "stop then refine" itself). Otherwise
+    // fall back to the built-in toggle — WITH auto-refine on stop so the
+    // captured text always moves forward regardless of tree shape.
+    if let ref = node.on?["onPress"] {
+      let action = UIAction { [weak self] _ in self?.run(ref) }
+      btn.addAction(action, for: .touchUpInside)
+    } else {
+      let action = UIAction { [weak self] _ in
+        guard let self = self else { return }
+        if self.state.dictating {
+          // stopDictation → runRefine, so the message auto-flows into refine.
+          self.run(.inline(.sequence(actions: [
+            .inline(.stopDictation),
+            .inline(.runRefine),
+          ])))
+        } else {
+          self.run(.inline(.startDictation))
+        }
       }
+      btn.addAction(action, for: .touchUpInside)
     }
-    btn.addAction(action, for: .touchUpInside)
     return btn
   }
 
