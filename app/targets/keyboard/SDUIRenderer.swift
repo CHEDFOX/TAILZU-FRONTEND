@@ -651,7 +651,25 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Public hook — actions call this after mutating KBState.
-  func stateChanged() { remount() }
+  /// Deferred + coalesced remount. Multiple `stateChanged()` calls in the
+  /// same runloop collapse to a single rebuild scheduled on the next tick,
+  /// so touch handlers (insertText, delete, shift toggle, autocap arm) return
+  /// immediately instead of blocking on the full tree teardown/rebuild. That
+  /// blocking rebuild was the root of the "touch delay" — on complex trees
+  /// each remount cost 30-80ms and fired synchronously inside the tap
+  /// handler; iOS therefore didn't process the next tap until the rebuild
+  /// finished. This coalesced-async model completes the current tap first,
+  /// commits the character to the field, THEN rebuilds visuals.
+  private var pendingRemount: Bool = false
+  func stateChanged() {
+    if pendingRemount { return }
+    pendingRemount = true
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.pendingRemount = false
+      self.remount()
+    }
+  }
 
   // MARK: Root backdrop
 
