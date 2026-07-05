@@ -1177,36 +1177,93 @@ final class SDUIRenderer: NSObject {
     }
   }
 
-  /// Shift toggle. Single-tap flips state.shift; double-tap within 300ms
-  /// promotes to caps lock. Re-render swaps letter titles.
+  /// Shift toggle — modern behavior with directional arrows + hold-to-lock:
+  ///
+  ///   Visual:
+  ///     - state.shift = false     → down arrow (lowercase mode)
+  ///     - state.shift = true      → up arrow (uppercase mode)
+  ///     - state.capsLock = false  → outlined arrow, key-text color
+  ///     - state.capsLock = true   → filled arrow, brand orange (locked)
+  ///
+  ///   Interaction:
+  ///     - Tap (unlocked)  → toggle uppercase/lowercase (one-shot arm/disarm)
+  ///     - Hold (unlocked) → lock the current format (persistent)
+  ///     - Tap or Hold (locked) → unlock AND flip to the other format
+  ///
+  ///   Notes:
+  ///     - capsLock now means "locked in current shift state", not just
+  ///       "uppercase locked" as before. The old (capsLock ⇒ shift=true)
+  ///       invariant no longer holds; a locked-in-lowercase state is valid
+  ///       and shows as the orange down arrow.
+  ///     - Long-press threshold is 0.35s — long enough to distinguish from
+  ///       a tap, short enough to feel snappy.
   private func buildShiftKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setTitle(state.capsLock ? "⇪" : "⇧", for: .normal)
-    btn.titleLabel?.font = .systemFont(ofSize: 20)
+    applyShiftKeyVisual(btn)
     let handler = UIAction { [weak self] _ in self?.handleShiftTap() }
     btn.addAction(handler, for: .touchUpInside)
+    // Long-press → lock (or unlock+flip if already locked).
+    let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleShiftLongPress(_:)))
+    lp.minimumPressDuration = 0.35
+    // Don't cancel touchUpInside — we WANT the tap handler to also fire if
+    // the user hovers below the threshold and then lifts (feels natural).
+    lp.cancelsTouchesInView = false
+    btn.addGestureRecognizer(lp)
     return btn
   }
+
+  /// Set the ShiftKey's image + tint based on current state. Extracted from
+  /// buildShiftKey so long-press/tap handlers can refresh visuals directly on
+  /// the current button rather than waiting on remount — feels more responsive.
+  private func applyShiftKeyVisual(_ btn: UIButton) {
+    let icon: String = {
+      // Filled variant when locked (so the orange lock reads as a solid
+      // orange arrow head). Outlined otherwise.
+      if state.capsLock {
+        return state.shift ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"
+      } else {
+        return state.shift ? "arrowtriangle.up" : "arrowtriangle.down"
+      }
+    }()
+    let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+    btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
+    btn.setTitle(nil, for: .normal)
+    btn.tintColor = state.capsLock ? UIColor(tulmiHex: "#FF6B1F") : keyTextColor()
+    // Center the icon in the button — SF Symbols with contentMode + insetsLayout
+    // hug the vertical middle naturally; nothing extra needed.
+    btn.contentHorizontalAlignment = .center
+    btn.contentVerticalAlignment = .center
+  }
+
+  @objc private func handleShiftLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began else { return }
+    if state.capsLock {
+      // Locked → unlock + flip (same as tap-while-locked).
+      state.capsLock = false
+      state.shift.toggle()
+    } else {
+      // Unlocked → lock the current format without changing shift.
+      state.capsLock = true
+    }
+    lastShiftTapTime = 0
+    stateChanged()
+    fireKeyHaptic()
+  }
+
   private func handleShiftTap() {
-    let now = Date().timeIntervalSince1970
-    // If we're currently caps-locked, tap 1 turns everything off — and we
-    // reset lastShiftTapTime so a follow-up tap is NOT treated as the
-    // second half of a double-tap-to-caps. Previously this promoted the
-    // "turn caps off" into "turn caps back on" (audit finding).
+    // Locked state → unlock + flip (both tap and long-press do this).
     if state.capsLock {
       state.capsLock = false
-      state.shift = false
+      state.shift.toggle()
       lastShiftTapTime = 0
       stateChanged()
       return
     }
-    if now - lastShiftTapTime < 0.3 {
-      // Fast double-tap → promote to caps-lock.
-      state.capsLock = true
-      state.shift = true
-    } else {
-      state.shift.toggle()
-    }
+    // Unlocked → toggle uppercase/lowercase mode. No more double-tap-to-caps
+    // because hold-to-lock is the new mechanism (feels more discoverable and
+    // avoids the accidental double-tap-on-fast-typing problem).
+    state.shift.toggle()
+    lastShiftTapTime = Date().timeIntervalSince1970
     lastShiftTapTime = now
     stateChanged()
   }
