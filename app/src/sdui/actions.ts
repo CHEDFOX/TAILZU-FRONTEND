@@ -12,7 +12,11 @@ import * as WebBrowser from "expo-web-browser";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
+// expo-file-system 18+ (SDK 56) moved the classic constants/functions
+// (cacheDirectory, downloadAsync, etc.) under /legacy. The new File-based API
+// at the top level covers new code; for the existing downloadAsync flow the
+// legacy import is the drop-in.
+import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Notifications from "expo-notifications";
