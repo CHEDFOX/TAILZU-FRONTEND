@@ -648,6 +648,21 @@ final class SDUIRenderer: NSObject {
       v.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
     mountedRoot = v
+    // If a recording is in progress, the tree we just rebuilt has a fresh
+    // tools row that needs to be brought back above the dim overlay, and the
+    // emitter's saved emitterPosition points at the OLD mic center (deallocated
+    // with the previous tree). Re-anchor both.
+    if state.dictating, recordingDimView != nil {
+      if let mic = currentMicButton?.superview {
+        container.bringSubviewToFront(mic)
+      }
+      // Move emitter to the new mic position so dots keep flowing from the
+      // right place. Only reposition; we don't restart the birthrate.
+      if let emitter = dotStreamLayer,
+         let mic = currentMicButton, let micSuper = mic.superview {
+        emitter.emitterPosition = micSuper.convert(mic.center, to: container)
+      }
+    }
   }
 
   /// Public hook — actions call this after mutating KBState.
@@ -831,6 +846,12 @@ final class SDUIRenderer: NSObject {
       ch = live
     }
     let btn = makeKeyButton()
+    // Tone pill registration for the dictation dot stream — the pill is the
+    // one LetterKey whose bind.content resolves to the "tone" state field, so
+    // this identifies it uniquely without a per-node id.
+    if node.bind?["content"] == "tone" {
+      currentToneButton = btn
+    }
     let uppercased = state.shift || state.capsLock
     // Only apply case swap for single-character labels — multi-char titles
     // (like "Neutral") stay as-is regardless of shift.
@@ -872,6 +893,134 @@ final class SDUIRenderer: NSObject {
     case "shift":                return state.shift ? "true" : "false"
     case "capsLock":             return state.capsLock ? "true" : "false"
     default:                     return nil
+    }
+  }
+
+  // MARK: - Dictation visual overlay
+  //
+  // Two visual layers ride on top of the keyboard while state.dictating=true:
+  //   1. Key dimming — a translucent black overlay dims the letter/function
+  //      key rows, focusing attention on the tools row. Tools row is brought
+  //      above the overlay so mic + tone stay bright.
+  //   2. Dot stream — a CAEmitterLayer positioned at the mic button center,
+  //      emitting orange dots that travel across to the tone pill and fade
+  //      out along the way, so the tone pill visually "receives" them.
+  //
+  // On stop (state.dictating flips to false), the emitter's birthRate is
+  // zeroed but the layer stays live for ~2.5s so already-airborne dots
+  // complete their journey. Rough coincidence: refine RTT is ~2s, so the
+  // last dot dissolves about when the refined text lands in the field.
+
+  private weak var currentMicButton: UIButton?
+  private weak var currentToneButton: UIButton?
+  private var dotStreamLayer: CAEmitterLayer?
+  private weak var recordingDimView: UIView?
+
+  private func showRecordingVisuals() {
+    // Wait for the remount that stateChanged() scheduled — that's where
+    // currentMicButton / currentToneButton get set. Async on main gets us the
+    // next runloop tick, by which point the new tree is mounted.
+    // Guard against a race: if dictation stopped between reflectDictating(true)
+    // and this block running, don't create visuals at all.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, self.state.dictating else { return }
+      self.applyKeyDimming()
+      self.startDotStream()
+    }
+  }
+
+  private func hideRecordingVisuals() {
+    fadeOutDotStream()
+    removeKeyDimming()
+  }
+
+  private func applyKeyDimming() {
+    guard let container = mountContainer, recordingDimView == nil else { return }
+    let dim = UIView()
+    dim.translatesAutoresizingMaskIntoConstraints = false
+    dim.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+    dim.isUserInteractionEnabled = false  // taps pass through to keys (though they shouldn't matter while recording)
+    dim.alpha = 0
+    container.addSubview(dim)
+    NSLayoutConstraint.activate([
+      dim.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      dim.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      dim.topAnchor.constraint(equalTo: container.topAnchor),
+      dim.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    // Keep the tools row (with mic + tone) above the dim so those stay bright
+    // and the emitter's dots visually connect the two.
+    if let mic = currentMicButton?.superview {
+      container.bringSubviewToFront(mic)
+    }
+    UIView.animate(withDuration: 0.25) { dim.alpha = 1 }
+    recordingDimView = dim
+  }
+
+  private func removeKeyDimming() {
+    guard let dim = recordingDimView else { return }
+    UIView.animate(withDuration: 0.25, animations: { dim.alpha = 0 },
+                   completion: { _ in dim.removeFromSuperview() })
+    recordingDimView = nil
+  }
+
+  private func startDotStream() {
+    guard let container = mountContainer,
+          let mic = currentMicButton, let micSuper = mic.superview,
+          let tone = currentToneButton, let toneSuper = tone.superview,
+          dotStreamLayer == nil else { return }
+
+    // Convert both button centers into container-layer coordinates.
+    let micCenter = micSuper.convert(mic.center, to: container)
+    let toneCenter = toneSuper.convert(tone.center, to: container)
+
+    let emitter = CAEmitterLayer()
+    emitter.emitterPosition = micCenter
+    emitter.emitterShape = .point
+    emitter.emitterMode = .points
+    // Sit at the top of the container's layer stack so dots render above the
+    // dim overlay and the letter rows.
+    container.layer.addSublayer(emitter)
+
+    let cell = CAEmitterCell()
+    cell.contents = makeDotImage().cgImage
+    cell.birthRate = 7                    // ~7 dots / sec — steady, not busy
+    cell.lifetime = 1.8                   // full traversal + fade
+    let dx = toneCenter.x - micCenter.x
+    let dy = toneCenter.y - micCenter.y
+    let distance = sqrt(dx * dx + dy * dy)
+    cell.velocity = distance / CGFloat(cell.lifetime)
+    cell.velocityRange = distance * 0.05  // small speed jitter for organic feel
+    cell.emissionLongitude = atan2(dy, dx)
+    cell.emissionRange = 0.08             // slight fan for visual interest
+    cell.scale = 0.35
+    cell.scaleRange = 0.1
+    cell.alphaSpeed = -0.55               // fade to transparent over lifetime
+    emitter.emitterCells = [cell]
+    dotStreamLayer = emitter
+  }
+
+  private func fadeOutDotStream() {
+    guard let emitter = dotStreamLayer else { return }
+    // Zero the birthRate so no new dots spawn, but leave the layer live so
+    // already-airborne dots finish their trajectory.
+    emitter.emitterCells?.forEach { $0.birthRate = 0 }
+    // Cleanup after the last dot's lifetime + margin.
+    let cleanup = DispatchWorkItem { [weak self] in
+      self?.dotStreamLayer?.removeFromSuperlayer()
+      self?.dotStreamLayer = nil
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: cleanup)
+  }
+
+  /// Small orange dot rendered off-screen — the CAEmitterCell contents.
+  /// Rendered once per emitter creation and reused for every dot; cheap.
+  private func makeDotImage() -> UIImage {
+    let size = CGSize(width: 14, height: 14)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { ctx in
+      UIColor(tulmiHex: "#FF6B1F").setFill()
+      ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
     }
   }
 
@@ -1422,13 +1571,21 @@ final class SDUIRenderer: NSObject {
   /// makeToolsRow() in the backend catalog.
   private func buildMicKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
+    // Register for later access by the dot-stream visualizer during recording.
+    // There's only ever one MicKey rendered at a time (dark and light variants
+    // are visibleIf-gated), so a single weak ref is safe.
+    currentMicButton = btn
     // Icon tint: prefer explicit style.fg override, else keyTextColor().
     let tint: UIColor = {
       if let hex = node.style?["fg"]?.asString { return UIColor(tulmiHex: hex) }
       return keyTextColor()
     }()
     if state.dictating {
-      btn.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+      // Recording state — a thick horizontal bar reads as an unambiguous "stop
+      // this recording" affordance without competing with the animated dot
+      // stream that emanates from this same button.
+      let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .heavy)
+      btn.setImage(UIImage(systemName: "minus", withConfiguration: cfg), for: .normal)
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
       btn.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
@@ -2768,6 +2925,15 @@ final class SDUIRenderer: NSObject {
     if !v {
       waveformTimer?.invalidate()
       waveformTimer = nil
+    }
+    // Recording visuals — key dimming + dot stream on start; graceful fade
+    // (existing dots keep flying for ~2.5s) on stop. Called before
+    // stateChanged() so the tree remounts to update the mic icon (brand mark
+    // → thick line) in the same runloop that shows the overlay.
+    if v {
+      showRecordingVisuals()
+    } else {
+      hideRecordingVisuals()
     }
     stateChanged()
   }
