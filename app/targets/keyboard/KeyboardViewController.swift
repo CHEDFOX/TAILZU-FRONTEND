@@ -772,7 +772,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       DispatchQueue.main.async { self?.handleStreamEvent(event) }
     }
     stream = s
-    s.start(targetApp: "Generic", language: "auto")
+    // Backend flags: kb.dictation.targetApp (default "Generic"), kb.dictation.language (default "auto")
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    let lang = (kbConfig?.flags["kb.dictation.language"] as? String) ?? "auto"
+    s.start(targetApp: targetApp, language: lang)
   }
 
   private func handleStreamEvent(_ event: TulmiStream.Event) {
@@ -852,11 +855,28 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       try session.setActive(true)
 
       let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
+      // Backend flags:
+      //   kb.audio.sampleRate  (default 16000) — Hz
+      //   kb.audio.channels    (default 1)
+      //   kb.audio.quality     (default "high") — min/low/medium/high/max
+      // (Format is fixed AAC — changing it requires a native filename change too.)
+      let flags = kbConfig?.flags ?? [:]
+      let sr = flags["kb.audio.sampleRate"] as? Double ?? 16000
+      let ch = flags["kb.audio.channels"] as? Int ?? 1
+      let quality: AVAudioQuality = {
+        switch (flags["kb.audio.quality"] as? String ?? "high").lowercased() {
+        case "min":    return .min
+        case "low":    return .low
+        case "medium": return .medium
+        case "max":    return .max
+        default:       return .high
+        }
+      }()
       let settings: [String: Any] = [
         AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-        AVSampleRateKey: 16000,
-        AVNumberOfChannelsKey: 1,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
+        AVSampleRateKey: sr,
+        AVNumberOfChannelsKey: ch,
+        AVEncoderAudioQualityKey: quality.rawValue,
       ]
       let recorder = try AVAudioRecorder(url: url, settings: settings)
       recorder.delegate = self
@@ -890,7 +910,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     setStatus(label("transcribing", "Transcribing…"))
     let fileURL = url
 
-    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: "Generic") { [weak self] result in
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
@@ -926,7 +947,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     setStatus(label("refining", "Refining…"))
     sduiRenderer?.reflectRefining(true)
 
-    TulmiBackend.refine(text: full, targetApp: "Generic") { [weak self] result in
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    TulmiBackend.refine(text: full, targetApp: targetApp) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {

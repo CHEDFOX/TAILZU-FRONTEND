@@ -165,7 +165,7 @@ export type ActionSpec =
   | { kind: "biometricPrompt"; reason?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "signOut" }
   // IAP
-  | { kind: "iap.showPaywall"; offeringId?: string; onSuccess?: ActionRef; onError?: ActionRef }
+  | { kind: "iap.showPaywall"; offeringId?: string; packageId?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "iap.subscribe"; productId: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "iap.restore"; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "iap.checkEntitlement"; entitlement: string; assignTo: string }

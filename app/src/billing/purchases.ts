@@ -63,11 +63,15 @@ async function pickOffering(offeringId?: string): Promise<PurchasesOffering | nu
   }
 }
 
-/** Presents the default package in the offering; returns true on success. */
-export async function showPaywall(offeringId?: string): Promise<boolean> {
+/** Presents a package from the offering; returns true on success.
+ * When packageId is provided, that specific package is offered (identifier match).
+ * When omitted, the first available package is used.
+ */
+export async function showPaywall(offeringId?: string, packageId?: string): Promise<boolean> {
   if (!KEY) return false;
   const offering = await pickOffering(offeringId);
-  const pkg = offering?.availablePackages[0];
+  const list = offering?.availablePackages ?? [];
+  const pkg = packageId ? list.find((p) => p.identifier === packageId) ?? list[0] : list[0];
   if (!pkg) return false;
   try {
     const res = await Purchases.purchasePackage(pkg);

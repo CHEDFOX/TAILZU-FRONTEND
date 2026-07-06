@@ -863,7 +863,8 @@ final class SDUIRenderer: NSObject {
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
       let lp = UILongPressGestureRecognizer(target: self, action: #selector(letterLongPress(_:)))
-      lp.minimumPressDuration = 0.5
+      // Backend flag: kb.accentTray.longPressMs (default 500) — hold-to-open threshold
+      lp.minimumPressDuration = flagDouble("kb.accentTray.longPressMs", 500) / 1000.0
       lp.allowableMovement = 500
       objc_setAssociatedObject(lp, &Self.accentsKey, accents, .OBJC_ASSOCIATION_RETAIN)
       objc_setAssociatedObject(lp, &Self.accentsBaseKey, ch, .OBJC_ASSOCIATION_RETAIN)
@@ -1129,7 +1130,7 @@ final class SDUIRenderer: NSObject {
         let loc = gr.location(in: tray)
         tray.subviews.forEach { chip in
           let inside = chip.frame.contains(loc)
-          if inside { chip.backgroundColor = .systemBlue }
+          if inside { chip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF") }
           else { chip.backgroundColor = keyBgColor() }
         }
       }
@@ -1148,49 +1149,61 @@ final class SDUIRenderer: NSObject {
     let uppercased = state.shift || state.capsLock
     let items = ([base] + options).map { uppercased ? $0.uppercased() : $0 }
 
+    // Backend flags:
+    //   kb.accentTray.chipWidth      (default 40)
+    //   kb.accentTray.chipFontSize   (default 22)
+    //   kb.accentTray.chipRadius     (default 6)
+    //   kb.accentTray.height         (default 48)
+    //   kb.accentTray.offsetY        (default -52) — negative = above the key
+    //   kb.accentTray.radius         (default 8)
+    //   kb.accentTray.padding        (default 4)
+    //   kb.accentTray.gap            (default 4)
+    let chipW = flagCGFloat("kb.accentTray.chipWidth", 40)
+    let chipFont = flagCGFloat("kb.accentTray.chipFontSize", 22)
+    let chipRadius = flagCGFloat("kb.accentTray.chipRadius", 6)
+    let trayHeight = flagCGFloat("kb.accentTray.height", 48)
+    let trayRadius = flagCGFloat("kb.accentTray.radius", 8)
+    let trayPad = flagCGFloat("kb.accentTray.padding", 4)
+    let gap = flagCGFloat("kb.accentTray.gap", 4)
+    let offsetY = flagCGFloat("kb.accentTray.offsetY", -52)
+
     let tray = UIStackView()
     tray.axis = .horizontal
     tray.distribution = .fillEqually
     tray.alignment = .fill
-    tray.spacing = 4
+    tray.spacing = gap
     tray.translatesAutoresizingMaskIntoConstraints = false
     tray.backgroundColor = keyBgColor()
-    tray.layer.cornerRadius = 8
+    tray.layer.cornerRadius = trayRadius
     tray.layer.masksToBounds = true
     tray.isLayoutMarginsRelativeArrangement = true
-    tray.layoutMargins = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+    tray.layoutMargins = UIEdgeInsets(top: trayPad, left: trayPad, bottom: trayPad, right: trayPad)
 
-    let chipW: CGFloat = 40
     let chipCount = items.count
-    let width: CGFloat = CGFloat(chipCount) * chipW + CGFloat(chipCount - 1) * 4 + 8
+    let width: CGFloat = CGFloat(chipCount) * chipW + CGFloat(chipCount - 1) * gap + trayPad * 2
 
     for text in items {
       let chip = UIButton(type: .system)
       chip.setTitle(text, for: .normal)
       chip.setTitleColor(keyTextColor(), for: .normal)
-      chip.titleLabel?.font = .systemFont(ofSize: 22, weight: .regular)
+      chip.titleLabel?.font = .systemFont(ofSize: chipFont, weight: .regular)
       chip.backgroundColor = .clear
-      chip.layer.cornerRadius = 6
+      chip.layer.cornerRadius = chipRadius
       chip.isUserInteractionEnabled = false
       tray.addArrangedSubview(chip)
     }
 
     container.addSubview(tray)
     let anchorFrame = anchor.convert(anchor.bounds, to: container)
-    // Position tray above the key. Clamped to container bounds so it can't
-    // draw off-screen. Apple would draw ABOVE the keyboard's top edge — we
-    // can't, so we place it inside the keyboard's own frame directly above
-    // the key. Reads slightly different from Apple's but stays within API
-    // limits (App Extension Programming Guide: no draw above input view).
     let desiredX = anchorFrame.midX - width / 2
     let clampedX = max(4, min(container.bounds.width - width - 4, desiredX))
-    let desiredY = anchorFrame.minY - 52
+    let desiredY = anchorFrame.minY + offsetY
     let clampedY = max(4, desiredY)
     NSLayoutConstraint.activate([
       tray.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: clampedX),
       tray.topAnchor.constraint(equalTo: container.topAnchor, constant: clampedY),
       tray.widthAnchor.constraint(equalToConstant: width),
-      tray.heightAnchor.constraint(equalToConstant: 48),
+      tray.heightAnchor.constraint(equalToConstant: trayHeight),
     ])
     activeAccentTray = tray
   }
@@ -1308,13 +1321,16 @@ final class SDUIRenderer: NSObject {
     let action = UIAction { [weak self] _ in self?.handleSpaceTap() }
     btn.addAction(action, for: .touchUpInside)
 
-    // Long-press → trackpad cursor. UILongPressGestureRecognizer fires .began
-    // once the 300ms threshold passes; while active we intercept touches
-    // moved and translate them into cursor deltas.
-    let lp = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPress(_:)))
-    lp.minimumPressDuration = 0.3
-    lp.allowableMovement = 1000  // don't cancel on drag; that's the whole point
-    btn.addGestureRecognizer(lp)
+    // Backend flags:
+    //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
+    //   kb.trackpad.longPressMs   (default 300) — hold-to-activate threshold
+    // (sensitivity / pt-per-char is exposed on the .changed handler below.)
+    if flagBool("kb.trackpad.enabled", true) {
+      let lp = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPress(_:)))
+      lp.minimumPressDuration = flagDouble("kb.trackpad.longPressMs", 300) / 1000.0
+      lp.allowableMovement = 1000
+      btn.addGestureRecognizer(lp)
+    }
     return btn
   }
 
@@ -1329,7 +1345,9 @@ final class SDUIRenderer: NSObject {
       return
     }
     let proxy = host?.hostTextDocumentProxy
-    let recent = now - _lastSpaceTapTime < 0.5
+    // Backend flag: kb.smartPeriod.windowMs (default 500) — max gap between two
+    // space taps for the "double-space → period-space" replacement to fire.
+    let recent = now - _lastSpaceTapTime < (flagDouble("kb.smartPeriod.windowMs", 500) / 1000.0)
     let smartPeriodOn: Bool = {
       if let f = config.flags?["kb.smartPeriod"]?.asBool { return f }
       return true
@@ -1370,7 +1388,9 @@ final class SDUIRenderer: NSObject {
       let cur = gr.location(in: view).x
       // 7pt per character — matches Apple's feel. Sub-character deltas
       // accumulate in _trackpadOffset so slow drags still move.
-      let raw = Double(cur - _trackpadAnchor) / 7.0
+      // Backend flag: kb.trackpad.ptPerChar (default 7) — pt of finger drag per
+      // one-character cursor step. Higher = less sensitive, easier fine-grained control.
+      let raw = Double(cur - _trackpadAnchor) / max(1.0, flagDouble("kb.trackpad.ptPerChar", 7))
       let steps = Int(raw)
       if steps != _trackpadOffset {
         let delta = steps - _trackpadOffset
@@ -1494,13 +1514,13 @@ final class SDUIRenderer: NSObject {
     let rt = host?.hostReturnKeyType() ?? .default
     btn.setTitle(returnKeyLabel(for: rt), for: .normal)
     if returnKeyIsAction(rt) {
-      // System-blue accent for action returns. Apple uses UIColor.systemBlue
-      // (#0A84FF-ish in dark mode).
-      btn.backgroundColor = .systemBlue
-      btn.setTitleColor(.white, for: .normal)
-      // Update the pressed-color cache so touch feedback doesn't jarringly
-      // revert to the base gray.
-      objc_setAssociatedObject(btn, &Self.keyBaseColorKey, UIColor.systemBlue, .OBJC_ASSOCIATION_RETAIN)
+      // Backend flags:
+      //   kb.returnKey.actionBg   (default "#007AFF") — accent for Go/Send/Search/Done
+      //   kb.returnKey.actionFg   (default "#FFFFFF")
+      let accent = flagColor("kb.returnKey.actionBg", "#007AFF")
+      btn.backgroundColor = accent
+      btn.setTitleColor(flagColor("kb.returnKey.actionFg", "#FFFFFF"), for: .normal)
+      objc_setAssociatedObject(btn, &Self.keyBaseColorKey, accent, .OBJC_ASSOCIATION_RETAIN)
     }
     bindTap(btn, node: node, defaultAction: .returnKey)
     return btn
@@ -1730,16 +1750,30 @@ final class SDUIRenderer: NSObject {
   /// Suggestion bar — horizontal scroll of chip buttons from state.suggestions.
   /// Empty until backend fills it; view is still laid out (fixed height).
   private func buildSuggestionBar(node: KBNode) -> UIView {
+    // Backend flags:
+    //   kb.suggestion.gap        (default 8)   — spacing between chips
+    //   kb.suggestion.edgeInset  (default 8)   — left/right padding of the scroll region
+    //   kb.suggestion.chipRadius (default 12)
+    //   kb.suggestion.chipPadV   (default 4)   — vertical padding inside chip
+    //   kb.suggestion.chipPadH   (default 12)  — horizontal padding inside chip
+    //   kb.suggestion.height     (default 36)
+    let gap = flagCGFloat("kb.suggestion.gap", 8)
+    let edge = flagCGFloat("kb.suggestion.edgeInset", 8)
+    let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
+    let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
+    let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
+    let barHeight = flagCGFloat("kb.suggestion.height", 36)
+
     let scroll = UIScrollView()
     scroll.showsHorizontalScrollIndicator = false
     let row = UIStackView()
     row.axis = .horizontal
-    row.spacing = 8
+    row.spacing = gap
     row.translatesAutoresizingMaskIntoConstraints = false
     scroll.addSubview(row)
     NSLayoutConstraint.activate([
-      row.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 8),
-      row.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -8),
+      row.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: edge),
+      row.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -edge),
       row.topAnchor.constraint(equalTo: scroll.topAnchor),
       row.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
       row.heightAnchor.constraint(equalTo: scroll.heightAnchor),
@@ -1749,30 +1783,48 @@ final class SDUIRenderer: NSObject {
       chip.setTitle(s, for: .normal)
       chip.setTitleColor(keyTextColor(), for: .normal)
       chip.backgroundColor = keyBgColor()
-      chip.layer.cornerRadius = 12
-      chip.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+      chip.layer.cornerRadius = chipRadius
+      chip.contentEdgeInsets = UIEdgeInsets(top: chipPadV, left: chipPadH, bottom: chipPadV, right: chipPadH)
       let action = UIAction { [weak self] _ in
         self?.host?.hostTextDocumentProxy.insertText(s + " ")
       }
       chip.addAction(action, for: .touchUpInside)
       row.addArrangedSubview(chip)
     }
-    scroll.heightAnchor.constraint(equalToConstant: 36).isActive = true
+    scroll.heightAnchor.constraint(equalToConstant: barHeight).isActive = true
     return scroll
   }
 
   /// Waveform bars — driven by a 30 FPS Timer modulating bar heights from
   /// state.micLevel with a random baseline (matches the RN counterpart).
   private func buildWaveform(node: KBNode) -> UIView {
-    let w = WaveformView()
+    // Backend flags:
+    //   kb.waveform.barCount        (default 24)
+    //   kb.waveform.color           (default "#999999")
+    //   kb.waveform.radius          (default 1.5)
+    //   kb.waveform.spacing         (default 3)
+    //   kb.waveform.height          (default 24)
+    //   kb.waveform.levelMultiplier (default 0.6)
+    //   kb.waveform.baselineMin     (default 0.2)
+    //   kb.waveform.baselineMax     (default 0.6)
+    //   kb.waveform.fps             (default 30) — see below
+    let cfg = WaveformView.Config(
+      barCount: Int(flagDouble("kb.waveform.barCount", 24)),
+      barColor: flagColor("kb.waveform.color", "#999999"),
+      barRadius: flagCGFloat("kb.waveform.radius", 1.5),
+      barSpacing: flagCGFloat("kb.waveform.spacing", 3),
+      height: flagCGFloat("kb.waveform.height", 24),
+      levelMultiplier: flagCGFloat("kb.waveform.levelMultiplier", 0.6),
+      baselineMin: flagCGFloat("kb.waveform.baselineMin", 0.2),
+      baselineMax: flagCGFloat("kb.waveform.baselineMax", 0.6),
+    )
+    let w = WaveformView(config: cfg)
     w.tintColor = keyTextColor()
     w.setLevel(state.micLevel)
     if waveformTimer == nil {
-      // Add to .common so the animation keeps ticking while the user is
-      // holding a key (which switches the runloop into .tracking mode). A
-      // .default-mode timer would freeze mid-dictation the moment they touch
-      // anything — including the stop button.
-      let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+      // Backend flag: kb.waveform.fps (default 30)
+      let fps = flagDouble("kb.waveform.fps", 30)
+      let t = Timer(timeInterval: 1.0 / max(1.0, fps), repeats: true) { [weak self] _ in
         self?.waveformView?.setLevel(self?.state.micLevel ?? 0)
       }
       RunLoop.main.add(t, forMode: .common)
@@ -2172,10 +2224,15 @@ final class SDUIRenderer: NSObject {
     b.backgroundColor = base
     b.layer.cornerRadius = CGFloat(theme?.keyRadius ?? 5)
     if theme?.keyShadow == true {
-      b.layer.shadowColor = UIColor.black.cgColor
-      b.layer.shadowOffset = CGSize(width: 0, height: 1)
-      b.layer.shadowRadius = 0
-      b.layer.shadowOpacity = 0.4
+      // Backend flags:
+      //   kb.key.shadow.color   (default "#000000")
+      //   kb.key.shadow.offsetY (default 1)
+      //   kb.key.shadow.radius  (default 0)
+      //   kb.key.shadow.opacity (default 0.4)
+      b.layer.shadowColor = flagColor("kb.key.shadow.color", "#000000").cgColor
+      b.layer.shadowOffset = CGSize(width: 0, height: flagCGFloat("kb.key.shadow.offsetY", 1))
+      b.layer.shadowRadius = flagCGFloat("kb.key.shadow.radius", 0)
+      b.layer.shadowOpacity = Float(flagDouble("kb.key.shadow.opacity", 0.4))
     }
     // If the theme carries a keyEffect blur, drop it under the button.
     if case .blur(let s) = theme?.keyEffect ?? .solid(color: "#00000000") {
@@ -2627,16 +2684,31 @@ final class SDUIRenderer: NSObject {
   // MARK: - Toast (transient label at the bottom of the keyboard)
   private weak var toastView: UILabel?
   private func showToast(message: String, tone: String) {
+    // Backend flags:
+    //   kb.toast.durationMs   (default 2000) — visible time before fade begins
+    //   kb.toast.fadeInMs     (default 180)
+    //   kb.toast.fadeOutMs    (default 250)
+    //   kb.toast.height       (default 32)
+    //   kb.toast.offsetY      (default -18) — negative = above bottom anchor
+    //   kb.toast.fontSize     (default 13)
+    //   kb.toast.color.error   (default "#FF3B30E6")
+    //   kb.toast.color.success (default "#34C759E6")
+    //   kb.toast.color.info    (default "#000000D9")
     guard let container = mountContainer else { return }
     toastView?.removeFromSuperview()
     let l = UILabel()
     l.text = message
     l.textColor = .white
     l.textAlignment = .center
-    l.font = .systemFont(ofSize: 13, weight: .medium)
-    l.backgroundColor = tone == "error" ? UIColor.systemRed.withAlphaComponent(0.9)
-      : tone == "success" ? UIColor.systemGreen.withAlphaComponent(0.9)
-      : UIColor(white: 0, alpha: 0.85)
+    l.font = .systemFont(ofSize: flagCGFloat("kb.toast.fontSize", 13), weight: .medium)
+    let bg: UIColor = {
+      switch tone {
+      case "error":   return flagColor("kb.toast.color.error", "#FF3B30E6")
+      case "success": return flagColor("kb.toast.color.success", "#34C759E6")
+      default:        return flagColor("kb.toast.color.info", "#000000D9")
+      }
+    }()
+    l.backgroundColor = bg
     l.layer.cornerRadius = 8
     l.clipsToBounds = true
     l.translatesAutoresizingMaskIntoConstraints = false
@@ -2644,15 +2716,18 @@ final class SDUIRenderer: NSObject {
     container.addSubview(l)
     NSLayoutConstraint.activate([
       l.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18),
-      l.heightAnchor.constraint(equalToConstant: 32),
+      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: flagCGFloat("kb.toast.offsetY", -18)),
+      l.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.toast.height", 32)),
       l.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: 0.9),
     ])
     l.layoutMargins = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
     toastView = l
-    UIView.animate(withDuration: 0.18) { l.alpha = 1 }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak l] in
-      UIView.animate(withDuration: 0.25, animations: { l?.alpha = 0 },
+    let fadeIn = flagDouble("kb.toast.fadeInMs", 180) / 1000.0
+    let duration = flagDouble("kb.toast.durationMs", 2000) / 1000.0
+    let fadeOut = flagDouble("kb.toast.fadeOutMs", 250) / 1000.0
+    UIView.animate(withDuration: fadeIn) { l.alpha = 1 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak l] in
+      UIView.animate(withDuration: fadeOut, animations: { l?.alpha = 0 },
                      completion: { _ in l?.removeFromSuperview() })
     }
   }
@@ -2661,28 +2736,50 @@ final class SDUIRenderer: NSObject {
   private func fireConfetti() {
     guard let container = mountContainer else { return }
     let emitter = CAEmitterLayer()
+    // Backend flags:
+    //   kb.confetti.colors       (default 6 system colors) — array of hex strings
+    //   kb.confetti.birthRate    (default 6)   — particles/sec per color cell
+    //   kb.confetti.lifetimeMs   (default 3000)
+    //   kb.confetti.velocity     (default 200) — pt/sec
+    //   kb.confetti.spin         (default 3)   — rad/sec
+    //   kb.confetti.scale        (default 0.06)
+    //   kb.confetti.burstMs      (default 400) — birth cutoff
+    //   kb.confetti.teardownMs   (default 3500)
     emitter.emitterPosition = CGPoint(x: container.bounds.midX, y: -10)
     emitter.emitterShape = .line
     emitter.emitterSize = CGSize(width: container.bounds.width, height: 1)
-    let colors: [UIColor] = [.systemRed, .systemBlue, .systemGreen, .systemYellow, .systemPurple, .systemOrange]
-    emitter.emitterCells = colors.map { color in
+    let defaultColors = ["#FF3B30","#007AFF","#34C759","#FFCC00","#AF52DE","#FF9500"]
+    let hexList: [String] = {
+      if case .array(let a)? = config.flags?["kb.confetti.colors"] {
+        return a.compactMap { $0.asString }
+      }
+      return defaultColors
+    }()
+    let birthRate = Float(flagDouble("kb.confetti.birthRate", 6))
+    let lifetime = Float(flagDouble("kb.confetti.lifetimeMs", 3000) / 1000.0)
+    let velocity = flagCGFloat("kb.confetti.velocity", 200)
+    let spin = flagCGFloat("kb.confetti.spin", 3)
+    let scale = flagCGFloat("kb.confetti.scale", 0.06)
+    emitter.emitterCells = hexList.map { hex in
       let cell = CAEmitterCell()
-      cell.birthRate = 6
-      cell.lifetime = 3
-      cell.velocity = 200
-      cell.velocityRange = 40
+      cell.birthRate = birthRate
+      cell.lifetime = lifetime
+      cell.velocity = velocity
+      cell.velocityRange = velocity * 0.2
       cell.emissionLongitude = .pi
       cell.emissionRange = 0.5
-      cell.spin = 3
-      cell.spinRange = 4
-      cell.scale = 0.06
-      cell.color = color.cgColor
+      cell.spin = spin
+      cell.spinRange = spin * 1.3
+      cell.scale = scale
+      cell.color = UIColor(tulmiHex: hex).cgColor
       cell.contents = UIImage(systemName: "square.fill")?.cgImage
       return cell
     }
     container.layer.addSublayer(emitter)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { emitter.birthRate = 0 }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { emitter.removeFromSuperlayer() }
+    let burst = flagDouble("kb.confetti.burstMs", 400) / 1000.0
+    let teardown = flagDouble("kb.confetti.teardownMs", 3500) / 1000.0
+    DispatchQueue.main.asyncAfter(deadline: .now() + burst) { emitter.birthRate = 0 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + teardown) { emitter.removeFromSuperlayer() }
   }
 
   // MARK: - TTS (AVSpeechSynthesizer)
@@ -2717,8 +2814,12 @@ final class SDUIRenderer: NSObject {
                             assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?) {
     let base = TulmiBackend.baseUrl
     guard let url = URL(string: base + path) else { return }
+    // Backend flag: kb.network.timeoutMs (default 15000) — request timeout for
+    // callEndpoint invocations. Default was iOS's implicit 60s which is way
+    // too long on a bad network.
     var req = URLRequest(url: url)
     req.httpMethod = method.uppercased()
+    req.timeoutInterval = flagDouble("kb.network.timeoutMs", 15000) / 1000.0
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     if let body = body, let data = try? JSONEncoderSafe.data(for: body) {
       req.httpBody = data
@@ -3085,26 +3186,44 @@ final class SDUIRenderer: NSObject {
 
 // MARK: - Waveform bars view
 
-/// Tiny CADisplayLink-driven bar array. Baseline heights are random per bar so
-/// even at zero micLevel the waveform looks alive (matches the RN version).
+/// Waveform bar array — every geometry / color parameter is passed in so
+/// backend flags can tune the look. Baseline heights are random per bar so
+/// even at zero micLevel the waveform looks alive.
 private final class WaveformView: UIView {
+  struct Config {
+    let barCount: Int
+    let barColor: UIColor
+    let barRadius: CGFloat
+    let barSpacing: CGFloat
+    let height: CGFloat
+    let levelMultiplier: CGFloat
+    let baselineMin: CGFloat
+    let baselineMax: CGFloat
+  }
+  static let `default` = Config(
+    barCount: 24, barColor: UIColor(white: 0.6, alpha: 1), barRadius: 1.5,
+    barSpacing: 3, height: 24, levelMultiplier: 0.6,
+    baselineMin: 0.2, baselineMax: 0.6,
+  )
   private var bars: [CALayer] = []
   private var baselines: [CGFloat] = []
   private var level: CGFloat = 0
+  private let cfg: Config
 
-  override init(frame: CGRect) {
-    super.init(frame: frame)
-    for _ in 0..<24 {
+  init(config: Config = WaveformView.default) {
+    self.cfg = config
+    super.init(frame: .zero)
+    for _ in 0..<max(1, config.barCount) {
       let l = CALayer()
-      l.backgroundColor = UIColor(white: 0.6, alpha: 1).cgColor
-      l.cornerRadius = 1.5
+      l.backgroundColor = config.barColor.cgColor
+      l.cornerRadius = config.barRadius
       layer.addSublayer(l)
       bars.append(l)
-      baselines.append(CGFloat.random(in: 0.2...0.6))
+      baselines.append(CGFloat.random(in: config.baselineMin...max(config.baselineMin, config.baselineMax)))
     }
-    heightAnchor.constraint(equalToConstant: 24).isActive = true
+    heightAnchor.constraint(equalToConstant: config.height).isActive = true
   }
-  required init?(coder: NSCoder) { super.init(coder: coder) }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unsupported") }
 
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -3116,11 +3235,12 @@ private final class WaveformView: UIView {
     let W = bounds.width, H = bounds.height
     guard W > 0, H > 0, !bars.isEmpty else { return }
     let n = CGFloat(bars.count)
-    let spacing: CGFloat = 3
+    let spacing = cfg.barSpacing
     let barW = max(1.5, (W - spacing * (n - 1)) / n)
+    let mult = cfg.levelMultiplier
     for (i, l) in bars.enumerated() {
       let jitter = CGFloat.random(in: -0.05...0.05)
-      let h = max(2, min(H, H * (baselines[i] + level * 0.6 + jitter)))
+      let h = max(2, min(H, H * (baselines[i] + level * mult + jitter)))
       let x = CGFloat(i) * (barW + spacing)
       let y = (H - h) / 2
       l.frame = CGRect(x: x, y: y, width: barW, height: h)
