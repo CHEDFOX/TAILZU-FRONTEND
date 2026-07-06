@@ -774,7 +774,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     stream = s
     // Backend flags: kb.dictation.targetApp (default "Generic"), kb.dictation.language (default "auto")
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
-    let lang = (kbConfig?.flags["kb.dictation.language"] as? String) ?? "auto"
+    // Flag override takes precedence (lets backend force a specific language
+    // for debugging / A/B tests); otherwise use the user's chosen language
+    // from the shared App Group. Empty falls through to "auto" so the STT
+    // provider does language detection + code-switch handling on its own.
+    let lang = (kbConfig?.flags["kb.dictation.language"] as? String) ?? TulmiBackend.language
     s.start(targetApp: targetApp, language: lang)
   }
 

@@ -20,6 +20,15 @@ enum TulmiBackend {
     return (v?.isEmpty == false) ? v! : "dev"
   }
 
+  /// User-selected language code (hi / es / fr / hinglish / auto / …).
+  /// Written by the main app via the tulmi-bridge module when the user picks
+  /// a language on the onboarding language screen or in Settings. Empty →
+  /// "auto" (server-side model detects language + code-switching).
+  static var language: String {
+    let v = shared?.string(forKey: "tulmi.language")
+    return (v?.isEmpty == false) ? v! : "auto"
+  }
+
   /// The user token, exposed for the live streaming client (TulmiStream).
   static var bearer: String { token }
 
@@ -122,10 +131,13 @@ enum TulmiBackend {
     req.timeoutInterval = 60
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    // Use the user's chosen language (falls back to "auto" when unset). The
+    // backend's cleanup pipeline prompts the LLM to output in this language,
+    // so refinement lands in the user's tongue instead of always English.
     req.httpBody = try? JSONSerialization.data(withJSONObject: [
       "text": text,
       "targetApp": targetApp,
-      "language": "auto",
+      "language": language,
     ])
 
     URLSession.shared.dataTask(with: req) { data, response, error in
@@ -175,7 +187,9 @@ enum TulmiBackend {
     append("Content-Type: audio/m4a\r\n\r\n")
     body.append(audio)
     append("\r\n")
-    for (key, value) in ["targetApp": targetApp, "language": "auto"] {
+    // Same language plumbing as refine() — the STT provider uses this as a
+    // hint (empty/"auto" = model detects; explicit code = biases decoding).
+    for (key, value) in ["targetApp": targetApp, "language": language] {
       append("--\(boundary)\r\n")
       append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
       append("\(value)\r\n")

@@ -11,6 +11,7 @@ export interface KeyboardStatus {
 
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
+  setKeyboardLanguage?(code: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
   consumeKeyboardDeepLink?(): string;
@@ -68,6 +69,23 @@ export function getKeyboardStatus(): KeyboardStatus | null {
 export function setKeyboardDictionary(entries: { word: string; replacement: string }[]): void {
   try {
     native?.setDictionary?.(JSON.stringify(entries ?? []));
+  } catch {
+    // best-effort; never block the app
+  }
+}
+
+/**
+ * Push the user's chosen language code into the shared App Group so the
+ * keyboard extension can use it for:
+ *   - STT bias (transcribe hint → better recognition for non-English speech)
+ *   - Refinement language (server prompts the LLM to output in this code)
+ *
+ * Call after the user selects a language on the onboarding screen or in
+ * Settings. Accepts any ISO-639-1 code plus "auto" / "hinglish".
+ */
+export function setKeyboardLanguage(code: string): void {
+  try {
+    native?.setKeyboardLanguage?.(code || "auto");
   } catch {
     // best-effort; never block the app
   }
