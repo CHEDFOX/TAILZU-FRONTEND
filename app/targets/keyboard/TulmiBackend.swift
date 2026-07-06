@@ -62,6 +62,10 @@ enum TulmiBackend {
     let refine: Bool
     let liveVoice: Bool
     let labels: [String: String]
+    /// The full flags dict as parsed from the response, opaque to the legacy
+    /// path but consumed by KeyboardViewController for the tunable audio-recorder
+    /// settings and dictation params. SDUI-side uses its own KBConfig for flags.
+    let flags: [String: Any]
   }
 
   /// Fetch the raw config JSON (the caller both applies and caches it).
@@ -99,7 +103,8 @@ enum TulmiBackend {
       voice: features["voice"] as? Bool ?? true,
       refine: features["refine"] as? Bool ?? true,
       liveVoice: features["liveVoice"] as? Bool ?? false,
-      labels: labels
+      labels: labels,
+      flags: (json["flags"] as? [String: Any]) ?? [:]
     )
   }
 

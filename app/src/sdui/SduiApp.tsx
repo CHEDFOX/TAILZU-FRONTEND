@@ -310,10 +310,18 @@ export default function SduiApp() {
   }
 
   if (phase === "loading" || !theme) {
+    // Splash colors + label route through boot.theme + boot.labels when they
+    // land; the hardcoded values here are the ONLY fallback for the pre-boot
+    // moment (bootstrap hasn't returned yet). Backend cannot change these.
+    const splashBg = boot?.theme?.color?.bg ?? "#000000";
+    const splashSpinner = boot?.theme?.color?.text ?? "#FFFFFF";
+    const splashText = boot?.theme?.color?.muted ?? "#8a8a96";
     return (
-      <View style={[styles.center, { backgroundColor: "#000000" }]}>
-        <ActivityIndicator color="#FFFFFF" size="large" />
-        <Text style={{ color: "#8a8a96", marginTop: 12 }}>Loading Tulmi…</Text>
+      <View style={[styles.center, { backgroundColor: splashBg }]}>
+        <ActivityIndicator color={splashSpinner} size="large" />
+        <Text style={{ color: splashText, marginTop: 12 }}>
+          {boot?.labels?.["app.loading"] ?? "Loading Tulmi…"}
+        </Text>
       </View>
     );
   }
@@ -354,7 +362,7 @@ export default function SduiApp() {
           // all, which read as "the app is broken."
           <View style={[styles.center, { paddingHorizontal: 24 }]}>
             <Text style={{ color: theme.color.text, fontSize: 18, fontWeight: "700", marginBottom: 8 }}>
-              Couldn't load this screen
+              {boot?.labels?.["error.screenTitle"] ?? "Couldn't load this screen"}
             </Text>
             <Text style={{ color: theme.color.muted, textAlign: "center", marginBottom: 20 }}>
               {screenError}
@@ -363,7 +371,9 @@ export default function SduiApp() {
               onPress={() => setReload((n) => n + 1)}
               style={{ backgroundColor: theme.color.primary, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 28 }}
             >
-              <Text style={{ color: "#000", fontWeight: "700" }}>Retry</Text>
+              <Text style={{ color: theme.color.bg, fontWeight: "700" }}>
+                {boot?.labels?.["action.retry"] ?? "Retry"}
+              </Text>
             </Pressable>
           </View>
         ) : (
@@ -375,10 +385,14 @@ export default function SduiApp() {
         {screen && screenError && (
           <Pressable
             onPress={() => setReload((n) => n + 1)}
-            style={{ position: "absolute", top: 0, left: 0, right: 0, backgroundColor: "#3a1417", paddingVertical: 10, alignItems: "center" }}
+            style={{
+              position: "absolute", top: 0, left: 0, right: 0,
+              backgroundColor: theme.color.errorBanner ?? "#3a1417",
+              paddingVertical: 10, alignItems: "center",
+            }}
           >
-            <Text style={{ color: "#fff", fontWeight: "600" }}>
-              Couldn't refresh — tap to retry
+            <Text style={{ color: theme.color.errorBannerText ?? "#fff", fontWeight: "600" }}>
+              {boot?.labels?.["error.refreshBanner"] ?? "Couldn't refresh — tap to retry"}
             </Text>
           </Pressable>
         )}
@@ -406,8 +420,13 @@ export default function SduiApp() {
       )}
 
       {toast && (
-        <View style={[styles.toast, { backgroundColor: toast.tone === "error" ? "#3a1417" : toast.tone === "success" ? "#13301a" : "#1c1c25" }]}>
-          <Text style={{ color: "#fff" }}>{toast.message}</Text>
+        <View style={[styles.toast, {
+          backgroundColor:
+            toast.tone === "error"   ? (theme.color.toastError   ?? "#3a1417")
+          : toast.tone === "success" ? (theme.color.toastSuccess ?? "#13301a")
+          :                            (theme.color.toastInfo    ?? "#1c1c25"),
+        }]}>
+          <Text style={{ color: theme.color.toastText ?? "#fff" }}>{toast.message}</Text>
         </View>
       )}
 
@@ -461,7 +480,10 @@ function UpdateGateOverlay({
 }) {
   const storeUrl = info.url?.[Platform.OS === "ios" ? "ios" : "android"] ?? info.url?.default;
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(8,8,12,0.96)", alignItems: "center", justifyContent: "center", padding: 28 }]}>
+    <View style={[StyleSheet.absoluteFill, {
+      backgroundColor: theme.color.updateOverlay ?? "rgba(8,8,12,0.96)",
+      alignItems: "center", justifyContent: "center", padding: 28,
+    }]}>
       <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 10 }}>
         {info.title ?? "Update Tulmi"}
       </Text>
@@ -472,7 +494,7 @@ function UpdateGateOverlay({
         onPress={() => storeUrl && Linking.openURL(storeUrl)}
         style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: 200, alignItems: "center" }}
       >
-        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{info.cta ?? "Update now"}</Text>
+        <Text style={{ color: theme.color.primaryText ?? "#fff", fontWeight: "700", fontSize: 15 }}>{info.cta ?? "Update now"}</Text>
       </Pressable>
       {!forced && (
         <Pressable onPress={onDismiss} style={{ marginTop: 14 }}>

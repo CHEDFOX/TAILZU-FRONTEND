@@ -342,7 +342,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // ----------------------------------------------------------------- IAP
     case "iap.showPaywall": {
       try {
-        const ok = await showPaywall(action.offeringId);
+        // packageId is accepted alongside offeringId so backend can pick a
+        // specific package (annual/monthly/etc.) without hardcoding an
+        // "auto-first" pick in the app.
+        const ok = await showPaywall(action.offeringId, (action as any).packageId);
         await runAction(ok ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
