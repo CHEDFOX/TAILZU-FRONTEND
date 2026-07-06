@@ -199,6 +199,14 @@ const config: ExpoConfig = {
             backgroundColor: "#E8A23C",
           },
         },
+        {
+          name: "IconAlt2",
+          ios: "./assets/icons/icon3.png",
+          android: {
+            foregroundImage: "./assets/icons/icon3.png",
+            backgroundColor: "#E8A23C",
+          },
+        },
       ],
     ],
   ],
