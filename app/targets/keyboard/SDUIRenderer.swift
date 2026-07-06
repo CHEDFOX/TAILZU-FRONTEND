@@ -896,6 +896,51 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  // MARK: - Backend-tunable flags (with sane defaults)
+  //
+  // Every visual constant we add gets a `flag*` accessor so backend can push
+  // a config.flags[<key>] override without a native rebuild. Unset → default.
+  //
+  // Convention: dot.notation keys under "kb.*". Grouped by feature so backend
+  // devs can find them.
+
+  private func flagString(_ key: String, _ def: String) -> String {
+    config.flags?[key]?.asString ?? def
+  }
+  private func flagDouble(_ key: String, _ def: Double) -> Double {
+    config.flags?[key]?.asDouble ?? def
+  }
+  private func flagCGFloat(_ key: String, _ def: CGFloat) -> CGFloat {
+    CGFloat(config.flags?[key]?.asDouble ?? Double(def))
+  }
+  private func flagBool(_ key: String, _ def: Bool) -> Bool {
+    config.flags?[key]?.asBool ?? def
+  }
+  private func flagColor(_ key: String, _ def: String) -> UIColor {
+    UIColor(tulmiHex: flagString(key, def))
+  }
+  /// Icon-spec flag — resolves to a UIImage via the same resolver used by
+  /// IconKey. Backend can pass { sf: "..." } / { asset: "..." } / { url: "..." }
+  /// / { emoji: "..." } / string shorthand.
+  private func flagIcon(_ key: String) -> KBJSON? {
+    config.flags?[key]
+  }
+
+  /// SF Symbol font-weight name → UIImage.SymbolWeight.
+  fileprivate func sfWeight(_ raw: String) -> UIImage.SymbolWeight {
+    switch raw.lowercased() {
+    case "thin":     return .thin
+    case "light":    return .light
+    case "regular":  return .regular
+    case "medium":   return .medium
+    case "semibold": return .semibold
+    case "bold":     return .bold
+    case "heavy":    return .heavy
+    case "black":    return .black
+    default:         return .regular
+    }
+  }
+
   // MARK: - Dictation visual overlay
   //
   // Two visual layers ride on top of the keyboard while state.dictating=true:
@@ -935,11 +980,18 @@ final class SDUIRenderer: NSObject {
   }
 
   private func applyKeyDimming() {
+    // Backend flags:
+    //   kb.dictation.dim.enabled  (default true)  — set false to skip the dim entirely
+    //   kb.dictation.dim.color    (default "#000000")
+    //   kb.dictation.dim.alpha    (default 0.45)  — 0..1 opacity of the dim overlay
+    //   kb.dictation.dim.fadeMs   (default 250)   — fade-in duration
+    guard flagBool("kb.dictation.dim.enabled", true) else { return }
     guard let container = mountContainer, recordingDimView == nil else { return }
     let dim = UIView()
     dim.translatesAutoresizingMaskIntoConstraints = false
-    dim.backgroundColor = UIColor.black.withAlphaComponent(0.45)
-    dim.isUserInteractionEnabled = false  // taps pass through to keys (though they shouldn't matter while recording)
+    dim.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
+      .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
+    dim.isUserInteractionEnabled = false
     dim.alpha = 0
     container.addSubview(dim)
     NSLayoutConstraint.activate([
@@ -948,29 +1000,38 @@ final class SDUIRenderer: NSObject {
       dim.topAnchor.constraint(equalTo: container.topAnchor),
       dim.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
-    // Keep the tools row (with mic + tone) above the dim so those stay bright
-    // and the emitter's dots visually connect the two.
-    if let mic = currentMicButton?.superview {
-      container.bringSubviewToFront(mic)
-    }
-    UIView.animate(withDuration: 0.25) { dim.alpha = 1 }
+    if let mic = currentMicButton?.superview { container.bringSubviewToFront(mic) }
+    let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
+    UIView.animate(withDuration: fadeMs / 1000.0) { dim.alpha = 1 }
     recordingDimView = dim
   }
 
   private func removeKeyDimming() {
     guard let dim = recordingDimView else { return }
-    UIView.animate(withDuration: 0.25, animations: { dim.alpha = 0 },
+    let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
+    UIView.animate(withDuration: fadeMs / 1000.0, animations: { dim.alpha = 0 },
                    completion: { _ in dim.removeFromSuperview() })
     recordingDimView = nil
   }
 
   private func startDotStream() {
+    // Backend flags:
+    //   kb.dictation.dots.enabled     (default true)      — skip stream entirely
+    //   kb.dictation.dots.color       (default "#FF6B1F")
+    //   kb.dictation.dots.size        (default 14)        — px, diameter of the source image
+    //   kb.dictation.dots.birthRate   (default 7)         — dots per second
+    //   kb.dictation.dots.lifetimeMs  (default 1800)      — how long each dot lives
+    //   kb.dictation.dots.spread      (default 0.08)      — rad, emission fan
+    //   kb.dictation.dots.velocityJitter (default 0.05)   — fraction of base velocity
+    //   kb.dictation.dots.scale       (default 0.35)      — CAEmitterCell scale
+    //   kb.dictation.dots.scaleRange  (default 0.1)
+    //   kb.dictation.dots.alphaSpeed  (default -0.55)     — /sec, negative fades
+    guard flagBool("kb.dictation.dots.enabled", true) else { return }
     guard let container = mountContainer,
           let mic = currentMicButton, let micSuper = mic.superview,
           let tone = currentToneButton, let toneSuper = tone.superview,
           dotStreamLayer == nil else { return }
 
-    // Convert both button centers into container-layer coordinates.
     let micCenter = micSuper.convert(mic.center, to: container)
     let toneCenter = toneSuper.convert(tone.center, to: container)
 
@@ -978,49 +1039,48 @@ final class SDUIRenderer: NSObject {
     emitter.emitterPosition = micCenter
     emitter.emitterShape = .point
     emitter.emitterMode = .points
-    // Sit at the top of the container's layer stack so dots render above the
-    // dim overlay and the letter rows.
     container.layer.addSublayer(emitter)
 
     let cell = CAEmitterCell()
     cell.contents = makeDotImage().cgImage
-    cell.birthRate = 7                    // ~7 dots / sec — steady, not busy
-    cell.lifetime = 1.8                   // full traversal + fade
+    cell.birthRate = Float(flagDouble("kb.dictation.dots.birthRate", 7))
+    cell.lifetime = Float(flagDouble("kb.dictation.dots.lifetimeMs", 1800) / 1000.0)
     let dx = toneCenter.x - micCenter.x
     let dy = toneCenter.y - micCenter.y
     let distance = sqrt(dx * dx + dy * dy)
     cell.velocity = distance / CGFloat(cell.lifetime)
-    cell.velocityRange = distance * 0.05  // small speed jitter for organic feel
+    cell.velocityRange = distance * flagCGFloat("kb.dictation.dots.velocityJitter", 0.05)
     cell.emissionLongitude = atan2(dy, dx)
-    cell.emissionRange = 0.08             // slight fan for visual interest
-    cell.scale = 0.35
-    cell.scaleRange = 0.1
-    cell.alphaSpeed = -0.55               // fade to transparent over lifetime
+    cell.emissionRange = flagCGFloat("kb.dictation.dots.spread", 0.08)
+    cell.scale = flagCGFloat("kb.dictation.dots.scale", 0.35)
+    cell.scaleRange = flagCGFloat("kb.dictation.dots.scaleRange", 0.1)
+    cell.alphaSpeed = Float(flagDouble("kb.dictation.dots.alphaSpeed", -0.55))
     emitter.emitterCells = [cell]
     dotStreamLayer = emitter
   }
 
   private func fadeOutDotStream() {
+    // Backend flag:
+    //   kb.dictation.dots.decayMs  (default 2500) — how long the birth-zeroed
+    //   emitter stays live so already-airborne dots complete their journey.
+    //   Bump to align the last dot's dissolve with typical refine RTT.
     guard let emitter = dotStreamLayer else { return }
-    // Zero the birthRate so no new dots spawn, but leave the layer live so
-    // already-airborne dots finish their trajectory.
     emitter.emitterCells?.forEach { $0.birthRate = 0 }
-    // Cleanup after the last dot's lifetime + margin.
+    let decayMs = flagDouble("kb.dictation.dots.decayMs", 2500)
     let cleanup = DispatchWorkItem { [weak self] in
       self?.dotStreamLayer?.removeFromSuperlayer()
       self?.dotStreamLayer = nil
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: cleanup)
+    DispatchQueue.main.asyncAfter(deadline: .now() + decayMs / 1000.0, execute: cleanup)
   }
 
-  /// Small orange dot rendered off-screen — the CAEmitterCell contents.
-  /// Rendered once per emitter creation and reused for every dot; cheap.
+  /// A single dot image, sized + colored from backend flags.
   private func makeDotImage() -> UIImage {
-    let size = CGSize(width: 14, height: 14)
-    let renderer = UIGraphicsImageRenderer(size: size)
+    let size = flagCGFloat("kb.dictation.dots.size", 14)
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
     return renderer.image { ctx in
-      UIColor(tulmiHex: "#FF6B1F").setFill()
-      ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
+      flagColor("kb.dictation.dots.color", "#FF6B1F").setFill()
+      ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: CGSize(width: size, height: size)))
     }
   }
 
@@ -1353,33 +1413,42 @@ final class SDUIRenderer: NSObject {
     btn.addAction(handler, for: .touchUpInside)
     // Long-press → lock (or unlock+flip if already locked).
     let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleShiftLongPress(_:)))
-    lp.minimumPressDuration = 0.35
-    // Don't cancel touchUpInside — we WANT the tap handler to also fire if
-    // the user hovers below the threshold and then lifts (feels natural).
+    // Backend flag: kb.shift.longPressMs (default 350) — hold threshold to lock
+    lp.minimumPressDuration = flagDouble("kb.shift.longPressMs", 350) / 1000.0
     lp.cancelsTouchesInView = false
     btn.addGestureRecognizer(lp)
     return btn
   }
 
-  /// Set the ShiftKey's image + tint based on current state. Extracted from
-  /// buildShiftKey so long-press/tap handlers can refresh visuals directly on
-  /// the current button rather than waiting on remount — feels more responsive.
+  /// Set the ShiftKey's image + tint based on current state.
+  /// Backend flags:
+  ///   kb.shift.iconLowerOutlined  (default "arrowtriangle.down")
+  ///   kb.shift.iconUpperOutlined  (default "arrowtriangle.up")
+  ///   kb.shift.iconLowerLocked    (default "arrowtriangle.down.fill")
+  ///   kb.shift.iconUpperLocked    (default "arrowtriangle.up.fill")
+  ///   kb.shift.iconSize           (default 16)      — SF Symbol point size
+  ///   kb.shift.iconWeight         (default "semibold")
+  ///   kb.shift.lockedColor        (default "#FF6B1F") — arrow tint when locked
   private func applyShiftKeyVisual(_ btn: UIButton) {
     let icon: String = {
-      // Filled variant when locked (so the orange lock reads as a solid
-      // orange arrow head). Outlined otherwise.
       if state.capsLock {
-        return state.shift ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill"
+        return state.shift
+          ? flagString("kb.shift.iconUpperLocked", "arrowtriangle.up.fill")
+          : flagString("kb.shift.iconLowerLocked", "arrowtriangle.down.fill")
       } else {
-        return state.shift ? "arrowtriangle.up" : "arrowtriangle.down"
+        return state.shift
+          ? flagString("kb.shift.iconUpperOutlined", "arrowtriangle.up")
+          : flagString("kb.shift.iconLowerOutlined", "arrowtriangle.down")
       }
     }()
-    let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+    let size = flagCGFloat("kb.shift.iconSize", 16)
+    let weight = sfWeight(flagString("kb.shift.iconWeight", "semibold"))
+    let cfg = UIImage.SymbolConfiguration(pointSize: size, weight: weight)
     btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
     btn.setTitle(nil, for: .normal)
-    btn.tintColor = state.capsLock ? UIColor(tulmiHex: "#FF6B1F") : keyTextColor()
-    // Center the icon in the button — SF Symbols with contentMode + insetsLayout
-    // hug the vertical middle naturally; nothing extra needed.
+    btn.tintColor = state.capsLock
+      ? flagColor("kb.shift.lockedColor", "#FF6B1F")
+      : keyTextColor()
     btn.contentHorizontalAlignment = .center
     btn.contentVerticalAlignment = .center
   }
@@ -1484,12 +1553,13 @@ final class SDUIRenderer: NSObject {
     // first 20 chars, then accelerate to whole-word deletion. Matches Apple's
     // measured timings (see research report).
     //
+    // Backend flag: kb.delete.initialDelayMs (default 500) — how long the user
+    // must hold before the auto-repeat kicks in.
     // CRITICAL: scheduledTimer(withTimeInterval:...) adds to .default runloop
     // mode. While a finger is on the screen iOS switches to .tracking mode
-    // and .default timers pause. So the repeat would NEVER fire because
-    // touch is held the whole time. Add explicitly to .common (which
-    // includes .default + .tracking) so the timer fires during the hold.
-    let initial = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
+    // and .default timers pause. Add explicitly to .common instead.
+    let initialDelay = flagDouble("kb.delete.initialDelayMs", 500) / 1000.0
+    let initial = Timer(timeInterval: initialDelay, repeats: false) { [weak self] _ in
       self?.startDeleteRepeat()
     }
     RunLoop.main.add(initial, forMode: .common)
@@ -1500,12 +1570,16 @@ final class SDUIRenderer: NSObject {
   }
 
   private func startDeleteRepeat() {
+    // Backend flags:
+    //   kb.delete.repeatIntervalMs  (default 90)   — per-char delete cadence
+    //   kb.delete.wordAfterChars    (default 20)   — count before word-boundary mode
     // Same .common-mode requirement — see deleteDown for why.
-    let repeatTimer = Timer(timeInterval: 0.09, repeats: true) { [weak self] _ in
+    let intervalMs = flagDouble("kb.delete.repeatIntervalMs", 90) / 1000.0
+    let wordThreshold = Int(flagDouble("kb.delete.wordAfterChars", 20))
+    let repeatTimer = Timer(timeInterval: intervalMs, repeats: true) { [weak self] _ in
       guard let self = self else { return }
       self.deleteRepeatCount += 1
-      if self.deleteRepeatCount > 20 {
-        // Word-boundary delete: back to the last whitespace/newline.
+      if self.deleteRepeatCount > wordThreshold {
         self.deleteWordBoundary()
       } else {
         self.host?.hostTextDocumentProxy.deleteBackward()
@@ -1581,14 +1655,39 @@ final class SDUIRenderer: NSObject {
       return keyTextColor()
     }()
     if state.dictating {
-      // Recording state — a thick horizontal bar reads as an unambiguous "stop
-      // this recording" affordance without competing with the animated dot
-      // stream that emanates from this same button.
-      let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .heavy)
-      btn.setImage(UIImage(systemName: "minus", withConfiguration: cfg), for: .normal)
+      // Backend flags:
+      //   kb.mic.recordingIcon        — icon spec (sf/asset/url/emoji)
+      //   kb.mic.recordingIconSize    — SF Symbol point size (default 14)
+      //   kb.mic.recordingIconWeight  — thin/light/regular/medium/semibold/bold/heavy/black
+      //
+      // Default: "minus" SF Symbol at 14pt heavy = the thick horizontal bar.
+      // Backend can swap to any other icon shape (asset, emoji, remote URL, or
+      // a different SF Symbol) without a native rebuild.
+      let iconSpec = flagIcon("kb.mic.recordingIcon")
+      let size = flagCGFloat("kb.mic.recordingIconSize", 14)
+      let weight = sfWeight(flagString("kb.mic.recordingIconWeight", "heavy"))
+      let sfCfg = UIImage.SymbolConfiguration(pointSize: size, weight: weight)
+      if let spec = iconSpec, let img = resolveIcon(spec, onLoad: { [weak self] in
+        self?.stateChanged()
+      }) {
+        btn.setImage(img.applyingSymbolConfiguration(sfCfg) ?? img, for: .normal)
+      } else {
+        // Legacy default — thick horizontal bar.
+        btn.setImage(UIImage(systemName: "minus", withConfiguration: sfCfg), for: .normal)
+      }
+    } else if let markSpec = flagIcon("kb.mic.idleIcon") {
+      // Backend can also override the idle icon (default = bundled TailzuMark).
+      if let img = resolveIcon(markSpec, onLoad: { [weak self] in self?.stateChanged() }) {
+        btn.setImage(img, for: .normal)
+      }
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
-      btn.imageEdgeInsets = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+      btn.imageEdgeInsets = UIEdgeInsets(
+        top: flagCGFloat("kb.mic.idleIconInset", 12),
+        left: flagCGFloat("kb.mic.idleIconInset", 12),
+        bottom: flagCGFloat("kb.mic.idleIconInset", 12),
+        right: flagCGFloat("kb.mic.idleIconInset", 12),
+      )
     } else {
       btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
     }
@@ -2132,11 +2231,14 @@ final class SDUIRenderer: NSObject {
 
   @objc private func keyTouchUp(_ btn: UIButton) {
     let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
-    // Animated fade-back on release (~120ms curveEaseOut) — Apple's exact
-    // "the key stays lit for a beat then fades back" pattern. Without this
-    // the release reads as an instant snap and the whole keyboard feels
-    // "cheap" vs the native soft glow.
-    UIView.animate(withDuration: 0.12,
+    // Backend flag: kb.press.fadeMs (default 120) — release animation length.
+    // 0 or negative → instant snap-back (native style is 60-120ms).
+    let ms = flagDouble("kb.press.fadeMs", 120)
+    if ms <= 0 {
+      btn.backgroundColor = base
+      return
+    }
+    UIView.animate(withDuration: ms / 1000.0,
                    delay: 0,
                    options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
                    animations: { btn.backgroundColor = base },
@@ -2684,6 +2786,8 @@ final class SDUIRenderer: NSObject {
   /// email / password fields, .allCharacters keeps shift on always,
   /// .words fires on every word boundary.
   private func updateAutoCap() {
+    // Backend flag: kb.autoCap.enabled (default true) — global auto-cap kill switch
+    guard flagBool("kb.autoCap.enabled", true) else { return }
     guard let host = host else { return }
     let mode = host.hostAutocapitalizationType()
     if mode == .none { return }
