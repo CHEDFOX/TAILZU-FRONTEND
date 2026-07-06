@@ -20,7 +20,10 @@ export async function initAnalytics(): Promise<void> {
   if (inited || !API_KEY) return;
   inited = true;
   try {
-    client = await PostHog.initAsync(API_KEY, { host: HOST });
+    // posthog-react-native 3+ instantiates directly — the old static
+    // initAsync helper is gone. Constructor is sync; the class handles its
+    // own persistence + queueing internally.
+    client = new PostHog(API_KEY, { host: HOST });
     for (const fn of queue) fn();
     queue = [];
   } catch {
