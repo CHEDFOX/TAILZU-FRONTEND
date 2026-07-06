@@ -16,6 +16,15 @@ public class TulmiBridgeModule: Module {
       defaults?.set(token, forKey: "tulmi.token")
     }
 
+    // User-selected language code (hi / es / fr / hinglish / auto / …). The
+    // keyboard reads this to bias STT and to pass into refine so refinement
+    // output lands in the user's tongue. Called by the main app on language
+    // change (LanguageSelectScreen + Settings).
+    Function("setKeyboardLanguage") { (code: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(code, forKey: "tulmi.language")
+    }
+
     // Text-expansion dictionary (JSON array of { word, replacement }). The
     // keyboard reads this from the App Group and expands typed triggers.
     Function("setDictionary") { (json: String) in
