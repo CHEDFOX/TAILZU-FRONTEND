@@ -343,6 +343,23 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     }
     case "signOut": await supabase.auth.signOut(); break;
 
+    // -------------------------------------------------- App icon (alternate)
+    // Backend-driven icon switching. Name matches the PascalCase name declared
+    // in app.config.ts under expo-alternate-app-icons. Pass null (or empty)
+    // to reset to the default icon. Devices that don't support the API
+    // silently no-op — the promise resolves either way.
+    case "setAppIcon": {
+      try {
+        const { setAlternateAppIcon } = await import("expo-alternate-app-icons");
+        const name = (action as any).name;
+        await setAlternateAppIcon(name ? name : null);
+        await runAction((action as any).onSuccess, ctx);
+      } catch {
+        await runAction((action as any).onError, ctx);
+      }
+      break;
+    }
+
     // ----------------------------------------------------------------- IAP
     case "iap.showPaywall": {
       try {

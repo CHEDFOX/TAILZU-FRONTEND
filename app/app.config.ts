@@ -184,6 +184,23 @@ const config: ExpoConfig = {
     ["@sentry/react-native/expo", { disableAutoUpload: true }],
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "@bacons/apple-targets",
+    // Alternate app icons — user can switch between the default icon.png and
+    // any of these variants at runtime via the setAppIcon SDUI action.
+    // Names must be PascalCase (iOS convention). Add more entries here whenever
+    // a new icon file lands under assets/icons/.
+    [
+      "expo-alternate-app-icons",
+      [
+        {
+          name: "IconAlt",
+          ios: "./assets/icons/icon2.png",
+          android: {
+            foregroundImage: "./assets/icons/icon2.png",
+            backgroundColor: "#E8A23C",
+          },
+        },
+      ],
+    ],
   ],
   extra: {
     eas: { projectId: "fd5ee89f-3326-473c-a194-61c60f32bb1e" },

@@ -184,6 +184,8 @@ export type ActionSpec =
   // auth
   | { kind: "biometricPrompt"; reason?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "signOut" }
+  // app-level chrome — expo-alternate-app-icons swap
+  | { kind: "setAppIcon"; name: string | null; onSuccess?: ActionRef; onError?: ActionRef }
   // IAP
   | { kind: "iap.showPaywall"; offeringId?: string; packageId?: string; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "iap.subscribe"; productId: string; onSuccess?: ActionRef; onError?: ActionRef }

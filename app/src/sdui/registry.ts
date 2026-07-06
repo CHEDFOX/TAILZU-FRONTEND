@@ -66,6 +66,8 @@ export const CORE_ACTIONS = [
   "requestPermission",
   // auth
   "biometricPrompt", "signOut",
+  // app-level chrome — swap the alternate app icon at runtime
+  "setAppIcon",
   // IAP
   "iap.showPaywall", "iap.subscribe", "iap.restore", "iap.checkEntitlement",
   // notifications
