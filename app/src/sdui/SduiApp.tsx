@@ -25,6 +25,7 @@ import { composeTemplate } from "./templates";
 import type { Ctx, NavApi } from "./actions";
 import type { BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone } from "../storage";
+import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
@@ -111,6 +112,10 @@ export default function SduiApp() {
       // app — so do it before we commit the rest of the boot state.
       if (await applyDirection(b.flags)) return;
       setBoot(b);
+      // Publish the current media registry to the resolver so every <Media>
+      // component in the tree can look up keys → URLs synchronously. Runs on
+      // every bootstrap so hot registry pushes take effect on the next refresh.
+      setMediaRegistry(pickMediaRegistry(b));
       const firstTab = b.navigation.kind === "tabs" ? b.navigation.tabs[0]?.id ?? "" : "";
       setTabId(firstTab);
       setShowConnection(false);

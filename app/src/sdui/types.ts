@@ -37,6 +37,22 @@ export interface LanguageOption {
   regions?: string[];
 }
 
+export interface MediaEntry {
+  url: string;
+  contentType: string;
+  size: number;
+  uploadedAt: number;
+  key?: string;
+}
+
+export type MediaSpec =
+  | string
+  | { key: string }
+  | { url: string; contentType?: string }
+  | { asset: string }
+  | { emoji: string }
+  | { data: string; contentType?: string };
+
 export interface BootstrapResponse {
   schemaVersion: number;
   theme: ThemeTokens;
@@ -44,6 +60,10 @@ export interface BootstrapResponse {
   initialScreenId: string;
   flags?: Record<string, boolean | number | string>;
   labels?: Record<string, string>;
+  /** Media registry — keyed lookup for backend-uploaded assets.
+   * Populated from server `/v1/media/upload` uploads. Empty when no admin
+   * uploads have happened yet. */
+  media?: Record<string, MediaEntry>;
   update?: UpdateGate;
   languages?: LanguageOption[];
   cacheTtlSeconds?: number;
