@@ -162,13 +162,14 @@ const config: ExpoConfig = {
     ],
     blockedPermissions: [],
   },
-  // Config plugins — ONLY the packages that ship an `app.plugin.js` and actually
-  // need to mutate native config (permissions strings, entitlements, manifest
-  // entries, splash config). Packages like expo-linking / expo-web-browser /
-  // expo-secure-store / expo-crypto / expo-clipboard DON'T need entries here
-  // — you just `import` them and they work. Listing them causes Expo to
-  // require() their main entry as if it were a plugin, which throws on
-  // "Unexpected token 'export'".
+  // Config plugins — the packages that ship an `app.plugin.js` and mutate
+  // native config (permissions strings, entitlements, manifest entries,
+  // splash config, plus `expo install --fix`'s doctor-style validation).
+  // Packages like expo-linking / expo-web-browser / expo-secure-store /
+  // expo-crypto / expo-clipboard DON'T need entries — you just `import`
+  // them and they work. Listing one that doesn't ship a plugin causes
+  // Expo to require() its main entry as if it were a plugin, which throws
+  // on "Unexpected token 'export'".
   plugins: [
     "expo-audio",
     "expo-apple-authentication",
@@ -183,6 +184,10 @@ const config: ExpoConfig = {
     "expo-calendar",
     "expo-video",
     "expo-splash-screen",
+    // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
+    // fails the whole run when it isn't declared here even though the module
+    // works fine without any native config to add.
+    "expo-sharing",
     // Sentry's Expo plugin injects a "Upload Debug Symbols" build phase that
     // runs sentry-cli. Without SENTRY_ORG / SENTRY_PROJECT / SENTRY_AUTH_TOKEN
     // (i.e. every build until you configure Sentry), sentry-cli hard-fails and
