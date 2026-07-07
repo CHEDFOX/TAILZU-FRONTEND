@@ -214,6 +214,19 @@ export type ActionSpec =
   // keyboard bridge
   | { kind: "keyboard.reload" }
   | { kind: "keyboard.setLayout"; language: string }
+  // mic-handoff completion — used by the keyboard_record screen to write the
+  // cleaned text back to the App Group + fire a Darwin notification so the
+  // keyboard extension picks it up and inserts at the cursor. When `text` is
+  // omitted the value at $state.dictationSample (or the explicit path) is used.
+  | {
+      kind: "completeKeyboardHandoff";
+      sessionId?: string;    // omit → read from $state.handoffSessionId
+      text?: string;         // omit → read from $state.dictationSample
+      textPath?: string;     // alternate state path if not "dictationSample"
+      onSuccess?: ActionRef;
+    }
+  // cancel a pending handoff — same wire notification, empty text
+  | { kind: "cancelKeyboardHandoff"; sessionId?: string; onSuccess?: ActionRef }
   // cache / dev
   | { kind: "clearCache" }
   | { kind: "reloadApp" }

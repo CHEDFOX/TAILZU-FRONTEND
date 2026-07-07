@@ -67,5 +67,85 @@ public class TulmiBridgeModule: Module {
       }
       return path
     }
+
+    // MARK: - Mic handoff
+
+    // The keyboard extension can't hold the microphone (iOS blocks recording
+    // in extension processes even with Full Access). So mic input flows:
+    //   keyboard mic tap → writes a record-request tombstone to App Group +
+    //                      opens tulmi://s/keyboard_record (warm) or
+    //                      tulmi://s/keyboard_primer (cold)
+    //   main app        → foregrounds, records via AVAudioEngine, uploads to
+    //                      /v1/transcribe-clean, writes the cleaned text back
+    //                      to App Group + fires a Darwin notification
+    //   keyboard        → listens for the Darwin notification, reads the
+    //                      result, inserts at the cursor
+    //
+    // "Warm" = the main app has been foregrounded within the last 15 minutes,
+    // so the handoff to it feels near-instant. "Cold" = the primer screen
+    // gets shown so the user knows to grant mic + come back.
+
+    // Called by SduiApp on every foreground so the keyboard can tell whether
+    // the app is warm (fast handoff) or cold (needs the primer flow).
+    Function("writeAppWarmHeartbeat") { () in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.app.lastActiveAt")
+    }
+
+    // Called by SduiApp on foreground to see whether the keyboard left a
+    // pending record-request. Returns [sessionId, requestedAtMs] or empty
+    // strings when nothing is pending. Consumes the tombstone.
+    Function("consumeKeyboardRecordRequest") { () -> [String: Any] in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      let sid = d?.string(forKey: "tulmi.kb.recordRequest.sessionId") ?? ""
+      let at = d?.double(forKey: "tulmi.kb.recordRequest.requestedAt") ?? 0
+      let host = d?.string(forKey: "tulmi.kb.recordRequest.hostApp") ?? ""
+      if !sid.isEmpty {
+        d?.removeObject(forKey: "tulmi.kb.recordRequest.sessionId")
+        d?.removeObject(forKey: "tulmi.kb.recordRequest.requestedAt")
+        d?.removeObject(forKey: "tulmi.kb.recordRequest.hostApp")
+      }
+      return [
+        "sessionId": sid,
+        "requestedAtMs": at,
+        "hostApp": host,
+      ]
+    }
+
+    // Called by the SDUI completeKeyboardHandoff action once the main app has
+    // recorded + refined the text. Writes the result to the App Group + fires
+    // a Darwin notification; the keyboard extension observes that
+    // notification and inserts the text at the cursor.
+    Function("completeKeyboardHandoff") { (sessionId: String, text: String) in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      d?.set(text, forKey: "tulmi.kb.handoffResult.text")
+      d?.set(sessionId, forKey: "tulmi.kb.handoffResult.sessionId")
+      d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.handoffResult.completedAt")
+      // Darwin notifications wake the extension synchronously when it's
+      // alive — same-App-Group cross-process nudge. Name is stable so the
+      // extension registers once at load.
+      let name = "space.tailzu.tulmi.handoff.complete" as CFString
+      CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFNotificationName(name),
+        nil, nil, true
+      )
+    }
+
+    // Called by SduiApp when the user cancels / abandons the handoff so the
+    // keyboard's status returns to idle instead of "recording…" forever.
+    Function("cancelKeyboardHandoff") { (sessionId: String) in
+      let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      d?.set(sessionId, forKey: "tulmi.kb.handoffResult.sessionId")
+      d?.set("", forKey: "tulmi.kb.handoffResult.text")
+      d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.handoffResult.completedAt")
+      d?.set(true, forKey: "tulmi.kb.handoffResult.cancelled")
+      let name = "space.tailzu.tulmi.handoff.complete" as CFString
+      CFNotificationCenterPostNotification(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        CFNotificationName(name),
+        nil, nil, true
+      )
+    }
   }
 }

@@ -33,6 +33,7 @@ import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken } from "../notifications/push";
+import { completeKeyboardHandoff, cancelKeyboardHandoff } from "../../modules/tulmi-bridge";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -458,6 +459,30 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // next time the keyboard extension reads /v1/keyboard/config, which we
       // cache-bump on the backend when needed.
       break;
+
+    // --------------------------------------------------------- mic handoff
+    // Finish the "keyboard tapped mic → main app records → text back to
+    // keyboard" round-trip. The keyboard_record screen dispatches this with
+    // the cleaned text once /v1/transcribe-clean returns.
+    case "completeKeyboardHandoff": {
+      const sessionId = action.sessionId
+        ?? (ctx.store.get("handoffSessionId") as string | undefined)
+        ?? "";
+      const text = action.text
+        ?? (ctx.store.get(action.textPath ?? "dictationSample") as string | undefined)
+        ?? "";
+      if (sessionId && text) completeKeyboardHandoff(sessionId, text);
+      await runAction(action.onSuccess, ctx);
+      break;
+    }
+    case "cancelKeyboardHandoff": {
+      const sessionId = action.sessionId
+        ?? (ctx.store.get("handoffSessionId") as string | undefined)
+        ?? "";
+      if (sessionId) cancelKeyboardHandoff(sessionId);
+      await runAction(action.onSuccess, ctx);
+      break;
+    }
 
     // --------------------------------------------------------- cache / dev
     case "clearCache": ctx.nav.reloadCurrent(); break;
