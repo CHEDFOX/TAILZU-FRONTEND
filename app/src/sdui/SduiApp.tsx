@@ -30,7 +30,12 @@ import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
 import ProfileGate from "../onboarding/ProfileGate";
-import { getKeyboardStatus, consumeKeyboardDeepLink } from "../../modules/tulmi-bridge";
+import {
+  getKeyboardStatus,
+  consumeKeyboardDeepLink,
+  writeAppWarmHeartbeat,
+  consumeKeyboardRecordRequest,
+} from "../../modules/tulmi-bridge";
 import { supabaseAuth } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
@@ -88,6 +93,10 @@ export default function SduiApp() {
     void initAnalytics();
     void initBilling();
     void registerForPushToken();
+    // Warm heartbeat — tells the keyboard extension "the main app is alive
+    // right now, handoff will be fast". Bumped on every foreground below;
+    // this initial call covers cold starts.
+    writeAppWarmHeartbeat();
     const linkSub = installLinkListener((target) => {
       if (target.kind === "screen") {
         setStack([{ screenId: target.screenId, params: target.params }]);
@@ -214,7 +223,23 @@ export default function SduiApp() {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
+      // Warm heartbeat is safe to bump before we're "ready" — it lets the
+      // keyboard treat the app as reachable even during the boot/loading
+      // phase.
+      writeAppWarmHeartbeat();
       if (phase !== "ready") return;
+      // Consume any pending mic-handoff request the keyboard extension left.
+      // If the app was cold-started via the keyboard's deep link, this
+      // sessionId flows into $state.handoffSessionId so the record screen's
+      // completeKeyboardHandoff action targets the right session.
+      const rec = consumeKeyboardRecordRequest();
+      if (rec) {
+        setStack([{
+          screenId: "keyboard_record",
+          params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
+        }]);
+        return;
+      }
       // Consume any deep-link tombstone the keyboard extension left — it
       // couldn't call openURL itself, so it dropped a target in the shared
       // App Group. Handle it before the boot refresh so the user lands on

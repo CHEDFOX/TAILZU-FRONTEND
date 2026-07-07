@@ -15,6 +15,21 @@ interface TulmiBridgeNative {
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
   consumeKeyboardDeepLink?(): string;
+  // Mic handoff — see TulmiBridgeModule.swift for the flow.
+  writeAppWarmHeartbeat?(): void;
+  consumeKeyboardRecordRequest?(): {
+    sessionId?: string;
+    requestedAtMs?: number;
+    hostApp?: string;
+  } | undefined;
+  completeKeyboardHandoff?(sessionId: string, text: string): void;
+  cancelKeyboardHandoff?(sessionId: string): void;
+}
+
+export interface KeyboardRecordRequest {
+  sessionId: string;
+  requestedAtMs: number;
+  hostApp: string;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -111,5 +126,65 @@ export function consumeKeyboardDeepLink(): string | null {
     return s && s.length > 0 ? s : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Bump the "app is warm" timestamp in the shared App Group. The keyboard
+ * extension consults this on every mic tap to decide whether it can hand off
+ * to a suspended main app (fast) or has to open the primer screen (cold).
+ * Called on every foreground transition of the main app.
+ */
+export function writeAppWarmHeartbeat(): void {
+  try {
+    native?.writeAppWarmHeartbeat?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Read (and clear) any pending record request the keyboard left behind. The
+ * main app calls this on foreground; if a request exists, we navigate to the
+ * keyboard_record SDUI screen so recording starts immediately.
+ * Returns null when nothing is pending.
+ */
+export function consumeKeyboardRecordRequest(): KeyboardRecordRequest | null {
+  try {
+    const r = native?.consumeKeyboardRecordRequest?.();
+    if (!r || !r.sessionId) return null;
+    return {
+      sessionId: String(r.sessionId),
+      requestedAtMs: Number(r.requestedAtMs) || 0,
+      hostApp: String(r.hostApp ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finish a mic handoff: write the cleaned text to the App Group and fire a
+ * Darwin notification the keyboard extension is listening on. The keyboard
+ * observes the notification, reads the text, and inserts it at the cursor.
+ * Invoked by the SDUI `completeKeyboardHandoff` action.
+ */
+export function completeKeyboardHandoff(sessionId: string, text: string): void {
+  try {
+    native?.completeKeyboardHandoff?.(sessionId, text);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Abort a handoff (user cancelled the record screen). Fires the same
+ * completion notification with an empty result so the keyboard stops waiting.
+ */
+export function cancelKeyboardHandoff(sessionId: string): void {
+  try {
+    native?.cancelKeyboardHandoff?.(sessionId);
+  } catch {
+    /* best-effort */
   }
 }

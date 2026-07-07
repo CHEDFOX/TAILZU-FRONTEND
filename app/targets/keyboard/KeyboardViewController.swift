@@ -76,6 +76,29 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var recordingURL: URL?
   private var isRecording = false
 
+  // Mic handoff: iOS blocks in-extension recording so mic taps bounce through
+  // the main app. See TulmiHandoff.swift. `isHandoffActive` tracks the
+  // "waiting for the main app to send back cleaned text" state so the mic
+  // button reflects it and a second tap cancels.
+  private lazy var handoff: TulmiHandoff = {
+    let h = TulmiHandoff()
+    h.onResult = { [weak self] text, cancelled in
+      guard let self = self else { return }
+      self.isHandoffActive = false
+      self.micButton.setImage(self.brandMarkImage(), for: .normal)
+      if cancelled || text.isEmpty {
+        self.setStatus("")
+        return
+      }
+      self.textDocumentProxy.insertText(text)
+      self.lastInserted = text
+      self.lastRawTranscript = nil
+      self.setStatus("")
+    }
+    return h
+  }()
+  private var isHandoffActive = false
+
   // Live (streaming) dictation state.
   private var stream: TulmiStream?
   private var isStreaming = false
@@ -729,14 +752,72 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return false
   }
 
-  // MARK: - Mic / dictation (inline; requires Full Access)
+  // MARK: - Mic / dictation
 
   @objc private func micTapped() {
-    if kbConfig?.liveVoice == true {
-      if isStreaming { stopStreaming() } else { startStreaming() }
-    } else {
+    // Backend can still request the legacy in-extension paths via
+    // features.liveVoice / kb.mic.mode="local". Default is now "handoff" —
+    // iOS blocks in-extension mic recording on iOS 17+ regardless of Full
+    // Access, so the handoff route is the only reliable path.
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "handoff"
+    switch mode {
+    case "local":
       if isRecording { stopAndTranscribe() } else { startRecording() }
+    case "stream":
+      if isStreaming { stopStreaming() } else { startStreaming() }
+    default:
+      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
     }
+  }
+
+  private func beginMicHandoff() {
+    guard hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."))
+      return
+    }
+    let hostBundle = parentBundleIdentifier() ?? ""
+    isHandoffActive = true
+    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    setStatus(handoff.isAppWarm
+              ? label("mic_handoff_warm", "🎙️ Speak in Tulmi — swipe back when done")
+              : label("mic_handoff_cold", "Opening Tulmi… grant mic once, then swipe back"))
+    _ = handoff.beginHandoff(hostApp: hostBundle) { [weak self] url in
+      return self?.openURLViaResponderChain(url) ?? false
+    }
+  }
+
+  private func cancelHandoff() {
+    handoff.cancelPending()
+    isHandoffActive = false
+    micButton.setImage(brandMarkImage(), for: .normal)
+    setStatus("")
+  }
+
+  /// Best-effort "open a URL from a keyboard extension." Apple doesn't provide
+  /// a first-class API, so we walk the responder chain for a UIApplication
+  /// and call `open(_:)` on it. Same trick shipping keyboards (Gboard,
+  /// Grammarly) use — Apple has not rejected apps for this. When the walk
+  /// fails, we still leave the App-Group tombstone so the next foreground
+  /// consumes it.
+  private func openURLViaResponderChain(_ url: URL) -> Bool {
+    var responder: UIResponder? = self
+    while let r = responder {
+      if let app = r as? UIApplication {
+        app.open(url, options: [:], completionHandler: nil)
+        return true
+      }
+      responder = r.next
+    }
+    return false
+  }
+
+  /// The bundle identifier of the host app (the app the keyboard is inside).
+  /// Best-effort — some fields are only readable in specific iOS versions.
+  private func parentBundleIdentifier() -> String? {
+    // NSExtensionContext exposes hostAppBundleID on some iOS versions only.
+    // Fall back to the process name so we always send SOMETHING.
+    return Bundle.main.object(forInfoDictionaryKey: "NSExtensionHostBundleID") as? String
+      ?? ProcessInfo.processInfo.processName
   }
 
   // MARK: - Live (streaming) dictation

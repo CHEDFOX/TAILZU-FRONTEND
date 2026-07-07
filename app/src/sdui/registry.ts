@@ -80,6 +80,9 @@ export const CORE_ACTIONS = [
   "requestReview",
   // keyboard bridge
   "keyboard.reload", "keyboard.setLayout",
+  // mic handoff — main app records + refines, keyboard inserts (see
+  // targets/keyboard/TulmiHandoff.swift and modules/tulmi-bridge).
+  "completeKeyboardHandoff", "cancelKeyboardHandoff",
   // cache / dev
   "clearCache", "reloadApp",
   // composition
