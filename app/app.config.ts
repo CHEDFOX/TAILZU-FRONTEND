@@ -42,35 +42,35 @@ const config: ExpoConfig = {
       // so backend-driven features can call the corresponding permission
       // APIs without a rebuild.
       NSMicrophoneUsageDescription:
-        "Tulmi uses the microphone to turn your speech into clean text.",
+        "Tulmi records audio only while you hold the microphone button, converts it to text, and lets you insert the cleaned-up text into your current message.",
       NSCameraUsageDescription:
-        "Tulmi uses the camera to scan text and QR codes, and for optional video features.",
+        "Tulmi uses the camera when you tap the scan button so it can read printed text or a QR code and turn it into a message.",
       NSPhotoLibraryUsageDescription:
-        "Tulmi reads photos when you attach them to a message or import them.",
+        "Tulmi opens your photo library only when you tap Attach so you can pick an image to include with a message.",
       NSPhotoLibraryAddUsageDescription:
-        "Tulmi saves outputs (audio, transcripts) to your Photos when you tap Save.",
+        "Tulmi saves the audio recording or the cleaned transcript to your Photos only when you tap Save on the result.",
       NSSpeechRecognitionUsageDescription:
-        "Tulmi uses on-device speech recognition for faster dictation.",
+        "Tulmi uses Apple's on-device speech recognition to convert your dictation to text faster when you enable the on-device mode in Settings.",
       NSFaceIDUsageDescription:
-        "Tulmi uses Face ID to keep your account and drafts private.",
+        "Tulmi uses Face ID to unlock private drafts and to keep your account signed in on this device.",
       NSContactsUsageDescription:
-        "Tulmi reads contacts when you attach or mention people in a draft.",
+        "Tulmi reads your contacts only when you use the @mention feature so it can suggest the right person.",
       NSCalendarsUsageDescription:
-        "Tulmi adds events to your calendar when you dictate a meeting.",
+        "Tulmi writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
       NSRemindersUsageDescription:
-        "Tulmi creates reminders from voice notes when you ask.",
+        "Tulmi writes a reminder only when you tap Add Reminder on a dictated note.",
       NSAppleMusicUsageDescription:
-        "Tulmi lets you attach audio to messages from your library.",
+        "Tulmi reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
       NSLocationWhenInUseUsageDescription:
-        "Tulmi uses your location only when you dictate a check-in or location-tagged note.",
+        "Tulmi reads your location only when you dictate a location-tagged note (\"send my location\") so it can attach the correct place to the message.",
       NSUserTrackingUsageDescription:
-        "Turning this on lets Tulmi personalize suggestions to how you write.",
+        "This lets Tulmi personalize writing suggestions to your style. Nothing is shared with third-party advertisers.",
       NSMotionUsageDescription:
-        "Tulmi uses motion sensors for tap-to-record shortcuts.",
+        "Tulmi uses motion to detect the raise-to-record shortcut when you enable it in Settings.",
       NSBluetoothAlwaysUsageDescription:
-        "Tulmi uses Bluetooth to connect to your headset for voice input.",
+        "Tulmi uses Bluetooth only to connect to a paired headset for hands-free dictation.",
       NSLocalNetworkUsageDescription:
-        "Tulmi uses your local network to sync with nearby devices.",
+        "Tulmi uses the local network only when you enable Nearby Sync in Settings to keep drafts consistent across your devices on the same Wi-Fi.",
       // Enable background audio so dictation can continue if the app briefly
       // loses foreground focus (call, notification).
       UIBackgroundModes: ["audio", "remote-notification", "fetch"],
@@ -108,6 +108,14 @@ const config: ExpoConfig = {
       "com.apple.developer.associated-domains": [
         "applinks:tailzu.space",
         "applinks:app.tailzu.space",
+      ],
+      // Shared Keychain group so the main app and the Custom Keyboard
+      // extension can read/write the same encrypted-at-rest bearer token.
+      // Apple substitutes $(AppIdentifierPrefix) with the team ID prefix at
+      // runtime; the same group is declared on the keyboard target
+      // (targets/keyboard/expo-target.config.js).
+      "keychain-access-groups": [
+        "$(AppIdentifierPrefix)com.tulmi.app.shared",
       ],
     },
   },
@@ -183,6 +191,7 @@ const config: ExpoConfig = {
     // Sentry project, flip this back OFF and add the three env vars.
     ["@sentry/react-native/expo", { disableAutoUpload: true }],
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
+    "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
     // Alternate app icons — user can switch between the default icon.png and
     // any of these variants at runtime via the setAppIcon SDUI action.

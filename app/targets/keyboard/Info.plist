@@ -26,12 +26,5 @@
     <key>NSExtensionPrincipalClass</key>
     <string>$(PRODUCT_MODULE_NAME).KeyboardViewController</string>
   </dict>
-  <!-- Dev only: allow plain-HTTP backend during testing (mirrors Android
-       usesCleartextTraffic). Tighten this before shipping. -->
-  <key>NSAppTransportSecurity</key>
-  <dict>
-    <key>NSAllowsArbitraryLoads</key>
-    <true/>
-  </dict>
 </dict>
 </plist>

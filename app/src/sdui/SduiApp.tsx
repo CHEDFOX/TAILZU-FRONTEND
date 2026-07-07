@@ -36,7 +36,7 @@ import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics } from "../telemetry/analytics";
 import { initSentry } from "../telemetry/sentry";
-import { initBilling } from "../billing/purchases";
+import { initBilling, restorePurchases, isBillingEnabled } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
 
@@ -557,6 +557,9 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   const [url, setUrl] = useState(DEFAULT_BASE_URL);
   const [status, setStatus] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [restoreState, setRestoreState] = useState<"idle" | "running" | "done" | "off">(
+    isBillingEnabled() ? "idle" : "off",
+  );
 
   useEffect(() => {
     getBaseUrl().then((u) => {
@@ -579,6 +582,18 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   async function connect() {
     await setBaseUrl(url);
     onDone();
+  }
+
+  // Apple 3.1.1 requires an always-accessible restore path independent of the
+  // server. This lives in the native shell so it's reachable even when the
+  // backend is unreachable and every SDUI screen is empty.
+  async function restore() {
+    setRestoreState("running");
+    try {
+      await restorePurchases();
+    } finally {
+      setRestoreState("done");
+    }
   }
 
   return (
@@ -614,6 +629,29 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
         </>
       )}
       {!!status && <Text style={{ color: "#9b9bd0", marginTop: 12 }}>{status}</Text>}
+
+      {restoreState !== "off" && (
+        <>
+          <View style={{ height: 24, borderBottomWidth: 1, borderBottomColor: "#2a2a36" }} />
+          <Text style={{ color: "#cfcfe0", marginTop: 20, marginBottom: 6, fontWeight: "600" }}>
+            Subscription
+          </Text>
+          <Pressable
+            style={[styles.btn, { backgroundColor: "#2a2a36" }]}
+            onPress={restore}
+            disabled={restoreState === "running"}
+          >
+            <Text style={styles.btnText}>
+              {restoreState === "running" ? "Restoring…" : "Restore Purchases"}
+            </Text>
+          </Pressable>
+          {restoreState === "done" && (
+            <Text style={{ color: "#9b9bd0", marginTop: 10, fontSize: 13 }}>
+              Restore complete. If your subscription was on this Apple ID, it's active again.
+            </Text>
+          )}
+        </>
+      )}
     </View>
   );
 }

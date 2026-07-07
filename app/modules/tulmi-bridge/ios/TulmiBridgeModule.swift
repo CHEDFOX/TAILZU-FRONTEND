@@ -12,8 +12,15 @@ public class TulmiBridgeModule: Module {
 
     Function("setKeyboardCredentials") { (baseUrl: String, token: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      // baseUrl isn't sensitive — user-visible in Connection screen. Kept in
+      // UserDefaults so a keyboard cold-start doesn't wait on Keychain.
       defaults?.set(baseUrl, forKey: "tulmi.baseUrl")
-      defaults?.set(token, forKey: "tulmi.token")
+      // Bearer token lives in the shared Keychain — encrypted at rest and out
+      // of any UserDefaults dump. The keyboard reads it via TulmiKeychain.
+      TulmiKeychain.set(token, forKey: "tulmi.token")
+      // Clear any legacy token still sitting in UserDefaults from an older
+      // build so a compromised backup can't leak it forever.
+      defaults?.removeObject(forKey: "tulmi.token")
     }
 
     // User-selected language code (hi / es / fr / hinglish / auto / …). The
