@@ -164,12 +164,35 @@ export async function fetchAuthConfig(): Promise<{ enablePhone: boolean } | null
   }
 }
 
+/**
+ * Path-only calls to the backend. `path` MUST start with "/v1/" so a
+ * malicious/misconfigured backend response can't ever redirect this action to
+ * an arbitrary URL. The base URL is added by us, not the caller.
+ */
+function assertBackendPath(path: string): void {
+  if (typeof path !== "string" || !path.startsWith("/v1/")) {
+    throw new Error(`callEndpoint: refusing non-/v1/ path: ${path}`);
+  }
+  // Reject anything that could break out of base — schemes, protocol-relative
+  // URLs (//host), or embedded credentials.
+  if (
+    path.includes("://") ||
+    path.startsWith("//") ||
+    path.includes("@") ||
+    path.includes("\r") ||
+    path.includes("\n")
+  ) {
+    throw new Error(`callEndpoint: unsafe path: ${path}`);
+  }
+}
+
 /** Generic call used by the `callEndpoint` action. */
 export async function callEndpoint(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<any> {
+  assertBackendPath(path);
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
     method,

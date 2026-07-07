@@ -25,5 +25,11 @@ module.exports = {
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
   entitlements: {
     "com.apple.security.application-groups": ["group.com.tulmi.app"],
+    // Shared Keychain group so the keyboard can read the bearer token the
+    // main app writes there. Must match the group listed on the main app
+    // (see app.config.ts).
+    "keychain-access-groups": [
+      "$(AppIdentifierPrefix)com.tulmi.app.shared",
+    ],
   },
 };

@@ -15,9 +15,18 @@ enum TulmiBackend {
     return (v?.isEmpty == false) ? v! : "https://api.tailzu.space"
   }
 
+  /// Bearer token, read from the shared Keychain (encrypted at rest, out of
+  /// UserDefaults dumps). Falls back to the App-Group UserDefaults key so
+  /// older installs that haven't seen the new bridge module still keep
+  /// working — the next foreground of the main app migrates it to Keychain.
   private static var token: String {
-    let v = shared?.string(forKey: "tulmi.token")
-    return (v?.isEmpty == false) ? v! : "dev"
+    if let v = TulmiKeychain.string(forKey: "tulmi.token"), !v.isEmpty {
+      return v
+    }
+    if let legacy = shared?.string(forKey: "tulmi.token"), !legacy.isEmpty {
+      return legacy
+    }
+    return "dev"
   }
 
   /// User-selected language code (hi / es / fr / hinglish / auto / …).
