@@ -144,11 +144,20 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   // one uniform spec, with backend-controlled playback (loop, speed, autoplay,
   // max duration, tint, muted, onEnd action).
   if (useCustomMedia) {
-    // Pick the active media for the current mic state. If iconRecording isn't
-    // supplied we keep showing iconIdle but let the caller's autoplay control
-    // decide whether it animates during recording (a Lottie could be a
-    // one-shot on tap, for instance).
+    // Two modes:
+    //   two-media   → iconIdle + iconRecording point to different sources.
+    //                 We swap between them on state change (existing behavior).
+    //   one-media   → only iconIdle is supplied. We render the same source in
+    //                 both states and auto-bind `playing = recording`, so
+    //                 tap → play, tap → pause (freezes on the current frame),
+    //                 tap → resume from that frame. Works for Lottie + video;
+    //                 GIF/APNG can't pause so the visual will just keep
+    //                 looping while the recording state does its own thing.
+    const singleMediaMode = recordingMic == null;
     const active = (recording && recordingMic) ? recordingMic : idleMic!;
+    const effectivePlaying = singleMediaMode
+      ? recording                          // controlled by mic state
+      : active.playing;                     // whatever backend supplied
     // Fire the node's onComplete NodeEvent when playback ends, so backend can
     // wire any action tree via on.onComplete on the VoiceToggle node.
     // Payload distinguishes idle vs recording so the same action can branch.
@@ -178,7 +187,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             speed={active.speed}
             muted={active.muted}
             maxDurationMs={active.maxDurationMs}
-            playing={active.playing}
+            playing={effectivePlaying}
             onEnd={handleEnd}
           />
         </Animated.View>

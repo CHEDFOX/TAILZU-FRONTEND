@@ -143,14 +143,14 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
 
   if (kind === "lottie" && LottieView) {
     return (
-      <LottieView
-        source={{ uri }}
-        autoPlay={shouldPlay}
+      <LottiePlayerInner
+        uri={uri}
+        style={style}
+        contentFit={contentFit}
+        shouldPlay={shouldPlay}
         loop={loop}
         speed={speed}
-        onAnimationFinish={onEnd}
-        style={style}
-        resizeMode={contentFit}
+        onEnd={onEnd}
         testID={testID}
       />
     );
@@ -189,9 +189,66 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
 }
 
 /**
+ * Lottie in a ref so shouldPlay can drive play() / pause() imperatively —
+ * `autoPlay` is a mount-time prop and doesn't respond to state changes.
+ * pause() holds the current frame; a subsequent play() resumes from there
+ * (not from frame 0), which is what the "tap → play; tap → pause; tap →
+ * resume from position" mic pattern needs.
+ */
+type LottieInnerProps = {
+  uri: string;
+  style?: StyleProp<ImageStyle | ViewStyle>;
+  contentFit: ImageContentFit;
+  shouldPlay: boolean;
+  loop: boolean;
+  speed: number;
+  onEnd?: () => void;
+  testID?: string;
+};
+
+function LottiePlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, onEnd, testID }: LottieInnerProps): React.ReactElement | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ref = useRef<any>(null);
+  // Track whether the last mount actually started playing so pause() below
+  // doesn't fire before Lottie is mounted (which no-ops harmlessly but
+  // spams warnings on some versions).
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (shouldPlay) {
+      // play() with no args resumes from the current frame in
+      // lottie-react-native v6+. On first play, the anim starts at 0.
+      ref.current.play?.();
+      startedRef.current = true;
+    } else if (startedRef.current) {
+      ref.current.pause?.();
+    }
+  }, [shouldPlay]);
+
+  if (!LottieView) return null;
+  return (
+    <LottieView
+      ref={ref}
+      source={{ uri }}
+      autoPlay={shouldPlay}
+      loop={loop}
+      speed={speed}
+      onAnimationFinish={onEnd}
+      style={style}
+      resizeMode={contentFit}
+      testID={testID}
+    />
+  );
+}
+
+/**
  * expo-video wants its player instance built via `useVideoPlayer` — a hook,
  * so it can't sit in a conditional branch of the main component. Extracted
  * so the hook rule holds while keeping the outer component branch-friendly.
+ * pause() holds the current frame; play() resumes from there — same as
+ * Lottie above, so the "tap play / tap pause / tap resume" mic pattern is
+ * uniform across both.
  */
 type VideoInnerProps = {
   uri: string;
