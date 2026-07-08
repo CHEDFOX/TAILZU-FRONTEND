@@ -14,7 +14,7 @@
  * interaction is haptic-tuned.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Image as RNImage, Pressable } from "react-native";
+import { Animated, Pressable } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
@@ -22,22 +22,47 @@ import * as api from "../api";
 import type { CompProps } from "./components";
 import { useStoreVersion } from "./state";
 import { resolveMedia, type MediaSpec } from "../media/resolveMedia";
+import { MediaPlayer } from "../media/MediaPlayer";
 
 const MARK = require("../../assets/tailzu-mark.png");
 const SPRING = { friction: 7, tension: 120, useNativeDriver: true };
 
 /**
- * Turn a MediaSpec into an <Image>-usable source, or null if the spec
- * doesn't resolve (backend key not registered yet, etc). Animated GIF /
- * APNG works out of the box — RN's Image plays them automatically, which
- * covers the "keep playing while recording" case for the mic UI.
+ * Normalise the two shapes the backend can send for a mic-state media:
+ *
+ *   simple  → MediaSpec       (source only — playback defaults)
+ *   rich    → { source: MediaSpec, autoplay?, loop?, speed?, muted?,
+ *              maxDurationMs?, tint?, playing?, onEnd? }
+ *
+ * `null` when the spec doesn't resolve, so callers can fall back to the
+ * built-in Tailzu-mark → line morph.
  */
-function toImageSource(spec: MediaSpec | undefined | null): { uri: string } | number | null {
+type MicMediaProps = {
+  source: MediaSpec;
+  autoplay?: boolean;
+  loop?: boolean;
+  speed?: number;
+  muted?: boolean;
+  maxDurationMs?: number;
+  tint?: string;
+  playing?: boolean;
+  /** When true, this state's media fires the node's `onComplete` NodeEvent
+   * on playback end. Wire an SDUI action tree in `on.onComplete` to react. */
+  fireOnEnd?: boolean;
+};
+
+function normaliseMic(spec: unknown): MicMediaProps | null {
   if (!spec) return null;
-  const r = resolveMedia(spec);
-  if (r.kind === "uri") return { uri: r.uri };
-  if (r.kind === "bundled") return r.source;
-  return null;
+  if (typeof spec === "string") return { source: spec };
+  if (typeof spec === "object" && "source" in (spec as Record<string, unknown>)) {
+    return spec as MicMediaProps;
+  }
+  // Old shape: raw MediaSpec object (has "key" / "url" / "asset" / "emoji" / "data").
+  return { source: spec as MediaSpec };
+}
+
+function hasResolvableSource(spec: MediaSpec): boolean {
+  return resolveMedia(spec).kind !== "empty";
 }
 
 // ── VoiceToggle ──────────────────────────────────────────────────────────────
@@ -48,15 +73,18 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const bindPath = node.bind?.value;
   const size = Number(props.size) || 38;
 
-  // Backend-supplied media for the idle and recording states. Both accept the
-  // full MediaSpec shape (media-store key, url, bundled asset, data URI). The
-  // recording source may be an animated GIF / APNG — RN plays those natively,
-  // so the "continuous animation while recording" case is a single image with
-  // motion baked in. When either is missing we fall back to the built-in
-  // Tailzu-mark → line morph, so old bootstraps keep working unchanged.
-  const idleMedia = toImageSource((props.iconIdle ?? props.icon) as MediaSpec | undefined);
-  const recordingMedia = toImageSource(props.iconRecording as MediaSpec | undefined);
-  const useCustomMedia = idleMedia != null;
+  // Backend-supplied media for the idle and recording states. Each accepts
+  // either a raw MediaSpec (media-store key / url / asset / emoji / data URI)
+  // OR the rich `{ source, autoplay?, loop?, speed?, muted?, maxDurationMs?,
+  // tint?, onEnd? }` shape that the MediaPlayer consumes. The rich form
+  // covers Lottie / video / animated-image playback controls (loop timing,
+  // speed, muted-autoplay, hard duration cap, action-on-end).
+  //
+  // Missing / empty spec → falls back to the built-in Tailzu-mark → line
+  // morph so a fresh deploy without uploaded assets keeps rendering.
+  const idleMic = normaliseMic(props.iconIdle ?? props.icon);
+  const recordingMic = normaliseMic(props.iconRecording);
+  const useCustomMedia = idleMic != null && hasResolvableSource(idleMic.source);
   const bg = String(props.background ?? "#fff");
   const contentScale = Number(props.contentScale) || 0.7;
 
@@ -112,11 +140,21 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   };
 
   // Backend-supplied media path — swap the built-in mark → line morph for
-  // two <Image> sources (recording one may be an animated GIF/APNG). Falls
-  // back to whichever is provided when only one of the two is set: the same
-  // image is shown in both states but the press-scale animation still plays.
+  // the MediaPlayer, which renders image / GIF / APNG / Lottie / video from
+  // one uniform spec, with backend-controlled playback (loop, speed, autoplay,
+  // max duration, tint, muted, onEnd action).
   if (useCustomMedia) {
-    const activeSource = (recording && recordingMedia) ? recordingMedia : idleMedia;
+    // Pick the active media for the current mic state. If iconRecording isn't
+    // supplied we keep showing iconIdle but let the caller's autoplay control
+    // decide whether it animates during recording (a Lottie could be a
+    // one-shot on tap, for instance).
+    const active = (recording && recordingMic) ? recordingMic : idleMic!;
+    // Fire the node's onComplete NodeEvent when playback ends, so backend can
+    // wire any action tree via on.onComplete on the VoiceToggle node.
+    // Payload distinguishes idle vs recording so the same action can branch.
+    const handleEnd = active.fireOnEnd
+      ? () => fire("onComplete", { state: recording ? "recording" : "idle" })
+      : undefined;
     return (
       <Pressable
         onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
@@ -130,13 +168,19 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             { transform: [{ scale: press }] },
           ]}
         >
-          {activeSource ? (
-            <RNImage
-              source={activeSource}
-              resizeMode="contain"
-              style={{ width: size * contentScale, height: size * contentScale }}
-            />
-          ) : null}
+          <MediaPlayer
+            spec={active.source}
+            style={{ width: size * contentScale, height: size * contentScale }}
+            contentFit="contain"
+            tintColor={active.tint}
+            autoplay={active.autoplay}
+            loop={active.loop}
+            speed={active.speed}
+            muted={active.muted}
+            maxDurationMs={active.maxDurationMs}
+            playing={active.playing}
+            onEnd={handleEnd}
+          />
         </Animated.View>
       </Pressable>
     );
