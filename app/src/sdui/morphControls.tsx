@@ -49,6 +49,28 @@ type MicMediaProps = {
   /** When true, this state's media fires the node's `onComplete` NodeEvent
    * on playback end. Wire an SDUI action tree in `on.onComplete` to react. */
   fireOnEnd?: boolean;
+  /**
+   * Voice-reactive playback. When true (default: false), the media's `speed`
+   * is driven live by the recorder's audio level while recording, so the
+   * animation gets faster when the user speaks louder and slower when they
+   * whisper. Only meaningful during the "recording" state (idle state uses
+   * `speed` as authored).
+   *
+   * NOTE: this is amplitude-driven, not fundamental-pitch. True pitch
+   * detection needs FFT on raw PCM which expo-audio doesn't expose. For
+   * mic-button viz effects, amplitude reads the same to the eye.
+   *
+   * Only Lottie + video/MP4 respect a live speed change — GIF/APNG can't be
+   * retimed at the OS level, so those animations keep looping at their
+   * baked-in rate regardless of this flag.
+   */
+  voiceReactive?: boolean;
+  /** Speed multiplier bounds. Default [0.5, 2.0]. */
+  speedRange?: [number, number];
+  /** Level (dB) window that maps into speedRange. Default [-45, -5]. */
+  levelRange?: [number, number];
+  /** Attack/release smoothing 0…1 (default 0.7 — higher = more sluggish). */
+  speedSmoothing?: number;
 };
 
 function normaliseMic(spec: unknown): MicMediaProps | null {
@@ -65,11 +87,36 @@ function hasResolvableSource(spec: MediaSpec): boolean {
   return resolveMedia(spec).kind !== "empty";
 }
 
+/**
+ * Map an audio level in dB (typically -160…0) into a normalized [0,1] where
+ * 0 = quiet floor and 1 = loud ceiling of the supplied range. Values outside
+ * are clamped so the derived speed never explodes.
+ */
+function levelToUnit(db: number, range: [number, number]): number {
+  const [floor, ceil] = range;
+  if (!Number.isFinite(db)) return 0;
+  const t = (db - floor) / (ceil - floor);
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
 // ── VoiceToggle ──────────────────────────────────────────────────────────────
 export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // Same preset as before but with metering explicitly on so we can read the
+  // recorder's dB level in real time. HIGH_QUALITY leaves this off by default
+  // — spreading it lets voice-reactive playback work without changing the
+  // recording format the backend expects.
+  const recorderPreset = useMemo(
+    () => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }),
+    [],
+  );
+  const recorder = useAudioRecorder(recorderPreset);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Live speed multiplier driven by mic level. Only used when
+  // active.voiceReactive === true; otherwise the media plays at
+  // active.speed (or 1).
+  const [voiceSpeed, setVoiceSpeed] = useState(1);
+  const voiceSpeedRef = useRef(1);
   const bindPath = node.bind?.value;
   const size = Number(props.size) || 38;
 
@@ -91,6 +138,52 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const collapse = useRef(new Animated.Value(0)).current; // 0 soundwave, 1 line
   const press = useRef(new Animated.Value(1)).current;
   const morphTo = useCallback((v: number) => Animated.spring(collapse, { toValue: v, ...SPRING }).start(), [collapse]);
+
+  // Pull config for the voice-reactive path off whichever media is currently
+  // relevant (recording state — that's when the mic actually samples). Falls
+  // back to sane defaults when the backend hasn't opted in.
+  const activeReactive = recordingMic ?? idleMic;
+  const voiceReactive = !!activeReactive?.voiceReactive;
+  const speedRange = activeReactive?.speedRange ?? [0.5, 2.0];
+  const levelRange = activeReactive?.levelRange ?? [-45, -5];
+  const smoothing = Math.max(0, Math.min(0.98, activeReactive?.speedSmoothing ?? 0.7));
+
+  // Poll the recorder's metering while recording — we sample at ~30Hz which
+  // is plenty for a visible effect without churning the JS thread. The value
+  // is smoothed via a one-pole IIR (attack/release lag) so a spike doesn't
+  // yank the animation and a lull doesn't slam it to a halt.
+  useEffect(() => {
+    if (!recording || !voiceReactive) return;
+    let alive = true;
+    const [minS, maxS] = speedRange;
+    const id = setInterval(() => {
+      if (!alive) return;
+      try {
+        // expo-audio's getStatus returns metering only when
+        // isMeteringEnabled was set on the preset (we do that above).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const status: any = (recorder as any).getStatus?.();
+        const db: number = typeof status?.metering === "number" ? status.metering : -160;
+        const t = levelToUnit(db, levelRange);
+        const target = minS + t * (maxS - minS);
+        const next = voiceSpeedRef.current * smoothing + target * (1 - smoothing);
+        voiceSpeedRef.current = next;
+        setVoiceSpeed(next);
+      } catch {
+        /* recorder unavailable — leave speed as-is */
+      }
+    }, 33);
+    return () => { alive = false; clearInterval(id); };
+  }, [recording, voiceReactive, recorder, speedRange, levelRange, smoothing]);
+
+  // When we leave recording, snap the speed back to the authored value so
+  // the idle animation isn't stuck in whatever the last loud moment left.
+  useEffect(() => {
+    if (!recording) {
+      voiceSpeedRef.current = 1;
+      setVoiceSpeed(1);
+    }
+  }, [recording]);
 
   const start = useCallback(async () => {
     try {
@@ -184,7 +277,13 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             tintColor={active.tint}
             autoplay={active.autoplay}
             loop={active.loop}
-            speed={active.speed}
+            speed={
+              // Voice-reactive during recording — otherwise honor the
+              // authored speed (default 1 when unset).
+              recording && voiceReactive
+                ? voiceSpeed
+                : (active.speed ?? 1)
+            }
             muted={active.muted}
             maxDurationMs={active.maxDurationMs}
             playing={effectivePlaying}
