@@ -14,16 +14,31 @@
  * interaction is haptic-tuned.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable } from "react-native";
+import { Animated, Image as RNImage, Pressable } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
 import * as api from "../api";
 import type { CompProps } from "./components";
 import { useStoreVersion } from "./state";
+import { resolveMedia, type MediaSpec } from "../media/resolveMedia";
 
 const MARK = require("../../assets/tailzu-mark.png");
 const SPRING = { friction: 7, tension: 120, useNativeDriver: true };
+
+/**
+ * Turn a MediaSpec into an <Image>-usable source, or null if the spec
+ * doesn't resolve (backend key not registered yet, etc). Animated GIF /
+ * APNG works out of the box — RN's Image plays them automatically, which
+ * covers the "keep playing while recording" case for the mic UI.
+ */
+function toImageSource(spec: MediaSpec | undefined | null): { uri: string } | number | null {
+  if (!spec) return null;
+  const r = resolveMedia(spec);
+  if (r.kind === "uri") return { uri: r.uri };
+  if (r.kind === "bundled") return r.source;
+  return null;
+}
 
 // ── VoiceToggle ──────────────────────────────────────────────────────────────
 export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
@@ -32,6 +47,18 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const [busy, setBusy] = useState(false);
   const bindPath = node.bind?.value;
   const size = Number(props.size) || 38;
+
+  // Backend-supplied media for the idle and recording states. Both accept the
+  // full MediaSpec shape (media-store key, url, bundled asset, data URI). The
+  // recording source may be an animated GIF / APNG — RN plays those natively,
+  // so the "continuous animation while recording" case is a single image with
+  // motion baked in. When either is missing we fall back to the built-in
+  // Tailzu-mark → line morph, so old bootstraps keep working unchanged.
+  const idleMedia = toImageSource((props.iconIdle ?? props.icon) as MediaSpec | undefined);
+  const recordingMedia = toImageSource(props.iconRecording as MediaSpec | undefined);
+  const useCustomMedia = idleMedia != null;
+  const bg = String(props.background ?? "#fff");
+  const contentScale = Number(props.contentScale) || 0.7;
 
   const collapse = useRef(new Animated.Value(0)).current; // 0 soundwave, 1 line
   const press = useRef(new Animated.Value(1)).current;
@@ -84,6 +111,37 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     transform: [{ scaleX: collapse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }],
   };
 
+  // Backend-supplied media path — swap the built-in mark → line morph for
+  // two <Image> sources (recording one may be an animated GIF/APNG). Falls
+  // back to whichever is provided when only one of the two is set: the same
+  // image is shown in both states but the press-scale animation still plays.
+  if (useCustomMedia) {
+    const activeSource = (recording && recordingMedia) ? recordingMedia : idleMedia;
+    return (
+      <Pressable
+        onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
+        onPressOut={() => Animated.spring(press, { toValue: 1, friction: 6, tension: 220, useNativeDriver: true }).start()}
+        onPress={() => (recording ? stop() : start())}
+        disabled={busy}
+      >
+        <Animated.View
+          style={[
+            { width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+            { transform: [{ scale: press }] },
+          ]}
+        >
+          {activeSource ? (
+            <RNImage
+              source={activeSource}
+              resizeMode="contain"
+              style={{ width: size * contentScale, height: size * contentScale }}
+            />
+          ) : null}
+        </Animated.View>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
@@ -93,11 +151,11 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     >
       <Animated.View
         style={[
-          { width: size, height: size, borderRadius: size / 2, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+          { width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: "center", justifyContent: "center", overflow: "hidden" },
           { transform: [{ scale: press }] },
         ]}
       >
-        <Animated.Image source={MARK} resizeMode="contain" style={[{ width: size * 0.7, height: size * 0.7, position: "absolute" }, markStyle]} />
+        <Animated.Image source={MARK} resizeMode="contain" style={[{ width: size * contentScale, height: size * contentScale, position: "absolute" }, markStyle]} />
         <Animated.View style={[{ position: "absolute", width: size * 0.5, height: 2.6, borderRadius: 2, backgroundColor: "#000" }, lineStyle]} />
       </Animated.View>
     </Pressable>
