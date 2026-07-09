@@ -183,7 +183,28 @@ const config: ExpoConfig = {
     "expo-contacts",
     "expo-calendar",
     "expo-video",
-    "expo-splash-screen",
+    // Splash / launch screen. Shows the Tailzu mark centered on the app's
+    // dark ground. `resizeMode: "contain"` keeps the mark crisp on every
+    // device size. Light-mode users see the same treatment — we're a
+    // dark-first app.
+    //
+    // Replace assets/splash.png with a 1242×1242 (or higher) PNG when the
+    // real brand splash is ready; until then, tailzu-mark.png works.
+    [
+      "expo-splash-screen",
+      {
+        backgroundColor: "#0e0e12",
+        image: "./assets/splash.png",
+        imageWidth: 240,
+        resizeMode: "contain",
+        dark: {
+          backgroundColor: "#0e0e12",
+          image: "./assets/splash.png",
+          imageWidth: 240,
+          resizeMode: "contain",
+        },
+      },
+    ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
     // fails the whole run when it isn't declared here even though the module
     // works fine without any native config to add.
