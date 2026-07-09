@@ -1699,6 +1699,9 @@ final class SDUIRenderer: NSObject {
       // Backend can also override the idle icon (default = bundled TailzuMark).
       if let img = resolveIcon(markSpec, onLoad: { [weak self] in self?.stateChanged() }) {
         btn.setImage(img, for: .normal)
+        // Animated images (GIF/APNG) only loop once the imageView is told to
+        // — otherwise UIKit shows the first frame frozen.
+        btn.imageView?.startAnimating()
       }
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -2407,13 +2410,51 @@ final class SDUIRenderer: NSObject {
       guard let self = self else { return }
       DispatchQueue.main.async {
         self.remoteImageInflight.remove(url)
-        guard let d = data, let img = UIImage(data: d) else { return }
+        // Route through TulmiImageLoader.decode-style so GIF / APNG land as
+        // an animatedImage instead of a frozen first frame. Delegating to
+        // that helper's cache also means both the SDUI + hand-built paths
+        // share the same warm memory across keyboard opens.
+        guard let d = data else { return }
+        guard let img = self.decodeAnimated(d) else { return }
         self.remoteImageCache[url] = img
         self.persistRemoteImage(data: d, url: url)
         onLoad?()
       }
     }.resume()
     return nil
+  }
+
+  /// Decode a downloaded blob as either a static image or a multi-frame
+  /// animated one (GIF / APNG). Uses ImageIO — no third-party dep, and it's
+  /// always linked by the SDK.
+  private func decodeAnimated(_ data: Data) -> UIImage? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
+      return UIImage(data: data)
+    }
+    let count = CGImageSourceGetCount(src)
+    if count <= 1 { return UIImage(data: data) }
+    var frames: [UIImage] = []
+    var total: TimeInterval = 0
+    for i in 0..<count {
+      guard let cg = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+      total += Self.gifFrameDuration(src, index: i)
+      frames.append(UIImage(cgImage: cg))
+    }
+    if frames.isEmpty { return UIImage(data: data) }
+    return UIImage.animatedImage(with: frames, duration: total)
+  }
+
+  private static func gifFrameDuration(_ src: CGImageSource, index: Int) -> TimeInterval {
+    guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [String: Any] else { return 0.1 }
+    if let gif = props[kCGImagePropertyGIFDictionary as String] as? [String: Any] {
+      if let d = gif[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
+      if let d = gif[kCGImagePropertyGIFDelayTime as String] as? Double, d > 0.0009 { return d }
+    }
+    if let png = props[kCGImagePropertyPNGDictionary as String] as? [String: Any] {
+      if let d = png[kCGImagePropertyAPNGUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
+      if let d = png[kCGImagePropertyAPNGDelayTime as String] as? Double, d > 0.0009 { return d }
+    }
+    return 0.1
   }
 
   private func remoteImageCacheDir() -> URL? {
@@ -2439,7 +2480,9 @@ final class SDUIRenderer: NSObject {
   private func loadPersistedRemoteImage(_ url: String) -> UIImage? {
     guard let f = remoteImageFile(for: url),
           let data = try? Data(contentsOf: f) else { return nil }
-    return UIImage(data: data)
+    // Same GIF/APNG handling as the network path so a cached animated file
+    // reanimates on the next open of the keyboard.
+    return decodeAnimated(data)
   }
 
   private func persistRemoteImage(data: Data, url: String) {

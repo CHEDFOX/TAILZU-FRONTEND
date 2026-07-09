@@ -448,10 +448,30 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return b
   }
 
-  /// The Tailzu brand mark (the soundwave logo) bundled in the keyboard
-  /// target's Assets.xcassets. Rendered as-is (already black) so it reads as
-  /// the logo on the white circle. Falls back to the SF mic symbol if missing.
+  /// The mic-button image. Backend can push a custom asset (static image OR
+  /// animated GIF/APNG) via the `kb.mic.idleIcon.url` config flag; when set,
+  /// we return that (animated frames included). Falls back to the bundled
+  /// TailzuMark, then the SF `mic.fill` symbol.
   private func brandMarkImage() -> UIImage {
+    if let url = kbConfig?.flags["kb.mic.idleIcon.url"] as? String,
+       !url.isEmpty {
+      if let img = TulmiImageLoader.cached(url, onLoad: { [weak self] in
+        // Re-apply the image on the button once the async fetch completes,
+        // and kick UIKit into playing the animation loop.
+        guard let self = self else { return }
+        DispatchQueue.main.async {
+          if let ready = TulmiImageLoader.cached(url) {
+            self.micButton.setImage(ready, for: .normal)
+            self.micButton.imageView?.startAnimating()
+          }
+        }
+      }) {
+        // If the image is animated, UIKit picks that up from
+        // `UIImage.animatedImage(with:duration:)` and the imageView loops it
+        // once startAnimating() fires (kicked below whenever we set it).
+        return img
+      }
+    }
     if let mark = UIImage(named: "TailzuMark") {
       return mark.withRenderingMode(.alwaysOriginal)
     }
@@ -789,7 +809,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func cancelHandoff() {
     handoff.cancelPending()
     isHandoffActive = false
-    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
     setStatus("")
   }
 
@@ -911,7 +931,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func endStreaming() {
     isStreaming = false
     stream = nil
-    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
     sduiRenderer?.reflectDictating(false)
   }
@@ -981,7 +1001,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func stopAndTranscribe() {
     isRecording = false
-    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
     sduiRenderer?.reflectDictating(false)
     audioRecorder?.stop()
     try? AVAudioSession.sharedInstance().setActive(false)
