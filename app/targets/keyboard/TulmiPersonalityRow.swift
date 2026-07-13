@@ -162,7 +162,10 @@ final class TulmiPersonalityRow: UIView {
   private func showTonePopover(anchor: UIButton, presetId: String) {
     dismissPopover()
 
+    // "None" first — it's the default and the fastest path (raw transcript,
+    // no LLM cleanup). The other four apply a refine pass in the tone's voice.
     let tones: [(id: String, label: String)] = [
+      ("none", "None · raw"),
       ("formal", "Formal"),
       ("casual", "Casual"),
       ("very-casual", "Very Casual"),

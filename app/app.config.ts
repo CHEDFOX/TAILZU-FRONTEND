@@ -10,7 +10,12 @@ import { ExpoConfig } from "expo/config";
  * App Store review. Extra binary weight is a few MB and worth it.
  */
 const config: ExpoConfig = {
-  name: "Tulmi",
+  // User-visible name (under the home-screen icon + in Settings → General →
+  // iPhone Storage). `slug` and bundleIdentifier stay as "tulmi" because
+  // both are baked into the EAS project + App Groups + Keychain groups +
+  // Supabase project — renaming those would rebuild every entitlement and
+  // break the shared bearer token between app + keyboard.
+  name: "Tailzu",
   slug: "tulmi",
   version: "0.1.0",
   orientation: "portrait",
