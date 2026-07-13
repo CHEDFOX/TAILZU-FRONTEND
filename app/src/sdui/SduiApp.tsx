@@ -131,21 +131,25 @@ export default function SduiApp() {
       // Hand the keyboard the live backend URL + user token.
       void syncKeyboardCredentials();
 
-      // First screen after auth: the native (Plutto-style) language picker.
-      // Shown once for users still in onboarding (initialScreenId !== "home")
-      // who haven't chosen a language yet; afterwards we resume at the keyboard
-      // step. The server owns the rest of onboarding.
-      // Onboarding: the language picker is the one native step (Plutto-style),
-      // fed by the backend; everything else — including the keyboard-permission
-      // screen — is a backend SDUI screen. The server owns initialScreenId; once
-      // a language is chosen we hand off to the backend's keyboard step.
-      const needsOnboarding = b.initialScreenId !== "home";
+      // First screen after auth. Every routing decision goes through
+      // backend flags — the client no longer hardcodes screen ids or
+      // branches on their string values.
+      //
+      // Backend controls:
+      //   flags["needsLanguagePick"]     bool — should the native language
+      //                                    step run before initialScreenId?
+      //   flags["postLanguageScreenId"]  str  — screen to render after the
+      //                                    language step commits.
+      const needsLanguagePick = boot?.flags?.["needsLanguagePick"] === true
+        || b.flags?.["needsLanguagePick"] === true;
       const langPicked = !!(await getLanguage());
-      if (needsOnboarding && !langPicked) {
+      if (needsLanguagePick && !langPicked) {
         setPhase("language");
         return;
       }
-      setStack([{ screenId: needsOnboarding ? "onboarding_keyboard" : b.initialScreenId }]);
+      const postLangScreenId =
+        (b.flags?.["postLanguageScreenId"] as string | undefined) ?? b.initialScreenId;
+      setStack([{ screenId: needsLanguagePick ? postLangScreenId : b.initialScreenId }]);
       setPhase("ready");
     } catch {
       setPhase("connect");
@@ -327,7 +331,15 @@ export default function SduiApp() {
   }
 
   if (phase === "language") {
-    return <LanguageSelectScreen onSelect={onLanguageSelect} languages={boot?.languages} />;
+    return (
+      <LanguageSelectScreen
+        onSelect={onLanguageSelect}
+        languages={boot?.languages}
+        bg={boot?.theme?.color?.bg}
+        text={boot?.theme?.color?.text}
+        borderColor={boot?.theme?.color?.border}
+      />
+    );
   }
 
   if (phase === "connect" || showConnection) {
@@ -374,7 +386,7 @@ export default function SduiApp() {
             <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
           </Pressable>
         ) : (
-          <Text style={[styles.brand, { color: theme.color.text }]}>{screen?.title ?? "Tulmi"}</Text>
+          <Text style={[styles.brand, { color: theme.color.text }]}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
         )}
         {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]}>{screen?.title ?? ""}</Text>}
         <Pressable onPress={() => setShowConnection(true)} hitSlop={10}>
@@ -466,6 +478,7 @@ export default function SduiApp() {
           info={update}
           forced={updateForced}
           theme={theme}
+          labels={boot?.labels ?? {}}
           onDismiss={() => setUpdateDismissed(true)}
         />
       )}
@@ -474,9 +487,11 @@ export default function SduiApp() {
           sits above the screen content; null when there's no back / disabled. */}
       {edgeZone}
 
-      {/* Post-onboarding name + gender card — blurs Home behind it and blocks
-          the app until name + gender are set. Shown once, only on Home. */}
-      {!profileDone && current?.screenId === "home" && (
+      {/* Post-onboarding name + gender card — blurs the screen behind it
+          until name + gender are set. Backend decides which screens the
+          gate can appear on via flags["profileGate.screenIds"]; falls
+          back to "home" only for backward-compat with old bootstrap. */}
+      {!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags) && (
         <ProfileGate
           onDone={() => setProfileDoneState(true)}
           mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
@@ -487,6 +502,21 @@ export default function SduiApp() {
 }
 
 /** Compare dotted versions: returns <0, 0, >0. */
+/**
+ * Whether the ProfileGate overlay should render given the current screen.
+ * Backend controls via `flags["profileGate.screenIds"]` (array of screen
+ * ids). When unset, falls back to only "home" so old backends still work.
+ */
+function shouldShowProfileGate(
+  currentScreenId: string | undefined,
+  flags: Record<string, unknown> | undefined,
+): boolean {
+  if (!currentScreenId) return false;
+  const allowed = flags?.["profileGate.screenIds"];
+  if (Array.isArray(allowed)) return allowed.includes(currentScreenId);
+  return currentScreenId === "home";
+}
+
 function cmpVersion(a: string, b: string): number {
   const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
   const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
@@ -502,11 +532,13 @@ function UpdateGateOverlay({
   info,
   forced,
   theme,
+  labels,
   onDismiss,
 }: {
   info: UpdateGate;
   forced: boolean;
   theme: ThemeTokens;
+  labels: Record<string, string>;
   onDismiss: () => void;
 }) {
   const storeUrl = info.url?.[Platform.OS === "ios" ? "ios" : "android"] ?? info.url?.default;
@@ -516,20 +548,24 @@ function UpdateGateOverlay({
       alignItems: "center", justifyContent: "center", padding: 28,
     }]}>
       <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 10 }}>
-        {info.title ?? "Update Tulmi"}
+        {info.title ?? labels["updateGate.title"] ?? "Update available"}
       </Text>
       <Text style={{ color: theme.color.muted, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 22 }}>
-        {info.message ?? "A new version is available."}
+        {info.message ?? labels["updateGate.message"] ?? "A new version is available."}
       </Text>
       <Pressable
         onPress={() => storeUrl && Linking.openURL(storeUrl)}
         style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: 200, alignItems: "center" }}
       >
-        <Text style={{ color: theme.color.primaryText ?? "#fff", fontWeight: "700", fontSize: 15 }}>{info.cta ?? "Update now"}</Text>
+        <Text style={{ color: theme.color.primaryText ?? "#fff", fontWeight: "700", fontSize: 15 }}>
+          {info.cta ?? labels["updateGate.cta"] ?? "Update now"}
+        </Text>
       </Pressable>
       {!forced && (
         <Pressable onPress={onDismiss} style={{ marginTop: 14 }}>
-          <Text style={{ color: theme.color.muted }}>Not now</Text>
+          <Text style={{ color: theme.color.muted }}>
+            {labels["updateGate.dismiss"] ?? "Not now"}
+          </Text>
         </Pressable>
       )}
     </View>
