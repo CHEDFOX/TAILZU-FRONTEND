@@ -1013,6 +1013,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     let inserted = text.hasSuffix(" ") ? text : text + " "
     proxy.insertText(inserted)
+    flashKeysForText(inserted)
     pendingPartial = ""
     dictatedSomething = true
     // Track for the top-bar UNDO. Multiple finals in one session collapse to
@@ -1135,6 +1136,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         switch result {
         case .success(let cleaned):
           self.textDocumentProxy.insertText(cleaned)
+          self.flashKeysForText(cleaned)
           self.lastInserted = cleaned
           self.lastRawTranscript = nil
           self.setStatus("")
@@ -1186,10 +1188,80 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     proxy.adjustTextPosition(byCharacterOffset: after.count)
     for _ in 0..<(before.count + after.count) { proxy.deleteBackward() }
     proxy.insertText(newText)
+    flashKeysForText(newText)
     // Track for UNDO: keep the pre-refine text as "raw" so a single undo tap
     // reverts refine back to what the user originally had.
     lastInserted = newText
     lastRawTranscript = before + after
+  }
+
+  // MARK: - Key flash on response arrival
+
+  /// Fired whenever a refined / transcribed response lands at the cursor.
+  /// Runs a staggered orange flash across the keys that spell out the
+  /// arriving text — a visible "the keyboard just typed that" signal that
+  /// echoes the response in the physical space the user is looking at
+  /// (the keys), not the text field (which is in another app entirely).
+  ///
+  /// Backend flags (all optional, sensible defaults baked in):
+  ///   kb.flash.color            — hex accent (default = the keyboard's
+  ///                                accent color)
+  ///   kb.flash.durationMs       — how long each key stays orange
+  ///                                (default 260ms)
+  ///   kb.flash.staggerMs        — delay between successive letters
+  ///                                (default 32ms — feels like ~30wpm)
+  ///   kb.flash.enabled          — false → no-op the whole feature
+  private func flashKeysForText(_ text: String) {
+    let flags = kbConfig?.flags ?? [:]
+    if (flags["kb.flash.enabled"] as? Bool) == false { return }
+
+    let colorHex = flags["kb.flash.color"] as? String ?? kbConfig?.accent ?? "#E8A23C"
+    let flashColor = UIColor(tulmiHex: colorHex)
+    let durationMs = flags["kb.flash.durationMs"] as? Double ?? 260
+    let staggerMs = flags["kb.flash.staggerMs"] as? Double ?? 32
+    let duration = durationMs / 1000.0
+    let stagger = staggerMs / 1000.0
+
+    // Cap at a reasonable length so a paragraph-long refine doesn't queue
+    // 500 animations — the eye reads "typing wave" in the first ~30 keys.
+    let charLimit = 40
+    let chars = Array(text.lowercased().prefix(charLimit))
+
+    for (i, ch) in chars.enumerated() {
+      let delay = Double(i) * stagger
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        self?.flashKey(matching: ch, color: flashColor, duration: duration)
+      }
+    }
+  }
+
+  /// Locate the on-screen key that would insert `char` and briefly tint it.
+  /// Space is the space bar; letters map by title; unknown chars are ignored
+  /// (they'd need a page switch to be visible; the flash still adds up on
+  /// letters even if a few chars miss).
+  private func flashKey(matching char: Character, color: UIColor, duration: TimeInterval) {
+    let target: UIButton?
+
+    if char == " " {
+      // Space is one of the persistent bottom-row buttons.
+      target = bottomKeys.first(where: { $0.currentTitle == " " || $0.titleLabel?.text?.trimmingCharacters(in: .whitespaces).isEmpty == true })
+    } else {
+      // Letters: match by button title (case-insensitive, ignoring shift state).
+      let want = String(char)
+      target = allKeys.first { btn in
+        (btn.currentTitle ?? "").lowercased() == want
+      }
+    }
+
+    guard let btn = target else { return }
+    let restore = btn.backgroundColor ?? .clear
+    UIView.animate(withDuration: 0.08, animations: {
+      btn.backgroundColor = color
+    }, completion: { _ in
+      UIView.animate(withDuration: duration - 0.08, delay: 0, options: [.curveEaseOut], animations: {
+        btn.backgroundColor = restore
+      })
+    })
   }
 
   // MARK: - Status
