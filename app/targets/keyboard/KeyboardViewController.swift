@@ -385,12 +385,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     stack.addArrangedSubview(personalityRow)
 
-    // Status line (hidden until there's something to say).
-    statusLabel.textColor = UIColor(white: 0.7, alpha: 1)
-    statusLabel.font = .systemFont(ofSize: 12)
-    statusLabel.textAlignment = .center
+    // Status band above the tone chips was intentionally removed — the mic
+    // button's orange press state + the flash-across-keys animation on
+    // refined-text arrival provide all the "is something happening?" feedback
+    // we need. Keeping the label instance around (unattached) so setStatus()
+    // stays a safe no-op instead of crashing on an implicitly-unwrapped nil.
     statusLabel.isHidden = true
-    stack.addArrangedSubview(statusLabel)
 
     // Bottom row first (persistent), then insert the per-page key rows above it.
     buildBottomRow()
@@ -447,7 +447,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     row3.heightAnchor.constraint(equalToConstant: 44).isActive = true
     keyRowStacks.append(row3)
 
-    // Insert above the bottom row (which sits at index 2 after topBar + status).
+    // Insert above the bottom row (which sits at index 2 after topBar + personalityRow).
     for (i, r) in keyRowStacks.enumerated() {
       mainStack.insertArrangedSubview(r, at: 2 + i)
     }
@@ -1267,9 +1267,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Status
 
   private func setStatus(_ text: String) {
-    statusLabel.text = text
-    statusLabel.isHidden = text.isEmpty
-    // Mirror to the SDUI renderer so any StatusLabel node re-renders too.
+    // Status band above the tone chips was intentionally removed — the mic
+    // button's orange press state + the flash-across-keys on refined-text
+    // arrival are the entire dictation-feedback story now. We still keep
+    // the underlying state.status mirrored into the SDUI renderer so any
+    // downstream binding (analytics, action guards, tests) that reads it
+    // continues to work; we just never draw it. The native label is force-
+    // hidden so a hot-reload of an older backend tree that re-adds a
+    // StatusLabel can't smuggle text back in either.
+    statusLabel.text = ""
+    statusLabel.isHidden = true
     sduiRenderer?.reflectStatus(text)
   }
 
