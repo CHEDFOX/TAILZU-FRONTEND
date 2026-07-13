@@ -902,6 +902,20 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     case .finalText(let text):
       commitFinal(text)
     case .error(let msg):
+      // Silent fallback: if the WebSocket dropped BEFORE we ever committed
+      // a word, the user hasn't perceived streaming yet — flip to local
+      // (batch) recording so they still get their text. Once at least one
+      // partial has landed, we've committed to streaming and surface the
+      // error to avoid losing that partial to a re-record.
+      if !dictatedSomething && pendingPartial.isEmpty {
+        endStreaming()
+        setStatus(label("listening", "🎙️ Listening…"))
+        // Kick the local-record path with the same session state so the
+        // user doesn't have to tap the mic again.
+        let session = AVAudioSession.sharedInstance()
+        beginRecording(session: session)
+        return
+      }
       setStatus("Error: \(msg)")
       endStreaming()
     case .closed:
