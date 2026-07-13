@@ -28,6 +28,7 @@ import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
+import { SpringPressable } from "./motion";
 import { DictionaryEditor, WordChips } from "./dictionary";
 
 /**
@@ -206,23 +207,26 @@ const Icon = ({ props, style }: CompProps) => {
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
   const isSecondary = props.variant === "secondary";
+  const isGhost = props.variant === "ghost";
   const bg =
     props.variant === "danger" ? theme.color.danger :
+    isGhost ? "transparent" :
     isSecondary ? "#3a3a44" : theme.color.primary;
   // Secondary stays white text on its dark chip; primary/danger auto-contrast so
   // a white button reads with black text (and orange/dark with white).
-  const labelColor = isSecondary ? "#fff" : readableOn(bg);
+  const labelColor = isGhost ? theme.color.text : (isSecondary ? "#fff" : readableOn(bg));
   return (
-    <Pressable
+    <SpringPressable
       onPress={() => fire("onPress")}
       disabled={props.disabled}
-      style={({ pressed }) => [
-        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, alignItems: "center", opacity: props.disabled ? 0.5 : pressed ? 0.85 : 1 },
+      impactOnRelease={!isSecondary && !isGhost}
+      style={[
+        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, alignItems: "center", opacity: props.disabled ? 0.5 : 1 },
         style,
       ]}
     >
       <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{titleCase(props.label ?? "")}</Text>
-    </Pressable>
+    </SpringPressable>
   );
 };
 
@@ -257,11 +261,13 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
   const theme = useTheme();
   const selected = props.group ? store.get(props.group) === props.value : !!props.selected;
   return (
-    <Pressable
+    <SpringPressable
       onPress={() => {
         if (props.group) store.set(props.group, props.value);
         fire("onPress");
       }}
+      // Chips get a slightly gentler press than buttons — they're smaller.
+      pressScale={0.92}
       style={[
         {
           paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.radius.pill, borderWidth: 1,
@@ -272,7 +278,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
       ]}
     >
       <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{titleCase(props.label ?? "")}</Text>
-    </Pressable>
+    </SpringPressable>
   );
 };
 
