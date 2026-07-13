@@ -185,10 +185,15 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recording]);
 
+  const errPermission = String(props.errorPermission ?? "Microphone permission denied");
+  const errMic = String(props.errorMic ?? "mic error");
+  const errNoAudio = String(props.errorNoAudio ?? "No audio captured");
+  const errTranscribe = String(props.errorTranscribe ?? "transcription failed");
+
   const start = useCallback(async () => {
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) { fire("onError", "Microphone permission denied"); return; }
+      if (!perm.granted) { fire("onError", errPermission); return; }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
@@ -197,9 +202,9 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       morphTo(1);
     } catch (e: any) {
-      fire("onError", e?.message ?? "mic error");
+      fire("onError", e?.message ?? errMic);
     }
-  }, [recorder, store, fire, morphTo]);
+  }, [recorder, store, fire, morphTo, errPermission, errMic]);
 
   const stop = useCallback(async () => {
     setRecording(false);
@@ -210,18 +215,18 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri) throw new Error("No audio captured");
+      if (!uri) throw new Error(errNoAudio);
       const { cleanedText } = await api.transcribeClean(uri, { targetApp: props.targetApp, language: props.language });
       if (bindPath) store.set(bindPath, cleanedText);
       fire("onChange", cleanedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", e?.message ?? "transcription failed");
+      fire("onError", e?.message ?? errTranscribe);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
     }
-  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo]);
+  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo, errNoAudio, errTranscribe]);
 
   const markStyle = {
     opacity: collapse.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 0, 0] }),
@@ -308,7 +313,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
         ]}
       >
         <Animated.Image source={MARK} resizeMode="contain" style={[{ width: size * contentScale, height: size * contentScale, position: "absolute" }, markStyle]} />
-        <Animated.View style={[{ position: "absolute", width: size * 0.5, height: 2.6, borderRadius: 2, backgroundColor: "#000" }, lineStyle]} />
+        <Animated.View style={[{ position: "absolute", width: size * 0.5, height: 2.6, borderRadius: 2, backgroundColor: String(props.lineColor ?? "#000") }, lineStyle]} />
       </Animated.View>
     </Pressable>
   );
@@ -334,8 +339,8 @@ function shapePath(W: number, H: number, m: number, f: number): string {
 }
 
 function MorphPad({
-  width: W, height: H, working, recording, onPress, disabled,
-}: { width: number; height: number; working: boolean; recording: boolean; onPress: () => void; disabled: boolean }) {
+  width: W, height: H, working, recording, onPress, disabled, bg, stroke,
+}: { width: number; height: number; working: boolean; recording: boolean; onPress: () => void; disabled: boolean; bg?: string; stroke?: string }) {
   const morph = useRef(new Animated.Value(0)).current; // 0 zig-zag, 1 wave
   const flat = useRef(new Animated.Value(0)).current;   // 0 normal, 1 line
   const press = useRef(new Animated.Value(1)).current;
@@ -371,12 +376,12 @@ function MorphPad({
     >
       <Animated.View
         style={[
-          { width: W, height: H, borderRadius: H / 2, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+          { width: W, height: H, borderRadius: H / 2, backgroundColor: bg ?? "#fff", alignItems: "center", justifyContent: "center" },
           { transform: [{ scale: press }] },
         ]}
       >
         <Svg width={W} height={H}>
-          <Path ref={pathRef} d={initialD} stroke="#000" strokeWidth={2.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <Path ref={pathRef} d={initialD} stroke={stroke ?? "#000"} strokeWidth={2.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </Animated.View>
     </Pressable>
@@ -392,10 +397,13 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
   const W = Number(props.width) || 150;
   const H = Number(props.height) || 50;
 
+  const errEmpty = String(props.errorEmpty ?? "Type or speak something first");
+  const errFail = String(props.errorFail ?? "refine failed");
+
   const onPress = useCallback(async () => {
     if (recording || working) return;
     const text = (bindPath ? store.get(bindPath) : "") || "";
-    if (!String(text).trim()) { fire("onError", "Type or speak something first"); return; }
+    if (!String(text).trim()) { fire("onError", errEmpty); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setWorking(true);
     try {
@@ -404,14 +412,14 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
       fire("onChange", refinedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", e?.message ?? "refine failed");
+      fire("onError", e?.message ?? errFail);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setWorking(false);
     }
-  }, [recording, working, bindPath, store, props.targetApp, props.language, fire]);
+  }, [recording, working, bindPath, store, props.targetApp, props.language, fire, errEmpty, errFail]);
 
-  return <MorphPad width={W} height={H} working={working} recording={recording} onPress={onPress} disabled={recording || working} />;
+  return <MorphPad width={W} height={H} working={working} recording={recording} onPress={onPress} disabled={recording || working} bg={props.bg} stroke={props.stroke} />;
 };
 
 // ── DraftButton — composes a reply via /v1/draft (message + intent → result) ──
@@ -425,11 +433,14 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
   const W = Number(props.width) || 150;
   const H = Number(props.height) || 50;
 
+  const errEmpty = String(props.errorEmpty ?? "Paste a message and say your intent");
+  const errFail = String(props.errorFail ?? "draft failed");
+
   const onPress = useCallback(async () => {
     if (recording || working) return;
     const message = String(store.get(msgKey) || "");
     const intent = String(store.get(intentKey) || "");
-    if (!message.trim() || !intent.trim()) { fire("onError", "Paste a message and say your intent"); return; }
+    if (!message.trim() || !intent.trim()) { fire("onError", errEmpty); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setWorking(true);
     try {
@@ -438,12 +449,12 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
       fire("onChange", draftText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", e?.message ?? "draft failed");
+      fire("onError", e?.message ?? errFail);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setWorking(false);
     }
-  }, [recording, working, msgKey, intentKey, resultKey, store, props.targetApp, props.language, fire]);
+  }, [recording, working, msgKey, intentKey, resultKey, store, props.targetApp, props.language, fire, errEmpty, errFail]);
 
-  return <MorphPad width={W} height={H} working={working} recording={recording} onPress={onPress} disabled={recording || working} />;
+  return <MorphPad width={W} height={H} working={working} recording={recording} onPress={onPress} disabled={recording || working} bg={props.bg} stroke={props.stroke} />;
 };
