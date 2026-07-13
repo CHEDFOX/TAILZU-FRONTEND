@@ -198,15 +198,17 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
+        // Full-bleed splash — no imageWidth so the image fills the whole
+        // screen. `resizeMode: "cover"` crops as needed to stay edge-to-edge
+        // on any aspect ratio; the brand mark stays center-safe as long as
+        // splash.png keeps important content inside the middle 60%.
         backgroundColor: "#0e0e12",
         image: "./assets/splash.png",
-        imageWidth: 240,
-        resizeMode: "contain",
+        resizeMode: "cover",
         dark: {
           backgroundColor: "#0e0e12",
           image: "./assets/splash.png",
-          imageWidth: 240,
-          resizeMode: "contain",
+          resizeMode: "cover",
         },
       },
     ],

@@ -1703,12 +1703,16 @@ final class SDUIRenderer: NSObject {
         btn.imageView?.startAnimating()
       }
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
+      // Default inset is 2pt — the mark reads edge-to-edge on the circular
+      // button so the brand is legible. Backend can override with
+      // kb.mic.idleIconInset when a specific art needs padding.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
+      btn.imageView?.contentMode = .scaleAspectFit
       btn.imageEdgeInsets = UIEdgeInsets(
-        top: flagCGFloat("kb.mic.idleIconInset", 12),
-        left: flagCGFloat("kb.mic.idleIconInset", 12),
-        bottom: flagCGFloat("kb.mic.idleIconInset", 12),
-        right: flagCGFloat("kb.mic.idleIconInset", 12),
+        top: flagCGFloat("kb.mic.idleIconInset", 2),
+        left: flagCGFloat("kb.mic.idleIconInset", 2),
+        bottom: flagCGFloat("kb.mic.idleIconInset", 2),
+        right: flagCGFloat("kb.mic.idleIconInset", 2),
       )
     } else {
       btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
