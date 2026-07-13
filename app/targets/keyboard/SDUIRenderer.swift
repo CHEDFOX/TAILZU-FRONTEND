@@ -1502,7 +1502,6 @@ final class SDUIRenderer: NSObject {
     // avoids the accidental double-tap-on-fast-typing problem).
     state.shift.toggle()
     lastShiftTapTime = Date().timeIntervalSince1970
-    lastShiftTapTime = now
     stateChanged()
   }
 
