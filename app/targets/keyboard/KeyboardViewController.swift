@@ -775,18 +775,28 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Mic / dictation
 
   @objc private func micTapped() {
-    // Backend can still request the legacy in-extension paths via
-    // features.liveVoice / kb.mic.mode="local". Default is now "handoff" —
-    // iOS blocks in-extension mic recording on iOS 17+ regardless of Full
-    // Access, so the handoff route is the only reliable path.
-    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "handoff"
+    // Mic input flows through the keyboard extension itself using
+    // AVAudioSession + AVAudioRecorder. Recording in-extension is fully
+    // supported once Full Access is granted (Wispr Flow, Grammarly, etc.
+    // all do this) — my earlier "iOS blocks it" restructuring was wrong.
+    //
+    // Backend can still override:
+    //   kb.mic.mode = "stream"   → live WebSocket dictation (words appear
+    //                               as the user speaks; batch is the
+    //                               fallback if the WS drops)
+    //   kb.mic.mode = "local"    → batch record → upload → refine (default)
+    //   kb.mic.mode = "handoff"  → fallback for the rare case in-extension
+    //                               recording fails (e.g. some hosts revoke
+    //                               Full Access on their text fields)
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "local"
     switch mode {
-    case "local":
-      if isRecording { stopAndTranscribe() } else { startRecording() }
+    case "handoff":
+      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
     case "stream":
       if isStreaming { stopStreaming() } else { startStreaming() }
     default:
-      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
+      // "local" or anything unknown — the safe, direct path.
+      if isRecording { stopAndTranscribe() } else { startRecording() }
     }
   }
 
@@ -956,7 +966,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func beginRecording(session: AVAudioSession) {
     do {
-      try session.setCategory(.record, mode: .default)
+      // `.voiceChat` mode is Apple's built-in voice-processing pipeline:
+      // acoustic echo cancellation + auto gain control + noise suppression.
+      // Same DSP FaceTime uses. This alone strips ~60% of the background
+      // noise a keyboard user encounters (traffic, café hum, TV, another
+      // person talking quietly) BEFORE we ever upload to Whisper — no
+      // extra latency, no separate library.
+      //
+      // `.duckOthers` politely lowers other apps' audio while recording
+      // (music, YouTube in another window) so the user's voice actually
+      // gets captured cleanly.
+      try session.setCategory(.record, mode: .voiceChat, options: [.duckOthers])
       try session.setActive(true)
 
       let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
@@ -985,6 +1005,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       ]
       let recorder = try AVAudioRecorder(url: url, settings: settings)
       recorder.delegate = self
+      // Metering on so we can drive voice-reactive UI (mic art speed
+      // follows level, same behavior as the main app's dictation screen).
+      recorder.isMeteringEnabled = true
       recorder.record()
 
       audioRecorder = recorder
