@@ -44,6 +44,8 @@ import { initSentry } from "../telemetry/sentry";
 import { initBilling, restorePurchases, isBillingEnabled } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
+import { IntroScreen } from "../intro/IntroScreen";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
@@ -82,6 +84,16 @@ export default function SduiApp() {
   // Whether the post-onboarding name + gender card is done (loaded from storage;
   // default true so it never flashes before we know).
   const [profileDone, setProfileDoneState] = useState(true);
+
+  // Post-splash intro screen. Shown once (or every launch when the backend
+  // sets intro.showEveryLaunch) between bootstrap landing and the first
+  // real screen render. See src/intro/IntroScreen.tsx.
+  const [introDismissed, setIntroDismissed] = useState(false);
+  const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem("intro.seen.v1").then((v) => setHasSeenIntro(v === "true"))
+      .catch(() => setHasSeenIntro(false));
+  }, []);
 
   useEffect(() => { getProfileDone().then(setProfileDoneState).catch(() => {}); }, []);
 
@@ -350,9 +362,41 @@ export default function SduiApp() {
       <View style={[styles.center, { backgroundColor: splashBg }]}>
         <ActivityIndicator color={splashSpinner} size="large" />
         <Text style={{ color: splashText, marginTop: 12 }}>
-          {boot?.labels?.["app.loading"] ?? "Loading Tulmi…"}
+          {boot?.labels?.["app.loading"] ?? "Loading Tailzu…"}
         </Text>
       </View>
+    );
+  }
+
+  // Post-splash intro. Renders full-screen media once — either only on the
+  // first launch, or every launch when the backend flips
+  // intro.showEveryLaunch. The MediaSpec + max duration are pushed via
+  // bootstrap flags so any redesign is a backend edit.
+  //
+  // We wait until hasSeenIntro has resolved from AsyncStorage (null →
+  // "unknown yet") so the intro NEVER flashes on top of a re-open just
+  // because AsyncStorage is slow.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const introSpec = boot?.flags?.["intro.media"] as any;
+  const introEveryLaunch = boot?.flags?.["intro.showEveryLaunch"] === true;
+  const shouldShowIntro =
+    !introDismissed &&
+    hasSeenIntro !== null &&
+    !!introSpec &&
+    (introEveryLaunch || hasSeenIntro === false);
+  if (shouldShowIntro) {
+    return (
+      <IntroScreen
+        spec={introSpec}
+        maxDurationMs={Number(boot?.flags?.["intro.maxDurationMs"]) || 4500}
+        background={String(boot?.flags?.["intro.background"] ?? theme.color.bg)}
+        onDone={() => {
+          setIntroDismissed(true);
+          // Persist so we don't play the intro again unless the backend
+          // explicitly asks. Best-effort — never blocks dismiss.
+          AsyncStorage.setItem("intro.seen.v1", "true").catch(() => {});
+        }}
+      />
     );
   }
 
