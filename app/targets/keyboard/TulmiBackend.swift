@@ -126,6 +126,34 @@ enum TulmiBackend {
     )
   }
 
+  /// Small PUT to /v1/personality — used by the personality chip row to
+  /// switch preset + tone without pulling the whole profile down. Backend
+  /// does a partial merge so an { activePresetId, activeTone } body doesn't
+  /// disturb the rest of the profile (vocabulary, sign-off, etc.).
+  static func putPersonalityQuick(
+    body: [String: Any],
+    completion: @escaping (Result<Void, Error>) -> Void,
+  ) {
+    guard let url = URL(string: "\(baseUrl)/v1/personality") else {
+      completion(.failure(BackendError.badResponse))
+      return
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "PUT"
+    req.timeoutInterval = 15
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    URLSession.shared.dataTask(with: req) { _, response, error in
+      if let error = error { completion(.failure(error)); return }
+      if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        completion(.failure(BackendError.http(http.statusCode, "")))
+        return
+      }
+      completion(.success(()))
+    }.resume()
+  }
+
   static func refine(
     text: String,
     targetApp: String,

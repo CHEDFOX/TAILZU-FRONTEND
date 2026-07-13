@@ -76,10 +76,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var recordingURL: URL?
   private var isRecording = false
 
-  // Mic handoff: iOS blocks in-extension recording so mic taps bounce through
-  // the main app. See TulmiHandoff.swift. `isHandoffActive` tracks the
-  // "waiting for the main app to send back cleaned text" state so the mic
-  // button reflects it and a second tap cancels.
+  // Personality quick-swap row above the keys — tap = switch, long-press =
+  // tone popover. Content flows from the keyboard config's
+  // kb.personality.pinned flag. See TulmiPersonalityRow.swift.
+  private let personalityRow = TulmiPersonalityRow()
+
+  // Mic handoff: kept as a fallback for hosts that refuse in-extension
+  // recording. Default path is now local (see micTapped) — my earlier
+  // "iOS blocks recording" refactor was wrong; Wispr Flow, Grammarly, etc.
+  // all record in-extension with Full Access on.
   private lazy var handoff: TulmiHandoff = {
     let h = TulmiHandoff()
     h.onResult = { [weak self] text, cancelled in
@@ -265,6 +270,68 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     statusLabel.textColor = UIColor(tulmiHex: cfg.keyText)
     micButton?.isEnabled = cfg.voice
     micButton?.alpha = cfg.voice ? 1 : 0.4
+
+    // Personality chip row — populated from the pinned presets on the
+    // config. Backend passes them in the `flags` bag as
+    // kb.personality.pinned (array of { id, name, emoji, tone }).
+    populatePersonalityRow(from: cfg, accent: accentColor)
+  }
+
+  /// Read the pinned personalities from config flags and (re)render the row.
+  /// Hides the row entirely when the user hasn't pinned anything so the
+  /// keyboard's total height doesn't shift for casual users.
+  private func populatePersonalityRow(from cfg: TulmiBackend.KbConfig, accent: UIColor) {
+    let raw = cfg.flags["kb.personality.pinned"] as? [[String: Any]] ?? []
+    if raw.isEmpty {
+      personalityRow.isHidden = true
+      return
+    }
+    let chips: [TulmiPersonalityRow.ChipData] = raw.compactMap { m in
+      guard let id = m["id"] as? String, !id.isEmpty else { return nil }
+      return TulmiPersonalityRow.ChipData(
+        id: id,
+        name: (m["name"] as? String) ?? id.capitalized,
+        emoji: (m["emoji"] as? String) ?? "•",
+        tone: (m["tone"] as? String) ?? "casual",
+      )
+    }
+    if chips.isEmpty {
+      personalityRow.isHidden = true
+      return
+    }
+    let activeId = (cfg.flags["kb.personality.activeId"] as? String) ?? chips[0].id
+    let chipBg = UIColor(tulmiHex: cfg.key).withAlphaComponent(0.7)
+    let chipFg = UIColor(tulmiHex: cfg.keyText).withAlphaComponent(0.9)
+    personalityRow.update(chips: chips, activeId: activeId,
+                          accentColor: accent, chipBgColor: chipBg, chipFgColor: chipFg)
+    personalityRow.isHidden = false
+  }
+
+  /// Chip tapped (or a tone chosen in the long-press popover). Fires a
+  /// backend save so the next refine call uses the new voice/tone; also
+  /// updates our in-memory cfg so the row stays in sync without a full
+  /// config refetch.
+  private func applyPersonalityChange(presetId: String, tone: String?) {
+    // Persist server-side (best-effort — never block the keyboard on a
+    // network hop). Backend's PUT /v1/personality does a partial merge, so
+    // sending just these two fields doesn't disturb the user's vocabulary.
+    let body: [String: Any] = tone == nil
+      ? ["activePresetId": presetId]
+      : ["activePresetId": presetId, "activeTone": tone!]
+    TulmiBackend.putPersonalityQuick(body: body) { _ in /* fire-and-forget */ }
+
+    // Optimistically flip the row's active state so the UI feels instant.
+    var flags = kbConfig?.flags ?? [:]
+    flags["kb.personality.activeId"] = presetId
+    if let tone = tone { flags["kb.personality.activeTone"] = tone }
+    if let cfg = kbConfig {
+      let next = TulmiBackend.KbConfig(
+        background: cfg.background, key: cfg.key, keyText: cfg.keyText, accent: cfg.accent,
+        voice: cfg.voice, refine: cfg.refine, liveVoice: cfg.liveVoice, labels: cfg.labels,
+        flags: flags,
+      )
+      kbConfig = next
+    }
   }
 
   private func label(_ key: String, _ fallback: String) -> String {
@@ -308,6 +375,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     [menuBtn, undoButton!, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
     topBar.heightAnchor.constraint(equalToConstant: 40).isActive = true
     stack.addArrangedSubview(topBar)
+
+    // Personality quick-swap row — 6 chips of the user's pinned voices.
+    // Hidden by default; the config-fetch reveals it when
+    // kb.personality.pinned is populated. See TulmiPersonalityRow.swift.
+    personalityRow.isHidden = true
+    personalityRow.onSelect = { [weak self] presetId, tone in
+      self?.applyPersonalityChange(presetId: presetId, tone: tone)
+    }
+    stack.addArrangedSubview(personalityRow)
 
     // Status line (hidden until there's something to say).
     statusLabel.textColor = UIColor(white: 0.7, alpha: 1)
