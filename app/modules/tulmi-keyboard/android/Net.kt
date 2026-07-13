@@ -60,6 +60,13 @@ object Net {
         val refine: Boolean,
         val liveVoice: Boolean,
         val labels: Map<String, String>,
+        /**
+         * Per-key accent glyphs for long-press. Keys are lowercase letters
+         * (e.g. "a"); values are the list of accented characters shown in
+         * the popover. Backend sets this in bootstrap flags under
+         * `kb.accents.<char>`; missing = no menu for that key.
+         */
+        val accents: Map<String, List<Char>> = emptyMap(),
     )
 
     fun parseConfig(s: String): KbConfig {
@@ -69,6 +76,19 @@ object Net {
         val l = o.getJSONObject("labels")
         val labels = HashMap<String, String>()
         for (k in l.keys()) labels[k] = l.getString(k)
+
+        // Accent glyphs — backend authors kb.accents.<char> = "áâäàā" as a
+        // string; we split into a Char list. Absent object → empty map.
+        val accents = HashMap<String, List<Char>>()
+        val flags = o.optJSONObject("flags")
+        val accentsObj = flags?.optJSONObject("kb.accents")
+        if (accentsObj != null) {
+            for (k in accentsObj.keys()) {
+                val v = accentsObj.optString(k, "")
+                if (v.isNotEmpty()) accents[k.lowercase()] = v.toList()
+            }
+        }
+
         return KbConfig(
             background = t.optString("background", "#15151b"),
             keyText = t.optString("keyText", "#ffffff"),
@@ -77,6 +97,7 @@ object Net {
             refine = f.optBoolean("refine", true),
             liveVoice = f.optBoolean("liveVoice", false),
             labels = labels,
+            accents = accents,
         )
     }
 
