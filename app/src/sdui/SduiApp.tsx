@@ -41,7 +41,7 @@ import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics } from "../telemetry/analytics";
 import { initSentry } from "../telemetry/sentry";
-import { initBilling, restorePurchases, isBillingEnabled } from "../billing/purchases";
+import { initBilling, restorePurchases, isBillingEnabled, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
 
@@ -149,7 +149,27 @@ export default function SduiApp() {
       }
       const postLangScreenId =
         (b.flags?.["postLanguageScreenId"] as string | undefined) ?? b.initialScreenId;
-      setStack([{ screenId: needsLanguagePick ? postLangScreenId : b.initialScreenId }]);
+      const firstScreenId = needsLanguagePick ? postLangScreenId : b.initialScreenId;
+
+      // Paywall gate — backend requests it via flags. Two triggers:
+      //   paywall.blockUntilEntitled  hard-gate every launch until unlocked
+      //   paywall.showAfterOnboarding show once after onboarding completes
+      // Both look up hasEntitlement(flags["paywall.entitlement"]) so RevenueCat
+      // owns the truth. When lacking, we push "paywall" onto the stack on top
+      // of the first screen so back-nav lands the user in the app naturally.
+      const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
+      const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;
+      const paywallAfterOnboarding = b.flags?.["paywall.showAfterOnboarding"] === true;
+      const lacksEntitlement =
+        !!paywallEnt && isBillingEnabled() && !hasEntitlement(paywallEnt);
+      const shouldShowPaywall =
+        lacksEntitlement && (paywallBlock || paywallAfterOnboarding);
+
+      if (shouldShowPaywall) {
+        setStack([{ screenId: firstScreenId }, { screenId: "paywall" }]);
+      } else {
+        setStack([{ screenId: firstScreenId }]);
+      }
       setPhase("ready");
     } catch {
       setPhase("connect");
