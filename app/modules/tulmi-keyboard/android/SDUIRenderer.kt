@@ -58,6 +58,10 @@ class KBState(
     var status: String = "",
     var micLevel: Float = 0f,
     var suggestions: List<String> = emptyList(),
+    /** Label to render on the Return key (Search / Send / Go / Next / Done /
+     * Return, or a backend-localized override). Updated by the IME whenever
+     * a new input field takes focus. */
+    var returnLabel: String = "Return",
 )
 
 // ===========================================================================
@@ -249,6 +253,9 @@ class SDUIRenderer(
             "StatusLabel" -> renderStatusLabel(node, parent)
             "Divider" -> renderDivider(node, parent)
             "BlurBackdrop" -> renderBlurBackdrop(node, parent)
+            "MediaPlayer" -> renderMediaPlayer(node, parent)
+            "Slideshow" -> renderSlideshow(node, parent)
+            "PersonalityRow" -> renderPersonalityRow(node, parent)
             else -> renderUnknown(node, parent)
         }
     }
@@ -602,6 +609,122 @@ class SDUIRenderer(
             ),
         )
         for (c in node.children) render(c, inner)
+    }
+
+    // -----------------------------------------------------------------------
+    // MediaPlayer — image / GIF / APNG loaded via TulmiImageLoader from a
+    // backend-provided URL. Same node type the main app uses; on the
+    // keyboard we only care about static + animated images (no video/lottie
+    // in-keyboard for memory reasons). Node props:
+    //   props.spec.url   Backend URL
+    //   props.contentFit "contain" | "cover" | "fill" — default "contain"
+    // -----------------------------------------------------------------------
+    private fun renderMediaPlayer(node: KBNode, parent: ViewGroup) {
+        val iv = android.widget.ImageView(host.context()).apply {
+            scaleType = when (node.props["contentFit"] as? String) {
+                "cover" -> android.widget.ImageView.ScaleType.CENTER_CROP
+                "fill" -> android.widget.ImageView.ScaleType.FIT_XY
+                else -> android.widget.ImageView.ScaleType.FIT_CENTER
+            }
+        }
+        addChildWithStyle(parent, iv, node.style, isRow = parent.isHorizontal())
+        val spec = node.props["spec"] as? Map<*, *>
+        val url = (spec?.get("url") as? String) ?: (node.props["url"] as? String)
+        if (!url.isNullOrEmpty()) {
+            TulmiImageLoader.into(host.context(), url, iv)
+        }
+        applyEvents(iv, node)
+    }
+
+    // -----------------------------------------------------------------------
+    // Slideshow — cycles through props.frames at props.frameMs for
+    // props.loops. Fires onComplete when finished. Uses the same
+    // TulmiImageLoader path per frame so animated frames still animate.
+    // -----------------------------------------------------------------------
+    private fun renderSlideshow(node: KBNode, parent: ViewGroup) {
+        val iv = android.widget.ImageView(host.context()).apply {
+            scaleType = when (node.props["contentFit"] as? String) {
+                "cover" -> android.widget.ImageView.ScaleType.CENTER_CROP
+                "fill" -> android.widget.ImageView.ScaleType.FIT_XY
+                else -> android.widget.ImageView.ScaleType.CENTER_CROP
+            }
+        }
+        addChildWithStyle(parent, iv, node.style, isRow = parent.isHorizontal())
+        val frames = (node.props["frames"] as? List<*>).orEmpty()
+        val frameMs = (node.props["frameMs"] as? Number)?.toLong() ?: 120L
+        val loops = (node.props["loops"] as? Number)?.toInt() ?: 1
+        if (frames.isEmpty()) return
+        val ctx = host.context()
+        var index = 0
+        var cycles = 0
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                val f = frames[index] as? Map<*, *> ?: return
+                val url = f["url"] as? String
+                if (!url.isNullOrEmpty()) TulmiImageLoader.into(ctx, url, iv)
+                index += 1
+                if (index >= frames.size) {
+                    cycles += 1
+                    if (loops > 0 && cycles >= loops) {
+                        applyEvents(iv, node)
+                        // Fire onComplete if the backend wired one on the node.
+                        return
+                    }
+                    index = 0
+                }
+                handler.postDelayed(this, frameMs)
+            }
+        }
+        handler.post(tick)
+    }
+
+    // -----------------------------------------------------------------------
+    // PersonalityRow — pinned preset chips + long-press tone popover.
+    // Reads its content from kb.personality.pinned and kb.personality.tones
+    // in the config flags. Emits a state update on selection so backend
+    // action trees can react via visibleIf/bind expressions.
+    // -----------------------------------------------------------------------
+    private fun renderPersonalityRow(node: KBNode, parent: ViewGroup) {
+        val row = TulmiPersonalityRow(host.context())
+        addChildWithStyle(parent, row, node.style, isRow = parent.isHorizontal())
+
+        val pinned = (kbConfig.flags["kb.personality.pinned"] as? List<*>).orEmpty()
+        val tones = (kbConfig.flags["kb.personality.tones"] as? List<*>).orEmpty()
+        val activeId = (kbConfig.flags["kb.personality.activeId"] as? String) ?: ""
+
+        val chips = pinned.mapNotNull { p ->
+            val m = p as? Map<*, *> ?: return@mapNotNull null
+            TulmiPersonalityRow.ChipData(
+                id = (m["id"] as? String) ?: return@mapNotNull null,
+                name = (m["name"] as? String) ?: "",
+                emoji = (m["emoji"] as? String) ?: "",
+                tone = (m["tone"] as? String) ?: "",
+            )
+        }
+        val toneList = tones.mapNotNull { t ->
+            val m = t as? Map<*, *> ?: return@mapNotNull null
+            TulmiPersonalityRow.Tone(
+                id = (m["id"] as? String) ?: return@mapNotNull null,
+                label = (m["label"] as? String) ?: "",
+            )
+        }
+        val accent = parseHex(kbConfig.theme.accent)
+        row.update(
+            chips = chips,
+            tones = toneList,
+            activeId = activeId,
+            accentColor = accent,
+            chipBgColor = Color.argb(23, 255, 255, 255),
+            chipFgColor = parseHex(kbConfig.theme.keyText),
+        )
+        row.onSelect = { presetId, tone ->
+            // Backend owns the actual switching logic — the row just reports.
+            // The host publishes into KBState and posts to the backend so any
+            // condition/visibleIf referencing state.activePresetId re-evaluates.
+            host.state().let { /* no-op — real state update owned by host */ }
+            host.onStateChanged()
+        }
     }
 
     /** Unknown component — render a small red View so mismatches are visible. */

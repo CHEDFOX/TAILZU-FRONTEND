@@ -71,6 +71,25 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private var recorder: MediaRecorder? = null
     private var audioFile: File? = null
     private var recording = false
+    private var audioFx: TulmiAudioFx? = null
+
+    // Voice-reactive UI wants the recorder's amplitude every ~33ms. We can't
+    // read MediaRecorder.maxAmplitude directly on a background thread, so we
+    // schedule a Handler tick on the main queue and push the smoothed level
+    // into kbState.micLevel for whatever SDUI nodes bind to it.
+    private var micLevelTimer: Runnable? = null
+    private var smoothedLevel: Float = 0f
+
+    // Long-press-to-cursor on the space bar. Ticks a follow-up gesture that
+    // interprets ACTION_MOVE dx as InputConnection.setSelection() displacement.
+    private var spaceDragging = false
+    private var spaceDragAnchorX = 0f
+    private var spaceDragAnchorSel = 0
+
+    // Backspace acceleration — hold-to-delete-faster with a decaying interval.
+    private val backspaceTicks = arrayOf(280L, 180L, 120L, 80L, 45L, 25L)
+    private var backspaceTickIndex = 0
+    private var backspaceRunnable: Runnable? = null
 
     // Live (streaming) dictation state. Used when the server enables
     // features.liveVoice; otherwise we fall back to the file-based path.
@@ -422,18 +441,29 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         try {
             val file = File(cacheDir, "tulmi_rec.m4a")
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
-            rec.setAudioSource(MediaRecorder.AudioSource.MIC)
+            // VOICE_COMMUNICATION activates the OS voice-processing pipeline
+            // (AEC + NS + AGC where the vendor implements it) — matches the
+            // iOS AVAudioSession .voiceChat mode, which is what makes the
+            // background-voice + hiss rejection possible.
+            rec.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             rec.setAudioSamplingRate(16000)
             rec.setOutputFile(file.absolutePath)
             rec.prepare()
             rec.start()
+            // Layer TulmiAudioFx on top so devices that don't route
+            // VOICE_COMMUNICATION through the shared pipeline still get
+            // application-level AEC/NS/AGC. audioSessionId isn't exposed on
+            // MediaRecorder, but the global session (id 0) accepts effects
+            // that apply to any active input on this app.
+            audioFx = TulmiAudioFx.attach(audioSessionId = 0)
             recorder = rec
             audioFile = file
             recording = true
             kbState.dictating = true
             sduiRenderer?.stateChanged()
+            startMicLevelPolling()
             setStatus(label("listening", "🎙️ Listening… tap mic to stop"))
         } catch (e: Exception) {
             setStatus("Mic error: ${e.message}")
@@ -478,6 +508,45 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         } catch (_: Exception) {
         }
         recorder = null
+        try { audioFx?.close() } catch (_: Throwable) {}
+        audioFx = null
+        stopMicLevelPolling()
+    }
+
+    // ---------------------------------------------------------------------
+    // Voice-reactive mic-level polling. maxAmplitude is a 16-bit signed int
+    // — we normalize to [0, 1] and IIR-smooth it so a single burst doesn't
+    // jerk the animation. Publishes into kbState.micLevel so SDUI nodes that
+    // bind to it (MediaPlayer speed, Waveform bars if a backend ever adds
+    // them back) get live values.
+    // ---------------------------------------------------------------------
+
+    private fun startMicLevelPolling() {
+        stopMicLevelPolling()
+        smoothedLevel = 0f
+        val fps = 30f
+        val periodMs = (1000f / fps).toLong()
+        val alpha = 0.35f  // one-pole IIR — 0..1, higher = less smoothing
+        val tick = object : Runnable {
+            override fun run() {
+                val rec = recorder ?: return
+                val amp = try { rec.maxAmplitude } catch (_: Throwable) { 0 }
+                val norm = (amp / 32767f).coerceIn(0f, 1f)
+                smoothedLevel = smoothedLevel * (1 - alpha) + norm * alpha
+                kbState.micLevel = smoothedLevel
+                sduiRenderer?.stateChanged()
+                main.postDelayed(this, periodMs)
+            }
+        }
+        micLevelTimer = tick
+        main.postDelayed(tick, periodMs)
+    }
+
+    private fun stopMicLevelPolling() {
+        micLevelTimer?.let { main.removeCallbacks(it) }
+        micLevelTimer = null
+        kbState.micLevel = 0f
+        sduiRenderer?.stateChanged()
     }
 
     // --- refine (smart autocorrect of the whole field) ----------------------
@@ -505,6 +574,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
                     setStatus("")
+                    flashKeysForText(refined)
                 }
             } catch (e: Exception) {
                 main.post {
@@ -514,6 +584,77 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 }
             }
         }.start()
+    }
+
+    // ---------------------------------------------------------------------
+    // Orange word-flash across letter keys — mirrors the iOS
+    // KeyboardViewController.flashKeysForText behaviour. Whenever refined
+    // text lands, walk every key in the current view tree that represents
+    // a letter that appears in the incoming string and animate its
+    // background between authored key-fill and brand-accent for ~120ms,
+    // staggered by index so it reads as a left-to-right wave rather than a
+    // simultaneous pop.
+    //
+    // No hardcoded list of keys — we walk rootView recursively and pick out
+    // anything that IS a Button/TextView with a single-char letter label.
+    // Backend-driven layouts (new symbol pages, extra keys, non-Latin
+    // scripts) all light up correctly because the discovery is purely by
+    // shape, not by a static keymap.
+    // ---------------------------------------------------------------------
+
+    private fun flashKeysForText(text: String) {
+        val root = rootView ?: return
+        val letters = text.lowercase().toCharArray().toSet()
+        if (letters.isEmpty()) return
+        val hits = mutableListOf<TextView>()
+        walkLetterKeys(root, letters, hits)
+        if (hits.isEmpty()) return
+        val accentHex = kbConfig?.accent ?: "#ff6b1f"
+        val accent = try { SDUIRenderer.parseHex(accentHex) } catch (_: Throwable) { Color.parseColor("#ff6b1f") }
+        val perStagger = 25L
+        val flashMs = 260L
+        hits.sortBy { locationX(it) }
+        hits.forEachIndexed { i, key ->
+            main.postDelayed({ flashOneKey(key, accent, flashMs) }, i * perStagger)
+        }
+    }
+
+    private fun walkLetterKeys(v: View, letters: Set<Char>, out: MutableList<TextView>) {
+        if (v is TextView && v !is Button && v.text?.length == 1) {
+            val ch = v.text[0].lowercaseChar()
+            if (ch in letters) out.add(v)
+            return
+        }
+        if (v is Button && v.text?.length == 1) {
+            val ch = v.text[0].lowercaseChar()
+            if (ch in letters) out.add(v)
+            return
+        }
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) walkLetterKeys(v.getChildAt(i), letters, out)
+        }
+    }
+
+    private fun locationX(v: View): Int {
+        val out = IntArray(2)
+        v.getLocationOnScreen(out)
+        return out[0]
+    }
+
+    private fun flashOneKey(v: TextView, accent: Int, ms: Long) {
+        val originalBg = v.background
+        val originalTint = v.currentTextColor
+        val flashBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 7f * resources.displayMetrics.density
+            setColor(accent)
+        }
+        v.background = flashBg
+        v.setTextColor(Color.parseColor("#14100c"))
+        main.postDelayed({
+            v.background = originalBg
+            v.setTextColor(originalTint)
+        }, ms)
     }
 
     // --- helpers ------------------------------------------------------------
@@ -555,6 +696,177 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             endStreaming()
         }
         setStatus("")
+    }
+
+    // ---------------------------------------------------------------------
+    // Text-field lifecycle. Runs every time a new input field takes focus.
+    // Refreshes auto-capitalization + Return-key label so both react to the
+    // field the keyboard is currently sitting on (email vs search vs
+    // messenger vs multi-line note).
+    // ---------------------------------------------------------------------
+
+    override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        refreshAutoCap()
+        refreshReturnKeyLabel(info)
+    }
+
+    override fun onUpdateSelection(
+        oldSelStart: Int, oldSelEnd: Int,
+        newSelStart: Int, newSelEnd: Int,
+        candidatesStart: Int, candidatesEnd: Int,
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        refreshAutoCap()
+    }
+
+    /**
+     * Auto-capitalize by asking the InputConnection whether the next
+     * character should be uppercased — Android's own text engine tells us
+     * (based on TextView.CAP_MODE_SENTENCES + the surrounding punctuation).
+     * The keyboard just observes; the field owner decides.
+     */
+    private fun refreshAutoCap() {
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo ?: return
+        val capMode = ic.getCursorCapsMode(info.inputType) and android.text.TextUtils.CAP_MODE_SENTENCES
+        val shouldCap = capMode != 0
+        if (caps != shouldCap) {
+            caps = shouldCap
+            keyboard?.isShifted = caps
+            keyboardView?.invalidateAllKeys()
+            kbState.shift = caps
+            sduiRenderer?.stateChanged()
+        }
+    }
+
+    /**
+     * Return-key label follows EditorInfo.imeOptions — same source iOS
+     * reads via UITextInputTraits.returnKeyType. When the host requests a
+     * specific action (search, send, done, next) we surface the localized
+     * label from kbConfig.labels so translations flow through the backend.
+     * Nothing hardcodes a language.
+     */
+    private fun refreshReturnKeyLabel(info: android.view.inputmethod.EditorInfo?) {
+        val opts = info?.imeOptions ?: 0
+        val action = opts and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+        val fallback = when (action) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH -> "Search"
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND -> "Send"
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO -> "Go"
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT -> "Next"
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE -> "Done"
+            else -> "Return"
+        }
+        val key = "return.${fallback.lowercase()}"
+        val labelText = kbConfig?.labels?.get(key) ?: fallback
+        kbState.returnLabel = labelText
+        sduiRenderer?.stateChanged()
+    }
+
+    // ---------------------------------------------------------------------
+    // Gesture layer. Backspace acceleration + space cursor-drag are wired
+    // as touch listeners on whichever concrete views the renderer creates
+    // — we look them up by tag on every remount so hot-swaps of the tree
+    // don't leave stale references.
+    // ---------------------------------------------------------------------
+
+    /** Attach hold-to-repeat + acceleration to a backspace button. */
+    fun bindBackspaceAcceleration(view: View) {
+        view.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    backspaceTickIndex = 0
+                    val r = object : Runnable {
+                        override fun run() {
+                            currentInputConnection?.deleteSurroundingText(1, 0)
+                            val idx = backspaceTickIndex.coerceAtMost(backspaceTicks.lastIndex)
+                            val delay = backspaceTicks[idx]
+                            backspaceTickIndex = (backspaceTickIndex + 1).coerceAtMost(backspaceTicks.lastIndex)
+                            main.postDelayed(this, delay)
+                        }
+                    }
+                    backspaceRunnable = r
+                    main.postDelayed(r, backspaceTicks[0])
+                    false
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    backspaceRunnable?.let { main.removeCallbacks(it) }
+                    backspaceRunnable = null
+                    v.performClick()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * Attach space long-press → cursor drag. During the drag the space
+     * key stops being a space key; ACTION_MOVE dx translates to selection
+     * displacement one character per ~14dp (matches iOS trackpad tuning).
+     */
+    fun bindSpaceCursorDrag(view: View) {
+        val threshold = view.resources.displayMetrics.density * 14f
+        view.setOnLongClickListener { v ->
+            spaceDragging = true
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            val ic = currentInputConnection
+            val before = ic?.getTextBeforeCursor(1_000_000, 0)?.length ?: 0
+            spaceDragAnchorSel = before
+            true
+        }
+        view.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    spaceDragAnchorX = ev.rawX
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (spaceDragging) {
+                        val dx = ev.rawX - spaceDragAnchorX
+                        val delta = (dx / threshold).toInt()
+                        val target = (spaceDragAnchorSel + delta).coerceAtLeast(0)
+                        currentInputConnection?.setSelection(target, target)
+                        true
+                    } else false
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    val wasDragging = spaceDragging
+                    spaceDragging = false
+                    if (wasDragging) true else { v.performClick(); false }
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * Attach long-press accent menu to a letter view. [accents] comes from
+     * the backend config (kb.accents[char]) so which accents show up for
+     * each key is a server-side decision; the keyboard never hardcodes a
+     * mapping. Empty accent list = no menu.
+     */
+    fun bindAccentLongPress(view: TextView, char: Char) {
+        val accents = kbConfig?.accents?.get(char.lowercase()) ?: return
+        if (accents.isEmpty()) return
+        view.setOnLongClickListener { v ->
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            val popup = PopupMenu(this, v)
+            accents.forEachIndexed { i, glyph ->
+                popup.menu.add(0, i, i, glyph.toString())
+            }
+            popup.setOnMenuItemClickListener { item ->
+                val glyph = accents.getOrNull(item.itemId) ?: return@setOnMenuItemClickListener false
+                val out = if (caps) glyph.uppercaseChar() else glyph
+                currentInputConnection?.commitText(out.toString(), 1)
+                true
+            }
+            popup.show()
+            true
+        }
     }
 
     // --- unused OnKeyboardActionListener members ----------------------------
