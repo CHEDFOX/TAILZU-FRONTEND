@@ -15,12 +15,15 @@
  * @type {import('@bacons/apple-targets').Config}
  */
 module.exports = {
-  // No space: the Xcode target `name` must equal the sanitized `productName`
-  // ("Tailzu") or EAS's "Configure Xcode project" step can't find the target to
-  // attach the provisioning profile. The user-facing keyboard name comes from
-  // CFBundleDisplayName in Info.plist (also "Tailzu").
+  // The Xcode target name must be DISTINCT from the main app target ("Tailzu")
+  // — otherwise Xcode collides on generated Info.plists and EAS applies the
+  // wrong provisioning profile ("Provisioning profile ... has app ID
+  // 'com.tulmi.app.keyboard', which does not match the bundle ID
+  // 'com.tulmi.app'"). The user-facing keyboard name comes from
+  // CFBundleDisplayName in Info.plist ("Tailzu"), so the change here is
+  // invisible to users.
   type: "keyboard",
-  name: "Tailzu",
+  name: "TailzuKeyboard",
   // The keyboard talks to the backend over the network; Open Access is granted
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
   entitlements: {
