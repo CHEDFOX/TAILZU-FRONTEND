@@ -37,6 +37,9 @@ export const CORE_COMPONENTS = [
   // v3 media
   "Video", "Audio", "Camera", "QRScanner", "ImagePickerButton",
   "Avatar", "AvatarStack",
+  // Slideshow — cycles through a MediaSpec[] at a backend-defined speed.
+  // Powers intro sequences, paywall carousels, onboarding walkthroughs.
+  "Slideshow",
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
