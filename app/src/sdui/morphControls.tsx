@@ -193,6 +193,19 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recording]);
 
+  // Release the app-wide mic lock + stop the recorder if this toggle unmounts
+  // mid-recording (tab switch, navigation, SDUI refetch). Without this the lock
+  // stays `true` for the rest of the session → every VoiceToggle reports "busy"
+  // and the mic is dead until app restart, and the AVAudioSession stays open.
+  const recordingRef = useRef(false);
+  useEffect(() => { recordingRef.current = recording; }, [recording]);
+  useEffect(() => () => {
+    if (recordingRef.current) {
+      micRecordingActive = false;
+      recorder.stop().catch(() => {});
+    }
+  }, [recorder]);
+
   const errPermission = String(props.errorPermission ?? "Microphone permission denied");
   const errMic = String(props.errorMic ?? "mic error");
   const errNoAudio = String(props.errorNoAudio ?? "No audio captured");

@@ -623,16 +623,22 @@ function ScreenHost({
   // while not-yet-ready and re-checks when the app returns from Settings.
   useEffect(() => {
     let stop = false;
+    // `iv` MUST be declared before sync() runs: the first synchronous sync()
+    // call below can hit `clearInterval(iv)` (when the keyboard already has
+    // Full Access), and a `const iv` declared afterward would be in its
+    // temporal dead zone → ReferenceError under Hermes, crashing the app on
+    // mount for exactly the users who completed keyboard setup.
+    let iv: ReturnType<typeof setInterval> | undefined;
     const sync = () => {
       const s = getKeyboardStatus();
       store.set("keyboardEnabled", s ? s.enabled : true);
       store.set("keyboardReady", s ? s.fullAccess : true);
-      if (s && s.fullAccess) { stop = true; clearInterval(iv); }
+      if (s && s.fullAccess) { stop = true; if (iv) clearInterval(iv); }
     };
     sync();
-    const iv = setInterval(() => { if (!stop) sync(); }, 1500);
+    iv = setInterval(() => { if (!stop) sync(); }, 1500);
     const subAS = AppState.addEventListener("change", (st) => { if (st === "active") sync(); });
-    return () => { clearInterval(iv); subAS.remove(); };
+    return () => { if (iv) clearInterval(iv); subAS.remove(); };
   }, [store]);
 
   // A screen is either a full `root` tree, or a named `template` + `blocks`.

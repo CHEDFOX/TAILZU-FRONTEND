@@ -73,22 +73,30 @@ export function resolveValue(value: any, ctx: Ctx): any {
 
 export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
   if (!cond) return true;
-  if ("eq" in cond) return resolveValue(`$state.${cond.eq[0]}`, ctx) === cond.eq[1];
-  if ("neq" in cond) return resolveValue(`$state.${cond.neq[0]}`, ctx) !== cond.neq[1];
-  if ("gt" in cond) return Number(resolveValue(`$state.${cond.gt[0]}`, ctx)) > cond.gt[1];
-  if ("gte" in cond) return Number(resolveValue(`$state.${cond.gte[0]}`, ctx)) >= cond.gte[1];
-  if ("lt" in cond) return Number(resolveValue(`$state.${cond.lt[0]}`, ctx)) < cond.lt[1];
-  if ("lte" in cond) return Number(resolveValue(`$state.${cond.lte[0]}`, ctx)) <= cond.lte[1];
-  if ("in" in cond) return cond.in[1].includes(resolveValue(`$state.${cond.in[0]}`, ctx));
-  if ("contains" in cond) return String(resolveValue(`$state.${cond.contains[0]}`, ctx) ?? "").includes(cond.contains[1]);
-  if ("truthy" in cond) return !!ctx.store.get(cond.truthy);
-  if ("falsy" in cond) return !ctx.store.get(cond.falsy);
-  if ("flag" in cond) return !!ctx.flags[cond.flag];
-  if ("entitled" in cond) return hasEntitlement(cond.entitled);
-  if ("platform" in cond) return Platform.OS === cond.platform;
-  if ("not" in cond) return !evalCondition(cond.not, ctx);
-  if ("all" in cond) return cond.all.every((c) => evalCondition(c, ctx));
-  if ("any" in cond) return cond.any.some((c) => evalCondition(c, ctx));
+  // A malformed condition from the backend (e.g. `{ in: ["x"] }` missing its
+  // array operand → `undefined.includes`) is evaluated at RENDER time inside
+  // RenderNode. An uncaught throw there unwinds to the root and blanks the
+  // whole screen, so any parse failure resolves to `false` (node hides) instead.
+  try {
+    if ("eq" in cond) return resolveValue(`$state.${cond.eq[0]}`, ctx) === cond.eq[1];
+    if ("neq" in cond) return resolveValue(`$state.${cond.neq[0]}`, ctx) !== cond.neq[1];
+    if ("gt" in cond) return Number(resolveValue(`$state.${cond.gt[0]}`, ctx)) > cond.gt[1];
+    if ("gte" in cond) return Number(resolveValue(`$state.${cond.gte[0]}`, ctx)) >= cond.gte[1];
+    if ("lt" in cond) return Number(resolveValue(`$state.${cond.lt[0]}`, ctx)) < cond.lt[1];
+    if ("lte" in cond) return Number(resolveValue(`$state.${cond.lte[0]}`, ctx)) <= cond.lte[1];
+    if ("in" in cond) return Array.isArray(cond.in[1]) && cond.in[1].includes(resolveValue(`$state.${cond.in[0]}`, ctx));
+    if ("contains" in cond) return String(resolveValue(`$state.${cond.contains[0]}`, ctx) ?? "").includes(cond.contains[1]);
+    if ("truthy" in cond) return !!ctx.store.get(cond.truthy);
+    if ("falsy" in cond) return !ctx.store.get(cond.falsy);
+    if ("flag" in cond) return !!ctx.flags[cond.flag];
+    if ("entitled" in cond) return hasEntitlement(cond.entitled);
+    if ("platform" in cond) return Platform.OS === cond.platform;
+    if ("not" in cond) return !evalCondition(cond.not, ctx);
+    if ("all" in cond) return cond.all.every((c) => evalCondition(c, ctx));
+    if ("any" in cond) return cond.any.some((c) => evalCondition(c, ctx));
+  } catch {
+    return false;
+  }
   return true;
 }
 
