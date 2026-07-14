@@ -197,11 +197,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         );
       }
       break;
-    case "toast": ctx.toast(action.message, action.tone); break;
+    case "toast":
+      // Resolve placeholders ($event / $state.x / …) so an action can echo the
+      // real reason it was fired — e.g. onError toasts can show the actual mic
+      // failure instead of a hardcoded generic string.
+      ctx.toast(String(resolveValue(action.message, ctx) ?? action.message), action.tone);
+      break;
     case "snackbar":
       // Reuse toast under the hood — the Snackbar UI treatment can be added
       // via an OTA once the SDUI screen using it is authored.
-      ctx.toast(action.message, "info");
+      ctx.toast(String(resolveValue(action.message, ctx) ?? action.message), "info");
       break;
     case "speak":
       try { Speech.speak(action.text, { voice: action.voice }); } catch { /* no-op */ }
