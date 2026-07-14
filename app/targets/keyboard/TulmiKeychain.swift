@@ -8,7 +8,15 @@ import Security
 /// declared under the same Keychain-Sharing entitlement so they see the
 /// same items.
 enum TulmiKeychain {
-  static let accessGroup = "$(AppIdentifierPrefix)com.tulmi.app.shared"
+  // The access group MUST be the fully-resolved string. `$(AppIdentifierPrefix)`
+  // is a build-setting token that Xcode only expands inside .entitlements /
+  // Info.plist — NEVER in compiled Swift source. Using the literal here made
+  // every SecItem query target the nonexistent group "$(AppIdentifierPrefix)…",
+  // so the keyboard read failed with errSecMissingEntitlement, the bearer token
+  // came back nil, and the keyboard fell back to a "dev" token → 401 on every
+  // AI call in production. The entitlement `$(AppIdentifierPrefix)com.tulmi.app.shared`
+  // expands to `<TeamID>.com.tulmi.app.shared`; appleTeamId is 6552H8HYA4.
+  static let accessGroup = "6552H8HYA4.com.tulmi.app.shared"
   static let service = "space.tailzu.tulmi.bearer"
 
   private static func query(_ key: String) -> [String: Any] {

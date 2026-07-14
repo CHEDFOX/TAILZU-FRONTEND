@@ -9,12 +9,16 @@ import Security
 /// with a shared access group are the standard fix — both the main app and
 /// the Custom Keyboard extension see the same items.
 ///
-/// The access group is `${TeamID}.com.tulmi.app.shared`; Xcode substitutes
-/// the team ID at runtime via `$(AppIdentifierPrefix)`. Both the app's
-/// Keychain-Sharing entitlement and the keyboard's list this group so both
-/// binaries can read/write the same items.
+/// The access group is `<TeamID>.com.tulmi.app.shared`. It MUST be the fully
+/// resolved string here: `$(AppIdentifierPrefix)` is a build token Xcode expands
+/// only inside .entitlements / Info.plist, never in compiled Swift. The literal
+/// token made SecItemAdd write to a nonexistent group, so the keyboard could
+/// never read the token back (fell through to a "dev" token → 401). The
+/// entitlement `$(AppIdentifierPrefix)com.tulmi.app.shared` expands to
+/// `<TeamID>.com.tulmi.app.shared`; appleTeamId is 6552H8HYA4. Must stay in
+/// sync with targets/keyboard/TulmiKeychain.swift.
 enum TulmiKeychain {
-  static let accessGroup = "$(AppIdentifierPrefix)com.tulmi.app.shared"
+  static let accessGroup = "6552H8HYA4.com.tulmi.app.shared"
   static let service = "space.tailzu.tulmi.bearer"
 
   private static func query(_ key: String) -> [String: Any] {
