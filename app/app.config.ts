@@ -47,38 +47,40 @@ const config: ExpoConfig = {
       // so backend-driven features can call the corresponding permission
       // APIs without a rebuild.
       NSMicrophoneUsageDescription:
-        "Tulmi records audio only while you hold the microphone button, converts it to text, and lets you insert the cleaned-up text into your current message.",
+        "Tailzu records audio only while you hold the microphone button, converts it to text, and lets you insert the cleaned-up text into your current message.",
       NSCameraUsageDescription:
-        "Tulmi uses the camera when you tap the scan button so it can read printed text or a QR code and turn it into a message.",
+        "Tailzu uses the camera when you tap the scan button so it can read printed text or a QR code and turn it into a message.",
       NSPhotoLibraryUsageDescription:
-        "Tulmi opens your photo library only when you tap Attach so you can pick an image to include with a message.",
+        "Tailzu opens your photo library only when you tap Attach so you can pick an image to include with a message.",
       NSPhotoLibraryAddUsageDescription:
-        "Tulmi saves the audio recording or the cleaned transcript to your Photos only when you tap Save on the result.",
+        "Tailzu saves an image of your result to Photos only when you tap Save.",
       NSSpeechRecognitionUsageDescription:
-        "Tulmi uses Apple's on-device speech recognition to convert your dictation to text faster when you enable the on-device mode in Settings.",
+        "Tailzu uses Apple's on-device speech recognition to convert your dictation to text faster when you enable the on-device mode in Settings.",
       NSFaceIDUsageDescription:
-        "Tulmi uses Face ID to unlock private drafts and to keep your account signed in on this device.",
+        "Tailzu uses Face ID to unlock private drafts and to keep your account signed in on this device.",
       NSContactsUsageDescription:
-        "Tulmi reads your contacts only when you use the @mention feature so it can suggest the right person.",
+        "Tailzu reads your contacts only when you use the @mention feature so it can suggest the right person.",
       NSCalendarsUsageDescription:
-        "Tulmi writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
+        "Tailzu writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
       NSRemindersUsageDescription:
-        "Tulmi writes a reminder only when you tap Add Reminder on a dictated note.",
+        "Tailzu writes a reminder only when you tap Add Reminder on a dictated note.",
       NSAppleMusicUsageDescription:
-        "Tulmi reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
+        "Tailzu reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
       NSLocationWhenInUseUsageDescription:
-        "Tulmi reads your location only when you dictate a location-tagged note (\"send my location\") so it can attach the correct place to the message.",
+        "Tailzu reads your location only when you dictate a location-tagged note (\"send my location\") so it can attach the correct place to the message.",
       NSUserTrackingUsageDescription:
-        "This lets Tulmi personalize writing suggestions to your style. Nothing is shared with third-party advertisers.",
+        "This lets Tailzu personalize writing suggestions to your style. Nothing is shared with third-party advertisers.",
       NSMotionUsageDescription:
-        "Tulmi uses motion to detect the raise-to-record shortcut when you enable it in Settings.",
+        "Tailzu uses motion to detect the raise-to-record shortcut when you enable it in Settings.",
       NSBluetoothAlwaysUsageDescription:
-        "Tulmi uses Bluetooth only to connect to a paired headset for hands-free dictation.",
+        "Tailzu uses Bluetooth only to connect to a paired headset for hands-free dictation.",
       NSLocalNetworkUsageDescription:
-        "Tulmi uses the local network only when you enable Nearby Sync in Settings to keep drafts consistent across your devices on the same Wi-Fi.",
-      // Enable background audio so dictation can continue if the app briefly
-      // loses foreground focus (call, notification).
-      UIBackgroundModes: ["audio", "remote-notification", "fetch"],
+        "Tailzu uses the local network only when you enable Nearby Sync in Settings to keep drafts consistent across your devices on the same Wi-Fi.",
+      // UIBackgroundModes intentionally NOT set — the app has no
+      // BackgroundFetch/TaskManager registration, no silent-push
+      // (content-available) handler, and no AVAudioSession background
+      // category. Apple Guideline 2.5.4 rejects unused background modes,
+      // so we only declare them when the backing code ships.
       // Detect installed apps so share targets can prefer WhatsApp/Telegram/etc.
       LSApplicationQueriesSchemes: [
         "whatsapp",

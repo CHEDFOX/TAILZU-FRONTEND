@@ -238,7 +238,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
           let _ = kb.root
     else { return }
     // Tear down the hand-built subtree (rows, top bar, callouts). The renderer
-    // will mount its own subtree spanning the whole keyboard view.
+    // will mount its own subtree spanning the whole keyboard view. IMPORTANT:
+    // detach statusLabel from mainStack BEFORE removing subviews so we can
+    // re-attach it as an overlay on top of the SDUI root — otherwise every
+    // subsequent setStatus() writes to a detached label and every mic /
+    // permission / recording error is invisible.
+    statusLabel.removeFromSuperview()
     for sub in view.subviews { sub.removeFromSuperview() }
     mainStack = nil
     keyRowStacks.removeAll()
@@ -249,6 +254,26 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let renderer = SDUIRenderer(controller: self, config: kb)
     sduiRenderer = renderer
     renderer.mount(into: view)
+    // Re-attach statusLabel as a floating overlay pinned to the top of the
+    // keyboard view. Sits above whatever SDUI has mounted so error/status
+    // strings show up regardless of the tree shape.
+    statusLabel.translatesAutoresizingMaskIntoConstraints = false
+    statusLabel.backgroundColor = UIColor(white: 0, alpha: 0.75)
+    statusLabel.textColor = .white
+    statusLabel.textAlignment = .center
+    statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
+    statusLabel.numberOfLines = 2
+    statusLabel.layer.cornerRadius = 8
+    statusLabel.layer.masksToBounds = true
+    view.addSubview(statusLabel)
+    NSLayoutConstraint.activate([
+      statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+      statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+      statusLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
+      statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+    ])
+    // Kept invisible by default; setStatus() reveals it when text non-empty.
+    statusLabel.isHidden = true
   }
 
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
@@ -806,15 +831,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     textDocumentProxy.deleteBackward()
     deleteTimer?.invalidate()
     // Native: 0.5s initial delay, then repeat every 0.1s.
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+    // .common runloop mode so the timer keeps firing while the finger is
+    // held (tracking mode); scheduledTimer defaults to .default which
+    // pauses during tracking and gives the "delete only fires after
+    // release" bug.
+    let t = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
       self?.startDeleteRepeat()
     }
+    RunLoop.main.add(t, forMode: .common)
+    deleteTimer = t
   }
 
   private func startDeleteRepeat() {
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+    let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
       self?.textDocumentProxy.deleteBackward()
     }
+    RunLoop.main.add(t, forMode: .common)
+    deleteTimer = t
   }
 
   @objc private func deleteTouchUp() {
@@ -959,7 +992,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     dictatedSomething = false
     isStreaming = true
     micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-    setStatus(label("listening", "🎙️ Listening…"))
+    setStatus("")  // transient — mic button animation is the visible cue
     sduiRenderer?.reflectDictating(true)
     let s = TulmiStream { [weak self] event in
       DispatchQueue.main.async { self?.handleStreamEvent(event) }
@@ -978,7 +1011,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func handleStreamEvent(_ event: TulmiStream.Event) {
     switch event {
     case .ready:
-      setStatus(label("listening", "🎙️ Listening…"))
+      setStatus("")  // transient — mic button animation is the visible cue
     case .partial(let text):
       replacePartial(with: text)
     case .finalText(let text):
@@ -991,7 +1024,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       // error to avoid losing that partial to a re-record.
       if !dictatedSomething && pendingPartial.isEmpty {
         endStreaming()
-        setStatus(label("listening", "🎙️ Listening…"))
+        setStatus("")  // transient — mic button animation is the visible cue
         // Kick the local-record path with the same session state so the
         // user doesn't have to tap the mic again.
         let session = AVAudioSession.sharedInstance()
@@ -1030,7 +1063,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func stopStreaming() {
-    setStatus(label("transcribing", "Finishing…"))
+    setStatus("")  // transient — swirl finishes on the mic button
     stream?.finish()
     endStreaming()
   }
@@ -1044,8 +1077,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func startRecording() {
+    // Every early-return path below must call bailDictating() so the SDUI
+    // mic button flips back to idle and the next tap can start again.
+    // Without this, state.dictating stays true after a bail and the second
+    // tap dispatches stopDictation into a no-op branch (isRecording=false)
+    // — that's exactly the symptom the user reported: "line-on-orange shows
+    // but nothing lands in the field and no POST hits the backend."
     guard self.hasFullAccess else {
       setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."))
+      bailDictating()
       return
     }
     let session = AVAudioSession.sharedInstance()
@@ -1053,7 +1093,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       DispatchQueue.main.async {
         guard let self = self else { return }
         guard granted else {
-          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
+          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tailzu settings to allow it."))
+          self.bailDictating()
           return
         }
         self.beginRecording(session: session)
@@ -1061,19 +1102,21 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
   }
 
+  /// Reset the SDUI dictating state so the mic button flips back to idle
+  /// after a permission/config/hardware bail. Also mirrored into the
+  /// state so any binding reading state.dictating re-evaluates.
+  private func bailDictating() {
+    sduiRenderer?.reflectDictating(false)
+  }
+
   private func beginRecording(session: AVAudioSession) {
     do {
-      // `.voiceChat` mode is Apple's built-in voice-processing pipeline:
-      // acoustic echo cancellation + auto gain control + noise suppression.
-      // Same DSP FaceTime uses. This alone strips ~60% of the background
-      // noise a keyboard user encounters (traffic, café hum, TV, another
-      // person talking quietly) BEFORE we ever upload to Whisper — no
-      // extra latency, no separate library.
-      //
-      // `.duckOthers` politely lowers other apps' audio while recording
-      // (music, YouTube in another window) so the user's voice actually
-      // gets captured cleanly.
-      try session.setCategory(.record, mode: .voiceChat, options: [.duckOthers])
+      // Use plain .record with .default mode. Keyboard extensions have
+      // inconsistent support for .voiceChat mode (voice-processing IO) —
+      // some devices throw at setCategory. Since the backend already runs
+      // Whisper against the captured audio, the DSP-level noise reduction
+      // from .voiceChat is a nice-to-have, not a requirement.
+      try session.setCategory(.record, mode: .default, options: [.duckOthers])
       try session.setActive(true)
 
       let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
@@ -1111,11 +1154,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       recordingURL = url
       isRecording = true
       micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-      setStatus(label("listening", "🎙️ Listening… tap to stop"))
+      setStatus("")  // transient — mic button animation is the visible cue
       sduiRenderer?.reflectDictating(true)
     } catch {
       setStatus("Mic error: \(error.localizedDescription)")
       cleanupRecorder()
+      bailDictating()
     }
   }
 
@@ -1132,7 +1176,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       cleanupRecorder()
       return
     }
-    setStatus(label("transcribing", "Transcribing…"))
+    setStatus("")  // transient — refined text will land in the field
     let fileURL = url
 
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
@@ -1170,7 +1214,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       setStatus("Type something first, then tap ✨")
       return
     }
-    setStatus(label("refining", "Refining…"))
+    setStatus("")  // transient — refined text will land in the field
     sduiRenderer?.reflectRefining(true)
 
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
@@ -1273,23 +1317,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Status
 
   private func setStatus(_ text: String) {
-    // Only permission / error states need the label — the mic button's
-    // press animation covers the "listening / transcribing" cases and
-    // showing that as text just adds noise. Anything that isn't a real
-    // user-facing message is passed through to the SDUI state.status
-    // for bindings/analytics but not drawn.
-    let looksLikeError = text.contains("Error") ||
-                         text.contains("denied") ||
-                         text.contains("Full Access") ||
-                         text.contains("Mic error") ||
-                         text.contains("No audio")
-    if looksLikeError && !text.isEmpty {
-      statusLabel.text = text
-      statusLabel.isHidden = false
-    } else {
-      statusLabel.text = ""
-      statusLabel.isHidden = true
-    }
+    // Show whatever the caller passes. Callers already filter out chatty
+    // "Listening…" / "Transcribing…" strings by clearing to "" after those
+    // transient states resolve — the earlier English-substring filter was
+    // fragile (localized strings would slip through as errors too). Better
+    // to trust the callers than to inspect the copy.
+    statusLabel.text = text
+    statusLabel.isHidden = text.isEmpty
     sduiRenderer?.reflectStatus(text)
   }
 
@@ -1383,6 +1417,19 @@ extension KeyboardViewController: KBHostControllerProtocol {
   func hostStopDictation() {
     if isStreaming { stopStreaming() }
     else if isRecording { stopAndTranscribe() }
+    else {
+      // Neither flag is set — startRecording bailed silently before
+      // isRecording could flip true (Full Access off / mic permission
+      // denied / AVAudioSession threw). The SDUI mic button was flipped
+      // optimistically to state.dictating=true on tap 1, so we MUST reset
+      // it here or the icon stays as "recording" forever. Also surface a
+      // status so the user knows what happened.
+      NSLog("[Tailzu] hostStopDictation: neither streaming nor recording — resetting SDUI dictating state.")
+      sduiRenderer?.reflectDictating(false)
+      if statusLabel.text?.isEmpty ?? true {
+        setStatus(label("mic_failed", "Voice couldn't start. Check mic permission and Full Access."))
+      }
+    }
   }
   func hostRunRefine() { refineTapped() }
   func hostAdvanceInputMode() { advanceToNextInputMode() }
