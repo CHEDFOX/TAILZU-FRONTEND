@@ -398,21 +398,28 @@ export default function SduiApp() {
   const updateForced = !!update && below(update.minVersion);
   const updateOptional = !updateForced && !!update && below(update.latestVersion) && !updateDismissed;
 
+  // Backend can request full-bleed rendering per-screen (intro slideshow,
+  // paywall walkthrough, splash-adjacent). When set, hide header + tabs
+  // and let the screen's root fill the whole window.
+  const hideChrome = (screen as any)?.hideChrome === true;
+
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
-      <View style={styles.header}>
-        {canGoBack ? (
-          <Pressable onPress={nav.back} hitSlop={10}>
-            <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
+      {!hideChrome && (
+        <View style={styles.header}>
+          {canGoBack ? (
+            <Pressable onPress={nav.back} hitSlop={10}>
+              <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.brand, { color: theme.color.text }]}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
+          )}
+          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]}>{screen?.title ?? ""}</Text>}
+          <Pressable onPress={() => setShowConnection(true)} hitSlop={10}>
+            <Text style={[styles.headerIcon, { color: theme.color.muted }]}>⚙</Text>
           </Pressable>
-        ) : (
-          <Text style={[styles.brand, { color: theme.color.text }]}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
-        )}
-        {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]}>{screen?.title ?? ""}</Text>}
-        <Pressable onPress={() => setShowConnection(true)} hitSlop={10}>
-          <Text style={[styles.headerIcon, { color: theme.color.muted }]}>⚙</Text>
-        </Pressable>
-      </View>
+        </View>
+      )}
 
       <View style={{ flex: 1 }}>
         {screen ? (
@@ -466,7 +473,7 @@ export default function SduiApp() {
         )}
       </View>
 
-      {tabs.length > 0 && (
+      {!hideChrome && tabs.length > 0 && (
         <View style={[styles.tabs, { backgroundColor: theme.color.surface, borderTopColor: theme.color.border }]}>
           {tabs.map((t) => {
             const active = t.id === tabId;
