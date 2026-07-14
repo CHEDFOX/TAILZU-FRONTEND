@@ -123,6 +123,28 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   if (s.minHeight != null) out.minHeight = tok(s.minHeight, theme);
   if (s.minWidth != null) out.minWidth = tok(s.minWidth, theme);
   if (s.maxWidth != null) out.maxWidth = tok(s.maxWidth, theme);
+  if (s.maxHeight != null) out.maxHeight = tok(s.maxHeight, theme);
+  // RN/CSS-flavored aliases. The newer catalog screens (personality, paywall,
+  // overlays) author styles with React Native property names directly
+  // (flexDirection / alignItems / backgroundColor / borderRadius / aspectRatio…)
+  // instead of the SDUI-canonical short keys (direction / align / background /
+  // radius) handled above. Without these passthroughs every `flexDirection:"row"`
+  // was dropped and the row collapsed to a column, and fills/radii vanished.
+  // Colors + dimensions route through `tok` so theme tokens still resolve.
+  if (s.flexDirection) out.flexDirection = s.flexDirection;
+  if (s.alignItems) out.alignItems = s.alignItems;
+  if (s.justifyContent) out.justifyContent = s.justifyContent;
+  if (s.alignContent) out.alignContent = s.alignContent;
+  if (s.flexWrap) out.flexWrap = s.flexWrap;
+  if (s.flexGrow != null) out.flexGrow = s.flexGrow;
+  if (s.flexShrink != null) out.flexShrink = s.flexShrink;
+  if (s.flexBasis != null) out.flexBasis = s.flexBasis;
+  if (s.aspectRatio != null) out.aspectRatio = s.aspectRatio;
+  if (s.backgroundColor != null) out.backgroundColor = tok(s.backgroundColor, theme);
+  if (s.borderRadius != null) out.borderRadius = tok(s.borderRadius, theme);
+  if (s.lineHeight != null) out.lineHeight = tok(s.lineHeight, theme);
+  if (s.letterSpacing != null) out.letterSpacing = s.letterSpacing;
+  if (s.textTransform) out.textTransform = s.textTransform;
   for (const k of ["marginTop", "marginBottom", "marginLeft", "marginRight", "marginHorizontal", "marginVertical",
                    "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "paddingHorizontal", "paddingVertical"]) {
     if (s[k] != null) out[k] = tok(s[k], theme);
@@ -331,10 +353,13 @@ const Quote = ({ props, style }: CompProps) => {
 
 const Badge = ({ props, style }: CompProps) => {
   const theme = useTheme();
-  const tone = props.tone === "accent" ? theme.color.primary : theme.color.label;
+  // Accept both `label` (canonical) and `text` (used by the paywall plan cards)
+  // so a badge is never rendered empty. "brand"/"accent" both map to the accent.
+  const tone = props.tone === "accent" || props.tone === "brand" ? theme.color.primary : theme.color.label;
+  const content = props.label ?? props.text ?? "";
   return (
     <View style={[{ alignSelf: "flex-start", paddingHorizontal: 11, paddingVertical: 5, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: tone, marginBottom: 24 }, style]}>
-      <Text style={{ color: tone, fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }}>{props.label ?? ""}</Text>
+      <Text style={{ color: tone, fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }}>{content}</Text>
     </View>
   );
 };
