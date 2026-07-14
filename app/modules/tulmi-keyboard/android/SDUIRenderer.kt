@@ -307,12 +307,21 @@ class SDUIRenderer(
         val b = keyButton(label, node)
         b.setOnClickListener {
             hapticTap(b)
-            insertText(label)
-            if (host.state().shift && !host.state().capsLock) {
-                host.state().shift = false
-                host.onStateChanged()
+            // If the backend attached an onPress action (tone pill → cycleTone,
+            // layer keys "123"/"ABC"/"#+=" → switchLayout, …), dispatch THAT and
+            // do NOT type the label. Only a plain letter (no onPress override)
+            // inserts its character. Previously this always inserted the label
+            // AND fired onPress, so those special keys typed "123"/"neutral" into
+            // the field. Mirrors iOS bindTap (on.onPress wins over insert).
+            if (node.on.containsKey("onPress")) {
+                invokeEvent(node, "onPress")
+            } else {
+                insertText(label)
+                if (host.state().shift && !host.state().capsLock) {
+                    host.state().shift = false
+                    host.onStateChanged()
+                }
             }
-            invokeEvent(node, "onPress")
         }
         b.setOnLongClickListener { invokeEvent(node, "onLongPress"); true }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
