@@ -198,24 +198,17 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        // The source `assets/splash.png` today is a 300×300 brand mark, not a
-        // full-screen image. With `resizeMode: "cover"` it scales ~4× on modern
-        // phones and turns pixelated — so we render it "contain" at a fixed
-        // width until a proper full-bleed 1284×2778 splash is dropped in.
-        //
-        // To go full-bleed: replace assets/splash.png with a full-screen PNG
-        // (recommended 1284×2778 or larger, portrait) whose important content
-        // stays inside the middle 60%, then flip resizeMode back to "cover"
-        // and remove `imageWidth`.
-        backgroundColor: "#0e0e12",
+        // Full-bleed splash — the 750×1333 near-solid-black source scales
+        // cleanly with `cover` because uniform regions don't show upscale
+        // artifacts. `backgroundColor` matches the top-of-image tone so any
+        // aspect-ratio letterboxing blends invisibly.
+        backgroundColor: "#000000",
         image: "./assets/splash.png",
-        imageWidth: 240,
-        resizeMode: "contain",
+        resizeMode: "cover",
         dark: {
-          backgroundColor: "#0e0e12",
+          backgroundColor: "#000000",
           image: "./assets/splash.png",
-          imageWidth: 240,
-          resizeMode: "contain",
+          resizeMode: "cover",
         },
       },
     ],
