@@ -2,6 +2,73 @@ import UIKit
 import AVFoundation
 
 // =============================================================================
+// KeyRowStackView — a horizontal key row that never wastes a touch.
+//
+// A UIStackView leaves a `spacing` gap between arranged keys; a finger landing
+// in that gap hits the stack itself, not any key, so the tap is lost. During
+// fast typing those near-misses feel like the keyboard "dropped" a key.
+//
+// This subclass divides the whole row among its keys: a touch that misses every
+// key routes to the horizontally nearest key control (each inter-key gap split
+// down the middle). Real hits on a key are untouched — only gap misses are
+// re-routed — so long-press gestures, drag-off cancel, and the press animation
+// all keep working exactly as before. Visuals are identical; only the invisible
+// hit area changes.
+// =============================================================================
+final class KeyRowStackView: UIStackView {
+  /// Backend kill-switch (kb.row.expandHitTargets). When false the row behaves
+  /// like a plain UIStackView, so the gap routing can be turned off remotely
+  /// without a rebuild if it ever misbehaves.
+  var gapRoutingEnabled = true
+
+  /// True when `view` is one of our arranged keys or a descendant of one — as
+  /// opposed to a full-row backdrop (gradient / blur / solid) inserted at
+  /// subview index 0, which also "contains" a gap point but must NOT count as
+  /// a real key hit or it would swallow the touch and defeat gap routing.
+  private func isArrangedKeyHit(_ view: UIView) -> Bool {
+    var cur: UIView? = view
+    while let c = cur, c !== self {
+      if arrangedSubviews.contains(c) { return true }
+      cur = c.superview
+    }
+    return false
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    guard gapRoutingEnabled else { return hit }
+    // A real hit on a key (or one of its subviews) wins as-is. A hit on a
+    // backdrop or on the stack itself falls through to nearest-key routing.
+    if let hit, isArrangedKeyHit(hit) { return hit }
+    // The touch missed every key. Only claim points inside the row band.
+    guard isUserInteractionEnabled, !isHidden, alpha > 0.01, bounds.contains(point) else {
+      return hit
+    }
+    // Find the enabled key control whose horizontal span is nearest the touch.
+    // Distance is 0 when the touch x is within a key's x-range, so ties never
+    // happen; each gap is claimed by whichever neighbor is closer (i.e. split
+    // at the gap midpoint).
+    var nearest: UIControl?
+    var bestDX = CGFloat.greatestFiniteMagnitude
+    for sub in arrangedSubviews {
+      guard let key = sub as? UIControl,
+            key.isEnabled, key.isUserInteractionEnabled, !key.isHidden, key.alpha > 0.01
+      else { continue }
+      let f = key.frame
+      let dx: CGFloat = point.x < f.minX ? f.minX - point.x
+                      : point.x > f.maxX ? point.x - f.maxX
+                      : 0
+      if dx < bestDX { bestDX = dx; nearest = key }
+    }
+    guard let key = nearest else { return hit }
+    // Deliver to that key: clamp the point inside its bounds so the key's own
+    // hitTest returns it and its targets / gestures fire normally.
+    let lx = min(max(point.x - key.frame.minX, key.bounds.minX + 0.5), key.bounds.maxX - 0.5)
+    return key.hitTest(CGPoint(x: lx, y: key.bounds.midY), with: event) ?? key
+  }
+}
+
+// =============================================================================
 // SDUIRenderer — server-driven UI renderer for Tulmi's iOS keyboard extension.
 //
 // When the backend config sets `features.sdui = true` and provides a `root`
@@ -870,7 +937,16 @@ final class SDUIRenderer: NSObject {
   /// tied-with-everything-at-defaultLow behavior. Explicit `width` still wins
   /// over flex when both are set.
   private func buildStack(node: KBNode, axis: NSLayoutConstraint.Axis) -> UIView {
-    let stack = UIStackView()
+    // Horizontal stacks (= key rows) use KeyRowStackView so a tap in the gap
+    // between two keys routes to the nearest key instead of being lost. Keys
+    // fill the row height (alignment .fill), so there is no vertical gap WITHIN
+    // a row — dividing the horizontal gaps reclaims all the wasted touch area.
+    // Vertical stacks stay plain UIStackView (routing across rows would send a
+    // near-miss to the wrong row, which is worse than the small inter-row gap).
+    let stack = axis == .horizontal ? KeyRowStackView() : UIStackView()
+    if let keyRow = stack as? KeyRowStackView {
+      keyRow.gapRoutingEnabled = flagBool("kb.row.expandHitTargets", true)
+    }
     stack.axis = axis
     stack.alignment = .fill
     stack.distribution = .fill
@@ -1509,16 +1585,16 @@ final class SDUIRenderer: NSObject {
   ///     - state.capsLock = false  → outlined arrow, key-text color
   ///     - state.capsLock = true   → filled arrow, brand orange (locked)
   ///
-  ///   Interaction:
+  ///   Interaction (matches the stock iOS keyboard's caps lock):
   ///     - Tap (unlocked)  → toggle uppercase/lowercase (one-shot arm/disarm)
-  ///     - Hold (unlocked) → lock the current format (persistent)
-  ///     - Tap or Hold (locked) → unlock AND flip to the other format
+  ///     - Hold (unlocked) → CAPS LOCK: persistent uppercase (filled orange up)
+  ///     - Tap or Hold (locked) → unlock back to lowercase
   ///
   ///   Notes:
-  ///     - capsLock now means "locked in current shift state", not just
-  ///       "uppercase locked" as before. The old (capsLock ⇒ shift=true)
-  ///       invariant no longer holds; a locked-in-lowercase state is valid
-  ///       and shows as the orange down arrow.
+  ///     - Caps lock always means uppercase-locked (shift=true, capsLock=true),
+  ///       so the invariant capsLock ⇒ shift=true holds. There is no
+  ///       locked-lowercase state — that only ever looked like "nothing
+  ///       happened" when the user expected caps.
   ///     - Long-press threshold is 0.35s — long enough to distinguish from
   ///       a tap, short enough to feel snappy.
   private func buildShiftKey(node: KBNode) -> UIView {
@@ -1531,7 +1607,13 @@ final class SDUIRenderer: NSObject {
     let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleShiftLongPress(_:)))
     // Backend flag: kb.shift.longPressMs (default 350) — hold threshold to lock
     lp.minimumPressDuration = flagDouble("kb.shift.longPressMs", 350) / 1000.0
-    lp.cancelsTouchesInView = false
+    // MUST cancel the button's touch (default true) so the finger-up that ends
+    // the hold does NOT also fire touchUpInside → handleShiftTap(). Without this
+    // the hold locked caps, then the trailing tap saw capsLock == true and
+    // immediately unlocked+flipped it — so hold-to-lock appeared to do nothing.
+    // (This mirrors the letter accent-tray long-press, which relies on the same
+    // default to suppress its insert-on-release.)
+    lp.cancelsTouchesInView = true
     btn.addGestureRecognizer(lp)
     return btn
   }
@@ -1572,12 +1654,13 @@ final class SDUIRenderer: NSObject {
   @objc private func handleShiftLongPress(_ gr: UILongPressGestureRecognizer) {
     guard gr.state == .began else { return }
     if state.capsLock {
-      // Locked → unlock + flip (same as tap-while-locked).
+      // Locked → unlock back to lowercase.
       state.capsLock = false
-      state.shift.toggle()
+      state.shift = false
     } else {
-      // Unlocked → lock the current format without changing shift.
+      // Unlocked → CAPS LOCK: force persistent uppercase (stock-keyboard caps).
       state.capsLock = true
+      state.shift = true
     }
     lastShiftTapTime = 0
     stateChanged()
@@ -1585,17 +1668,17 @@ final class SDUIRenderer: NSObject {
   }
 
   private func handleShiftTap() {
-    // Locked state → unlock + flip (both tap and long-press do this).
+    // Locked (caps lock) → tap unlocks back to lowercase.
     if state.capsLock {
       state.capsLock = false
-      state.shift.toggle()
+      state.shift = false
       lastShiftTapTime = 0
       stateChanged()
       return
     }
-    // Unlocked → toggle uppercase/lowercase mode. No more double-tap-to-caps
-    // because hold-to-lock is the new mechanism (feels more discoverable and
-    // avoids the accidental double-tap-on-fast-typing problem).
+    // Unlocked → toggle uppercase/lowercase mode. Hold-to-lock (not double-tap)
+    // is the caps-lock mechanism — more discoverable and immune to the
+    // accidental double-tap-on-fast-typing problem.
     state.shift.toggle()
     lastShiftTapTime = Date().timeIntervalSince1970
     stateChanged()
