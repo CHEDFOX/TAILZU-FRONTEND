@@ -1028,8 +1028,15 @@ final class SDUIRenderer: NSObject {
     if ch.count == 1 && node.bind?["content"] != "tone" {
       letterButtonsByChar[ch.lowercased()] = btn
     }
+    // Bake the BASE char (not the currently-cased one). The fast-shift path
+    // (applyFastShiftUpdate) only re-titles the button in place; it does NOT
+    // rebuild this action. If we baked the case here, a shift toggle would flip
+    // the visible title but leave the OLD case in the tap action → keys insert
+    // the wrong case (e.g. display "A" but type "a", or type "HELLO" for
+    // "Hello"). run(.insertKey) applies the live state.shift/capsLock case at
+    // tap time instead, so title and inserted text always agree.
     let payload = node.props?["char"]?.asString ?? ch
-    bindTap(btn, node: node, defaultAction: .insertKey(char: uppercased ? payload.uppercased() : payload))
+    bindTap(btn, node: node, defaultAction: .insertKey(char: payload))
 
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
@@ -2591,36 +2598,13 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Decode a downloaded blob as either a static image or a multi-frame
-  /// animated one (GIF / APNG). Uses ImageIO — no third-party dep, and it's
-  /// always linked by the SDK.
+  /// animated one (GIF / APNG). Delegates to TulmiImageLoader.decode — the
+  /// SINGLE downscaling decoder — so a large animated GIF pushed as the mic
+  /// icon can't unpack to full-resolution frames and OOM-kill the extension.
+  /// (This method previously ran its own full-res CGImageSourceCreateImageAtIndex
+  /// loop with no downscale, which busted the ~48MB keyboard memory ceiling.)
   private func decodeAnimated(_ data: Data) -> UIImage? {
-    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
-      return UIImage(data: data)
-    }
-    let count = CGImageSourceGetCount(src)
-    if count <= 1 { return UIImage(data: data) }
-    var frames: [UIImage] = []
-    var total: TimeInterval = 0
-    for i in 0..<count {
-      guard let cg = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
-      total += Self.gifFrameDuration(src, index: i)
-      frames.append(UIImage(cgImage: cg))
-    }
-    if frames.isEmpty { return UIImage(data: data) }
-    return UIImage.animatedImage(with: frames, duration: total)
-  }
-
-  private static func gifFrameDuration(_ src: CGImageSource, index: Int) -> TimeInterval {
-    guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [String: Any] else { return 0.1 }
-    if let gif = props[kCGImagePropertyGIFDictionary as String] as? [String: Any] {
-      if let d = gif[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
-      if let d = gif[kCGImagePropertyGIFDelayTime as String] as? Double, d > 0.0009 { return d }
-    }
-    if let png = props[kCGImagePropertyPNGDictionary as String] as? [String: Any] {
-      if let d = png[kCGImagePropertyAPNGUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
-      if let d = png[kCGImagePropertyAPNGDelayTime as String] as? Double, d > 0.0009 { return d }
-    }
-    return 0.1
+    return TulmiImageLoader.decode(data)
   }
 
   private func remoteImageCacheDir() -> URL? {
@@ -2691,7 +2675,14 @@ final class SDUIRenderer: NSObject {
       proxy?.insertText(applySmartPunctuation(text))
       updateAutoCap()
     case .insertKey(let char):
-      proxy?.insertText(applySmartPunctuation(char))
+      // Derive case from LIVE state at tap time (not baked at render) so the
+      // fast-shift in-place re-title never desyncs from what actually inserts.
+      // Mirrors buildLetterKey's title logic: single-char → cased, multi-char
+      // (or symbol/digit payloads) → inserted verbatim.
+      let cased = char.count == 1
+        ? ((state.shift || state.capsLock) ? char.uppercased() : char.lowercased())
+        : char
+      proxy?.insertText(applySmartPunctuation(cased))
       if state.shift && !state.capsLock {
         state.shift = false
         stateChanged()

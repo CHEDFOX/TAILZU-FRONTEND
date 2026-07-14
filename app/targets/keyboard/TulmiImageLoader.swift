@@ -65,7 +65,11 @@ enum TulmiImageLoader {
   /// footprint stays predictable.
   private static let maxFrameEdge: CGFloat = 256
 
-  private static func decode(_ data: Data) -> UIImage? {
+  /// Decode static or animated (GIF/APNG) image data, downscaling every frame
+  /// to `maxFrameEdge` so the keyboard extension can't blow its ~48MB ceiling.
+  /// Exposed (not private) so the SDUI renderer shares this ONE safe decoder
+  /// instead of its own full-resolution one.
+  static func decode(_ data: Data) -> UIImage? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
       return UIImage(data: data)
     }
