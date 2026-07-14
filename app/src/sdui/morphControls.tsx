@@ -54,6 +54,13 @@ type MicMediaProps = {
   maxDurationMs?: number;
   tint?: string;
   playing?: boolean;
+  /**
+   * True when the source freezes on its current frame while paused (video /
+   * Lottie) rather than disappearing (GIF/APNG, which expo-image can only stop
+   * by unmounting). When true we DON'T show the static idle mark — the frozen
+   * frame itself is the idle state. Defaults false (GIF behavior).
+   */
+  freezeOnPause?: boolean;
   /** When true, this state's media fires the node's `onComplete` NodeEvent
    * on playback end. Wire an SDUI action tree in `on.onComplete` to react. */
   fireOnEnd?: boolean;
@@ -314,10 +321,12 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     const handleEnd = active.fireOnEnd
       ? () => fire("onComplete", { state: recording ? "recording" : "idle" })
       : undefined;
-    // In single-media mode, when we're NOT recording the media is paused —
-    // MediaPlayer will unmount the GIF, so show the tailzu-mark still as the
-    // idle affordance. During recording, the mark hides and the GIF takes over.
-    const showIdleMark = singleMediaMode && !recording;
+    // In single-media mode, when we're NOT recording the media is paused. A GIF
+    // can only "pause" by unmounting (expo-image has no freeze API), so we show
+    // the tailzu-mark as the idle affordance in its place. Video / Lottie freeze
+    // on their current frame instead (freezeOnPause), so the frozen frame IS the
+    // idle state and we must NOT cover it with the mark.
+    const showIdleMark = singleMediaMode && !recording && !active.freezeOnPause;
     return (
       <Pressable
         onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
