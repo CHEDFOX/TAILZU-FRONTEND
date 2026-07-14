@@ -1070,6 +1070,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func endStreaming() {
     isStreaming = false
+    // Stop mic capture + audio session on EVERY teardown path. The .error and
+    // .closed events land here WITHOUT going through finish()/cancel(), so
+    // without this the AVAudioEngine tap and audio session stay live (mic hot,
+    // other-app audio not restored) until nondeterministic dealloc — and it can
+    // race the local-record fallback that re-activates the session. cancel() is
+    // idempotent, so calling it after a graceful finish() (stopStreaming) is safe.
+    stream?.cancel()
     stream = nil
     micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }

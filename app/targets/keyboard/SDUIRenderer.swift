@@ -232,8 +232,13 @@ enum KBEffect: Decodable {
       let dir = try? c.decode(String.self, forKey: .direction)
       self = .gradient(colors: colors, direction: dir)
     default:
-      throw DecodingError.dataCorruptedError(
-        forKey: .kind, in: c, debugDescription: "Unknown effect kind \(kind)")
+      // Unknown effect kind → transparent no-op backdrop, NOT a throw. Throwing
+      // here failed the entire KBConfig decode, which silently discarded the
+      // whole SDUI tree and fell back to the hand-built keyboard — so the
+      // backend could never introduce a new effect kind without nuking SDUI on
+      // older clients. Degrade gracefully instead (matches the unknown-node and
+      // unknown-action philosophy elsewhere).
+      self = .solid(color: "#00000000")
     }
   }
 }

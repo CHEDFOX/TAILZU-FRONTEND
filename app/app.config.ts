@@ -144,7 +144,11 @@ const config: ExpoConfig = {
       "android.permission.VIBRATE",
       "android.permission.ACCESS_NETWORK_STATE",
       "android.permission.FOREGROUND_SERVICE",
-      "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+      // FOREGROUND_SERVICE_MICROPHONE removed: the keyboard records inline as an
+      // InputMethodService — there is no mic-type foreground service in the
+      // binary, and Play policy rejects declaring an FGS-type permission with no
+      // matching service + use-declaration. Re-add (with the declaration) only
+      // if a real foreground mic service ships.
       "android.permission.READ_CONTACTS",
       "android.permission.READ_CALENDAR",
       "android.permission.WRITE_CALENDAR",
