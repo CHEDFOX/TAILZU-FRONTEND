@@ -250,10 +250,9 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     //                 We swap between them on state change (existing behavior).
     //   one-media   → only iconIdle is supplied. We render the same source in
     //                 both states and auto-bind `playing = recording`, so
-    //                 tap → play, tap → pause (freezes on the current frame),
-    //                 tap → resume from that frame. Works for Lottie + video;
-    //                 GIF/APNG can't pause so the visual will just keep
-    //                 looping while the recording state does its own thing.
+    //                 tap → play, tap → stop. For GIF/APNG, MediaPlayer
+    //                 unmounts the image when playing=false, so we render the
+    //                 built-in tailzu-mark as the idle placeholder underneath.
     const singleMediaMode = recordingMic == null;
     const active = (recording && recordingMic) ? recordingMic : idleMic!;
     const effectivePlaying = singleMediaMode
@@ -265,6 +264,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     const handleEnd = active.fireOnEnd
       ? () => fire("onComplete", { state: recording ? "recording" : "idle" })
       : undefined;
+    // In single-media mode, when we're NOT recording the media is paused —
+    // MediaPlayer will unmount the GIF, so show the tailzu-mark still as the
+    // idle affordance. During recording, the mark hides and the GIF takes over.
+    const showIdleMark = singleMediaMode && !recording;
     return (
       <Pressable
         onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
@@ -278,6 +281,13 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             { transform: [{ scale: press }] },
           ]}
         >
+          {showIdleMark && (
+            <Animated.Image
+              source={MARK}
+              resizeMode="contain"
+              style={{ width: size * contentScale, height: size * contentScale, position: "absolute" }}
+            />
+          )}
           <MediaPlayer
             spec={active.source}
             style={{ width: size * contentScale, height: size * contentScale }}
@@ -286,8 +296,6 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             autoplay={active.autoplay}
             loop={active.loop}
             speed={
-              // Voice-reactive during recording — otherwise honor the
-              // authored speed (default 1 when unset).
               recording && voiceReactive
                 ? voiceSpeed
                 : (active.speed ?? 1)

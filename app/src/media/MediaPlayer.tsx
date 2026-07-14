@@ -172,8 +172,13 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
     );
   }
 
-  // Fallback: static or animated image (RN + expo-image handle GIF / APNG /
-  // SVG natively — no play controls needed since animation is baked in).
+  // Fallback: static or animated image. expo-image plays GIF / APNG natively
+  // and has no runtime pause API — so when the caller explicitly sets
+  // `playing = false` on an animated format, we unmount the image so the
+  // animation visually stops. Static formats keep rendering (there's nothing
+  // to pause on a PNG).
+  const isAnimatedFormat = /\.(gif|apng|webp)(\?|$)/i.test(uri.toLowerCase());
+  if (playing === false && isAnimatedFormat) return null;
   return (
     <ExpoImage
       source={{ uri }}
