@@ -1113,7 +1113,7 @@ final class SDUIRenderer: NSObject {
   private func startDotStream() {
     // Backend flags:
     //   kb.dictation.dots.enabled     (default true)      — skip stream entirely
-    //   kb.dictation.dots.color       (default "#FF6B1F")
+    //   kb.dictation.dots.color       (default "#E8A23C")
     //   kb.dictation.dots.size        (default 14)        — px, diameter of the source image
     //   kb.dictation.dots.birthRate   (default 7)         — dots per second
     //   kb.dictation.dots.lifetimeMs  (default 1800)      — how long each dot lives
@@ -1175,7 +1175,7 @@ final class SDUIRenderer: NSObject {
     let size = flagCGFloat("kb.dictation.dots.size", 14)
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
     return renderer.image { ctx in
-      flagColor("kb.dictation.dots.color", "#FF6B1F").setFill()
+      flagColor("kb.dictation.dots.color", "#E8A23C").setFill()
       ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: CGSize(width: size, height: size)))
     }
   }
@@ -1544,7 +1544,7 @@ final class SDUIRenderer: NSObject {
   ///   kb.shift.iconUpperLocked    (default "arrowtriangle.up.fill")
   ///   kb.shift.iconSize           (default 16)      — SF Symbol point size
   ///   kb.shift.iconWeight         (default "semibold")
-  ///   kb.shift.lockedColor        (default "#FF6B1F") — arrow tint when locked
+  ///   kb.shift.lockedColor        (default "#E8A23C") — arrow tint when locked
   private func applyShiftKeyVisual(_ btn: UIButton) {
     let icon: String = {
       if state.capsLock {
@@ -1563,7 +1563,7 @@ final class SDUIRenderer: NSObject {
     btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
     btn.setTitle(nil, for: .normal)
     btn.tintColor = state.capsLock
-      ? flagColor("kb.shift.lockedColor", "#FF6B1F")
+      ? flagColor("kb.shift.lockedColor", "#E8A23C")
       : keyTextColor()
     btn.contentHorizontalAlignment = .center
     btn.contentVerticalAlignment = .center

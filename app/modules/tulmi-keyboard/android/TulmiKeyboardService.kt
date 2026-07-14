@@ -609,8 +609,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val hits = mutableListOf<TextView>()
         walkLetterKeys(root, letters, hits)
         if (hits.isEmpty()) return
-        val accentHex = kbConfig?.accent ?: "#ff6b1f"
-        val accent = try { SDUIRenderer.parseHex(accentHex) } catch (_: Throwable) { Color.parseColor("#ff6b1f") }
+        val accentHex = kbConfig?.accent ?: "#e8a23c"
+        val accent = try { SDUIRenderer.parseHex(accentHex) } catch (_: Throwable) { Color.parseColor("#e8a23c") }
         val perStagger = 25L
         val flashMs = 260L
         hits.sortBy { locationX(it) }
