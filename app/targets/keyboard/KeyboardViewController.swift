@@ -1031,7 +1031,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         beginRecording(session: session)
         return
       }
-      setStatus("Error: \(msg)")
+      setStatus(label("voice_not_listening", "444 : Not Listening"))
       endStreaming()
     case .closed:
       endStreaming()
@@ -1164,7 +1164,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       setStatus("")  // transient — mic button animation is the visible cue
       sduiRenderer?.reflectDictating(true)
     } catch {
-      setStatus("Mic error: \(error.localizedDescription)")
+      setStatus(label("voice_not_listening", "444 : Not Listening"))
       cleanupRecorder()
       bailDictating()
     }
@@ -1179,7 +1179,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
     guard let url = recordingURL,
           FileManager.default.fileExists(atPath: url.path) else {
-      setStatus("No audio captured.")
+      setStatus(label("voice_not_listening", "444 : Not Listening"))
       cleanupRecorder()
       return
     }
@@ -1197,8 +1197,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
           self.lastInserted = cleaned
           self.lastRawTranscript = nil
           self.setStatus("")
-        case .failure(let err):
-          self.setStatus("Error: \(err.localizedDescription)")
+        case .failure:
+          self.setStatus(self.label("voice_unavailable", "222 : will let you know when we are back"))
         }
         self.cleanupRecorder()
       }
@@ -1232,8 +1232,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         case .success(let refined):
           self.replaceFieldText(before: before, after: after, with: refined)
           self.setStatus("")
-        case .failure(let err):
-          self.setStatus("Error: \(err.localizedDescription)")
+        case .failure:
+          self.setStatus(self.label("voice_unavailable", "222 : will let you know when we are back"))
         }
         self.sduiRenderer?.reflectRefining(false)
       }
@@ -1434,7 +1434,7 @@ extension KeyboardViewController: KBHostControllerProtocol {
       NSLog("[Tailzu] hostStopDictation: neither streaming nor recording — resetting SDUI dictating state.")
       sduiRenderer?.reflectDictating(false)
       if statusLabel.text?.isEmpty ?? true {
-        setStatus(label("mic_failed", "Voice couldn't start. Check mic permission and Full Access."))
+        setStatus(label("voice_not_listening", "444 : Not Listening"))
       }
     }
   }
