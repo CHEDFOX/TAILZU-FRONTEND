@@ -564,9 +564,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         sduiRenderer?.stateChanged()
         setStatus(label("refining", "Refining…"))
         val target = targetAppName()
+        // Read the currently-selected tone fresh from prefs so refine honors it,
+        // whether it was set by the hand-built pill or the SDUI cycleTone (both
+        // write "tulmi_kb"/"tone"). Was previously never sent → tone had no
+        // effect on Android refine output.
+        val tone = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+            .getString("tone", "Neutral") ?: "Neutral"
         Thread {
             try {
-                val refined = Net.refine(full, target)
+                val refined = Net.refine(full, target, tone)
                 main.post {
                     val conn = currentInputConnection
                     conn?.deleteSurroundingText(before.length, after.length)
