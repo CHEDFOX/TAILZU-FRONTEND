@@ -368,7 +368,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            setStatus("Open the Tulmi app once to allow microphone access.")
+            setStatus("Open the Tailzu app once to allow microphone access.")
             return
         }
         pendingPartial = ""
@@ -382,7 +382,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
             onPartial = { t -> main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
-            onError = { e -> main.post { setStatus("Error: $e"); endStreaming() } },
+            onError = { _ -> main.post { setStatus(label("voice_not_listening", "444 : Not Listening")); endStreaming() } },
             onClosed = { main.post { onDictationClosed() } },
         ).also { it.start(target, "auto") }
     }
@@ -435,7 +435,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            setStatus("Open the Tulmi app once to allow microphone access.")
+            setStatus("Open the Tailzu app once to allow microphone access.")
             return
         }
         try {
@@ -466,7 +466,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             startMicLevelPolling()
             setStatus(label("listening", "🎙️ Listening… tap mic to stop"))
         } catch (e: Exception) {
-            setStatus("Mic error: ${e.message}")
+            setStatus(label("voice_not_listening", "444 : Not Listening"))
             cleanupRecorder()
         }
     }
@@ -482,7 +482,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
         cleanupRecorder()
         if (file == null || !file.exists()) {
-            setStatus("No audio captured.")
+            setStatus(label("voice_not_listening", "444 : Not Listening"))
             return
         }
         setStatus(label("transcribing", "Transcribing…"))
@@ -496,7 +496,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     setStatus("")
                 }
             } catch (e: Exception) {
-                main.post { setStatus("Error: ${e.message}") }
+                main.post { setStatus(label("voice_unavailable", "222 : will let you know when we are back")) }
             }
         }.start()
     }
@@ -586,7 +586,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 main.post {
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
-                    setStatus("Error: ${e.message}")
+                    setStatus(label("voice_unavailable", "222 : will let you know when we are back"))
                 }
             }
         }.start()
