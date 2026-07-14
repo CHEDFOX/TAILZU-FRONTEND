@@ -385,12 +385,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     stack.addArrangedSubview(personalityRow)
 
-    // Status band above the tone chips was intentionally removed — the mic
-    // button's orange press state + the flash-across-keys animation on
-    // refined-text arrival provide all the "is something happening?" feedback
-    // we need. Keeping the label instance around (unattached) so setStatus()
-    // stays a safe no-op instead of crashing on an implicitly-unwrapped nil.
+    // Status label is kept in the layout stack — the mic button's own press
+    // state + the flash-across-keys animation cover the "something is
+    // happening" cases, but the label is the ONLY channel for permission
+    // errors ("Enable Full Access", "Microphone denied") the user needs to
+    // see to unblock themselves. Hidden by default; setStatus() shows it
+    // only when text is non-empty.
+    statusLabel.textColor = UIColor(white: 0.7, alpha: 1)
+    statusLabel.font = .systemFont(ofSize: 12)
+    statusLabel.textAlignment = .center
+    statusLabel.numberOfLines = 2
     statusLabel.isHidden = true
+    stack.addArrangedSubview(statusLabel)
 
     // Bottom row first (persistent), then insert the per-page key rows above it.
     buildBottomRow()
@@ -1267,16 +1273,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Status
 
   private func setStatus(_ text: String) {
-    // Status band above the tone chips was intentionally removed — the mic
-    // button's orange press state + the flash-across-keys on refined-text
-    // arrival are the entire dictation-feedback story now. We still keep
-    // the underlying state.status mirrored into the SDUI renderer so any
-    // downstream binding (analytics, action guards, tests) that reads it
-    // continues to work; we just never draw it. The native label is force-
-    // hidden so a hot-reload of an older backend tree that re-adds a
-    // StatusLabel can't smuggle text back in either.
-    statusLabel.text = ""
-    statusLabel.isHidden = true
+    // Only permission / error states need the label — the mic button's
+    // press animation covers the "listening / transcribing" cases and
+    // showing that as text just adds noise. Anything that isn't a real
+    // user-facing message is passed through to the SDUI state.status
+    // for bindings/analytics but not drawn.
+    let looksLikeError = text.contains("Error") ||
+                         text.contains("denied") ||
+                         text.contains("Full Access") ||
+                         text.contains("Mic error") ||
+                         text.contains("No audio")
+    if looksLikeError && !text.isEmpty {
+      statusLabel.text = text
+      statusLabel.isHidden = false
+    } else {
+      statusLabel.text = ""
+      statusLabel.isHidden = true
+    }
     sduiRenderer?.reflectStatus(text)
   }
 
