@@ -1864,31 +1864,32 @@ final class SDUIRenderer: NSObject {
       if let hex = node.style?["fg"]?.asString { return UIColor(tulmiHex: hex) }
       return keyTextColor()
     }()
-    // Single-file mic media: same image mounted for both idle and recording;
-    // playback is toggled via imageView.startAnimating()/stopAnimating() so
-    // "click to play, click to pause" is the semantic — no icon swap. When
-    // the backend doesn't ship kb.mic.idleIcon, we fall back to the bundled
-    // TailzuMark asset (static). No separate kb.mic.recordingIcon path.
-    if let markSpec = flagIcon("kb.mic.idleIcon") {
-      if let img = resolveIcon(markSpec, onLoad: { [weak self] in self?.stateChanged() }) {
-        btn.setImage(img, for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFill
-        if state.dictating {
-          btn.imageView?.startAnimating()
-        } else {
-          btn.imageView?.stopAnimating()
-        }
-      }
+    // Mic appearance:
+    //   • RECORDING → the animated media (kb.mic.idleIcon) fills the amber
+    //     circle and plays.
+    //   • IDLE      → a CLEAN brand mark (bundled TailzuMark, else SF mic) on
+    //     the amber circle. We deliberately do NOT show the media's frozen
+    //     first frame when idle: many source clips (the water loop especially)
+    //     open on a dark frame, which rendered the whole button as a solid
+    //     black disc — the exact "black circle" bug. Resolving the media every
+    //     render still pre-warms the download so it plays instantly on the
+    //     first tap.
+    let micMedia: UIImage? = {
+      guard let spec = flagIcon("kb.mic.idleIcon") else { return nil }
+      return resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() })
+    }()
+    if state.dictating, let img = micMedia {
+      btn.setImage(img, for: .normal)
+      btn.imageEdgeInsets = .zero
+      btn.imageView?.contentMode = .scaleAspectFill
+      btn.imageView?.startAnimating()
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
-      // Fallback: bundled brand mark, edge-to-edge in the circular button.
+      // Idle brand mark, inset so it reads as an icon centered on the circle.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
+      btn.imageView?.stopAnimating()
       btn.imageView?.contentMode = .scaleAspectFit
-      btn.imageEdgeInsets = UIEdgeInsets(
-        top: flagCGFloat("kb.mic.idleIconInset", 2),
-        left: flagCGFloat("kb.mic.idleIconInset", 2),
-        bottom: flagCGFloat("kb.mic.idleIconInset", 2),
-        right: flagCGFloat("kb.mic.idleIconInset", 2),
-      )
+      let inset = flagCGFloat("kb.mic.idleIconInset", 8)
+      btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     } else {
       btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
     }
