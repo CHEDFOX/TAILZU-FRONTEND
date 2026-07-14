@@ -217,7 +217,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       const uri = recorder.uri;
       if (!uri) throw new Error(errNoAudio);
       const { cleanedText } = await api.transcribeClean(uri, { targetApp: props.targetApp, language: props.language });
-      if (bindPath) store.set(bindPath, cleanedText);
+      // Guard against overwriting the bound field with an empty transcript
+      // (silent/short recording). Matches the RefineButton guard so the two
+      // primary voice flows behave symmetrically.
+      if (bindPath && cleanedText) store.set(bindPath, cleanedText);
       fire("onChange", cleanedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {

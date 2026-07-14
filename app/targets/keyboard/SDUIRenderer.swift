@@ -554,6 +554,59 @@ final class KBState {
   var keyboardHeight: CGFloat = 0
 }
 
+/// Snapshot of the subset of KBState fields that affect layout structure vs
+/// pure surface (letter case). Used by stateChanged() to decide whether a
+/// change is safe to apply via the fast-shift path (in-place setTitle on
+/// letter buttons) or requires a full remount.
+struct KBStateSnapshot {
+  let shift: Bool
+  let capsLock: Bool
+  let layoutId: String
+  let dictating: Bool
+  let refining: Bool
+  let hasFullAccess: Bool
+  let status: String
+  let tone: String
+  let trackpadActive: Bool
+  let primaryLanguage: String
+  let hasMultipleKeyboards: Bool
+  let appearance: String
+
+  static func from(_ s: KBState) -> KBStateSnapshot {
+    KBStateSnapshot(
+      shift: s.shift,
+      capsLock: s.capsLock,
+      layoutId: s.layoutId,
+      dictating: s.dictating,
+      refining: s.refining,
+      hasFullAccess: s.hasFullAccess,
+      status: s.status,
+      tone: s.tone,
+      trackpadActive: s.trackpadActive,
+      primaryLanguage: s.primaryLanguage,
+      hasMultipleKeyboards: s.hasMultipleKeyboards,
+      appearance: s.appearance
+    )
+  }
+
+  /// True when the only difference from `other` is shift and/or capsLock —
+  /// safe to apply via in-place setTitle on letter buttons without a full
+  /// tree rebuild.
+  func isShiftOnlyDelta(from other: KBStateSnapshot) -> Bool {
+    layoutId == other.layoutId &&
+    dictating == other.dictating &&
+    refining == other.refining &&
+    hasFullAccess == other.hasFullAccess &&
+    status == other.status &&
+    tone == other.tone &&
+    trackpadActive == other.trackpadActive &&
+    primaryLanguage == other.primaryLanguage &&
+    hasMultipleKeyboards == other.hasMultipleKeyboards &&
+    appearance == other.appearance &&
+    (shift != other.shift || capsLock != other.capsLock)
+  }
+}
+
 // MARK: - Renderer
 
 final class SDUIRenderer: NSObject {
@@ -638,6 +691,11 @@ final class SDUIRenderer: NSObject {
   private func remount() {
     guard let container = mountContainer, let root = config.root else { return }
     mountedRoot?.removeFromSuperview()
+    // Reset the fast-shift ref maps — they'll be repopulated as the fresh
+    // tree renders. Keeping stale refs would leak old buttons and cause
+    // the fast path to call setTitle on removed subviews.
+    letterButtonsByChar.removeAll(keepingCapacity: true)
+    weakShiftButton = nil
     let v = render(node: root)
     v.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(v)
@@ -675,14 +733,46 @@ final class SDUIRenderer: NSObject {
   /// handler; iOS therefore didn't process the next tap until the rebuild
   /// finished. This coalesced-async model completes the current tap first,
   /// commits the character to the field, THEN rebuilds visuals.
+  ///
+  /// FAST PATH: when the ONLY delta since the last render is state.shift /
+  /// state.capsLock (autoCap arm, one-shot shift release), skip the full
+  /// remount and mutate letter labels in place. That's every-other-keystroke
+  /// in sentences mode + roughly-every-keystroke on word/character caps.
+  /// The full remount runs when layoutId/dictating/refining/tone/other
+  /// diffs are present, or when we haven't tracked the previous snapshot.
   private var pendingRemount: Bool = false
+  private var letterButtonsByChar: [String: UIButton] = [:]
+  private var weakShiftButton: UIButton?
+  private var lastRenderSnapshot: KBStateSnapshot?
+
   func stateChanged() {
+    let currentSnap = KBStateSnapshot.from(state)
+    if let last = lastRenderSnapshot,
+       currentSnap.isShiftOnlyDelta(from: last),
+       !letterButtonsByChar.isEmpty {
+      applyFastShiftUpdate(uppercased: currentSnap.shift || currentSnap.capsLock)
+      lastRenderSnapshot = currentSnap
+      return
+    }
     if pendingRemount { return }
     pendingRemount = true
     DispatchQueue.main.async { [weak self] in
       guard let self = self else { return }
       self.pendingRemount = false
       self.remount()
+      self.lastRenderSnapshot = KBStateSnapshot.from(self.state)
+    }
+  }
+
+  /// In-place letter case swap + shift icon refresh. Runs synchronously
+  /// (safe — it's a title mutation, cheap) so the shift key visually flips
+  /// on the same runloop as the next keystroke.
+  private func applyFastShiftUpdate(uppercased: Bool) {
+    for (ch, btn) in letterButtonsByChar {
+      btn.setTitle(uppercased ? ch.uppercased() : ch.lowercased(), for: .normal)
+    }
+    if let shift = weakShiftButton {
+      applyShiftKeyVisual(shift)
     }
   }
 
@@ -857,6 +947,11 @@ final class SDUIRenderer: NSObject {
     // (like "Neutral") stay as-is regardless of shift.
     let displayed = ch.count == 1 ? (uppercased ? ch.uppercased() : ch.lowercased()) : ch
     btn.setTitle(displayed, for: .normal)
+    // Register single-char letter buttons for the fast-shift path so
+    // stateChanged() can update them in place without a full remount.
+    if ch.count == 1 && node.bind?["content"] != "tone" {
+      letterButtonsByChar[ch.lowercased()] = btn
+    }
     let payload = node.props?["char"]?.asString ?? ch
     bindTap(btn, node: node, defaultAction: .insertKey(char: uppercased ? payload.uppercased() : payload))
 
@@ -1429,6 +1524,7 @@ final class SDUIRenderer: NSObject {
   private func buildShiftKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
     applyShiftKeyVisual(btn)
+    weakShiftButton = btn  // fast-shift path needs to reach the icon later
     let handler = UIAction { [weak self] _ in self?.handleShiftTap() }
     btn.addAction(handler, for: .touchUpInside)
     // Long-press → lock (or unlock+flip if already locked).
@@ -1673,39 +1769,23 @@ final class SDUIRenderer: NSObject {
       if let hex = node.style?["fg"]?.asString { return UIColor(tulmiHex: hex) }
       return keyTextColor()
     }()
-    if state.dictating {
-      // Backend flags:
-      //   kb.mic.recordingIcon        — icon spec (sf/asset/url/emoji)
-      //   kb.mic.recordingIconSize    — SF Symbol point size (default 14)
-      //   kb.mic.recordingIconWeight  — thin/light/regular/medium/semibold/bold/heavy/black
-      //
-      // Default: "minus" SF Symbol at 14pt heavy = the thick horizontal bar.
-      // Backend can swap to any other icon shape (asset, emoji, remote URL, or
-      // a different SF Symbol) without a native rebuild.
-      let iconSpec = flagIcon("kb.mic.recordingIcon")
-      let size = flagCGFloat("kb.mic.recordingIconSize", 14)
-      let weight = sfWeight(flagString("kb.mic.recordingIconWeight", "heavy"))
-      let sfCfg = UIImage.SymbolConfiguration(pointSize: size, weight: weight)
-      if let spec = iconSpec, let img = resolveIcon(spec, onLoad: { [weak self] in
-        self?.stateChanged()
-      }) {
-        btn.setImage(img.applyingSymbolConfiguration(sfCfg) ?? img, for: .normal)
-      } else {
-        // Legacy default — thick horizontal bar.
-        btn.setImage(UIImage(systemName: "minus", withConfiguration: sfCfg), for: .normal)
-      }
-    } else if let markSpec = flagIcon("kb.mic.idleIcon") {
-      // Backend can also override the idle icon (default = bundled TailzuMark).
+    // Single-file mic media: same image mounted for both idle and recording;
+    // playback is toggled via imageView.startAnimating()/stopAnimating() so
+    // "click to play, click to pause" is the semantic — no icon swap. When
+    // the backend doesn't ship kb.mic.idleIcon, we fall back to the bundled
+    // TailzuMark asset (static). No separate kb.mic.recordingIcon path.
+    if let markSpec = flagIcon("kb.mic.idleIcon") {
       if let img = resolveIcon(markSpec, onLoad: { [weak self] in self?.stateChanged() }) {
         btn.setImage(img, for: .normal)
-        // Animated images (GIF/APNG) only loop once the imageView is told to
-        // — otherwise UIKit shows the first frame frozen.
-        btn.imageView?.startAnimating()
+        btn.imageView?.contentMode = .scaleAspectFill
+        if state.dictating {
+          btn.imageView?.startAnimating()
+        } else {
+          btn.imageView?.stopAnimating()
+        }
       }
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
-      // Default inset is 2pt — the mark reads edge-to-edge on the circular
-      // button so the brand is legible. Backend can override with
-      // kb.mic.idleIconInset when a specific art needs padding.
+      // Fallback: bundled brand mark, edge-to-edge in the circular button.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
       btn.imageView?.contentMode = .scaleAspectFit
       btn.imageEdgeInsets = UIEdgeInsets(
