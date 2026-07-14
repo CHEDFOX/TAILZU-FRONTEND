@@ -27,6 +27,14 @@ import { MediaPlayer } from "../media/MediaPlayer";
 const MARK = require("../../assets/tailzu-mark.png");
 const SPRING = { friction: 7, tension: 120, useNativeDriver: true };
 
+// App-wide recording lock. The Home Pager mounts BOTH of its pages at once
+// (RN ScrollView pagingEnabled renders every child), so two VoiceToggles —
+// each with its own AudioRecorder — are live simultaneously. Only one iOS
+// AVAudioSession exists; letting two recorders prepare/record at the same time
+// leaves the session in a broken state where neither captures audio. This flag
+// guarantees a single active recording at any moment across the whole screen.
+let micRecordingActive = false;
+
 /**
  * Normalise the two shapes the backend can send for a mic-state media:
  *
@@ -190,25 +198,52 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const errNoAudio = String(props.errorNoAudio ?? "No audio captured");
   const errTranscribe = String(props.errorTranscribe ?? "transcription failed");
 
+  const errPermissionSettings = String(
+    props.errorPermissionSettings ??
+      "Microphone access is off. Turn it on in Settings › Tailzu › Microphone, then try again.",
+  );
+  const errMicBusy = String(props.errorMicBusy ?? "Already recording — finish that first.");
+
   const start = useCallback(async () => {
+    // Another VoiceToggle on this screen is already recording — the Pager keeps
+    // both pages mounted, so block the second one instead of corrupting the
+    // shared audio session.
+    if (micRecordingActive) { fire("onError", errMicBusy); return; }
     try {
-      const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) { fire("onError", errPermission); return; }
+      // Check first: after a denial iOS never re-prompts, it just returns
+      // `granted:false` silently. Distinguish "never asked" (prompt) from
+      // "denied in Settings" (send them to Settings) so a stuck permission
+      // stops looking like a network failure.
+      let perm = await AudioModule.getRecordingPermissionsAsync();
+      if (!perm.granted && perm.canAskAgain) {
+        perm = await AudioModule.requestRecordingPermissionsAsync();
+      }
+      if (!perm.granted) {
+        fire("onError", perm.canAskAgain ? errPermission : errPermissionSettings);
+        return;
+      }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
+      micRecordingActive = true;
       setRecording(true);
       store.set("recording", true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       morphTo(1);
     } catch (e: any) {
-      fire("onError", e?.message ?? errMic);
+      // Surface the REAL error (not a generic "check your connection"), and
+      // release the lock so the button isn't wedged after one failure.
+      micRecordingActive = false;
+      // eslint-disable-next-line no-console
+      console.warn("[Tailzu][mic] start failed:", e);
+      fire("onError", e?.message ? `Mic error: ${e.message}` : errMic);
     }
-  }, [recorder, store, fire, morphTo, errPermission, errMic]);
+  }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic]);
 
   const stop = useCallback(async () => {
     setRecording(false);
     store.set("recording", false);
+    micRecordingActive = false;
     setBusy(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     morphTo(0);
@@ -224,7 +259,9 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       fire("onChange", cleanedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", e?.message ?? errTranscribe);
+      // eslint-disable-next-line no-console
+      console.warn("[Tailzu][mic] stop/transcribe failed:", e);
+      fire("onError", e?.message ? `Voice error: ${e.message}` : errTranscribe);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
