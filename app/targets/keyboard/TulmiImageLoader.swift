@@ -56,24 +56,60 @@ enum TulmiImageLoader {
 
   // MARK: - Decoder — handles static + animated (GIF / APNG)
 
+  /// Maximum pixel dimension (long edge) any decoded frame is scaled to.
+  /// Keyboard extensions run in a ~48MB memory ceiling — a 1024×1024 RGBA
+  /// frame is 4MB, a 30-frame animation at that size unpacks to ~120MB and
+  /// crashes the extension outright. 256px covers the largest mic button
+  /// at 3× scale (~108px physical) with headroom for HDR / tint blending;
+  /// larger sources are downscaled at decode time so the animated image
+  /// footprint stays predictable.
+  private static let maxFrameEdge: CGFloat = 256
+
   private static func decode(_ data: Data) -> UIImage? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil) else {
       return UIImage(data: data)
     }
     let count = CGImageSourceGetCount(src)
-    if count <= 1 { return UIImage(data: data) }
+    if count <= 1 {
+      // Single-frame path: still downscale if the source is huge, so the
+      // idle mic button icon can't OOM the extension either.
+      return decodeDownscaledSingle(src)
+    }
+
+    // ImageIO's `kCGImageSourceCreateThumbnailFromImageAlways` + a
+    // max-pixel-size limit produces a downscaled frame in a single pass —
+    // no separate resize step, no full-resolution decode into memory first.
+    let scaleOpts: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: Int(maxFrameEdge * UIScreen.main.scale),
+    ]
 
     var frames: [UIImage] = []
     var total: TimeInterval = 0
     for i in 0..<count {
-      guard let cg = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+      guard let cg = CGImageSourceCreateThumbnailAtIndex(src, i, scaleOpts as CFDictionary) else {
+        continue
+      }
       total += frameDuration(src, index: i)
       frames.append(UIImage(cgImage: cg))
     }
     if frames.isEmpty { return UIImage(data: data) }
-    // UIKit fires the animation loop as soon as the animatedImage is placed
-    // in a UIImageView. Duration is the FULL loop length.
     return UIImage.animatedImage(with: frames, duration: total)
+  }
+
+  private static func decodeDownscaledSingle(_ src: CGImageSource) -> UIImage? {
+    let scaleOpts: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: Int(maxFrameEdge * UIScreen.main.scale),
+    ]
+    guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, scaleOpts as CFDictionary) else {
+      return nil
+    }
+    return UIImage(cgImage: cg)
   }
 
   /// Read per-frame delay from GIF / APNG metadata. Falls back to 100ms when
