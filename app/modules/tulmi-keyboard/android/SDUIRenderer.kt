@@ -156,6 +156,7 @@ sealed class KBActionSpec {
     object StartDictation : KBActionSpec()
     object StopDictation : KBActionSpec()
     object RunRefine : KBActionSpec()
+    object CycleTone : KBActionSpec()
     data class OpenApp(val screenId: String?) : KBActionSpec()
     object OpenSettings : KBActionSpec()
     data class Haptic(val style: String) : KBActionSpec()
@@ -302,8 +303,14 @@ class SDUIRenderer(
 
     /** LetterKey — Button labeled with props.char (capitalized on shift/caps). */
     private fun renderLetterKey(node: KBNode, parent: ViewGroup) {
-        val raw = (node.props["char"] as? String) ?: ""
-        val label = if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
+        // A LetterKey bound to "tone" (the tone pill) shows the LIVE tone, not a
+        // static char. Only single-char labels follow shift-casing; multi-char
+        // titles like "Neutral" stay as authored (mirrors iOS buildLetterKey).
+        val raw = if (node.bind["content"] == "tone") currentTone()
+                  else ((node.props["char"] as? String) ?: "")
+        val label = if (raw.length == 1) {
+            if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
+        } else raw
         val b = keyButton(label, node)
         b.setOnClickListener {
             hapticTap(b)
@@ -926,6 +933,7 @@ class SDUIRenderer(
             is KBActionSpec.StartDictation -> host.startDictation()
             is KBActionSpec.StopDictation -> host.stopDictation()
             is KBActionSpec.RunRefine -> host.runRefine()
+            is KBActionSpec.CycleTone -> cycleTone()
             is KBActionSpec.OpenApp -> openApp(spec.screenId)
             is KBActionSpec.OpenSettings -> openInputMethodSettings()
             is KBActionSpec.Haptic -> haptic(spec.style)
@@ -939,6 +947,36 @@ class SDUIRenderer(
 
     private fun insertText(text: String) {
         host.ic()?.commitText(text, 1)
+    }
+
+    // --- Tone pill (SDUI) ---------------------------------------------------
+    // The tone pill is a LetterKey with bind.content == "tone" and
+    // on.onPress == { kind: "cycleTone" }. In SDUI mode the hand-built pill
+    // isn't shown, so this is the only way to change tone. We read/write the
+    // SAME SharedPreferences the hand-built pill + IME use ("tulmi_kb"/"tone")
+    // so the two stay in lockstep and the IME's refine path sees the selection.
+
+    private fun toneStore() =
+        host.context().getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+
+    private fun currentTone(): String = toneStore().getString("tone", "Neutral") ?: "Neutral"
+
+    /** Tones from backend flag `kb.tones` (comma-separated) or a default set —
+     *  mirrors iOS configuredTones(). */
+    private fun configuredTones(): List<String> {
+        (kbConfig.flags["kb.tones"] as? String)?.let { raw ->
+            val parts = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.isNotEmpty()) return parts
+        }
+        return listOf("Neutral", "Casual", "Formal", "Excited")
+    }
+
+    private fun cycleTone() {
+        val tones = configuredTones()
+        val idx = tones.indexOf(currentTone())
+        val next = tones[(idx + 1) % tones.size.coerceAtLeast(1)]
+        toneStore().edit().putString("tone", next).apply()
+        host.onStateChanged() // re-render → the tone pill re-reads currentTone()
     }
 
     /** Look back for a word boundary and delete that many chars. */
@@ -1293,6 +1331,7 @@ class SDUIRenderer(
                 "startDictation" -> KBActionSpec.StartDictation
                 "stopDictation" -> KBActionSpec.StopDictation
                 "runRefine" -> KBActionSpec.RunRefine
+                "cycleTone" -> KBActionSpec.CycleTone
                 "openApp" -> KBActionSpec.OpenApp(optStringOrNull(o, "screenId"))
                 "openSettings" -> KBActionSpec.OpenSettings
                 "haptic" -> KBActionSpec.Haptic(o.optString("style", "selection"))

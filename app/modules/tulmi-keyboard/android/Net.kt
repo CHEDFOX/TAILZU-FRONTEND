@@ -115,14 +115,25 @@ object Net {
         }
     }
 
-    fun refine(text: String, targetApp: String): String {
+    fun refine(text: String, targetApp: String, tone: String = ""): String {
+        // Route to the backend's per-tone endpoint when a known LLM tone is
+        // selected; "none" → skip-refine endpoint; everything else (Neutral,
+        // empty, or anything unrecognized) → the catch-all /v1/refine that
+        // always exists. This can only ever fall BACK to the safe default —
+        // never a 404 — so an unexpected tone value can't break refine.
+        val toneId = tone.trim().lowercase().replace(' ', '-')
+        val path = when (toneId) {
+            "formal", "casual", "very-casual", "excited" -> "/v1/refine/$toneId"
+            "none" -> "/v1/refine/none"
+            else -> "/v1/refine"
+        }
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
             .put("language", "auto")
             .toString()
         val req = Request.Builder()
-            .url("$baseUrl/v1/refine")
+            .url("$baseUrl$path")
             .addHeader("Authorization", "Bearer $token")
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
