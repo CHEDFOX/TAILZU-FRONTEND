@@ -108,12 +108,17 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
   const shouldPlay = playing != null ? playing : autoplay;
 
   // Hard max-duration cap — fires onEnd (if provided) after maxDurationMs
-  // whether or not the source has looped that many times.
+  // whether or not the source has looped that many times. onEnd is kept in a
+  // ref so its identity churning (it's a fresh closure every render, and under
+  // voiceReactive the component re-renders ~30×/s) doesn't clearTimeout+re-arm
+  // the timer every frame → the cap would otherwise never actually elapse.
+  const onEndRef = useRef(onEnd);
+  useEffect(() => { onEndRef.current = onEnd; }, [onEnd]);
   useEffect(() => {
     if (!maxDurationMs || !shouldPlay) return;
-    const id = setTimeout(() => { onEnd?.(); }, maxDurationMs);
+    const id = setTimeout(() => { onEndRef.current?.(); }, maxDurationMs);
     return () => clearTimeout(id);
-  }, [maxDurationMs, shouldPlay, onEnd]);
+  }, [maxDurationMs, shouldPlay]);
 
   if (resolved.kind === "empty") return null;
 
