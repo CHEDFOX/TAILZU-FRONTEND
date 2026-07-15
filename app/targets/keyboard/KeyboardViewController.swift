@@ -1118,12 +1118,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func beginRecording(session: AVAudioSession) {
     do {
-      // Use plain .record with .default mode. Keyboard extensions have
-      // inconsistent support for .voiceChat mode (voice-processing IO) —
-      // some devices throw at setCategory. Since the backend already runs
-      // Whisper against the captured audio, the DSP-level noise reduction
-      // from .voiceChat is a nice-to-have, not a requirement.
-      try session.setCategory(.record, mode: .default, options: [.duckOthers])
+      // Prefer the OS voice-processing path (.voiceChat enables AEC + noise
+      // suppression + AGC) so a keyboard dictating in a noisy room captures
+      // clean speech. Some devices/hosts still throw on voice-chat IO inside
+      // an extension — fall back to plain .record so capture always works.
+      do {
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.duckOthers])
+      } catch {
+        try session.setCategory(.record, mode: .default, options: [.duckOthers])
+      }
       try session.setActive(true)
 
       let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
@@ -1155,7 +1158,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       // Metering on so we can drive voice-reactive UI (mic art speed
       // follows level, same behavior as the main app's dictation screen).
       recorder.isMeteringEnabled = true
-      recorder.record()
+      guard recorder.record() else {
+        // record() == false → the input route wasn't ready. Surface it rather
+        // than capture a file of pure silence (which STT then hallucinates
+        // "Thank you." from).
+        setStatus(label("voice_not_listening", "444 : Not Listening"))
+        cleanupRecorder()
+        bailDictating()
+        return
+      }
 
       audioRecorder = recorder
       recordingURL = url

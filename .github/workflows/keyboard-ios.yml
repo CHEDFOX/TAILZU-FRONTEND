@@ -1,0 +1,77 @@
+name: keyboard-ios-compile
+
+# Compile-checks the iOS keyboard extension (Swift) WITHOUT an EAS build. A
+# macOS runner runs the full Expo prebuild + pod install + an unsigned
+# simulator build of the app scheme, which embeds and therefore compiles the
+# keyboard extension target (KeyboardViewController.swift, TulmiStream.swift,
+# SDUIRenderer.swift, …). Swift errors now surface in ~10 min on CI instead of
+# after a paid EAS build.
+#
+# Only runs when native iOS / config surface changes. Trigger manually from the
+# Actions tab via "Run workflow" too.
+
+on:
+  push:
+    paths:
+      - "app/targets/keyboard/**"
+      - "app/modules/tulmi-bridge/ios/**"
+      - "app/ios/**"
+      - "app/app.config.ts"
+      - "app/package.json"
+      - "app/package-lock.json"
+      - ".github/workflows/keyboard-ios.yml"
+  pull_request:
+    paths:
+      - "app/targets/keyboard/**"
+      - "app/modules/tulmi-bridge/ios/**"
+      - "app/ios/**"
+      - "app/app.config.ts"
+      - "app/package.json"
+      - "app/package-lock.json"
+      - ".github/workflows/keyboard-ios.yml"
+  workflow_dispatch: {}
+
+jobs:
+  compile:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Expo prebuild (ios)
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: CocoaPods
+        working-directory: app/ios
+        run: pod install --repo-update
+
+      - name: Discover workspace + scheme
+        id: xc
+        working-directory: app/ios
+        run: |
+          WS=$(ls -d *.xcworkspace | head -n1)
+          echo "workspace=$WS" >> "$GITHUB_OUTPUT"
+          # The app scheme matches the .xcworkspace basename ("Tailzu").
+          echo "scheme=${WS%.xcworkspace}" >> "$GITHUB_OUTPUT"
+
+      - name: Build (unsigned, simulator) — compiles the keyboard extension
+        working-directory: app/ios
+        run: |
+          xcodebuild build \
+            -workspace "${{ steps.xc.outputs.workspace }}" \
+            -scheme "${{ steps.xc.outputs.scheme }}" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
