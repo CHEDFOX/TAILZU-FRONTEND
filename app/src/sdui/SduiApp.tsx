@@ -412,12 +412,18 @@ export default function SduiApp() {
               <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
-            <Text style={[styles.brand, { color: theme.color.text }]}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
+            <Text style={[styles.brand, { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
           )}
-          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]}>{screen?.title ?? ""}</Text>}
-          <Pressable onPress={() => setShowConnection(true)} hitSlop={10}>
-            <Text style={[styles.headerIcon, { color: theme.color.muted }]}>⚙</Text>
-          </Pressable>
+          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{screen?.title ?? ""}</Text>}
+          {/* Settings gear — top-right on the tab roots (Home / You). Opens the
+              Settings screen (pushed, with a back arrow). Replaces the old dev
+              "Connection" entry, and stands in for the removed Settings tab.
+              Hidden on pushed screens, where the back arrow + title own the bar. */}
+          {!canGoBack && (
+            <Pressable onPress={() => nav.push("settings")} hitSlop={10}>
+              <Text style={[styles.headerIcon, { color: theme.color.muted }]}>⚙</Text>
+            </Pressable>
+          )}
         </View>
       )}
 
