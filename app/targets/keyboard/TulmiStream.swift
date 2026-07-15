@@ -105,7 +105,16 @@ final class TulmiStream: NSObject {
   private func startCapture() {
     let audio = AVAudioSession.sharedInstance()
     do {
-      try audio.setCategory(.record, mode: .default)
+      // .voiceChat enables the OS voice-processing IO unit (AEC + noise
+      // suppression + AGC) — exactly what a keyboard dictating in a noisy
+      // room wants. Some devices/hosts refuse voice-chat IO inside an
+      // extension and throw here; fall back to plain .record so capture
+      // still works.
+      do {
+        try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.duckOthers])
+      } catch {
+        try audio.setCategory(.record, mode: .default)
+      }
       try audio.setActive(true)
     } catch {
       onEvent(.error("Audio session: \(error.localizedDescription)"))
@@ -113,6 +122,12 @@ final class TulmiStream: NSObject {
     }
 
     let input = engine.inputNode
+    // Turn on the input node's voice processing (echo cancel + noise suppress).
+    // iOS 13+; throws on hardware that can't do it — non-fatal, we just capture
+    // raw. If enabling it later makes engine.start() fail, KeyboardViewController
+    // falls back to the local batch-record path, so streaming never hard-fails.
+    try? input.setVoiceProcessingEnabled(true)
+
     let inputFormat = input.outputFormat(forBus: 0)
     converter = AVAudioConverter(from: inputFormat, to: targetFormat)
     input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in

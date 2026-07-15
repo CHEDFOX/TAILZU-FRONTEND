@@ -35,6 +35,7 @@ class Stream(
 
     private var ws: WebSocket? = null
     private var record: AudioRecord? = null
+    private var audioFx: TulmiAudioFx? = null
     @Volatile private var capturing = false
 
     /**
@@ -103,7 +104,10 @@ class Stream(
         val bufSize = maxOf(minBuf, 4096)
         val rec = try {
             AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                // VOICE_RECOGNITION applies the OS's STT-tuned front-end
+                // (less aggressive than VOICE_COMMUNICATION's call AEC) and is
+                // the recommended source for dictation.
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 16000,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
@@ -119,6 +123,11 @@ class Stream(
             return
         }
         record = rec
+        // Attach OS noise-suppression / echo-cancel / AGC to this capture
+        // session. AudioRecord exposes a real session id (MediaRecorder does
+        // not), so effects actually bind here. Each is guarded by isAvailable()
+        // inside the helper; released in stopCapture().
+        audioFx = try { TulmiAudioFx.attach(rec.audioSessionId) } catch (_: Throwable) { null }
         capturing = true
         rec.startRecording()
         thread(name = "tulmi-mic") {
@@ -148,6 +157,8 @@ class Stream(
         try { record?.stop() } catch (_: Exception) {}
         try { record?.release() } catch (_: Exception) {}
         record = null
+        try { audioFx?.close() } catch (_: Exception) {}
+        audioFx = null
     }
 
     /** Stop the mic, tell the server we're done, and close. */
