@@ -11,6 +11,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -144,7 +145,7 @@ private class Streamer(
       val buf = ByteArray(bufSize)
       while (capturing) {
         val n = rec.read(buf, 0, buf.size)
-        if (n > 0) webSocket.send(ByteString.of(buf, 0, n))
+        if (n > 0) webSocket.send(buf.toByteString(0, n))
       }
     }
   }
