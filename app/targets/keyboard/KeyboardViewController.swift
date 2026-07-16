@@ -181,16 +181,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var expansions: [String: String] = [:]
 
   private func loadDictionary() {
-    guard let json = UserDefaults(suiteName: "group.com.tulmi.app")?.string(forKey: "tulmi.dictionary"),
-          let data = json.data(using: .utf8),
-          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
-    var map: [String: String] = [:]
-    for e in arr {
-      if let w = e["word"] as? String, let r = e["replacement"] as? String, !w.isEmpty {
-        map[w.lowercased()] = r
+    // Read + parse off the main thread so a large dictionary can't hitch
+    // viewDidLoad / viewWillAppear (this ran synchronously on the hot path
+    // before). `expansions` is only ever assigned on the main thread, so
+    // expandLastWord() — which reads it on main — never races the parse.
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let json = UserDefaults(suiteName: "group.com.tulmi.app")?.string(forKey: "tulmi.dictionary"),
+            let data = json.data(using: .utf8),
+            let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+      var map: [String: String] = [:]
+      for e in arr {
+        if let w = e["word"] as? String, let r = e["replacement"] as? String, !w.isEmpty {
+          map[w.lowercased()] = r
+        }
       }
+      DispatchQueue.main.async { self?.expansions = map }
     }
-    expansions = map
   }
 
   /// If the word right before the cursor is a trigger, replace it. Returns true
