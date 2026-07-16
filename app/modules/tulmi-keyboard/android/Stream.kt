@@ -37,6 +37,7 @@ class Stream(
     private var ws: WebSocket? = null
     private var record: AudioRecord? = null
     private var audioFx: TulmiAudioFx? = null
+    private var captureThread: Thread? = null
     @Volatile private var capturing = false
 
     /**
@@ -135,7 +136,7 @@ class Stream(
         audioFx = try { TulmiAudioFx.attach(rec.audioSessionId) } catch (_: Throwable) { null }
         capturing = true
         rec.startRecording()
-        thread(name = "tulmi-mic") {
+        captureThread = thread(name = "tulmi-mic") {
             val buf = ByteArray(bufSize)
             while (capturing) {
                 val n = rec.read(buf, 0, buf.size)
@@ -158,7 +159,14 @@ class Stream(
     }
 
     private fun stopCapture() {
+        // Signal the capture loop to exit, then JOIN it before touching the
+        // AudioRecord. The mic thread blocks in rec.read(); releasing the record
+        // on another thread while a read is in flight is a use-after-free on
+        // native memory → hard crash. Joining first guarantees the read has
+        // returned and the thread has stopped touching `record`.
         capturing = false
+        captureThread?.let { t -> try { t.join(700) } catch (_: InterruptedException) {} }
+        captureThread = null
         try { record?.stop() } catch (_: Exception) {}
         try { record?.release() } catch (_: Exception) {}
         record = null

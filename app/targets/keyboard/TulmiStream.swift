@@ -152,6 +152,10 @@ final class TulmiStream: NSObject {
     do {
       try engine.start()
     } catch {
+      // Don't leak the tap + active audio session (which ducks other apps'
+      // audio) when the engine fails to start — tear the capture down before
+      // surfacing the error.
+      stopCapture()
       onEvent(.error("Mic start: \(error.localizedDescription)"))
     }
   }

@@ -67,6 +67,7 @@ private class Streamer(
 
   private var ws: WebSocket? = null
   private var record: AudioRecord? = null
+  private var captureThread: Thread? = null
   @Volatile private var capturing = false
 
   fun start(url: String, token: String, targetApp: String, language: String) {
@@ -109,7 +110,9 @@ private class Streamer(
       when (o.optString("type")) {
         "ready" -> emit("onReady", emptyMap())
         "partial" -> emit("onPartial", mapOf("text" to o.optString("text")))
-        "final", "done" -> emit("onFinal", mapOf("text" to o.optString("text")))
+        "final" -> emit("onFinal", mapOf("text" to o.optString("text")))
+        // "done" carries no text — it's the terminal marker, not a transcript.
+        "done" -> emit("onClosed", emptyMap())
         "error" -> emit("onError", mapOf("message" to o.optString("message", "stream error")))
       }
     } catch (_: Exception) { /* ignore malformed frames */ }
@@ -141,7 +144,7 @@ private class Streamer(
     record = rec
     capturing = true
     rec.startRecording()
-    thread(name = "tulmi-mic") {
+    captureThread = thread(name = "tulmi-mic") {
       val buf = ByteArray(bufSize)
       while (capturing) {
         val n = rec.read(buf, 0, buf.size)
@@ -151,16 +154,27 @@ private class Streamer(
   }
 
   private fun stopCapture() {
+    // Signal the loop to exit and JOIN before releasing the AudioRecord — the
+    // mic thread blocks in rec.read(), and releasing native memory out from
+    // under an in-flight read is a use-after-free crash.
     capturing = false
+    captureThread?.let { t -> try { t.join(700) } catch (_: InterruptedException) {} }
+    captureThread = null
     try { record?.stop() } catch (_: Exception) {}
     try { record?.release() } catch (_: Exception) {}
     record = null
   }
 
   fun finish() {
+    // Keep the socket open after "stop" so the engine's flushed tail + "done"
+    // still arrive (closing here truncated the ending). Watchdog force-closes
+    // if "done" never comes.
     stopCapture()
-    ws?.send("{\"type\":\"stop\"}")
-    ws?.close(1000, null)
+    val socket = ws ?: run { emit("onClosed", emptyMap()); return }
+    socket.send("{\"type\":\"stop\"}")
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+      try { ws?.close(1000, null) } catch (_: Exception) {}
+    }, 2500)
   }
 
   fun cancel() {

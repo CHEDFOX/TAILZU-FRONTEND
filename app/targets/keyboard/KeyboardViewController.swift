@@ -107,6 +107,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Live (streaming) dictation state.
   private var stream: TulmiStream?
   private var isStreaming = false
+  // Set synchronously the instant a stream start begins, BEFORE the async mic
+  // permission round-trip — so a double-tap can't spawn two TulmiStreams (the
+  // second would orphan the first's engine + tap + socket). Cleared once the
+  // stream actually starts, or on any bail.
+  private var isStartingStream = false
   private var pendingPartial = "" // partial text currently shown in the field
   private var dictatedSomething = false // a final landed this session → auto-refine on close
 
@@ -974,6 +979,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Live (streaming) dictation
 
   private func startStreaming() {
+    // Re-entry guard: ignore a second start while one is already in flight or
+    // running. requestRecordPermission is async, so without this a double-tap
+    // spawns a second TulmiStream that orphans the first's engine/tap/socket.
+    guard !isStreaming, !isStartingStream else { return }
     // Full Access is required for network AND mic in a keyboard extension.
     // Without it, requestRecordPermission returns false with no explanation,
     // so we check first and route the user to Settings with a clear message.
@@ -981,9 +990,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."))
       return
     }
+    isStartingStream = true
     AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
+        self.isStartingStream = false
         guard granted else {
           self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."))
           return
