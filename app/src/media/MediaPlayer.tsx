@@ -32,7 +32,7 @@
  * The player always renders SOMETHING when the spec resolves — for missing
  * assets it returns null so the caller's fallback path takes over.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Image as RNImage, Text, View, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import { Image as ExpoImage, ImageContentFit } from "expo-image";
 import { resolveMedia, MediaSpec } from "./resolveMedia";
@@ -273,14 +273,15 @@ type VideoInnerProps = {
 };
 
 function VideoPlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, muted, onEnd, testID }: VideoInnerProps): React.ReactElement | null {
-  const [ready, setReady] = useState(false);
   const endedRef = useRef(false);
   const player = useVideoPlayer(uri, (pl: { loop: boolean; muted: boolean; playbackRate: number; play: () => void }) => {
     pl.loop = loop;
     pl.muted = muted;
     pl.playbackRate = speed;
-    if (shouldPlay) pl.play();
-    setReady(true);
+    // Don't start playback in the initializer — the VideoView isn't mounted
+    // yet, so the opening frames would play off-screen and the user would only
+    // see the end state. The effect below starts playback once the surface is
+    // attached to the tree.
   });
 
   useEffect(() => {
@@ -307,7 +308,7 @@ function VideoPlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, mut
     };
   }, [player, onEnd]);
 
-  if (!ready || !ExpoVideo) return null;
+  if (!ExpoVideo) return null;
   return (
     <ExpoVideo
       player={player}
