@@ -254,6 +254,70 @@ export default function SduiApp() {
   const bootRef = useRef(boot);
   useEffect(() => { bootRef.current = boot; }, [boot]);
 
+  // Consume whatever the keyboard extension left in the shared App Group (a mic
+  // "handoff" record request or a deep-link tombstone) and route / arm from it.
+  // Returns "record" (routed to the mic-record screen), "navigated" (routed via
+  // a deep link, e.g. Flow arm), or "none". Shared by BOTH the cold-start path
+  // and the foreground AppState path: the keyboard can COLD-LAUNCH a terminated
+  // app (or one iOS killed in the background), and on a cold launch the AppState
+  // "change→active" event never fires — so without a cold-start caller, a Flow
+  // "arm" tombstone is never consumed, armFlowSession never runs, the session
+  // never arms, and the keyboard mic just re-opens the app forever.
+  const consumeKeyboardEntry = useCallback((): "record" | "navigated" | "none" => {
+    const rec = consumeKeyboardRecordRequest();
+    if (rec) {
+      // Fresh mic handoff. Drain the PAIRED deep-link tombstone too, so it can't
+      // re-open the record screen on a later, unrelated foreground.
+      consumeKeyboardDeepLink();
+      setStack([{
+        screenId: "keyboard_record",
+        params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
+      }]);
+      return "record";
+    }
+    const pending = consumeKeyboardDeepLink();
+    if (!pending) return "none";
+    if (pending === "openSettings") {
+      Linking.openSettings().catch(() => {});
+      return "none";
+    }
+    if (pending.startsWith("screen/")) {
+      const screenId = pending.slice("screen/".length);
+      if (screenId === "flow_arm") {
+        // Flow Session arming: the keyboard opened us here to turn the background
+        // mic on. Arm it deterministically (idle window backend-tunable via
+        // kb.flow.idleTimeoutMs) AND route to the backend-authored "swipe back"
+        // arming screen (whose onAppear re-arms too — arm() is idempotent).
+        void (async () => {
+          const [base, tok, lang] = await Promise.all([
+            getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+          ]);
+          const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
+          armFlowSession(base, tok ?? "dev", lang || "auto", idle);
+        })();
+        setStack([{ screenId: "flow_arm" }]);
+        return "navigated";
+      }
+      if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
+        // keyboard_record / keyboard_primer are mic-tap-only (owned by the
+        // record-request path above); a leftover deep-link to them is stale.
+        setStack([{ screenId }]);
+        return "navigated";
+      }
+    }
+    return "none";
+  }, []);
+
+  // Cold-start keyboard entry — runs ONCE, the first time we reach "ready". The
+  // AppState listener below only fires on a background→foreground transition, so
+  // a terminated app cold-launched by the keyboard would otherwise never arm.
+  const coldEntryDone = useRef(false);
+  useEffect(() => {
+    if (phase !== "ready" || coldEntryDone.current) return;
+    coldEntryDone.current = true;
+    consumeKeyboardEntry();
+  }, [phase, consumeKeyboardEntry]);
+
   // Refetch bootstrap + current screen when the app returns to the foreground
   // — so a user who left the app open, backgrounded it for hours, and comes
   // back doesn't stare at stale UI. Also picks up a bumped cacheVersion.
@@ -269,55 +333,14 @@ export default function SduiApp() {
       // expired-JWT 401. Cheap + best-effort; safe before "ready".
       void syncKeyboardCredentials();
       if (phase !== "ready") return;
-      // Consume any pending mic-handoff request the keyboard extension left.
-      // If the app was cold-started via the keyboard's deep link, this
-      // sessionId flows into $state.handoffSessionId so the record screen's
-      // completeKeyboardHandoff action targets the right session.
-      const rec = consumeKeyboardRecordRequest();
-      if (rec) {
-        // Fresh mic handoff. Also drain the PAIRED deep-link tombstone the
-        // keyboard wrote alongside the request, so it can't re-open the record
-        // screen on a later, unrelated foreground.
-        consumeKeyboardDeepLink();
-        setStack([{
-          screenId: "keyboard_record",
-          params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
-        }]);
-        return;
-      }
-      // Consume any deep-link tombstone the keyboard extension left — it
-      // couldn't call openURL itself, so it dropped a target in the shared
-      // App Group. Handle it before the boot refresh so the user lands on
-      // the right screen if they came here via a keyboard action.
-      const pending = consumeKeyboardDeepLink();
-      let navigatedThisForeground = false;
-      if (pending) {
-        if (pending === "openSettings") {
-          Linking.openSettings().catch(() => {});
-        } else if (pending.startsWith("screen/")) {
-          const screenId = pending.slice("screen/".length);
-          if (screenId === "flow_arm") {
-            // Flow Session arming: the keyboard opened us here to turn the
-            // background mic on. Arm it deterministically (idle window is
-            // backend-tunable via kb.flow.idleTimeoutMs) AND route to the
-            // backend-authored arming screen ("swipe back" prompt).
-            void (async () => {
-              const [base, tok, lang] = await Promise.all([
-                getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-              ]);
-              const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-              armFlowSession(base, tok ?? "dev", lang || "auto", idle);
-            })();
-            setStack([{ screenId: "flow_arm" }]);
-            navigatedThisForeground = true;
-          } else if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
-            // keyboard_record / keyboard_primer are mic-tap-only (owned by the
-            // record-request path above); a leftover deep-link to them is stale.
-            setStack([{ screenId }]);
-            navigatedThisForeground = true;
-          }
-        }
-      }
+      // Consume whatever the keyboard left (mic-handoff record request or a
+      // deep-link tombstone — it can't call openURL itself, so it drops a target
+      // in the shared App Group). Handle it before the boot refresh so the user
+      // lands on the right screen if they came here via a keyboard action. Same
+      // path the cold-start effect above uses.
+      const entry = consumeKeyboardEntry();
+      if (entry === "record") return;   // mic handoff owns the foreground; skip the reset + refetch
+      const navigatedThisForeground = entry === "navigated";
       // Safety net: if we're lingering on a transient mic screen from a PREVIOUS
       // session (recorded/armed, swiped back to the keyboard, now opening the app
       // normally) and we did NOT just navigate there this foreground, reset to
@@ -352,7 +375,7 @@ export default function SduiApp() {
       })();
     });
     return () => sub.remove();
-  }, [phase]);
+  }, [phase, consumeKeyboardEntry]);
 
   const nav: NavApi = useMemo(
     () => ({

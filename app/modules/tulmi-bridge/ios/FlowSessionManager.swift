@@ -46,7 +46,8 @@ final class FlowSessionManager: NSObject {
 
   // State
   private var armed = false
-  private var recording = false
+  private var capturing = false   // AVAudioEngine tap is live (runs continuously while armed)
+  private var dictating = false   // a single utterance is currently streaming to the server
   private var idleTimer: Timer?
   private var idleTimeout: TimeInterval = 300  // 5 min default; backend overrides
   private var baseUrl = ""
@@ -71,6 +72,14 @@ final class FlowSessionManager: NSObject {
 
     registerObservers()
     activateAudioSession()
+    // Start capturing IMMEDIATELY and keep the engine running for the whole
+    // armed window. This is the crux of the Wispr model on iOS: an active but
+    // IDLE audio session does NOT keep the app alive in the background — only a
+    // continuously-recording engine earns background execution under
+    // UIBackgroundModes:["audio"]. Buffers are discarded until a dictation opens
+    // a stream (see the `dictating` gate in sendBuffer); the point is that the
+    // app stays alive so it can answer the keyboard's flow.start nudge instantly.
+    startCapture()
 
     armed = true
     publishActive()
@@ -137,8 +146,8 @@ final class FlowSessionManager: NSObject {
 
   private func disarm(notify: Bool) {
     idleTimer?.invalidate(); idleTimer = nil
-    if recording { stopCapture() }
-    recording = false
+    dictating = false
+    stopCapture()   // only now do we tear the engine down — end of the session
     task?.cancel(with: .goingAway, reason: nil); task = nil
     armed = false
     publishInactive()
@@ -170,19 +179,21 @@ final class FlowSessionManager: NSObject {
   // MARK: - Dictation lifecycle (one utterance)
 
   private func beginDictation() {
-    guard armed, !recording else { return }
+    guard armed, !dictating else { return }
     resetIdleTimer()
-    recording = true
+    dictating = true
+    if !capturing { startCapture() }   // safety net — the engine should already be live
     openStream()
-    startCapture()
   }
 
   private func endDictation() {
-    guard recording else { return }
+    guard dictating else { return }
     resetIdleTimer()
-    stopCapture()
-    // Tell the server to flush the tail, then close after a grace window (the
-    // final segments arrive via the receive loop and get relayed).
+    dictating = false
+    // Stop STREAMING this utterance — but deliberately keep the engine running
+    // (do NOT stopCapture) so the app stays alive in the background between
+    // dictations. Tell the server to flush the tail, then close the socket after
+    // a grace window (the final segments arrive via the receive loop first).
     if let task = task {
       task.send(.string("{\"type\":\"stop\"}")) { _ in }
       DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -190,7 +201,6 @@ final class FlowSessionManager: NSObject {
         self?.task = nil
       }
     }
-    recording = false
   }
 
   // MARK: - WebSocket
@@ -268,6 +278,7 @@ final class FlowSessionManager: NSObject {
   // MARK: - Capture
 
   private func startCapture() {
+    guard !capturing else { return }
     let input = engine.inputNode
     try? input.setVoiceProcessingEnabled(true)
     let inputFormat = input.outputFormat(forBus: 0)
@@ -277,19 +288,23 @@ final class FlowSessionManager: NSObject {
     }
     tapInstalled = true
     engine.prepare()
-    do { try engine.start() } catch { stopCapture() }
+    do { try engine.start(); capturing = true } catch { stopCapture() }
   }
 
   private func stopCapture() {
     if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
     if engine.isRunning { engine.stop() }
-    // NOTE: we deliberately do NOT deactivate the AVAudioSession here — the
-    // session stays live between dictations so the app keeps holding the mic
-    // in the background. It's only torn down on disarm().
+    capturing = false
+    // NOTE: this is only called on disarm(). Between dictations the engine keeps
+    // running — that continuous capture is what holds the app alive in the
+    // background so the keyboard's flow.start nudge is serviced instantly.
   }
 
   private func sendBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
-    guard let converter = converter, let task = task else { return }
+    // The engine runs continuously while armed, but we only forward audio to the
+    // server DURING a dictation. Between utterances the captured buffers are
+    // discarded here — their only job was to keep the app alive in the background.
+    guard dictating, let converter = converter, let task = task else { return }
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
     guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
