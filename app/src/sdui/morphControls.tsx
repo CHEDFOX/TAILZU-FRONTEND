@@ -310,26 +310,19 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     //                 tap → play, tap → stop. For GIF/APNG, MediaPlayer
     //                 unmounts the image when playing=false, so we render the
     //                 built-in tailzu-mark as the idle placeholder underneath.
-    const singleMediaMode = recordingMic == null;
     const active = (recording && recordingMic) ? recordingMic : idleMic!;
-    // Tap → play, tap → pause. Single-media follows the mic state; two-media
-    // honors an explicit backend `playing` but otherwise ALSO follows the mic
-    // state, so media pauses when idle instead of looping forever.
-    const effectivePlaying = singleMediaMode
-      ? recording
-      : (active.playing != null ? Boolean(active.playing) : recording);
+    // The decided interaction: the media sits VISIBLE + PAUSED by default and
+    // plays ONLY while recording — tap → play, tap → pause. Play is tied purely
+    // to the mic state; we intentionally IGNORE any backend `playing`/`autoplay`
+    // so a media spec can never make it auto-loop at idle (that was the "it's
+    // always playing" bug). A freeze-capable source (MP4 / Lottie) holds a still
+    // frame while paused; a GIF/APNG can't be frozen by iOS.
+    const renderPlaying = recording;
     // Fire the node's onComplete NodeEvent when playback ends, so backend can
     // wire any action tree via on.onComplete on the VoiceToggle node.
-    // Payload distinguishes idle vs recording so the same action can branch.
     const handleEnd = active.fireOnEnd
       ? () => fire("onComplete", { state: recording ? "recording" : "idle" })
       : undefined;
-    // Play only while active (recording, or backend-forced) — was hardcoded to
-    // `true` for non-freezeOnPause sources, which made the media loop forever
-    // regardless of state ("always playing"). A freeze-on-pause source
-    // (MP4 / Lottie) shows a still frame when idle; a GIF unmounts to the round
-    // background when paused, which reads as a clean paused state.
-    const renderPlaying = effectivePlaying;
     return (
       <Pressable
         onPressIn={() => Animated.spring(press, { toValue: 0.9, friction: 8, tension: 300, useNativeDriver: true }).start()}
@@ -351,7 +344,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
             style={{ width: size, height: size }}
             contentFit="contain"
             tintColor={active.tint}
-            autoplay={active.autoplay}
+            // Never auto-play — the media is paused by default and only plays
+            // via `playing` (= recording). This is the belt to the `playing`
+            // braces so no backend spec can start it looping on mount.
+            autoplay={false}
             loop={active.loop}
             speed={
               recording && voiceReactive
