@@ -77,29 +77,32 @@ jobs:
           UDID="${{ steps.sim.outputs.udid }}"
           BID=space.tailzu.kbharness
           xcrun simctl install "$UDID" build/Harness.app
-          # Launch with a console pty so the app's stdout streams to console.log.
-          # The harness self-exits (~3s, 8s safety net), so no `timeout` needed
-          # — macOS has none anyway. A watchdog bounds it if the pty ever hangs.
-          ( xcrun simctl launch --console-pty "$UDID" "$BID" > console.log 2>&1 ) &
-          LP=$!
-          ( sleep 30; kill "$LP" 2>/dev/null; xcrun simctl terminate "$UDID" "$BID" 2>/dev/null ) &
-          WD=$!
-          # Grab frames mid-animation for the artifact.
+          # Launch detached (no --console — it proved flaky). simctl prints
+          # "<BID>: <pid>" on success or an error; the harness writes every line
+          # to its Documents/harness.log, which we poll from the data container.
+          echo "── launch ──"
+          xcrun simctl launch "$UDID" "$BID" 2>&1 | tee launch.out || true
+          # Frames mid-animation.
           sleep 1.2; xcrun simctl io "$UDID" screenshot shot-1-disperse.png || true
           sleep 1.3; xcrun simctl io "$UDID" screenshot shot-2-reassembled.png || true
-          wait "$LP" 2>/dev/null || true
-          kill "$WD" 2>/dev/null || true
-          # Prefer the app's own log file from its data container; fall back to
-          # the console stream.
-          CONTAINER=$(xcrun simctl get_app_container "$UDID" "$BID" data 2>/dev/null || true)
-          if [ -n "${CONTAINER:-}" ] && [ -f "$CONTAINER/Documents/harness.log" ]; then
-            cp "$CONTAINER/Documents/harness.log" harness.log
-          else
-            cp console.log harness.log 2>/dev/null || true
-          fi
-          echo "──────── console.log ────────"; cat console.log 2>/dev/null || true
-          echo "──────── harness.log ────────"; cat harness.log 2>/dev/null || true
+          # Poll the app's own log file until a VERDICT lands (~12s max).
+          : > harness.log
+          for i in $(seq 1 24); do
+            C=$(xcrun simctl get_app_container "$UDID" "$BID" data 2>/dev/null || true)
+            if [ -n "${C:-}" ] && [ -f "$C/Documents/harness.log" ]; then
+              cp "$C/Documents/harness.log" harness.log
+              grep -q "VERDICT:" harness.log && break
+            fi
+            sleep 0.5
+          done
+          echo "── container ──"; xcrun simctl get_app_container "$UDID" "$BID" data 2>&1 || true
+          echo "──────── harness.log ────────"; cat harness.log 2>/dev/null || echo "(empty)"
           echo "─────────────────────────────"
+          # Surface any crash report so a launch crash isn't invisible.
+          echo "── crash reports ──"
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 \( -iname "*Harness*" -o -iname "*kbharness*" \) 2>/dev/null | while read -r f; do
+            echo "=== $f ==="; sed -n '1,40p' "$f"
+          done
           grep -q "VERDICT: PASS" harness.log
 
       - name: Upload screenshots + log

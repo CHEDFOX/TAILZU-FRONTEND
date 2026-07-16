@@ -87,6 +87,7 @@ final class HarnessVC: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
+    log("viewDidLoad start bounds=\(view.bounds.width)x\(view.bounds.height)")
     view.backgroundColor = .black
 
     let side: CGFloat = 220
@@ -153,15 +154,17 @@ final class HarnessAppDelegate: UIResponder, UIApplicationDelegate {
   var window: UIWindow?
   func application(_ application: UIApplication,
                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-    let w = UIWindow(frame: UIScreen.main.bounds)
-    w.rootViewController = HarnessVC()
-    w.makeKeyAndVisible()
-    window = w
-    // Safety net: never hang the CI job if something wedges.
+    log("BOOT didFinishLaunching")
+    // Schedule the safety net FIRST so it fires even if view setup below wedges.
     DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
       log("VERDICT: FAIL — timed out before verdict")
       exit(3)
     }
+    let w = UIWindow(frame: UIScreen.main.bounds)
+    w.rootViewController = HarnessVC()
+    w.makeKeyAndVisible()
+    window = w
+    log("BOOT window visible")
     return true
   }
 }
