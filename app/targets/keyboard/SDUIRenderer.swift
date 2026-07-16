@@ -207,6 +207,203 @@ final class KeyPlaneView: UIView {
 }
 
 // =============================================================================
+// MicParticleView — the recording-state mic visual.
+//
+// Idle, the mic button shows the Tailzu brand mark ("the structure"). When
+// recording starts, the structure gives way to a few very tiny dots that wander
+// inside the round button, bouncing off the circular wall and off each other —
+// a fully physics-based little sim. Deliberately lightweight (a handful of dots,
+// one CADisplayLink, plain Core Graphics fills) so it's safe inside the keyboard
+// extension's tight memory/CPU budget.
+//
+// It self-manages its display link off window attachment, so the renderer just
+// adds/removes it with the rest of the tree — no manual start/stop, no leaked
+// CADisplayLink (which would otherwise retain the view and keep ticking).
+// =============================================================================
+final class MicParticleView: UIView {
+  private struct Dot { var p: CGPoint; var v: CGVector }
+  private var dots: [Dot] = []
+  private var link: CADisplayLink?
+  private var seeded = false
+
+  private let count: Int
+  private let dotRadius: CGFloat
+  private let color: UIColor
+  private let sourceImage: UIImage?   // the brand mark the dots disperse FROM
+
+  init(count: Int, dotRadius: CGFloat, color: UIColor, sourceImage: UIImage?) {
+    self.count = max(2, count)
+    self.dotRadius = max(0.5, dotRadius)
+    self.color = color
+    self.sourceImage = sourceImage
+    super.init(frame: .zero)
+    backgroundColor = .clear
+    isOpaque = false
+    isUserInteractionEnabled = false
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil { stop() } else { start() }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    if !seeded && bounds.width > 4 { seed() }
+  }
+
+  private var radius: CGFloat { min(bounds.width, bounds.height) / 2 }
+  private var mid: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY) }
+
+  private func start() {
+    guard link == nil else { return }
+    if !seeded && bounds.width > 4 { seed() }
+    let l = CADisplayLink(target: self, selector: #selector(step(_:)))
+    l.add(to: .main, forMode: .common)
+    link = l
+  }
+
+  private func stop() {
+    link?.invalidate()
+    link = nil
+  }
+
+  // Seed the dots AS THE STRUCTURE: sample the brand mark's shape for their
+  // starting positions (so frame 0 still reads as the mark), then give each an
+  // outward burst so the structure visibly bursts apart into particles. Falls
+  // back to a random spread if the mark can't be sampled.
+  private func seed() {
+    seeded = true
+    dots.removeAll()
+    let starts = sourceImage.map { markPoints($0, want: count) } ?? []
+    let c = mid
+    let r = max(1, radius - dotRadius)
+    for i in 0..<count {
+      let p: CGPoint
+      if i < starts.count {
+        p = starts[i]
+      } else {
+        let ang = CGFloat.random(in: 0 ..< (2 * .pi))
+        let rad = r * sqrt(CGFloat.random(in: 0...1))        // uniform in the disc
+        p = CGPoint(x: c.x + cos(ang) * rad, y: c.y + sin(ang) * rad)
+      }
+      // Outward burst from the centre so the mark bursts apart; a small angular
+      // jitter keeps dots at the same radius from moving in lockstep.
+      var dx = p.x - c.x, dy = p.y - c.y
+      let len = (dx * dx + dy * dy).squareRoot()
+      if len > 0.5 { dx /= len; dy /= len }
+      else { let a = CGFloat.random(in: 0 ..< (2 * .pi)); dx = cos(a); dy = sin(a) }
+      let j = CGFloat.random(in: -0.5...0.5)
+      let rx = dx * cos(j) - dy * sin(j), ry = dx * sin(j) + dy * cos(j)
+      let burst = CGFloat.random(in: 55...110)               // points / second
+      dots.append(Dot(p: p, v: CGVector(dx: rx * burst, dy: ry * burst)))
+    }
+  }
+
+  @objc private func step(_ link: CADisplayLink) {
+    guard !dots.isEmpty else { return }
+    let dt = CGFloat(min(link.duration, 1.0 / 30.0))         // clamp long frames
+    let c = mid
+    let wall = max(0, radius - dotRadius)
+
+    // Integrate + bounce off the circular wall (reflect about the radial normal).
+    for i in dots.indices {
+      dots[i].p.x += dots[i].v.dx * dt
+      dots[i].p.y += dots[i].v.dy * dt
+      let dx = dots[i].p.x - c.x, dy = dots[i].p.y - c.y
+      let d = (dx * dx + dy * dy).squareRoot()
+      if d > wall && d > 0 {
+        let nx = dx / d, ny = dy / d
+        dots[i].p.x = c.x + nx * wall
+        dots[i].p.y = c.y + ny * wall
+        let vn = dots[i].v.dx * nx + dots[i].v.dy * ny
+        dots[i].v.dx -= 2 * vn * nx
+        dots[i].v.dy -= 2 * vn * ny
+      }
+    }
+
+    // Pairwise elastic collisions (equal mass; a handful of dots → O(n²) is nothing).
+    let minD = dotRadius * 2
+    for a in 0 ..< dots.count {
+      for b in (a + 1) ..< dots.count {
+        let dx = dots[b].p.x - dots[a].p.x
+        let dy = dots[b].p.y - dots[a].p.y
+        let d = (dx * dx + dy * dy).squareRoot()
+        guard d < minD, d > 0.0001 else { continue }
+        let nx = dx / d, ny = dy / d
+        let overlap = (minD - d) / 2
+        dots[a].p.x -= nx * overlap; dots[a].p.y -= ny * overlap
+        dots[b].p.x += nx * overlap; dots[b].p.y += ny * overlap
+        let rvn = (dots[b].v.dx - dots[a].v.dx) * nx + (dots[b].v.dy - dots[a].v.dy) * ny
+        if rvn < 0 {                                         // only if approaching
+          dots[a].v.dx += rvn * nx; dots[a].v.dy += rvn * ny
+          dots[b].v.dx -= rvn * nx; dots[b].v.dy -= rvn * ny
+        }
+      }
+    }
+
+    // Bleed the initial burst off (drag) but floor the speed, so the mark's
+    // explosion settles into a gentle, perpetual wander instead of stopping.
+    let drag: CGFloat = 0.985
+    let minSpeed: CGFloat = 13
+    for i in dots.indices {
+      dots[i].v.dx *= drag; dots[i].v.dy *= drag
+      let s = (dots[i].v.dx * dots[i].v.dx + dots[i].v.dy * dots[i].v.dy).squareRoot()
+      if s > 0.001 && s < minSpeed {
+        let k = minSpeed / s
+        dots[i].v.dx *= k; dots[i].v.dy *= k
+      }
+    }
+    setNeedsDisplay()
+  }
+
+  override func draw(_ rect: CGRect) {
+    guard let ctx = UIGraphicsGetCurrentContext() else { return }
+    ctx.setFillColor(color.cgColor)
+    for dot in dots {
+      ctx.fillEllipse(in: CGRect(x: dot.p.x - dotRadius, y: dot.p.y - dotRadius,
+                                 width: dotRadius * 2, height: dotRadius * 2))
+    }
+  }
+
+  /// Sample up to `want` points from the brand mark's opaque area, mapped into
+  /// this view's bounds — the dots start here so the mark is recognizable for a
+  /// frame before it bursts. Returns [] (→ random spread) if it can't sample.
+  private func markPoints(_ image: UIImage, want: Int) -> [CGPoint] {
+    guard want > 0, bounds.width > 4, let cg = image.cgImage else { return [] }
+    let w = 44, h = 44
+    var data = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8,
+                              bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+    // Aspect-fit the mark into the sampling square with a small inset.
+    let inset: CGFloat = 6
+    let box = CGFloat(min(w, h)) - inset * 2
+    let scale = min(box / CGFloat(cg.width), box / CGFloat(cg.height))
+    let dw = CGFloat(cg.width) * scale, dh = CGFloat(cg.height) * scale
+    ctx.draw(cg, in: CGRect(x: (CGFloat(w) - dw) / 2, y: (CGFloat(h) - dh) / 2, width: dw, height: dh))
+
+    var pts: [CGPoint] = []
+    for y in 0..<h {
+      for x in 0..<w where data[(y * w + x) * 4 + 3] > 90 {   // opaque → part of the mark
+        // Bitmap origin is bottom-left; flip y into UIKit's top-left space.
+        let px = (CGFloat(x) + 0.5) / CGFloat(w) * bounds.width
+        let py = (CGFloat(h - 1 - y) + 0.5) / CGFloat(h) * bounds.height
+        pts.append(CGPoint(x: px, y: py))
+      }
+    }
+    guard pts.count > want else { return pts }
+    // Even stride so the sample still traces the whole shape.
+    var out: [CGPoint] = []
+    let stride = CGFloat(pts.count) / CGFloat(want)
+    var idx: CGFloat = 0
+    while Int(idx) < pts.count && out.count < want { out.append(pts[Int(idx)]); idx += stride }
+    return out
+  }
+}
+
+// =============================================================================
 // SDUIRenderer — server-driven UI renderer for Tulmi's iOS keyboard extension.
 //
 // When the backend config sets `features.sdui = true` and provides a `root`
@@ -2034,20 +2231,33 @@ final class SDUIRenderer: NSObject {
       return keyTextColor()
     }()
     // Mic appearance:
-    //   • RECORDING → the animated media (kb.mic.idleIcon) fills the amber
-    //     circle and plays.
-    //   • IDLE      → a CLEAN brand mark (bundled TailzuMark, else SF mic) on
-    //     the amber circle. We deliberately do NOT show the media's frozen
-    //     first frame when idle: many source clips (the water loop especially)
-    //     open on a dark frame, which rendered the whole button as a solid
-    //     black disc — the exact "black circle" bug. Resolving the media every
-    //     render still pre-warms the download so it plays instantly on the
-    //     first tap.
-    let micMedia: UIImage? = {
-      guard let spec = flagIcon("kb.mic.idleIcon") else { return nil }
-      return resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() })
-    }()
-    if state.dictating, let img = micMedia {
+    //   • RECORDING → the brand structure gives way to a tiny physics sim: a
+    //     handful of dots wandering inside the circle, bouncing off the wall
+    //     and each other (MicParticleView). Backend can disable it via
+    //     kb.mic.particles=false to fall back to the animated media.
+    //   • IDLE      → the CLEAN brand mark (bundled TailzuMark, else SF mic) on
+    //     the amber circle — "the structure".
+    let particlesOn = flagBool("kb.mic.particles", true)
+    if state.dictating, particlesOn {
+      // The structure bursts apart into the dots (seeded from the mark's shape).
+      btn.setImage(nil, for: .normal)
+      let count = Int(flagCGFloat("kb.mic.particles.count", 40))
+      let dotR = flagCGFloat("kb.mic.particles.radius", 1.5)
+      let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
+      let particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
+      particles.translatesAutoresizingMaskIntoConstraints = false
+      btn.addSubview(particles)
+      let inset = flagCGFloat("kb.mic.particles.inset", 6)
+      NSLayoutConstraint.activate([
+        particles.leadingAnchor.constraint(equalTo: btn.leadingAnchor, constant: inset),
+        particles.trailingAnchor.constraint(equalTo: btn.trailingAnchor, constant: -inset),
+        particles.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
+        particles.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
+      ])
+    } else if state.dictating,
+              let spec = flagIcon("kb.mic.idleIcon"),
+              let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      // Fallback recording visual (particles disabled): the animated media.
       btn.setImage(img, for: .normal)
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .scaleAspectFill
