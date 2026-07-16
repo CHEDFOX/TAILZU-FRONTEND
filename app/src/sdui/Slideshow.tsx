@@ -66,22 +66,28 @@ export const Slideshow = ({ props, style, fire }: CompProps): React.ReactElement
   }, [frames, frameMs, loops, fire]);
 
   if (frames.length === 0) return null;
-  const current = frames[Math.min(index, frames.length - 1)];
 
+  // Pre-mount EVERY frame as an absolutely-positioned stack, keyed by frame
+  // identity (i) — never by the moving `index`. Advancing a frame then only
+  // flips opacity, so no player is ever unmounted mid-run and each frame is
+  // revealed fully preloaded/painted. The old `key={index}` tore the single
+  // player down and rebuilt it every ~frameMs (120ms) — far shorter than a
+  // fresh media's load→decode→first-paint — so intermediate frames never put a
+  // pixel on screen and only the final frozen frame survived long enough to
+  // render. That's why the transition was "only seen once complete".
   return (
     <View style={style} pointerEvents="none">
-      <MediaPlayer
-        // key forces a fresh mount per frame so animated media (GIF/APNG)
-        // restarts from frame 0 on each slideshow step. Static images
-        // don't care — the swap is a normal re-render.
-        key={index}
-        spec={current}
-        style={{ width: "100%", height: "100%" }}
-        contentFit={contentFit}
-        autoplay
-        loop={false}
-        muted
-      />
+      {frames.map((f, i) => (
+        <MediaPlayer
+          key={i}
+          spec={f}
+          style={{ position: "absolute", width: "100%", height: "100%", opacity: i === index ? 1 : 0 }}
+          contentFit={contentFit}
+          autoplay
+          loop={false}
+          muted
+        />
+      ))}
     </View>
   );
 };

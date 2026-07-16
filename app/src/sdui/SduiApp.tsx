@@ -376,16 +376,9 @@ export default function SduiApp() {
     // land; the hardcoded values here are the ONLY fallback for the pre-boot
     // moment (bootstrap hasn't returned yet). Backend cannot change these.
     const splashBg = boot?.theme?.color?.bg ?? "#000000";
-    const splashSpinner = boot?.theme?.color?.text ?? "#FFFFFF";
-    const splashText = boot?.theme?.color?.muted ?? "#8a8a96";
-    return (
-      <View style={[styles.center, { backgroundColor: splashBg }]}>
-        <ActivityIndicator color={splashSpinner} size="large" />
-        <Text style={{ color: splashText, marginTop: 12 }}>
-          {boot?.labels?.["app.loading"] ?? "Loading Tailzu…"}
-        </Text>
-      </View>
-    );
+    // No spinner on app start — just the splash background, which blends with
+    // the native splash screen for a clean, quiet boot.
+    return <View style={[styles.center, { backgroundColor: splashBg }]} />;
   }
 
 
@@ -453,7 +446,9 @@ export default function SduiApp() {
             </Pressable>
           </View>
         ) : (
-          <View style={styles.center}><ActivityIndicator color={theme.color.primary} /></View>
+          // No spinner while the first screen loads — a quiet themed bg, so the
+          // intro media isn't preceded by a spinner flash on app start.
+          <View style={[styles.center, { backgroundColor: theme.color.bg }]} />
         )}
         {/* Screen-loaded-but-refresh-failed: keep the stale render visible
             and layer a small tap-to-retry banner at the top so the user
