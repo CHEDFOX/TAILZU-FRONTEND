@@ -312,20 +312,24 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     //                 built-in tailzu-mark as the idle placeholder underneath.
     const singleMediaMode = recordingMic == null;
     const active = (recording && recordingMic) ? recordingMic : idleMic!;
+    // Tap → play, tap → pause. Single-media follows the mic state; two-media
+    // honors an explicit backend `playing` but otherwise ALSO follows the mic
+    // state, so media pauses when idle instead of looping forever.
     const effectivePlaying = singleMediaMode
-      ? recording                          // controlled by mic state
-      : active.playing;                     // whatever backend supplied
+      ? recording
+      : (active.playing != null ? Boolean(active.playing) : recording);
     // Fire the node's onComplete NodeEvent when playback ends, so backend can
     // wire any action tree via on.onComplete on the VoiceToggle node.
     // Payload distinguishes idle vs recording so the same action can branch.
     const handleEnd = active.fireOnEnd
       ? () => fire("onComplete", { state: recording ? "recording" : "idle" })
       : undefined;
-    // "Just the media frame" — no circle background, no border, no mark. The
-    // media IS the button. A freeze-on-pause source (MP4 / Lottie) shows a still
-    // frame when idle and plays while recording; a GIF can't freeze, so we keep
-    // it visible (playing) rather than unmounting to an empty square.
-    const renderPlaying = active.freezeOnPause ? effectivePlaying : true;
+    // Play only while active (recording, or backend-forced) — was hardcoded to
+    // `true` for non-freezeOnPause sources, which made the media loop forever
+    // regardless of state ("always playing"). A freeze-on-pause source
+    // (MP4 / Lottie) shows a still frame when idle; a GIF unmounts to the round
+    // background when paused, which reads as a clean paused state.
+    const renderPlaying = effectivePlaying;
     return (
       <Pressable
         onPressIn={() => Animated.spring(press, { toValue: 0.9, friction: 8, tension: 300, useNativeDriver: true }).start()}
@@ -335,7 +339,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       >
         <Animated.View
           style={[
-            { width: size, height: size, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+            // Round button — borderRadius + overflow clips the media into a
+            // circle; bg shows through when a paused source has unmounted.
+            { width: size, height: size, borderRadius: size / 2, backgroundColor: bg,
+              alignItems: "center", justifyContent: "center", overflow: "hidden" },
             { transform: [{ scale: press }] },
           ]}
         >
