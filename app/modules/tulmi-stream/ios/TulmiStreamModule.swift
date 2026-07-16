@@ -93,13 +93,18 @@ private final class Streamer: NSObject {
   }
 
   func finish() {
+    // Keep the socket open after "stop" so the engine's flushed tail + "done"
+    // still arrive (cancelling here truncated the ending). Watchdog force-closes
+    // if "done" never comes.
     stopCapture()
-    if let task = task {
-      task.send(.string("{\"type\":\"stop\"}")) { _ in
-        task.cancel(with: .normalClosure, reason: nil)
-      }
+    guard let task = task else { emit("onClosed", [:]); return }
+    task.send(.string("{\"type\":\"stop\"}")) { _ in }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+      guard let self = self, self.task != nil else { return }
+      self.task?.cancel(with: .normalClosure, reason: nil)
+      self.task = nil
+      self.emit("onClosed", [:])
     }
-    task = nil
   }
 
   func cancel() {
@@ -128,6 +133,8 @@ private final class Streamer: NSObject {
     do {
       try engine.start()
     } catch {
+      // Don't leak the tap + active audio session when the engine won't start.
+      stopCapture()
       emit("onError", ["message": "Mic start: \(error.localizedDescription)"])
     }
   }
@@ -188,7 +195,9 @@ private final class Streamer: NSObject {
     switch type {
     case "ready": emit("onReady", [:])
     case "partial": emit("onPartial", ["text": json["text"] as? String ?? ""])
-    case "final", "done": emit("onFinal", ["text": json["text"] as? String ?? ""])
+    case "final": emit("onFinal", ["text": json["text"] as? String ?? ""])
+    // "done" is the terminal marker, not a transcript — no text to insert.
+    case "done": emit("onClosed", [:])
     case "error": emit("onError", ["message": json["message"] as? String ?? "stream error"])
     default: break
     }
