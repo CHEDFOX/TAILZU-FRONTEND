@@ -382,7 +382,16 @@ export default function SduiApp() {
     );
   }
 
-  if (phase === "loading" || !theme) {
+  // Hold the quiet splash background until the FIRST screen has actually loaded.
+  // Without the `!screen` guard, the instant bootstrap finished (phase "ready")
+  // but before the intro screen's fetch returned, `hideChrome` was false (it
+  // reads screen?.hideChrome, and screen is still null) — so the app painted its
+  // header + Home/You tab bar for a frame or two, THEN the full-bleed intro
+  // screen loaded and hid them. That chrome flash was the "main app glimpse
+  // before the intro plays". Gating on `!screen` keeps the splash bg (no chrome)
+  // through that gap so it blends straight into the intro. A screenError still
+  // falls through below to the retry card.
+  if (phase === "loading" || !theme || (!screen && !screenError)) {
     // Splash colors + label route through boot.theme + boot.labels when they
     // land; the hardcoded values here are the ONLY fallback for the pre-boot
     // moment (bootstrap hasn't returned yet). Backend cannot change these.
