@@ -1,75 +1,57 @@
 name: keyboard-ios-compile
 
-# Compile-checks the iOS keyboard extension (Swift) WITHOUT an EAS build. A
-# macOS runner runs the full Expo prebuild + pod install + an unsigned
-# simulator build of the app scheme, which embeds and therefore compiles the
-# keyboard extension target (KeyboardViewController.swift, TulmiStream.swift,
-# SDUIRenderer.swift, …). Swift errors now surface in ~10 min on CI instead of
-# after a paid EAS build.
+# Type-checks the iOS keyboard extension (Swift) WITHOUT an EAS build, a full
+# Expo prebuild, or CocoaPods.
 #
-# Only runs when native iOS / config surface changes. Trigger manually from the
-# Actions tab via "Run workflow" too.
+# The keyboard extension target is completely self-contained: every file under
+# app/targets/keyboard/ imports ONLY system frameworks (UIKit, AVFoundation,
+# Foundation, ImageIO, MobileCoreServices, Security) — no Expo, no React
+# Native, no pods. So we can hand the whole target to `swiftc -typecheck`
+# against the iOS Simulator SDK and get a real, full semantic compile check
+# (type errors, bad signatures, missing members, protocol conformance) in ~1
+# minute — instead of a 10-minute full-app build that drags in dozens of pods
+# and dies on unrelated Expo build-script phases (e.g. the ExpoModulesJSI
+# xcframework script) long before the keyboard target is ever reached.
+#
+# Only runs when the keyboard target (or this workflow) changes. Trigger
+# manually from the Actions tab via "Run workflow" too.
 
 on:
   push:
     paths:
       - "app/targets/keyboard/**"
-      - "app/modules/tulmi-bridge/ios/**"
-      - "app/ios/**"
-      - "app/app.config.ts"
-      - "app/package.json"
-      - "app/package-lock.json"
       - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
 
 jobs:
-  compile:
+  typecheck:
     runs-on: macos-15
-    defaults:
-      run:
-        working-directory: app
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16 (RN 0.85 needs Xcode >= 16.1)
+      - name: Select newest Xcode 16
         run: |
           XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
           echo "Selecting $XC"
           sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
           xcodebuild -version
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: app/package-lock.json
-
-      - name: Install JS deps
-        run: npm ci
-
-      - name: Expo prebuild (ios)
-        run: npx expo prebuild --platform ios --no-install
-
-      - name: CocoaPods
-        working-directory: app/ios
-        run: pod install --repo-update
-
-      - name: Discover workspace + scheme
-        id: xc
-        working-directory: app/ios
+      - name: Type-check the keyboard extension (swiftc, Simulator SDK)
         run: |
-          WS=$(ls -d *.xcworkspace | head -n1)
-          echo "workspace=$WS" >> "$GITHUB_OUTPUT"
-          # The app scheme matches the .xcworkspace basename ("Tailzu").
-          echo "scheme=${WS%.xcworkspace}" >> "$GITHUB_OUTPUT"
-
-      - name: Build (unsigned, simulator) — compiles the keyboard extension
-        working-directory: app/ios
-        run: |
-          xcodebuild build \
-            -workspace "${{ steps.xc.outputs.workspace }}" \
-            -scheme "${{ steps.xc.outputs.scheme }}" \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          echo "Simulator SDK: $SDK"
+          # Compile every Swift file in the keyboard target together as one
+          # module so cross-file type references resolve. -typecheck does full
+          # semantic analysis without codegen/linking — the right depth for a
+          # "does the keyboard compile" gate.
+          FILES=$(ls app/targets/keyboard/*.swift)
+          echo "Type-checking:"; echo "$FILES"
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TailzuKeyboard \
+            -typecheck \
+            $FILES
+          echo "✅ Keyboard extension type-checks cleanly."
