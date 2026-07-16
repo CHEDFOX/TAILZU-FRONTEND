@@ -10,6 +10,9 @@
  */
 import { getBaseUrl, getLanguage } from "./storage";
 import { getSupabaseAccessToken as getAccessToken } from "./auth/supabaseClient";
+// SDK 56 moved the classic file-system functions to the /legacy entry — same
+// namespace actions.ts uses. We need uploadAsync from here (see transcribeClean).
+import * as FileSystem from "expo-file-system/legacy";
 
 export type LanguageHint = "auto" | "hi" | "en" | "hinglish" | string;
 export type TargetApp = string;
@@ -94,24 +97,34 @@ export async function transcribeClean(
   opts: Options = {},
 ): Promise<{ cleanedText: string; transcript: string; usage: Usage }> {
   const base = await getBaseUrl();
-  const form = new FormData();
-  // React Native FormData file shape:
-  form.append("audio", {
-    uri: audioUri,
-    name: "audio.m4a",
-    type: "audio/m4a",
-  } as unknown as Blob);
-  if (opts.targetApp) form.append("targetApp", opts.targetApp);
-  if (opts.language) form.append("language", String(opts.language));
-  if (opts.personality) form.append("personality", JSON.stringify(opts.personality));
 
-  const res = await fetch(`${base}/v1/transcribe-clean`, {
-    method: "POST",
-    headers: { ...(await authHeaders()) }, // let fetch set multipart boundary
-    body: form,
+  // Upload via expo-file-system's NATIVE multipart uploader — NOT fetch + a
+  // React-Native `{ uri, name, type }` FormData part. Under Expo SDK 54+'s
+  // WinterCG fetch, that legacy part shape is rejected with
+  // "Unsupported FormDataPart implementation" (the exact error users saw on
+  // the app mic). uploadAsync streams the file from disk natively and never
+  // touches FormData/fetch part serialization, so it works on every runtime.
+  const parameters: Record<string, string> = {};
+  if (opts.targetApp) parameters.targetApp = opts.targetApp;
+  if (opts.language) parameters.language = String(opts.language);
+  if (opts.personality) parameters.personality = JSON.stringify(opts.personality);
+
+  const res = await FileSystem.uploadAsync(`${base}/v1/transcribe-clean`, audioUri, {
+    httpMethod: "POST",
+    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+    fieldName: "audio", // backend reads the "audio" part; format falls back to m4a
+    mimeType: "audio/m4a",
+    parameters,
+    headers: { ...(await authHeaders()) },
   });
-  if (!res.ok) throw new Error(`transcribe failed: ${res.status} ${await safeText(res)}`);
-  return res.json();
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`transcribe failed: ${res.status} ${res.body ?? ""}`);
+  }
+  return JSON.parse(res.body) as {
+    cleanedText: string;
+    transcript: string;
+    usage: Usage;
+  };
 }
 
 // --- Voice: live (streaming) dictation --------------------------------------
