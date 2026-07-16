@@ -33,7 +33,9 @@ import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken } from "../notifications/push";
-import { completeKeyboardHandoff, cancelKeyboardHandoff } from "../../modules/tulmi-bridge";
+import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession } from "../../modules/tulmi-bridge";
+import { getSupabaseAccessToken } from "../auth/supabaseClient";
+import { getBaseUrl, getLanguage } from "../storage";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -493,6 +495,23 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         ?? (ctx.store.get("handoffSessionId") as string | undefined)
         ?? "";
       if (sessionId) cancelKeyboardHandoff(sessionId);
+      await runAction(action.onSuccess, ctx);
+      break;
+    }
+
+    // Arm the background-audio Flow Session. Dispatched by the SDUI arming
+    // screen (kb.mic.mode="flow") when it loads: the app holds the mic alive in
+    // the background so the keyboard can drive dictation after the user swipes
+    // back. iOS only; a no-op on Android (records in-process). idleTimeoutMs is
+    // backend-authored on the action (default 5 min).
+    case "armFlowSession": {
+      const idleTimeoutMs = Number(action.idleTimeoutMs ?? 300000);
+      const [base, tok, lang] = await Promise.all([
+        getBaseUrl(),
+        getSupabaseAccessToken(),
+        getLanguage(),
+      ]);
+      armFlowSession(base, tok ?? "dev", lang || "auto", idleTimeoutMs);
       await runAction(action.onSuccess, ctx);
       break;
     }

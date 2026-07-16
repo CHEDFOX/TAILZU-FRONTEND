@@ -24,6 +24,10 @@ interface TulmiBridgeNative {
   } | undefined;
   completeKeyboardHandoff?(sessionId: string, text: string): void;
   cancelKeyboardHandoff?(sessionId: string): void;
+  // Flow Session (background-audio mic) — iOS only.
+  armFlowSession?(baseUrl: string, token: string, language: string, idleTimeoutMs: number): void;
+  endFlowSession?(): void;
+  isFlowActive?(): boolean;
 }
 
 export interface KeyboardRecordRequest {
@@ -109,6 +113,43 @@ export function setKeyboardLanguage(code: string): void {
 /** True when the native bridge is available (a dev/prod build, not Expo Go). */
 export function isBridgeAvailable(): boolean {
   return native != null;
+}
+
+/**
+ * Arm the background-audio "Flow Session" so the app holds the mic alive after
+ * the user swipes back to their app, and the keyboard can drive dictation. iOS
+ * only (the keyboard can't record itself); no-op elsewhere. `idleTimeoutMs` is
+ * how long the session stays live with no dictation before it must be re-armed.
+ */
+export function armFlowSession(
+  baseUrl: string,
+  token: string,
+  language: string,
+  idleTimeoutMs: number,
+): void {
+  try {
+    native?.armFlowSession?.(baseUrl, token, language || "auto", idleTimeoutMs || 300000);
+  } catch {
+    /* best-effort; never block the app */
+  }
+}
+
+/** End the Flow Session (mic released, keyboard returns to "open app to arm"). */
+export function endFlowSession(): void {
+  try {
+    native?.endFlowSession?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Whether a Flow Session is currently armed in the app process. */
+export function isFlowActive(): boolean {
+  try {
+    return native?.isFlowActive?.() ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /**
