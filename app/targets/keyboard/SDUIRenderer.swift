@@ -69,6 +69,144 @@ final class KeyRowStackView: UIStackView {
 }
 
 // =============================================================================
+// KeyPlaneView — optional (kb.keyPlane.enabled) multi-touch layer over the
+// character keys.
+//
+// UIButton + target-action tracks ONE touch per control and can't follow a
+// finger ROLLING from one key to the next — the main fast-typing gap vs the
+// system keyboard. This transparent view sits above the key grid and owns touch
+// for the character keys ONLY (shift / delete / space / mic fall through and
+// keep their own handling). It:
+//   • tracks every simultaneous touch independently (two-thumb + rolling),
+//   • highlights + haptics on touch-DOWN, follows the finger key-to-key on
+//     touch-MOVE, and commits the char under the finger on touch-UP — so a
+//     slide off the grid cancels (native slide-to-cancel),
+//   • routes the gaps between keys to the nearest key.
+//
+// The character keys stay real UIButtons (userInteraction OFF) so every visual,
+// title, fast-shift update and flash-on-refine keeps working untouched — this
+// view centralizes *touch* only; it does not re-implement rendering.
+//
+// v1 scope: accent long-press trays are NOT handled while the plane is on; the
+// flag is OFF by default and this is opt-in until v2 routes accents through the
+// plane. Everything else (rolling, multi-touch, slide-cancel, press feedback)
+// is here.
+final class KeyPlaneView: UIView {
+  struct Key { weak var button: UIButton?; let char: String }
+
+  private let keys: [Key]
+  private weak var renderer: SDUIRenderer?
+
+  /// Per-active-touch state: the key currently under that finger.
+  private final class Track {
+    weak var button: UIButton?
+    var char: String?
+    init(_ b: UIButton?, _ c: String?) { button = b; char = c }
+  }
+  private var tracks: [ObjectIdentifier: Track] = [:]
+
+  /// Key frames in this view's coordinate space, refreshed on layout.
+  private var frames: [(button: UIButton, char: String, rect: CGRect)] = []
+
+  init(keys: [Key], renderer: SDUIRenderer) {
+    self.keys = keys
+    self.renderer = renderer
+    super.init(frame: .zero)
+    isMultipleTouchEnabled = true
+    isUserInteractionEnabled = true
+    backgroundColor = .clear
+    isOpaque = false
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    refreshFrames()
+  }
+
+  private func refreshFrames() {
+    var out: [(UIButton, String, CGRect)] = []
+    for k in keys {
+      guard let b = k.button, b.window != nil else { continue }
+      let r = convert(b.bounds, from: b)
+      if r.width <= 0 || r.height <= 0 { continue }
+      out.append((b, k.char, r))
+    }
+    frames = out
+  }
+
+  /// The character key nearest `point`, but only when `point` genuinely lands
+  /// on the character grid (same row band + within a half-key horizontal
+  /// reach). Returns nil for the special-key columns and other rows so those
+  /// touches fall through to the controls beneath.
+  private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
+    if frames.isEmpty { refreshFrames() }
+    var best: (button: UIButton, char: String, dist: CGFloat)?
+    for f in frames {
+      // Vertically inside the key's row band (+small margin).
+      if abs(point.y - f.rect.midY) > f.rect.height / 2 + 6 { continue }
+      // Horizontal distance to the rect (0 when inside it).
+      let dx: CGFloat
+      if point.x < f.rect.minX { dx = f.rect.minX - point.x }
+      else if point.x > f.rect.maxX { dx = point.x - f.rect.maxX }
+      else { dx = 0 }
+      // Only own the point within ~half a key of a real key; beyond that
+      // (shift / delete columns) let it fall through.
+      if dx > f.rect.width / 2 + 6 { continue }
+      if best == nil || dx < best!.dist { best = (f.button, f.char, dx) }
+    }
+    guard let b = best else { return nil }
+    return (b.button, b.char)
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    // Own the touch only over the character grid; else nil so shift / delete /
+    // space / mic below receive it normally.
+    keyAt(point) != nil ? self : nil
+  }
+
+  // MARK: - Multi-touch
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      let hit = keyAt(t.location(in: self))
+      tracks[ObjectIdentifier(t)] = Track(hit?.button, hit?.char)
+      if let b = hit?.button { renderer?.planeDown(b) }
+    }
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks[ObjectIdentifier(t)] else { continue }
+      let hit = keyAt(t.location(in: self))
+      if track.button !== hit?.button {
+        if let old = track.button { renderer?.planeUp(old) }   // rolled off old
+        if let nw = hit?.button { renderer?.planeDown(nw) }    // onto the next
+        track.button = hit?.button
+        track.char = hit?.char
+      }
+    }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      if let b = track.button { renderer?.planeUp(b) }
+      // Commit the char under the finger at release. If it slid off the grid
+      // (button == nil) nothing commits — native slide-to-cancel.
+      if let char = track.char { renderer?.planeCommit(char: char) }
+    }
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      if let b = track.button { renderer?.planeUp(b) }
+    }
+  }
+}
+
+// =============================================================================
 // SDUIRenderer — server-driven UI renderer for Tulmi's iOS keyboard extension.
 //
 // When the backend config sets `features.sdui = true` and provides a `root`
@@ -690,6 +828,9 @@ final class SDUIRenderer: NSObject {
   private weak var mountContainer: UIView?
   /// The single root subview we produce so we can swap it whole on re-render.
   private var mountedRoot: UIView?
+  /// Optional multi-touch typing layer (kb.keyPlane.enabled). Rebuilt with the
+  /// tree so its key frames always match the freshly-mounted buttons.
+  private weak var keyPlane: KeyPlaneView?
 
   private var lastShiftTapTime: TimeInterval = 0
   private var _lastSpaceTapTime: TimeInterval = 0
@@ -763,6 +904,7 @@ final class SDUIRenderer: NSObject {
   private func remount() {
     guard let container = mountContainer, let root = config.root else { return }
     mountedRoot?.removeFromSuperview()
+    keyPlane?.removeFromSuperview()   // rebuilt below if kb.keyPlane.enabled
     // Reset the fast-shift ref maps — they'll be repopulated as the fresh
     // tree renders. Keeping stale refs would leak old buttons and cause
     // the fast path to call setTitle on removed subviews.
@@ -791,6 +933,33 @@ final class SDUIRenderer: NSObject {
       if let emitter = dotStreamLayer,
          let mic = currentMicButton, let micSuper = mic.superview {
         emitter.emitterPosition = micSuper.convert(mic.center, to: container)
+      }
+    }
+
+    // Optional multi-touch typing layer. OFF by default; when the backend sets
+    // kb.keyPlane.enabled it sits above the tree and owns touch for the
+    // single-character keys (letters + number/symbol glyphs), which turns the
+    // per-button target-action grid into a real rolling/multi-touch plane. The
+    // buttons stay as pure visuals so every existing behavior (fast-shift,
+    // flash-on-refine, theming) is untouched. Whitespace (space bar) and the
+    // tone pill are excluded so their special handling survives.
+    if flagBool("kb.keyPlane.enabled", false) {
+      let planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
+        guard !char.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        btn.isUserInteractionEnabled = false   // plane owns its touches now
+        return KeyPlaneView.Key(button: btn, char: char)
+      }
+      if !planeKeys.isEmpty {
+        let plane = KeyPlaneView(keys: planeKeys, renderer: self)
+        plane.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(plane)   // topmost — intercepts char touches only
+        NSLayoutConstraint.activate([
+          plane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+          plane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+          plane.topAnchor.constraint(equalTo: container.topAnchor),
+          plane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        keyPlane = plane
       }
     }
   }
@@ -2483,6 +2652,22 @@ final class SDUIRenderer: NSObject {
                    animations: { btn.backgroundColor = base },
                    completion: nil)
   }
+
+  // MARK: - KeyPlaneView callbacks (multi-touch typing layer)
+  //
+  // The plane owns touch for the character keys when kb.keyPlane.enabled; it
+  // drives the SAME press visual / haptic and the SAME insert action a button
+  // tap would, so behavior is identical — just with rolling + multi-touch.
+
+  /// Press-down visual + click + haptic for the key under a finger.
+  fileprivate func planeDown(_ button: UIButton) { keyTouchDown(button) }
+
+  /// Restore a key's resting visual when a finger leaves it (roll-off or lift).
+  fileprivate func planeUp(_ button: UIButton) { keyTouchUp(button) }
+
+  /// Commit the character under the finger on release. Routes through the exact
+  /// insertKey path a button tap uses, so live shift / capsLock casing applies.
+  fileprivate func planeCommit(char: String) { run(.inline(.insertKey(char: char))) }
 
   /// Selection-changed haptic on every key. Requires Full Access to fire; the
   /// generator silently no-ops without it. Cheaper than instantiating a new
