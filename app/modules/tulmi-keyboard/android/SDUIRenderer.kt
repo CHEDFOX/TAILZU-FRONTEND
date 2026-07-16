@@ -218,6 +218,17 @@ class SDUIRenderer(
     private var markBitmapCache: Bitmap? = null
     private var markBitmapResolved = false
 
+    // Fast-shift path (Android twin of iOS applyFastShiftUpdate). A shift/caps
+    // flip — which auto-cap fires ~twice per sentence, plus every manual shift
+    // tap — used to trigger a full redraw() (removeAllViews + re-walk of the
+    // whole tree) just to recolor the shift key and re-case letters. Instead we
+    // register the letter + shift buttons on each redraw and, when ONLY
+    // shift/caps changed, mutate them in place. `treeKey()` fingerprints every
+    // OTHER tree input so any real change still forces a full redraw.
+    private val letterButtonsByChar = HashMap<String, Button>()
+    private var shiftButton: Button? = null
+    private var lastTreeKey: String? = null
+
     /** Decode the bundled brand mark (res/drawable-nodpi/tailzu_mark.png) once. */
     private fun markBitmap(): Bitmap? {
         if (markBitmapResolved) return markBitmapCache
@@ -275,7 +286,36 @@ class SDUIRenderer(
             }
             lastDictating = nowDict
         }
+        // Fast-shift path: if the only thing that changed is shift/caps (every
+        // other tree input is identical), re-case the letters + recolor the
+        // shift key in place instead of tearing down and rebuilding the tree.
+        if (letterButtonsByChar.isNotEmpty() && treeKey() == lastTreeKey) {
+            applyFastShiftUpdate()
+            return
+        }
         redraw()
+    }
+
+    /** Fingerprint of every tree input EXCEPT shift/caps. When this is unchanged
+     *  across a stateChanged(), the delta can only be shift/caps → fast path. */
+    private fun treeKey(): String {
+        val s = host.state()
+        return listOf(
+            s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
+            s.suggestions.joinToString(""), currentTone(), micReassembling,
+        ).joinToString(" ")
+    }
+
+    /** Re-case the registered letter buttons + refresh the shift key, no remount. */
+    private fun applyFastShiftUpdate() {
+        val upper = host.state().shift || host.state().capsLock
+        for ((base, btn) in letterButtonsByChar) {
+            btn.text = if (upper) base.uppercase() else base.lowercase()
+        }
+        shiftButton?.let { b ->
+            b.text = if (host.state().capsLock) "⇪" else "⇧"
+            b.setTextColor(parseHex(if (upper) kbConfig.theme.accent else kbConfig.theme.keyText))
+        }
     }
 
     /** Swap in a freshly-fetched config (e.g. background refetch returned). */
@@ -289,9 +329,14 @@ class SDUIRenderer(
         // Clear any pending long-press repeats attached to the previous view
         // tree so they don't fire against views that no longer exist.
         handler.removeCallbacksAndMessages(null)
+        // Reset the fast-shift refs — repopulated as the fresh tree renders.
+        letterButtonsByChar.clear()
+        shiftButton = null
         container.removeAllViews()
         applyEffect(container, kbConfig.theme.backgroundEffect ?: KBEffect.Solid(kbConfig.theme.background))
         rootNode?.let { render(it, container) }
+        // Baseline for the next fast-shift comparison.
+        lastTreeKey = treeKey()
     }
 
     // -----------------------------------------------------------------------
@@ -378,6 +423,12 @@ class SDUIRenderer(
             if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
         } else raw
         val b = keyButton(label, node)
+        // Register plain letters for the in-place fast-shift path (keyed by the
+        // base lowercase char). Special keys (onPress override) and multi-char
+        // labels are excluded — they don't re-case.
+        if (raw.length == 1 && !node.on.containsKey("onPress")) {
+            letterButtonsByChar[raw.lowercase()] = b
+        }
         b.setOnClickListener {
             hapticTap(b)
             // If the backend attached an onPress action (tone pill → cycleTone,
@@ -389,7 +440,13 @@ class SDUIRenderer(
             if (node.on.containsKey("onPress")) {
                 invokeEvent(node, "onPress")
             } else {
-                insertText(label)
+                // Case from LIVE state at tap time — so a fast-shift update (or
+                // even no rebuild at all) still inserts the right case instead
+                // of a label captured when the tree was last built.
+                val ins = if (raw.length == 1) {
+                    if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
+                } else label
+                insertText(ins)
                 if (host.state().shift && !host.state().capsLock) {
                     host.state().shift = false
                     host.onStateChanged()
@@ -446,6 +503,7 @@ class SDUIRenderer(
         }
         val b = keyButton(label, node)
         if (active) b.setTextColor(parseHex(kbConfig.theme.accent))
+        shiftButton = b   // let the fast-shift path recolor it in place
         b.setOnClickListener {
             hapticTap(b)
             val s = host.state()
