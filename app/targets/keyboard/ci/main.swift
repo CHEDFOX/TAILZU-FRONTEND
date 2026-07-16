@@ -17,11 +17,20 @@
 
 import UIKit
 
-/// Line logger → stdout, unbuffered, so `simctl launch --console` streams each
-/// line to the CI log immediately (an app's stdout is otherwise block-buffered).
+/// Line logger → stdout (unbuffered, so `simctl launch --console` streams it)
+/// AND appended to Documents/harness.log so the workflow can pull it from the
+/// app's data container even if console streaming yields nothing.
 func log(_ s: String) {
   print(s)
   fflush(stdout)
+  guard let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+  let u = dir.appendingPathComponent("harness.log")
+  let data = (s + "\n").data(using: .utf8)!
+  if FileManager.default.fileExists(atPath: u.path), let h = try? FileHandle(forWritingTo: u) {
+    h.seekToEndOfFile(); h.write(data); try? h.close()
+  } else {
+    try? data.write(to: u)
+  }
 }
 
 /// Render `view` into an RGBA buffer on black and return (filledPixels, spread).
@@ -122,14 +131,16 @@ final class HarnessVC: UIViewController {
     if !(reassembledSpread < disperseSpread * 0.85) {
       fails.append("did not reassemble (reassembled \(fmt(reassembledSpread)) !< disperse \(fmt(disperseSpread)) * 0.85)")
     }
-    if fails.isEmpty {
+    let pass = fails.isEmpty
+    if pass {
       log("VERDICT: PASS — render + disperse + reassemble all confirmed on-simulator")
-      exit(0)
     } else {
       for f in fails { log("VERDICT-FAIL: \(f)") }
       log("VERDICT: FAIL")
-      exit(2)
     }
+    // Stay alive briefly so the workflow's second screenshot catches the
+    // reassembled frame before the process exits.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { exit(pass ? 0 : 2) }
   }
 
   private func fmt(_ d: Double) -> String { String(format: "%.1f", d) }
