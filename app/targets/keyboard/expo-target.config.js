@@ -19,11 +19,15 @@ module.exports = {
   // — otherwise Xcode collides on generated Info.plists and EAS applies the
   // wrong provisioning profile ("Provisioning profile ... has app ID
   // 'com.tulmi.app.keyboard', which does not match the bundle ID
-  // 'com.tulmi.app'"). The user-facing keyboard name comes from
-  // CFBundleDisplayName in Info.plist ("Tailzu"), so the change here is
-  // invisible to users.
+  // 'com.tulmi.app'").
   type: "keyboard",
   name: "TailzuKeyboard",
+  // User-facing name in the iOS keyboard selector. apple-targets sets
+  // INFOPLIST_KEY_CFBundleDisplayName = displayName ?? name, and that build
+  // setting OVERRIDES the CFBundleDisplayName in Info.plist — so without this,
+  // the selector showed the internal target name "TailzuKeyboard". Setting
+  // displayName makes it just "Tailzu" while keeping the distinct target name.
+  displayName: "Tailzu",
   // The keyboard talks to the backend over the network; Open Access is granted
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
   entitlements: {
