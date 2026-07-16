@@ -226,6 +226,20 @@ final class MicParticleView: UIView {
   private var link: CADisplayLink?
   private var seeded = false
 
+  // Two physics modes drive the whole idle⇄recording round trip:
+  //   • .disperse   — recording: the mark bursts apart and the dots wander,
+  //                   bouncing off the wall and each other (perpetual).
+  //   • .reassemble — stopping: each dot springs back to its home point on the
+  //                   mark, settles, and hands off to the crisp static mark.
+  // The SAME instance carries its dots across the stop remount (the renderer
+  // holds a strong ref), so wander → converge is one unbroken motion.
+  private enum Mode { case disperse, reassemble }
+  private var mode: Mode = .disperse
+  private var targets: [CGPoint] = []          // home points during .reassemble
+  private var reassembleElapsed: CGFloat = 0
+  private var reassembleFinished = false
+  private var onReassembleDone: (() -> Void)?
+
   private let count: Int
   private let dotRadius: CGFloat
   private let color: UIColor
@@ -288,22 +302,75 @@ final class MicParticleView: UIView {
         let rad = r * sqrt(CGFloat.random(in: 0...1))        // uniform in the disc
         p = CGPoint(x: c.x + cos(ang) * rad, y: c.y + sin(ang) * rad)
       }
-      // Outward burst from the centre so the mark bursts apart; a small angular
-      // jitter keeps dots at the same radius from moving in lockstep.
-      var dx = p.x - c.x, dy = p.y - c.y
-      let len = (dx * dx + dy * dy).squareRoot()
-      if len > 0.5 { dx /= len; dy /= len }
-      else { let a = CGFloat.random(in: 0 ..< (2 * .pi)); dx = cos(a); dy = sin(a) }
-      let j = CGFloat.random(in: -0.5...0.5)
-      let rx = dx * cos(j) - dy * sin(j), ry = dx * sin(j) + dy * cos(j)
-      let burst = CGFloat.random(in: 55...110)               // points / second
-      dots.append(Dot(p: p, v: CGVector(dx: rx * burst, dy: ry * burst)))
+      dots.append(Dot(p: p, v: burstVelocity(from: p)))
     }
+  }
+
+  /// An outward kick from the centre through `p` (so the mark bursts apart),
+  /// with a small angular jitter so dots at the same radius don't move in
+  /// lockstep. Reused by `seed()` and by a re-burst on record-restart.
+  private func burstVelocity(from p: CGPoint) -> CGVector {
+    let c = mid
+    var dx = p.x - c.x, dy = p.y - c.y
+    let len = (dx * dx + dy * dy).squareRoot()
+    if len > 0.5 { dx /= len; dy /= len }
+    else { let a = CGFloat.random(in: 0 ..< (2 * .pi)); dx = cos(a); dy = sin(a) }
+    let j = CGFloat.random(in: -0.5...0.5)
+    let rx = dx * cos(j) - dy * sin(j), ry = dx * sin(j) + dy * cos(j)
+    let burst = CGFloat.random(in: 55...110)                 // points / second
+    return CGVector(dx: rx * burst, dy: ry * burst)
+  }
+
+  // MARK: Mode transitions (driven by the renderer's reflectDictating)
+
+  /// Enter / re-enter the recording wander. If the dots are mid-reassembly
+  /// (user tapped record again before the structure fully re-formed), give them
+  /// a fresh outward burst so they scatter instead of finishing their homing.
+  func beginRecording() {
+    let wasReassembling = mode == .reassemble
+    mode = .disperse
+    targets = []
+    reassembleElapsed = 0
+    reassembleFinished = false
+    onReassembleDone = nil
+    if wasReassembling {
+      for i in dots.indices { dots[i].v = burstVelocity(from: dots[i].p) }
+    }
+    start()
+  }
+
+  /// Reverse of the burst: each dot springs back to its home point on the mark,
+  /// settles, then `onComplete` fires so the renderer can swap in the crisp
+  /// static mark. If we never seeded (no bounds/image yet) there's nothing to
+  /// converge — complete immediately so the caller isn't left hanging.
+  func reassemble(onComplete: @escaping () -> Void) {
+    guard seeded, !dots.isEmpty else { onComplete(); return }
+    mode = .reassemble
+    reassembleElapsed = 0
+    reassembleFinished = false
+    onReassembleDone = onComplete
+    targets = homeTargets()
+    start()
+  }
+
+  /// Home points for the dots to converge onto — the mark's shape again. When
+  /// there are more dots than sampled points we cycle the points; with no image
+  /// the dots gather at the centre.
+  private func homeTargets() -> [CGPoint] {
+    let pts = sourceImage.map { markPoints($0, want: dots.count) } ?? []
+    guard !pts.isEmpty else { return [] }
+    return dots.indices.map { pts[$0 % pts.count] }
   }
 
   @objc private func step(_ link: CADisplayLink) {
     guard !dots.isEmpty else { return }
     let dt = CGFloat(min(link.duration, 1.0 / 30.0))         // clamp long frames
+    if mode == .reassemble { stepReassemble(dt); return }
+    stepDisperse(dt)
+  }
+
+  /// Recording: burst → wall-bounce → collide → wander (perpetual).
+  private func stepDisperse(_ dt: CGFloat) {
     let c = mid
     let wall = max(0, radius - dotRadius)
 
@@ -356,6 +423,39 @@ final class MicParticleView: UIView {
       }
     }
     setNeedsDisplay()
+  }
+
+  /// Stopping: each dot springs to its home point on the mark (damped so it
+  /// settles instead of oscillating). When the cloud has landed — or a short
+  /// backstop elapses — snap onto the targets for a crisp final frame and hand
+  /// off to `onReassembleDone` so the renderer can show the static mark.
+  private func stepReassemble(_ dt: CGFloat) {
+    reassembleElapsed += dt
+    let stiffness: CGFloat = 26                               // spring pull toward home
+    let damping: CGFloat = 0.80                               // kills the bounce
+    var maxDist: CGFloat = 0
+    for i in dots.indices {
+      let t = targets.isEmpty ? mid : targets[i % targets.count]
+      let toX = t.x - dots[i].p.x, toY = t.y - dots[i].p.y
+      dots[i].v.dx = (dots[i].v.dx + toX * stiffness * dt) * damping
+      dots[i].v.dy = (dots[i].v.dy + toY * stiffness * dt) * damping
+      dots[i].p.x += dots[i].v.dx * dt
+      dots[i].p.y += dots[i].v.dy * dt
+      let d = (toX * toX + toY * toY).squareRoot()
+      if d > maxDist { maxDist = d }
+    }
+    setNeedsDisplay()
+
+    if !reassembleFinished, maxDist < 0.8 || reassembleElapsed > 0.6 {
+      // Snap home so the last frame is exactly the mark, then hand off.
+      for i in dots.indices { dots[i].p = targets.isEmpty ? mid : targets[i % targets.count] }
+      setNeedsDisplay()
+      reassembleFinished = true
+      let done = onReassembleDone
+      onReassembleDone = nil
+      stop()
+      done?()
+    }
   }
 
   override func draw(_ rect: CGRect) {
@@ -1510,6 +1610,12 @@ final class SDUIRenderer: NSObject {
   private weak var currentToneButton: UIButton?
   private var dotStreamLayer: CAEmitterLayer?
   private weak var recordingDimView: UIView?
+  // The mic's physics sim is held STRONGLY (not via the view tree) so it
+  // survives the stop→remount and can run its reverse "reassemble into the
+  // mark" pass. `micReassembling` keeps buildMicKey rendering the sim (rather
+  // than the static mark) for that brief converge window after recording ends.
+  private var currentMicParticles: MicParticleView?
+  private var micReassembling = false
 
   private func showRecordingVisuals() {
     // Wait for the remount that stateChanged() scheduled — that's where
@@ -2238,13 +2344,23 @@ final class SDUIRenderer: NSObject {
     //   • IDLE      → the CLEAN brand mark (bundled TailzuMark, else SF mic) on
     //     the amber circle — "the structure".
     let particlesOn = flagBool("kb.mic.particles", true)
-    if state.dictating, particlesOn {
-      // The structure bursts apart into the dots (seeded from the mark's shape).
+    if (state.dictating || micReassembling), particlesOn {
+      // The structure bursts apart into the dots (recording), or the dots are
+      // springing back into the structure (micReassembling, after stop). Either
+      // way we mount the SAME persistent sim so the motion is continuous across
+      // the remount — never a re-seed mid-flight.
       btn.setImage(nil, for: .normal)
-      let count = Int(flagCGFloat("kb.mic.particles.count", 40))
-      let dotR = flagCGFloat("kb.mic.particles.radius", 1.5)
-      let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
-      let particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
+      let particles: MicParticleView
+      if let existing = currentMicParticles {
+        existing.removeFromSuperview()          // detach from the discarded btn
+        particles = existing                    // reuse → dots + physics continuity
+      } else {
+        let count = Int(flagCGFloat("kb.mic.particles.count", 40))
+        let dotR = flagCGFloat("kb.mic.particles.radius", 1.5)
+        let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
+        particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
+        currentMicParticles = particles
+      }
       particles.translatesAutoresizingMaskIntoConstraints = false
       btn.addSubview(particles)
       let inset = flagCGFloat("kb.mic.particles.inset", 6)
@@ -3738,8 +3854,24 @@ final class SDUIRenderer: NSObject {
     // → thick line) in the same runloop that shows the overlay.
     if v {
       showRecordingVisuals()
+      // Re-entering recording (possibly mid-reassembly): scatter the dots again.
+      micReassembling = false
+      currentMicParticles?.beginRecording()
     } else {
       hideRecordingVisuals()
+      // Reverse animation: the dots spring back INTO the mark, then hand off to
+      // the crisp static mark. Keep buildMicKey rendering the sim until the
+      // converge finishes (micReassembling), so the structure re-forms
+      // seamlessly instead of snapping back.
+      if let particles = currentMicParticles {
+        micReassembling = true
+        particles.reassemble { [weak self] in
+          guard let self = self, self.micReassembling else { return }
+          self.micReassembling = false
+          self.currentMicParticles = nil
+          self.stateChanged()          // final remount → static brand mark
+        }
+      }
     }
     stateChanged()
   }
