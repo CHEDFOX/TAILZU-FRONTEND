@@ -1023,6 +1023,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     case .finalText(let text):
       commitFinal(text)
     case .error(let msg):
+      // A 401/unauthorized means the shared token expired. Batch would fail the
+      // same way, so DON'T silently fall back to it — tell the user to reopen
+      // the app once, which re-shares a fresh token on foreground.
+      let lower = msg.lowercased()
+      if lower.contains("unauthorized") || lower.contains("invalid or missing token") {
+        endStreaming()
+        setStatus(label("auth_expired", "Open Tailzu once to sign in again"))
+        return
+      }
       // Silent fallback: if the WebSocket dropped BEFORE we ever committed
       // a word, the user hasn't perceived streaming yet — flip to local
       // (batch) recording so they still get their text. Once at least one
@@ -1040,6 +1049,14 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       setStatus(label("voice_not_listening", "444 : Not Listening"))
       endStreaming()
     case .closed:
+      // A partial may still be sitting in the field that never got its
+      // finalizing "final" (socket closed right after the last partial). It's
+      // real dictated text already at the cursor — treat it as committed so the
+      // tail isn't dropped and refine still runs over it.
+      if !pendingPartial.isEmpty {
+        dictatedSomething = true
+        pendingPartial = ""
+      }
       endStreaming()
       if dictatedSomething && (kbConfig?.refine ?? true) { refineTapped() }
       dictatedSomething = false
@@ -1054,6 +1071,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func commitFinal(_ text: String) {
+    // Defensive: never insert a bare space for an empty final. A "done"/final
+    // with no text used to fall through here and drop a stray " " at the
+    // cursor. Empty finals carry no words — leave whatever partial is shown.
+    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     let inserted = text.hasSuffix(" ") ? text : text + " "
@@ -1069,9 +1090,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func stopStreaming() {
-    setStatus("")  // transient — swirl finishes on the mic button
-    stream?.finish()
-    endStreaming()
+    // Don't tear down yet. finish() stops the mic and asks the server to flush
+    // the speech engine's final tail + send "done" — we keep the socket AND the
+    // stream reference alive so those tail segments still land at the cursor.
+    // Teardown happens when .closed arrives (handleStreamEvent) or finish()'s
+    // watchdog fires. Tearing down here (the old behaviour) cancelled the socket
+    // before the tail arrived → truncated endings.
+    guard let s = stream else { endStreaming(); return }
+    setStatus(label("transcribing", "Finishing…"))
+    s.finish()
   }
 
   private func endStreaming() {
@@ -1229,8 +1256,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
           self.lastInserted = cleaned
           self.lastRawTranscript = nil
           self.setStatus("")
-        case .failure:
-          self.setStatus(self.label("voice_unavailable", "222 : will let you know when we are back"))
+        case .failure(let error):
+          self.setStatus(self.statusForBackendError(error))
         }
         self.cleanupRecorder()
       }
@@ -1240,6 +1267,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func cleanupRecorder() {
     audioRecorder = nil
     recordingURL = nil
+  }
+
+  /// Map a backend error to a user-facing status. A 401 means the token the
+  /// main app shared into the Keychain has expired — the keyboard can't refresh
+  /// a Supabase session itself, so the fix is to open the app once (which
+  /// re-shares a fresh token on foreground). Everything else is the generic
+  /// "backend unavailable" copy.
+  private func statusForBackendError(_ error: Error) -> String {
+    if case TulmiBackend.BackendError.http(let code, _) = error, code == 401 {
+      return label("auth_expired", "Open Tailzu once to sign in again")
+    }
+    return label("voice_unavailable", "222 : will let you know when we are back")
   }
 
   // MARK: - Refine
@@ -1264,8 +1303,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         case .success(let refined):
           self.replaceFieldText(before: before, after: after, with: refined)
           self.setStatus("")
-        case .failure:
-          self.setStatus(self.label("voice_unavailable", "222 : will let you know when we are back"))
+        case .failure(let error):
+          self.setStatus(self.statusForBackendError(error))
         }
         self.sduiRenderer?.reflectRefining(false)
       }

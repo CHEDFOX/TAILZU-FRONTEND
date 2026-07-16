@@ -80,16 +80,30 @@ final class TulmiStream: NSObject {
     startCapture()
   }
 
-  /// Stop the mic, tell the server we're done, and close gracefully.
+  /// Stop the mic and tell the server we're done — but KEEP the socket open.
+  ///
+  /// The speech engine buffers the last ~0.3–1s of audio and only emits the
+  /// final tail segment(s) after it receives our "stop" and flushes; the server
+  /// then sends "done". If we cancel the socket here (the old behaviour), that
+  /// tail never arrives and every dictation's ending is truncated. So we send
+  /// "stop", let the server drive the close via .closed (the "done" event), and
+  /// only force-close from a watchdog if "done" never comes.
   func finish() {
     finishing = true
     stopCapture()
-    if let task = task {
-      task.send(.string("{\"type\":\"stop\"}")) { _ in
-        task.cancel(with: .normalClosure, reason: nil)
-      }
+    guard let task = task else {
+      onEvent(.closed)
+      return
     }
-    task = nil
+    task.send(.string("{\"type\":\"stop\"}")) { _ in }
+    // Watchdog: if the server never flushes "done" (dropped socket / wedged
+    // engine), force-close so we don't hang in the finishing state.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+      guard let self = self, self.task != nil else { return }
+      self.task?.cancel(with: .normalClosure, reason: nil)
+      self.task = nil
+      self.onEvent(.closed)
+    }
   }
 
   /// Abort immediately (keyboard dismissed, error, etc.).
@@ -224,7 +238,11 @@ final class TulmiStream: NSObject {
     switch type {
     case "ready": onEvent(.ready)
     case "partial": onEvent(.partial(json["text"] as? String ?? ""))
-    case "final", "done": onEvent(.finalText(json["text"] as? String ?? ""))
+    case "final": onEvent(.finalText(json["text"] as? String ?? ""))
+    // "done" is the terminal marker, NOT a transcript — it carries no text.
+    // Mapping it to .finalText("") made commitFinal insert a bare space at the
+    // cursor (the reported "stray trailing space" bug). It's a clean close.
+    case "done": onEvent(.closed)
     case "error": onEvent(.error(json["message"] as? String ?? "stream error"))
     default: break
     }

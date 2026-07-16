@@ -199,9 +199,16 @@ export default function SduiApp() {
       const { data: { session } } = await supabaseAuth.getSession();
       if (SUPABASE_CONFIGURED && !session) setPhase("auth");
       else await loadBoot();
-      // React to sign-out from anywhere (e.g. Settings → Sign out).
+      // React to sign-out from anywhere (e.g. Settings → Sign out), and — just
+      // as important — re-share the freshest JWT with the keyboard extension on
+      // every session change. The keyboard reads a token SNAPSHOT from the
+      // shared Keychain and cannot refresh Supabase itself, so without this its
+      // copy goes stale ~1h after the last app open and every dictation 401s.
+      // Supabase's autoRefreshToken fires TOKEN_REFRESHED before expiry; this
+      // handler forwards each refresh straight to the keyboard.
       const { data: { subscription } } = supabaseAuth.onAuthStateChange((_e, s) => {
-        if (!s && SUPABASE_CONFIGURED) setPhase("auth");
+        if (!s && SUPABASE_CONFIGURED) { setPhase("auth"); return; }
+        if (s) void syncKeyboardCredentials();
       });
       unsub = () => subscription.unsubscribe();
     })();
@@ -251,6 +258,10 @@ export default function SduiApp() {
       // keyboard treat the app as reachable even during the boot/loading
       // phase.
       writeAppWarmHeartbeat();
+      // Every foreground is a chance to hand the keyboard a fresh token, so a
+      // user who taps the keyboard right after opening the app never hits an
+      // expired-JWT 401. Cheap + best-effort; safe before "ready".
+      void syncKeyboardCredentials();
       if (phase !== "ready") return;
       // Consume any pending mic-handoff request the keyboard extension left.
       // If the app was cold-started via the keyboard's deep link, this
