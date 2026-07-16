@@ -1406,14 +1406,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Status
 
   private func setStatus(_ text: String) {
-    // Show whatever the caller passes. Callers already filter out chatty
-    // "Listening…" / "Transcribing…" strings by clearing to "" after those
-    // transient states resolve — the earlier English-substring filter was
-    // fragile (localized strings would slip through as errors too). Better
-    // to trust the callers than to inspect the copy.
-    statusLabel.text = text
-    statusLabel.isHidden = text.isEmpty
-    sduiRenderer?.reflectStatus(text)
+    // The keyboard shows NO status text. Every status/error string — the
+    // 444/222 codes, "Listening…", "Finishing…", permission/auth prompts — is
+    // intentionally suppressed here so nothing chatty ever renders over the
+    // keys. The mic-button animation is the only feedback the keyboard gives.
+    // (Kept as a single choke point so callers don't need to change.)
+    _ = text
+    statusLabel.text = ""
+    statusLabel.isHidden = true
+    sduiRenderer?.reflectStatus("")
   }
 
   override func textWillChange(_ textInput: UITextInput?) {}

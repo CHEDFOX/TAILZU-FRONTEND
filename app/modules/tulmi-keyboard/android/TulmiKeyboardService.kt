@@ -723,12 +723,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     override fun setStatus(text: String) {
-        // Mirror status into KBState so SDUI-driven StatusLabel components can
-        // subscribe to the same value the fallback status TextView shows.
-        kbState.status = text
+        // The keyboard shows NO status text. Every status/error string — the
+        // 444/222 codes, "Listening…", "Finishing…", permission/auth prompts —
+        // is suppressed here so nothing chatty renders over the keys. The
+        // mic-button animation is the only feedback the keyboard gives.
+        // (Single choke point so callers don't need to change.)
+        kbState.status = ""
         statusView?.let {
-            it.text = text
-            it.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+            it.text = ""
+            it.visibility = View.GONE
         }
         if (sduiActive) sduiRenderer?.stateChanged()
     }
