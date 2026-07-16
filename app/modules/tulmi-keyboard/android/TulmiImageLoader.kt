@@ -5,7 +5,7 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.Movie
+import android.graphics.Movie
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
