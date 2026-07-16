@@ -33,7 +33,7 @@ class TulmiAudioFx private constructor(
     private val agc: AutomaticGainControl?,
 ) : AutoCloseable {
 
-    fun close() {
+    override fun close() {
         try { aec?.release() } catch (_: Throwable) {}
         try { ns?.release() }  catch (_: Throwable) {}
         try { agc?.release() } catch (_: Throwable) {}
