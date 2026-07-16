@@ -18,14 +18,6 @@ on:
       - "app/package.json"
       - "app/package-lock.json"
       - ".github/workflows/keyboard-android.yml"
-  pull_request:
-    paths:
-      - "app/modules/tulmi-keyboard/android/**"
-      - "app/android/**"
-      - "app/app.config.ts"
-      - "app/package.json"
-      - "app/package-lock.json"
-      - ".github/workflows/keyboard-android.yml"
   workflow_dispatch: {}
 
 jobs:
@@ -54,9 +46,32 @@ jobs:
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
 
-      - name: Compile native (debug) — catches Kotlin errors
+      - name: Compile Kotlin — catches keyboard-module errors
         working-directory: app/android
-        # assembleDebug compiles the app AND every autolinked module (incl. the
-        # tulmi-keyboard Kotlin) but does not bundle JS, so it stays fast and
-        # needs no signing.
-        run: ./gradlew :app:assembleDebug --console=plain --stacktrace
+        # compileDebugKotlin compiles :app AND its dependency modules' Kotlin
+        # (incl. the tulmi-keyboard module) WITHOUT the heavy C++/NDK builds or
+        # APK packaging — a fast "does the Kotlin compile" gate.
+        #
+        # The init script gives every Android module a versionName. Expo's
+        # module-publishing config reads android.defaultConfig.versionName at
+        # configure time; a plain `expo prebuild` (no EAS) leaves it undefined
+        # on the library modules, which otherwise fails with
+        # "SoftwareComponent with name 'release' not found". Registered from an
+        # init script it runs before the Expo plugin's afterEvaluate.
+        run: |
+          cat > /tmp/ci-version.init.gradle <<'EOF'
+          allprojects {
+              afterEvaluate { p ->
+                  def androidExt = p.extensions.findByName('android')
+                  if (androidExt != null) {
+                      try {
+                          if (androidExt.defaultConfig.versionName == null) { androidExt.defaultConfig.versionName = '0.1.0' }
+                          if (androidExt.defaultConfig.versionCode == null) { androidExt.defaultConfig.versionCode = 1 }
+                      } catch (ignored) {}
+                  }
+              }
+          }
+          EOF
+          ./gradlew :app:compileDebugKotlin \
+            --init-script /tmp/ci-version.init.gradle \
+            --console=plain --stacktrace
