@@ -1485,7 +1485,15 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// multiple keyboards are enabled. Falls back to the device locale.
   func hostPrimaryLanguageCode() -> String {
     // primaryLanguage returns "en-US"-style; take the language part and upper-case.
-    let raw = textInputMode?.primaryLanguage ?? Locale.current.language.languageCode?.identifier
+    // Locale.current.language is iOS 16+, but the keyboard deploys to iOS 15.1,
+    // so fall back to the (deprecated but 15-safe) languageCode there.
+    let localeLang: String?
+    if #available(iOS 16.0, *) {
+      localeLang = Locale.current.language.languageCode?.identifier
+    } else {
+      localeLang = Locale.current.languageCode
+    }
+    let raw = textInputMode?.primaryLanguage ?? localeLang
     guard let head = raw?.split(separator: "-").first, !head.isEmpty else { return "EN" }
     return head.uppercased()
   }
