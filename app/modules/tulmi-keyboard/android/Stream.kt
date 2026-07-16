@@ -9,6 +9,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -147,7 +148,7 @@ class Stream(
                     }
                     continue
                 }
-                webSocket.send(ByteString.of(buf, 0, n))
+                webSocket.send(buf.toByteString(0, n))
             }
         }
     }
