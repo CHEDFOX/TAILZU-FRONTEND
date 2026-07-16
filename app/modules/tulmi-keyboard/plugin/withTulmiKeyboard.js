@@ -30,7 +30,7 @@ function withManifest(config) {
       app.service.push({
         $: {
           "android:name": SERVICE,
-          "android:label": "Tulmi Keyboard",
+          "android:label": "Tailzu",
           "android:permission": "android.permission.BIND_INPUT_METHOD",
           "android:exported": "true",
         },
