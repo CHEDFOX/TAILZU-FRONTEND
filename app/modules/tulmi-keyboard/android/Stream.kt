@@ -92,7 +92,11 @@ class Stream(
             when (o.optString("type")) {
                 "ready" -> onReady()
                 "partial" -> onPartial(o.optString("text"))
-                "final", "done" -> onFinal(o.optString("text"))
+                "final" -> onFinal(o.optString("text"))
+                // "done" is the terminal marker, NOT a transcript — it carries
+                // no text. Treating it as a final inserted a stray trailing
+                // space at the cursor. It's a clean close.
+                "done" -> onClosed()
                 "error" -> onError(o.optString("message", "stream error"))
             }
         } catch (_: Exception) { /* ignore malformed frames */ }
@@ -162,11 +166,20 @@ class Stream(
         audioFx = null
     }
 
-    /** Stop the mic, tell the server we're done, and close. */
+    /**
+     * Stop the mic and tell the server we're done — but KEEP the socket open.
+     * The speech engine only emits the final tail segment(s) AFTER it receives
+     * our "stop" and flushes; the server then sends "done" and closes. Closing
+     * here (the old behaviour) dropped that tail → truncated endings. A watchdog
+     * force-closes if "done" never arrives so we don't leak the socket.
+     */
     fun finish() {
         stopCapture()
-        ws?.send("{\"type\":\"stop\"}")
-        ws?.close(1000, null)
+        val socket = ws ?: run { onClosed(); return }
+        socket.send("{\"type\":\"stop\"}")
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try { ws?.close(1000, null) } catch (_: Exception) {}
+        }, 2500)
     }
 
     /** Abort immediately (keyboard dismissed, error). */

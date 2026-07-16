@@ -384,7 +384,16 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
             onPartial = { t -> main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
-            onError = { _ -> main.post { setStatus(label("voice_not_listening", "444 : Not Listening")); endStreaming() } },
+            onError = { m -> main.post {
+                val lower = m.lowercase()
+                // A 401/unauthorized means the shared token expired — tell the
+                // user to reopen the app (which re-shares a fresh one).
+                if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
+                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"))
+                else
+                    setStatus(label("voice_not_listening", "444 : Not Listening"))
+                endStreaming()
+            } },
             onClosed = { main.post { onDictationClosed() } },
         ).also { it.start(target, "auto") }
     }
@@ -399,6 +408,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     /** Commit a finalized segment (keep it) and reset the interim tracker. */
     private fun commitFinal(text: String) {
+        // Never insert a bare space for an empty final — that dropped a stray
+        // trailing space at the cursor. Empty finals carry no words.
+        if (text.isBlank()) return
         val ic = currentInputConnection ?: return
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
@@ -407,9 +419,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     private fun stopStreaming() {
+        // Don't tear down yet. finish() stops the mic and asks the server to
+        // flush the engine's final tail + send "done"; we keep the socket AND
+        // the stream alive so those tail words still land. Teardown happens when
+        // onDictationClosed() runs (the "done" event) or finish()'s watchdog
+        // fires. Tearing down here cut the socket before the tail arrived.
+        val s = stream ?: run { endStreaming(); return }
         setStatus(label("transcribing", "Finishing…"))
-        stream?.finish()
-        endStreaming()
+        s.finish()
     }
 
     private fun endStreaming() {
@@ -422,6 +439,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     /** Dictation closed → auto-refine what was just spoken (replaces the old ✨ key). */
     private fun onDictationClosed() {
+        // A partial may still be in the field that never got its finalizing
+        // "final" (socket closed right after the last partial). It's real
+        // dictated text already at the cursor — treat it as committed so the
+        // tail isn't dropped and refine still runs over it.
+        if (pendingPartial.isNotEmpty()) {
+            dictatedSomething = true
+            pendingPartial = ""
+        }
         endStreaming()
         if (dictatedSomething) {
             // If the user picked a one-shot command from the tone menu, drop it
@@ -498,9 +523,24 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     setStatus("")
                 }
             } catch (e: Exception) {
-                main.post { setStatus(label("voice_unavailable", "222 : will let you know when we are back")) }
+                main.post { setStatus(statusForError(e)) }
             }
         }.start()
+    }
+
+    /**
+     * Map a backend failure to a status line. Net wraps HTTP errors as
+     * "<op> <code>: <body>"; a 401 means the token the app shared into
+     * SharedPreferences has expired — the keyboard can't refresh a Supabase
+     * session itself, so the fix is to open the app once (which re-shares a
+     * fresh token). Everything else is the generic "backend unavailable" copy.
+     */
+    private fun statusForError(e: Throwable): String {
+        val msg = e.message ?: ""
+        return if (msg.contains(" 401") || msg.contains("unauthorized", ignoreCase = true))
+            label("auth_expired", "Open Tailzu once to sign in again")
+        else
+            label("voice_unavailable", "222 : will let you know when we are back")
     }
 
     private fun cleanupRecorder() {
@@ -588,7 +628,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 main.post {
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
-                    setStatus(label("voice_unavailable", "222 : will let you know when we are back"))
+                    setStatus(statusForError(e))
                 }
             }
         }.start()
