@@ -20,25 +20,23 @@ on:
       - "app/package.json"
       - "app/package-lock.json"
       - ".github/workflows/keyboard-ios.yml"
-  pull_request:
-    paths:
-      - "app/targets/keyboard/**"
-      - "app/modules/tulmi-bridge/ios/**"
-      - "app/ios/**"
-      - "app/app.config.ts"
-      - "app/package.json"
-      - "app/package-lock.json"
-      - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
 
 jobs:
   compile:
-    runs-on: macos-14
+    runs-on: macos-15
     defaults:
       run:
         working-directory: app
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 16 (RN 0.85 needs Xcode >= 16.1)
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          echo "Selecting $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
 
       - uses: actions/setup-node@v4
         with:
