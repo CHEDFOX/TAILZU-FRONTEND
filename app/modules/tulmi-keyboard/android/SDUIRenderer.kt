@@ -2,9 +2,12 @@ package com.tulmi.app.keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PointF
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
@@ -22,6 +25,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONArray
@@ -201,6 +205,41 @@ class SDUIRenderer(
     // we don't leak posts across re-renders when the tree recomputes.
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 
+    // Mic particle sim — the Android twin of iOS MicParticleView. Held STRONGLY
+    // (not just via the view tree) so the SAME instance survives redraw()'s
+    // removeAllViews() and can run its reverse "reassemble into the mark" pass.
+    // `micReassembling` keeps renderMicKey mounting the sim (not the static
+    // mark) during that converge window; `lastDictating` edge-detects the
+    // start/stop transition inside stateChanged() (there's no reflectDictating
+    // hook on Android — every mutation funnels through stateChanged()).
+    private var currentMicParticles: MicParticleView? = null
+    private var micReassembling = false
+    private var lastDictating = false
+    private var markBitmapCache: Bitmap? = null
+    private var markBitmapResolved = false
+
+    /** Decode the bundled brand mark (res/drawable-nodpi/tailzu_mark.png) once. */
+    private fun markBitmap(): Bitmap? {
+        if (markBitmapResolved) return markBitmapCache
+        markBitmapResolved = true
+        markBitmapCache = try {
+            val res = host.context().resources
+            val id = res.getIdentifier("tailzu_mark", "drawable", host.context().packageName)
+            if (id != 0) BitmapFactory.decodeResource(res, id) else null
+        } catch (_: Throwable) { null }
+        return markBitmapCache
+    }
+
+    private fun flagBoolean(key: String, def: Boolean): Boolean = when (val v = kbConfig.flags[key]) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> v.equals("true", ignoreCase = true)
+        else -> def
+    }
+
+    private fun flagFloat(key: String, def: Float): Float =
+        (kbConfig.flags[key] as? Number)?.toFloat() ?: def
+
     /** Attach the root tree. Called from the IME after `parseKBConfig`. */
     fun mount(root: KBNode) {
         rootNode = root
@@ -209,6 +248,33 @@ class SDUIRenderer(
 
     /** Cheap re-render: clear + walk again. Called on any state mutation. */
     fun stateChanged() {
+        // Detect the dictation start/stop edge to drive the mic sim's physics
+        // (mirrors iOS reflectDictating). Every mutation funnels through here,
+        // but dictating only flips via start/stopDictation, so an edge check is
+        // enough and cheap.
+        val nowDict = host.state().dictating
+        if (nowDict != lastDictating) {
+            if (nowDict) {
+                // (Re)entering recording — scatter the dots (re-burst if we were
+                // mid-reassembly from a quick stop→start).
+                micReassembling = false
+                currentMicParticles?.beginRecording()
+            } else {
+                // Stopping — the dots spring back INTO the mark, then hand off to
+                // the crisp static mark. Keep the sim mounted until it settles.
+                currentMicParticles?.let { p ->
+                    micReassembling = true
+                    p.reassemble {
+                        if (micReassembling) {
+                            micReassembling = false
+                            currentMicParticles = null
+                            redraw()   // final rebuild → static brand mark
+                        }
+                    }
+                }
+            }
+            lastDictating = nowDict
+        }
         redraw()
     }
 
@@ -477,17 +543,61 @@ class SDUIRenderer(
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
     }
 
-    /** MicKey — toggles dictation. Uses state.dictating to decide start/stop. */
+    /**
+     * MicKey — toggles dictation. Three visuals mirror iOS:
+     *   • RECORDING / REASSEMBLING → the brand structure bursts into a physics
+     *     particle sim, then springs back into the mark on stop (MicParticleView,
+     *     the SAME persistent instance across redraws). Backend can disable via
+     *     kb.mic.particles=false.
+     *   • IDLE  → the clean brand mark ("the structure") on the key.
+     *   • fallback → system mic icon / 🎙️ emoji if the mark can't be loaded.
+     */
     private fun renderMicKey(node: KBNode, parent: ViewGroup) {
-        val resId = iconRegistry["mic"]
-        val view: View = if (resId != null) {
+        val particlesOn = flagBoolean("kb.mic.particles", true)
+        val mark = markBitmap()
+        val dictating = host.state().dictating
+
+        val view: View = if (particlesOn && (dictating || micReassembling)) {
+            val frame = FrameLayout(host.context()).apply { background = keyBackground(node) }
+            val inset = dp(flagFloat("kb.mic.particles.inset", 6f).toInt())
+            frame.setPadding(inset, inset, inset, inset)
+            val particles = currentMicParticles?.also { existing ->
+                (existing.parent as? ViewGroup)?.removeView(existing)   // detach from the discarded tree
+            } ?: MicParticleView(
+                host.context(),
+                count = flagFloat("kb.mic.particles.count", 40f).toInt(),
+                dotRadius = flagFloat("kb.mic.particles.radius", 1.5f),
+                dotColor = parseHex(kbConfig.theme.keyText),
+                mark = mark,
+            ).also { currentMicParticles = it }
+            frame.addView(
+                particles,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            frame
+        } else if (mark != null) {
             ImageButton(host.context()).apply {
-                setImageResource(resId)
+                setImageBitmap(mark)
+                scaleType = ImageView.ScaleType.FIT_CENTER
                 background = keyBackground(node)
+                val pad = dp(flagFloat("kb.mic.idleIconInset", 10f).toInt())
+                setPadding(pad, pad, pad, pad)
             }
         } else {
-            keyButton("🎙️", node)
+            val resId = iconRegistry["mic"]
+            if (resId != null) {
+                ImageButton(host.context()).apply {
+                    setImageResource(resId)
+                    background = keyBackground(node)
+                }
+            } else {
+                keyButton("🎙️", node)
+            }
         }
+
         view.setOnClickListener {
             hapticTap(view)
             if (host.state().dictating) host.stopDictation() else host.startDictation()
@@ -1148,6 +1258,247 @@ class SDUIRenderer(
         "refine" to android.R.drawable.star_on,
         "settings" to android.R.drawable.ic_menu_preferences,
     )
+
+    // -----------------------------------------------------------------------
+    // MicParticleView — Android twin of iOS MicParticleView.
+    //
+    // Idle, the mic key shows the brand mark ("the structure"). Recording, the
+    // structure bursts into tiny dots that wander inside the round key, bouncing
+    // off the circular wall and each other (.DISPERSE). Stopping, each dot
+    // springs back to its home point on the mark (.REASSEMBLE) and, once landed,
+    // hands off to the crisp static mark — one unbroken motion. Home targets are
+    // the same deterministic mark samples the dots were seeded from, so every
+    // dot returns exactly where it started.
+    //
+    // Self-driven via postInvalidateOnAnimation() gated on activity (same
+    // battery model as WaveformView) — no timers to leak. The renderer holds a
+    // strong ref so the SAME instance survives redraw()'s removeAllViews() and
+    // its physics stay continuous across the stop remount.
+    // -----------------------------------------------------------------------
+    private class MicParticleView(
+        ctx: Context,
+        private val count: Int,
+        private val dotRadius: Float,
+        dotColor: Int,
+        private val mark: Bitmap?,
+    ) : View(ctx) {
+        private class Dot(var x: Float, var y: Float, var vx: Float, var vy: Float)
+        private val dots = ArrayList<Dot>()
+        private var seeded = false
+        private val rnd = java.util.Random()
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = dotColor
+            style = Paint.Style.FILL
+        }
+
+        private enum class Mode { DISPERSE, REASSEMBLE }
+        private var mode = Mode.DISPERSE
+        private val targets = ArrayList<PointF>()   // home points during REASSEMBLE
+        private var reassembleElapsed = 0f
+        private var reassembleFinished = false
+        private var onReassembleDone: (() -> Unit)? = null
+        private var lastFrameNanos = 0L
+
+        init {
+            isClickable = false
+            isFocusable = false
+        }
+
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            lastFrameNanos = 0L                     // avoid a huge dt after re-attach
+            postInvalidateOnAnimation()
+        }
+
+        private val radius: Float get() = minOf(width, height) / 2f
+        private val midX: Float get() = width / 2f
+        private val midY: Float get() = height / 2f
+
+        // -- Mode transitions (driven by the renderer's stateChanged edge) -----
+
+        /** (Re)enter the recording wander; re-burst if we were mid-reassembly. */
+        fun beginRecording() {
+            val wasReassembling = mode == Mode.REASSEMBLE
+            mode = Mode.DISPERSE
+            targets.clear()
+            reassembleElapsed = 0f
+            reassembleFinished = false
+            onReassembleDone = null
+            if (wasReassembling) for (d in dots) {
+                val v = burst(d.x, d.y); d.vx = v.x; d.vy = v.y
+            }
+            postInvalidateOnAnimation()
+        }
+
+        /** Reverse: spring the dots back into the mark, then fire [onComplete]. */
+        fun reassemble(onComplete: () -> Unit) {
+            if (!seeded || dots.isEmpty()) { onComplete(); return }
+            mode = Mode.REASSEMBLE
+            reassembleElapsed = 0f
+            reassembleFinished = false
+            onReassembleDone = onComplete
+            computeTargets()
+            postInvalidateOnAnimation()
+        }
+
+        // -- Physics -----------------------------------------------------------
+
+        /** An outward kick from centre through (px,py) with angular jitter. */
+        private fun burst(px: Float, py: Float): PointF {
+            var dx = px - midX; var dy = py - midY
+            val len = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (len > 0.5f) { dx /= len; dy /= len }
+            else {
+                val a = rnd.nextFloat() * (2f * Math.PI.toFloat())
+                dx = kotlin.math.cos(a); dy = kotlin.math.sin(a)
+            }
+            val j = rnd.nextFloat() - 0.5f
+            val rx = dx * kotlin.math.cos(j) - dy * kotlin.math.sin(j)
+            val ry = dx * kotlin.math.sin(j) + dy * kotlin.math.cos(j)
+            val speed = 55f + rnd.nextFloat() * 55f            // 55..110 px/s
+            return PointF(rx * speed, ry * speed)
+        }
+
+        private fun seed() {
+            seeded = true
+            dots.clear()
+            val starts = markPoints(count)
+            val r = maxOf(1f, radius - dotRadius)
+            for (i in 0 until count) {
+                val p = if (i < starts.size) starts[i] else {
+                    val ang = rnd.nextFloat() * (2f * Math.PI.toFloat())
+                    val rad = r * kotlin.math.sqrt(rnd.nextFloat())   // uniform in the disc
+                    PointF(midX + kotlin.math.cos(ang) * rad, midY + kotlin.math.sin(ang) * rad)
+                }
+                val v = burst(p.x, p.y)
+                dots.add(Dot(p.x, p.y, v.x, v.y))
+            }
+        }
+
+        private fun computeTargets() {
+            targets.clear()
+            val pts = markPoints(dots.size)
+            if (pts.isEmpty()) return
+            for (i in dots.indices) targets.add(pts[i % pts.size])
+        }
+
+        /**
+         * Up to [want] opaque points from the mark, aspect-fit + inset into this
+         * view's bounds. Deterministic even-stride sampling (no randomness) so
+         * home targets equal the seed positions — dots return to their origin.
+         */
+        private fun markPoints(want: Int): List<PointF> {
+            val bmp = mark ?: return emptyList()
+            if (want <= 0 || width < 4) return emptyList()
+            val sw = bmp.width; val sh = bmp.height
+            if (sw <= 0 || sh <= 0) return emptyList()
+            val pix = IntArray(sw * sh)
+            try { bmp.getPixels(pix, 0, sw, 0, 0, sw, sh) } catch (_: Throwable) { return emptyList() }
+            val inset = dotRadius + 2f
+            val boxW = width - 2f * inset; val boxH = height - 2f * inset
+            val scale = minOf(boxW / sw, boxH / sh)
+            val dw = sw * scale; val dh = sh * scale
+            val ox = (width - dw) / 2f; val oy = (height - dh) / 2f
+            val all = ArrayList<PointF>()
+            var y = 0
+            while (y < sh) {
+                var x = 0
+                while (x < sw) {
+                    val a = (pix[y * sw + x] ushr 24) and 0xff       // alpha channel
+                    if (a > 90) all.add(PointF(ox + (x + 0.5f) * scale, oy + (y + 0.5f) * scale))
+                    x++
+                }
+                y++
+            }
+            if (all.size <= want) return all
+            val out = ArrayList<PointF>(want)
+            val stride = all.size.toFloat() / want
+            var idx = 0f
+            while (idx.toInt() < all.size && out.size < want) { out.add(all[idx.toInt()]); idx += stride }
+            return out
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            if (!seeded && width > 4) seed()
+            val now = System.nanoTime()
+            val dt = if (lastFrameNanos == 0L) 1f / 60f
+                     else ((now - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 1f / 30f)
+            lastFrameNanos = now
+            if (dots.isNotEmpty()) {
+                if (mode == Mode.REASSEMBLE) stepReassemble(dt) else stepDisperse(dt)
+            }
+            for (d in dots) canvas.drawCircle(d.x, d.y, dotRadius, paint)
+            if (mode == Mode.DISPERSE || !reassembleFinished) postInvalidateOnAnimation()
+        }
+
+        /** Recording: burst → wall-bounce → collide → wander (perpetual). */
+        private fun stepDisperse(dt: Float) {
+            val wall = maxOf(0f, radius - dotRadius)
+            for (d in dots) {
+                d.x += d.vx * dt; d.y += d.vy * dt
+                val dx = d.x - midX; val dy = d.y - midY
+                val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+                if (dist > wall && dist > 0f) {
+                    val nx = dx / dist; val ny = dy / dist
+                    d.x = midX + nx * wall; d.y = midY + ny * wall
+                    val vn = d.vx * nx + d.vy * ny
+                    d.vx -= 2f * vn * nx; d.vy -= 2f * vn * ny
+                }
+            }
+            val minD = dotRadius * 2f
+            for (a in dots.indices) {
+                for (b in (a + 1) until dots.size) {
+                    val da = dots[a]; val db = dots[b]
+                    val dx = db.x - da.x; val dy = db.y - da.y
+                    val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+                    if (dist >= minD || dist <= 0.0001f) continue
+                    val nx = dx / dist; val ny = dy / dist
+                    val overlap = (minD - dist) / 2f
+                    da.x -= nx * overlap; da.y -= ny * overlap
+                    db.x += nx * overlap; db.y += ny * overlap
+                    val rvn = (db.vx - da.vx) * nx + (db.vy - da.vy) * ny
+                    if (rvn < 0f) {                              // only if approaching
+                        da.vx += rvn * nx; da.vy += rvn * ny
+                        db.vx -= rvn * nx; db.vy -= rvn * ny
+                    }
+                }
+            }
+            val drag = 0.985f; val minSpeed = 13f
+            for (d in dots) {
+                d.vx *= drag; d.vy *= drag
+                val s = kotlin.math.sqrt(d.vx * d.vx + d.vy * d.vy)
+                if (s > 0.001f && s < minSpeed) { val k = minSpeed / s; d.vx *= k; d.vy *= k }
+            }
+        }
+
+        /** Stopping: damped spring to home points, then snap + hand off. */
+        private fun stepReassemble(dt: Float) {
+            reassembleElapsed += dt
+            val stiffness = 26f; val damping = 0.80f
+            var maxDist = 0f
+            for (i in dots.indices) {
+                val d = dots[i]
+                val t = if (targets.isEmpty()) PointF(midX, midY) else targets[i % targets.size]
+                val toX = t.x - d.x; val toY = t.y - d.y
+                d.vx = (d.vx + toX * stiffness * dt) * damping
+                d.vy = (d.vy + toY * stiffness * dt) * damping
+                d.x += d.vx * dt; d.y += d.vy * dt
+                val dd = kotlin.math.sqrt(toX * toX + toY * toY)
+                if (dd > maxDist) maxDist = dd
+            }
+            if (!reassembleFinished && (maxDist < 0.8f || reassembleElapsed > 0.6f)) {
+                for (i in dots.indices) {
+                    val t = if (targets.isEmpty()) PointF(midX, midY) else targets[i % targets.size]
+                    dots[i].x = t.x; dots[i].y = t.y
+                }
+                reassembleFinished = true
+                val done = onReassembleDone; onReassembleDone = null
+                // Defer the handoff out of onDraw — it triggers redraw()
+                // (removeAllViews), which must not run mid-draw.
+                post { done?.invoke() }
+            }
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Waveform view — draws N bars whose heights follow state.micLevel. Level
