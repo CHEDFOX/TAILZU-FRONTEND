@@ -3,7 +3,7 @@
  * server's navigation + screens, and runs the server's actions. The only
  * client-local screen is Connection (you need it to reach the server at all).
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -248,6 +248,11 @@ export default function SduiApp() {
     };
   }, [phase, current, reload]);
 
+  // Latest boot in a ref so the AppState listener (deps: [phase]) can read the
+  // current home screen id without re-subscribing on every foreground refetch.
+  const bootRef = useRef(boot);
+  useEffect(() => { bootRef.current = boot; }, [boot]);
+
   // Refetch bootstrap + current screen when the app returns to the foreground
   // — so a user who left the app open, backgrounded it for hours, and comes
   // back doesn't stare at stale UI. Also picks up a bumped cacheVersion.
@@ -269,6 +274,10 @@ export default function SduiApp() {
       // completeKeyboardHandoff action targets the right session.
       const rec = consumeKeyboardRecordRequest();
       if (rec) {
+        // Fresh mic handoff. Also drain the PAIRED deep-link tombstone the
+        // keyboard wrote alongside the request, so it can't re-open the record
+        // screen on a later, unrelated foreground.
+        consumeKeyboardDeepLink();
         setStack([{
           screenId: "keyboard_record",
           params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
@@ -285,9 +294,27 @@ export default function SduiApp() {
           Linking.openSettings().catch(() => {});
         } else if (pending.startsWith("screen/")) {
           const screenId = pending.slice("screen/".length);
-          if (screenId) setStack([{ screenId }]);
+          // The keyboard_record / keyboard_primer screens are mic-tap-only and
+          // are handled by the record-request path above. A LEFTOVER deep-link
+          // pointing at them (no live request) is stale — ignore it so a normal
+          // reopen never lands on the record screen.
+          if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
+            setStack([{ screenId }]);
+          }
         }
       }
+      // Safety net: if we're still sitting on a transient handoff screen from a
+      // PREVIOUS mic session (the user recorded, swiped back to the keyboard,
+      // and is now opening the app normally), reset to the app's home. The
+      // record screen must never be what a normal app open shows.
+      setStack((prev) => {
+        const topId = prev[prev.length - 1]?.screenId;
+        if (topId === "keyboard_record" || topId === "keyboard_primer") {
+          const home = bootRef.current?.initialScreenId;
+          if (home) return [{ screenId: home }];
+        }
+        return prev;
+      });
       // Force a bootstrap re-fetch (cheap, no-store on the backend), then
       // re-fetch the current screen via the standard reload counter.
       (async () => {
