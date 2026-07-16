@@ -132,6 +132,28 @@ public class TulmiBridgeModule: Module {
       )
     }
 
+    // MARK: - Flow Session (background-audio mic)
+
+    // Arm the background-audio Flow Session. Called by the SDUI arming screen
+    // when it loads. The app then holds the mic alive in the background and the
+    // keyboard drives each dictation over Darwin notifications (see
+    // FlowSessionManager). idleTimeoutMs comes from the backend (kb.flow.*).
+    Function("armFlowSession") { (baseUrl: String, token: String, language: String, idleTimeoutMs: Double) in
+      FlowSessionManager.shared.arm(
+        baseUrl: baseUrl, token: token, language: language, idleTimeoutMs: idleTimeoutMs)
+    }
+
+    // End the Flow Session (user turned Flow off). Deactivates the audio session
+    // and tells the keyboard the session is over.
+    Function("endFlowSession") { () in
+      FlowSessionManager.shared.end()
+    }
+
+    // Whether a Flow Session is currently armed in this process.
+    Function("isFlowActive") { () -> Bool in
+      FlowSessionManager.shared.isArmed
+    }
+
     // Called by SduiApp when the user cancels / abandons the handoff so the
     // keyboard's status returns to idle instead of "recording…" forever.
     Function("cancelKeyboardHandoff") { (sessionId: String) in

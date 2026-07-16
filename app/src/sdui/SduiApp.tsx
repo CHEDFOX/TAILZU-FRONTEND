@@ -35,8 +35,9 @@ import {
   consumeKeyboardDeepLink,
   writeAppWarmHeartbeat,
   consumeKeyboardRecordRequest,
+  armFlowSession,
 } from "../../modules/tulmi-bridge";
-import { supabaseAuth } from "../auth/supabaseClient";
+import { supabaseAuth, getSupabaseAccessToken } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics } from "../telemetry/analytics";
@@ -289,32 +290,48 @@ export default function SduiApp() {
       // App Group. Handle it before the boot refresh so the user lands on
       // the right screen if they came here via a keyboard action.
       const pending = consumeKeyboardDeepLink();
+      let navigatedThisForeground = false;
       if (pending) {
         if (pending === "openSettings") {
           Linking.openSettings().catch(() => {});
         } else if (pending.startsWith("screen/")) {
           const screenId = pending.slice("screen/".length);
-          // The keyboard_record / keyboard_primer screens are mic-tap-only and
-          // are handled by the record-request path above. A LEFTOVER deep-link
-          // pointing at them (no live request) is stale — ignore it so a normal
-          // reopen never lands on the record screen.
-          if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
+          if (screenId === "flow_arm") {
+            // Flow Session arming: the keyboard opened us here to turn the
+            // background mic on. Arm it deterministically (idle window is
+            // backend-tunable via kb.flow.idleTimeoutMs) AND route to the
+            // backend-authored arming screen ("swipe back" prompt).
+            void (async () => {
+              const [base, tok, lang] = await Promise.all([
+                getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+              ]);
+              const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
+              armFlowSession(base, tok ?? "dev", lang || "auto", idle);
+            })();
+            setStack([{ screenId: "flow_arm" }]);
+            navigatedThisForeground = true;
+          } else if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
+            // keyboard_record / keyboard_primer are mic-tap-only (owned by the
+            // record-request path above); a leftover deep-link to them is stale.
             setStack([{ screenId }]);
+            navigatedThisForeground = true;
           }
         }
       }
-      // Safety net: if we're still sitting on a transient handoff screen from a
-      // PREVIOUS mic session (the user recorded, swiped back to the keyboard,
-      // and is now opening the app normally), reset to the app's home. The
-      // record screen must never be what a normal app open shows.
-      setStack((prev) => {
-        const topId = prev[prev.length - 1]?.screenId;
-        if (topId === "keyboard_record" || topId === "keyboard_primer") {
-          const home = bootRef.current?.initialScreenId;
-          if (home) return [{ screenId: home }];
-        }
-        return prev;
-      });
+      // Safety net: if we're lingering on a transient mic screen from a PREVIOUS
+      // session (recorded/armed, swiped back to the keyboard, now opening the app
+      // normally) and we did NOT just navigate there this foreground, reset to
+      // home. These screens must never be what a normal app open shows.
+      if (!navigatedThisForeground) {
+        setStack((prev) => {
+          const topId = prev[prev.length - 1]?.screenId;
+          if (topId === "keyboard_record" || topId === "keyboard_primer" || topId === "flow_arm") {
+            const home = bootRef.current?.initialScreenId;
+            if (home) return [{ screenId: home }];
+          }
+          return prev;
+        });
+      }
       // Force a bootstrap re-fetch (cheap, no-store on the backend), then
       // re-fetch the current screen via the standard reload counter.
       (async () => {

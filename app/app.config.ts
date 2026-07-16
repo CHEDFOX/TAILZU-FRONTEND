@@ -76,11 +76,15 @@ const config: ExpoConfig = {
         "Tailzu uses Bluetooth only to connect to a paired headset for hands-free dictation.",
       NSLocalNetworkUsageDescription:
         "Tailzu uses the local network only when you enable Nearby Sync in Settings to keep drafts consistent across your devices on the same Wi-Fi.",
-      // UIBackgroundModes intentionally NOT set — the app has no
-      // BackgroundFetch/TaskManager registration, no silent-push
-      // (content-available) handler, and no AVAudioSession background
-      // category. Apple Guideline 2.5.4 rejects unused background modes,
-      // so we only declare them when the backing code ships.
+      // Background audio — REQUIRED for the "Flow Session" mic architecture:
+      // the keyboard extension cannot hold the microphone (iOS blocks recording
+      // in extensions), so the main app keeps a live AVAudioSession alive in the
+      // background (FlowSessionManager) after the user swipes back to their app,
+      // and the keyboard drives start/stop of each dictation via Darwin
+      // notifications. This is the same mechanism Wispr Flow uses. The backing
+      // code ships (FlowSessionManager.swift), so this declaration is honest
+      // per Guideline 2.5.4.
+      UIBackgroundModes: ["audio"],
       // Detect installed apps so share targets can prefer WhatsApp/Telegram/etc.
       LSApplicationQueriesSchemes: [
         "whatsapp",

@@ -104,6 +104,27 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }()
   private var isHandoffActive = false
 
+  // Flow Session (background-audio mic — kb.mic.mode="flow"). The app holds the
+  // mic alive in the background; this coordinator drives each dictation and
+  // receives live transcripts over Darwin + the App Group. See TulmiFlow.
+  private lazy var flow: TulmiFlow = {
+    let f = TulmiFlow()
+    f.onTranscript = { [weak self] text, isFinal in
+      guard let self = self else { return }
+      if isFinal { self.commitFinal(text) } else { self.replacePartial(with: text) }
+    }
+    f.onEnded = { [weak self] in
+      guard let self = self else { return }
+      // Session expired / turned off — reset the mic UI to idle. The next tap
+      // re-opens the app to arm a fresh session.
+      self.flowRecording = false
+      self.pendingPartial = ""
+      self.sduiRenderer?.reflectDictating(false)
+    }
+    return f
+  }()
+  private var flowRecording = false
+
   // Live (streaming) dictation state.
   private var stream: TulmiStream?
   private var isStreaming = false
@@ -916,6 +937,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     //                               Full Access on their text fields)
     let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "local"
     switch mode {
+    case "flow":
+      // Background-audio Flow Session (the Wispr model, the only reliable iOS
+      // mic). If the app already holds a live session, toggle dictation right
+      // here in the keyboard. If not, open the app once to arm it (the user
+      // swipes back and then dictations run without leaving the keyboard).
+      if flow.isSessionActive {
+        if flowRecording { stopFlowDictation() } else { startFlowDictation() }
+      } else {
+        openAppToArmFlow()
+      }
     case "handoff":
       if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
     case "stream":
@@ -923,6 +954,38 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     default:
       // "local" or anything unknown — the safe, direct path.
       if isRecording { stopAndTranscribe() } else { startRecording() }
+    }
+  }
+
+  // MARK: - Flow Session (background-audio mic)
+
+  private func startFlowDictation() {
+    pendingPartial = ""
+    flowRecording = true
+    sduiRenderer?.reflectDictating(true)   // particles burst — recording
+    flow.startDictation()                  // nudge the app to begin capturing
+  }
+
+  private func stopFlowDictation() {
+    flowRecording = false
+    flow.stopDictation()                   // app finalizes; final lands via onTranscript
+    // Leave the mic animation running until the final transcript arrives; the
+    // .reassemble happens on the next idle reflectDictating(false). We flip it
+    // now so the button returns to idle promptly — the final still commits.
+    sduiRenderer?.reflectDictating(false)
+  }
+
+  /// Open the app once to arm a Flow Session. The keyboard can't call openURL,
+  /// so we drop a deep-link tombstone the app consumes on foreground (routes to
+  /// the SDUI "flow_arm" screen, which calls armFlowSession) AND try the
+  /// responder-chain open for an instant hop.
+  private func openAppToArmFlow() {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
+    setStatus(label("flow_arming", "Turning on Flow — swipe back when you land in Tailzu."), actionable: true)
+    if let url = URL(string: "tulmi://s/flow_arm") {
+      _ = openURLViaResponderChain(url)
     }
   }
 
