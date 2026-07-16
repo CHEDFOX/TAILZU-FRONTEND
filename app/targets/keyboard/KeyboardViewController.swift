@@ -1123,68 +1123,83 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func beginRecording(session: AVAudioSession) {
-    do {
-      // Prefer the OS voice-processing path (.voiceChat enables AEC + noise
-      // suppression + AGC) so a keyboard dictating in a noisy room captures
-      // clean speech. Some devices/hosts still throw on voice-chat IO inside
-      // an extension — fall back to plain .record so capture always works.
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
+    // Backend flags:
+    //   kb.audio.sampleRate  (default 16000) — Hz
+    //   kb.audio.channels    (default 1)
+    //   kb.audio.quality     (default "high") — min/low/medium/high/max
+    // (Format is fixed AAC — changing it requires a native filename change too.)
+    let flags = kbConfig?.flags ?? [:]
+    let sr = flags["kb.audio.sampleRate"] as? Double ?? 16000
+    let ch = flags["kb.audio.channels"] as? Int ?? 1
+    let quality: AVAudioQuality = {
+      switch (flags["kb.audio.quality"] as? String ?? "high").lowercased() {
+      case "min":    return .min
+      case "low":    return .low
+      case "medium": return .medium
+      case "max":    return .max
+      default:       return .high
+      }
+    }()
+    let settings: [String: Any] = [
+      AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+      AVSampleRateKey: sr,
+      AVNumberOfChannelsKey: ch,
+      AVEncoderAudioQualityKey: quality.rawValue,
+    ]
+
+    // Configure the session for the given category/mode and actually START a
+    // recorder. Returns the LIVE recorder, or nil if the route didn't come up
+    // so the caller can retry with a plainer category.
+    //
+    // Key point: inside a keyboard extension a category can be ACCEPTED (no
+    // throw) yet still fail to provision a mic input — so `record() == false`
+    // is a real, recoverable failure, not just a thrown error. The old code
+    // only fell back when setCategory THREW, so a non-functional .voiceChat IO
+    // dead-ended at "444 : Not Listening". We also prepareToRecord() to warm
+    // the input route (record() right after setActive can otherwise return
+    // false before the route settles).
+    func tryStart(_ category: AVAudioSession.Category, _ mode: AVAudioSession.Mode) -> AVAudioRecorder? {
       do {
-        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.duckOthers])
+        try session.setCategory(category, mode: mode, options: [.duckOthers])
+        try session.setActive(true)
+        let r = try AVAudioRecorder(url: url, settings: settings)
+        r.delegate = self
+        // Metering on so we can drive voice-reactive UI (mic art speed follows
+        // level, same behavior as the main app's dictation screen).
+        r.isMeteringEnabled = true
+        r.prepareToRecord()
+        if r.record() { return r }
+        r.stop()
       } catch {
-        try session.setCategory(.record, mode: .default, options: [.duckOthers])
+        // fall through — the caller retries with a plainer session
       }
-      try session.setActive(true)
+      return nil
+    }
 
-      let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
-      // Backend flags:
-      //   kb.audio.sampleRate  (default 16000) — Hz
-      //   kb.audio.channels    (default 1)
-      //   kb.audio.quality     (default "high") — min/low/medium/high/max
-      // (Format is fixed AAC — changing it requires a native filename change too.)
-      let flags = kbConfig?.flags ?? [:]
-      let sr = flags["kb.audio.sampleRate"] as? Double ?? 16000
-      let ch = flags["kb.audio.channels"] as? Int ?? 1
-      let quality: AVAudioQuality = {
-        switch (flags["kb.audio.quality"] as? String ?? "high").lowercased() {
-        case "min":    return .min
-        case "low":    return .low
-        case "medium": return .medium
-        case "max":    return .max
-        default:       return .high
-        }
-      }()
-      let settings: [String: Any] = [
-        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-        AVSampleRateKey: sr,
-        AVNumberOfChannelsKey: ch,
-        AVEncoderAudioQualityKey: quality.rawValue,
-      ]
-      let recorder = try AVAudioRecorder(url: url, settings: settings)
-      recorder.delegate = self
-      // Metering on so we can drive voice-reactive UI (mic art speed
-      // follows level, same behavior as the main app's dictation screen).
-      recorder.isMeteringEnabled = true
-      guard recorder.record() else {
-        // record() == false → the input route wasn't ready. Surface it rather
-        // than capture a file of pure silence (which STT then hallucinates
-        // "Thank you." from).
-        setStatus(label("voice_not_listening", "444 : Not Listening"))
-        cleanupRecorder()
-        bailDictating()
-        return
-      }
-
-      audioRecorder = recorder
-      recordingURL = url
-      isRecording = true
-      micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-      setStatus("")  // transient — mic button animation is the visible cue
-      sduiRenderer?.reflectDictating(true)
-    } catch {
+    // 1) OS voice-processing (.voiceChat → AEC/NS/AGC) for clean speech in a
+    //    noisy room. 2) If that route won't come up in the extension, reset the
+    //    session and retry with a plain capture session.
+    var recorder = tryStart(.playAndRecord, .voiceChat)
+    if recorder == nil {
+      try? session.setActive(false)
+      recorder = tryStart(.record, .default)
+    }
+    guard let live = recorder else {
+      // Both routes failed — surface it rather than capture a file of pure
+      // silence (which STT then hallucinates "Thank you." from).
       setStatus(label("voice_not_listening", "444 : Not Listening"))
       cleanupRecorder()
       bailDictating()
+      return
     }
+
+    audioRecorder = live
+    recordingURL = url
+    isRecording = true
+    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    setStatus("")  // transient — mic button animation is the visible cue
+    sduiRenderer?.reflectDictating(true)
   }
 
   private func stopAndTranscribe() {
