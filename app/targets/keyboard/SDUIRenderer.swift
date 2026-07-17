@@ -489,10 +489,11 @@ final class MicParticleView: UIView {
       }
     }
 
-    // Bleed the initial burst off (drag) but floor the speed, so the mark's
-    // explosion settles into a gentle, perpetual wander instead of stopping.
-    let drag: CGFloat = 0.985
-    let minSpeed: CGFloat = 13
+    // Bleed the initial burst off (drag) but floor the speed HIGH, so the swarm
+    // never settles — it keeps zipping and colliding off the wall and each other
+    // for the whole recording instead of drifting to a near-stop.
+    let drag: CGFloat = 0.99
+    let minSpeed: CGFloat = 24
     for i in dots.indices {
       dots[i].v.dx *= drag; dots[i].v.dy *= drag
       let s = (dots[i].v.dx * dots[i].v.dx + dots[i].v.dy * dots[i].v.dy).squareRoot()
@@ -2451,8 +2452,10 @@ final class SDUIRenderer: NSObject {
         existing.removeFromSuperview()          // detach from the discarded btn
         particles = existing                    // reuse → dots + physics continuity
       } else {
-        let count = Int(flagCGFloat("kb.mic.particles.count", 40))
-        let dotR = flagCGFloat("kb.mic.particles.radius", 1.5)
+        // More, tinier dots → a dense swarm that constantly collides with the
+        // wall and each other, instead of a few big blobs. Backend-tunable.
+        let count = Int(flagCGFloat("kb.mic.particles.count", 60))
+        let dotR = flagCGFloat("kb.mic.particles.radius", 0.9)
         let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
         particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
         currentMicParticles = particles
@@ -2491,6 +2494,18 @@ final class SDUIRenderer: NSObject {
     // captured text always moves forward regardless of tree shape.
     if let ref = node.on?["onPress"] {
       let action = UIAction { [weak self] _ in self?.run(ref) }
+      btn.addAction(action, for: .touchUpInside)
+    } else if flagString("kb.mic.mode", "local").lowercased() == "flow" {
+      // FLOW mode has its OWN state machine in the host (arm → dictate → stop,
+      // driven by the background-audio session). The renderer must NOT toggle
+      // state.dictating here or auto-run refine — doing both is what desynced
+      // the mic: the first tap (which only opens the app to arm) still fired the
+      // recording particles and left `dictating` stuck true, so the next tap hit
+      // the "stop + refine" branch and pushed a bad refine onto the typepad.
+      // Defer entirely to the host: it calls reflectDictating(true/false) ONLY
+      // when audio is actually being captured, so the particles + icon track the
+      // real recording state, and it owns whether/when to refine.
+      let action = UIAction { [weak self] _ in self?.host?.hostStartDictation() }
       btn.addAction(action, for: .touchUpInside)
     } else {
       let action = UIAction { [weak self] _ in
