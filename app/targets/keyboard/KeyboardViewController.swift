@@ -1035,10 +1035,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
     d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
-    setStatus(label("flow_arming", "Turning on Flow — swipe back when you land in Tailzu."), actionable: true)
-    if let url = URL(string: "tulmi://s/flow_arm") {
-      _ = openURLViaResponderChain(url)
-    }
+    // Try to open the app. The tombstone above is the reliable half — opening
+    // Tailzu (auto OR by hand) consumes it and arms Flow — so the message covers
+    // the case where iOS refuses the auto-open, instead of promising a swipe-back
+    // that never happens.
+    let opened = URL(string: "tulmi://s/flow_arm").map { openURLViaResponderChain($0) } ?? false
+    setStatus(opened
+      ? label("flow_arming", "Turning on Flow — swipe back into your app.")
+      : label("flow_arm_manual", "Open Tailzu once to turn on Flow, then come back."),
+      actionable: true)
   }
 
   private func beginMicHandoff() {
@@ -1065,16 +1070,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   /// Best-effort "open a URL from a keyboard extension." Apple doesn't provide
-  /// a first-class API, so we walk the responder chain for a UIApplication
-  /// and call `open(_:)` on it. Same trick shipping keyboards (Gboard,
-  /// Grammarly) use — Apple has not rejected apps for this. When the walk
-  /// fails, we still leave the App-Group tombstone so the next foreground
-  /// consumes it.
+  /// a first-class API, so we walk the responder chain for something that can
+  /// open a URL. The OLD version cast each responder `as? UIApplication` — but
+  /// that class almost never appears in a keyboard extension's responder chain,
+  /// so it returned false and the app didn't open (the "works sometimes" bug).
+  /// Match by CAPABILITY instead: any responder that RESPONDS to `openURL:`
+  /// (UIApplication does) — the trick shipping keyboards (Gboard, Grammarly)
+  /// actually use, and it hits far more often. Still best-effort: iOS can refuse
+  /// it, which is why we ALWAYS leave the App-Group tombstone so the user
+  /// opening the app by hand still arms Flow.
+  @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
+    let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
     while let r = responder {
-      if let app = r as? UIApplication {
-        app.open(url, options: [:], completionHandler: nil)
+      if r.responds(to: sel) {
+        _ = r.perform(sel, with: url)
         return true
       }
       responder = r.next
