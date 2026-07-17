@@ -14,7 +14,8 @@ import { ExpoConfig } from "expo/config";
 // account. Leave it EMPTY and run `eas init` to CREATE a fresh project (it will
 // print the new id); then either paste that id below or export EAS_PROJECT_ID.
 // The OTA update URL is derived from it, so you only ever set the id in one place.
-const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? "";
+const EAS_PROJECT_ID =
+  process.env.EAS_PROJECT_ID ?? "7b0d6b75-e469-4e42-b8de-eb6c0453f72c";
 
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
@@ -29,10 +30,10 @@ const config: ExpoConfig = {
   scheme: "tulmi",
   userInterfaceStyle: "dark",
   icon: "./assets/icon.png",
-  // `owner` intentionally unset so the EAS project binds to whichever account
-  // is logged in (`eas whoami`). Run `eas init --force` once as the new account
-  // to (re)link the project + write a fresh projectId below. Pin it back to a
-  // specific account/org handle here if you want to lock builds to one account.
+  // EAS account that owns the build/project (must match the projectId below and
+  // whoever `eas whoami` reports). Change this + EAS_PROJECT_ID together to move
+  // the app to a different Expo account.
+  owner: "xooteq",
   // OTA updates (EAS Update). The fingerprint policy ties each update to the
   // native build's fingerprint, so a JS-only OTA can never land on an
   // incompatible binary (e.g. after a keyboard/permission/native change).
