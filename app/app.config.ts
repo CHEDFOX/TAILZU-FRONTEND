@@ -9,6 +9,13 @@ import { ExpoConfig } from "expo/config";
  * new features arrive as backend JSON pushes or JS-only OTAs, without another
  * App Store review. Extra binary weight is a few MB and worth it.
  */
+// EAS project binding. Because this is a DYNAMIC config, the CLI cannot write
+// the projectId for you — set it HERE after linking a project under your Expo
+// account. Leave it EMPTY and run `eas init` to CREATE a fresh project (it will
+// print the new id); then either paste that id below or export EAS_PROJECT_ID.
+// The OTA update URL is derived from it, so you only ever set the id in one place.
+const EAS_PROJECT_ID = process.env.EAS_PROJECT_ID ?? "";
+
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
   // iPhone Storage). `slug` and bundleIdentifier stay as "tulmi" because
@@ -30,9 +37,9 @@ const config: ExpoConfig = {
   // native build's fingerprint, so a JS-only OTA can never land on an
   // incompatible binary (e.g. after a keyboard/permission/native change).
   runtimeVersion: { policy: "fingerprint" },
-  updates: {
-    url: "https://u.expo.dev/fd5ee89f-3326-473c-a194-61c60f32bb1e",
-  },
+  updates: EAS_PROJECT_ID
+    ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` }
+    : {},
   ios: {
     bundleIdentifier: "com.tulmi.app",
     appleTeamId: "6552H8HYA4",
@@ -266,7 +273,7 @@ const config: ExpoConfig = {
     ],
   ],
   extra: {
-    eas: { projectId: "fd5ee89f-3326-473c-a194-61c60f32bb1e" },
+    ...(EAS_PROJECT_ID ? { eas: { projectId: EAS_PROJECT_ID } } : {}),
     // Third-party keys read by the SDKs at runtime. Any of these can be
     // populated in EAS environment variables without a rebuild — the SDKs
     // gracefully no-op when unset, so the same binary works with or without.
