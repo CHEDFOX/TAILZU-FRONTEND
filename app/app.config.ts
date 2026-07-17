@@ -22,7 +22,10 @@ const config: ExpoConfig = {
   scheme: "tulmi",
   userInterfaceStyle: "dark",
   icon: "./assets/icon.png",
-  owner: "chadfox",
+  // `owner` intentionally unset so the EAS project binds to whichever account
+  // is logged in (`eas whoami`). Run `eas init --force` once as the new account
+  // to (re)link the project + write a fresh projectId below. Pin it back to a
+  // specific account/org handle here if you want to lock builds to one account.
   // OTA updates (EAS Update). The fingerprint policy ties each update to the
   // native build's fingerprint, so a JS-only OTA can never land on an
   // incompatible binary (e.g. after a keyboard/permission/native change).
