@@ -1196,11 +1196,49 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     pendingPartial = text
   }
 
+  // Conversational refusal/clarification the STT/refine can emit on silence
+  // ("I didn't catch that", "say that again", "no speech detected"). The server
+  // now filters these, but this is the last line of defense: such a string must
+  // NEVER land on the typepad. Precise + length-bounded so a real short
+  // dictation is never dropped. Mirrors the backend looksLikeMeta guard.
+  private static let fillerPatterns: [NSRegularExpression] = {
+    let pats = [
+      "\\bi (didn'?t|couldn'?t|can'?t|could not|did not) (catch|hear|understand|make out) (that|it|you|anything)\\b",
+      "\\bi (don'?t|didn'?t) get anything\\b",
+      "\\b(could|can) you (say (that|it) again|repeat that)\\b",
+      "\\bsay (that|it) again\\b",
+      "\\b(please )?repeat that\\b",
+      "\\bno (speech|audio|input|sound) (was )?(detected|found|received|captured)\\b",
+      "\\bnothing (was said|to transcribe|was detected|was captured)\\b",
+    ]
+    return pats.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+  }()
+
+  private func looksLikeFiller(_ text: String) -> Bool {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, t.count <= 140 else { return false }
+    let r = NSRange(t.startIndex..., in: t)
+    return Self.fillerPatterns.contains { $0.firstMatch(in: t, options: [], range: r) != nil }
+  }
+
+  /// Remove whatever provisional partial is currently showing at the cursor.
+  private func clearPendingPartial() {
+    guard !pendingPartial.isEmpty else { return }
+    let proxy = textDocumentProxy
+    for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
+    pendingPartial = ""
+  }
+
   private func commitFinal(_ text: String) {
-    // Defensive: never insert a bare space for an empty final. A "done"/final
-    // with no text used to fall through here and drop a stray " " at the
-    // cursor. Empty finals carry no words — leave whatever partial is shown.
-    guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Empty final = the utterance finalized to nothing (silence/noise). Never
+    // insert a bare space; and clear any provisional partial so noise can't get
+    // stranded at the cursor. (The server now sends an empty final for exactly
+    // this — a sanitized-to-nothing segment.)
+    guard !trimmed.isEmpty else { clearPendingPartial(); return }
+    // Never commit a conversational refusal to the typepad — drop it and wipe
+    // the provisional partial it was replacing.
+    guard !looksLikeFiller(trimmed) else { clearPendingPartial(); return }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     let inserted = text.hasSuffix(" ") ? text : text + " "
@@ -1421,7 +1459,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let after = proxy.documentContextAfterInput ?? ""
     let full = (before + after).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !full.isEmpty else {
-      setStatus("Type something first, then tap ✨", actionable: true)
+      // Nothing to refine — do NOT print instructions onto the typepad. Just a
+      // tiny haptic nudge so the tap isn't silent, and bail.
+      if hasFullAccess { selectionHaptic.selectionChanged() }
       return
     }
     setStatus("")  // transient — refined text will land in the field
