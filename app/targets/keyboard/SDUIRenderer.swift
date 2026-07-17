@@ -207,6 +207,85 @@ final class KeyPlaneView: UIView {
 }
 
 // =============================================================================
+// KeyCalloutView — the native "key pop" balloon shown above a pressed letter.
+//
+// The single biggest tell of a non-native keyboard is the absence of the
+// magnified character bubble that iOS floats over the key you're pressing. This
+// draws that exact shape: a rounded-rect head, wider than the key, joined to the
+// key's top edge by a tapering neck — one filled bezier with a soft shadow, and
+// the character drawn large in the head. It's a passive overlay (userInteraction
+// off); the renderer positions it on touch-down and hides it on release, so it
+// follows the finger during a rolling multi-touch slide for free.
+final class KeyCalloutView: UIView {
+  private let shape = CAShapeLayer()
+  private let label = UILabel()
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isUserInteractionEnabled = false
+    shape.shadowColor = UIColor.black.cgColor
+    shape.shadowOpacity = 0.18
+    shape.shadowRadius = 5
+    shape.shadowOffset = CGSize(width: 0, height: 2)
+    layer.addSublayer(shape)
+    label.textAlignment = .center
+    addSubview(label)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// Position + draw the balloon for `keyRect` (in `parent`'s coords), showing
+  /// `char`. `bg`/`text` are the balloon fill + glyph colors.
+  func present(keyRect: CGRect, char: String, in parent: UIView,
+               bg: UIColor, text: UIColor, glyphSize: CGFloat) {
+    let headW = max(keyRect.width + 28, 44)
+    let headH = keyRect.height + 8
+    let neckH: CGFloat = 10
+    let r: CGFloat = 7
+    // Center the head over the key, clamped inside the parent.
+    var headX = keyRect.midX - headW / 2
+    headX = max(3, min(headX, parent.bounds.width - headW - 3))
+    let topY = keyRect.minY - neckH - headH
+    frame = CGRect(x: headX, y: topY, width: headW, height: headH + neckH + 1)
+
+    // Neck attach points, in local coords, clamped so the shoulders never cross.
+    let keyMinX = keyRect.minX - headX
+    let keyMaxX = keyRect.maxX - headX
+    let hw = headW, hh = headH
+    let rightShoulder = min(keyMaxX + 4, hw - r)
+    let leftShoulder = max(keyMinX - 4, r)
+
+    let p = UIBezierPath()
+    p.move(to: CGPoint(x: 0, y: r))
+    p.addQuadCurve(to: CGPoint(x: r, y: 0), controlPoint: CGPoint(x: 0, y: 0))            // head TL
+    p.addLine(to: CGPoint(x: hw - r, y: 0))
+    p.addQuadCurve(to: CGPoint(x: hw, y: r), controlPoint: CGPoint(x: hw, y: 0))          // head TR
+    p.addLine(to: CGPoint(x: hw, y: hh - r))
+    p.addQuadCurve(to: CGPoint(x: hw - r, y: hh), controlPoint: CGPoint(x: hw, y: hh))    // head BR
+    p.addLine(to: CGPoint(x: rightShoulder, y: hh))                                        // right shoulder
+    p.addQuadCurve(to: CGPoint(x: keyMaxX, y: hh + neckH),
+                   controlPoint: CGPoint(x: keyMaxX + 2, y: hh + neckH * 0.5))             // neck → key R
+    p.addLine(to: CGPoint(x: keyMinX, y: hh + neckH))                                      // key top edge
+    p.addQuadCurve(to: CGPoint(x: leftShoulder, y: hh),
+                   controlPoint: CGPoint(x: keyMinX - 2, y: hh + neckH * 0.5))             // neck → head L
+    p.addLine(to: CGPoint(x: r, y: hh))                                                    // left shoulder
+    p.addQuadCurve(to: CGPoint(x: 0, y: hh - r), controlPoint: CGPoint(x: 0, y: hh))       // head BL
+    p.close()
+
+    shape.path = p.cgPath
+    shape.fillColor = bg.cgColor
+    shape.shadowPath = p.cgPath
+    label.text = char
+    label.textColor = text
+    label.font = .systemFont(ofSize: glyphSize, weight: .regular)
+    label.frame = CGRect(x: 0, y: 0, width: hw, height: hh)
+
+    if superview !== parent { removeFromSuperview(); parent.addSubview(self) }
+    parent.bringSubviewToFront(self)
+    isHidden = false
+  }
+}
+
+// =============================================================================
 // MicParticleView — the recording-state mic visual.
 //
 // Idle, the mic button shows the Tailzu brand mark ("the structure"). When
@@ -2160,11 +2239,22 @@ final class SDUIRenderer: NSObject {
       stateChanged()
       return
     }
-    // Unlocked → toggle uppercase/lowercase mode. Hold-to-lock (not double-tap)
-    // is the caps-lock mechanism — more discoverable and immune to the
-    // accidental double-tap-on-fast-typing problem.
+    // Double-tap shift → CAPS LOCK, matching the system keyboard. A second tap
+    // within kb.shift.doubleTapMs of the last engages a persistent uppercase
+    // lock. (Hold-to-lock is kept too, via handleShiftLongPress, as a bonus.)
+    let now = Date().timeIntervalSince1970
+    let window = flagDouble("kb.shift.doubleTapMs", 300) / 1000.0
+    if lastShiftTapTime > 0 && (now - lastShiftTapTime) <= window {
+      state.capsLock = true
+      state.shift = true
+      lastShiftTapTime = 0
+      stateChanged()
+      fireKeyHaptic()
+      return
+    }
+    // Single tap → one-shot uppercase for the next letter.
     state.shift.toggle()
-    lastShiftTapTime = Date().timeIntervalSince1970
+    lastShiftTapTime = now
     stateChanged()
   }
 
@@ -2961,9 +3051,11 @@ final class SDUIRenderer: NSObject {
     // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
     UIDevice.current.playInputClick()
     fireKeyHaptic()
+    showKeyCallout(for: btn)
   }
 
   @objc private func keyTouchUp(_ btn: UIButton) {
+    hideKeyCallout()
     let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
     // Backend flag: kb.press.fadeMs (default 120) — release animation length.
     // 0 or negative → instant snap-back (native style is 60-120ms).
@@ -3004,6 +3096,49 @@ final class SDUIRenderer: NSObject {
     if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
     selectionGenerator?.selectionChanged()
     selectionGenerator?.prepare() // pre-cache the next one
+  }
+
+  // MARK: - Key-pop callout (native magnified bubble)
+
+  private var calloutView: KeyCalloutView?
+
+  /// Show the native key-pop balloon above a pressed LETTER key. Fired from
+  /// keyTouchDown — which both the plain-button path and the KeyPlaneView rolling
+  /// path (planeDown → keyTouchDown) route through — so the bubble follows the
+  /// finger key-to-key during a rolling slide with no extra wiring. Gated to
+  /// single alphabetic glyphs so it never pops over numbers/symbols/space/return
+  /// (matching iOS, which only pops letters). OTA-disable via kb.callout.enabled.
+  private func showKeyCallout(for btn: UIButton) {
+    guard flagBool("kb.callout.enabled", true), let container = mountContainer else { return }
+    guard let title = btn.title(for: .normal), title.count == 1,
+          let ch = title.first, ch.isLetter else { hideKeyCallout(); return }
+    let rect = container.convert(btn.bounds, from: btn)
+    let cv = calloutView ?? KeyCalloutView(frame: .zero)
+    calloutView = cv
+    cv.present(keyRect: rect, char: title, in: container,
+               bg: calloutBgColor(), text: calloutTextColor(), glyphSize: 24)
+  }
+
+  private func hideKeyCallout() { calloutView?.isHidden = true }
+
+  /// Balloon fill. Backend override kb.callout.bg (hex); else native default —
+  /// white on light themes, a lighter-than-key gray on dark ones.
+  private func calloutBgColor() -> UIColor {
+    let hex = flagString("kb.callout.bg", "")
+    if !hex.isEmpty { return UIColor(tulmiHex: hex) }
+    return keyIsDark(keyBgColor()) ? UIColor(white: 0.30, alpha: 1) : .white
+  }
+  /// Balloon glyph color. Backend override kb.callout.text (hex); else native
+  /// default — white on dark themes, near-black on light ones.
+  private func calloutTextColor() -> UIColor {
+    let hex = flagString("kb.callout.text", "")
+    if !hex.isEmpty { return UIColor(tulmiHex: hex) }
+    return keyIsDark(keyBgColor()) ? .white : UIColor(white: 0.11, alpha: 1)
+  }
+  private func keyIsDark(_ c: UIColor) -> Bool {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    c.getRed(&r, green: &g, blue: &b, alpha: &a)
+    return 0.299 * r + 0.587 * g + 0.114 * b < 0.5
   }
 
   private func keyBgColor() -> UIColor {
