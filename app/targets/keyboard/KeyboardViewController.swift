@@ -115,11 +115,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     f.onEnded = { [weak self] in
       guard let self = self else { return }
-      // Session expired / turned off — reset the mic UI to idle. The next tap
-      // re-opens the app to arm a fresh session.
+      // Session expired / turned off — reset the mic UI. The button flips back
+      // to "Start Flow"; the next tap re-opens the app to arm a fresh session.
       self.flowRecording = false
       self.pendingPartial = ""
       self.sduiRenderer?.reflectDictating(false)
+      self.refreshFlowButton()
     }
     return f
   }()
@@ -174,6 +175,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
     loadDictionary() // pick up edits made in the app
+    // Reflect the Flow Session state each time the keyboard reappears — so after
+    // the user arms in the app and swipes back, the button flips from "Start
+    // Flow" to the live mic without needing another config fetch. No-op unless
+    // kb.mic.mode="flow".
+    refreshFlowButton()
   }
 
   /// System appearance flipped (Settings → dark mode toggle, or the user's
@@ -327,6 +333,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     statusLabel.textColor = UIColor(tulmiHex: cfg.keyText)
     micButton?.isEnabled = cfg.voice
     micButton?.alpha = cfg.voice ? 1 : 0.4
+    // Now that the mode + flow glyph/label flags are known, reflect the Flow
+    // Session state on the mic button (Start Flow / mic / checkmark).
+    refreshFlowButton()
 
     // Personality chip row — populated from the pinned presets on the
     // config. Backend passes them in the `flags` bag as
@@ -959,9 +968,51 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   // MARK: - Flow Session (background-audio mic)
 
+  private func flowGlyph(_ key: String, _ fallback: String) -> String {
+    (kbConfig?.flags[key] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+  }
+
+  /// Reflect the Flow Session state on the mic button + status — Wispr's exact
+  /// model, all three states backend-tunable:
+  ///   • no live session → a "Start Flow" affordance (distinct glyph + hint).
+  ///     The first tap opens the app once to arm the background mic.
+  ///   • session armed, idle → the mic. Tap to talk.
+  ///   • recording → a checkmark. Tap to finish (Wispr taps ✓ to end an utterance).
+  /// Called on appear, after the backend config loads, and on every transition.
+  private func refreshFlowButton() {
+    guard (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() == "flow" else { return }
+    if flowRecording {
+      micButton.imageView?.stopAnimating()
+      micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
+      micButton.tintColor = .black
+      return
+    }
+    if flow.isSessionActive {
+      // Armed & idle — the mic. Tap to talk. Clear any lingering Flow hint.
+      micButton.setImage(brandMarkImage(), for: .normal)
+      micButton.imageView?.startAnimating()
+      let hint = label("flow_start_hint", "Tap to start Flow")
+      let arming = label("flow_arming", "Turning on Flow — swipe back when you land in Tailzu.")
+      if statusLabel.text == hint || statusLabel.text == arming { setStatus("") }
+    } else {
+      // No session — this is "Start Flow", not a dictation mic. A distinct glyph
+      // + a persistent hint make it obvious the first tap opens the app to arm.
+      // (Backend can blank kb.flow.startGlyph→mic or flow_start_hint→"" to hide.)
+      micButton.imageView?.stopAnimating()
+      micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.startGlyph", "bolt.fill")), for: .normal)
+      micButton.tintColor = .black
+      setStatus(label("flow_start_hint", "Tap to start Flow"), actionable: true)
+    }
+  }
+
   private func startFlowDictation() {
     pendingPartial = ""
     flowRecording = true
+    // Morph to the "finish" affordance (checkmark) — Wispr's tap-✓-to-end.
+    micButton.imageView?.stopAnimating()
+    micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
+    micButton.tintColor = .black
+    setStatus("")                          // clear the "Tap to start Flow" hint
     sduiRenderer?.reflectDictating(true)   // particles burst — recording
     flow.startDictation()                  // nudge the app to begin capturing
   }
@@ -969,9 +1020,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func stopFlowDictation() {
     flowRecording = false
     flow.stopDictation()                   // app finalizes; final lands via onTranscript
-    // Leave the mic animation running until the final transcript arrives; the
-    // .reassemble happens on the next idle reflectDictating(false). We flip it
-    // now so the button returns to idle promptly — the final still commits.
+    // Back to the armed-idle mic — the session stays live for the next utterance
+    // (no app trip). The final transcript still commits via onTranscript.
+    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.imageView?.startAnimating()
     sduiRenderer?.reflectDictating(false)
   }
 
