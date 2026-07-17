@@ -1312,14 +1312,20 @@ final class SDUIRenderer: NSObject {
       }
     }
 
-    // Optional multi-touch typing layer. OFF by default; when the backend sets
-    // kb.keyPlane.enabled it sits above the tree and owns touch for the
-    // single-character keys (letters + number/symbol glyphs), which turns the
-    // per-button target-action grid into a real rolling/multi-touch plane. The
-    // buttons stay as pure visuals so every existing behavior (fast-shift,
-    // flash-on-refine, theming) is untouched. Whitespace (space bar) and the
-    // tone pill are excluded so their special handling survives.
-    if flagBool("kb.keyPlane.enabled", false) {
+    // Multi-touch typing layer. ON by default now — it's the smooth path: it
+    // sits above the tree and owns touch for the single-character keys (letters
+    // + number/symbol glyphs), turning the per-button target-action grid into a
+    // real rolling/multi-touch plane. Without it, letter keys commit only on a
+    // clean touchUpInside of the exact button, so a fast tap that drifts a few
+    // points becomes touchUpOutside and the key is DROPPED — which reads as
+    // "have to type hard / deliberately." The plane commits the key under the
+    // finger at release and tolerates roll/drift, so quick light taps register
+    // like the system keyboard. Buttons stay pure visuals (fast-shift, flash,
+    // theming untouched); space bar + tone pill are excluded so their special
+    // handling survives. OTA-reversible: backend sets kb.keyPlane.enabled=false
+    // to fall back to the per-button grid (which restores accent long-press
+    // trays, the one thing the v1 plane doesn't route yet).
+    if flagBool("kb.keyPlane.enabled", true) {
       let planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
         guard !char.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         btn.isUserInteractionEnabled = false   // plane owns its touches now
