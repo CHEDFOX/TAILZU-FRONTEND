@@ -34,7 +34,7 @@ const num = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
 
 /** Read the edge-swipe config from backend bootstrap flags (all optional). */
-export function resolveEdgeSwipe(flags?: Record<string, boolean | number | string>): EdgeSwipeConfig {
+export function resolveEdgeSwipe(flags?: Record<string, unknown>): EdgeSwipeConfig {
   const f = flags ?? {};
   return {
     enabled: f["gestures.swipeBack"] !== false && f["gestures.swipeBack"] !== "false",

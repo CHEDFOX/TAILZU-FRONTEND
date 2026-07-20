@@ -19,7 +19,7 @@ export const CORE_COMPONENTS = [
 
   // v2 settings row + dictionary
   "Row",
-  "DictionaryEditor", "WordChips",
+  "DictionaryEditor", "WordChips", "LanguageGreetingGrid",
 
   // v3 layout / navigation
   "Grid", "MasonryGrid", "Modal", "BottomSheet", "ActionSheet",
@@ -85,7 +85,7 @@ export const CORE_ACTIONS = [
   "keyboard.reload", "keyboard.setLayout",
   // mic handoff — main app records + refines, keyboard inserts (see
   // targets/keyboard/TulmiHandoff.swift and modules/tulmi-bridge).
-  "completeKeyboardHandoff", "cancelKeyboardHandoff",
+  "completeKeyboardHandoff", "cancelKeyboardHandoff", "armFlowSession",
   // cache / dev
   "clearCache", "reloadApp",
   // composition

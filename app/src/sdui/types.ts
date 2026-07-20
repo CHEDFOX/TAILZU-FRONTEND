@@ -53,12 +53,43 @@ export type MediaSpec =
   | { emoji: string }
   | { data: string; contentType?: string };
 
+/** Bumped only on breaking changes to the SDUI contract. Mirrors backend. */
+export const SDUI_SCHEMA_VERSION = 1;
+
+/** What this renderer build can draw + do — sent in the capability handshake. */
+export interface ClientCapabilities {
+  /** SDUI_SCHEMA_VERSION the renderer was built against. */
+  schemaVersion: number;
+  /** Native app/renderer version, e.g. "1.4.0". */
+  appVersion: string;
+  platform: "ios" | "android";
+  /** Component `type`s this build can render (the registry keys). */
+  components: readonly string[];
+  /** Action `kind`s this build can execute. */
+  actions: readonly string[];
+  /** Device hints the server may use for layout/theming decisions. */
+  device?: {
+    width: number;
+    height: number;
+    scale: number;
+    colorScheme: "light" | "dark";
+    locale: string;
+    reduceMotion?: boolean;
+  };
+}
+
+export interface BootstrapRequest {
+  capabilities: ClientCapabilities;
+  /** Opaque session/auth token if the user is signed in. */
+  authToken?: string;
+}
+
 export interface BootstrapResponse {
   schemaVersion: number;
   theme: ThemeTokens;
   navigation: NavigationShell;
   initialScreenId: string;
-  flags?: Record<string, boolean | number | string>;
+  flags?: Record<string, boolean | number | string | Record<string, unknown> | unknown[]>;
   labels?: Record<string, string>;
   /** Media registry — keyed lookup for backend-uploaded assets.
    * Populated from server `/v1/media/upload` uploads. Empty when no admin
@@ -106,6 +137,14 @@ export interface Node {
   fallback?: Node;
 }
 
+export interface ScreenRequest {
+  screenId: string;
+  capabilities: ClientCapabilities;
+  authToken?: string;
+  /** Params passed by a `navigate` action (e.g. an item id). */
+  params?: Record<string, unknown>;
+}
+
 export interface ScreenResponse {
   schemaVersion: number;
   screenId: string;
@@ -117,6 +156,12 @@ export interface ScreenResponse {
   state?: Record<string, any>;
   actions?: Record<string, ActionSpec>;
   cacheTtlSeconds?: number;
+  /**
+   * When true, the client hides its app-level chrome (top bar + tab bar) for
+   * this screen so the root renders full-bleed (intro slideshow, immersive
+   * paywalls, onboarding videos).
+   */
+  hideChrome?: boolean;
 }
 
 export type ActionRef = string | ActionSpec;
@@ -248,6 +293,8 @@ export type Condition =
   | { lte: [string, number] }
   | { in: [string, any[]] }
   | { contains: [string, string] }
+  | { startsWith: [string, string] }
+  | { endsWith: [string, string] }
   | { truthy: string }
   | { falsy: string }
   | { entitled: string }
@@ -279,9 +326,17 @@ export interface KeyboardConfigResponse {
     voice: boolean;
     refine: boolean;
     streaming: boolean;
+    /**
+     * Android only: live-stream the mic straight from the keyboard. true → the
+     * Android keyboard opens a WebSocket and shows words as you speak; false →
+     * batch record→upload. iOS ignores this (uses kb.mic.mode).
+     */
+    liveVoice?: boolean;
     sdui?: boolean;
   };
   labels: Record<string, string>;
+  /** Backend-tunable knobs for keyboard visuals + behavior (kb.* dot-keys). */
+  flags?: Record<string, unknown>;
   cacheTtlSeconds: number;
   root?: KeyboardNode;
   actions?: Record<string, KeyboardActionSpec>;
@@ -342,6 +397,7 @@ export interface KeyboardNode {
 
 export type KeyboardActionRef = string | KeyboardActionSpec;
 export type KeyboardActionSpec =
+  // ----- text + editing -----
   | { kind: "insertText"; text: string }
   | { kind: "insertKey"; char: string }
   | { kind: "deleteBackward" }
@@ -349,14 +405,52 @@ export type KeyboardActionSpec =
   | { kind: "shift" }
   | { kind: "capsLock" }
   | { kind: "return" }
+  // ----- layouts + dictation + refine -----
   | { kind: "switchLayout"; language?: string }
   | { kind: "showLanguageMenu" }
   | { kind: "startDictation" }
   | { kind: "stopDictation" }
   | { kind: "runRefine" }
   | { kind: "cycleTone" }
+  // ----- app / system -----
   | { kind: "openApp"; screenId?: string }
   | { kind: "openSettings" }
+  | { kind: "openUrl"; url: string; external?: boolean }
+  // ----- feedback -----
   | { kind: "haptic"; style: HapticStyle }
+  | { kind: "toast"; message: string; tone?: "info" | "success" | "error" }
+  | { kind: "confetti" }
+  | { kind: "speak"; text: string; voice?: string }
+  | { kind: "playMedia"; url: string }
+  | { kind: "stopMedia" }
+  // ----- clipboard + share -----
+  | { kind: "copyToClipboard"; text: string; toastMessage?: string }
+  | { kind: "readClipboard"; assignTo: string }
+  | { kind: "share"; text?: string; url?: string; title?: string }
+  // ----- state store (backend scratch dict) -----
+  | { kind: "setState"; path: string; value: unknown }
+  | { kind: "toggleState"; path: string }
+  | { kind: "incrementState"; path: string; by?: number }
+  | { kind: "clearState"; path: string }
+  // ----- network + analytics + logging -----
+  | {
+      kind: "callEndpoint";
+      method: "GET" | "POST" | "PUT" | "DELETE";
+      path: string;
+      body?: Record<string, unknown> | string;
+      assignTo?: string;
+      onSuccess?: KeyboardActionRef;
+      onError?: KeyboardActionRef;
+    }
+  | { kind: "analytics.track"; event: string; props?: Record<string, unknown> }
+  | { kind: "log"; message: string; level?: "info" | "warn" | "error" }
+  // ----- cache / reload -----
+  | { kind: "clearCache" }
+  | { kind: "reloadApp" }
+  // ----- flow control -----
   | { kind: "sequence"; actions: KeyboardActionRef[] }
-  | { kind: "condition"; if: Condition; then: KeyboardActionRef; else?: KeyboardActionRef };
+  | { kind: "parallel"; actions: KeyboardActionRef[] }
+  | { kind: "condition"; if: Condition; then: KeyboardActionRef; else?: KeyboardActionRef }
+  | { kind: "delay"; ms: number }
+  // ----- extensibility (forward-compat slot) -----
+  | { kind: "extension"; name: string; params?: Record<string, unknown> };

@@ -24,6 +24,7 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import type { Node, NodeEvent, ThemeTokens } from "./types";
+import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
@@ -184,6 +185,9 @@ export interface CompProps {
   store: Store;
   children: React.ReactNode;
   fire: (event: NodeEvent, value?: any) => void;
+  /** Full render context (store + actions + flags + labels + nav). Lets
+   *  conditional components (e.g. IfElse) evaluate against real flags. */
+  ctx: Ctx;
 }
 
 // --- Components -------------------------------------------------------------
@@ -413,6 +417,21 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     committed: "",
   });
   const wantLive = props.live === true && isStreamAvailable();
+
+  // Stop the recorder + live stream on unmount if we're still recording, so a
+  // tab switch / navigation / SDUI refetch mid-dictation doesn't leak the mic
+  // or the streaming WebSocket. Mirrors VoiceToggle's teardown (morphControls).
+  // Idempotent: optional-chaining + `.catch` make a double-stop / not-recording
+  // unmount safe.
+  const recordingRef = useRef(false);
+  useEffect(() => { recordingRef.current = recording; }, [recording]);
+  useEffect(() => () => {
+    if (recordingRef.current) {
+      live.current.session?.stop();
+      live.current.session = null;
+      recorder.stop().catch(() => {});
+    }
+  }, [recorder]);
 
   async function startLive() {
     try {

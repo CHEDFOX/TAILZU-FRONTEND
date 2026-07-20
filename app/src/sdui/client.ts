@@ -6,12 +6,17 @@ import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react
 import * as Localization from "expo-localization";
 import { getBaseUrl, getLanguage } from "../storage";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
-import type { BootstrapResponse, ScreenResponse } from "./types";
+import type {
+  BootstrapResponse,
+  ScreenResponse,
+  BootstrapRequest,
+  ScreenRequest,
+} from "./types";
+import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
 
 export const APP_VERSION = "1.0.0";
-const SDUI_SCHEMA_VERSION = 1;
 
 /**
  * Share the current backend URL + the user's token with the native keyboard
@@ -50,12 +55,12 @@ async function commonHeaders(): Promise<Record<string, string>> {
 
 export function buildCapabilities() {
   const { width, height } = Dimensions.get("window");
-  const colorScheme = Appearance.getColorScheme() === "dark" ? "dark" : "light";
+  const colorScheme: "light" | "dark" = Appearance.getColorScheme() === "dark" ? "dark" : "light";
   const locale = Localization.getLocales?.()[0]?.languageTag ?? "en-US";
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
-    platform: Platform.OS === "ios" ? "ios" : "android",
+    platform: (Platform.OS === "ios" ? "ios" : "android") as "ios" | "android",
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
@@ -130,19 +135,13 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 }
 
 export async function bootstrap(): Promise<BootstrapResponse> {
-  return withRetry(() =>
-    post<BootstrapResponse>("/v1/app/bootstrap", { capabilities: buildCapabilities() }),
-  );
+  const body: BootstrapRequest = { capabilities: buildCapabilities() };
+  return withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
 }
 
 export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
-  return withRetry(() =>
-    post<ScreenResponse>("/v1/app/screen", {
-      screenId,
-      params,
-      capabilities: buildCapabilities(),
-    }),
-  );
+  const body: ScreenRequest = { screenId, params, capabilities: buildCapabilities() };
+  return withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
 }
 
 /**
