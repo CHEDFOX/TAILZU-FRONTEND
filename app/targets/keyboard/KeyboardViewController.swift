@@ -111,7 +111,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let f = TulmiFlow()
     f.onTranscript = { [weak self] text, isFinal in
       guard let self = self else { return }
-      if isFinal { self.commitFinal(text) } else { self.replacePartial(with: text) }
+      // The final ALWAYS commits (that's the after-stop text). Interim partials
+      // only paint the field live when kb.mic.liveText is on — backend flips it
+      // without a rebuild. Off → the field stays put until you stop, then the
+      // final lands in one shot.
+      if isFinal { self.commitFinal(text) }
+      else if self.micLiveText { self.replacePartial(with: text) }
     }
     f.onEnded = { [weak self] in
       guard let self = self else { return }
@@ -125,6 +130,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return f
   }()
   private var flowRecording = false
+  // Bumped on each dictation start / abandon so a stale dead-app watchdog can
+  // tell whether it still refers to the current dictation.
+  private var flowDictationToken = 0
 
   // Live (streaming) dictation state.
   private var stream: TulmiStream?
@@ -972,6 +980,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     (kbConfig?.flags[key] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? fallback
   }
 
+  /// Whether dictated words paint the field LIVE as you speak (true) or only
+  /// arrive as one committed block AFTER you stop (false). This is the "button
+  /// logic" the backend tunes without a rebuild — `kb.mic.liveText`. Governs the
+  /// Flow path and the in-keyboard stream path alike. Default true preserves the
+  /// live-typing feel when the flag is absent; the backend sets the desired
+  /// value. (Note: with a batch provider like Groq there are no interim partials
+  /// to begin with, so text arrives after stop regardless of this flag; the flag
+  /// is what lets a streaming provider like Deepgram ALSO defer to after-stop.)
+  private var micLiveText: Bool {
+    (kbConfig?.flags["kb.mic.liveText"] as? Bool) ?? true
+  }
+
   /// Reflect the Flow Session state on the mic button + status — Wispr's exact
   /// model, all three states backend-tunable:
   ///   • no live session → a "Start Flow" affordance (distinct glyph + hint).
@@ -1008,6 +1028,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func startFlowDictation() {
     pendingPartial = ""
     flowRecording = true
+    flowDictationToken &+= 1
+    let token = flowDictationToken
     // Morph to the "finish" affordance (checkmark) — Wispr's tap-✓-to-end.
     micButton.imageView?.stopAnimating()
     micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
@@ -1015,6 +1037,34 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     setStatus("")                          // clear the "Tap to start Flow" hint
     sduiRenderer?.reflectDictating(true)   // particles burst — recording
     flow.startDictation()                  // nudge the app to begin capturing
+    // Dead-app watchdog. isSessionActive gates on a ~4s-fresh heartbeat, but if
+    // the app was force-quit only a second or two before this tap, its last
+    // heartbeat can still look fresh — so the tap slips past and we're now
+    // "recording" into a dead app that captures nothing. The heartbeat stops the
+    // instant the process dies, so it's stale within ~1-2s; re-check just after
+    // that window and, if the session is no longer live, bail the animation and
+    // re-arm. (Independent of transcripts, so it works with kb.mic.liveText off,
+    // where no partials arrive during recording.)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+      guard let self = self, self.flowRecording, token == self.flowDictationToken else { return }
+      if !self.flow.isSessionActive { self.abandonDeadFlowDictation() }
+    }
+  }
+
+  /// The Flow Session turned out to be dead (app force-quit) while we were
+  /// "recording". Stop the animation and re-open the app to arm a fresh session
+  /// so the user isn't stuck talking to a mic that captures nothing.
+  private func abandonDeadFlowDictation() {
+    flowRecording = false
+    pendingPartial = ""
+    flowDictationToken &+= 1                // invalidate any in-flight watchdog
+    sduiRenderer?.reflectDictating(false)
+    flow.markSessionDead()
+    micButton.imageView?.stopAnimating()
+    micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.startGlyph", "bolt.fill")), for: .normal)
+    micButton.tintColor = .black
+    NSLog("[Tailzu][kb] flow: session was dead (app force-quit) — re-arming.")
+    openAppToArmFlow()
   }
 
   private func stopFlowDictation() {
@@ -1156,7 +1206,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     case .ready:
       setStatus("")  // transient — mic button animation is the visible cue
     case .partial(let text):
-      replacePartial(with: text)
+      // Same backend-tuned rule as Flow: only paint interim words live when
+      // kb.mic.liveText is on; otherwise wait for the final (after-stop).
+      if micLiveText { replacePartial(with: text) }
     case .finalText(let text):
       commitFinal(text)
     case .error(let msg):

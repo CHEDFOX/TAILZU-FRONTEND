@@ -36,12 +36,36 @@ final class TulmiFlow: NSObject {
       Unmanaged.passUnretained(self).toOpaque())
   }
 
-  /// True when the app has a live Flow Session (armed and not idle-expired).
+  /// How fresh the app's liveness heartbeat must be for the session to count as
+  /// live. The app stamps it ~1×/sec; 4s tolerates a couple of missed ticks
+  /// while still catching a force-quit within a few seconds.
+  static let heartbeatMaxAgeMs = 4000.0
+
+  /// True when the app has a live Flow Session — armed, not idle-expired, AND
+  /// its liveness heartbeat is fresh. The heartbeat is the crux: a FORCE-QUIT
+  /// kills the app process before it can clear the `active` flag, so `active`
+  /// alone is a tombstone that lies. The app stamps `tulmi.flow.heartbeat` only
+  /// while its background mic is genuinely alive; once the process dies the
+  /// stamp stops, so a stale heartbeat means "no live session" — the mic tap
+  /// then re-opens the app to re-arm instead of animating into a dead session
+  /// that records nothing.
   var isSessionActive: Bool {
     guard let d = store, d.bool(forKey: "tulmi.flow.active") else { return false }
+    let nowMs = Date().timeIntervalSince1970 * 1000
+    let hb = d.double(forKey: "tulmi.flow.heartbeat")
+    if hb <= 0 || nowMs - hb > TulmiFlow.heartbeatMaxAgeMs { return false }
     let expires = d.double(forKey: "tulmi.flow.expiresAt")
-    if expires <= 0 { return true }
-    return Date().timeIntervalSince1970 * 1000 < expires
+    if expires > 0 && nowMs >= expires { return false }
+    return true
+  }
+
+  /// Locally mark the session dead (used when the keyboard detects the app was
+  /// force-quit mid-dictation). Clears the tombstone so subsequent checks agree
+  /// immediately, before the heartbeat would naturally age out.
+  func markSessionDead() {
+    let d = store
+    d?.set(false, forKey: "tulmi.flow.active")
+    d?.removeObject(forKey: "tulmi.flow.heartbeat")
   }
 
   func startDictation() { post(TulmiFlow.nStart) }

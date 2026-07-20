@@ -56,6 +56,15 @@ final class FlowSessionManager: NSObject {
   private var seq = 0
   private var observersRegistered = false
 
+  // Liveness heartbeat. While a Flow Session is genuinely alive (this process is
+  // running AND the audio engine is delivering buffers), we stamp
+  // `tulmi.flow.heartbeat` ~1×/sec. The keyboard treats a stale heartbeat as
+  // "no live session" — the only way it can tell the app was FORCE-QUIT, since a
+  // force-quit kills the process before it can clear the `active` tombstone.
+  private var heartbeatTimer: Timer?
+  private var lastBufferAt: TimeInterval = 0   // set on the audio thread (plain Double = realtime-safe)
+  private let heartbeatIntervalS: TimeInterval = 1.0
+
   private override init() { super.init() }
 
   // MARK: - Public API (called from JS via TulmiBridge)
@@ -83,6 +92,8 @@ final class FlowSessionManager: NSObject {
 
     armed = true
     publishActive()
+    publishHeartbeat()   // immediate liveness so the keyboard sees a live session at once
+    startHeartbeat()
     resetIdleTimer()
   }
 
@@ -125,6 +136,36 @@ final class FlowSessionManager: NSObject {
     let d = store
     d?.set(false, forKey: "tulmi.flow.active")
     d?.removeObject(forKey: "tulmi.flow.expiresAt")
+    d?.removeObject(forKey: "tulmi.flow.heartbeat")
+  }
+
+  private func publishHeartbeat() {
+    store?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.flow.heartbeat")
+  }
+
+  // MARK: - Heartbeat (liveness the keyboard can trust)
+
+  private func startHeartbeat() {
+    heartbeatTimer?.invalidate()
+    // A repeating MAIN-THREAD timer proves the app PROCESS is alive (a
+    // force-quit kills the process → the timer stops firing). The lastBufferAt
+    // guard additionally proves the audio engine is still delivering buffers, so
+    // a silently-dead mic also lets the heartbeat go stale. Under
+    // UIBackgroundModes:["audio"] with an active recording session, main-runloop
+    // timers keep firing in the background — the same mechanism that keeps the
+    // capture alive.
+    heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatIntervalS, repeats: true) { [weak self] _ in
+      guard let self = self, self.armed else { return }
+      let now = Date().timeIntervalSince1970
+      if self.engine.isRunning && (now - self.lastBufferAt) < 2.0 {
+        self.publishHeartbeat()
+      }
+    }
+  }
+
+  private func stopHeartbeat() {
+    heartbeatTimer?.invalidate(); heartbeatTimer = nil
+    store?.removeObject(forKey: "tulmi.flow.heartbeat")
   }
 
   private func post(_ name: String) {
@@ -146,6 +187,7 @@ final class FlowSessionManager: NSObject {
 
   private func disarm(notify: Bool) {
     idleTimer?.invalidate(); idleTimer = nil
+    stopHeartbeat()
     dictating = false
     stopCapture()   // only now do we tear the engine down — end of the session
     task?.cancel(with: .goingAway, reason: nil); task = nil
@@ -301,6 +343,11 @@ final class FlowSessionManager: NSObject {
   }
 
   private func sendBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
+    // Prove the engine is delivering audio — the heartbeat timer reads this to
+    // stamp liveness. Runs on the realtime audio thread, so keep it to a plain
+    // Double write (no locks/allocations). Stamped for EVERY buffer, whether or
+    // not a dictation is open, since the engine runs continuously while armed.
+    lastBufferAt = Date().timeIntervalSince1970
     // The engine runs continuously while armed, but we only forward audio to the
     // server DURING a dictation. Between utterances the captured buffers are
     // discarded here — their only job was to keep the app alive in the background.
