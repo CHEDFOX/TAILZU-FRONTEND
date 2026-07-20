@@ -869,7 +869,13 @@ indirect enum KBActionSpec: Decodable {
 
   init(from decoder: Decoder) throws {
     let c = try decoder.container(keyedBy: Keys.self)
-    let kind = try c.decode(String.self, forKey: .kind)
+    // A missing / undecodable kind defaults to a no-op .unknown rather than
+    // throwing — one malformed action must not blow up decode and drop the
+    // ENTIRE SDUI tree back to the hand-built keyboard (mirrors the graceful
+    // per-field try? below, and the KBEffect unknown-kind philosophy).
+    guard let kind = try? c.decode(String.self, forKey: .kind) else {
+      self = .unknown(kind: ""); return
+    }
     switch kind {
     case "insertText":
       self = .insertText(text: (try? c.decode(String.self, forKey: .text)) ?? "")
@@ -968,8 +974,12 @@ indirect enum KBActionSpec: Decodable {
     case "parallel":
       self = .parallel(actions: (try? c.decode([KBActionRef].self, forKey: .actions)) ?? [])
     case "condition":
-      let cond = try c.decode(KBCondition.self, forKey: .ifCond)
-      let thenA = try c.decode(KBActionRef.self, forKey: .then)
+      // Fall back to a no-op when if/then are absent/malformed instead of
+      // throwing (which would drop the whole tree). `else` stays optional.
+      guard let cond = try? c.decode(KBCondition.self, forKey: .ifCond),
+            let thenA = try? c.decode(KBActionRef.self, forKey: .then) else {
+        self = .unknown(kind: "condition"); return
+      }
       let elseA = try? c.decode(KBActionRef.self, forKey: .elseRef)
       self = .condition(ifCond: cond, then: thenA, elseRef: elseA)
     case "delay":
@@ -1196,6 +1206,28 @@ struct KBStateSnapshot {
 
 // MARK: - Renderer
 
+/// Weak-forwarding target for gesture recognizers. A UIGestureRecognizer retains
+/// its target STRONGLY; pointing one straight at the renderer (which strongly
+/// owns the view tree the GR lives in) forms a retain cycle
+/// renderer → tree → button → GR → renderer that keeps the renderer — and its
+/// timers — alive after the keyboard dismisses, so deinit never runs and the
+/// whole tree leaks in a ~48MB extension. This proxy holds the renderer weakly
+/// and forwards the callback, so the only strong edge is button → GR → proxy and
+/// the renderer deallocs normally. (UIControl target-action already stores its
+/// target unretained, so only the GRs need this.)
+final class WeakGRProxy: NSObject {
+  private weak var target: NSObject?
+  private let selector: Selector
+  init(target: NSObject, selector: Selector) {
+    self.target = target
+    self.selector = selector
+  }
+  @objc func handle(_ gr: UIGestureRecognizer) {
+    guard let target = target, target.responds(to: selector) else { return }
+    _ = target.perform(selector, with: gr)
+  }
+}
+
 final class SDUIRenderer: NSObject {
   private weak var host: KBHostControllerProtocol?
   private let config: KBConfig
@@ -1282,6 +1314,10 @@ final class SDUIRenderer: NSObject {
     guard let container = mountContainer, let root = config.root else { return }
     mountedRoot?.removeFromSuperview()
     keyPlane?.removeFromSuperview()   // rebuilt below if kb.keyPlane.enabled
+    // Drop any visible key-pop balloon so a mid-touch rebuild can't orphan it
+    // pointing at a now-deallocated key (it's re-created lazily on next press).
+    calloutView?.removeFromSuperview()
+    calloutView = nil
     // Reset the fast-shift ref maps — they'll be repopulated as the fresh
     // tree renders. Keeping stale refs would leak old buttons and cause
     // the fast path to call setTitle on removed subviews.
@@ -1597,7 +1633,9 @@ final class SDUIRenderer: NSObject {
 
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
-      let lp = UILongPressGestureRecognizer(target: self, action: #selector(letterLongPress(_:)))
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(letterLongPress(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
       // Backend flag: kb.accentTray.longPressMs (default 500) — hold-to-open threshold
       lp.minimumPressDuration = flagDouble("kb.accentTray.longPressMs", 500) / 1000.0
       lp.allowableMovement = 500
@@ -1960,6 +1998,8 @@ final class SDUIRenderer: NSObject {
       return
     }
     host?.hostTextDocumentProxy.insertText(ch)
+    // Same double-tap-caps chain reset as the plain insert path.
+    lastShiftTapTime = 0
     if state.shift && !state.capsLock {
       state.shift = false
       stateChanged()
@@ -2067,7 +2107,9 @@ final class SDUIRenderer: NSObject {
     //   kb.trackpad.longPressMs   (default 300) — hold-to-activate threshold
     // (sensitivity / pt-per-char is exposed on the .changed handler below.)
     if flagBool("kb.trackpad.enabled", true) {
-      let lp = UILongPressGestureRecognizer(target: self, action: #selector(spaceLongPress(_:)))
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(spaceLongPress(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
       lp.minimumPressDuration = flagDouble("kb.trackpad.longPressMs", 300) / 1000.0
       lp.allowableMovement = 1000
       btn.addGestureRecognizer(lp)
@@ -2174,7 +2216,9 @@ final class SDUIRenderer: NSObject {
     let handler = UIAction { [weak self] _ in self?.handleShiftTap() }
     btn.addAction(handler, for: .touchUpInside)
     // Long-press → lock (or unlock+flip if already locked).
-    let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleShiftLongPress(_:)))
+    let lp = UILongPressGestureRecognizer(
+      target: WeakGRProxy(target: self, selector: #selector(handleShiftLongPress(_:))),
+      action: #selector(WeakGRProxy.handle(_:)))
     // Backend flag: kb.shift.longPressMs (default 350) — hold threshold to lock
     lp.minimumPressDuration = flagDouble("kb.shift.longPressMs", 350) / 1000.0
     // MUST cancel the button's touch (default true) so the finger-up that ends
@@ -2397,7 +2441,8 @@ final class SDUIRenderer: NSObject {
     btn.addAction(action, for: .touchUpInside)
     if let long = node.on?["onLongPress"] {
       let lp = UILongPressGestureRecognizer(
-        target: self, action: #selector(longPressFired(_:)))
+        target: WeakGRProxy(target: self, selector: #selector(longPressFired(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
       lp.name = "kb.longPress.action"
       btn.addGestureRecognizer(lp)
       objc_setAssociatedObject(lp, &Self.longPressActionKey, long, .OBJC_ASSOCIATION_RETAIN)
@@ -2495,9 +2540,12 @@ final class SDUIRenderer: NSObject {
     if let ref = node.on?["onPress"] {
       let action = UIAction { [weak self] _ in self?.run(ref) }
       btn.addAction(action, for: .touchUpInside)
-    } else if flagString("kb.mic.mode", "local").lowercased() == "flow" {
-      // FLOW mode has its OWN state machine in the host (arm → dictate → stop,
-      // driven by the background-audio session). The renderer must NOT toggle
+    } else if !["local", "stream", "handoff"].contains(flagString("kb.mic.mode", "flow").lowercased()) {
+      // FLOW mode — and any ABSENT/UNKNOWN mode, since iOS blocks in-extension
+      // recording so we must never default to it — has its OWN state machine in
+      // the host (arm → dictate → stop, driven by the background-audio session).
+      // Only an explicit "local"/"stream"/"handoff" takes the toggle branch below.
+      // The renderer must NOT toggle
       // state.dictating here or auto-run refine — doing both is what desynced
       // the mic: the first tap (which only opens the app to arm) still fired the
       // recording particles and left `dictating` stuck true, so the next tap hit
@@ -3098,11 +3146,21 @@ final class SDUIRenderer: NSObject {
   // drives the SAME press visual / haptic and the SAME insert action a button
   // tap would, so behavior is identical — just with rolling + multi-touch.
 
+  /// Number of fingers currently pressing keys on the multi-touch plane. The
+  /// single shared callout can only sensibly track ONE finger, so 2+ suppress it.
+  private var planeActiveTouchCount = 0
+
   /// Press-down visual + click + haptic for the key under a finger.
-  fileprivate func planeDown(_ button: UIButton) { keyTouchDown(button) }
+  fileprivate func planeDown(_ button: UIButton) {
+    planeActiveTouchCount += 1
+    keyTouchDown(button)
+  }
 
   /// Restore a key's resting visual when a finger leaves it (roll-off or lift).
-  fileprivate func planeUp(_ button: UIButton) { keyTouchUp(button) }
+  fileprivate func planeUp(_ button: UIButton) {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+    keyTouchUp(button)
+  }
 
   /// Commit the character under the finger on release. Routes through the exact
   /// insertKey path a button tap uses, so live shift / capsLock casing applies.
@@ -3131,6 +3189,9 @@ final class SDUIRenderer: NSObject {
   /// (matching iOS, which only pops letters). OTA-disable via kb.callout.enabled.
   private func showKeyCallout(for btn: UIButton) {
     guard flagBool("kb.callout.enabled", true), let container = mountContainer else { return }
+    // One shared balloon can't follow two fingers; with 2+ down on the plane
+    // they'd fight over it (flicker / stale glyph), so suppress it entirely.
+    guard planeActiveTouchCount <= 1 else { hideKeyCallout(); return }
     guard let title = btn.title(for: .normal), title.count == 1,
           let ch = title.first, ch.isLetter else { hideKeyCallout(); return }
     let rect = container.convert(btn.bounds, from: btn)
@@ -3283,7 +3344,11 @@ final class SDUIRenderer: NSObject {
   private func remoteImageCacheDir() -> URL? {
     let fm = FileManager.default
     // Prefer the app-group container so main app + extension share the cache.
-    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.tulmi.shared")
+    // Was "group.com.tulmi.shared" — a group the extension is NOT entitled to, so
+    // containerURL returned nil and the cache silently fell back to the private
+    // caches dir (never shared). Reference the canonical constant so it can't
+    // drift from the group used everywhere else.
+    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: TulmiFlow.appGroup)
     let base = group ?? fm.urls(for: .cachesDirectory, in: .userDomainMask).first
     guard let root = base?.appendingPathComponent("keyboard-icons", isDirectory: true) else { return nil }
     if !fm.fileExists(atPath: root.path) {
@@ -3356,6 +3421,9 @@ final class SDUIRenderer: NSObject {
         ? ((state.shift || state.capsLock) ? char.uppercased() : char.lowercased())
         : char
       proxy?.insertText(applySmartPunctuation(cased))
+      // A character between two shift taps breaks the double-tap-caps chain, so
+      // clear the timer — otherwise "shift, type a, shift" wrongly engaged caps.
+      lastShiftTapTime = 0
       if state.shift && !state.capsLock {
         state.shift = false
         stateChanged()
@@ -3435,7 +3503,7 @@ final class SDUIRenderer: NSObject {
     case .haptic(let style):
       fireHaptic(style)
     case .sequence(let actions):
-      for a in actions { run(a) }
+      runSequence(actions, from: 0)
     case .parallel(let actions):
       // Actions run "at the same time" from the tree's POV. For side-effecting
       // ops (haptic, log, network) they truly run concurrently; for state
@@ -3448,12 +3516,11 @@ final class SDUIRenderer: NSObject {
       if evaluate(cond) { run(thenA) }
       else if let e = elseA { run(e) }
     case .delay(let ms):
-      // The rest of the current gesture's actions all fire immediately, then
-      // a scheduled block re-enters. Backend uses this inside a sequence to
-      // stagger effects (haptic → delay 100 → toast).
-      // No trailing action — this is just a pause primitive; wrap in sequence
-      // for "do X, wait, do Y" semantics.
-      _ = ms  // pause primitive standalone is a no-op; the pause happens when nested in sequence
+      // A pause primitive. It only means something INSIDE a sequence, where
+      // runSequence() intercepts it and defers the remaining actions by `ms`
+      // (haptic → delay 100 → toast). Reached here only when run directly at the
+      // top level, with no following action to defer — so a standalone no-op.
+      _ = ms
     case .openUrl(let url, _):
       // Extensions can't UIApplication.open directly; drop a tombstone in the
       // app group. Main app picks it up on next foreground.
@@ -3529,6 +3596,26 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  /// Execute a sequence one action at a time, honoring `delay(ms)` as a REAL
+  /// pause: when a delay is reached the remaining actions run after
+  /// asyncAfter(ms). A sequence with no delays runs synchronously in order,
+  /// exactly as the old `for a in actions { run(a) }` did.
+  private func runSequence(_ actions: [KBActionRef], from index: Int) {
+    var i = index
+    while i < actions.count {
+      let ref = actions[i]
+      if case .delay(let ms)? = resolve(ref), ms > 0 {
+        let next = i + 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000.0) { [weak self] in
+          self?.runSequence(actions, from: next)
+        }
+        return
+      }
+      run(ref)
+      i += 1
+    }
+  }
+
   // MARK: - Extension handler registry
   //
   // Native code can register a named handler at app launch time:
@@ -3547,10 +3634,11 @@ final class SDUIRenderer: NSObject {
   // can freely read/write via bind + visibleIf. Reserved for backend use;
   // native state fields (shift, dictating, etc.) are not writable via this path.
   private func writeStatePath(_ path: String, _ value: KBJSON) {
-    if let str = value.asString { state.user[path] = .string(str) }
-    else if let n = value.asDouble { state.user[path] = .number(n) }
-    else if let b = value.asBool { state.user[path] = .bool(b) }
-    else if case .null = value { state.user.removeValue(forKey: path) }
+    // Store the value with its REAL type. The old asString-first round-trip
+    // coerced setState(path, 5) into .string("5.0"), so a later eq:[path, 5]
+    // (a .number) never matched (equal() compares by case). Only .null is
+    // special-cased, mapping to a removal.
+    if case .null = value { state.user.removeValue(forKey: path) }
     else { state.user[path] = value }
   }
 
