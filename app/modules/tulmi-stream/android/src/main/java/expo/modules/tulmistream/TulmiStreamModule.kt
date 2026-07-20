@@ -70,6 +70,13 @@ private class Streamer(
   private var captureThread: Thread? = null
   @Volatile private var capturing = false
 
+  // Backpressure cap — mirrors the keyboard's Stream.kt sendCapBytes. On a poor
+  // uplink an unbounded OkHttp send queue balloons until the process OOMs; we
+  // drop the newest frames once queued bytes exceed the cap and log the first
+  // drop only so a bad network doesn't flood logcat.
+  private val sendCapBytes = 2 * 1024 * 1024
+  @Volatile private var dropLogged = false
+
   fun start(url: String, token: String, targetApp: String, language: String) {
     val req = Request.Builder()
       .url(url)
@@ -113,7 +120,12 @@ private class Streamer(
         "final" -> emit("onFinal", mapOf("text" to o.optString("text")))
         // "done" carries no text — it's the terminal marker, not a transcript.
         "done" -> emit("onClosed", emptyMap())
-        "error" -> emit("onError", mapOf("message" to o.optString("message", "stream error")))
+        // A mid-stream backend error is terminal: release the mic immediately so
+        // it doesn't stay hot if the JS onError handler forgets to call cancel().
+        "error" -> {
+          stopCapture()
+          emit("onError", mapOf("message" to o.optString("message", "stream error")))
+        }
       }
     } catch (_: Exception) { /* ignore malformed frames */ }
   }
@@ -148,7 +160,20 @@ private class Streamer(
       val buf = ByteArray(bufSize)
       while (capturing) {
         val n = rec.read(buf, 0, buf.size)
-        if (n > 0) webSocket.send(buf.toByteString(0, n))
+        if (n <= 0) continue
+        // Drop newest frames when the socket is backlogged rather than queuing
+        // forever (the process would OOM on a slow uplink). Matches the keyboard.
+        if (webSocket.queueSize() + n > sendCapBytes) {
+          if (!dropLogged) {
+            dropLogged = true
+            android.util.Log.w(
+              "TulmiStream",
+              "backpressure: dropping audio frames (queueSize=${webSocket.queueSize()}, cap=$sendCapBytes)",
+            )
+          }
+          continue
+        }
+        webSocket.send(buf.toByteString(0, n))
       }
     }
   }

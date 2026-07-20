@@ -97,6 +97,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     // features.liveVoice; otherwise we fall back to the file-based path.
     private var stream: Stream? = null
     private var streaming = false
+    // True from stopStreaming() (the "Finishing…" flush window) until
+    // endStreaming() tears down. Guards against a second mic tap double-finishing
+    // the stream (extra stop frame + a watchdog that could close a fresh session).
+    private var finishing = false
     private var pendingPartial = "" // interim text currently shown in the field
     private var dictatedSomething = false // a final landed this session → auto-refine on close
 
@@ -398,6 +402,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 endStreaming()
             } },
             onClosed = { main.post { onDictationClosed() } },
+            // Publish the live mic level so a Waveform / level-bound SDUI node
+            // reacts during streaming (the file path polls maxAmplitude; the
+            // streaming path had no level source).
+            onLevel = { lvl -> main.post {
+                kbState.micLevel = lvl
+                sduiRenderer?.stateChanged()
+            } },
         ).also { it.start(target, "auto") }
     }
 
@@ -409,12 +420,41 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         pendingPartial = text
     }
 
+    // Conversational refusal/clarification the STT/refine can emit on silence
+    // ("I didn't catch that", "say that again", "no speech detected"). The server
+    // filters these, but this is the last line of defense: such a string must
+    // NEVER land in the field. Precise + length-bounded (mirrors iOS
+    // KeyboardViewController.looksLikeFiller / the backend looksLikeMeta guard)
+    // so a real short dictation is never dropped.
+    private val fillerPatterns: List<Regex> = listOf(
+        "\\bi (didn'?t|couldn'?t|can'?t|could not|did not) (catch|hear|understand|make out) (that|it|you|anything)\\b",
+        "\\bi (don'?t|didn'?t) get anything\\b",
+        "\\b(could|can) you (say (that|it) again|repeat that)\\b",
+        "\\bsay (that|it) again\\b",
+        "\\b(please )?repeat that\\b",
+        "\\bno (speech|audio|input|sound) (was )?(detected|found|received|captured)\\b",
+        "\\bnothing (was said|to transcribe|was detected|was captured)\\b",
+    ).map { Regex(it, RegexOption.IGNORE_CASE) }
+
+    private fun looksLikeFiller(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty() || t.length > 140) return false
+        return fillerPatterns.any { it.containsMatchIn(t) }
+    }
+
     /** Commit a finalized segment (keep it) and reset the interim tracker. */
     private fun commitFinal(text: String) {
         // Never insert a bare space for an empty final — that dropped a stray
         // trailing space at the cursor. Empty finals carry no words.
         if (text.isBlank()) return
         val ic = currentInputConnection ?: return
+        // Never commit a conversational refusal to the field — drop it and wipe
+        // the provisional partial it was replacing.
+        if (looksLikeFiller(text)) {
+            if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
+            pendingPartial = ""
+            return
+        }
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
         pendingPartial = ""
@@ -427,15 +467,27 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // the stream alive so those tail words still land. Teardown happens when
         // onDictationClosed() runs (the "done" event) or finish()'s watchdog
         // fires. Tearing down here cut the socket before the tail arrived.
+        // Ignore a second stop tap during the flush window — otherwise we send a
+        // second "stop" frame and arm a second watchdog that could later close a
+        // freshly-restarted session, and the double-finish blocks restarting.
+        if (finishing) return
         val s = stream ?: run { endStreaming(); return }
+        finishing = true
         setStatus(label("transcribing", "Finishing…"))
         s.finish()
     }
 
     private fun endStreaming() {
+        finishing = false
         streaming = false
+        // Terminal path: cancel the stream so the mic/socket/capture thread are
+        // released here too (the error path used to just null the ref, leaving
+        // the mic hot until the IME died). cancel() is idempotent + safe on an
+        // already-closed stream, so the normal "done" close path is unaffected.
+        stream?.cancel()
         stream = null
         kbState.dictating = false
+        kbState.micLevel = 0f
         sduiRenderer?.stateChanged()
         if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
     }
@@ -521,9 +573,25 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             try {
                 val cleaned = Net.transcribeClean(file, target)
                 main.post {
+                    // Drop a conversational refusal/clarification instead of
+                    // committing it (mirrors the streaming commitFinal guard);
+                    // there's nothing to refine in that case either.
+                    if (looksLikeFiller(cleaned)) {
+                        setStatus("")
+                        return@post
+                    }
                     currentInputConnection?.commitText(cleaned, 1)
-                    applyPendingCommandToField()
                     setStatus("")
+                    // A one-shot tone command (Shorter/Longer/Bullets) is only
+                    // meaningful if a refine actually consumes it — same as the
+                    // streaming path's onDictationClosed(). Appending it without a
+                    // following refine (the old behaviour) left "…make it shorter"
+                    // stranded in the field forever. Only drop it in + refine when
+                    // refine is enabled; otherwise leave it pending for next time.
+                    if (pendingCommand != null && kbConfig?.refine != false) {
+                        applyPendingCommandToField()
+                        refineField()
+                    }
                 }
             } catch (e: Exception) {
                 main.post { setStatus(statusForError(e)) }
