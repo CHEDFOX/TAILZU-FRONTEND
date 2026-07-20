@@ -382,7 +382,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val target = targetAppName()
         stream = Stream(
             onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
-            onPartial = { t -> main.post { replacePartial(t) } },
+            // Only paint interim words live when the backend's kb.mic.liveText is
+            // on; otherwise wait for the final so text lands in one block after
+            // stop. The final always commits either way.
+            onPartial = { t -> if (kbConfig?.liveText != false) main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
             onError = { m -> main.post {
                 val lower = m.lowercase()

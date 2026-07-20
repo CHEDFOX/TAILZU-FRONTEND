@@ -59,6 +59,14 @@ object Net {
         val voice: Boolean,
         val refine: Boolean,
         val liveVoice: Boolean,
+        /**
+         * Whether dictated words paint the field LIVE as you speak (true) or
+         * only land as one block AFTER you stop (false). Backend-tunable via the
+         * `kb.mic.liveText` flag — flip the dictation "button logic" without a
+         * rebuild. Default true keeps the live-typing feel when the flag is
+         * absent.
+         */
+        val liveText: Boolean = true,
         val labels: Map<String, String>,
         /**
          * Per-key accent glyphs for long-press. Keys are lowercase letters
@@ -96,6 +104,9 @@ object Net {
             voice = f.optBoolean("voice", true),
             refine = f.optBoolean("refine", true),
             liveVoice = f.optBoolean("liveVoice", false),
+            // Dictation "button logic": show interim words live (default) or
+            // only commit the final after stop. Backend flag, no rebuild needed.
+            liveText = flags?.optBoolean("kb.mic.liveText", true) ?: true,
             labels = labels,
             accents = accents,
         )
