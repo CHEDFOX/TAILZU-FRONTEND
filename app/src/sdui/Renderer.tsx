@@ -13,6 +13,20 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
   const theme = useTheme();
   useStoreVersion(ctx.store); // re-render when bound state changes
 
+  // Node lifecycle: fire onAppear when this node mounts and onDisappear when it
+  // unmounts. Backend screens rely on this — e.g. flow_arm's root has
+  // on.onAppear: armFlowSession, so opening it IN-APP (not just via the keyboard
+  // tombstone) arms Flow. Effect is unconditional (before the visibleIf return)
+  // to satisfy rules-of-hooks; the empty dep array fires it exactly once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (node.on?.onAppear) void runAction(node.on.onAppear, ctx);
+    return () => {
+      if (node.on?.onDisappear) void runAction(node.on.onDisappear, ctx);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!evalCondition(node.visibleIf, ctx)) return null;
 
   const Comp = REGISTRY[node.type];

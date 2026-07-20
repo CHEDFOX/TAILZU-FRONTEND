@@ -5,7 +5,13 @@
 import { useEffect, useState } from "react";
 
 export function getPath(obj: any, path: string): any {
-  if (!path) return obj;
+  // An empty path means "no binding" — return undefined, NOT the whole state
+  // object. Components read `store.get(node.bind?.x ?? "")`; when the bind is
+  // omitted the old `return obj` handed back the truthy root, so BottomSheets/
+  // ActionSheets rendered permanently OPEN, Switches read ON, and Sliders/
+  // SearchFields got the object (NaN / "[object Object]"). undefined lets each
+  // component's `?? default` fall through correctly.
+  if (!path) return undefined;
   return path.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 

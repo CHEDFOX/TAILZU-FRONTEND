@@ -167,7 +167,15 @@ export default function SduiApp() {
         lacksEntitlement && (paywallBlock || paywallAfterOnboarding);
 
       if (shouldShowPaywall) {
-        setStack([{ screenId: firstScreenId }, { screenId: "paywall" }]);
+        // blockUntilEntitled is a HARD gate — make the paywall the SOLE stack
+        // entry so back / edge-swipe has nothing to pop to (pushing it on top of
+        // home let the user swipe past it into the full app). The softer
+        // showAfterOnboarding paywall stays dismissible (sits on top of home).
+        setStack(
+          paywallBlock
+            ? [{ screenId: "paywall" }]
+            : [{ screenId: firstScreenId }, { screenId: "paywall" }],
+        );
       } else {
         setStack([{ screenId: firstScreenId }]);
       }
