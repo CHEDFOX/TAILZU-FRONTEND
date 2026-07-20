@@ -66,6 +66,14 @@ class KBState(
      * Return, or a backend-localized override). Updated by the IME whenever
      * a new input field takes focus. */
     var returnLabel: String = "Return",
+    /**
+     * Backend scratch dict. setState / toggleState / incrementState / clearState
+     * (and callEndpoint.assignTo) write here; bind + visibleIf read it back via
+     * `state.user.<key>`. This is what lets the backend compose stateful
+     * keyboards ("if state.user.mode == 'search' then …") without new Kotlin per
+     * flag. Mirrors iOS KBState.user.
+     */
+    var user: MutableMap<String, Any?> = mutableMapOf(),
 )
 
 // ===========================================================================
@@ -163,8 +171,28 @@ sealed class KBActionSpec {
     object CycleTone : KBActionSpec()
     data class OpenApp(val screenId: String?) : KBActionSpec()
     object OpenSettings : KBActionSpec()
+    data class OpenUrl(val url: String, val external: Boolean) : KBActionSpec()
     data class Haptic(val style: String) : KBActionSpec()
+    data class Toast(val message: String, val tone: String) : KBActionSpec()
+    data class CopyToClipboard(val text: String, val toastMessage: String?) : KBActionSpec()
+    // ----- backend scratch dict (state.user.*) -----
+    data class SetState(val path: String, val value: Any?) : KBActionSpec()
+    data class ToggleState(val path: String) : KBActionSpec()
+    data class IncrementState(val path: String, val by: Double) : KBActionSpec()
+    data class ClearState(val path: String) : KBActionSpec()
+    // ----- network -----
+    data class CallEndpoint(
+        val method: String,
+        val path: String,
+        val body: Any?,
+        val assignTo: String?,
+        val onSuccess: KBActionRef?,
+        val onError: KBActionRef?,
+    ) : KBActionSpec()
+    // ----- flow control -----
     data class Sequence(val actions: List<KBActionRef>) : KBActionSpec()
+    data class Parallel(val actions: List<KBActionRef>) : KBActionSpec()
+    data class Delay(val ms: Double) : KBActionSpec()
     data class Condition(
         val cond: KBCondition,
         val then: KBActionRef,
@@ -303,6 +331,10 @@ class SDUIRenderer(
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
             s.suggestions.joinToString(""), currentTone(), micReassembling,
+            // Fingerprint the scratch dict so a setState/toggle/increment/clear
+            // forces a full redraw (visibleIf/bind gates on state.user.* must
+            // re-evaluate) instead of being swallowed by the fast-shift path.
+            s.user.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" },
         ).joinToString(" ")
     }
 
@@ -834,14 +866,23 @@ class SDUIRenderer(
             }
         }
         addChildWithStyle(parent, iv, node.style, isRow = parent.isHorizontal())
+        // Press wiring (on.onPress / on.onLongPress if the backend authored any) —
+        // mirrors renderMediaPlayer. onComplete is fired separately when the run
+        // finishes; it is NOT a press handler.
+        applyEvents(iv, node)
         val frames = (node.props["frames"] as? List<*>).orEmpty()
         val frameMs = (node.props["frameMs"] as? Number)?.toLong() ?: 120L
+        // loops<=0 = "run until the tree is torn down" (matches the RN Slideshow's
+        // documented 0 = infinite). Either way ticks post on the renderer's shared
+        // `handler`, which redraw() clears — so a config refetch/remount can't
+        // leave an orphaned loop ticking against a detached ImageView. The old
+        // per-Slideshow Handler was never cleared, so perpetual loops stacked and
+        // loops=0 leaked by construction.
         val loops = (node.props["loops"] as? Number)?.toInt() ?: 1
         if (frames.isEmpty()) return
         val ctx = host.context()
         var index = 0
         var cycles = 0
-        val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val tick = object : Runnable {
             override fun run() {
                 val f = frames[index] as? Map<*, *> ?: return
@@ -851,8 +892,11 @@ class SDUIRenderer(
                 if (index >= frames.size) {
                     cycles += 1
                     if (loops > 0 && cycles >= loops) {
-                        applyEvents(iv, node)
-                        // Fire onComplete if the backend wired one on the node.
+                        // Fire the node's onComplete action (startDictation /
+                        // openApp / …). The old code called applyEvents() here,
+                        // which only (re)wired press handlers and never ran
+                        // onComplete, so a one-shot Slideshow's finish was inert.
+                        invokeEvent(node, "onComplete")
                         return
                     }
                     index = 0
@@ -873,25 +917,50 @@ class SDUIRenderer(
         val row = TulmiPersonalityRow(host.context())
         addChildWithStyle(parent, row, node.style, isRow = parent.isHorizontal())
 
-        val pinned = (kbConfig.flags["kb.personality.pinned"] as? List<*>).orEmpty()
-        val tones = (kbConfig.flags["kb.personality.tones"] as? List<*>).orEmpty()
+        // pinned + tones both come from the config flags. Depending on how
+        // org.json surfaced them they may be a Kotlin List or a raw JSONArray;
+        // normalize either into a plain list, and read element fields whether the
+        // element is a Map or a JSONObject.
+        fun itemList(raw: Any?): List<Any?> = when (raw) {
+            is List<*> -> raw
+            is JSONArray -> (0 until raw.length()).map { raw.opt(it) }
+            else -> emptyList()
+        }
+        fun strField(el: Any?, key: String): String? = when (el) {
+            is Map<*, *> -> el[key] as? String
+            is JSONObject -> if (el.has(key) && !el.isNull(key)) el.optString(key) else null
+            else -> null
+        }
+
+        val pinned = itemList(kbConfig.flags["kb.personality.pinned"])
+        // kb.personality.tones is now served as a flat JSON array of tone LABEL
+        // strings (Object.values(TONE_LABELS)); older configs shipped
+        // { id, label } objects. Both element shapes are handled below.
+        val toneItems = itemList(kbConfig.flags["kb.personality.tones"])
         val activeId = (kbConfig.flags["kb.personality.activeId"] as? String) ?: ""
 
         val chips = pinned.mapNotNull { p ->
-            val m = p as? Map<*, *> ?: return@mapNotNull null
             TulmiPersonalityRow.ChipData(
-                id = (m["id"] as? String) ?: return@mapNotNull null,
-                name = (m["name"] as? String) ?: "",
-                emoji = (m["emoji"] as? String) ?: "",
-                tone = (m["tone"] as? String) ?: "",
+                id = strField(p, "id") ?: return@mapNotNull null,
+                name = strField(p, "name") ?: "",
+                emoji = strField(p, "emoji") ?: "",
+                tone = strField(p, "tone") ?: "",
             )
         }
-        val toneList = tones.mapNotNull { t ->
-            val m = t as? Map<*, *> ?: return@mapNotNull null
-            TulmiPersonalityRow.Tone(
-                id = (m["id"] as? String) ?: return@mapNotNull null,
-                label = (m["label"] as? String) ?: "",
-            )
+        val toneList = toneItems.mapNotNull { t ->
+            when (t) {
+                // New shape: a bare label string. Derive a stable id (lowercased,
+                // spaces→dashes) matching Net.refine's toneId scheme.
+                is String -> if (t.isBlank()) null
+                    else TulmiPersonalityRow.Tone(
+                        id = t.trim().lowercase().replace(' ', '-'),
+                        label = t,
+                    )
+                // Back-compat: { id, label } objects (Map or JSONObject).
+                else -> strField(t, "id")?.let { id ->
+                    TulmiPersonalityRow.Tone(id = id, label = strField(t, "label") ?: "")
+                }
+            }
         }
         val accent = parseHex(kbConfig.theme.accent)
         row.update(
@@ -1104,8 +1173,38 @@ class SDUIRenderer(
             is KBActionSpec.CycleTone -> cycleTone()
             is KBActionSpec.OpenApp -> openApp(spec.screenId)
             is KBActionSpec.OpenSettings -> openInputMethodSettings()
+            is KBActionSpec.OpenUrl -> openUrl(spec.url)
             is KBActionSpec.Haptic -> haptic(spec.style)
+            is KBActionSpec.Toast -> toast(spec.message, spec.tone)
+            is KBActionSpec.CopyToClipboard -> {
+                copyToClipboard(spec.text)
+                spec.toastMessage?.let { toast(it, "success") }
+            }
+            is KBActionSpec.SetState -> {
+                writeStatePath(spec.path, spec.value)
+                host.onStateChanged()
+            }
+            is KBActionSpec.ToggleState -> {
+                writeStatePath(spec.path, !isTruthy(host.state().user[spec.path]))
+                host.onStateChanged()
+            }
+            is KBActionSpec.IncrementState -> {
+                val cur = numFromAny(host.state().user[spec.path]) ?: 0.0
+                writeStatePath(spec.path, cur + spec.by)
+                host.onStateChanged()
+            }
+            is KBActionSpec.ClearState -> {
+                writeStatePath(spec.path, null)
+                host.onStateChanged()
+            }
+            is KBActionSpec.CallEndpoint -> callEndpoint(spec)
             is KBActionSpec.Sequence -> spec.actions.forEach { invokeAction(it) }
+            is KBActionSpec.Parallel -> spec.actions.forEach { ref ->
+                // "At the same time" from the tree's POV — each re-enters on the
+                // main looper (mirrors iOS's DispatchQueue.main.async fan-out).
+                handler.post { invokeAction(ref) }
+            }
+            is KBActionSpec.Delay -> { /* pause primitive; standalone no-op (mirrors iOS) */ }
             is KBActionSpec.Condition -> {
                 if (evaluate(spec.cond)) invokeAction(spec.then)
                 else spec.otherwise?.let { invokeAction(it) }
@@ -1182,6 +1281,117 @@ class SDUIRenderer(
         } catch (t: Throwable) {
             Log.w("SDUI", "openSettings failed: ${t.message}")
         }
+    }
+
+    /** Open an arbitrary URL. Unlike iOS keyboard extensions (which can't launch
+     *  URLs and drop a tombstone), an Android IME can startActivity directly —
+     *  same pattern as openApp/openInputMethodSettings. `external` is implicit on
+     *  Android (the OS routes to the right handler). */
+    private fun openUrl(url: String) {
+        if (url.isEmpty()) return
+        val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            host.context().startActivity(i)
+        } catch (t: Throwable) {
+            Log.w("SDUI", "openUrl failed: ${t.message}")
+        }
+    }
+
+    /** Transient message. Android's system Toast is the pragmatic equivalent of
+     *  iOS's in-keyboard toast label; `tone` has no visual treatment here. */
+    private fun toast(message: String, @Suppress("UNUSED_PARAMETER") tone: String) {
+        if (message.isEmpty()) return
+        try {
+            android.widget.Toast.makeText(
+                host.context(), message, android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        } catch (t: Throwable) {
+            Log.w("SDUI", "toast failed: ${t.message}")
+        }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val cm = host.context().getSystemService(Context.CLIPBOARD_SERVICE)
+            as? android.content.ClipboardManager ?: return
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("tulmi", text))
+    }
+
+    // --- backend scratch dict (state.user.*) --------------------------------
+    // setState/toggle/increment/clear + callEndpoint.assignTo write here; bind +
+    // visibleIf read via state.user.<path> (see lookupState). `path` is the bare
+    // key (dotted keys are stored/read verbatim). Mirrors iOS writeStatePath.
+
+    private fun writeStatePath(path: String, value: Any?) {
+        if (value == null) host.state().user.remove(path)
+        else host.state().user[path] = value
+    }
+
+    private fun numFromAny(v: Any?): Double? = when (v) {
+        is Number -> v.toDouble()
+        is String -> v.toDoubleOrNull()
+        else -> null
+    }
+
+    // -----------------------------------------------------------------------
+    // callEndpoint — lets the backend trigger a GET/POST from the keyboard,
+    // reusing the same base URL + bearer the config was fetched with (Net.kt).
+    // Runs off the UI thread on a plain HttpURLConnection (no new dependency);
+    // a JSON response body lands at state.user[assignTo] (stored raw — nested
+    // field access into it isn't supported on Android). onSuccess/onError refs
+    // run on the main looper after the response is decoded. Mirrors iOS
+    // callEndpoint.
+    // -----------------------------------------------------------------------
+    private fun callEndpoint(spec: KBActionSpec.CallEndpoint) {
+        val urlStr = Net.baseUrl + spec.path
+        val bodyStr = jsonBody(spec.body)
+        Thread {
+            var ok = false
+            var respText: String? = null
+            try {
+                val conn = (java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = spec.method.uppercase()
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("Authorization", "Bearer ${Net.bearer()}")
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                if (bodyStr != null && conn.requestMethod != "GET") {
+                    conn.doOutput = true
+                    conn.outputStream.use { it.write(bodyStr.toByteArray()) }
+                }
+                val code = conn.responseCode
+                ok = code in 200..299
+                respText = (if (ok) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use { it.readText() }
+                conn.disconnect()
+            } catch (t: Throwable) {
+                Log.w("SDUI", "callEndpoint failed: ${t.message}")
+            }
+            val success = ok
+            val text = respText
+            handler.post {
+                if (success) {
+                    if (spec.assignTo != null && text != null) {
+                        val parsed: Any? = try { JSONObject(text) } catch (_: Throwable) {
+                            try { JSONArray(text) } catch (_: Throwable) { text }
+                        }
+                        writeStatePath(spec.assignTo, parsed)
+                        host.onStateChanged()
+                    }
+                    spec.onSuccess?.let { invokeAction(it) }
+                } else {
+                    spec.onError?.let { invokeAction(it) }
+                }
+            }
+        }.start()
+    }
+
+    private fun jsonBody(body: Any?): String? = when (body) {
+        null -> null
+        is String -> body
+        else -> body.toString()   // JSONObject / JSONArray / primitives → JSON text
     }
 
     private fun haptic(style: String) {
@@ -1272,6 +1482,9 @@ class SDUIRenderer(
             "status" -> s.status
             "micLevel" -> s.micLevel
             "suggestions" -> s.suggestions
+            // Backend scratch dict: state.user.<key>. Dotted keys rejoin so
+            // state.user.a.b resolves user["a.b"] (what setState wrote).
+            "user" -> if (parts.size > 1) s.user[parts.drop(1).joinToString(".")] else null
             else -> null
         }
     }
@@ -1743,12 +1956,45 @@ class SDUIRenderer(
                 "cycleTone" -> KBActionSpec.CycleTone
                 "openApp" -> KBActionSpec.OpenApp(optStringOrNull(o, "screenId"))
                 "openSettings" -> KBActionSpec.OpenSettings
+                "openUrl" -> KBActionSpec.OpenUrl(
+                    o.optString("url", ""),
+                    o.optBoolean("external", false),
+                )
                 "haptic" -> KBActionSpec.Haptic(o.optString("style", "selection"))
+                "toast" -> KBActionSpec.Toast(
+                    o.optString("message", ""),
+                    o.optString("tone", "info"),
+                )
+                "copyToClipboard" -> KBActionSpec.CopyToClipboard(
+                    o.optString("text", ""),
+                    optStringOrNull(o, "toastMessage"),
+                )
+                "setState" -> KBActionSpec.SetState(o.optString("path", ""), o.opt("value"))
+                "toggleState" -> KBActionSpec.ToggleState(o.optString("path", ""))
+                "incrementState" -> KBActionSpec.IncrementState(
+                    o.optString("path", ""),
+                    o.optDouble("by", 1.0),
+                )
+                "clearState" -> KBActionSpec.ClearState(o.optString("path", ""))
+                "callEndpoint" -> KBActionSpec.CallEndpoint(
+                    method = o.optString("method", "GET"),
+                    path = o.optString("path", ""),
+                    body = o.opt("body"),
+                    assignTo = optStringOrNull(o, "assignTo"),
+                    onSuccess = parseActionRef(o.opt("onSuccess")),
+                    onError = parseActionRef(o.opt("onError")),
+                )
                 "sequence" -> {
                     val arr = o.optJSONArray("actions") ?: JSONArray()
                     val list = (0 until arr.length()).mapNotNull { parseActionRef(arr.opt(it)) }
                     KBActionSpec.Sequence(list)
                 }
+                "parallel" -> {
+                    val arr = o.optJSONArray("actions") ?: JSONArray()
+                    val list = (0 until arr.length()).mapNotNull { parseActionRef(arr.opt(it)) }
+                    KBActionSpec.Parallel(list)
+                }
+                "delay" -> KBActionSpec.Delay(o.optDouble("ms", 0.0))
                 "condition" -> {
                     val ifCond = parseCondition(o.optJSONObject("if")) ?: return null
                     val then = parseActionRef(o.opt("then")) ?: return null
