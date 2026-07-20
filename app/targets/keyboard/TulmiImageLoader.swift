@@ -42,7 +42,11 @@ enum TulmiImageLoader {
   // MARK: - Fetch + cache
 
   private static func fetch(_ url: String, onLoad: (() -> Void)?) {
-    guard inflight.insert(url).inserted, let u = URL(string: url) else { return }
+    // Validate the URL BEFORE claiming the inflight slot. The old order claimed
+    // the slot first, so a URL(string:) that failed returned WITHOUT ever
+    // removing `url` from inflight — permanently blocking every future load of
+    // that url. Constructing + inserting in this order can't leak the slot.
+    guard let u = URL(string: url), inflight.insert(url).inserted else { return }
     URLSession.shared.dataTask(with: u) { data, _, _ in
       DispatchQueue.main.async {
         inflight.remove(url)

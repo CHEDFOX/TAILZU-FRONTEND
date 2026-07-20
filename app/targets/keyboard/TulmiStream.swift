@@ -43,6 +43,15 @@ final class TulmiStream: NSObject {
   /// from a mid-stream socket failure in receiveLoop.
   private var finishing = false
 
+  /// finish()'s force-close watchdog, held so a graceful "done" can cancel it —
+  /// otherwise it fired a SECOND .closed ~2s after the clean close (double
+  /// teardown / duplicate refine).
+  private var finishWatchdog: DispatchWorkItem?
+
+  /// One-shot guard so .closed is emitted EXACTLY once no matter which path
+  /// (server "done", watchdog, or receive failure) gets there first.
+  private var hasClosed = false
+
   init(onEvent: @escaping (Event) -> Void) {
     self.onEvent = onEvent
     super.init()
@@ -92,26 +101,46 @@ final class TulmiStream: NSObject {
     finishing = true
     stopCapture()
     guard let task = task else {
-      onEvent(.closed)
+      emitClosedOnce()
       return
     }
     task.send(.string("{\"type\":\"stop\"}")) { _ in }
     // Watchdog: if the server never flushes "done" (dropped socket / wedged
-    // engine), force-close so we don't hang in the finishing state.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+    // engine), force-close so we don't hang in the finishing state. Held as a
+    // work item so a graceful "done" cancels it (see handleMessage) — otherwise
+    // it fired a second .closed ~2s after the clean close.
+    let watchdog = DispatchWorkItem { [weak self] in
       guard let self = self, self.task != nil else { return }
       self.task?.cancel(with: .normalClosure, reason: nil)
       self.task = nil
-      self.onEvent(.closed)
+      self.emitClosedOnce()
     }
+    finishWatchdog = watchdog
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: watchdog)
   }
 
   /// Abort immediately (keyboard dismissed, error, etc.).
   func cancel() {
     finishing = true
+    finishWatchdog?.cancel()
+    finishWatchdog = nil
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
+  }
+
+  /// Emit .closed at most once — every close path funnels through here. Always
+  /// resolves on main: receive callbacks land off-main, but the close state
+  /// (hasClosed / task / finishWatchdog) is otherwise touched on main by
+  /// finish() and its watchdog, so funneling here keeps that state single-threaded.
+  private func emitClosedOnce() {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in self?.emitClosedOnce() }
+      return
+    }
+    guard !hasClosed else { return }
+    hasClosed = true
+    onEvent(.closed)
   }
 
   // MARK: - Capture
@@ -217,10 +246,10 @@ final class TulmiStream: NSObject {
         // Distinguish a graceful close from a mid-stream network failure so
         // the keyboard doesn't auto-refine a partial-that-never-finalized.
         if self.finishing {
-          self.onEvent(.closed)
+          self.emitClosedOnce()
         } else {
           self.onEvent(.error("stream lost: \(err.localizedDescription)"))
-          self.onEvent(.closed)
+          self.emitClosedOnce()
         }
       case .success(let message):
         switch message {
@@ -246,7 +275,19 @@ final class TulmiStream: NSObject {
     // "done" is the terminal marker, NOT a transcript — it carries no text.
     // Mapping it to .finalText("") made commitFinal insert a bare space at the
     // cursor (the reported "stray trailing space" bug). It's a clean close.
-    case "done": onEvent(.closed)
+    // Cancel the finish() watchdog and drop the socket here so it can't fire a
+    // second .closed later; emitClosedOnce keeps the teardown/refine single.
+    case "done":
+      // This callback lands off-main; mutate the close state on main so it can't
+      // race finish()'s watchdog.
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        self.finishWatchdog?.cancel()
+        self.finishWatchdog = nil
+        self.task?.cancel(with: .normalClosure, reason: nil)
+        self.task = nil
+        self.emitClosedOnce()
+      }
     case "error": onEvent(.error(json["message"] as? String ?? "stream error"))
     default: break
     }

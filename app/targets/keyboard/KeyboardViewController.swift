@@ -91,7 +91,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       guard let self = self else { return }
       self.isHandoffActive = false
       self.micButton.setImage(self.brandMarkImage(), for: .normal)
-      if cancelled || text.isEmpty {
+      // Never let a conversational refusal ("I didn't catch that") reach the
+      // field — drop it to nothing, same guard the streaming path uses.
+      if cancelled || text.isEmpty || self.looksLikeFiller(text) {
         self.setStatus("")
         return
       }
@@ -142,6 +144,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // second would orphan the first's engine + tap + socket). Cleared once the
   // stream actually starts, or on any bail.
   private var isStartingStream = false
+  // Same synchronous guard for the file-based record path: set the instant a
+  // record start begins, BEFORE the async mic-permission round-trip, so a
+  // double-tap can't spawn two AVAudioRecorders (the second would orphan the
+  // first's mic/engine). Cleared once recording begins, or on any bail.
+  private var isStartingRecording = false
   private var pendingPartial = "" // partial text currently shown in the field
   private var dictatedSomething = false // a final landed this session → auto-refine on close
 
@@ -939,38 +946,33 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Mic / dictation
 
   @objc private func micTapped() {
-    // Mic input flows through the keyboard extension itself using
-    // AVAudioSession + AVAudioRecorder. Recording in-extension is fully
-    // supported once Full Access is granted (Wispr Flow, Grammarly, etc.
-    // all do this) — my earlier "iOS blocks it" restructuring was wrong.
-    //
-    // Backend can still override:
-    //   kb.mic.mode = "stream"   → live WebSocket dictation (words appear
-    //                               as the user speaks; batch is the
-    //                               fallback if the WS drops)
-    //   kb.mic.mode = "local"    → batch record → upload → refine (default)
-    //   kb.mic.mode = "handoff"  → fallback for the rare case in-extension
-    //                               recording fails (e.g. some hosts revoke
-    //                               Full Access on their text fields)
-    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "local"
+    // iOS blocks the microphone inside a keyboard extension, so the ONLY
+    // reliable path is Flow (the background-audio session held by the main
+    // app). An ABSENT or UNKNOWN kb.mic.mode must therefore resolve to "flow";
+    // the in-extension record paths run ONLY when the backend EXPLICITLY opts
+    // into them:
+    //   kb.mic.mode = "stream"   → live WebSocket dictation
+    //   kb.mic.mode = "local"    → batch record → upload → refine
+    //   kb.mic.mode = "handoff"  → hand the mic to the main app for one capture
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "flow"
     switch mode {
-    case "flow":
-      // Background-audio Flow Session (the Wispr model, the only reliable iOS
-      // mic). If the app already holds a live session, toggle dictation right
-      // here in the keyboard. If not, open the app once to arm it (the user
-      // swipes back and then dictations run without leaving the keyboard).
+    case "handoff":
+      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
+    case "stream":
+      if isStreaming { stopStreaming() } else { startStreaming() }
+    case "local":
+      // Explicit opt-in to in-keyboard batch recording.
+      if isRecording { stopAndTranscribe() } else { startRecording() }
+    default:
+      // "flow" — and any ABSENT/UNKNOWN mode — the Wispr model, the only
+      // reliable iOS mic. If the app already holds a live session, toggle
+      // dictation right here in the keyboard. If not, open the app once to arm
+      // it (the user swipes back and dictations run without leaving the keyboard).
       if flow.isSessionActive {
         if flowRecording { stopFlowDictation() } else { startFlowDictation() }
       } else {
         openAppToArmFlow()
       }
-    case "handoff":
-      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
-    case "stream":
-      if isStreaming { stopStreaming() } else { startStreaming() }
-    default:
-      // "local" or anything unknown — the safe, direct path.
-      if isRecording { stopAndTranscribe() } else { startRecording() }
     }
   }
 
@@ -1135,8 +1137,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     var responder: UIResponder? = self
     while let r = responder {
       if r.responds(to: sel) {
-        _ = r.perform(sel, with: url)
-        return true
+        // Honor the ACTUAL result instead of returning true just because a
+        // responder RESPONDS to openURL: (the old over-claim — "works
+        // sometimes"). openURL: returns BOOL, which surfaces through perform as
+        // a non-nil unmanaged result for YES and nil for NO; read it that way
+        // rather than dereferencing the raw BOOL as an object (which can crash).
+        let result = r.perform(sel, with: url)
+        return result != nil
       }
       responder = r.next
     }
@@ -1221,18 +1228,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable: true)
         return
       }
-      // Silent fallback: if the WebSocket dropped BEFORE we ever committed
-      // a word, the user hasn't perceived streaming yet — flip to local
-      // (batch) recording so they still get their text. Once at least one
-      // partial has landed, we've committed to streaming and surface the
-      // error to avoid losing that partial to a re-record.
+      // The WebSocket dropped BEFORE we committed a word. The OLD behavior fell
+      // back to in-extension batch recording — but iOS blocks the microphone
+      // inside a keyboard extension, so that recorder captures nothing. Rather
+      // than a dead silent fallback, end cleanly and point the user at the main
+      // app (which CAN hold the mic). Once a partial has landed we instead keep
+      // that text and surface the generic error below.
       if !dictatedSomething && pendingPartial.isEmpty {
         endStreaming()
-        setStatus("")  // transient — mic button animation is the visible cue
-        // Kick the local-record path with the same session state so the
-        // user doesn't have to tap the mic again.
-        let session = AVAudioSession.sharedInstance()
-        beginRecording(session: session)
+        setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable: true)
         return
       }
       setStatus(label("voice_not_listening", "444 : Not Listening"))
@@ -1344,6 +1348,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func startRecording() {
+    // Synchronous re-entry guard (mirrors isStartingStream): a fast double-tap
+    // would otherwise clear the async requestRecordPermission twice and spawn a
+    // second AVAudioRecorder that orphans the first's mic/engine. Bail if a
+    // start is already in flight or a recording is live.
+    guard !isRecording, !isStartingRecording else { return }
     // Every early-return path below must call bailDictating() so the SDUI
     // mic button flips back to idle and the next tap can start again.
     // Without this, state.dictating stays true after a bail and the second
@@ -1355,10 +1364,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       bailDictating()
       return
     }
+    isStartingRecording = true
     let session = AVAudioSession.sharedInstance()
     session.requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
+        self.isStartingRecording = false
         guard granted else {
           self.setStatus(self.label("mic_denied", "Microphone denied. Open Tailzu settings to allow it."), actionable: true)
           self.bailDictating()
@@ -1484,11 +1495,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         switch result {
         case .success(let cleaned):
-          self.textDocumentProxy.insertText(cleaned)
-          self.flashKeysForText(cleaned)
-          self.lastInserted = cleaned
-          self.lastRawTranscript = nil
-          self.setStatus("")
+          // Drop a conversational refusal to nothing rather than typing it into
+          // the field — same last-line-of-defense guard as the streaming path.
+          if self.looksLikeFiller(cleaned) {
+            self.setStatus("")
+          } else {
+            self.textDocumentProxy.insertText(cleaned)
+            self.flashKeysForText(cleaned)
+            self.lastInserted = cleaned
+            self.lastRawTranscript = nil
+            self.setStatus("")
+          }
         case .failure(let error):
           self.setStatus(self.statusForBackendError(error), actionable: true)
         }
@@ -1536,8 +1553,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         switch result {
         case .success(let refined):
-          self.replaceFieldText(before: before, after: after, with: refined)
-          self.setStatus("")
+          // If refine came back as a conversational refusal, DON'T apply it —
+          // replacing would wipe the user's field text with the refusal. Leave
+          // the original text untouched (drop the bad refine to nothing).
+          if self.looksLikeFiller(refined) {
+            self.setStatus("")
+          } else {
+            self.replaceFieldText(before: before, after: after, with: refined)
+            self.setStatus("")
+          }
         case .failure(let error):
           self.setStatus(self.statusForBackendError(error), actionable: true)
         }
@@ -1656,13 +1680,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       audioRecorder?.stop()
       try? AVAudioSession.sharedInstance().setActive(false)
       cleanupRecorder()
+      bailDictating()   // flip the SDUI mic button back to idle
       setStatus("")
     }
     if isStreaming {
       stream?.cancel()
-      endStreaming()
+      endStreaming()    // already resets the SDUI dictating state
       setStatus("")
     }
+    // Flow / handoff can also be mid-flight when the keyboard is dismissed. Reset
+    // their state + UI so the mic button doesn't reappear stuck in "recording" on
+    // the next appearance.
+    if flowRecording {
+      flowRecording = false
+      pendingPartial = ""
+    }
+    isHandoffActive = false
+    sduiRenderer?.reflectDictating(false)
   }
 }
 
@@ -1732,7 +1766,13 @@ extension KeyboardViewController: KBHostControllerProtocol {
     }
   }
   func hostStopDictation() {
-    if isStreaming { stopStreaming() }
+    // Symmetric with the mode dispatch in micTapped(): stop whichever mic path
+    // is actually live. Flow + handoff were missing, so a stop tap in those
+    // modes fell through to the "not listening" branch and could never end the
+    // session (Flow in particular could not be stopped at all).
+    if flowRecording { stopFlowDictation() }
+    else if isHandoffActive { cancelHandoff() }
+    else if isStreaming { stopStreaming() }
     else if isRecording { stopAndTranscribe() }
     else {
       // Neither flag is set — startRecording bailed silently before

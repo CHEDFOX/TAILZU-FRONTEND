@@ -56,6 +56,14 @@ final class FlowSessionManager: NSObject {
   private var seq = 0
   private var observersRegistered = false
 
+  // Post-stop close lifecycle. When an utterance ends we ask the server to flush
+  // its tail and wait for the terminal message (`final`/`done`) to close the
+  // socket, with a long watchdog as a fallback. `finishing` marks that draining
+  // window; `pendingClose` is the exact socket to tear down — the identity guard
+  // in finalizeClose() keeps a NEW dictation's socket safe if one opens meanwhile.
+  private var finishing = false
+  private var pendingClose: URLSessionWebSocketTask?
+
   // Liveness heartbeat. While a Flow Session is genuinely alive (this process is
   // running AND the audio engine is delivering buffers), we stamp
   // `tulmi.flow.heartbeat` ~1×/sec. The keyboard treats a stale heartbeat as
@@ -91,6 +99,11 @@ final class FlowSessionManager: NSObject {
     startCapture()
 
     armed = true
+    // Fresh session id so the keyboard can tell this is a NEW Flow Session and
+    // reset its transcript-dedup counter. Each process restarts `seq` from 0, so
+    // a fresh session's early seq can collide with the keyboard's stale lastSeq
+    // and drop a transcript; the sessionId change is the reset signal it reads.
+    store?.set(UUID().uuidString, forKey: "tulmi.flow.sessionId")
     publishActive()
     publishHeartbeat()   // immediate liveness so the keyboard sees a live session at once
     startHeartbeat()
@@ -189,6 +202,8 @@ final class FlowSessionManager: NSObject {
     idleTimer?.invalidate(); idleTimer = nil
     stopHeartbeat()
     dictating = false
+    finishing = false
+    pendingClose = nil
     stopCapture()   // only now do we tear the engine down — end of the session
     task?.cancel(with: .goingAway, reason: nil); task = nil
     armed = false
@@ -234,15 +249,31 @@ final class FlowSessionManager: NSObject {
     dictating = false
     // Stop STREAMING this utterance — but deliberately keep the engine running
     // (do NOT stopCapture) so the app stays alive in the background between
-    // dictations. Tell the server to flush the tail, then close the socket after
-    // a grace window (the final segments arrive via the receive loop first).
-    if let task = task {
-      task.send(.string("{\"type\":\"stop\"}")) { _ in }
-      DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-        self?.task?.cancel(with: .normalClosure, reason: nil)
-        self?.task = nil
-      }
+    // dictations. Ask the server to flush the tail. We do NOT close on a blind
+    // short timer: a BATCH backend (Groq — no partials, a single `final` ~3s
+    // after flush, and the current provider) would be truncated. Instead the
+    // socket closes when the terminal server message (`final`/`done`) lands in
+    // handleServer; this long watchdog only force-closes if that never comes.
+    guard let closing = task else { return }
+    finishing = true
+    pendingClose = closing
+    closing.send(.string("{\"type\":\"stop\"}")) { _ in }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 9.0) { [weak self] in
+      self?.finalizeClose(closing)
     }
+  }
+
+  /// Close a finished utterance's socket — but ONLY if it's still the current
+  /// one. A new dictation started within the grace window reassigns `task` to a
+  /// fresh socket; without this identity guard a stale watchdog/terminal-close
+  /// would tear the new one down. Idempotent — a second call (watchdog after a
+  /// terminal message already closed, or vice-versa) simply no-ops.
+  private func finalizeClose(_ closing: URLSessionWebSocketTask) {
+    guard task === closing else { return }
+    closing.cancel(with: .normalClosure, reason: nil)
+    task = nil
+    pendingClose = nil
+    finishing = false
   }
 
   // MARK: - WebSocket
@@ -258,6 +289,21 @@ final class FlowSessionManager: NSObject {
 
   private func openStream() {
     guard let url = streamURL else { return }
+    // Supersede any previous utterance's socket still draining behind the grace
+    // window — a fresh dictation makes the old tail moot, and its watchdog /
+    // terminal-close then no-ops via the identity guard in finalizeClose().
+    if let old = task { old.cancel(with: .normalClosure, reason: nil) }
+    task = nil
+    pendingClose = nil
+    finishing = false
+    // Re-read the freshest bearer from the shared Keychain on every open. The
+    // arm()-time token goes stale after Supabase rotates it during a long armed
+    // session; the server then rejects the socket and receiveLoop just breaks
+    // (silent no-text). This is the same source setKeyboardCredentials writes on
+    // TOKEN_REFRESHED, so per-open re-reads are always current.
+    if let fresh = TulmiKeychain.string(forKey: "tulmi.token"), !fresh.isEmpty {
+      token = fresh
+    }
     var req = URLRequest(url: url)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let t = urlSession.webSocketTask(with: req)
@@ -299,8 +345,25 @@ final class FlowSessionManager: NSObject {
     else { return }
     switch type {
     case "partial": relay(json["text"] as? String ?? "", isFinal: false)
-    case "final":   relay(json["text"] as? String ?? "", isFinal: true)
-    default: break  // "ready" / "done" / "error" need no relay
+    case "final":
+      relay(json["text"] as? String ?? "", isFinal: true)
+      // A batch provider (Groq) emits ONE `final` after our stop and no partials;
+      // close as soon as it lands (once we've asked to stop) instead of waiting
+      // out the watchdog. A streaming provider's interim finals arrive while
+      // still dictating (finishing == false) and must NOT close. `task` /
+      // pendingClose / finishing are main-thread state (this receive callback is
+      // off-main), so decide + close there.
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self, self.finishing, let c = self.pendingClose else { return }
+        self.finalizeClose(c)
+      }
+    case "done":
+      // Clean terminal marker — close now if we were draining after a stop.
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self, let c = self.pendingClose else { return }
+        self.finalizeClose(c)
+      }
+    default: break  // "ready" / "error" need no relay
     }
   }
 

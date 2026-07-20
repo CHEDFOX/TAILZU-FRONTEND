@@ -108,6 +108,11 @@ final class TulmiHandoff: NSObject {
       d?.removeObject(forKey: "tulmi.kb.recordRequest.sessionId")
       d?.removeObject(forKey: "tulmi.kb.recordRequest.requestedAt")
       d?.removeObject(forKey: "tulmi.kb.recordRequest.hostApp")
+      // Also wipe the pending deep link this handoff dropped (keyboard_record /
+      // keyboard_primer). Leaving it behind routed the app to keyboard_record on
+      // an unrelated later foreground even though the handoff was aborted.
+      d?.removeObject(forKey: "tulmi.kb.pendingDeepLink")
+      d?.removeObject(forKey: "tulmi.kb.pendingDeepLinkAt")
     }
     currentSessionId = nil
   }

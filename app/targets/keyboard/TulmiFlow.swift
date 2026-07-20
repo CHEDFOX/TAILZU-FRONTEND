@@ -25,6 +25,7 @@ final class TulmiFlow: NSObject {
   var onEnded: (() -> Void)?
 
   private var lastSeq = 0
+  private var lastSessionId: String?
   private var registered = false
   private var store: UserDefaults? { UserDefaults(suiteName: TulmiFlow.appGroup) }
 
@@ -96,6 +97,15 @@ final class TulmiFlow: NSObject {
 
   private func readTranscript() {
     guard let d = store else { return }
+    // A new Flow Session (app relaunch / re-arm) restarts its per-process seq
+    // counter, which can collide with our stale lastSeq and drop the session's
+    // first transcript. The app writes a fresh `tulmi.flow.sessionId` in arm();
+    // when it changes, reset lastSeq so the new session is never deduped away.
+    let sid = d.string(forKey: "tulmi.flow.sessionId")
+    if sid != lastSessionId {
+      lastSessionId = sid
+      lastSeq = 0
+    }
     let seq = d.integer(forKey: "tulmi.flow.transcript.seq")
     guard seq != lastSeq else { return }   // dedupe repeated notifications
     lastSeq = seq
