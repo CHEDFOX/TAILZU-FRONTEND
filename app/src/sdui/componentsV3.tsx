@@ -20,6 +20,7 @@ import { WebView } from "react-native-webview";
 
 import type { CompProps } from "./components";
 import { useTheme, tok, staticText } from "./components";
+import { evalCondition } from "./actions";
 
 // ---------------------------------------------------------------------------
 // Layout / navigation
@@ -578,7 +579,7 @@ const AvatarStack = ({ props, style }: CompProps) => {
     <View style={[{ flexDirection: "row" }, style]}>
       {avatars.slice(0, 5).map((a, i) => (
         <View key={i} style={{ marginLeft: i === 0 ? 0 : -size * 0.3, borderWidth: 2, borderColor: "#000", borderRadius: size / 2 }}>
-          <Avatar node={{ type: "Avatar" } as any} props={{ ...a, size }} style={{}} store={null as any} fire={() => {}} children={null} />
+          <Avatar node={{ type: "Avatar" } as any} props={{ ...a, size }} style={{}} store={null as any} ctx={null as any} fire={() => {}} children={null} />
         </View>
       ))}
     </View>
@@ -725,9 +726,13 @@ const QRCodeC = ({ props, style }: CompProps) => (
 );
 
 // Conditional / structural helpers
-const IfElse = ({ node, children, store }: CompProps) => {
+const IfElse = ({ node, children, ctx }: CompProps) => {
   const cond = node.props?.if;
-  const truthy = evalKeyboardCondition(cond, store.snapshot(), {});
+  // Reuse the main action evaluator so IfElse resolves the SAME condition set as
+  // the rest of the app — including `{ flag: … }` against the REAL bootstrap
+  // flags bag (via ctx.flags), which the old local `{}`-flags evaluator could
+  // never satisfy.
+  const truthy = evalCondition(cond, ctx);
   const kids = React.Children.toArray(children);
   return <>{truthy ? kids[0] : kids[1] ?? null}</>;
 };
@@ -742,26 +747,6 @@ const ForEach = ({ node, children, store }: CompProps) => {
 };
 
 const Portal = ({ children }: CompProps) => <>{children}</>;
-
-// --- helpers ---------------------------------------------------------------
-
-// Minimal condition evaluator for IfElse (kept local; the main actions.ts
-// evaluator handles more conditions but requires Ctx).
-function evalKeyboardCondition(cond: any, state: Record<string, any>, flags: Record<string, any>): boolean {
-  if (!cond) return true;
-  if ("eq" in cond) return getP(state, cond.eq[0]) === cond.eq[1];
-  if ("neq" in cond) return getP(state, cond.neq[0]) !== cond.neq[1];
-  if ("truthy" in cond) return !!getP(state, cond.truthy);
-  if ("falsy" in cond) return !getP(state, cond.falsy);
-  if ("flag" in cond) return !!flags[cond.flag];
-  if ("not" in cond) return !evalKeyboardCondition(cond.not, state, flags);
-  if ("all" in cond) return cond.all.every((c: any) => evalKeyboardCondition(c, state, flags));
-  if ("any" in cond) return cond.any.some((c: any) => evalKeyboardCondition(c, state, flags));
-  return true;
-}
-function getP(o: any, p: string) {
-  return p.split(".").reduce((a, k) => (a == null ? undefined : a[k]), o);
-}
 
 // ---------------------------------------------------------------------------
 // Styles

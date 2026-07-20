@@ -54,17 +54,19 @@ export async function registerForPushToken(): Promise<string | null> {
       : await Notifications.getExpoPushTokenAsync();
     const token = tokenData.data;
     if (!token || token === lastToken) return token ?? null;
-    lastToken = token;
 
     // Best-effort — backend endpoint stores {token, platform, appVersion}.
-    // Silent failure is fine; we retry on next boot.
+    // Only mark the token as "sent" AFTER a successful POST, so a failed
+    // registration is retried on the next call this session instead of being
+    // suppressed by the dedupe guard above.
     try {
       await callEndpoint("POST", "/v1/push/register", {
         token,
         platform: Platform.OS,
         appVersion: Constants.expoConfig?.version ?? "0.0.0",
       });
-    } catch { /* silent */ }
+      lastToken = token;
+    } catch { /* silent — retry on next boot / call */ }
 
     return token;
   } catch {

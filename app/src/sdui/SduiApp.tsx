@@ -22,8 +22,9 @@ import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
 import { Store } from "./state";
 import { composeTemplate } from "./templates";
+import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
-import type { BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
+import type { ActionSpec, BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import * as api from "../api";
@@ -48,6 +49,19 @@ import { installLinkListener } from "../deeplinks/router";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
+
+/**
+ * Action `kind`s a `tulmi://action?kind=…` deep link is allowed to trigger.
+ * Kept to a small, side-effect-safe set: an arbitrary/unknown kind from a URL
+ * is ignored, never dispatched. These take no complex object params, so the
+ * URL query (`Record<string,string>`) maps straight onto the ActionSpec.
+ */
+const DEEPLINK_ACTIONS = new Set<string>([
+  "iap.restore",
+  "iap.showPaywall",
+  "requestReview",
+  "openSettings",
+]);
 
 /**
  * Apply the layout direction the backend asked for (RTL for Arabic/Hebrew/…).
@@ -86,6 +100,18 @@ export default function SduiApp() {
 
   useEffect(() => { getProfileDone().then(setProfileDoneState).catch(() => {}); }, []);
 
+  // A deep-link / push-notification screen target that arrived DURING cold boot,
+  // before loadBoot committed the first stack. Stashed here and applied once we
+  // reach "ready" (cold-entry effect below) so the default [home] stack can't
+  // clobber it. Mirrors how consumeKeyboardEntry defers keyboard cold-starts.
+  const pendingLinkRef = useRef<NavItem | null>(null);
+  // True once phase === "ready": lets the mount-once link listener apply a HOT
+  // link immediately, vs. stashing a COLD one for the cold-entry effect.
+  const readyRef = useRef(false);
+  // Set once nav/boot exist (effect below). Lets the mount-once link listener
+  // dispatch `{kind:"action"}` deep links without capturing a stale nav/flags.
+  const runLinkActionRef = useRef<(kind: string, params?: Record<string, string>) => void>(() => {});
+
   // One-time boot: crash reporting, analytics, IAP, push token, deep links.
   // Each init is a silent no-op when its env key is unset, so the same binary
   // works for dev/beta/prod builds without code changes.
@@ -100,11 +126,22 @@ export default function SduiApp() {
     writeAppWarmHeartbeat();
     const linkSub = installLinkListener((target) => {
       if (target.kind === "screen") {
-        setStack([{ screenId: target.screenId, params: target.params }]);
+        const item: NavItem = { screenId: target.screenId, params: target.params };
+        // Hot link (app already booted) → navigate now. Cold link (arrived
+        // mid-boot) → stash; the cold-entry effect applies it after the first
+        // stack commits, so loadBoot's default screen doesn't win the race.
+        if (readyRef.current) setStack([item]);
+        else pendingLinkRef.current = item;
+      } else if (target.kind === "action") {
+        // `tulmi://action?kind=…` — run a bare action (guarded whitelist).
+        runLinkActionRef.current(target.actionKind, target.params);
       }
     });
     const notifSub = addNotificationResponseListener((data) => {
-      if (data?.screenId) setStack([{ screenId: String(data.screenId), params: data }]);
+      if (!data?.screenId) return;
+      const item: NavItem = { screenId: String(data.screenId), params: data };
+      if (readyRef.current) setStack([item]);
+      else pendingLinkRef.current = item;
     });
     return () => { linkSub(); notifSub.remove(); };
   }, []);
@@ -323,7 +360,15 @@ export default function SduiApp() {
   useEffect(() => {
     if (phase !== "ready" || coldEntryDone.current) return;
     coldEntryDone.current = true;
-    consumeKeyboardEntry();
+    const entry = consumeKeyboardEntry();
+    // A deep link / push tap that arrived during cold boot was stashed above
+    // (loadBoot's default [home] stack would otherwise clobber it). Apply it
+    // now — unless a keyboard entry (mic handoff / flow arm) already claimed
+    // this cold start, in which case the keyboard target wins.
+    if (entry === "none" && pendingLinkRef.current) {
+      setStack([pendingLinkRef.current]);
+    }
+    pendingLinkRef.current = null;
   }, [phase, consumeKeyboardEntry]);
 
   // Refetch bootstrap + current screen when the app returns to the foreground
@@ -415,6 +460,28 @@ export default function SduiApp() {
     [boot],
   );
 
+  // Keep the mount-once deep-link listener reading fresh values: readiness (so a
+  // hot link applies immediately while a cold one stashes) and the action
+  // dispatcher (so it uses the current nav + flags, not the initial ones).
+  useEffect(() => { readyRef.current = phase === "ready"; }, [phase]);
+  useEffect(() => {
+    runLinkActionRef.current = (kind, params) => {
+      // Only known, side-effect-safe kinds may be triggered from a URL; anything
+      // else is ignored (never dispatched) so a crafted link can't run arbitrary
+      // actions or crash the app.
+      if (!DEEPLINK_ACTIONS.has(kind)) return;
+      const action = { kind, ...(params ?? {}) } as unknown as ActionSpec;
+      void runAction(action, {
+        store: new Store({}),
+        actions: {},
+        flags: boot?.flags ?? {},
+        labels: boot?.labels ?? {},
+        nav,
+        toast: showToast,
+      });
+    };
+  }, [boot, nav, showToast]);
+
   const theme: ThemeTokens | null = useMemo(() => {
     if (!boot) return null;
     if (!screen?.theme) return boot.theme;
@@ -489,7 +556,7 @@ export default function SduiApp() {
   // Backend can request full-bleed rendering per-screen (intro slideshow,
   // paywall walkthrough, splash-adjacent). When set, hide header + tabs
   // and let the screen's root fill the whole window.
-  const hideChrome = (screen as any)?.hideChrome === true;
+  const hideChrome = screen?.hideChrome === true;
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>

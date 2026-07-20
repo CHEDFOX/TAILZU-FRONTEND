@@ -58,7 +58,7 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
     children = (node.children ?? []).map((child, i) => <RenderNode key={i} node={child} ctx={ctx} />);
   }
 
-  const bag: CompProps = { node, props, style, store: ctx.store, children, fire };
+  const bag: CompProps = { node, props, style, store: ctx.store, children, fire, ctx };
   const rendered = <Comp {...bag} />;
 
   // Fire onAppear once, and wrap in entry motion if requested.

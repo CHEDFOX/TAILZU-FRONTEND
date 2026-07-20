@@ -88,6 +88,8 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
     if ("lte" in cond) return Number(resolveValue(`$state.${cond.lte[0]}`, ctx)) <= cond.lte[1];
     if ("in" in cond) return Array.isArray(cond.in[1]) && cond.in[1].includes(resolveValue(`$state.${cond.in[0]}`, ctx));
     if ("contains" in cond) return String(resolveValue(`$state.${cond.contains[0]}`, ctx) ?? "").includes(cond.contains[1]);
+    if ("startsWith" in cond) return String(resolveValue(`$state.${cond.startsWith[0]}`, ctx) ?? "").startsWith(cond.startsWith[1]);
+    if ("endsWith" in cond) return String(resolveValue(`$state.${cond.endsWith[0]}`, ctx) ?? "").endsWith(cond.endsWith[1]);
     if ("truthy" in cond) return !!ctx.store.get(cond.truthy);
     if ("falsy" in cond) return !ctx.store.get(cond.falsy);
     if ("flag" in cond) return !!ctx.flags[cond.flag];
@@ -341,6 +343,14 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "contacts": granted = (await Contacts.requestPermissionsAsync()).granted; break;
           case "calendar": granted = (await Calendar.requestCalendarPermissionsAsync()).granted; break;
           case "tracking": granted = (await Tracking.requestTrackingPermissionsAsync()).status === "granted"; break;
+          case "location":
+            // expo-location is NOT a dependency in this build. Wiring a real
+            // location prompt needs that native module added (a native change),
+            // so we can't grant here — fall through as denied (onDenied fires)
+            // instead of silently doing nothing. See report: needs expo-location.
+            console.warn("[sdui] requestPermission('location'): expo-location not installed — treating as denied");
+            granted = false;
+            break;
         }
         await runAction(granted ? action.onGranted : action.onDenied, ctx);
       } catch { await runAction(action.onDenied, ctx); }
