@@ -508,8 +508,12 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         targetApp: props.targetApp,
         language: props.language,
       });
-      if (bindPath) store.set(bindPath, cleanedText);
-      fire("onChange", cleanedText);
+      // Only write on a non-empty result — recording silence returns "" and
+      // must NOT wipe whatever the user already had in the bound field.
+      if (cleanedText) {
+        if (bindPath) store.set(bindPath, cleanedText);
+        fire("onChange", cleanedText);
+      }
     } catch (e: any) {
       fire("onError", e?.message ?? "transcription failed");
     } finally {

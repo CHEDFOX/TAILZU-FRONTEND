@@ -20,9 +20,17 @@ export type LinkTarget =
 export function parseLink(url: string): LinkTarget {
   try {
     const parsed = Linking.parse(url);
-    // hostname is used for HTTPS links; scheme paths use pathname.
     const path = (parsed.path ?? "").replace(/^\/+/, "");
-    const parts = path.split("/").filter(Boolean);
+    const pathParts = path.split("/").filter(Boolean);
+    // For a CUSTOM-scheme URL (tulmi://screen/paywall) the first segment parses
+    // into `hostname`, not `path` — so ignoring hostname meant these never
+    // routed (push-tap targets, keyboard/native handoffs all dead-ended).
+    // Prepend it for non-HTTPS schemes; HTTPS universal links keep using path
+    // (their hostname is the domain, e.g. tailzu.space).
+    const parts =
+      parsed.scheme && parsed.scheme !== "https" && parsed.hostname
+        ? [parsed.hostname, ...pathParts]
+        : pathParts;
     const q = (parsed.queryParams ?? {}) as Record<string, string>;
 
     if (parts[0] === "s" || parts[0] === "screen") {

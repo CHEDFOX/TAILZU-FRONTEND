@@ -32,7 +32,9 @@ import type { CompProps } from "./components";
 export const Slideshow = ({ props, style, fire }: CompProps): React.ReactElement | null => {
   const frames = (Array.isArray(props.frames) ? props.frames : []) as MediaSpec[];
   const frameMs = Number(props.frameMs) || 120;
-  const loops = Number(props.loops) || 1;
+  // `Number(0) || 1` coerced the documented "0 = infinite" to a single loop.
+  // Preserve 0 (infinite) with a null-aware coercion.
+  const loops = props.loops == null ? 1 : Number(props.loops);
   const contentFit = (props.contentFit as "contain" | "cover" | "fill" | undefined) ?? "cover";
 
   const [index, setIndex] = useState(0);
