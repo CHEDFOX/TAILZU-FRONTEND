@@ -43,7 +43,7 @@ import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics } from "../telemetry/analytics";
 import { initSentry } from "../telemetry/sentry";
-import { initBilling, restorePurchases, isBillingEnabled, hasEntitlement } from "../billing/purchases";
+import { initBilling, identifyBilling, restorePurchases, isBillingEnabled, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
 
@@ -195,7 +195,12 @@ export default function SduiApp() {
       // Both look up hasEntitlement(flags["paywall.entitlement"]) so RevenueCat
       // owns the truth. When lacking, we push "paywall" onto the stack on top
       // of the first screen so back-nav lands the user in the app naturally.
+      // Ensure RevenueCat is configured and entitlements are loaded BEFORE the
+      // gate reads them — otherwise a paying user is hard-locked behind the
+      // paywall on cold start (the gate raced the async init). Shared promise,
+      // so this is cheap once warm.
       const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
+      if (paywallEnt) await initBilling();
       const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;
       const paywallAfterOnboarding = b.flags?.["paywall.showAfterOnboarding"] === true;
       const lacksEntitlement =
@@ -243,6 +248,9 @@ export default function SduiApp() {
     (async () => {
       // Gate on auth first: the app needs a JWT to talk to the backend.
       const { data: { session } } = await supabaseAuth.getSession();
+      // Tie RevenueCat purchases/entitlements to the signed-in user so they
+      // restore across devices (was never identified → anonymous-only).
+      if (session?.user?.id) void identifyBilling(session.user.id);
       if (SUPABASE_CONFIGURED && !session) setPhase("auth");
       else await loadBoot();
       // React to sign-out from anywhere (e.g. Settings → Sign out), and — just
