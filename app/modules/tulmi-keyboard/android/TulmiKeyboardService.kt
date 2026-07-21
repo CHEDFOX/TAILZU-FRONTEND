@@ -371,6 +371,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     // --- live (streaming) dictation -----------------------------------------
 
     private fun startStreaming() {
+        // Idempotent: a second start (double-tap, or an SDUI StartDictation while
+        // already live) would overwrite `stream`/`recorder` and leak the first
+        // with the mic left hot. Bail if anything is already capturing.
+        if (streaming || recording) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -514,6 +518,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     private fun startRecording() {
+        // Idempotent — see startStreaming. A second start would strand the first
+        // MediaRecorder with the mic hot.
+        if (recording || streaming) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
@@ -818,6 +825,19 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             endStreaming()
         }
         setStatus("")
+    }
+
+    override fun onDestroy() {
+        // The service can be destroyed WITHOUT a final onFinishInput — release
+        // the mic + streaming socket and drop every pending main-thread callback
+        // (mic-level poll, backspace repeat, key-flash restores, SDUI posts) so
+        // nothing leaks or fires against a torn-down view. Idempotent.
+        try { if (recording) cleanupRecorder() } catch (_: Exception) {}
+        try { stream?.cancel() } catch (_: Exception) {}
+        recording = false
+        streaming = false
+        main.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     // ---------------------------------------------------------------------

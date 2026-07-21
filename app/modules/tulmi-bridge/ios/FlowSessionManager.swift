@@ -190,11 +190,19 @@ final class FlowSessionManager: NSObject {
   // MARK: - Idle timer
 
   private func resetIdleTimer() {
-    idleTimer?.invalidate()
-    guard armed else { return }
-    publishActive()  // refresh expiresAt on every activity
-    idleTimer = Timer.scheduledTimer(withTimeInterval: idleTimeout, repeats: false) { [weak self] _ in
-      self?.disarm(notify: true)
+    // Timer.scheduledTimer attaches to the CURRENT thread's run loop. `relay`
+    // calls this from the URLSession receive queue, whose run loop isn't
+    // running — the timer would never fire and the background mic would stay
+    // armed indefinitely (battery + privacy). Always schedule on the main run
+    // loop; invalidate cross-thread is also unsafe, so do it here too.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.idleTimer?.invalidate()
+      guard self.armed else { return }
+      self.publishActive()  // refresh expiresAt on every activity
+      self.idleTimer = Timer.scheduledTimer(withTimeInterval: self.idleTimeout, repeats: false) { [weak self] _ in
+        self?.disarm(notify: true)
+      }
     }
   }
 
