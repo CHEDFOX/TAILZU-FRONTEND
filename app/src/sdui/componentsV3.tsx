@@ -74,7 +74,11 @@ const ModalC = ({ node, props, children, fire, store, style }: CompProps) => {
   };
   return (
     <RNModal visible={open} transparent animationType="fade" onRequestClose={dismissable ? close : undefined}>
-      <Pressable style={styles.modalScrim} onPress={dismissable ? close : undefined}>
+      {/* props.blur → frost the content behind the card instead of just dimming it. */}
+      {props.blur ? (
+        <BlurView intensity={Number(props.blurIntensity ?? 45)} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+      ) : null}
+      <Pressable style={props.blur ? styles.modalScrimBlur : styles.modalScrim} onPress={dismissable ? close : undefined}>
         <Pressable onPress={(e) => e.stopPropagation()} style={[styles.modalCard, style]}>
           {children}
         </Pressable>
@@ -754,6 +758,7 @@ const Portal = ({ children }: CompProps) => <>{children}</>;
 
 const styles = StyleSheet.create({
   modalScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  modalScrimBlur: { flex: 1, backgroundColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center", padding: 24 },
   modalCard: { backgroundColor: "#0b0b0f", borderRadius: 16, padding: 20, minWidth: 260, maxWidth: 400, width: "100%" },
   sheetScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: { backgroundColor: "#0b0b0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
