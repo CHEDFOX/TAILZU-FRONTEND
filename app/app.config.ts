@@ -127,14 +127,18 @@ const config: ExpoConfig = {
       ITSAppUsesNonExemptEncryption: false,
       // Google sign-in redirect. expo-auth-session completes the native iOS
       // OAuth round-trip on the app's REVERSED iOS client id scheme
-      // (com.googleusercontent.apps.XXXX). Set GOOGLE_IOS_URL_SCHEME as an EAS
-      // env var to that reversed id — the URL type only registers when present,
-      // so a build without Google configured stays clean. This is why Google
-      // needs a native build, not an OTA. (Android uses the app's "tulmi"
+      // (com.googleusercontent.apps.<iosClientId-without-domain>). This is why
+      // Google needs a native build, not an OTA. Env var overrides the literal
+      // if you ever rotate the iOS client. (Android uses the app's "tulmi"
       // scheme + the android client id's package/SHA — no plist entry needed.)
-      ...(process.env.GOOGLE_IOS_URL_SCHEME
-        ? { CFBundleURLTypes: [{ CFBundleURLSchemes: [process.env.GOOGLE_IOS_URL_SCHEME] }] }
-        : {}),
+      CFBundleURLTypes: [
+        {
+          CFBundleURLSchemes: [
+            process.env.GOOGLE_IOS_URL_SCHEME ??
+              "com.googleusercontent.apps.276376169707-29fkjccf3kp8t46nlnnfpvml6i4um9h7",
+          ],
+        },
+      ],
     },
     // Shared container so the keyboard extension can read the app's backend URL
     // + the user's token (written by the tulmi-bridge native module).
