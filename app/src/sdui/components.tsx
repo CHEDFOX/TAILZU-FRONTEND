@@ -31,6 +31,8 @@ import { isStreamAvailable, startStream, type LiveSession } from "../../modules/
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
 import { SpringPressable } from "./motion";
 import { DictionaryEditor, WordChips } from "./dictionary";
+import { Image as ExpoImage } from "expo-image";
+import { resolveMedia } from "../media/resolveMedia";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -221,9 +223,19 @@ const TextC = ({ node, props, style }: CompProps) => {
   return <Text style={[textVariant(props.variant, theme), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
-const ImageC = ({ props, style }: CompProps) => (
-  <Image source={{ uri: props.source }} style={[{ width: "100%", aspectRatio: props.aspectRatio ?? 1.6, borderRadius: 10 }, style]} />
-);
+const ImageC = ({ props, style }: CompProps) => {
+  // Resolve the source through the media registry so both a raw URL string AND
+  // a media-key spec ({ key: "card.voice" }) work — the old code fed
+  // props.source straight into { uri }, so a { key } object produced a broken
+  // image. Use expo-image so remote GIFs animate on both platforms and
+  // contentFit ("cover" for a background fill, "contain" for a framed asset)
+  // is honored.
+  const m = resolveMedia(props.source as any);
+  const src = m.kind === "uri" ? { uri: m.uri } : m.kind === "bundled" ? m.source : null;
+  const base = { width: "100%" as const, aspectRatio: props.aspectRatio ?? 1.6, borderRadius: 10 };
+  if (!src) return <View style={[base, style] as any} />;
+  return <ExpoImage source={src as any} contentFit={props.contentFit ?? "cover"} style={[base, style] as any} />;
+};
 
 const Icon = ({ props, style }: CompProps) => {
   const theme = useTheme();
@@ -308,13 +320,22 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
   );
 };
 
-const Card = ({ children, style }: CompProps) => {
+const Card = ({ node, children, style, fire }: CompProps) => {
   const theme = useTheme();
-  return (
-    <View style={[{ backgroundColor: theme.color.card, borderRadius: theme.radius.md, padding: 14, borderWidth: 1, borderColor: theme.color.border }, style]}>
-      {children}
-    </View>
-  );
+  const base = { backgroundColor: theme.color.card, borderRadius: theme.radius.md, padding: 14, borderWidth: 1, borderColor: theme.color.border };
+  // A Card with an onPress handler is tappable. The old Card ignored `fire`
+  // entirely, so every Card that carried `on.onPress` (the tone cards on the
+  // You tab, media cards, etc.) was silently dead. Wrap it in a gentle
+  // SpringPressable when — and only when — an onPress is wired, so plain Cards
+  // stay inert Views.
+  if (node.on?.onPress) {
+    return (
+      <SpringPressable onPress={() => fire("onPress")} pressScale={0.98} style={[base, style]}>
+        {children}
+      </SpringPressable>
+    );
+  }
+  return <View style={[base, style]}>{children}</View>;
 };
 
 const Divider = ({ style }: CompProps) => {
