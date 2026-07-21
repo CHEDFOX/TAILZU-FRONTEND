@@ -45,6 +45,11 @@ const config: ExpoConfig = {
     bundleIdentifier: "com.tulmi.app",
     appleTeamId: "6552H8HYA4",
     supportsTablet: false,
+    // Sign in with Apple. The expo-apple-authentication plugin already injects
+    // the entitlement; this flag is the explicit, belt-and-suspenders switch so
+    // the capability is unambiguous in the generated entitlements. The native
+    // sign-in flow lives in AuthGateScreen (onApple → signInWithIdToken).
+    usesAppleSignIn: true,
     // Tulmi only uses standard HTTPS — exempt from export-compliance. Setting
     // this clears the "encryption" question that otherwise blocks every
     // TestFlight build until answered by hand in App Store Connect.
@@ -120,6 +125,16 @@ const config: ExpoConfig = {
         "kakaotalk",
       ],
       ITSAppUsesNonExemptEncryption: false,
+      // Google sign-in redirect. expo-auth-session completes the native iOS
+      // OAuth round-trip on the app's REVERSED iOS client id scheme
+      // (com.googleusercontent.apps.XXXX). Set GOOGLE_IOS_URL_SCHEME as an EAS
+      // env var to that reversed id — the URL type only registers when present,
+      // so a build without Google configured stays clean. This is why Google
+      // needs a native build, not an OTA. (Android uses the app's "tulmi"
+      // scheme + the android client id's package/SHA — no plist entry needed.)
+      ...(process.env.GOOGLE_IOS_URL_SCHEME
+        ? { CFBundleURLTypes: [{ CFBundleURLSchemes: [process.env.GOOGLE_IOS_URL_SCHEME] }] }
+        : {}),
     },
     // Shared container so the keyboard extension can read the app's backend URL
     // + the user's token (written by the tulmi-bridge native module).

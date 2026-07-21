@@ -37,12 +37,18 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { fetchAuthConfig } from "../sdui/client";
 import { setAuthName } from "../storage";
-import { AUTH_METHODS, COUNTRIES, pickCountry, Country } from "./authConfig";
+import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
+
+// Lets the OAuth popup hand the redirect back to the JS auth-session listener
+// when the browser closes. Safe no-op when there's no pending session.
+WebBrowser.maybeCompleteAuthSession();
 
 const { width: SW, height: SH } = Dimensions.get("window");
 const PILL_W = Math.min(320, SW - 56);
@@ -88,6 +94,15 @@ const Chevron = ({ c = "rgba(255,255,255,0.5)" }: { c?: string }) => (
 const AppleMark = () => (
   <Svg width={20} height={20} viewBox="0 0 24 24">
     <Path fill={WHITE} d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.46 1.58-1.51 3.14-.9 1.36-1.84 2.71-3.32 2.71-1.48 0-1.86-.88-3.56-.88-1.66 0-2.25.91-3.6.91-1.36 0-2.3-1.27-3.22-2.61-1.87-2.61-3.34-7.53-1.42-10.86.95-1.66 2.65-2.7 4.5-2.73 1.4-.03 2.72.95 3.58.95.85 0 2.45-1.18 4.12-1.01.7.03 2.67.28 3.93 2.13-.1.06-2.35 1.37-2.33 4.07.03 3.22 2.83 4.29 2.86 4.31z" />
+  </Svg>
+);
+// Google "G" in its four brand colors (official multicolor mark).
+const GoogleMark = () => (
+  <Svg width={20} height={20} viewBox="0 0 48 48">
+    <Path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <Path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <Path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+    <Path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
   </Svg>
 );
 const Back = () => (
@@ -289,6 +304,18 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const [codeError, setCodeError] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
 
+  // Google sign-in. Stays fully hidden until the three client IDs are filled in
+  // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
+  // called unconditionally (rules-of-hooks); with placeholder IDs it just builds
+  // an unused request. Uses id-token flow because Supabase's signInWithIdToken
+  // needs the OIDC id_token, not an access token.
+  const googleEnabled = isGoogleConfigured();
+  const [googleRequest, , googlePrompt] = Google.useIdTokenAuthRequest({
+    iosClientId: GOOGLE_OAUTH.iosClientId,
+    androidClientId: GOOGLE_OAUTH.androidClientId,
+    webClientId: GOOGLE_OAUTH.webClientId,
+  });
+
   const arrival = useRef(new Animated.Value(0)).current;
   const entryFade = useRef(new Animated.Value(1)).current;
   const verifyFade = useRef(new Animated.Value(0)).current;
@@ -414,6 +441,27 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   }, [flashError, onAuthed]);
 
+  const onGoogle = useCallback(async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      // promptAsync opens the Google consent sheet and resolves when it closes.
+      const res = await googlePrompt();
+      if (res?.type !== "success") {
+        // Cancel/dismiss is silent; a real error flashes the field.
+        if (res?.type === "error") flashError();
+        return;
+      }
+      // id-token flow → res.params.id_token (fall back to the authentication obj).
+      const idToken = res.params?.id_token ?? res.authentication?.idToken;
+      if (!idToken) { flashError(); return; }
+      const { error } = await supabaseAuth.signInWithGoogle(idToken);
+      if (error) { flashError(); return; }
+      onAuthed();
+    } catch {
+      flashError();
+    }
+  }, [googlePrompt, flashError, onAuthed]);
+
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
 
@@ -433,6 +481,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 {appleAvailable && (
                   <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple} accessibilityRole="button" accessibilityLabel="Sign in with Apple">
                     <AppleMark />
+                  </TouchableOpacity>
+                )}
+                {googleEnabled && (
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest} accessibilityRole="button" accessibilityLabel="Sign in with Google">
+                    <GoogleMark />
                   </TouchableOpacity>
                 )}
               </View>
