@@ -376,10 +376,18 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     setPhase("sending");
     const animMin = new Promise((r) => setTimeout(r, 1600));
     const apiCall = type === "phone" ? supabaseAuth.sendPhoneCode(value) : supabaseAuth.sendEmailCode(value);
-    const [, res]: any = await Promise.all([animMin, apiCall]);
-    if (my !== seq.current) return;
-    if (res?.error) { setPhase("entry"); flashError(); return; }
-    setCode(""); setPhase("verify");
+    try {
+      const [, res]: any = await Promise.all([animMin, apiCall]);
+      if (my !== seq.current) return;
+      if (res?.error) { setPhase("entry"); flashError(); return; }
+      setCode(""); setPhase("verify");
+    } catch {
+      // A thrown error (offline / unexpected) would otherwise reject this
+      // fire-and-forget callback and strand the user on the "sending" spinner
+      // forever. Recover to the entry screen with the error shake.
+      if (my !== seq.current) return;
+      setPhase("entry"); flashError();
+    }
   }, [flashError]);
 
   const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
@@ -389,12 +397,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     Keyboard.dismiss();
     const my = ++seq.current;
     setPhase("verifying");
-    const { error } = active.type === "phone"
-      ? await supabaseAuth.verifyPhoneCode(active.value, token)
-      : await supabaseAuth.verifyEmailCode(active.value, token);
-    if (my !== seq.current) return;
-    if (error) { setPhase("verify"); setCode(""); flashError(); setTimeout(() => codeRef.current?.focus?.(), 60); return; }
-    onAuthed();
+    try {
+      const { error } = active.type === "phone"
+        ? await supabaseAuth.verifyPhoneCode(active.value, token)
+        : await supabaseAuth.verifyEmailCode(active.value, token);
+      if (my !== seq.current) return;
+      if (error) { setPhase("verify"); setCode(""); flashError(); setTimeout(() => codeRef.current?.focus?.(), 60); return; }
+      onAuthed();
+    } catch {
+      // Don't strand on the "verifying" spinner if the call throws — drop back
+      // to the code screen so the user can retry.
+      if (my !== seq.current) return;
+      setPhase("verify"); setCode(""); flashError();
+      setTimeout(() => codeRef.current?.focus?.(), 60);
+    }
   }, [active, flashError, onAuthed]);
 
   useEffect(() => {

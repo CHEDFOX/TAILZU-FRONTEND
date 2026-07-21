@@ -229,6 +229,12 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     // both pages mounted, so block the second one instead of corrupting the
     // shared audio session.
     if (micRecordingActive) { fire("onError", errMicBusy); return; }
+    // Claim the app-wide lock SYNCHRONOUSLY, before any await — otherwise a
+    // double-tap (or the two Pager-mounted VoiceToggles) both pass the guard
+    // during the async permission/prepare window and both call record(),
+    // corrupting the single shared AVAudioSession so neither captures audio.
+    // Released on every early-return / catch below.
+    micRecordingActive = true;
     try {
       // Check first: after a denial iOS never re-prompts, it just returns
       // `granted:false` silently. Distinguish "never asked" (prompt) from
@@ -239,13 +245,13 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
         perm = await AudioModule.requestRecordingPermissionsAsync();
       }
       if (!perm.granted) {
+        micRecordingActive = false;
         fire("onError", perm.canAskAgain ? errPermission : errPermissionSettings);
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
-      micRecordingActive = true;
       setRecording(true);
       store.set("recording", true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});

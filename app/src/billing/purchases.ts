@@ -20,23 +20,67 @@ const IOS_KEY = extra.revenueCatIosKey ?? "";
 const ANDROID_KEY = extra.revenueCatAndroidKey ?? "";
 const KEY = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
 
-let inited = false;
+let initPromise: Promise<void> | null = null;
 let activeEntitlements: Set<string> = new Set();
+
+// Entitlement-change fan-out so the UI can re-gate after a purchase / restore /
+// renewal (the RevenueCat customerInfo listener only mutates a module Set —
+// nothing re-renders without this).
+let entVersion = 0;
+const entListeners = new Set<() => void>();
+export function entitlementsVersion(): number {
+  return entVersion;
+}
+export function subscribeEntitlements(cb: () => void): () => void {
+  entListeners.add(cb);
+  return () => { entListeners.delete(cb); };
+}
 
 export function isBillingEnabled(): boolean {
   return !!KEY;
 }
 
-export async function initBilling(userId?: string): Promise<void> {
-  if (inited || !KEY) return;
-  inited = true;
+/**
+ * Configure RevenueCat exactly once and resolve when entitlements are loaded.
+ * Returns a SHARED promise so every caller (boot effect + the paywall gate in
+ * loadBoot) awaits the same in-flight init — the old code flipped an `inited`
+ * flag synchronously, so a second `await initBilling()` returned immediately
+ * while configure was still running, and the paywall gate read an empty
+ * entitlement set → a paying user got hard-locked behind the paywall on cold
+ * start. On failure the promise is cleared so a later call can retry.
+ */
+export function initBilling(userId?: string): Promise<void> {
+  if (!KEY) return Promise.resolve();
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        Purchases.setLogLevel(LOG_LEVEL.WARN);
+        await Purchases.configure({ apiKey: KEY, appUserID: userId });
+        await refreshEntitlements();
+        Purchases.addCustomerInfoUpdateListener(() => { void refreshEntitlements(); });
+      } catch {
+        // Transient config failure must not permanently disable billing —
+        // clear the memoized promise so the next call retries.
+        initPromise = null;
+      }
+    })();
+  }
+  return initPromise;
+}
+
+/**
+ * Tie RevenueCat to the signed-in app user so purchases/entitlements follow
+ * them across devices (call after auth resolves). Safe no-op when billing is
+ * off or not yet configured.
+ */
+export async function identifyBilling(userId: string): Promise<void> {
+  if (!KEY || !userId) return;
   try {
-    Purchases.setLogLevel(LOG_LEVEL.WARN);
-    await Purchases.configure({ apiKey: KEY, appUserID: userId });
+    await initBilling(userId);
+    await Purchases.logIn(userId);
     await refreshEntitlements();
-    Purchases.addCustomerInfoUpdateListener(() => { void refreshEntitlements(); });
   } catch {
-    /* billing failure never bricks the app; user just sees paywall CTAs */
+    /* identity is best-effort; anonymous entitlements still work */
   }
 }
 
@@ -47,6 +91,8 @@ async function refreshEntitlements(): Promise<void> {
   } catch {
     activeEntitlements = new Set();
   }
+  entVersion++;
+  entListeners.forEach((l) => { try { l(); } catch { /* ignore */ } });
 }
 
 export function hasEntitlement(entitlement: string): boolean {
