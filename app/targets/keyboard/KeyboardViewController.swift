@@ -383,8 +383,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let activeId = (cfg.flags["kb.personality.activeId"] as? String) ?? chips[0].id
     let chipBg = UIColor(tulmiHex: cfg.key).withAlphaComponent(0.7)
     let chipFg = UIColor(tulmiHex: cfg.keyText).withAlphaComponent(0.9)
+    // Backend-driven fast-tone list for the long-press sheet. Accepts either the
+    // rich shape (array of { id, label }) or a plain array of label strings
+    // (legacy); nil → the row keeps its built-in fallback tones.
+    let tones: [(id: String, label: String)]? = {
+      if let rich = cfg.flags["kb.personality.tones"] as? [[String: Any]] {
+        let mapped = rich.compactMap { m -> (id: String, label: String)? in
+          guard let id = m["id"] as? String, !id.isEmpty else { return nil }
+          return (id: id, label: (m["label"] as? String) ?? id.capitalized)
+        }
+        return mapped.isEmpty ? nil : mapped
+      }
+      return nil
+    }()
     personalityRow.update(chips: chips, activeId: activeId,
-                          accentColor: accent, chipBgColor: chipBg, chipFgColor: chipFg)
+                          accentColor: accent, chipBgColor: chipBg, chipFgColor: chipFg,
+                          tones: tones)
     personalityRow.isHidden = false
   }
 
