@@ -20,9 +20,9 @@
  * complete — until then the button stays hidden (isGoogleConfigured === false).
  */
 export const GOOGLE_OAUTH = {
-  webClientId: "PASTE_WEB_CLIENT_ID.apps.googleusercontent.com",
-  iosClientId: "PASTE_IOS_CLIENT_ID.apps.googleusercontent.com",
-  androidClientId: "PASTE_ANDROID_CLIENT_ID.apps.googleusercontent.com",
+  webClientId: "276376169707-t4e6u8pd27o9cdm1ffm0619m6e0on8up.apps.googleusercontent.com",
+  iosClientId: "276376169707-29fkjccf3kp8t46nlnnfpvml6i4um9h7.apps.googleusercontent.com",
+  androidClientId: "276376169707-9u6js1ir1ti74ac1pee4ld434ju598s2.apps.googleusercontent.com",
 };
 
 export const isGoogleConfigured = () => !GOOGLE_OAUTH.webClientId.startsWith("PASTE_");
