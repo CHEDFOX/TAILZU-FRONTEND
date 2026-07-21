@@ -270,13 +270,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }
       applySDUIIfAvailable(data)
     }
-    TulmiBackend.keyboardConfigData { result in
+    // [weak self]: this completion captures the controller across a network
+    // round-trip. A strong capture pins the whole keyboard view tree alive for
+    // the duration inside the extension's tight (~48–60 MB) memory budget.
+    TulmiBackend.keyboardConfigData { [weak self] result in
       guard case .success(let data) = result else { return }
       UserDefaults.standard.set(data, forKey: "tulmi_kb_config")
       if let cfg = TulmiBackend.parseConfig(data) {
-        DispatchQueue.main.async { self.applyConfig(cfg) }
+        DispatchQueue.main.async { self?.applyConfig(cfg) }
       }
-      DispatchQueue.main.async { self.applySDUIIfAvailable(data) }
+      DispatchQueue.main.async { self?.applySDUIIfAvailable(data) }
     }
   }
 
