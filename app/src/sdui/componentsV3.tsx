@@ -401,16 +401,28 @@ const DatePicker = ({ node, props, style, store, fire }: CompProps) => {
 // Data viz
 // ---------------------------------------------------------------------------
 
+// Min/max via a single pass. Math.min(...arr) spreads the array as call
+// arguments, which throws "Maximum call stack size exceeded" for large
+// backend-supplied series — reduce is O(n) and stack-safe.
+function extent(arr: number[]): [number, number] {
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i];
+    if (v < mn) mn = v;
+    if (v > mx) mx = v;
+  }
+  return [mn, mx];
+}
+
 // LineChart: renders series as a polyline in a normalized 100x40 SVG box.
 // No axes / grid — good enough for sparkline-heavy dashboards; upgrade later.
 const LineChart = ({ props, style }: CompProps) => {
   const series: Array<{ x: number; y: number }> = Array.isArray(props.series) ? props.series : [];
   const color = String(props.color ?? "#ffffff");
   const w = 100, h = 40;
-  const xs = series.map((s) => s.x);
-  const ys = series.map((s) => s.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  if (series.length === 0) return <View style={[{ width: "100%", aspectRatio: w / h }, style]} />;
+  const [minX, maxX] = extent(series.map((s) => s.x));
+  const [minY, maxY] = extent(series.map((s) => s.y));
   const pts = series.map((s) => {
     const nx = (s.x - minX) / Math.max(1e-9, maxX - minX);
     const ny = (s.y - minY) / Math.max(1e-9, maxY - minY);
@@ -445,7 +457,8 @@ const Sparkline = ({ props, style }: CompProps) => {
   const data: number[] = Array.isArray(props.data) ? props.data : [];
   const color = String(props.color ?? "#ffffff");
   const w = 100, h = 30;
-  const min = Math.min(...data), max = Math.max(...data);
+  if (data.length === 0) return <View style={[{ width: "100%", aspectRatio: w / h }, style]} />;
+  const [min, max] = extent(data);
   const pts = data.map((v, i) => {
     const nx = i / Math.max(1, data.length - 1);
     const ny = (v - min) / Math.max(1e-9, max - min);
@@ -508,6 +521,85 @@ const StatCard = ({ props, style }: CompProps) => {
         <Text style={[styles.statDelta, delta >= 0 ? styles.deltaPos : styles.deltaNeg]}>
           {delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}
         </Text>
+      )}
+    </View>
+  );
+};
+
+// Default categorical palette (brand amber first, then a legible set on dark).
+// Backend can override per-slice with `color`.
+const PIE_PALETTE = ["#E8A23C", "#6EA8FE", "#48D39A", "#F0736A", "#B98CFF", "#F2C078", "#7DD3FC", "#FCA5A5"];
+
+// PieChart / Donut. Renders `data: [{ label, value, color? }]` as SVG arc
+// slices. Donut by default (set `donut:false` for a full pie); optional center
+// label and a legend (below by default, `legend:"right"` to sit beside it).
+const PieChart = ({ props, style }: CompProps) => {
+  const raw: Array<{ label?: string; value: number; color?: string }> =
+    Array.isArray(props.data) ? props.data : [];
+  const data = raw.filter((d) => (Number(d?.value) || 0) > 0);
+  const size = Number(props.size ?? 168);
+  const isDonut = props.donut !== false;
+  const thickness = Number(props.thickness ?? size * 0.26);
+  const r = size / 2;
+  const rInner = isDonut ? Math.max(0, r - thickness) : 0;
+  const cx = r, cy = r;
+  const total = data.reduce((s, d) => s + (Number(d.value) || 0), 0);
+  const legendRight = props.legend === "right";
+  const showLegend = props.legend !== false;
+
+  const arc = (a0: number, a1: number): string => {
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    if (rInner <= 0) return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
+    const ix1 = cx + rInner * Math.cos(a1), iy1 = cy + rInner * Math.sin(a1);
+    const ix0 = cx + rInner * Math.cos(a0), iy0 = cy + rInner * Math.sin(a0);
+    return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} L ${ix1} ${iy1} A ${rInner} ${rInner} 0 ${large} 0 ${ix0} ${iy0} Z`;
+  };
+
+  let angle = -Math.PI / 2; // start at 12 o'clock
+  const slices = data.map((d, i) => {
+    const frac = total > 0 ? (Number(d.value) || 0) / total : 0;
+    const a0 = angle, a1 = angle + frac * Math.PI * 2;
+    angle = a1;
+    return { d, frac, a0, a1, color: d.color ?? PIE_PALETTE[i % PIE_PALETTE.length], i };
+  });
+
+  return (
+    <View style={[{ flexDirection: legendRight ? "row" : "column", alignItems: "center", gap: 16 }, style]}>
+      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+        <Svg width={size} height={size}>
+          {total <= 0 ? (
+            <Circle cx={cx} cy={cy} r={r - 1} fill="none" stroke="#2a2a30" strokeWidth={2} />
+          ) : slices.length === 1 ? (
+            // A single 100% slice can't be drawn as one arc — use a ring/disc.
+            <Circle
+              cx={cx} cy={cy} r={isDonut ? (r + rInner) / 2 : r}
+              fill={isDonut ? "none" : slices[0].color}
+              stroke={isDonut ? slices[0].color : "none"}
+              strokeWidth={isDonut ? thickness : 0}
+            />
+          ) : (
+            slices.map((s) => <Path key={s.i} d={arc(s.a0, s.a1)} fill={s.color} />)
+          )}
+        </Svg>
+        {isDonut && (props.centerLabel != null || props.centerValue != null) && (
+          <View style={styles.pieCenter} pointerEvents="none">
+            {props.centerValue != null && <Text style={styles.pieCenterValue}>{String(props.centerValue)}</Text>}
+            {props.centerLabel != null && <Text style={styles.pieCenterLabel}>{String(props.centerLabel)}</Text>}
+          </View>
+        )}
+      </View>
+      {showLegend && slices.length > 0 && (
+        <View style={{ gap: 7 }}>
+          {slices.map((s) => (
+            <View key={s.i} style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+              <Text style={styles.legendLabel} numberOfLines={1}>{String(s.d.label ?? "")}</Text>
+              <Text style={styles.legendValue}>{Math.round(s.frac * 100)}%</Text>
+            </View>
+          ))}
+        </View>
       )}
     </View>
   );
@@ -825,6 +917,14 @@ const styles = StyleSheet.create({
   emptySubtitle: { color: "#888", marginTop: 6, textAlign: "center" },
   countdown: { color: "#fff", fontSize: 24, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   confettiText: { fontSize: 96, textAlign: "center", marginTop: 60 },
+  // Pie / donut chart
+  pieCenter: { position: "absolute", alignItems: "center", justifyContent: "center" },
+  pieCenterValue: { color: "#fff", fontSize: 26, fontWeight: "800" },
+  pieCenterLabel: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 },
+  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  legendDot: { width: 10, height: 10, borderRadius: 3 },
+  legendLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13, minWidth: 96 },
+  legendValue: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "600", fontVariant: ["tabular-nums"] },
 });
 
 export const REGISTRY_V3: Record<string, React.ComponentType<CompProps>> = {
@@ -832,6 +932,7 @@ export const REGISTRY_V3: Record<string, React.ComponentType<CompProps>> = {
   Collapsible, StickyHeader, SwipeableRow, PullToRefresh, SafeArea, Tabs,
   Switch, Slider: SliderC, Stepper, SegmentedControl, SearchField, Picker, DatePicker,
   LineChart, BarChart, Sparkline, ProgressRing, Gauge, StatCard, Waveform,
+  PieChart, DonutChart: PieChart,
   Video, Audio, Camera, QRScanner, ImagePickerButton, Avatar, AvatarStack,
   Toast, Snackbar, LoadingSkeleton, Confetti, Rating, EmptyState, Countdown, LottieAnimation,
   WebView: WebViewC, SVG: SVGC, Gradient, BlurBackground, QRCode: QRCodeC,
