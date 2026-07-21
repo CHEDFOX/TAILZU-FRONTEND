@@ -86,8 +86,23 @@ export async function health(): Promise<{ status: string; service: string; versi
 
 // --- Typing: refine typed text ---------------------------------------------
 
-export async function refine(text: string, opts: Options = {}): Promise<{ refinedText: string; usage: Usage }> {
-  return jsonPost("/v1/refine", { text, ...opts });
+const LLM_TONES = new Set(["formal", "casual", "very-casual", "excited"]);
+
+export async function refine(
+  text: string,
+  opts: Options & { tone?: string } = {},
+): Promise<{ refinedText: string; usage: Usage }> {
+  const { tone, ...rest } = opts;
+  // Route to the per-tone endpoint like the keyboard does, so the refine runs in
+  // the selected tone. "none" → the basic/skip-refine endpoint; a known LLM tone
+  // → its dedicated route; anything else → the catch-all /v1/refine.
+  const toneId = String(tone ?? "").trim().toLowerCase().replace(/\s+/g, "-");
+  const path = LLM_TONES.has(toneId)
+    ? `/v1/refine/${toneId}`
+    : toneId === "none"
+      ? "/v1/refine/none"
+      : "/v1/refine";
+  return jsonPost(path, { text, ...rest });
 }
 
 // --- Voice: transcribe + clean an audio clip (REST, one-shot) ---------------

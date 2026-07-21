@@ -14,7 +14,7 @@
  * interaction is haptic-tuned.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable } from "react-native";
+import { Animated, Pressable, Easing } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
@@ -461,9 +461,45 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
   const [working, setWorking] = useState(false);
   const W = Number(props.width) || 150;
   const H = Number(props.height) || 50;
+  const label = String(props.label ?? "Refine");
 
   const errEmpty = String(props.errorEmpty ?? "Type or speak something first");
   const errFail = String(props.errorFail ?? "refine failed");
+
+  // Suction physics: on press the "Refine" text is SUCKED into the button —
+  // scaling to a point, sinking down, and fading; while the backend refines, a
+  // small pulse sits where it vanished; when the refined text arrives it springs
+  // back out (reverse suction). All native-driver so it stays 60fps.
+  const scale = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const sink = useRef(new Animated.Value(0)).current;   // 0 = at rest, 1 = sunk into the button
+  const dot = useRef(new Animated.Value(0)).current;    // working pulse
+  const pulse = useRef<Animated.CompositeAnimation | null>(null);
+
+  const suckIn = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(scale, { toValue: 0.08, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0, duration: 230, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      Animated.timing(sink, { toValue: 1, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+    ]).start(() => {
+      Animated.timing(dot, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+      pulse.current = Animated.loop(Animated.sequence([
+        Animated.timing(dot, { toValue: 0.35, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(dot, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]));
+      pulse.current.start();
+    });
+  }, [scale, opacity, sink, dot]);
+
+  const springBack = useCallback(() => {
+    pulse.current?.stop();
+    Animated.timing(dot, { toValue: 0, duration: 120, useNativeDriver: true }).start();
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, friction: 6, tension: 150, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(sink, { toValue: 0, friction: 6, tension: 150, useNativeDriver: true }),
+    ]).start();
+  }, [scale, opacity, sink, dot]);
 
   const onPress = useCallback(async () => {
     if (recording || working) return;
@@ -471,8 +507,13 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
     if (!String(text).trim()) { fire("onError", errEmpty); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setWorking(true);
+    suckIn();
     try {
-      const { refinedText } = await api.refine(String(text), { targetApp: props.targetApp, language: props.language });
+      // Refine the CURRENT box text in the selected tone — press again to refine
+      // the result further (iterate until happy).
+      const { refinedText } = await api.refine(String(text), {
+        targetApp: props.targetApp, language: props.language, tone: props.tone,
+      });
       if (bindPath && refinedText) store.set(bindPath, refinedText);
       fire("onChange", refinedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -481,10 +522,30 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setWorking(false);
+      springBack();
     }
-  }, [recording, working, bindPath, store, props.targetApp, props.language, fire, errEmpty, errFail]);
+  }, [recording, working, bindPath, store, props.targetApp, props.language, props.tone, fire, errEmpty, errFail, suckIn, springBack]);
 
-  return <MorphPad width={W} height={H} working={working} recording={recording} onPress={onPress} disabled={recording || working} bg={props.bg} stroke={props.stroke} />;
+  const translateY = sink.interpolate({ inputRange: [0, 1], outputRange: [0, H * 0.34] });
+  const bg = String(props.bg ?? "#FFFFFF");
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={recording || working}
+      style={{ width: W, height: H, borderRadius: H / 2, backgroundColor: bg, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+    >
+      <Animated.Text
+        style={{ color: "#000000", fontWeight: "700", fontSize: 16, letterSpacing: 0.5, opacity, transform: [{ scale }, { translateY }] }}
+      >
+        {label}
+      </Animated.Text>
+      <Animated.View
+        pointerEvents="none"
+        style={{ position: "absolute", width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#000000", opacity: dot, transform: [{ scale: dot }] }}
+      />
+    </Pressable>
+  );
 };
 
 // ── DraftButton — composes a reply via /v1/draft (message + intent → result) ──
