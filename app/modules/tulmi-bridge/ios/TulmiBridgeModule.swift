@@ -61,10 +61,19 @@ public class TulmiBridgeModule: Module {
     Function("consumeKeyboardDeepLink") { () -> String in
       let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       let path = d?.string(forKey: "tulmi.kb.pendingDeepLink") ?? ""
-      if !path.isEmpty {
-        d?.removeObject(forKey: "tulmi.kb.pendingDeepLink")
-        d?.removeObject(forKey: "tulmi.kb.pendingDeepLinkAt")
-      }
+      guard !path.isEmpty else { return "" }
+      // Only honor a RECENT tombstone. The keyboard writes this on a mic tap and
+      // tries to open the app; when that open fails (iOS often refuses it), the
+      // tombstone lingers and would otherwise fire on the NEXT, unrelated app
+      // launch — dumping the user on the flow-arm ("swipe back") screen out of
+      // nowhere. Always clear it; only return it if it's fresh (~45s), which
+      // covers "tapped the mic, then opened the app by hand" without hijacking a
+      // later normal open.
+      let at = d?.double(forKey: "tulmi.kb.pendingDeepLinkAt") ?? 0
+      let ageMs = Date().timeIntervalSince1970 * 1000 - at
+      d?.removeObject(forKey: "tulmi.kb.pendingDeepLink")
+      d?.removeObject(forKey: "tulmi.kb.pendingDeepLinkAt")
+      if at <= 0 || ageMs > 45_000 { return "" }
       return path
     }
 
