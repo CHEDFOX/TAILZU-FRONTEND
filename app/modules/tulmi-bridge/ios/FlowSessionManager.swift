@@ -114,6 +114,19 @@ final class FlowSessionManager: NSObject {
     // app stays alive so it can answer the keyboard's flow.start nudge instantly.
     startCapture()
 
+    // If the engine never started (mic permission not granted, another app
+    // holds the input, or the audio session failed to activate), do NOT publish
+    // a live session. The keyboard trusts `active` + heartbeat; a false-active
+    // session makes every mic tap animate into a dead mic and then fall back to
+    // the grey "open app" state — the exact "mic stopped responding, greys on
+    // every tap" regression. Surface the failure and stay inactive instead.
+    guard capturing else {
+      armed = false
+      publishInactive()
+      deactivateAudioSession()
+      return
+    }
+
     armed = true
     // Fresh session id so the keyboard can tell this is a NEW Flow Session and
     // reset its transcript-dedup counter. Each process restarts `seq` from 0, so
