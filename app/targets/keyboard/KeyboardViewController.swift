@@ -1049,6 +1049,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     flowRecording = true
     flowDictationToken &+= 1
     let token = flowDictationToken
+    let hbAtStart = flow.heartbeatStamp    // liveness baseline (see watchdog below)
     // Morph to the "finish" affordance (checkmark) — Wispr's tap-✓-to-end.
     micButton.imageView?.stopAnimating()
     micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
@@ -1056,17 +1057,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     setStatus("")                          // clear the "Tap to start Flow" hint
     sduiRenderer?.reflectDictating(true)   // particles burst — recording
     flow.startDictation()                  // nudge the app to begin capturing
-    // Dead-app watchdog. isSessionActive gates on a ~4s-fresh heartbeat, but if
-    // the app was force-quit only a second or two before this tap, its last
-    // heartbeat can still look fresh — so the tap slips past and we're now
-    // "recording" into a dead app that captures nothing. The heartbeat stops the
-    // instant the process dies, so it's stale within ~1-2s; re-check just after
-    // that window and, if the session is no longer live, bail the animation and
-    // re-arm. (Independent of transcripts, so it works with kb.mic.liveText off,
-    // where no partials arrive during recording.)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in
+    // Liveness confirm (fixes "animates but records nothing" / "records with no
+    // app alive"). A LIVE app keeps stamping its heartbeat ~1×/sec after we nudge
+    // it, so within ~1.3s the stamp MUST advance. If it hasn't advanced — or the
+    // session already reads inactive — the app is force-quit/suspended and we're
+    // animating into a dead mic: bail and re-open to re-arm. This "did it advance"
+    // test is what the old absolute-age check missed: a just-died app's last
+    // stamp can still look fresh for a couple of seconds, so the tap slipped past.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { [weak self] in
       guard let self = self, self.flowRecording, token == self.flowDictationToken else { return }
-      if !self.flow.isSessionActive { self.abandonDeadFlowDictation() }
+      if !self.flow.isSessionActive || self.flow.heartbeatStamp == hbAtStart {
+        self.abandonDeadFlowDictation()
+      }
     }
   }
 
