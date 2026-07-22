@@ -1435,6 +1435,34 @@ final class SDUIRenderer: NSObject {
         keyPlane = plane
       }
     }
+    // Build stamp — added LAST so it sits on top of the tree + plane. A small
+    // corner marker that proves whether THIS binary is the one running: if iOS
+    // is serving a cached old keyboard extension (the usual reason "updates do
+    // nothing"), you won't see it. Bump `buildStamp` every build. Hide via
+    // kb.buildStamp.enabled=false once delivery is confirmed working.
+    addBuildStamp(to: container)
+  }
+
+  /// Bump this string on every build so the on-screen marker changes — that's
+  /// how you tell a freshly-loaded extension from a cached old one.
+  private static let buildStamp = "K1"
+  private weak var buildStampLabel: UILabel?
+  private func addBuildStamp(to container: UIView) {
+    guard flagBool("kb.buildStamp.enabled", true) else { return }
+    buildStampLabel?.removeFromSuperview()
+    let l = UILabel()
+    l.text = Self.buildStamp
+    l.font = .systemFont(ofSize: 9, weight: .heavy)
+    l.textColor = UIColor.systemOrange.withAlphaComponent(0.9)
+    l.isUserInteractionEnabled = false   // never intercepts key touches
+    l.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(l)
+    container.bringSubviewToFront(l)
+    NSLayoutConstraint.activate([
+      l.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -5),
+      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
+    ])
+    buildStampLabel = l
   }
 
   /// Public hook — actions call this after mutating KBState.
