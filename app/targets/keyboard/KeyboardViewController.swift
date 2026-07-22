@@ -596,6 +596,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     space.titleLabel?.font = .systemFont(ofSize: 14)
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
+    // Native-style trackpad cursor: hold the space bar (~0.25s), then slide to
+    // move the text cursor. A quick tap still inserts a space; once the
+    // long-press recognizes, cancelsTouchesInView stops the held space from also
+    // inserting one. allowableMovement is unbounded so a jittery hold still
+    // enters trackpad mode. Horizontal travel maps to character-offset moves.
+    let spaceCursor = UILongPressGestureRecognizer(target: self, action: #selector(spaceCursorPan(_:)))
+    spaceCursor.minimumPressDuration = 0.25
+    spaceCursor.allowableMovement = .greatestFiniteMagnitude
+    space.addGestureRecognizer(spaceCursor)
     let ret = makeKeyButton(title: "return")
     ret.backgroundColor = .white            // white "button" (overridden by cfg.accent)
     ret.setTitleColor(.black, for: .normal) // dark text for contrast on white/light accents
@@ -873,6 +882,37 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   @objc private func symbolToggleTapped() {
     page = (page == .numbers) ? .symbols : .numbers
     rebuildKeyArea()
+  }
+
+  // MARK: - Space-bar trackpad cursor (native "hold space → slide" behavior)
+
+  private var spaceCursorLastX: CGFloat = 0
+  private var spaceCursorAccumX: CGFloat = 0
+
+  @objc private func spaceCursorPan(_ gr: UILongPressGestureRecognizer) {
+    switch gr.state {
+    case .began:
+      spaceCursorLastX = gr.location(in: view).x
+      spaceCursorAccumX = 0
+      UISelectionFeedbackGenerator().selectionChanged()
+    case .changed:
+      let x = gr.location(in: view).x
+      spaceCursorAccumX += x - spaceCursorLastX
+      spaceCursorLastX = x
+      // ~9 points of finger travel per one-character cursor move (tuned to feel
+      // like the system keyboard). adjustTextPosition wraps across lines.
+      let step: CGFloat = 9
+      while spaceCursorAccumX >= step {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+        spaceCursorAccumX -= step
+      }
+      while spaceCursorAccumX <= -step {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+        spaceCursorAccumX += step
+      }
+    default:
+      break
+    }
   }
 
   @objc private func spaceTapped() {
