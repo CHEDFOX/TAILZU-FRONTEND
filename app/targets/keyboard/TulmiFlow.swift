@@ -38,9 +38,18 @@ final class TulmiFlow: NSObject {
   }
 
   /// How fresh the app's liveness heartbeat must be for the session to count as
-  /// live. The app stamps it ~1×/sec; 4s tolerates a couple of missed ticks
-  /// while still catching a force-quit within a few seconds.
-  static let heartbeatMaxAgeMs = 4000.0
+  /// live. The app stamps it ~1×/sec. 4s was too lax — it left a multi-second
+  /// window after a force-quit/suspend where the last stamp still looked fresh,
+  /// so a tap in that window animated into a dead mic. 2.5s tolerates a missed
+  /// tick or two but closes that window fast.
+  static let heartbeatMaxAgeMs = 2500.0
+
+  /// The raw heartbeat timestamp (ms). The keyboard captures this at dictation
+  /// start and re-checks shortly after: a LIVE app keeps stamping (the value
+  /// advances), a force-quit/suspended one leaves it frozen. That "did it
+  /// advance?" check is far more reliable than an absolute-age check, which a
+  /// just-died app can still pass for a couple of seconds.
+  var heartbeatStamp: Double { store?.double(forKey: "tulmi.flow.heartbeat") ?? 0 }
 
   /// True when the app has a live Flow Session — armed, not idle-expired, AND
   /// its liveness heartbeat is fresh. The heartbeat is the crux: a FORCE-QUIT
