@@ -1263,7 +1263,10 @@ final class WeakGRProxy: NSObject {
 
 final class SDUIRenderer: NSObject {
   private weak var host: KBHostControllerProtocol?
-  private let config: KBConfig
+  // var (not let) so a freshly-fetched config can be swapped into the LIVE
+  // renderer via updateConfig() — without it, a backend deploy could never
+  // reach a running keyboard, only a future extension-process launch.
+  private var config: KBConfig
   private let state = KBState()
 
   /// The container view we mount into (owned by the host controller).
@@ -1338,6 +1341,24 @@ final class SDUIRenderer: NSObject {
     mountContainer = container
     // Apply theme.backgroundEffect / backgroundColor to the container itself.
     applyRootBackground(to: container)
+    remount()
+  }
+
+  /// Swap in a freshly-fetched config and rebuild the tree in place. This is the
+  /// missing piece that let backend edits reach a LIVE keyboard: the host calls
+  /// it whenever a config refetch returns, so a deploy + cache bump takes effect
+  /// on the current session (after the refetch) instead of only on a future
+  /// extension-process launch — which iOS schedules unpredictably. State
+  /// (dictating, shift, tone…) is preserved; only the tree + theme are rebuilt.
+  func updateConfig(_ newConfig: KBConfig) {
+    config = newConfig
+    // If the active layout no longer exists in the new config, fall back to its
+    // first layout so remount() has a valid layoutId to render.
+    if let layouts = newConfig.layouts,
+       !layouts.contains(where: { $0.language == state.layoutId }) {
+      state.layoutId = layouts.first?.language ?? state.layoutId
+    }
+    if let container = mountContainer { applyRootBackground(to: container) }
     remount()
   }
 
