@@ -1104,15 +1104,41 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
     d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
-    // Try to open the app. The tombstone above is the reliable half — opening
-    // Tailzu (auto OR by hand) consumes it and arms Flow — so the message covers
-    // the case where iOS refuses the auto-open, instead of promising a swipe-back
-    // that never happens.
-    let opened = URL(string: "tulmi://s/flow_arm").map { openURLViaResponderChain($0) } ?? false
+    // The mic is a UIButton(type:.system): tapping it toward an app-switch can
+    // leave its auto-highlight stuck (the "greyed out, no response" you saw).
+    // Force it back to a clean, obviously-tappable state on every tap.
+    resetMicButtonAppearance()
+    // Try EVERY keyboard-legal way to open the app, not just one — iOS honors
+    // different ones on different versions/hosts. The App-Group tombstone above
+    // is the guaranteed half (opening Tailzu by hand also consumes it and arms
+    // Flow), so the message reflects whether the auto-open reported success.
+    let opened = attemptOpenApp(URL(string: "tulmi://s/flow_arm"))
     setStatus(opened
       ? label("flow_arming", "Turning on Flow — swipe back into your app.")
-      : label("flow_arm_manual", "Open Tailzu once to turn on Flow, then come back."),
+      : label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
       actionable: true)
+  }
+
+  /// Best-effort open of the containing app, trying each mechanism iOS might
+  /// allow from a keyboard extension. None is guaranteed by Apple, so we fire
+  /// them all and report whether the synchronous path claimed success.
+  @discardableResult
+  private func attemptOpenApp(_ url: URL?) -> Bool {
+    guard let url = url else { return false }
+    // 1) Responder-chain openURL: — the classic keyboard trick.
+    let viaChain = openURLViaResponderChain(url)
+    // 2) extensionContext.open — a second path some iOS versions honor. Async,
+    //    so its result can't factor into the return, but it's another chance.
+    extensionContext?.open(url, completionHandler: nil)
+    return viaChain
+  }
+
+  /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
+  /// after a tap that tried (and maybe failed) to switch apps.
+  private func resetMicButtonAppearance() {
+    micButton.isHighlighted = false
+    micButton.alpha = 1
+    micButton.backgroundColor = .white
   }
 
   private func beginMicHandoff() {
