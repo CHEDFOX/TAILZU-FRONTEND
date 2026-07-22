@@ -393,6 +393,22 @@ export default function SduiApp() {
       // user who taps the keyboard right after opening the app never hits an
       // expired-JWT 401. Cheap + best-effort; safe before "ready".
       void syncKeyboardCredentials();
+      // Wispr-style warm-keeping: when the backend opts in
+      // (kb.flow.armOnForeground), re-arm the background Flow Session on every
+      // foreground so the keyboard dictates without reopening the app — the
+      // difference that makes the Wispr flow feel seamless. arm() is idempotent;
+      // the idle window is backend-tunable. This holds the mic in the background
+      // (recording indicator + battery), so it's a backend flag, OFF unless the
+      // backend explicitly turns it on.
+      if (bootRef.current?.flags?.["kb.flow.armOnForeground"] === true) {
+        void (async () => {
+          const [base, tok, lang] = await Promise.all([
+            getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+          ]);
+          const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
+          armFlowSession(base, tok ?? "dev", lang || "auto", idle);
+        })();
+      }
       if (phase !== "ready") return;
       // Consume whatever the keyboard left (mic-handoff record request or a
       // deep-link tombstone — it can't call openURL itself, so it drops a target
