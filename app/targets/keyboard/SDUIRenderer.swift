@@ -69,6 +69,31 @@ final class KeyRowStackView: UIStackView {
 }
 
 // =============================================================================
+// KeyHitButton — a key with an expanded touch target (hit slop).
+//
+// A plain UIButton commits on .touchUpInside, which re-checks the button's OWN
+// bounds at LIFT time. So a tap that lands in the ~6pt gap between keys — or a
+// finger that rolls a few points off the key before lifting (normal fast
+// typing) — is outside the bounds, fires .touchUpOutside, and the character is
+// silently dropped. That is the "shows feedback but only a firm, dead-center
+// tap actually types" bug.
+//
+// Expanding point(inside:) fixes BOTH ends: the row's gap-router (above) finds
+// this key on touch-DOWN, and the up-time bounds check now passes for near-key
+// / drifted touches, so the tap commits. Slop is backend-tunable via
+// kb.key.hitSlop.x / kb.key.hitSlop.y (0 = plain bounds). NOTE: must be created
+// with init(frame:) — UIButton.init(type:) does NOT return a subclass instance.
+// =============================================================================
+final class KeyHitButton: UIButton {
+  var hitSlop: UIEdgeInsets = .zero
+  override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    bounds.inset(by: UIEdgeInsets(
+      top: -hitSlop.top, left: -hitSlop.left, bottom: -hitSlop.bottom, right: -hitSlop.right
+    )).contains(point)
+  }
+}
+
+// =============================================================================
 // KeyPlaneView — optional (kb.keyPlane.enabled) multi-touch layer over the
 // character keys.
 //
@@ -3191,7 +3216,16 @@ final class SDUIRenderer: NSObject {
   ///   - Press-down visual highlight (Apple's inversion swap) via touch handlers
   ///   - Sound + haptic on touch-down (Full Access gated)
   private func makeKeyButton() -> UIButton {
-    let b = UIButton(type: .system)
+    // KeyHitButton (via init(frame:), NOT UIButton(type:.system) — that factory
+    // doesn't return the subclass) so the expanded touch target below actually
+    // applies. Every visual is set explicitly below, so .custom looks identical
+    // to the old .system key. The hit slop pushes each key's tappable area into
+    // the gaps + absorbs finger drift — the fix for "only a firm, dead-center
+    // tap types". Tunable OTA via kb.key.hitSlop.x / .y.
+    let b = KeyHitButton(frame: .zero)
+    b.hitSlop = UIEdgeInsets(
+      top: flagCGFloat("kb.key.hitSlop.y", 8), left: flagCGFloat("kb.key.hitSlop.x", 5),
+      bottom: flagCGFloat("kb.key.hitSlop.y", 8), right: flagCGFloat("kb.key.hitSlop.x", 5))
     b.setTitleColor(keyTextColor(), for: .normal)
     b.titleLabel?.font = .systemFont(ofSize: 18)
     let base = keyBgColor()
