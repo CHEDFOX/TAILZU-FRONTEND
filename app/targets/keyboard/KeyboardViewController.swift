@@ -1226,28 +1226,26 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// opening the app by hand still arms Flow.
   @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
-    // Find the REAL UIApplication in the responder chain and call the MODERN
-    // open(_:options:completionHandler:) on it — this is EXACTLY what opened the
-    // app in build 38. A later "fix" swapped this for perform("openURL:") (the
-    // DEPRECATED selector, matched on any responder that answers it); on modern
-    // iOS that selector is unreliable through perform, and "responds to openURL:"
-    // can land on a non-UIApplication responder that swallows the call — that's
-    // the regression that stopped the button opening the app. Cast + open() is
-    // the trick shipping keyboards actually use, and it's what worked here before.
+    // Walk the responder chain for the first responder that services openURL:
+    // (UIApplication does) and perform it — the exact form that shipped as
+    // build 38 and opened the app most of the time.
+    //
+    // TWO deliberate choices, both learned the hard way:
+    //  • Match by CAPABILITY (responds(to:)), NOT `as? UIApplication`. That cast
+    //    almost never matches in a keyboard extension's responder chain, so it
+    //    returns false and the app never opens.
+    //  • Invoke via perform(), NOT a direct app.open(_:options:completionHandler:).
+    //    open() is NS_EXTENSION_UNAVAILABLE, so a direct call FAILS the real
+    //    app-extension build — even though the CI's plain `swiftc -typecheck`
+    //    (no -application-extension) lets it pass. perform() bypasses that at
+    //    runtime and is how shipping keyboards do it.
+    let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
     while let r = responder {
-      if let app = r as? UIApplication {
-        app.open(url, options: [:], completionHandler: nil)
+      if r.responds(to: sel) {
+        _ = r.perform(sel, with: url)
         return true
       }
-      responder = r.next
-    }
-    // Last-ditch fallback: no UIApplication surfaced in the chain (rare on some
-    // hosts) — try the deprecated openURL: on anything that services it.
-    let sel = NSSelectorFromString("openURL:")
-    responder = self
-    while let r = responder {
-      if r.responds(to: sel) { r.perform(sel, with: url); return true }
       responder = r.next
     }
     return false
