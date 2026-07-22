@@ -1226,24 +1226,31 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// opening the app by hand still arms Flow.
   @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
-    // Walk the WHOLE responder chain and invoke openURL: on EVERY responder that
-    // answers it — do NOT stop at the first. The first responder that declares
-    // openURL: is often NOT the real UIApplication (intermediate responders can
-    // declare their own openURL:), so returning at the first one meant the actual
-    // opener was never reached on some hosts — the "works sometimes" part.
-    // Calling every responder that responds guarantees UIApplication is hit; the
-    // non-openers no-op harmlessly. `attempted` = we called it on at least one.
-    let sel = NSSelectorFromString("openURL:")
+    // Find the REAL UIApplication in the responder chain and call the MODERN
+    // open(_:options:completionHandler:) on it — this is EXACTLY what opened the
+    // app in build 38. A later "fix" swapped this for perform("openURL:") (the
+    // DEPRECATED selector, matched on any responder that answers it); on modern
+    // iOS that selector is unreliable through perform, and "responds to openURL:"
+    // can land on a non-UIApplication responder that swallows the call — that's
+    // the regression that stopped the button opening the app. Cast + open() is
+    // the trick shipping keyboards actually use, and it's what worked here before.
     var responder: UIResponder? = self
-    var attempted = false
     while let r = responder {
-      if r.responds(to: sel) {
-        r.perform(sel, with: url)
-        attempted = true
+      if let app = r as? UIApplication {
+        app.open(url, options: [:], completionHandler: nil)
+        return true
       }
       responder = r.next
     }
-    return attempted
+    // Last-ditch fallback: no UIApplication surfaced in the chain (rare on some
+    // hosts) — try the deprecated openURL: on anything that services it.
+    let sel = NSSelectorFromString("openURL:")
+    responder = self
+    while let r = responder {
+      if r.responds(to: sel) { r.perform(sel, with: url); return true }
+      responder = r.next
+    }
+    return false
   }
 
   /// The bundle identifier of the host app (the app the keyboard is inside).
