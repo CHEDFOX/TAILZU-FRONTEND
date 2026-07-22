@@ -1167,12 +1167,20 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   @discardableResult
   private func attemptOpenApp(_ url: URL?) -> Bool {
     guard let url = url else { return false }
-    // 1) Responder-chain openURL: — the classic keyboard trick.
-    let viaChain = openURLViaResponderChain(url)
-    // 2) extensionContext.open — a second path some iOS versions honor. Async,
-    //    so its result can't factor into the return, but it's another chance.
+    // The responder-chain openURL: is the trick that actually opens the app from
+    // a keyboard extension — this is how build 38 opened it, most of the time.
+    // Try it FIRST and ONLY fall back to extensionContext.open when the chain
+    // found no opener. REGRESSION FIX: firing extensionContext.open
+    // unconditionally right after a successful chain open (added later) issued a
+    // competing open-request for the same URL that suppressed the app switch
+    // already in flight — that's what stopped the button opening the app.
+    if openURLViaResponderChain(url) { return true }
+    // Chain found nothing that services openURL: — last-ditch fallback.
+    // extensionContext.open is really a Today-extension API and usually no-ops
+    // for keyboards, but as a final attempt (when nothing else fired) it can't
+    // step on a switch that isn't happening.
     extensionContext?.open(url, completionHandler: nil)
-    return viaChain
+    return false
   }
 
   /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
@@ -1218,21 +1226,24 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// opening the app by hand still arms Flow.
   @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
+    // Walk the WHOLE responder chain and invoke openURL: on EVERY responder that
+    // answers it — do NOT stop at the first. The first responder that declares
+    // openURL: is often NOT the real UIApplication (intermediate responders can
+    // declare their own openURL:), so returning at the first one meant the actual
+    // opener was never reached on some hosts — the "works sometimes" part.
+    // Calling every responder that responds guarantees UIApplication is hit; the
+    // non-openers no-op harmlessly. `attempted` = we called it on at least one.
     let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
+    var attempted = false
     while let r = responder {
       if r.responds(to: sel) {
-        // Honor the ACTUAL result instead of returning true just because a
-        // responder RESPONDS to openURL: (the old over-claim — "works
-        // sometimes"). openURL: returns BOOL, which surfaces through perform as
-        // a non-nil unmanaged result for YES and nil for NO; read it that way
-        // rather than dereferencing the raw BOOL as an object (which can crash).
-        let result = r.perform(sel, with: url)
-        return result != nil
+        r.perform(sel, with: url)
+        attempted = true
       }
       responder = r.next
     }
-    return false
+    return attempted
   }
 
   /// The bundle identifier of the host app (the app the keyboard is inside).
