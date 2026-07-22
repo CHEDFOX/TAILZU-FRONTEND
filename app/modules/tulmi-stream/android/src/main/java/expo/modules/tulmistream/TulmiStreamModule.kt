@@ -178,16 +178,26 @@ private class Streamer(
     }
   }
 
+  @Synchronized
   private fun stopCapture() {
-    // Signal the loop to exit and JOIN before releasing the AudioRecord — the
-    // mic thread blocks in rec.read(), and releasing native memory out from
-    // under an in-flight read is a use-after-free crash.
+    // Idempotent — finish()/cancel()/onClosed/onError can all land here from
+    // different threads; @Synchronized + this guard stop a double stop/release.
+    if (record == null && captureThread == null) return
     capturing = false
-    captureThread?.let { t -> try { t.join(700) } catch (_: InterruptedException) {} }
-    captureThread = null
-    try { record?.stop() } catch (_: Exception) {}
-    try { record?.release() } catch (_: Exception) {}
-    record = null
+    // Snapshot + detach so a concurrent caller can't touch the same refs.
+    val t = captureThread; captureThread = null
+    val rec = record; record = null
+    // Release on a teardown thread AFTER an UNBOUNDED join. The mic thread blocks
+    // in rec.read(); it exits only once that read returns (capturing is now
+    // false). The OLD bounded join(700) released the AudioRecord even if the
+    // join timed out — freeing native mic memory out from under an in-flight
+    // read = use-after-free crash. An unbounded join guarantees the read has
+    // returned before release; off the caller thread so stop() doesn't block.
+    thread(name = "tulmi-mic-teardown") {
+      try { t?.join() } catch (_: InterruptedException) {}
+      try { rec?.stop() } catch (_: Exception) {}
+      try { rec?.release() } catch (_: Exception) {}
+    }
   }
 
   fun finish() {
