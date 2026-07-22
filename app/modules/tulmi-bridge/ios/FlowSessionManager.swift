@@ -48,6 +48,22 @@ final class FlowSessionManager: NSObject {
   private var armed = false
   private var capturing = false   // AVAudioEngine tap is live (runs continuously while armed)
   private var dictating = false   // a single utterance is currently streaming to the server
+
+  /// Guards the two OBJECT refs the realtime audio thread (sendBuffer) reads
+  /// while the main thread frees them: `task` and `converter`. Reading an object
+  /// reference while another thread writes it is undefined in Swift and can
+  /// over-release → use-after-free crash. The audio callback snapshots both under
+  /// this lock into strong locals, so they survive even if main nils the
+  /// originals the next instant. `dictating` is a Bool (atomic word read), so it
+  /// stays lock-free. NSLock works on every deployment target; the tap holds it
+  /// only for a two-pointer copy, so the realtime cost is negligible.
+  private let avLock = NSLock()
+  private func captureAV() -> (AVAudioConverter?, URLSessionWebSocketTask?) {
+    avLock.lock(); defer { avLock.unlock() }
+    return (converter, task)
+  }
+  private func setTask(_ t: URLSessionWebSocketTask?) { avLock.lock(); task = t; avLock.unlock() }
+  private func setConverter(_ c: AVAudioConverter?) { avLock.lock(); converter = c; avLock.unlock() }
   private var idleTimer: Timer?
   private var idleTimeout: TimeInterval = 300  // 5 min default; backend overrides
   private var baseUrl = ""
@@ -213,7 +229,7 @@ final class FlowSessionManager: NSObject {
     finishing = false
     pendingClose = nil
     stopCapture()   // only now do we tear the engine down — end of the session
-    task?.cancel(with: .goingAway, reason: nil); task = nil
+    task?.cancel(with: .goingAway, reason: nil); setTask(nil)
     armed = false
     publishInactive()
     deactivateAudioSession()
@@ -279,7 +295,7 @@ final class FlowSessionManager: NSObject {
   private func finalizeClose(_ closing: URLSessionWebSocketTask) {
     guard task === closing else { return }
     closing.cancel(with: .normalClosure, reason: nil)
-    task = nil
+    setTask(nil)
     pendingClose = nil
     finishing = false
   }
@@ -301,7 +317,7 @@ final class FlowSessionManager: NSObject {
     // window — a fresh dictation makes the old tail moot, and its watchdog /
     // terminal-close then no-ops via the identity guard in finalizeClose().
     if let old = task { old.cancel(with: .normalClosure, reason: nil) }
-    task = nil
+    setTask(nil)
     pendingClose = nil
     finishing = false
     // Re-read the freshest bearer from the shared Keychain on every open. The
@@ -315,7 +331,7 @@ final class FlowSessionManager: NSObject {
     var req = URLRequest(url: url)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let t = urlSession.webSocketTask(with: req)
-    task = t
+    setTask(t)
     t.resume()
     receiveLoop()
     let start: [String: Any] = [
@@ -395,7 +411,7 @@ final class FlowSessionManager: NSObject {
     let input = engine.inputNode
     try? input.setVoiceProcessingEnabled(true)
     let inputFormat = input.outputFormat(forBus: 0)
-    converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+    setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
     input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)
     }
@@ -422,7 +438,10 @@ final class FlowSessionManager: NSObject {
     // The engine runs continuously while armed, but we only forward audio to the
     // server DURING a dictation. Between utterances the captured buffers are
     // discarded here — their only job was to keep the app alive in the background.
-    guard dictating, let converter = converter, let task = task else { return }
+    guard dictating else { return }
+    // Snapshot the object refs under the lock so main can't free them mid-use.
+    let (snapConv, snapTask) = captureAV()
+    guard let converter = snapConv, let task = snapTask else { return }
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
     guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
