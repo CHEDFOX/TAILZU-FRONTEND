@@ -193,6 +193,14 @@ final class KeyPlaneView: UIView {
   // MARK: - Multi-touch
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // Re-derive key rects at the START of every touch sequence. layoutSubviews
+    // caches them too, but if the grid's layout settled AFTER that cache (or the
+    // cache was taken mid-animation), keyAt would match every finger against
+    // stale positions — mis-detecting keys and dropping all but dead-center taps.
+    // This is the fix for "the keyboard only responds to a hard touch on the key"
+    // AND poor fast-typing: detection is now always against live geometry.
+    // Cheap — a couple dozen convert() calls, once per finger-down.
+    refreshFrames()
     for t in touches {
       let hit = keyAt(t.location(in: self))
       tracks[ObjectIdentifier(t)] = Track(hit?.button, hit?.char)
