@@ -9,6 +9,38 @@ import { Store, useStoreVersion } from "./state";
 import { REGISTRY, resolveStyle, useTheme, CompProps } from "./components";
 import { Ctx, evalCondition, runAction } from "./actions";
 
+// Conditions a style value can carry (a subset of the SDUI Condition keys).
+const STYLE_COND_KEYS = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains",
+  "startsWith", "endsWith", "truthy", "falsy", "flag", "entitled", "platform",
+  "not", "all", "any"] as const;
+
+/**
+ * Resolve state-conditional style VALUES: a value shaped
+ * `{ <condition>, then, else }` becomes `then` or `else` based on the condition
+ * (evaluated live against state, so it re-resolves on every re-render). Lets the
+ * backend style a node by state — e.g. a selected plan card's border — which the
+ * paywall relies on. Values without a condition shape pass through untouched.
+ */
+function resolveStyleConditionals(
+  style: Record<string, any> | undefined,
+  ctx: Ctx,
+): Record<string, any> | undefined {
+  if (!style) return style;
+  let out: Record<string, any> | null = null;
+  for (const k of Object.keys(style)) {
+    const v = style[k];
+    if (
+      v && typeof v === "object" && !Array.isArray(v) &&
+      ("then" in v || "else" in v) &&
+      STYLE_COND_KEYS.some((c) => c in v)
+    ) {
+      if (!out) out = { ...style };
+      out[k] = evalCondition(v as any, ctx) ? v.then : v.else;
+    }
+  }
+  return out ?? style;
+}
+
 export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
   const theme = useTheme();
   useStoreVersion(ctx.store); // re-render when bound state changes
@@ -43,7 +75,7 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
     if (typeof v === "string" && v.startsWith("@")) props[k] = ctx.labels[v.slice(1)] ?? v.slice(1);
   }
 
-  const style = resolveStyle(node.style, theme);
+  const style = resolveStyle(resolveStyleConditionals(node.style, ctx), theme);
   const fire = (event: NodeEvent, value?: any) => {
     void runAction(node.on?.[event], { ...ctx, event: value });
   };
