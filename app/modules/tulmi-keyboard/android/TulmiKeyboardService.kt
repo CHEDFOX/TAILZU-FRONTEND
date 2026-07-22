@@ -564,19 +564,27 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         recording = false
         kbState.dictating = false
         sduiRenderer?.stateChanged()
+        stopMicLevelPolling()
+        // Detach the recorder/fx/file on the MAIN thread so a quick restart gets
+        // fresh instances, then do the BLOCKING teardown off-thread.
         val file = audioFile
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-        }
-        cleanupRecorder()
-        if (file == null || !file.exists()) {
-            setStatus(label("voice_not_listening", "444 : Not Listening"))
-            return
-        }
+        val rec = recorder; recorder = null
+        val fx = audioFx; audioFx = null
+        audioFile = null
         setStatus(label("transcribing", "Transcribing…"))
         val target = targetAppName()
         Thread {
+            // stop() finalizes the MP4 and reset()/release() free native
+            // resources — each can block hundreds of ms on the main thread
+            // (jank / ANR). Run them here, off the main thread. The file isn't a
+            // valid MP4 until stop() returns, so the existence check comes after.
+            try { rec?.stop() } catch (_: Exception) {}
+            try { rec?.reset(); rec?.release() } catch (_: Exception) {}
+            try { fx?.close() } catch (_: Throwable) {}
+            if (file == null || !file.exists()) {
+                main.post { setStatus(label("voice_not_listening", "444 : Not Listening")) }
+                return@Thread
+            }
             try {
                 val cleaned = Net.transcribeClean(file, target)
                 main.post {
