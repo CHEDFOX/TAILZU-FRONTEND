@@ -190,6 +190,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
     loadDictionary() // pick up edits made in the app
+    // Re-pull the server config on every appearance (throttled) so a backend
+    // deploy lands the next time the keyboard shows — without recreating the
+    // extension process or shipping a new build.
+    fetchRemoteConfig()
     // Reflect the Flow Session state each time the keyboard reappears — so after
     // the user arms in the app and swipes back, the button flips from "Start
     // Flow" to the live mic without needing another config fetch. No-op unless
@@ -270,6 +274,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }
       applySDUIIfAvailable(data)
     }
+    fetchRemoteConfig()
+  }
+
+  // Timestamp of the last remote config fetch — throttles the per-appearance
+  // refetch so a launch (viewDidLoad + viewWillAppear both firing) doesn't
+  // double-fetch, while still picking up a backend deploy on a later appearance.
+  private var lastConfigFetchAt: TimeInterval = 0
+
+  /// Fetch the latest keyboard config and apply it LIVE. Called on load AND on
+  /// every keyboard appearance (throttled 3s), so a backend deploy + cache bump
+  /// lands the next time the keyboard shows — no extension-process recreation and
+  /// no app rebuild. Only overwrites the cache on a genuine success (TulmiBackend
+  /// now rejects non-2xx), so an expired-token 401 can't clobber a good config.
+  private func fetchRemoteConfig() {
+    let now = Date().timeIntervalSince1970
+    guard now - lastConfigFetchAt > 3 else { return }
+    lastConfigFetchAt = now
     // [weak self]: this completion captures the controller across a network
     // round-trip. A strong capture pins the whole keyboard view tree alive for
     // the duration inside the extension's tight (~48–60 MB) memory budget.
@@ -288,11 +309,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// SDUIRenderer. Otherwise this is a no-op and the hand-built path remains
   /// on screen — that's the fallback contract.
   private func applySDUIIfAvailable(_ data: Data) {
-    guard sduiRenderer == nil,
-          let kb = SDUIRenderer.decodeConfig(data),
+    guard let kb = SDUIRenderer.decodeConfig(data),
           kb.features?.sdui == true,
-          let _ = kb.root
+          kb.root != nil
     else { return }
+    // Already mounted → push the fresh config into the LIVE renderer so a backend
+    // deploy applies on the current session (right after the refetch), instead of
+    // waiting for iOS to recreate the whole extension process — the core reason
+    // OTA config edits seemed never to land on the keyboard.
+    if let renderer = sduiRenderer {
+      renderer.updateConfig(kb)
+      return
+    }
     // Tear down the hand-built subtree (rows, top bar, callouts). The renderer
     // will mount its own subtree spanning the whole keyboard view. IMPORTANT:
     // detach statusLabel from mainStack BEFORE removing subviews so we can

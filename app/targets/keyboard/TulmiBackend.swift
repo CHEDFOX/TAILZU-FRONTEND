@@ -96,8 +96,18 @@ enum TulmiBackend {
     req.httpMethod = "GET"
     req.timeoutInterval = 30
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    URLSession.shared.dataTask(with: req) { data, _, error in
+    URLSession.shared.dataTask(with: req) { data, response, error in
       if let error = error { completion(.failure(error)); return }
+      // Reject non-2xx BEFORE the caller caches the body. Previously the status
+      // was ignored, so an auth-expired 401 (or a 5xx error page) was returned as
+      // ".success(errorBody)" and cached AS the config — parseConfig then failed
+      // and the keyboard fell back to stale/defaults. A failure here leaves the
+      // last-known-good cached config untouched.
+      if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        completion(.failure(BackendError.http(http.statusCode, body)))
+        return
+      }
       guard let data = data else { completion(.failure(BackendError.badResponse)); return }
       completion(.success(data))
     }.resume()
