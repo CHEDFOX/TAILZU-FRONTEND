@@ -1254,9 +1254,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// opening the app by hand still arms Flow.
   @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
-    // Walk the responder chain for the first responder that services openURL:
-    // (UIApplication does) and perform it — the exact form that shipped as
-    // build 38 and opened the app most of the time.
+    // Walk the ENTIRE responder chain and call openURL: on EVERY responder that
+    // services it — build 38's mechanism, made more reliable. Build 38 stopped
+    // at the FIRST responder that answered, which is often NOT the real
+    // UIApplication, so it opened only "sometimes". Hitting every responder that
+    // answers guarantees the real opener (UIApplication) is reached — the
+    // "sometimes → reliably" difference. Requires "Allow Full Access" ON.
     //
     // TWO deliberate choices, both learned the hard way:
     //  • Match by CAPABILITY (responds(to:)), NOT `as? UIApplication`. That cast
@@ -1269,14 +1272,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     //    runtime and is how shipping keyboards do it.
     let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
+    var opened = false
     while let r = responder {
       if r.responds(to: sel) {
-        _ = r.perform(sel, with: url)
-        return true
+        _ = r.perform(sel, with: url)   // real UIApplication → launches the app
+        opened = true                    // non-openers no-op; keep walking
       }
       responder = r.next
     }
-    return false
+    return opened
   }
 
   /// The bundle identifier of the host app (the app the keyboard is inside).
