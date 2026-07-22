@@ -1610,6 +1610,21 @@ final class SDUIRenderer: NSObject {
     // this identifies it uniquely without a per-node id.
     if node.bind?["content"] == "tone" {
       currentToneButton = btn
+      // Hold the tone pill → a tone sheet springs out of it (keyboard frosts
+      // behind it) so the user can jump straight to any tone instead of tapping
+      // to cycle. Live SDUI path — this is the control the user actually sees
+      // (the hand-built TulmiPersonalityRow sheet never mounts when sdui=true).
+      // List comes from configuredTones() (backend kb.tones); the whole gesture
+      // is disableable via kb.tone.sheet.enabled=false. cancelsTouchesInView
+      // (default true) suppresses the cycle-tap once the hold recognizes.
+      if flagBool("kb.tone.sheet.enabled", true) {
+        let lp = UILongPressGestureRecognizer(
+          target: WeakGRProxy(target: self, selector: #selector(toneSheetLongPress(_:))),
+          action: #selector(WeakGRProxy.handle(_:)))
+        lp.minimumPressDuration = flagDouble("kb.tone.sheet.longPressMs", 300) / 1000.0
+        lp.allowableMovement = 500
+        btn.addGestureRecognizer(lp)
+      }
     }
     let uppercased = state.shift || state.capsLock
     // Only apply case swap for single-character labels — multi-char titles
@@ -1874,6 +1889,129 @@ final class SDUIRenderer: NSObject {
       if !parts.isEmpty { return parts }
     }
     return ["Neutral", "Casual", "Formal", "Excited"]
+  }
+
+  // MARK: - Tone sheet (hold the tone pill → pick a tone directly)
+
+  private weak var toneSheetOverlay: UIView?
+  private weak var toneSheetBlur: UIVisualEffectView?
+
+  @objc private func toneSheetLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began, let anchor = gr.view as? UIButton else { return }
+    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    presentToneSheet(anchor: anchor)
+  }
+
+  private func presentToneSheet(anchor: UIButton) {
+    dismissToneSheet(animated: false)
+    guard let host = mountContainer else { return }
+
+    // 1) Frost the keyboard behind the sheet; tap the scrim to dismiss.
+    let blur = UIVisualEffectView(effect: nil)
+    blur.frame = host.bounds
+    blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    host.addSubview(blur)
+    blur.addGestureRecognizer(
+      UITapGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(toneScrimTapped(_:))),
+        action: #selector(WeakGRProxy.handle(_:))))
+    toneSheetBlur = blur
+
+    // 2) The tone list.
+    let container = UIView()
+    container.backgroundColor = UIColor(white: 0.09, alpha: 0.96)
+    container.layer.cornerRadius = 12
+    container.layer.shadowColor = UIColor.black.cgColor
+    container.layer.shadowOpacity = 0.35
+    container.layer.shadowRadius = 12
+    container.layer.shadowOffset = CGSize(width: 0, height: 6)
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let vstack = UIStackView()
+    vstack.axis = .vertical
+    vstack.spacing = 2
+    vstack.translatesAutoresizingMaskIntoConstraints = false
+    vstack.isLayoutMarginsRelativeArrangement = true
+    vstack.layoutMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+    container.addSubview(vstack)
+    NSLayoutConstraint.activate([
+      vstack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      vstack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      vstack.topAnchor.constraint(equalTo: container.topAnchor),
+      vstack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+
+    let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+    for tone in configuredTones() {
+      let btn = UIButton(type: .system)
+      let isActive = tone.caseInsensitiveCompare(state.tone) == .orderedSame
+      btn.setTitle(isActive ? "\(tone)  ✓" : tone, for: .normal)
+      btn.setTitleColor(isActive ? accent : .white, for: .normal)
+      btn.titleLabel?.font = .systemFont(ofSize: 14, weight: isActive ? .semibold : .medium)
+      btn.contentEdgeInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+      btn.contentHorizontalAlignment = .leading
+      let picked = tone
+      btn.addAction(UIAction { [weak self] _ in self?.selectTone(picked) }, for: .touchUpInside)
+      vstack.addArrangedSubview(btn)
+    }
+
+    host.addSubview(container)
+    let anchorFrame = anchor.convert(anchor.bounds, to: host)
+    // The tone pill sits in the tools row at the TOP of the keyboard, so the
+    // sheet DROPS DOWN over the (frosted) keys — going up would render above the
+    // keyboard's own frame, where an extension can't draw, and get clipped.
+    // Right-align to the pill (it lives on the right) and clamp to the host.
+    NSLayoutConstraint.activate([
+      container.trailingAnchor.constraint(equalTo: host.leadingAnchor, constant: anchorFrame.maxX),
+      container.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 8),
+      container.topAnchor.constraint(equalTo: host.topAnchor, constant: anchorFrame.maxY + 6),
+      container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+    ])
+    toneSheetOverlay = container
+
+    // 3) Suction pop: the sheet is "sucked out" of the pill — starts as a tiny
+    // point at the pill and springs to full size.
+    host.layoutIfNeeded()
+    container.alpha = 0
+    container.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.08, y: 0.08)
+    UIView.animate(withDuration: 0.16) { blur.effect = UIBlurEffect(style: .systemThinMaterialDark) }
+    UIView.animate(
+      withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0.6,
+      options: [.curveEaseOut, .allowUserInteraction],
+      animations: { container.alpha = 1; container.transform = .identity })
+  }
+
+  @objc private func toneScrimTapped(_ gr: UITapGestureRecognizer) {
+    dismissToneSheet(animated: true)
+  }
+
+  private func selectTone(_ tone: String) {
+    state.tone = tone
+    // Publish so the main app's tone-based refine prompt can read it — same
+    // side effects as the cycleTone action.
+    UserDefaults(suiteName: "group.com.tulmi.app")?.set(tone, forKey: "tulmi.kb.tone")
+    fireKeyHaptic()
+    dismissToneSheet(animated: true)
+    stateChanged()   // remount → the tone pill rebinds to the new state.tone
+  }
+
+  private func dismissToneSheet(animated: Bool) {
+    let overlay = toneSheetOverlay
+    let blur = toneSheetBlur
+    toneSheetOverlay = nil
+    toneSheetBlur = nil
+    guard animated, overlay != nil || blur != nil else {
+      overlay?.removeFromSuperview(); blur?.removeFromSuperview(); return
+    }
+    UIView.animate(
+      withDuration: 0.2, delay: 0, options: [.curveEaseIn],
+      animations: {
+        overlay?.alpha = 0
+        overlay?.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.08, y: 0.08)
+        blur?.effect = nil
+        blur?.alpha = 0
+      },
+      completion: { _ in overlay?.removeFromSuperview(); blur?.removeFromSuperview() })
   }
 
   /// English accent map. Order matches Apple's stock keyboard. When a locale
