@@ -1,0 +1,81 @@
+name: desktop-build
+
+# Builds the desktop installers on GitHub's runners — including the macOS .dmg,
+# which can ONLY be built on a Mac (electron-builder can't cross-build it).
+# This removes the "need to own a Mac" problem: run the workflow, download the
+# artifacts from the run page, scp them into ~/tulmi/downloads/ on the server,
+# and the /download page picks them up (stable filenames, no link changes).
+#
+# Runs on any push touching desktop/, or manually from the Actions tab
+# ("Run workflow").
+
+on:
+  push:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch: {}
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build .dmg
+        working-directory: desktop
+        env:
+          # No signing cert in CI — skip electron-builder's identity discovery
+          # so the build produces an UNSIGNED dmg instead of failing. Users
+          # open it via right-click → Open (Gatekeeper). Wire a Developer ID
+          # cert + notarization here later for frictionless installs.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm install
+          npm run icon
+          npx electron-builder --mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tailzu-mac
+          path: desktop/dist/Tailzu.dmg
+          if-no-files-found: error
+
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build installer
+        working-directory: desktop
+        run: |
+          npm install
+          npm run icon
+          npx electron-builder --win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tailzu-win
+          path: desktop/dist/Tailzu-Setup.exe
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build AppImage
+        working-directory: desktop
+        run: |
+          npm install
+          npm run icon
+          npx electron-builder --linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tailzu-linux
+          path: desktop/dist/Tailzu.AppImage
+          if-no-files-found: error
