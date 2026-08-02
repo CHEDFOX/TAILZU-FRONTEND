@@ -130,6 +130,10 @@ final class KeyPlaneView: UIView {
   }
   private var tracks: [ObjectIdentifier: Track] = [:]
 
+  /// True while any finger is down on the plane. The renderer defers config
+  /// remounts on this — swapping the tree mid-touch dropped the keystroke.
+  var hasActiveTouches: Bool { !tracks.isEmpty }
+
   /// Key frames in this view's coordinate space, refreshed on layout.
   private var frames: [(button: UIButton, char: String, rect: CGRect)] = []
 
@@ -1351,6 +1355,12 @@ final class SDUIRenderer: NSObject {
   /// extension-process launch — which iOS schedules unpredictably. State
   /// (dictating, shift, tone…) is preserved; only the tree + theme are rebuilt.
   func updateConfig(_ newConfig: KBConfig) {
+    // Short-circuit when nothing changed: the per-appearance refetch returns the
+    // SAME cacheVersion most of the time, and a no-op remount still cancels any
+    // in-flight key touch (silent dropped keystroke). Only rebuild on a real bump.
+    if let old = config.cacheVersion, let new_ = newConfig.cacheVersion, old == new_ {
+      return
+    }
     config = newConfig
     // If the active layout no longer exists in the new config, fall back to its
     // first layout so remount() has a valid layoutId to render.
@@ -1359,6 +1369,23 @@ final class SDUIRenderer: NSObject {
       state.layoutId = layouts.first?.language ?? state.layoutId
     }
     if let container = mountContainer { applyRootBackground(to: container) }
+    remountWhenIdle()
+  }
+
+  /// Remount, but never mid-touch: swapping the tree under an active finger
+  /// cancels the in-flight UIControl touch (dropped keystroke) and can let the
+  /// detached KeyPlaneView commit a key from the old tree. Wait for the plane
+  /// to go idle (bounded retries so a rest-a-finger user can't stall forever).
+  private var pendingRemountRetries = 0
+  private func remountWhenIdle() {
+    if keyPlane?.hasActiveTouches == true, pendingRemountRetries < 20 {
+      pendingRemountRetries += 1
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+        self?.remountWhenIdle()
+      }
+      return
+    }
+    pendingRemountRetries = 0
     remount()
   }
 
@@ -1366,6 +1393,10 @@ final class SDUIRenderer: NSObject {
   /// keyboard tree is tiny (~40 nodes).
   private func remount() {
     guard let container = mountContainer, let root = config.root else { return }
+    // An open tone sheet would be buried alive by the fresh tree (it and its
+    // scrim are siblings of mountedRoot): invisible, unresponsive, and leaked
+    // until the next present. Close it before rebuilding.
+    dismissToneSheet(animated: false)
     mountedRoot?.removeFromSuperview()
     keyPlane?.removeFromSuperview()   // rebuilt below if kb.keyPlane.enabled
     // Drop any visible key-pop balloon so a mid-touch rebuild can't orphan it
@@ -1448,7 +1479,12 @@ final class SDUIRenderer: NSObject {
   private static let buildStamp = "K1"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
-    guard flagBool("kb.buildStamp.enabled", true) else { return }
+    // Default FALSE: a debug marker must never ship visible in a store build
+    // (with default true it appeared on offline first-run / any config miss).
+    // To verify a new binary loaded, flip kb.buildStamp.enabled=true on the
+    // backend (OTA) — the stamp appearing then proves BOTH the binary carries
+    // this code AND live config delivery works — and flip it back off after.
+    guard flagBool("kb.buildStamp.enabled", false) else { return }
     buildStampLabel?.removeFromSuperview()
     let l = UILabel()
     l.text = Self.buildStamp
@@ -3281,8 +3317,13 @@ final class SDUIRenderer: NSObject {
     // tap types". Tunable OTA via kb.key.hitSlop.x / .y.
     let b = KeyHitButton(frame: .zero)
     b.hitSlop = UIEdgeInsets(
-      top: flagCGFloat("kb.key.hitSlop.y", 8), left: flagCGFloat("kb.key.hitSlop.x", 5),
-      bottom: flagCGFloat("kb.key.hitSlop.y", 8), right: flagCGFloat("kb.key.hitSlop.x", 5))
+      // x defaults to HALF the inter-key gap (gap 5 → 2): at slop ≥ gap the two
+      // neighbors' expanded targets both cover the whole gap, UIKit's reverse-
+      // order hitTest always hands the gap to the RIGHT key, and the row's
+      // nearest-key midpoint routing never runs — a systematic rightward
+      // mistype bias. Half-gap keeps forgiveness without overlap.
+      top: flagCGFloat("kb.key.hitSlop.y", 8), left: flagCGFloat("kb.key.hitSlop.x", 2),
+      bottom: flagCGFloat("kb.key.hitSlop.y", 8), right: flagCGFloat("kb.key.hitSlop.x", 2))
     b.setTitleColor(keyTextColor(), for: .normal)
     b.titleLabel?.font = .systemFont(ofSize: 18)
     let base = keyBgColor()

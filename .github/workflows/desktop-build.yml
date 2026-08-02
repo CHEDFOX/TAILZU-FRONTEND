@@ -33,9 +33,12 @@ jobs:
           # cert + notarization here later for frictionless installs.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
-          npm install
+          npm ci
           npm run icon
-          npx electron-builder --mac
+          # --universal: macos-latest runners are arm64; a plain build would ship
+          # an arm64-only dmg that Intel Macs can't open. Universal lipo-merges
+          # both arches (per-arch .node prebuilds allowed via mac.x64ArchFiles).
+          npx electron-builder --mac --universal
       - uses: actions/upload-artifact@v4
         with:
           name: Tailzu-mac
@@ -52,7 +55,7 @@ jobs:
       - name: Build installer
         working-directory: desktop
         run: |
-          npm install
+          npm ci
           npm run icon
           npx electron-builder --win
       - uses: actions/upload-artifact@v4
@@ -71,7 +74,7 @@ jobs:
       - name: Build AppImage
         working-directory: desktop
         run: |
-          npm install
+          npm ci
           npm run icon
           npx electron-builder --linux
       - uses: actions/upload-artifact@v4

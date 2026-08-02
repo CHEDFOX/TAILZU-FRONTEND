@@ -21,7 +21,12 @@ const JAVA_PKG_PATH = path.join("com", "tulmi", "app", "keyboard");
 function withManifest(config) {
   return withAndroidManifest(config, (cfg) => {
     const app = cfg.modResults.manifest.application[0];
-    app["$"]["android:usesCleartextTraffic"] = "true";
+    // Cleartext HTTP is a DEV convenience (local backend over http://). Play
+    // pre-launch flags it and combined with the baseUrl override it let a
+    // production IME talk plaintext — never enable it in a production build.
+    if (process.env.EAS_BUILD_PROFILE !== "production") {
+      app["$"]["android:usesCleartextTraffic"] = "true";
+    }
     app.service = app.service || [];
     const already = app.service.some(
       (s) => s["$"] && s["$"]["android:name"] === SERVICE,
