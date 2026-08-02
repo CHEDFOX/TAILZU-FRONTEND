@@ -46,12 +46,21 @@ jobs:
           # module so cross-file type references resolve. -typecheck does full
           # semantic analysis without codegen/linking — the right depth for a
           # "does the keyboard compile" gate.
+          #
+          # -application-extension is CRITICAL: it enforces the same
+          # extension-API rules the real EAS app-extension build uses, so an
+          # NS_EXTENSION_UNAVAILABLE call (e.g. a direct
+          # UIApplication.open(_:options:completionHandler:)) fails HERE in CI
+          # instead of passing the plain typecheck and then burning a full EAS
+          # build. That exact near-miss happened once; this flag closes the gap
+          # between "CI green" and "EAS build succeeds".
           FILES=$(ls app/targets/keyboard/*.swift)
           echo "Type-checking:"; echo "$FILES"
           swiftc \
             -sdk "$SDK" \
             -target arm64-apple-ios15.1-simulator \
             -module-name TailzuKeyboard \
+            -application-extension \
             -typecheck \
             $FILES
-          echo "✅ Keyboard extension type-checks cleanly."
+          echo "✅ Keyboard extension type-checks cleanly (extension-API rules enforced)."
