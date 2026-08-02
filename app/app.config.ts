@@ -25,7 +25,7 @@ const config: ExpoConfig = {
   // break the shared bearer token between app + keyboard.
   name: "Tailzu",
   slug: "tulmi",
-  version: "0.1.0",
+  version: "1.0.0",
   orientation: "portrait",
   scheme: "tulmi",
   userInterfaceStyle: "dark",
@@ -162,36 +162,25 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.tulmi.app",
-    // Every permission we might want in the next year. Runtime prompts are
-    // still gated by user consent, but they cannot be REQUESTED at all
-    // without being declared in the manifest.
+    // ONLY permissions the launch build actually exercises. The old
+    // "everything we might want next year" list was a Play-submission
+    // liability: READ_MEDIA_IMAGES/VIDEO trigger the Photo & Video Permissions
+    // declaration+approval flow (and mandate the system photo picker, which
+    // expo-image-picker already uses permission-free), and unused
+    // contacts/calendar/location/AD_ID grants invite policy rejections.
+    // Re-add a permission in the SAME release that ships its feature.
     permissions: [
       "android.permission.RECORD_AUDIO",
       "android.permission.INTERNET",
-      "android.permission.CAMERA",
-      "android.permission.READ_EXTERNAL_STORAGE",
-      "android.permission.WRITE_EXTERNAL_STORAGE",
-      "android.permission.READ_MEDIA_IMAGES",
-      "android.permission.READ_MEDIA_VIDEO",
-      "android.permission.READ_MEDIA_AUDIO",
       "android.permission.POST_NOTIFICATIONS",
       "android.permission.VIBRATE",
       "android.permission.ACCESS_NETWORK_STATE",
-      "android.permission.FOREGROUND_SERVICE",
       // FOREGROUND_SERVICE_MICROPHONE removed: the keyboard records inline as an
       // InputMethodService — there is no mic-type foreground service in the
       // binary, and Play policy rejects declaring an FGS-type permission with no
       // matching service + use-declaration. Re-add (with the declaration) only
       // if a real foreground mic service ships.
-      "android.permission.READ_CONTACTS",
-      "android.permission.READ_CALENDAR",
-      "android.permission.WRITE_CALENDAR",
-      "android.permission.USE_BIOMETRIC",
-      "android.permission.USE_FINGERPRINT",
-      "android.permission.ACCESS_FINE_LOCATION",
-      "android.permission.ACCESS_COARSE_LOCATION",
       "com.android.vending.BILLING",
-      "com.google.android.gms.permission.AD_ID",
     ],
     adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#E8A23C" },
     intentFilters: [

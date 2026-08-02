@@ -330,12 +330,12 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
-            s.suggestions.joinToString(""), currentTone(), micReassembling,
+            s.suggestions.joinToString("\u0001"), currentTone(), micReassembling,
             // Fingerprint the scratch dict so a setState/toggle/increment/clear
             // forces a full redraw (visibleIf/bind gates on state.user.* must
             // re-evaluate) instead of being swallowed by the fast-shift path.
             s.user.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" },
-        ).joinToString(" ")
+        ).joinToString("\u0000")
     }
 
     /** Re-case the registered letter buttons + refresh the shift key, no remount. */
