@@ -131,7 +131,7 @@ function CountryPickerModal({
         <TouchableOpacity style={s.modalBackdrop} activeOpacity={1} onPress={onClose} />
         <View style={s.modalSheet}>
           <View style={s.modalHandle} />
-          <TextInput
+          <TextInput underlineColorAndroid="transparent"
             style={s.modalSearch}
             value={q}
             onChangeText={setQ}
@@ -231,7 +231,14 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
 
   return (
     <View style={s.pillWrap}>
-      <BlurView intensity={24} tint="light" style={s.pill} />
+      {/* iOS: frosted-glass pill. Android: expo-blur doesn't blur (and the 6%
+          fill is invisible on OLED dark), so the oval "disappeared" — use a
+          solid translucent fill there so the pill always reads as a pill. */}
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={24} tint="light" style={s.pill} />
+      ) : (
+        <View style={[s.pill, s.pillAndroid]} />
+      )}
       <View style={s.pillBorder} pointerEvents="none" />
 
       <Animated.View style={[s.contentRow, { opacity: inputOpacity }]} pointerEvents="box-none">
@@ -246,7 +253,7 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
             <Chevron />
           </TouchableOpacity>
         )}
-        <TextInput
+        <TextInput underlineColorAndroid="transparent"
           style={s.input}
           value={value}
           onChangeText={setValue}
@@ -519,7 +526,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   </View>
                 ))}
               </Pressable>
-              <TextInput
+              <TextInput underlineColorAndroid="transparent"
                 ref={codeRef}
                 style={s.hiddenInput}
                 value={code}
@@ -563,6 +570,8 @@ const s = StyleSheet.create({
 
   pillWrap: { width: PILL_W, height: PILL_H, borderRadius: PILL_H / 2, justifyContent: "center" },
   pill: { ...(StyleSheet as any).absoluteFillObject, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
+  // Android has no blur behind it — needs a stronger fill to stay visible.
+  pillAndroid: { backgroundColor: "rgba(255,255,255,0.12)" },
   pillBorder: { ...(StyleSheet as any).absoluteFillObject, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
   countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
