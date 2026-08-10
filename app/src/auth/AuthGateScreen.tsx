@@ -15,6 +15,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -386,14 +387,22 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     try {
       const [, res]: any = await Promise.all([animMin, apiCall]);
       if (my !== seq.current) return;
-      if (res?.error) { setPhase("entry"); flashError(); return; }
+      if (res?.error) {
+        setPhase("entry"); flashError();
+        // SHOW the reason — a silent shake made "email rate limit exceeded" /
+        // "project paused" / network failures all look identical and
+        // undiagnosable in the field.
+        Alert.alert("Couldn't send the code", String(res.error?.message ?? res.error));
+        return;
+      }
       setCode(""); setPhase("verify");
-    } catch {
+    } catch (e: any) {
       // A thrown error (offline / unexpected) would otherwise reject this
       // fire-and-forget callback and strand the user on the "sending" spinner
       // forever. Recover to the entry screen with the error shake.
       if (my !== seq.current) return;
       setPhase("entry"); flashError();
+      Alert.alert("Couldn't send the code", String(e?.message ?? e ?? "Network error"));
     }
   }, [flashError]);
 
