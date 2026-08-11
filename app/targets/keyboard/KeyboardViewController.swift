@@ -1270,17 +1270,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     //    app-extension build — even though the CI's plain `swiftc -typecheck`
     //    (no -application-extension) lets it pass. perform() bypasses that at
     //    runtime and is how shipping keyboards do it.
+    // FIRST match and STOP — build 38's exact, field-proven semantics. The
+    // "walk every responder" variant regressed opens from "mostly" to "never"
+    // on device: invoking openURL: on a SECOND responder cancels the app
+    // switch the first invocation already started (the same interference the
+    // unconditional extensionContext.open caused). One invocation, then stop.
+    // DO NOT "improve" this into a multi-call again.
     let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
-    var opened = false
     while let r = responder {
       if r.responds(to: sel) {
-        _ = r.perform(sel, with: url)   // real UIApplication → launches the app
-        opened = true                    // non-openers no-op; keep walking
+        _ = r.perform(sel, with: url)
+        return true
       }
       responder = r.next
     }
-    return opened
+    return false
   }
 
   /// The bundle identifier of the host app (the app the keyboard is inside).
