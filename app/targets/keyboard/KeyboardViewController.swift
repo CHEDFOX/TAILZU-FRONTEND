@@ -1270,35 +1270,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     //    app-extension build — even though the CI's plain `swiftc -typecheck`
     //    (no -application-extension) lets it pass. perform() bypasses that at
     //    runtime and is how shipping keyboards do it.
-    // ONE invocation total, then STOP — invoking an open on a SECOND target
-    // cancels the app switch the first started (field-proven regression; same
-    // interference class as the unconditional extensionContext.open). DO NOT
-    // "improve" this into a multi-call.
-    //
-    // Selector choice is the "sometimes vs everywhere" difference: the legacy
-    // openURL: has been deprecated since iOS 10 and is a silent no-op inside
-    // many modern host apps, while the modern
-    // openURL:options:completionHandler: (what UIApplication actually
-    // implements today) still launches. Prefer modern; keep legacy as the
-    // fallback for chains that only answer the old selector. Both are invoked
-    // via the runtime (no compile-time reference), so the app-extension
-    // availability rules are satisfied.
-    let modern = NSSelectorFromString("openURL:options:completionHandler:")
+    // FIELD HISTORY — read before touching this function again:
+    //  • build 38: this exact form (legacy openURL:, FIRST responder match,
+    //    stop) → opened the app on a cold tap MOST of the time, never crashed.
+    //  • walk-every-responder variant → NEVER opened (a second invocation
+    //    cancels the switch the first started).
+    //  • modern openURL:options:completionHandler: via a runtime IMP cast →
+    //    CRASHED the extension on invocation (tap → iOS swaps in the native
+    //    keyboard). An extension crash is strictly worse than a refused open.
+    // This is the stable ceiling for the unsupported cold-open trick; the
+    // App-Group tombstone (written before this is called) remains the
+    // guaranteed path, and warm-keeping makes cold taps rare.
+    let sel = NSSelectorFromString("openURL:")
     var responder: UIResponder? = self
     while let r = responder {
-      if r.responds(to: modern) {
-        typealias OpenFn = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, AnyObject?) -> Void
-        let fn = unsafeBitCast(r.method(for: modern), to: OpenFn.self)
-        fn(r, modern, url as NSURL, [:] as NSDictionary, nil)
-        return true
-      }
-      responder = r.next
-    }
-    let legacy = NSSelectorFromString("openURL:")
-    responder = self
-    while let r = responder {
-      if r.responds(to: legacy) {
-        _ = r.perform(legacy, with: url)
+      if r.responds(to: sel) {
+        _ = r.perform(sel, with: url)
         return true
       }
       responder = r.next
