@@ -1270,17 +1270,35 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     //    app-extension build — even though the CI's plain `swiftc -typecheck`
     //    (no -application-extension) lets it pass. perform() bypasses that at
     //    runtime and is how shipping keyboards do it.
-    // FIRST match and STOP — build 38's exact, field-proven semantics. The
-    // "walk every responder" variant regressed opens from "mostly" to "never"
-    // on device: invoking openURL: on a SECOND responder cancels the app
-    // switch the first invocation already started (the same interference the
-    // unconditional extensionContext.open caused). One invocation, then stop.
-    // DO NOT "improve" this into a multi-call again.
-    let sel = NSSelectorFromString("openURL:")
+    // ONE invocation total, then STOP — invoking an open on a SECOND target
+    // cancels the app switch the first started (field-proven regression; same
+    // interference class as the unconditional extensionContext.open). DO NOT
+    // "improve" this into a multi-call.
+    //
+    // Selector choice is the "sometimes vs everywhere" difference: the legacy
+    // openURL: has been deprecated since iOS 10 and is a silent no-op inside
+    // many modern host apps, while the modern
+    // openURL:options:completionHandler: (what UIApplication actually
+    // implements today) still launches. Prefer modern; keep legacy as the
+    // fallback for chains that only answer the old selector. Both are invoked
+    // via the runtime (no compile-time reference), so the app-extension
+    // availability rules are satisfied.
+    let modern = NSSelectorFromString("openURL:options:completionHandler:")
     var responder: UIResponder? = self
     while let r = responder {
-      if r.responds(to: sel) {
-        _ = r.perform(sel, with: url)
+      if r.responds(to: modern) {
+        typealias OpenFn = @convention(c) (AnyObject, Selector, NSURL, NSDictionary, AnyObject?) -> Void
+        let fn = unsafeBitCast(r.method(for: modern), to: OpenFn.self)
+        fn(r, modern, url as NSURL, [:] as NSDictionary, nil)
+        return true
+      }
+      responder = r.next
+    }
+    let legacy = NSSelectorFromString("openURL:")
+    responder = self
+    while let r = responder {
+      if r.responds(to: legacy) {
+        _ = r.perform(legacy, with: url)
         return true
       }
       responder = r.next
