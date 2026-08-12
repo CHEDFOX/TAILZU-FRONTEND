@@ -1178,37 +1178,77 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // leave its auto-highlight stuck (the "greyed out, no response" you saw).
     // Force it back to a clean, obviously-tappable state on every tap.
     resetMicButtonAppearance()
-    // Try EVERY keyboard-legal way to open the app, not just one — iOS honors
-    // different ones on different versions/hosts. The App-Group tombstone above
-    // is the guaranteed half (opening Tailzu by hand also consumes it and arms
-    // Flow), so the message reflects whether the auto-open reported success.
-    let opened = attemptOpenApp(URL(string: "tulmi://s/flow_arm"))
-    setStatus(opened
-      ? label("flow_arming", "Turning on Flow — swipe back into your app.")
-      : label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
-      actionable: true)
+    // The App-Group tombstone above is the guaranteed half (opening Tailzu by
+    // hand also consumes it and arms Flow). Show the optimistic status now and
+    // downgrade it only when BOTH open mechanisms report failure — the attempt
+    // is asynchronous (extensionContext.open reports via completion handler).
+    setStatus(label("flow_arming", "Turning on Flow — swipe back into your app."), actionable: true)
+    attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened in
+      guard let self = self, !opened else { return }
+      self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
+                     actionable: true)
+    }
   }
 
-  /// Best-effort open of the containing app, trying each mechanism iOS might
-  /// allow from a keyboard extension. None is guaranteed by Apple, so we fire
-  /// them all and report whether the synchronous path claimed success.
-  @discardableResult
-  private func attemptOpenApp(_ url: URL?) -> Bool {
-    guard let url = url else { return false }
-    // The responder-chain openURL: is the trick that actually opens the app from
-    // a keyboard extension — this is how build 38 opened it, most of the time.
-    // Try it FIRST and ONLY fall back to extensionContext.open when the chain
-    // found no opener. REGRESSION FIX: firing extensionContext.open
-    // unconditionally right after a successful chain open (added later) issued a
-    // competing open-request for the same URL that suppressed the app switch
-    // already in flight — that's what stopped the button opening the app.
-    if openURLViaResponderChain(url) { return true }
-    // Chain found nothing that services openURL: — last-ditch fallback.
-    // extensionContext.open is really a Today-extension API and usually no-ops
-    // for keyboards, but as a final attempt (when nothing else fired) it can't
-    // step on a switch that isn't happening.
-    extensionContext?.open(url, completionHandler: nil)
-    return false
+  /// Best-effort open of the containing app. SEQUENCED, never concurrent —
+  /// two open mechanisms fired together cancel each other (see the field
+  /// history in openURLViaResponderChain: that interference is exactly what
+  /// broke the walk-all-responders variant).
+  ///
+  /// Order is grounded in how iOS 18 changed the rules
+  /// (keyboardkit.com/blog/2024/09/11/ios18-breaks-selector-based-url-opening):
+  ///  1. extensionContext.open — the ONLY mechanism with a real result: its
+  ///     completion handler reports whether iOS performed the open. Officially
+  ///     a Today-widget API, but it's the path developers report still working
+  ///     from keyboards on iOS 18, where the openURL: selector was deliberately
+  ///     broken ("BUG IN CLIENT OF UIKIT" console log, open silently refused).
+  ///  2. The build-38 responder-chain openURL: — fired ONLY after (1) reports
+  ///     failure, so it can never step on a switch (1) started. This keeps the
+  ///     pre-iOS-18 behavior as the fallback instead of the whole strategy.
+  /// The OLD order (chain first, ctx.open only if the chain found no responder)
+  /// had a dead fallback: on iOS 18 the chain FINDS a responder, perform()
+  /// no-ops silently, we return "true", and ctx.open never runs — precisely in
+  /// the case that needed it.
+  private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool) -> Void) {
+    guard let url = url else { completion(false); return }
+    guard let ctx = extensionContext else {
+      // No extension context (shouldn't happen in a live keyboard) — the chain
+      // is the only option left.
+      completion(openURLViaResponderChain(url))
+      return
+    }
+    // `settled` gates the two async paths (completion handler + watchdog) so
+    // the chain fallback can fire at most ONCE. Both paths hop to main first,
+    // so there is no race on it.
+    var settled = false
+    let settle: (Bool) -> Void = { [weak self] ctxOpened in
+      if settled { return }
+      settled = true
+      guard let self = self else { completion(false); return }
+      if ctxOpened {
+        NSLog("[Tailzu][kb] cold-open: extensionContext.open reported success.")
+        completion(true)
+        return
+      }
+      // If our view already left the window, an app switch is in progress
+      // despite the "failure" — firing the chain now could cancel it.
+      if self.view.window == nil {
+        NSLog("[Tailzu][kb] cold-open: keyboard is deactivating — treating as opened.")
+        completion(true)
+        return
+      }
+      NSLog("[Tailzu][kb] cold-open: extensionContext.open refused — falling back to responder chain.")
+      completion(self.openURLViaResponderChain(url))
+    }
+    NSLog("[Tailzu][kb] cold-open: trying extensionContext.open first.")
+    ctx.open(url) { success in
+      DispatchQueue.main.async { settle(success) }
+    }
+    // Watchdog: the completion handler is documented to always be called, but
+    // this whole area is unsupported — if it never fires, fall back anyway
+    // rather than doing nothing. 750ms is long enough that a genuinely started
+    // switch has already dismissed the keyboard (view.window == nil above).
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { settle(false) }
   }
 
   /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
