@@ -1184,71 +1184,68 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // is asynchronous (extensionContext.open reports via completion handler).
     setStatus(label("flow_arming", "Turning on Flow — swipe back into your app."), actionable: true)
     attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened in
-      guard let self = self, !opened else { return }
-      self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
-                     actionable: true)
+      guard let self = self else { return }
+      // A tap that rides into an app switch can leave the system button stuck
+      // in its grey highlight — clear it whenever the attempt settles.
+      self.resetMicButtonAppearance()
+      if !opened {
+        self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
+                       actionable: true)
+      }
+    }
+    // Insurance for the same grey-mic stick when the completion is slow: UIKit
+    // re-applies the highlight as the touch sequence ends, after our sync
+    // reset above ran. One more pass on the next runloop turn clears it.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      self?.resetMicButtonAppearance()
     }
   }
 
-  /// Best-effort open of the containing app. SEQUENCED, never concurrent —
-  /// two open mechanisms fired together cancel each other (see the field
-  /// history in openURLViaResponderChain: that interference is exactly what
-  /// broke the walk-all-responders variant).
+  /// Best-effort open of the containing app.
   ///
-  /// Order is grounded in how iOS 18 changed the rules
-  /// (keyboardkit.com/blog/2024/09/11/ios18-breaks-selector-based-url-opening):
-  ///  1. extensionContext.open — the ONLY mechanism with a real result: its
-  ///     completion handler reports whether iOS performed the open. Officially
-  ///     a Today-widget API, but it's the path developers report still working
-  ///     from keyboards on iOS 18, where the openURL: selector was deliberately
-  ///     broken ("BUG IN CLIENT OF UIKIT" console log, open silently refused).
-  ///  2. The build-38 responder-chain openURL: — fired ONLY after (1) reports
-  ///     failure, so it can never step on a switch (1) started. This keeps the
-  ///     pre-iOS-18 behavior as the fallback instead of the whole strategy.
-  /// The OLD order (chain first, ctx.open only if the chain found no responder)
-  /// had a dead fallback: on iOS 18 the chain FINDS a responder, perform()
-  /// no-ops silently, we return "true", and ctx.open never runs — precisely in
-  /// the case that needed it.
+  /// GROUNDING — this is no longer folklore. An Apple DTS engineer answered
+  /// exactly our case (voice keyboard opens its container app to record) on
+  /// developer.apple.com/forums/thread/812091 (Jan 2026):
+  ///  • ALLOWED: App Review 4.4.1's "keyboards must not launch other apps"
+  ///    explicitly EXCLUDES the containing app.
+  ///  • MECHANISM: walk the responder chain for the real UIApplication object
+  ///    (`as? UIApplication` — NOT "first thing that answers responds(to:)")
+  ///    and call the modern open(_:options:completionHandler:) ON IT, which
+  ///    reports genuine success/failure via its completion handler.
+  ///  • iOS 26: this REQUIRES "Allow Full Access" — without it, iOS logs
+  ///    "unable to make sandbox extension: 2" and refuses the open.
+  ///
+  /// Post-mortems this design absorbs:
+  ///  • The crash build fired the modern selector's IMP at the FIRST responder
+  ///    that merely CLAIMED responds(to:) — an internal proxy with a
+  ///    mismatched ABI — and passed Swift structs through a C function
+  ///    pointer. Typed method call on the genuine UIApplication fixes both.
+  ///  • The extensionContext.open-first variant deferred the fallback behind
+  ///    an async completion, pushing it OUTSIDE the tap's user-interaction
+  ///    window (iOS only honors extension-initiated switches inside it), and
+  ///    ctx.open is refused for keyboards anyway. Everything here runs
+  ///    synchronously inside the tap.
+  ///  • Exactly ONE mechanism fires per tap — two together cancel each other
+  ///    (see the field history in openURLViaResponderChain).
   private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool) -> Void) {
     guard let url = url else { completion(false); return }
-    guard let ctx = extensionContext else {
-      // No extension context (shouldn't happen in a live keyboard) — the chain
-      // is the only option left.
-      completion(openURLViaResponderChain(url))
-      return
-    }
-    // `settled` gates the two async paths (completion handler + watchdog) so
-    // the chain fallback can fire at most ONCE. Both paths hop to main first,
-    // so there is no race on it.
-    var settled = false
-    let settle: (Bool) -> Void = { [weak self] ctxOpened in
-      if settled { return }
-      settled = true
-      guard let self = self else { completion(false); return }
-      if ctxOpened {
-        NSLog("[Tailzu][kb] cold-open: extensionContext.open reported success.")
-        completion(true)
+    var responder: UIResponder? = self
+    while let r = responder {
+      if let app = r as? UIApplication {
+        NSLog("[Tailzu][kb] cold-open: UIApplication found in chain — calling modern open.")
+        app.open(url, options: [:]) { ok in
+          NSLog("[Tailzu][kb] cold-open: modern open reported %@.", ok ? "SUCCESS" : "FAILURE")
+          DispatchQueue.main.async { completion(ok) }
+        }
         return
       }
-      // If our view already left the window, an app switch is in progress
-      // despite the "failure" — firing the chain now could cancel it.
-      if self.view.window == nil {
-        NSLog("[Tailzu][kb] cold-open: keyboard is deactivating — treating as opened.")
-        completion(true)
-        return
-      }
-      NSLog("[Tailzu][kb] cold-open: extensionContext.open refused — falling back to responder chain.")
-      completion(self.openURLViaResponderChain(url))
+      responder = r.next
     }
-    NSLog("[Tailzu][kb] cold-open: trying extensionContext.open first.")
-    ctx.open(url) { success in
-      DispatchQueue.main.async { settle(success) }
-    }
-    // Watchdog: the completion handler is documented to always be called, but
-    // this whole area is unsupported — if it never fires, fall back anyway
-    // rather than doing nothing. 750ms is long enough that a genuinely started
-    // switch has already dismissed the keyboard (view.window == nil above).
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { settle(false) }
+    // No UIApplication anywhere in the chain (older iOS variants) — fall back
+    // to the untouched build-38 legacy path. Mutually exclusive with the
+    // modern call above, so no double-fire is possible.
+    NSLog("[Tailzu][kb] cold-open: no UIApplication in chain — build-38 legacy fallback.")
+    completion(openURLViaResponderChain(url))
   }
 
   /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
