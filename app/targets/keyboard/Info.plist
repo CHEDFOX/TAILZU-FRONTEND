@@ -11,8 +11,13 @@
   <dict>
     <key>NSExtensionAttributes</key>
     <dict>
+      <!-- MUST be true: iOS only offers a custom keyboard in fields that
+           request ASCII-capable input (search bars incl. Spotlight/app
+           search, URL and email fields) when the keyboard declares it can
+           type ASCII. Ours is a full QWERTY — declaring false made Tailzu
+           vanish from the selector in exactly those places. -->
       <key>IsASCIICapable</key>
-      <false/>
+      <true/>
       <key>PrefersRightToLeft</key>
       <false/>
       <key>PrimaryLanguage</key>
