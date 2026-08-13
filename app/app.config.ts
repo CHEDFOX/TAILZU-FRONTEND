@@ -131,7 +131,17 @@ const config: ExpoConfig = {
       // Google needs a native build, not an OTA. Env var overrides the literal
       // if you ever rotate the iOS client. (Android uses the app's "tulmi"
       // scheme + the android client id's package/SHA — no plist entry needed.)
+      // ROOT CAUSE of the "keyboard mic never opens the app" saga (July 21 →
+      // Aug 13): CFBundleURLTypes is the app's ENTIRE URL-scheme registration
+      // table, and ios.infoPlist values REPLACE what prebuild generated — so
+      // registering only the Google scheme here WIPED the "tulmi" scheme that
+      // `scheme: "tulmi"` above produces. From that build on, iOS had no app
+      // registered for tulmi:// (Safari: "address is invalid"), so every open
+      // attempt from the keyboard — any mechanism — was refused as
+      // "no such destination". The "tulmi" entry below MUST stay first in
+      // this list; never assign this key without it.
       CFBundleURLTypes: [
+        { CFBundleURLSchemes: ["tulmi"] },
         {
           CFBundleURLSchemes: [
             process.env.GOOGLE_IOS_URL_SCHEME ??
