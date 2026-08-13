@@ -1476,7 +1476,7 @@ final class SDUIRenderer: NSObject {
 
   /// Bump this string on every build so the on-screen marker changes — that's
   /// how you tell a freshly-loaded extension from a cached old one.
-  private static let buildStamp = "K1"
+  static let buildStamp = "K3"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build

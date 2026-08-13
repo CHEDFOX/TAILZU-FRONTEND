@@ -1182,12 +1182,28 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // hand also consumes it and arms Flow). Show the optimistic status now and
     // downgrade it only when BOTH open mechanisms report failure — the attempt
     // is asynchronous (extensionContext.open reports via completion handler).
+    // iOS 26 refuses container-app opens from keyboards WITHOUT Full Access
+    // ("unable to make sandbox extension: 2") — and a delete/reinstall silently
+    // resets that toggle to OFF. Without this gate, that state is
+    // indistinguishable from "the open mechanism is broken".
+    guard hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."),
+                actionable: true)
+      return
+    }
     setStatus(label("flow_arming", "Turning on Flow — swipe back into your app."), actionable: true)
-    attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened in
+    attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened, diag in
       guard let self = self else { return }
       // A tap that rides into an app switch can leave the system button stuck
       // in its grey highlight — clear it whenever the attempt settles.
       self.resetMicButtonAppearance()
+      // OTA-switchable field diagnostics: with kb.coldOpen.debugStatus on, the
+      // status bar shows the binary stamp + exactly which open path ran and
+      // what iOS answered — a console-log substitute readable on the phone.
+      if (self.kbConfig?.flags["kb.coldOpen.debugStatus"] as? Bool) ?? false {
+        self.setStatus("\(SDUIRenderer.buildStamp) · \(diag)", actionable: true)
+        return
+      }
       if !opened {
         self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
                        actionable: true)
@@ -1227,25 +1243,31 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   ///    synchronously inside the tap.
   ///  • Exactly ONE mechanism fires per tap — two together cancel each other
   ///    (see the field history in openURLViaResponderChain).
-  private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool) -> Void) {
-    guard let url = url else { completion(false); return }
+  /// The completion also carries a compact diagnostic of which path ran and
+  /// what iOS answered ("app✓ open=NO", "app✗ legacy=YES", …) so the keyboard
+  /// can display it in the field via kb.coldOpen.debugStatus.
+  private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool, String) -> Void) {
+    guard let url = url else { completion(false, "no-url"); return }
+    var depth = 0
     var responder: UIResponder? = self
     while let r = responder {
       if let app = r as? UIApplication {
         NSLog("[Tailzu][kb] cold-open: UIApplication found in chain — calling modern open.")
         app.open(url, options: [:]) { ok in
           NSLog("[Tailzu][kb] cold-open: modern open reported %@.", ok ? "SUCCESS" : "FAILURE")
-          DispatchQueue.main.async { completion(ok) }
+          DispatchQueue.main.async { completion(ok, "app✓@\(depth) open=\(ok ? "YES" : "NO")") }
         }
         return
       }
+      depth += 1
       responder = r.next
     }
     // No UIApplication anywhere in the chain (older iOS variants) — fall back
     // to the untouched build-38 legacy path. Mutually exclusive with the
     // modern call above, so no double-fire is possible.
     NSLog("[Tailzu][kb] cold-open: no UIApplication in chain — build-38 legacy fallback.")
-    completion(openURLViaResponderChain(url))
+    let hit = openURLViaResponderChain(url)
+    completion(hit, "app✗ legacy=\(hit ? "YES" : "NO")")
   }
 
   /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
