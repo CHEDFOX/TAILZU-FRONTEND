@@ -169,7 +169,16 @@ final class KeyPlaneView: UIView {
     var out: [CGRect] = []
     for w in obstacles {
       guard let v = w.v, v.window != nil, !v.isHidden, v.alpha > 0.01 else { continue }
-      let r = convert(v.bounds, from: v)
+      var r = convert(v.bounds, from: v)
+      // Veto the control's EXPANDED touch target, not just its painted rect —
+      // special keys are KeyHitButtons with hit slop (y=8/x=2), and a tap in
+      // that slop band must reach them, not be claimed for a nearby letter by
+      // the edge/vertical reach above.
+      if let k = v as? KeyHitButton {
+        r = r.inset(by: UIEdgeInsets(
+          top: -k.hitSlop.top, left: -k.hitSlop.left,
+          bottom: -k.hitSlop.bottom, right: -k.hitSlop.right))
+      }
       if r.width > 0, r.height > 0 { out.append(r) }
     }
     obstacleRects = out
@@ -303,9 +312,14 @@ final class KeyPlaneView: UIView {
   }
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    // Refresh geometry BEFORE deciding ownership — touchesBegan re-derives it
+    // anyway, and deciding here on stale frames/obstacles (e.g. suggestion
+    // chips that appeared since the last layout) would claim a touch that
+    // keyAt then refuses, silently swallowing it.
+    refreshFrames()
     // Own the touch only over the character grid; else nil so shift / delete /
     // space / mic below receive it normally.
-    keyAt(point) != nil ? self : nil
+    return keyAt(point) != nil ? self : nil
   }
 
   // MARK: - Multi-touch
@@ -1552,9 +1566,27 @@ final class SDUIRenderer: NSObject {
   /// controller after it decides SDUI mode is active.
   func mount(into container: UIView) {
     mountContainer = container
+    // Sync state.appearance NOW — the host's traitCollectionDidChange only
+    // fires on CHANGES, and on the no-cache path the renderer is created after
+    // the view is already in a window, so that change already happened with no
+    // renderer attached. Without this, a light-mode device kept the hardcoded
+    // "dark" default and every visibleIf-gated light/dark tree variant picked
+    // the wrong branch for the whole session.
+    state.appearance = currentAppearance == .light ? "light" : "dark"
+    syncToneFromConfig()
     // Apply theme.backgroundEffect / backgroundColor to the container itself.
     applyRootBackground(to: container)
     remount()
+  }
+
+  /// Reflect the app-side active tone (kb.personality.activeTone, a tone ID)
+  /// onto the pill's display label so the keyboard opens showing the tone the
+  /// user actually picked in the app.
+  private func syncToneFromConfig() {
+    guard let activeId = config.flags?["kb.personality.activeTone"]?.asString else { return }
+    if let match = configuredTones().first(where: { $0.id == activeId }) {
+      state.tone = match.label
+    }
   }
 
   /// Swap in a freshly-fetched config and rebuild the tree in place. This is the
@@ -1563,17 +1595,22 @@ final class SDUIRenderer: NSObject {
   /// on the current session (after the refetch) instead of only on a future
   /// extension-process launch — which iOS schedules unpredictably. State
   /// (dictating, shift, tone…) is preserved; only the tree + theme are rebuilt.
-  func updateConfig(_ newConfig: KBConfig) {
+  func updateConfig(_ newConfig: KBConfig, force: Bool = false) {
     // Short-circuit when nothing changed: the per-appearance refetch returns the
     // SAME cacheVersion most of the time, and a no-op remount still cancels any
     // in-flight key touch (silent dropped keystroke). Only rebuild on a real bump.
-    if let old = config.cacheVersion, let new_ = newConfig.cacheVersion, old == new_ {
+    // `force` bypasses this: cacheVersion only changes on deploys/admin bumps,
+    // so per-USER payload changes (pinned presets, active tone, media registry
+    // uploads) share a cacheVersion and were discarded wholesale — the host
+    // forces the update through when the raw payload bytes actually differ.
+    if !force, let old = config.cacheVersion, let new_ = newConfig.cacheVersion, old == new_ {
       return
     }
     config = newConfig
     // Flag-derived caches follow the config.
     parsedBigrams = nil
     cachedCheckerLang = nil
+    syncToneFromConfig()
     // If the active layout no longer exists in the new config, fall back to its
     // first layout so remount() has a valid layoutId to render.
     if let layouts = newConfig.layouts,
@@ -1601,6 +1638,7 @@ final class SDUIRenderer: NSObject {
       return
     }
     pendingRemountRetries = 0
+    pendingRemount = false
     remount()
   }
 
@@ -1610,8 +1648,11 @@ final class SDUIRenderer: NSObject {
     guard let container = mountContainer, let root = config.root else { return }
     // An open tone sheet would be buried alive by the fresh tree (it and its
     // scrim are siblings of mountedRoot): invisible, unresponsive, and leaked
-    // until the next present. Close it before rebuilding.
+    // until the next present. Close it before rebuilding. Same for an open
+    // accent tray — it's also a container sibling, and the rebuilt plane has
+    // empty tracks, so nothing would ever commit/dismiss it again.
     dismissToneSheet(animated: false)
+    dismissAccentTray()
     mountedRoot?.removeFromSuperview()
     keyPlane?.removeFromSuperview()   // rebuilt below if kb.keyPlane.enabled
     // Drop any visible key-pop balloon so a mid-touch rebuild can't orphan it
@@ -1702,6 +1743,10 @@ final class SDUIRenderer: NSObject {
     lastRenderSnapshot = KBStateSnapshot.from(state)
     // Key geometry changed → the autocorrect neighbor map must be re-derived.
     cachedNeighborMap = nil
+    // Re-assert the trackpad visual: a remount that lands mid-scrub (bundled
+    // state delta, exhausted deferral) rebuilds letters at alpha 1 and a fresh
+    // plane with interaction ON — this restores the blanked/disabled state.
+    applyTrackpadVisual(active: state.trackpadActive)
     // Build stamp — added LAST so it sits on top of the tree + plane. A small
     // corner marker that proves whether THIS binary is the one running: if iOS
     // is serving a cached old keyboard extension (the usual reason "updates do
@@ -1717,7 +1762,10 @@ final class SDUIRenderer: NSObject {
   /// K5: native touch spaces — row-aware vertical slops with nearest-row
   /// scoring, edge-margin capture beside a/l, obstacle-vetoed reach — and the
   /// space-bar trackpad fixed (trackpad state changes no longer remount).
-  static let buildStamp = "K5"
+  /// K6: audit fixes — tracker-validity guards around autocorrect, hit-slop-
+  /// aware obstacle veto, shift on touch-down, punctuation pull-back, layer
+  /// auto-return, symbol long-press alternates, appearance/tone config sync.
+  static let buildStamp = "K6"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -1784,13 +1832,14 @@ final class SDUIRenderer: NSObject {
     if pendingRemount { return }
     pendingRemount = true
     DispatchQueue.main.async { [weak self] in
-      guard let self = self else { return }
-      self.pendingRemount = false
       // Route through the mid-touch guard: a state-driven rebuild (dictation
       // start/stop, status, tone…) landing while a finger is down cancels that
-      // in-flight touch — a silently dropped keystroke. Config refreshes were
-      // already guarded; state remounts get the same protection now.
-      self.remountWhenIdle()
+      // in-flight touch — a silently dropped keystroke. pendingRemount stays
+      // TRUE across the guard's deferrals so later stateChanged() calls keep
+      // coalescing into this one chain instead of spawning parallel retry
+      // chains that each fire a full rebuild once idle; remountWhenIdle clears
+      // it when it actually remounts.
+      self?.remountWhenIdle()
     }
   }
 
@@ -2265,13 +2314,26 @@ final class SDUIRenderer: NSObject {
   /// Tones the cycleTone action rotates through. Backend can override via
   /// config.flags["kb.tones"] (comma-separated). Default matches the ones
   /// the app's Personality screen uses.
-  private func configuredTones() -> [String] {
+  /// The tone list. Primary source is the RICH backend list the server
+  /// actually ships — kb.personality.tones, [{id,label}] — so renames /
+  /// reorders / additions land OTA and the App Group carries the real tone ID
+  /// the app's refine pipeline expects (the old code only read the legacy
+  /// "kb.tones" CSV, which the backend doesn't serve, so the pill silently
+  /// cycled a client-hardcoded list). CSV + hardcoded sets remain fallbacks.
+  private func configuredTones() -> [(id: String, label: String)] {
+    if case .array(let arr)? = config.flags?["kb.personality.tones"] {
+      let rich: [(id: String, label: String)] = arr.compactMap { item in
+        guard case .object(let o) = item, let id = o["id"]?.asString, !id.isEmpty else { return nil }
+        return (id, o["label"]?.asString ?? id.capitalized)
+      }
+      if !rich.isEmpty { return rich }
+    }
     if let raw = config.flags?["kb.tones"]?.asString {
       let parts = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty }
-      if !parts.isEmpty { return parts }
+      if !parts.isEmpty { return parts.map { ($0.lowercased(), $0) } }
     }
-    return ["Neutral", "Casual", "Formal", "Excited"]
+    return [("none", "Tone"), ("casual", "Casual"), ("formal", "Formal"), ("excited", "Excited")]
   }
 
   // MARK: - Tone sheet (hold the tone pill → pick a tone directly)
@@ -2327,14 +2389,15 @@ final class SDUIRenderer: NSObject {
     let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
     for tone in configuredTones() {
       let btn = UIButton(type: .system)
-      let isActive = tone.caseInsensitiveCompare(state.tone) == .orderedSame
-      btn.setTitle(isActive ? "\(tone)  ✓" : tone, for: .normal)
+      let isActive = tone.label.caseInsensitiveCompare(state.tone) == .orderedSame
+      btn.setTitle(isActive ? "\(tone.label)  ✓" : tone.label, for: .normal)
       btn.setTitleColor(isActive ? accent : .white, for: .normal)
       btn.titleLabel?.font = .systemFont(ofSize: 14, weight: isActive ? .semibold : .medium)
       btn.contentEdgeInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
       btn.contentHorizontalAlignment = .leading
-      let picked = tone
-      btn.addAction(UIAction { [weak self] _ in self?.selectTone(picked) }, for: .touchUpInside)
+      let pickedId = tone.id, pickedLabel = tone.label
+      btn.addAction(UIAction { [weak self] _ in self?.selectTone(id: pickedId, label: pickedLabel) },
+                    for: .touchUpInside)
       vstack.addArrangedSubview(btn)
     }
 
@@ -2368,11 +2431,11 @@ final class SDUIRenderer: NSObject {
     dismissToneSheet(animated: true)
   }
 
-  private func selectTone(_ tone: String) {
-    state.tone = tone
-    // Publish so the main app's tone-based refine prompt can read it — same
-    // side effects as the cycleTone action.
-    UserDefaults(suiteName: "group.com.tulmi.app")?.set(tone, forKey: "tulmi.kb.tone")
+  private func selectTone(id: String, label: String) {
+    state.tone = label
+    // Publish the tone ID (not the display label) so the main app's per-tone
+    // refine prompt receives the id it actually keys on.
+    UserDefaults(suiteName: "group.com.tulmi.app")?.set(id, forKey: "tulmi.kb.tone")
     fireKeyHaptic()
     dismissToneSheet(animated: true)
     stateChanged()   // remount → the tone pill rebinds to the new state.tone
@@ -2415,6 +2478,21 @@ final class SDUIRenderer: NSObject {
       "n": ["ñ", "ń"],
       "d": ["ď"],
       "h": ["ĥ", "ħ"],
+      // Number/symbol-layer alternates (native long-press sets). The tray
+      // machinery is char-keyed, so these light up automatically on the
+      // 123/#+= layers — both via the plane's hold timer and the GR path.
+      "0": ["°"],
+      "-": ["–", "—", "•"],
+      "/": ["\\"],
+      "$": ["€", "£", "¥", "₹", "¢"],
+      "&": ["§"],
+      "\"": ["\u{201C}", "\u{201D}", "„", "«", "»"],
+      ".": ["…"],
+      "?": ["¿"],
+      "!": ["¡"],
+      "'": ["\u{2018}", "\u{2019}", "‚", "`"],
+      "%": ["‰"],
+      "=": ["≠", "≈"],
     ]
   }
 
@@ -2535,9 +2613,14 @@ final class SDUIRenderer: NSObject {
       state.shift = false
       stateChanged()
     }
-    // Accented words are the user's explicit choice — keep autocorrect out of
-    // them (the tracker resets; the ASCII guard would skip them anyway).
-    resetTypingContext()
+    // Keep the tracker COHERENT rather than clearing it: wiping mid-word
+    // ("caf" + "é" → tracker "") makes the next letters a strict suffix of
+    // the real word — the exact desync the boundary verifier guards against.
+    // The ASCII-only guard keeps autocorrect away from accented words anyway.
+    lastAutocorrect = nil
+    pendingAutoSpace = false
+    currentWord += ch
+    refreshSuggestions()
     updateAutoCap(afterTyping: ch)
   }
 
@@ -2559,6 +2642,10 @@ final class SDUIRenderer: NSObject {
   /// accents (or the feature is off) so the plane leaves the touch as a
   /// normal press.
   fileprivate func planeTryPresentAccentTray(for button: UIButton?, char: String?) -> Bool {
+    // One tray at a time: a second finger's hold must not dismiss-and-replace
+    // the first finger's tray (the first finger would then commit against a
+    // tray it no longer owns).
+    guard activeAccentTray == nil else { return false }
     guard flagBool("kb.keyPlane.accentTrays", true),
           let button = button, let char = char,
           let accents = accentMap[char.lowercased()], !accents.isEmpty
@@ -2582,8 +2669,15 @@ final class SDUIRenderer: NSObject {
   /// still on the held key commits the base char (`fallbackChar`); anywhere
   /// else commits nothing.
   fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?) {
+    // If the tray is already gone (dismissed by a remount or another path),
+    // the held key must still type its base char — losing the keystroke
+    // entirely is the one unacceptable outcome.
+    guard let tray = activeAccentTray, let container = mountContainer else {
+      dismissAccentTray()
+      if let base = fallbackChar { run(.inline(.insertKey(char: base))) }
+      return
+    }
     defer { dismissAccentTray() }
-    guard let tray = activeAccentTray, let container = mountContainer else { return }
     let loc = tray.convert(point, from: container)
     if let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
        let ch = chip.title(for: .normal), !ch.isEmpty {
@@ -2727,14 +2821,29 @@ final class SDUIRenderer: NSObject {
       proxy?.deleteBackward()
       proxy?.insertText(". ")
       _lastSpaceTapTime = 0
-      resetTypingContext()   // the word boundary already ran on the first space
+      // The word boundary already ran on the first space; the tail is ". " —
+      // a clean boundary, so tracking stays valid.
+      resetTypingContext(tailAtBoundary: true)
     } else {
       proxy?.insertText(" ")
       _lastSpaceTapTime = now
       lastInsertedChar = " "   // word-start bigram row (" " entry) arms next-letter bias
+      pendingAutoSpace = false
       handleWordBoundary(boundary: " ")
     }
+    // Native returns to the letter layer after a space typed on 123/#+=.
+    autoReturnToLetters()
     updateAutoCap()
+  }
+
+  /// Space/return on the number or symbol layer flips back to the letter
+  /// layer, like the system keyboard. kb.layer.returnAfterSpace kills it OTA.
+  private func autoReturnToLetters() {
+    guard flagBool("kb.layer.returnAfterSpace", true) else { return }
+    guard let letters = config.layouts?.first?.language,
+          !letters.isEmpty, state.layoutId != letters else { return }
+    state.layoutId = letters
+    stateChanged()
   }
 
   /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
@@ -2800,8 +2909,13 @@ final class SDUIRenderer: NSObject {
     let btn = makeKeyButton()
     applyShiftKeyVisual(btn)
     weakShiftButton = btn  // fast-shift path needs to reach the icon later
+    // Shift arms on touch-DOWN, like the system keyboard. On touch-up (the
+    // old wiring), a fast typist's shift↓·letter↓·letter↑·shift↑ overlap
+    // committed the letter BEFORE shift armed — lowercase letter, and the
+    // NEXT letter came out capitalized. keyTouchDown (added by makeKeyButton
+    // first) flushes held plane letters before this fires, so ordering holds.
     let handler = UIAction { [weak self] _ in self?.handleShiftTap() }
-    btn.addAction(handler, for: .touchUpInside)
+    btn.addAction(handler, for: .touchDown)
     // Long-press → lock (or unlock+flip if already locked).
     let lp = UILongPressGestureRecognizer(
       target: WeakGRProxy(target: self, selector: #selector(handleShiftLongPress(_:))),
@@ -2950,8 +3064,10 @@ final class SDUIRenderer: NSObject {
     btn.setImage(UIImage(systemName: "delete.left"), for: .normal)
     btn.tintColor = keyTextColor()
     btn.addTarget(self, action: #selector(deleteDown), for: .touchDown)
+    // .touchDragExit included: dragging off the held key must stop the
+    // auto-repeat — without it the repeat kept deleting until lift.
     btn.addTarget(self, action: #selector(deleteUp),
-                  for: [.touchUpInside, .touchUpOutside, .touchCancel])
+                  for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
     return btn
   }
   @objc private func deleteDown() {
@@ -3112,6 +3228,16 @@ final class SDUIRenderer: NSObject {
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .scaleAspectFill
       btn.imageView?.startAnimating()
+    } else if let spec = flagIcon("kb.mic.idleIcon"),
+              let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      // Backend-pushed idle art (kb.mic.idleIcon — the media-registry
+      // mic.animation upload). Previously only consulted while DICTATING, so
+      // an uploaded idle animation never showed at idle on the SDUI path.
+      btn.setImage(img, for: .normal)
+      btn.imageView?.contentMode = .scaleAspectFill
+      btn.imageView?.startAnimating()
+      let inset = flagCGFloat("kb.mic.idleIconInset", 8)
+      btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
       // Idle brand mark, inset so it reads as an icon centered on the circle.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -3234,11 +3360,22 @@ final class SDUIRenderer: NSObject {
   }
 
   fileprivate func updateSuggestionBarInPlace() {
-    guard let row = suggestionRowStack, row.window != nil else { return }
+    guard let row = suggestionRowStack, row.window != nil else {
+      // No live bar: a backend tree may gate the SuggestionBar node on
+      // state.hasSuggestions (visibleIf CULLS it, so there's no row to fill
+      // in place). Remount so the gate re-evaluates and the bar appears —
+      // once mounted, subsequent updates take the in-place path again.
+      if !state.suggestions.isEmpty { stateChanged() }
+      return
+    }
     renderSuggestionChips(into: row)
     // Chips are obstacles for the touch plane's top-row reach; refresh the
-    // veto list whenever the chip set changes.
-    keyPlane?.setObstacles(collectPlaneObstacles())
+    // veto list AFTER the chips have frames (next runloop tick) — collecting
+    // them pre-layout records zero-sized rects that filter out.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self else { return }
+      self.keyPlane?.setObstacles(self.collectPlaneObstacles())
+    }
   }
 
   /// Every live, enabled control in the mounted tree that the plane must not
@@ -3248,7 +3385,10 @@ final class SDUIRenderer: NSObject {
     guard let rootV = mountedRoot else { return [] }
     var out: [UIView] = []
     func walk(_ v: UIView) {
-      if let c = v as? UIControl, c.isEnabled, c.isUserInteractionEnabled, !c.isHidden {
+      // NOTE: no isEnabled check — a DISABLED control (e.g. mic with voice
+      // off) must still block the plane; its area going to a letter would
+      // type where the user expected a dead button.
+      if let c = v as? UIControl, c.isUserInteractionEnabled, !c.isHidden {
         out.append(c)
       }
       for s in v.subviews { walk(s) }
@@ -4068,7 +4208,18 @@ final class SDUIRenderer: NSObject {
       let cased = char.count == 1
         ? ((state.shift || state.capsLock) ? char.uppercased() : char.lowercased())
         : char
-      let inserted = applySmartPunctuation(cased)
+      var inserted = applySmartPunctuation(cased)
+      // Auto-space pull-back: a suggestion just inserted "word " — terminal
+      // punctuation typed next replaces that space, then re-adds it:
+      // "word ," → "word, ". Native behavior for accepted predictions.
+      if pendingAutoSpace {
+        pendingAutoSpace = false
+        if inserted.count == 1, let c = inserted.first,
+           ",.!?;:)]…\u{2019}\u{201D}".contains(c) {
+          proxy?.deleteBackward()
+          inserted = String(c) + " "
+        }
+      }
       proxy?.insertText(inserted)
       // A character between two shift taps breaks the double-tap-caps chain, so
       // clear the timer — otherwise "shift, type a, shift" wrongly engaged caps.
@@ -4095,7 +4246,9 @@ final class SDUIRenderer: NSObject {
         deleted += 1
         if last.isWhitespace || last.isNewline { break }
       }
-      resetTypingContext()
+      // deleteWord stops AT a whitespace/newline (or an empty doc) — a clean
+      // boundary, so the tracker stays armed for the next word.
+      resetTypingContext(tailAtBoundary: true)
     case .shift:
       state.shift.toggle()
       stateChanged()
@@ -4104,8 +4257,19 @@ final class SDUIRenderer: NSObject {
       state.shift = state.capsLock ? true : state.shift
       stateChanged()
     case .returnKey:
+      // Capture the context BEFORE the newline: most hosts scope
+      // documentContextBeforeInput to the current line, so the boundary
+      // pipeline could never verify the finished word after the insert. Only
+      // pay the read when a correction/expansion could actually apply.
+      let preCtx: String? = (!currentWord.isEmpty && trackerValid)
+        ? (proxy?.documentContextBeforeInput ?? "") : nil
       proxy?.insertText("\n")
-      noteTyped("\n")
+      lastAutocorrect = nil
+      lastInsertedChar = "\n"
+      pendingAutoSpace = false
+      handleWordBoundary(boundary: "\n", preInsertContext: preCtx)
+      // Native returns to the letter layer after a return from 123/#+=.
+      autoReturnToLetters()
       updateAutoCap()
     case .switchLayout(let language):
       let langs = (config.layouts ?? []).map { $0.language }
@@ -4131,18 +4295,15 @@ final class SDUIRenderer: NSObject {
       stateChanged()
       host?.hostRunRefine()
     case .cycleTone:
-      // Cycle through the tones list — either the backend-provided list at
-      // config.flags["kb.tones"] or the shipped default set. Result stored
-      // in state.tone; the SDUI tools bar rebinds on remount.
+      // Cycle through the backend tone list (kb.personality.tones). The pill
+      // shows the LABEL; the App Group carries the ID for the refine pipeline.
       let tones = configuredTones()
-      let idx = tones.firstIndex(of: state.tone) ?? -1
-      state.tone = tones[(idx + 1) % max(1, tones.count)]
+      let idx = tones.firstIndex(where: { $0.label.caseInsensitiveCompare(state.tone) == .orderedSame }) ?? -1
+      let next = tones[(idx + 1) % max(1, tones.count)]
+      state.tone = next.label
       stateChanged()
-      // Publish to the shared App Group so the main app can pick up the
-      // current tone selection when it needs to (e.g. for the tone-based
-      // refine prompt).
       let d = UserDefaults(suiteName: "group.com.tulmi.app")
-      d?.set(state.tone, forKey: "tulmi.kb.tone")
+      d?.set(next.id, forKey: "tulmi.kb.tone")
       fireKeyHaptic()
     case .openApp(let screenId):
       // Apple restricts NSExtensionContext.open to Today extensions; keyboard
@@ -4528,13 +4689,20 @@ final class SDUIRenderer: NSObject {
         shouldCap = ctx.isEmpty || (ctx.last?.isWhitespace ?? true)
       case .sentences:
         if ctx.isEmpty { shouldCap = true }
+        else if ctx.last == "\n" || ctx.hasSuffix("\n ") {
+          // New line/paragraph → sentence start. Checked BEFORE the whitespace
+          // strip below: "\n".isWhitespace is true, so drop(while:) swallowed
+          // the newline and the old `last == "\n"` comparison was dead code —
+          // every new line started lowercase.
+          shouldCap = true
+        }
         else {
           // Look back past trailing whitespace, then check the last non-space
           // for a sentence-ending mark.
           let trimmed = ctx.reversed().drop(while: { $0.isWhitespace })
           let hadSpace = ctx.count != trimmed.count
           if let last = trimmed.first {
-            shouldCap = hadSpace && (last == "." || last == "?" || last == "!" || last == "\n")
+            shouldCap = hadSpace && (last == "." || last == "?" || last == "!")
           } else {
             shouldCap = true
           }
@@ -4569,6 +4737,16 @@ final class SDUIRenderer: NSObject {
     // old guard let EVERY letter fall through to a documentContextBeforeInput
     // read (an XPC round-trip to the host app) before returning it unchanged.
     guard let proxy = host?.hostTextDocumentProxy else { return text }
+    // Respect the FIELD's smart-typography traits, like the system keyboard:
+    // code editors / identifier fields set these to .no and a curly quote
+    // there is corruption, not typography.
+    let traits = proxy as? UITextInputTraits
+    if (ch == "\"" || ch == "'"), traits?.smartQuotesType == UITextSmartQuotesType.no {
+      return text
+    }
+    if ch == "-", traits?.smartDashesType == UITextSmartDashesType.no {
+      return text
+    }
     let ctx = proxy.documentContextBeforeInput ?? ""
     switch ch {
     case "\"":
@@ -4622,6 +4800,16 @@ final class SDUIRenderer: NSObject {
   /// document tail: handleWordBoundary VERIFIES it against the real context
   /// before touching the document, so a stale mirror can never corrupt text.
   private var currentWord = ""
+  /// False when the tracker may be a strict SUFFIX of the real trailing word —
+  /// e.g. after deleting past a boundary ("help·" ⌫ → tracker empty, doc tail
+  /// "help") and typing on ("ing" tracked, doc "helping"). ctx.hasSuffix alone
+  /// can't catch that, and correcting the suffix corrupts the word. Restored
+  /// at the next word boundary (a fresh word starts fully tracked).
+  private var trackerValid = true
+  /// True right after a suggestion insert added its trailing auto-space.
+  /// Typing terminal punctuation next pulls that space back ("word ," →
+  /// "word, ") — the native auto-space pull-back.
+  private var pendingAutoSpace = false
   /// Last applied correction, kept so the suggestion bar can offer the typed
   /// original as a one-tap revert (native behavior).
   private var lastAutocorrect: (original: String, corrected: String, boundary: String)?
@@ -4677,42 +4865,72 @@ final class SDUIRenderer: NSObject {
   private func noteDeletedBackward() {
     lastAutocorrect = nil
     lastInsertedChar = nil   // unknown context now — bias off until next insert
-    if !currentWord.isEmpty { currentWord.removeLast() }
+    pendingAutoSpace = false
+    if currentWord.isEmpty {
+      // Deleting past what we tracked: the doc tail may now end mid-word with
+      // untracked characters in front of anything typed next. Corrections are
+      // unsafe until the next boundary.
+      trackerValid = false
+    } else {
+      currentWord.removeLast()
+    }
     refreshSuggestions()
   }
 
   /// Forget the tracked word + revert state. Called whenever the text around
-  /// the cursor changed in a way the tracker can't follow (trackpad moves,
-  /// dictation commits, accent/suggestion inserts, word deletes).
-  func resetTypingContext() {
+  /// the cursor changed in a way the tracker can't follow. `tailAtBoundary`
+  /// says whether the document is KNOWN to end at a word boundary right now
+  /// (suggestion just inserted "word ", dictation committed with a trailing
+  /// space) — if not, corrections stay disabled until the next boundary.
+  func resetTypingContext(tailAtBoundary: Bool = false) {
     currentWord = ""
     lastAutocorrect = nil
+    pendingAutoSpace = false
+    trackerValid = tailAtBoundary
     if !state.suggestions.isEmpty {
       state.suggestions = []
       updateSuggestionBarInPlace()
     }
   }
 
-  /// The word just ended (boundary landed in the document already). Order:
-  /// text expansion (exact trigger) wins, then spell correction. ONE context
-  /// read happens here — at the boundary, not per keystroke — and it doubles
-  /// as the safety check that the tracker matches reality.
-  private func handleWordBoundary(boundary: String) {
+  /// The word just ended (boundary landed in the document already, except for
+  /// the return key — see `preInsertContext`). Order: text expansion (exact
+  /// trigger) wins, then spell correction. ONE context read happens here — at
+  /// the boundary, not per keystroke — and it doubles as the safety check
+  /// that the tracker matches reality.
+  ///
+  /// `preInsertContext`: for "\n" boundaries the caller passes the context it
+  /// read BEFORE inserting the newline — most hosts scope
+  /// documentContextBeforeInput to the current line, so reading after the
+  /// insert comes back empty and the verification could never pass.
+  private func handleWordBoundary(boundary: String, preInsertContext: String? = nil) {
     lastAutocorrect = nil
     let word = currentWord
     currentWord = ""
+    let wasValid = trackerValid
+    trackerValid = true   // a boundary just landed — the next word starts fully tracked
     if !state.suggestions.isEmpty {
       state.suggestions = []
       updateSuggestionBarInPlace()
     }
-    guard !word.isEmpty, let proxy = host?.hostTextDocumentProxy else { return }
+    guard wasValid, !word.isEmpty, let proxy = host?.hostTextDocumentProxy else { return }
     // Respect the field: URL / email / code fields opt out of correction.
     guard host?.hostAutocorrectionType() != UITextAutocorrectionType.no else { return }
     let expansion = host?.hostExpansion(for: word)
     let autocorrectOn = flagBool("kb.autocorrect.enabled", false)
     guard expansion != nil || autocorrectOn else { return }
-    let ctx = proxy.documentContextBeforeInput ?? ""
+    let ctx: String = preInsertContext.map { $0 + boundary }
+      ?? (proxy.documentContextBeforeInput ?? "")
     guard ctx.hasSuffix(word + boundary) else { return }
+    // The char BEFORE the matched word must itself be a boundary (or nothing).
+    // Without this, a tracker that is a strict suffix of the real word — e.g.
+    // "ing" against doc "helping" — passes hasSuffix and the replace corrupts
+    // the word. Belt-and-suspenders on top of the trackerValid gate.
+    let head = ctx.dropLast(word.count + boundary.count)
+    if let p = head.last,
+       p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" {
+      return
+    }
 
     // 1) Text expansion — the user's own dictionary + the iOS supplementary
     //    lexicon (contact names, Settings text replacements), via the host.
@@ -4864,7 +5082,7 @@ final class SDUIRenderer: NSObject {
     }
     var out: [String] = []
     if currentWord.count >= 2,
-       currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" }) {
+       currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" }) {
       let ns = currentWord as NSString
       let comps = textChecker.completions(
         forPartialWordRange: NSRange(location: 0, length: ns.length),
@@ -4889,17 +5107,34 @@ final class SDUIRenderer: NSObject {
         replaceTail(count: last.corrected.count + last.boundary.count,
                     with: last.original + last.boundary, proxy: proxy)
       }
-      resetTypingContext()
+      resetTypingContext(tailAtBoundary: true)
       updateAutoCap()
       return
     }
     let word = currentWord
     let ctx = proxy.documentContextBeforeInput ?? ""
-    guard word.isEmpty || ctx.hasSuffix(word) else { resetTypingContext(); return }
+    guard trackerValid, word.isEmpty || ctx.hasSuffix(word) else {
+      resetTypingContext()
+      return
+    }
+    // Same strict-suffix guard as the boundary pipeline: replacing "ing" when
+    // the document says "helping" must not fire.
+    if !word.isEmpty {
+      let head = ctx.dropLast(word.count)
+      if let p = head.last, p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" {
+        resetTypingContext()
+        return
+      }
+    }
     let cased = matchCase(of: word, to: s)
-    replaceTail(count: word.count, with: cased + " ", proxy: proxy)
+    // An empty tracker means the chip is appending, not replacing — make sure
+    // it doesn't weld onto a trailing word ("hello" + chip → "hello world ").
+    let needsLead = word.isEmpty
+      && !(ctx.isEmpty || ctx.last!.isWhitespace || ctx.last!.isNewline)
+    replaceTail(count: word.count, with: (needsLead ? " " : "") + cased + " ", proxy: proxy)
     lastInsertedChar = " "
-    resetTypingContext()
+    resetTypingContext(tailAtBoundary: true)
+    pendingAutoSpace = true   // typing punctuation next pulls the space back
     updateAutoCap()
   }
 
@@ -5110,14 +5345,28 @@ final class SDUIRenderer: NSObject {
   /// not remounting on every keystroke.
   private var lastReflectedReturnKey: UIReturnKeyType?
   private var lastFieldContextReadAt: TimeInterval = 0
+  private var pendingFieldContextRefresh = false
   func reflectFieldContext() {
     // This fires from textDidChange — i.e. on EVERY keystroke — and each of
     // the three host reads below crosses into the host app (proxy traits /
     // textInputMode). The values only actually change on focus switches, so
     // throttle the reads; kb.host.traitRefreshMs=0 restores per-keystroke.
+    // A throttled call is never DROPPED — it re-arms one deferred read, so a
+    // fast field switch (type → tap another field < 500ms later) still lands
+    // its return-key label a beat later instead of never.
     let minInterval = flagDouble("kb.host.traitRefreshMs", 500) / 1000.0
     let now = Date().timeIntervalSince1970
-    if minInterval > 0, now - lastFieldContextReadAt < minInterval { return }
+    if minInterval > 0, now - lastFieldContextReadAt < minInterval {
+      if !pendingFieldContextRefresh {
+        pendingFieldContextRefresh = true
+        let delay = max(0.05, minInterval - (now - lastFieldContextReadAt))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+          self?.pendingFieldContextRefresh = false
+          self?.reflectFieldContext()
+        }
+      }
+      return
+    }
     lastFieldContextReadAt = now
     let rt = host?.hostReturnKeyType() ?? .default
     let lang = host?.hostPrimaryLanguageCode() ?? "EN"
