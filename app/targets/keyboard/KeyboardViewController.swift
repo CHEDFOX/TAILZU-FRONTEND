@@ -182,8 +182,48 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     view.backgroundColor = .clear
     writeKeyboardStatus()
     loadDictionary()
-    buildKeyboard()
-    loadAndApplyConfig()
+    loadSupplementaryLexicon()
+    // Cold-start fast path: with a cached SDUI config, mount SDUI directly and
+    // never build the legacy keyboard at all. The old order (buildKeyboard →
+    // loadAndApplyConfig → SDUI teardown) constructed ~40 buttons + a full
+    // Auto Layout pass on the main thread at every extension launch, purely to
+    // throw them away — the single biggest avoidable cost on the keyboard's
+    // appear latency. The legacy build remains the no-cache / no-SDUI fallback.
+    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config"),
+       let kb = SDUIRenderer.decodeConfig(data),
+       kb.features?.sdui == true, kb.root != nil {
+      // The dictation/flow paths mutate these implicitly-unwrapped hand-built
+      // controls unconditionally (they've always existed before). Give them
+      // detached placeholders — never added to a superview — so every such
+      // mutation is a harmless no-op instead of a nil crash. The SDUI tree
+      // renders its own mic/tone keys.
+      micButton = UIButton(type: .system)
+      tonePill = UIButton(type: .system)
+      undoButton = UIButton(type: .system)
+      nextKeyboardButton = UIButton(type: .system)
+      if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }  // flags (mic mode, height…)
+      applySDUIIfAvailable(data)
+      fetchRemoteConfig()
+    } else {
+      buildKeyboard()
+      loadAndApplyConfig()
+    }
+  }
+
+  /// iOS-provided lexicon (contact names, Settings → Text Replacement). Merged
+  /// as a SECOND lookup behind the user's own Tailzu dictionary — never
+  /// overriding it — and consumed by hostExpansion(for:) at word boundaries.
+  private var lexiconExpansions: [String: String] = [:]
+  private func loadSupplementaryLexicon() {
+    requestSupplementaryLexicon { [weak self] lexicon in
+      var map: [String: String] = [:]
+      for entry in lexicon.entries {
+        let trigger = entry.userInput.lowercased()
+        guard !trigger.isEmpty, trigger != entry.documentText.lowercased() else { continue }
+        map[trigger] = entry.documentText
+      }
+      DispatchQueue.main.async { self?.lexiconExpansions = map }
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -360,8 +400,31 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     statusLabel.isHidden = true
   }
 
+  /// Explicit keyboard height (kb.height.pt). Absent/0 → the system default,
+  /// exactly as before. Priority 999 so the system's own placement constraints
+  /// never conflict-crash (the standard custom-keyboard height technique).
+  private var keyboardHeightConstraint: NSLayoutConstraint?
+  private func applyKeyboardHeight() {
+    let raw = kbConfig?.flags["kb.height.pt"]
+    let h = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 0
+    guard h > 0 else {
+      keyboardHeightConstraint?.isActive = false
+      keyboardHeightConstraint = nil
+      return
+    }
+    if let c = keyboardHeightConstraint {
+      c.constant = CGFloat(h)
+    } else {
+      let c = view.heightAnchor.constraint(equalToConstant: CGFloat(h))
+      c.priority = UILayoutPriority(999)
+      c.isActive = true
+      keyboardHeightConstraint = c
+    }
+  }
+
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
     kbConfig = cfg
+    applyKeyboardHeight()
     // Legacy path: also keep the extension view transparent so the OS-provided
     // keyboard region + backdrop show through. cfg.background is still applied
     // as the fallback color the blur/effect sits over (see SDUIRenderer),
@@ -1463,6 +1526,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     proxy.insertText(text)
     pendingPartial = text
+    // Dictation rewrote the tail — the renderer's typed-word tracker is void.
+    sduiRenderer?.resetTypingContext()
   }
 
   // Conversational refusal/clarification the STT/refine can emit on silence
@@ -1515,6 +1580,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     flashKeysForText(inserted)
     pendingPartial = ""
     dictatedSomething = true
+    sduiRenderer?.resetTypingContext()
     // Track for the top-bar UNDO. Multiple finals in one session collapse to
     // "undo the most recent final" — matches user expectation of "take back
     // what just appeared".
@@ -2008,6 +2074,20 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// with the system-blue accent on action keys.
   func hostReturnKeyType() -> UIReturnKeyType {
     (textDocumentProxy as? UITextInputTraits)?.returnKeyType ?? .default
+  }
+
+  /// The current field's autocorrection trait — the renderer keeps autocorrect
+  /// and suggestion chips out of fields that opt out (URL, email, code).
+  func hostAutocorrectionType() -> UITextAutocorrectionType {
+    (textDocumentProxy as? UITextInputTraits)?.autocorrectionType ?? .default
+  }
+
+  /// Word-boundary text expansion: the user's Tailzu dictionary first (their
+  /// explicit triggers always win), then the iOS supplementary lexicon
+  /// (contacts, system text replacements).
+  func hostExpansion(for word: String) -> String? {
+    let key = word.lowercased()
+    return expansions[key] ?? lexiconExpansions[key]
   }
 
   /// Whether the OS wants a next-keyboard switch key visible. This is true iff
