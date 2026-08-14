@@ -112,21 +112,48 @@ final class KeyHitButton: UIButton {
 // title, fast-shift update and flash-on-refine keeps working untouched — this
 // view centralizes *touch* only; it does not re-implement rendering.
 //
-// v1 scope: accent long-press trays are NOT handled while the plane is on; the
-// flag is OFF by default and this is opt-in until v2 routes accents through the
-// plane. Everything else (rolling, multi-touch, slide-cancel, press feedback)
-// is here.
+// v2: accent long-press trays ARE routed through the plane now (per-track hold
+// timer → renderer presents the tray, finger slides to a chip, release commits)
+// so the plane no longer costs the accent feature. Rolling, multi-touch,
+// slide-cancel, press feedback, press-order rollover and LM-biased targeting
+// all live here.
 final class KeyPlaneView: UIView {
   struct Key { weak var button: UIButton?; let char: String }
 
   private let keys: [Key]
   private weak var renderer: SDUIRenderer?
 
+  /// kb.keyPlane.rolloverCommit — commit an already-held key the moment a NEW
+  /// finger touches down, so overlapped two-thumb presses emit in PRESS order.
+  /// Committing at each finger's own lift (the v1 behavior) inverted pairs when
+  /// the first key was released after the second was pressed ("teh" for "the"),
+  /// which is exactly how fast typists overlap. Matches the system keyboard.
+  var rolloverCommit = true
+  /// kb.keyPlane.accentTrays — long-press accent trays routed through the plane.
+  var accentTraysEnabled = true
+  /// kb.accentTray.longPressMs — hold threshold before the tray opens.
+  var trayLongPressMs: Double = 500
+  /// kb.touch.lmBias.pt — extra points of gap a "likely next letter" may claim
+  /// (0 = language-model bias off). Only ever shifts AMBIGUOUS touches (gap /
+  /// slop zone); a touch landing inside a key's real bounds is never stolen.
+  var lmBiasPt: CGFloat = 0
+
   /// Per-active-touch state: the key currently under that finger.
   private final class Track {
     weak var button: UIButton?
     var char: String?
+    /// Set once the char has been committed early by press-order rollover —
+    /// the touch stays tracked (for hasActiveTouches) but must not commit or
+    /// re-target again.
+    var committed = false
+    /// Where the touch started, for the hold-vs-roll accent-tray decision.
+    var startPoint: CGPoint = .zero
+    /// Pending accent-tray hold timer; invalidated on roll/lift/commit.
+    var trayTimer: Timer?
+    /// True while this finger is driving an open accent tray.
+    var trayActive = false
     init(_ b: UIButton?, _ c: String?) { button = b; char = c }
+    deinit { trayTimer?.invalidate() }
   }
   private var tracks: [ObjectIdentifier: Track] = [:]
 
@@ -170,18 +197,28 @@ final class KeyPlaneView: UIView {
   /// touches fall through to the controls beneath.
   private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
     if frames.isEmpty { refreshFrames() }
+    // Language-model bias: the set of letters likely to follow the last typed
+    // character (backend bigram table). A likely key's effective distance to a
+    // GAP touch shrinks by lmBiasPt, so ambiguous near-misses resolve toward
+    // the letter the user probably meant — the cheap version of the system
+    // keyboard's dynamic hit-target resizing. Direct in-bounds hits keep
+    // dist 0 and always win (see the max(0.01, …) clamp).
+    let likely: Set<String> = lmBiasPt > 0 ? (renderer?.lmLikelyNext() ?? []) : []
     var best: (button: UIButton, char: String, dist: CGFloat)?
     for f in frames {
       // Vertically inside the key's row band (+small margin).
       if abs(point.y - f.rect.midY) > f.rect.height / 2 + 6 { continue }
       // Horizontal distance to the rect (0 when inside it).
-      let dx: CGFloat
+      var dx: CGFloat
       if point.x < f.rect.minX { dx = f.rect.minX - point.x }
       else if point.x > f.rect.maxX { dx = point.x - f.rect.maxX }
       else { dx = 0 }
       // Only own the point within ~half a key of a real key; beyond that
       // (shift / delete columns) let it fall through.
       if dx > f.rect.width / 2 + 6 { continue }
+      if dx > 0, !likely.isEmpty, likely.contains(f.char) {
+        dx = max(0.01, dx - lmBiasPt)
+      }
       if best == nil || dx < best!.dist { best = (f.button, f.char, dx) }
     }
     guard let b = best else { return nil }
@@ -205,18 +242,56 @@ final class KeyPlaneView: UIView {
     // AND poor fast-typing: detection is now always against live geometry.
     // Cheap — a couple dozen convert() calls, once per finger-down.
     refreshFrames()
+    // Press-order rollover: a NEW finger down commits every still-held key
+    // right now, so overlapped presses land in the order they were pressed —
+    // not the order the fingers happened to lift.
+    flushPendingCommits()
     for t in touches {
-      let hit = keyAt(t.location(in: self))
-      tracks[ObjectIdentifier(t)] = Track(hit?.button, hit?.char)
+      let p = t.location(in: self)
+      let hit = keyAt(p)
+      let track = Track(hit?.button, hit?.char)
+      track.startPoint = p
+      tracks[ObjectIdentifier(t)] = track
       if let b = hit?.button { renderer?.planeDown(b) }
+      // Arm the accent-tray hold for this finger. Fires only if the finger is
+      // still down, hasn't rolled/committed, and the key actually has accents
+      // (the renderer decides that when presenting). Timer goes to .common —
+      // .default-mode timers pause while a finger is on screen.
+      if accentTraysEnabled, hit != nil {
+        let timer = Timer(timeInterval: trayLongPressMs / 1000.0, repeats: false) {
+          [weak self, weak track] _ in
+          guard let self = self, let track = track,
+                !track.committed, !track.trayActive else { return }
+          if self.renderer?.planeTryPresentAccentTray(for: track.button, char: track.char) == true {
+            track.trayActive = true
+          }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        track.trayTimer = timer
+      }
     }
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
     for t in touches {
-      guard let track = tracks[ObjectIdentifier(t)] else { continue }
-      let hit = keyAt(t.location(in: self))
+      guard let track = tracks[ObjectIdentifier(t)], !track.committed else { continue }
+      let p = t.location(in: self)
+      if track.trayActive {
+        // The finger is driving the accent tray now — slide highlights chips;
+        // no key re-targeting. Plane and mount container share identical
+        // frames (both pinned to the same edges), so plane coords pass through.
+        renderer?.planeUpdateAccentTray(at: p)
+        continue
+      }
+      // A hold that drifts is a roll, not a long-press — disarm the tray.
+      if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > 12 {
+        track.trayTimer?.invalidate()
+        track.trayTimer = nil
+      }
+      let hit = keyAt(p)
       if track.button !== hit?.button {
+        track.trayTimer?.invalidate()   // rolled onto another key — no tray
+        track.trayTimer = nil
         if let old = track.button { renderer?.planeUp(old) }   // rolled off old
         if let nw = hit?.button { renderer?.planeDown(nw) }    // onto the next
         track.button = hit?.button
@@ -228,7 +303,17 @@ final class KeyPlaneView: UIView {
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
     for t in touches {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      track.trayTimer?.invalidate()
       if let b = track.button { renderer?.planeUp(b) }
+      if track.committed { continue }   // already typed by press-order rollover
+      if track.trayActive {
+        let p = t.location(in: self)
+        // Released on a chip → that accent; still on the key below the tray →
+        // the base char (matching iOS); slid anywhere else → nothing.
+        let stillOnKey = keyAt(p)?.char == track.char
+        renderer?.planeCommitAccentTray(at: p, fallbackChar: stillOnKey ? track.char : nil)
+        continue
+      }
       // Commit the char under the finger at release. If it slid off the grid
       // (button == nil) nothing commits — native slide-to-cancel.
       if let char = track.char { renderer?.planeCommit(char: char) }
@@ -238,7 +323,27 @@ final class KeyPlaneView: UIView {
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
     for t in touches {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      track.trayTimer?.invalidate()
+      if track.trayActive { renderer?.planeDismissAccentTray() }
       if let b = track.button { renderer?.planeUp(b) }
+    }
+  }
+
+  /// Commit every still-held, uncommitted letter NOW (press-order rollover).
+  /// Runs when another plane touch begins, and — via the renderer — when a
+  /// NON-plane key (space / return / shift / delete) goes down, so
+  /// letter→special-key overlaps keep press order exactly like letter→letter.
+  /// A finger driving an open accent tray is exempt: committing its base char
+  /// behind the tray would type behind the user's back.
+  func flushPendingCommits() {
+    guard rolloverCommit else { return }
+    for (_, track) in tracks where !track.committed && !track.trayActive {
+      track.trayTimer?.invalidate()
+      track.trayTimer = nil
+      if let b = track.button { renderer?.planeUp(b) }
+      if let c = track.char { renderer?.planeCommit(char: c) }
+      track.committed = true
+      track.button = nil
     }
   }
 }
@@ -666,6 +771,13 @@ protocol KBHostControllerProtocol: AnyObject {
   /// "FR"), used as the space bar label when multiple keyboards are enabled.
   /// Falls back to a locale-derived code if the primary language isn't set.
   func hostPrimaryLanguageCode() -> String
+  /// The current field's autocorrection trait — `.no` turns the renderer's
+  /// autocorrect + suggestions off for that field (URL / email / code fields).
+  func hostAutocorrectionType() -> UITextAutocorrectionType
+  /// Exact text-expansion for a finished word: the user's dictionary (App
+  /// Group) merged with the iOS supplementary lexicon (contact names, system
+  /// text replacements). nil when no trigger matches.
+  func hostExpansion(for word: String) -> String?
 }
 
 // MARK: - Polymorphic JSON value (for props / style bags)
@@ -1362,6 +1474,9 @@ final class SDUIRenderer: NSObject {
       return
     }
     config = newConfig
+    // Flag-derived caches follow the config.
+    parsedBigrams = nil
+    cachedCheckerLang = nil
     // If the active layout no longer exists in the new config, fall back to its
     // first layout so remount() has a valid layoutId to render.
     if let layouts = newConfig.layouts,
@@ -1445,8 +1560,9 @@ final class SDUIRenderer: NSObject {
     // like the system keyboard. Buttons stay pure visuals (fast-shift, flash,
     // theming untouched); space bar + tone pill are excluded so their special
     // handling survives. OTA-reversible: backend sets kb.keyPlane.enabled=false
-    // to fall back to the per-button grid (which restores accent long-press
-    // trays, the one thing the v1 plane doesn't route yet).
+    // to fall back to the per-button grid. Accent long-press trays are routed
+    // through the plane too now (kb.keyPlane.accentTrays), so nothing is lost
+    // by having it on.
     if flagBool("kb.keyPlane.enabled", true) {
       let planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
         guard !char.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
@@ -1455,6 +1571,11 @@ final class SDUIRenderer: NSObject {
       }
       if !planeKeys.isEmpty {
         let plane = KeyPlaneView(keys: planeKeys, renderer: self)
+        plane.rolloverCommit = flagBool("kb.keyPlane.rolloverCommit", true)
+        plane.accentTraysEnabled = flagBool("kb.keyPlane.accentTrays", true)
+        plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
+        plane.lmBiasPt = flagBool("kb.touch.lmBias.enabled", false)
+          ? flagCGFloat("kb.touch.lmBias.pt", 3) : 0
         plane.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(plane)   // topmost — intercepts char touches only
         NSLayoutConstraint.activate([
@@ -1466,6 +1587,13 @@ final class SDUIRenderer: NSObject {
         keyPlane = plane
       }
     }
+    // Keep the fast-shift snapshot in sync on EVERY remount path (mount,
+    // updateConfig, appearanceDidChange, stateChanged) — previously only the
+    // stateChanged async block assigned it, so the first shift after any other
+    // remount missed the fast path and paid a full rebuild.
+    lastRenderSnapshot = KBStateSnapshot.from(state)
+    // Key geometry changed → the autocorrect neighbor map must be re-derived.
+    cachedNeighborMap = nil
     // Build stamp — added LAST so it sits on top of the tree + plane. A small
     // corner marker that proves whether THIS binary is the one running: if iOS
     // is serving a cached old keyboard extension (the usual reason "updates do
@@ -1476,7 +1604,9 @@ final class SDUIRenderer: NSObject {
 
   /// Bump this string on every build so the on-screen marker changes — that's
   /// how you tell a freshly-loaded extension from a cached old one.
-  static let buildStamp = "K3"
+  /// K4: autocorrect + suggestions, press-order rollover, LM hit-target bias,
+  /// plane-side accent trays, per-keystroke XPC cuts, cold-start fast path.
+  static let buildStamp = "K4"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -1537,8 +1667,11 @@ final class SDUIRenderer: NSObject {
     DispatchQueue.main.async { [weak self] in
       guard let self = self else { return }
       self.pendingRemount = false
-      self.remount()
-      self.lastRenderSnapshot = KBStateSnapshot.from(self.state)
+      // Route through the mid-touch guard: a state-driven rebuild (dictation
+      // start/stop, status, tone…) landing while a finger is down cancels that
+      // in-flight touch — a silently dropped keystroke. Config refreshes were
+      // already guarded; state remounts get the same protection now.
+      self.remountWhenIdle()
     }
   }
 
@@ -2162,12 +2295,7 @@ final class SDUIRenderer: NSObject {
       showAccentTray(for: btn, base: base, options: accents)
     case .changed:
       if let tray = activeAccentTray {
-        let loc = gr.location(in: tray)
-        tray.subviews.forEach { chip in
-          let inside = chip.frame.contains(loc)
-          if inside { chip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF") }
-          else { chip.backgroundColor = keyBgColor() }
-        }
+        updateAccentTrayHighlight(at: gr.location(in: tray))
       }
     case .ended:
       pickAccentAndDismiss(gestureRecognizer: gr)
@@ -2175,6 +2303,16 @@ final class SDUIRenderer: NSObject {
       dismissAccentTray()
     default:
       break
+    }
+  }
+
+  /// Highlight the chip under `loc` (tray-local coords); un-highlight the rest.
+  private func updateAccentTrayHighlight(at loc: CGPoint) {
+    guard let tray = activeAccentTray else { return }
+    tray.subviews.forEach { chip in
+      chip.backgroundColor = chip.frame.contains(loc)
+        ? flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+        : keyBgColor()
     }
   }
 
@@ -2253,6 +2391,11 @@ final class SDUIRenderer: NSObject {
       // Slid off the tray — no insert (matches Apple).
       return
     }
+    insertAccent(ch)
+  }
+
+  /// Insert a tray selection — shared by the gesture path and the plane path.
+  private func insertAccent(_ ch: String) {
     host?.hostTextDocumentProxy.insertText(ch)
     // Same double-tap-caps chain reset as the plain insert path.
     lastShiftTapTime = 0
@@ -2260,13 +2403,65 @@ final class SDUIRenderer: NSObject {
       state.shift = false
       stateChanged()
     }
-    updateAutoCap()
+    // Accented words are the user's explicit choice — keep autocorrect out of
+    // them (the tracker resets; the ASCII guard would skip them anyway).
+    resetTypingContext()
+    updateAutoCap(afterTyping: ch)
   }
 
   private func dismissAccentTray() {
     activeAccentTray?.removeFromSuperview()
     activeAccentTray = nil
   }
+
+  // MARK: - Accent tray via KeyPlaneView
+  //
+  // With the multi-touch plane on, character buttons have userInteraction OFF,
+  // so their UILongPressGestureRecognizers never fire. The plane detects the
+  // hold itself (per-track timer) and drives the SAME tray through these hooks
+  // — closing the "accent trays don't work while the plane is on" v1 gap.
+  // Coordinates: the plane and the mount container are pinned to identical
+  // edges, so plane-local points are container points.
+
+  /// Present the tray for a held key. Returns false when the key has no
+  /// accents (or the feature is off) so the plane leaves the touch as a
+  /// normal press.
+  fileprivate func planeTryPresentAccentTray(for button: UIButton?, char: String?) -> Bool {
+    guard flagBool("kb.keyPlane.accentTrays", true),
+          let button = button, let char = char,
+          let accents = accentMap[char.lowercased()], !accents.isEmpty
+    else { return false }
+    showAccentTray(for: button, base: char, options: accents)
+    guard let tray = activeAccentTray else { return false }
+    // Default-highlight the base chip (iOS does this) so releasing without
+    // sliding reads as "the base letter is selected".
+    if let baseChip = tray.subviews.first {
+      baseChip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+    }
+    return true
+  }
+
+  fileprivate func planeUpdateAccentTray(at point: CGPoint) {
+    guard let tray = activeAccentTray, let container = mountContainer else { return }
+    updateAccentTrayHighlight(at: tray.convert(point, from: container))
+  }
+
+  /// Release while a tray is open: a chip commits its accent; off-chip but
+  /// still on the held key commits the base char (`fallbackChar`); anywhere
+  /// else commits nothing.
+  fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?) {
+    defer { dismissAccentTray() }
+    guard let tray = activeAccentTray, let container = mountContainer else { return }
+    let loc = tray.convert(point, from: container)
+    if let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+       let ch = chip.title(for: .normal), !ch.isEmpty {
+      insertAccent(ch)
+    } else if let base = fallbackChar {
+      run(.inline(.insertKey(char: base)))
+    }
+  }
+
+  fileprivate func planeDismissAccentTray() { dismissAccentTray() }
 
   /// Generic icon-bearing key. `props.icon` accepts any of:
   ///   - "sf:name"                     (SF Symbol shorthand)
@@ -2400,9 +2595,12 @@ final class SDUIRenderer: NSObject {
       proxy?.deleteBackward()
       proxy?.insertText(". ")
       _lastSpaceTapTime = 0
+      resetTypingContext()   // the word boundary already ran on the first space
     } else {
       proxy?.insertText(" ")
       _lastSpaceTapTime = now
+      lastInsertedChar = " "   // word-start bigram row (" " entry) arms next-letter bias
+      handleWordBoundary(boundary: " ")
     }
     updateAutoCap()
   }
@@ -2417,6 +2615,7 @@ final class SDUIRenderer: NSObject {
       state.trackpadActive = true
       _trackpadAnchor = gr.location(in: view).x
       _trackpadOffset = 0
+      resetTypingContext()   // cursor is about to move — the word tracker is void
       // Subtle haptic to signal mode entry.
       if let host = host, host.hostHasFullAccess {
         let g = UIImpactFeedbackGenerator(style: .light)
@@ -2626,6 +2825,7 @@ final class SDUIRenderer: NSObject {
   @objc private func deleteDown() {
     // First delete fires immediately on touch-down (Apple's pattern).
     host?.hostTextDocumentProxy.deleteBackward()
+    noteDeletedBackward()
     deleteRepeatCount = 1
     deleteTimer?.invalidate()
     // 500ms initial delay before repeat begins, then 90ms per char for the
@@ -2660,8 +2860,10 @@ final class SDUIRenderer: NSObject {
       self.deleteRepeatCount += 1
       if self.deleteRepeatCount > wordThreshold {
         self.deleteWordBoundary()
+        self.resetTypingContext()
       } else {
         self.host?.hostTextDocumentProxy.deleteBackward()
+        self.noteDeletedBackward()
       }
     }
     RunLoop.main.add(repeatTimer, forMode: .common)
@@ -2851,9 +3053,6 @@ final class SDUIRenderer: NSObject {
     //   kb.suggestion.height     (default 36)
     let gap = flagCGFloat("kb.suggestion.gap", 8)
     let edge = flagCGFloat("kb.suggestion.edgeInset", 8)
-    let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
-    let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
-    let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
     let barHeight = flagCGFloat("kb.suggestion.height", 36)
 
     let scroll = UIScrollView()
@@ -2870,6 +3069,23 @@ final class SDUIRenderer: NSObject {
       row.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
       row.heightAnchor.constraint(equalTo: scroll.heightAnchor),
     ])
+    suggestionRowStack = row
+    renderSuggestionChips(into: row)
+    scroll.heightAnchor.constraint(equalToConstant: barHeight).isActive = true
+    return scroll
+  }
+
+  /// The live suggestion row, for in-place chip refreshes from the typing
+  /// pipeline (refreshSuggestions / handleWordBoundary). Chip updates must
+  /// NEVER remount the tree — that would put a full rebuild on the keystroke
+  /// path.
+  private weak var suggestionRowStack: UIStackView?
+
+  private func renderSuggestionChips(into row: UIStackView) {
+    row.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
+    let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
+    let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
     for s in state.suggestions {
       let chip = UIButton(type: .system)
       chip.setTitle(s, for: .normal)
@@ -2878,13 +3094,16 @@ final class SDUIRenderer: NSObject {
       chip.layer.cornerRadius = chipRadius
       chip.contentEdgeInsets = UIEdgeInsets(top: chipPadV, left: chipPadH, bottom: chipPadV, right: chipPadH)
       let action = UIAction { [weak self] _ in
-        self?.host?.hostTextDocumentProxy.insertText(s + " ")
+        self?.applySuggestion(s)
       }
       chip.addAction(action, for: .touchUpInside)
       row.addArrangedSubview(chip)
     }
-    scroll.heightAnchor.constraint(equalToConstant: barHeight).isActive = true
-    return scroll
+  }
+
+  fileprivate func updateSuggestionBarInPlace() {
+    guard let row = suggestionRowStack, row.window != nil else { return }
+    renderSuggestionChips(into: row)
   }
 
   /// Waveform bars — driven by a 30 FPS Timer modulating bar heights from
@@ -3371,6 +3590,12 @@ final class SDUIRenderer: NSObject {
   private static var keyPressedColorKey: UInt8 = 0
 
   @objc private func keyTouchDown(_ btn: UIButton) {
+    // A real (non-plane) key going down flushes any still-held plane letters
+    // first, so letter→space / letter→shift overlaps keep press order. Plane-
+    // managed letters have isUserInteractionEnabled == false and reach here
+    // via planeDown instead — they must NOT flush (their own touch was just
+    // registered by the same event).
+    if btn.isUserInteractionEnabled { keyPlane?.flushPendingCommits() }
     // Apple's inversion: letter keys press to function color, function keys
     // press to letter color. We don't know which side a key is on, so use
     // theme.keyPressed if present, else lighten the base color.
@@ -3680,8 +3905,10 @@ final class SDUIRenderer: NSObject {
     let proxy = host?.hostTextDocumentProxy
     switch spec {
     case .insertText(let text):
-      proxy?.insertText(applySmartPunctuation(text))
-      updateAutoCap()
+      let inserted = applySmartPunctuation(text)
+      proxy?.insertText(inserted)
+      noteTyped(inserted)
+      updateAutoCap(afterTyping: inserted)
     case .insertKey(let char):
       // Derive case from LIVE state at tap time (not baked at render) so the
       // fast-shift in-place re-title never desyncs from what actually inserts.
@@ -3690,7 +3917,8 @@ final class SDUIRenderer: NSObject {
       let cased = char.count == 1
         ? ((state.shift || state.capsLock) ? char.uppercased() : char.lowercased())
         : char
-      proxy?.insertText(applySmartPunctuation(cased))
+      let inserted = applySmartPunctuation(cased)
+      proxy?.insertText(inserted)
       // A character between two shift taps breaks the double-tap-caps chain, so
       // clear the timer — otherwise "shift, type a, shift" wrongly engaged caps.
       lastShiftTapTime = 0
@@ -3698,9 +3926,11 @@ final class SDUIRenderer: NSObject {
         state.shift = false
         stateChanged()
       }
-      updateAutoCap()
+      noteTyped(inserted)
+      updateAutoCap(afterTyping: inserted)
     case .deleteBackward:
       proxy?.deleteBackward()
+      noteDeletedBackward()
       updateAutoCap()
     case .deleteWord:
       guard let p = proxy else { return }
@@ -3714,6 +3944,7 @@ final class SDUIRenderer: NSObject {
         deleted += 1
         if last.isWhitespace || last.isNewline { break }
       }
+      resetTypingContext()
     case .shift:
       state.shift.toggle()
       stateChanged()
@@ -3723,6 +3954,8 @@ final class SDUIRenderer: NSObject {
       stateChanged()
     case .returnKey:
       proxy?.insertText("\n")
+      noteTyped("\n")
+      updateAutoCap()
     case .switchLayout(let language):
       let langs = (config.layouts ?? []).map { $0.language }
       if let target = language, langs.contains(target) {
@@ -4117,36 +4350,48 @@ final class SDUIRenderer: NSObject {
   /// Respects the field's autocapitalizationType — off entirely on URL /
   /// email / password fields, .allCharacters keeps shift on always,
   /// .words fires on every word boundary.
-  private func updateAutoCap() {
+  /// `afterTyping` is the text just inserted, when the caller knows it. For a
+  /// plain letter/digit that knowledge is enough to decide autocap locally —
+  /// the char before the cursor IS that letter, so neither .sentences nor
+  /// .words wants a cap next — skipping the documentContextBeforeInput read.
+  /// That read is an XPC round-trip to the host app on EVERY keystroke; the
+  /// system keyboard pays no such tax, and this fast path removes ours for the
+  /// most common case. Word boundaries / deletes still do the real read.
+  private func updateAutoCap(afterTyping typed: String? = nil) {
     // Backend flag: kb.autoCap.enabled (default true) — global auto-cap kill switch
     guard flagBool("kb.autoCap.enabled", true) else { return }
     guard let host = host else { return }
+    if state.capsLock { return } // caps lock wins; don't fight the user
     let mode = host.hostAutocapitalizationType()
     if mode == .none { return }
-    let ctx = host.hostTextDocumentProxy.documentContextBeforeInput ?? ""
     let shouldCap: Bool
-    switch mode {
-    case .allCharacters:
-      shouldCap = true
-    case .words:
-      shouldCap = ctx.isEmpty || (ctx.last?.isWhitespace ?? true)
-    case .sentences:
-      if ctx.isEmpty { shouldCap = true }
-      else {
-        // Look back past trailing whitespace, then check the last non-space
-        // for a sentence-ending mark.
-        let trimmed = ctx.reversed().drop(while: { $0.isWhitespace })
-        let hadSpace = ctx.count != trimmed.count
-        if let last = trimmed.first {
-          shouldCap = hadSpace && (last == "." || last == "?" || last == "!" || last == "\n")
-        } else {
-          shouldCap = true
+    if mode != .allCharacters,
+       let t = typed, t.count == 1, let c = t.first, c.isLetter || c.isNumber {
+      shouldCap = false   // fast path: no proxy read
+    } else {
+      let ctx = host.hostTextDocumentProxy.documentContextBeforeInput ?? ""
+      switch mode {
+      case .allCharacters:
+        shouldCap = true
+      case .words:
+        shouldCap = ctx.isEmpty || (ctx.last?.isWhitespace ?? true)
+      case .sentences:
+        if ctx.isEmpty { shouldCap = true }
+        else {
+          // Look back past trailing whitespace, then check the last non-space
+          // for a sentence-ending mark.
+          let trimmed = ctx.reversed().drop(while: { $0.isWhitespace })
+          let hadSpace = ctx.count != trimmed.count
+          if let last = trimmed.first {
+            shouldCap = hadSpace && (last == "." || last == "?" || last == "!" || last == "\n")
+          } else {
+            shouldCap = true
+          }
         }
+      @unknown default:
+        shouldCap = false
       }
-    @unknown default:
-      shouldCap = false
     }
-    if state.capsLock { return } // caps lock wins; don't fight the user
     if shouldCap != state.shift {
       state.shift = shouldCap
       stateChanged()
@@ -4166,8 +4411,12 @@ final class SDUIRenderer: NSObject {
       if let f = config.flags?["kb.smartPunctuation"]?.asBool { return f }
       return true
     }()
-    guard on, text.count == 1 else { return text }
-    let ch = text.first!
+    guard on, text.count == 1, let ch = text.first,
+          ch == "\"" || ch == "'" || ch == "-" || ch == "."
+    else { return text }
+    // Only the four trigger characters ever read the document context — the
+    // old guard let EVERY letter fall through to a documentContextBeforeInput
+    // read (an XPC round-trip to the host app) before returning it unchanged.
     guard let proxy = host?.hostTextDocumentProxy else { return text }
     let ctx = proxy.documentContextBeforeInput ?? ""
     switch ch {
@@ -4197,6 +4446,310 @@ final class SDUIRenderer: NSObject {
     default:
       return text
     }
+  }
+
+  // MARK: - Autocorrect + word suggestions (on-device)
+  //
+  // The intelligence layer the keyboard lacked vs the system one. Fully local
+  // and synchronous-cheap: UITextChecker supplies misspelling detection,
+  // guesses and completions; the LIVE key geometry re-ranks guesses by tap
+  // adjacency (a candidate differing from the typed word only by neighbor-key
+  // substitutions is almost certainly what the finger meant). Corrections fire
+  // at word boundaries (space / return / punctuation) exactly like the system
+  // keyboard and Wispr's QWERTY layer. Backend flags:
+  //   kb.autocorrect.enabled      (default false — backend owns rollout)
+  //   kb.autocorrect.minLen       (default 3)  — shortest word we'll correct
+  //   kb.autocorrect.maxDistance  (default 2)  — weighted edit-distance cap
+  //   kb.autocorrect.lang         (default "" — derive from primaryLanguage)
+  //   kb.suggestions.enabled      (default false) — completion chips while typing
+  //   kb.suggestions.max          (default 3)
+  //   kb.touch.lmBias.enabled / .pt + kb.touch.bigrams
+  //     — next-letter hit-target bias, consumed by KeyPlaneView.keyAt.
+
+  private let textChecker = UITextChecker()
+  /// The word being typed since the last boundary. A best-effort mirror of the
+  /// document tail: handleWordBoundary VERIFIES it against the real context
+  /// before touching the document, so a stale mirror can never corrupt text.
+  private var currentWord = ""
+  /// Last applied correction, kept so the suggestion bar can offer the typed
+  /// original as a one-tap revert (native behavior).
+  private var lastAutocorrect: (original: String, corrected: String, boundary: String)?
+  /// Last single character inserted — seeds the bigram bias for the NEXT touch.
+  fileprivate var lastInsertedChar: String?
+  /// Parsed kb.touch.bigrams: previous char → set of likely next chars.
+  private var parsedBigrams: [String: Set<String>]?
+  /// Physical key adjacency derived from the live button frames; rebuilt after
+  /// every remount (see remount()).
+  fileprivate var cachedNeighborMap: [Character: Set<Character>]?
+  private var cachedCheckerLang: String?
+
+  /// Likely next letters after the last insert, for KeyPlaneView's hit-target
+  /// bias. Empty when the table has no row (or nothing was typed yet).
+  fileprivate func lmLikelyNext() -> Set<String> {
+    guard let prev = lastInsertedChar?.lowercased() else { return [] }
+    if parsedBigrams == nil {
+      var out: [String: Set<String>] = [:]
+      if case .object(let table)? = config.flags?["kb.touch.bigrams"] {
+        for (k, v) in table {
+          guard let s = v.asString else { continue }
+          out[k.lowercased()] = Set(s.map { String($0) })
+        }
+      }
+      parsedBigrams = out
+    }
+    return parsedBigrams?[prev] ?? []
+  }
+
+  /// Called after every self-initiated insert with the EXACT text that landed
+  /// (post smart-punctuation). Maintains the word tracker, the bigram seed,
+  /// and fires the boundary pipeline on terminators.
+  private func noteTyped(_ inserted: String) {
+    lastAutocorrect = nil
+    if inserted.count == 1, let c = inserted.first {
+      lastInsertedChar = inserted
+      if c == "'" || c == "\u{2019}" || c.isLetter || c.isNumber {
+        currentWord.append(c)
+        refreshSuggestions()
+      } else if c.isWhitespace || c.isNewline || c.isPunctuation {
+        handleWordBoundary(boundary: inserted)
+      } else {
+        resetTypingContext()
+      }
+    } else {
+      // Multi-char insert (suggestion, backend insertText, transformed
+      // punctuation) — tracking a word through it isn't reliable; reset.
+      lastInsertedChar = inserted.last.map(String.init)
+      resetTypingContext()
+    }
+  }
+
+  private func noteDeletedBackward() {
+    lastAutocorrect = nil
+    lastInsertedChar = nil   // unknown context now — bias off until next insert
+    if !currentWord.isEmpty { currentWord.removeLast() }
+    refreshSuggestions()
+  }
+
+  /// Forget the tracked word + revert state. Called whenever the text around
+  /// the cursor changed in a way the tracker can't follow (trackpad moves,
+  /// dictation commits, accent/suggestion inserts, word deletes).
+  func resetTypingContext() {
+    currentWord = ""
+    lastAutocorrect = nil
+    if !state.suggestions.isEmpty {
+      state.suggestions = []
+      updateSuggestionBarInPlace()
+    }
+  }
+
+  /// The word just ended (boundary landed in the document already). Order:
+  /// text expansion (exact trigger) wins, then spell correction. ONE context
+  /// read happens here — at the boundary, not per keystroke — and it doubles
+  /// as the safety check that the tracker matches reality.
+  private func handleWordBoundary(boundary: String) {
+    lastAutocorrect = nil
+    let word = currentWord
+    currentWord = ""
+    if !state.suggestions.isEmpty {
+      state.suggestions = []
+      updateSuggestionBarInPlace()
+    }
+    guard !word.isEmpty, let proxy = host?.hostTextDocumentProxy else { return }
+    // Respect the field: URL / email / code fields opt out of correction.
+    guard host?.hostAutocorrectionType() != UITextAutocorrectionType.no else { return }
+    let expansion = host?.hostExpansion(for: word)
+    let autocorrectOn = flagBool("kb.autocorrect.enabled", false)
+    guard expansion != nil || autocorrectOn else { return }
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    guard ctx.hasSuffix(word + boundary) else { return }
+
+    // 1) Text expansion — the user's own dictionary + the iOS supplementary
+    //    lexicon (contact names, Settings text replacements), via the host.
+    if let repl = expansion, repl != word {
+      replaceTail(count: word.count + boundary.count, with: repl + boundary, proxy: proxy)
+      return
+    }
+    guard autocorrectOn else { return }
+
+    // 2) Spell correction.
+    let minLen = Int(flagDouble("kb.autocorrect.minLen", 3))
+    guard word.count >= minLen, word.count <= 24 else { return }
+    // Plain ASCII letters (+apostrophe) only: digits, symbols, and accented
+    // words (deliberately picked from the tray) are left alone.
+    guard word.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
+    else { return }
+    let lang = autocorrectLanguage()
+    let ns = word as NSString
+    let full = NSRange(location: 0, length: ns.length)
+    let miss = textChecker.rangeOfMisspelledWord(
+      in: word, range: full, startingAt: 0, wrap: false, language: lang)
+    guard miss.location != NSNotFound else { return }
+    let guesses = textChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
+    guard let corrected = pickCorrection(for: word, from: guesses) else { return }
+    let cased = matchCase(of: word, to: corrected)
+    guard cased != word else { return }
+    replaceTail(count: word.count + boundary.count, with: cased + boundary, proxy: proxy)
+    lastAutocorrect = (word, cased, boundary)
+    // Revert affordance: the typed original shows as a chip; tapping restores it.
+    state.suggestions = [word]
+    updateSuggestionBarInPlace()
+  }
+
+  private func replaceTail(count: Int, with text: String, proxy: UITextDocumentProxy) {
+    for _ in 0..<count { proxy.deleteBackward() }
+    proxy.insertText(text)
+  }
+
+  /// Best guess within the edit-distance budget, or nil to leave the word
+  /// alone. Deliberately conservative: a wrong correction costs the user far
+  /// more trust than a missed one.
+  private func pickCorrection(for typed: String, from guesses: [String]) -> String? {
+    guard !guesses.isEmpty else { return nil }
+    let maxDist = flagDouble("kb.autocorrect.maxDistance", 2.0)
+    let neighbors = keyNeighborMap()
+    var best: (word: String, dist: Double)?
+    for g in guesses.prefix(8) {
+      guard !g.isEmpty, abs(g.count - typed.count) <= 1 else { continue }
+      let d = weightedEditDistance(
+        Array(typed.lowercased()), Array(g.lowercased()), neighbors: neighbors)
+      if d <= maxDist, best == nil || d < best!.dist { best = (g, d) }
+    }
+    return best?.word
+  }
+
+  /// Levenshtein with keyboard-aware costs: substituting a key for one of its
+  /// physical neighbors costs 0.5 (a fat-finger, not a different word);
+  /// inserting a missing apostrophe or word-splitting space costs 0.5
+  /// ("dont" → "don't", "alot" → "a lot"); everything else costs 1.
+  private func weightedEditDistance(_ a: [Character], _ b: [Character],
+                                    neighbors: [Character: Set<Character>]) -> Double {
+    let n = a.count, m = b.count
+    guard n > 0, m > 0 else { return Double(max(n, m)) }
+    var prev = (0...m).map { Double($0) }
+    var cur = [Double](repeating: 0, count: m + 1)
+    for i in 1...n {
+      cur[0] = Double(i)
+      for j in 1...m {
+        let subCost: Double
+        if a[i-1] == b[j-1] { subCost = 0 }
+        else if neighbors[a[i-1]]?.contains(b[j-1]) == true { subCost = 0.5 }
+        else { subCost = 1 }
+        let insCost: Double = (b[j-1] == "'" || b[j-1] == " ") ? 0.5 : 1
+        cur[j] = min(prev[j-1] + subCost,   // substitute
+                     prev[j] + 1,           // drop a typed char
+                     cur[j-1] + insCost)    // insert a candidate char
+      }
+      swap(&prev, &cur)
+    }
+    return prev[m]
+  }
+
+  /// Physical adjacency from the LIVE key frames (letterButtonsByChar), so the
+  /// model is always true for whatever layout the backend shipped — no
+  /// hardcoded QWERTY table. 1.8× key width catches orthogonal + diagonal
+  /// neighbors and nothing further.
+  private func keyNeighborMap() -> [Character: Set<Character>] {
+    if let m = cachedNeighborMap { return m }
+    var centers: [(ch: Character, p: CGPoint, w: CGFloat)] = []
+    for (str, btn) in letterButtonsByChar {
+      guard str.count == 1, let c = str.first, c.isLetter,
+            let sup = btn.superview, btn.window != nil else { continue }
+      let f = sup.convert(btn.frame, to: mountContainer)
+      guard f.width > 0 else { continue }
+      centers.append((c, CGPoint(x: f.midX, y: f.midY), f.width))
+    }
+    var m: [Character: Set<Character>] = [:]
+    for a in centers {
+      var s = Set<Character>()
+      for b in centers where b.ch != a.ch {
+        if hypot(a.p.x - b.p.x, a.p.y - b.p.y) < a.w * 1.8 { s.insert(b.ch) }
+      }
+      m[a.ch] = s
+    }
+    cachedNeighborMap = m
+    return m
+  }
+
+  /// Mirror the typed word's casing onto the candidate: ALL-CAPS stays caps,
+  /// leading cap stays capped, else the candidate as the checker offered it.
+  private func matchCase(of typed: String, to candidate: String) -> String {
+    guard let first = typed.first else { return candidate }
+    if typed.count > 1, typed == typed.uppercased(), typed != typed.lowercased() {
+      return candidate.uppercased()
+    }
+    if first.isUppercase {
+      return candidate.prefix(1).uppercased() + candidate.dropFirst()
+    }
+    return candidate
+  }
+
+  /// UITextChecker language: kb.autocorrect.lang override, else the field's
+  /// primary language, resolved against the checker's available set.
+  private func autocorrectLanguage() -> String {
+    if let l = cachedCheckerLang { return l }
+    let flagged = flagString("kb.autocorrect.lang", "")
+    let want = (flagged.isEmpty ? state.primaryLanguage : flagged).lowercased()
+    let avail = UITextChecker.availableLanguages
+    let match = avail.first { $0.lowercased() == want }
+      ?? avail.first { $0.lowercased().hasPrefix(want) }
+      ?? "en_US"
+    cachedCheckerLang = match
+    return match
+  }
+
+  /// Completion chips for the in-progress word. In-place bar update — never a
+  /// remount (a remount per keystroke is the 30-80ms tap lag this renderer
+  /// spent so much effort killing).
+  private func refreshSuggestions() {
+    guard flagBool("kb.suggestions.enabled", false),
+          host?.hostAutocorrectionType() != UITextAutocorrectionType.no else {
+      // Feature off (or field opted out): make sure no stale chip — e.g. an
+      // autocorrect revert chip — outlives the keystroke that follows it.
+      if !state.suggestions.isEmpty {
+        state.suggestions = []
+        updateSuggestionBarInPlace()
+      }
+      return
+    }
+    var out: [String] = []
+    if currentWord.count >= 2,
+       currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" }) {
+      let ns = currentWord as NSString
+      let comps = textChecker.completions(
+        forPartialWordRange: NSRange(location: 0, length: ns.length),
+        in: currentWord, language: autocorrectLanguage()) ?? []
+      out = Array(comps.prefix(max(1, Int(flagDouble("kb.suggestions.max", 3)))))
+    }
+    if state.suggestions != out {
+      state.suggestions = out
+      updateSuggestionBarInPlace()
+    }
+  }
+
+  /// A suggestion chip was tapped: revert chip restores the pre-autocorrect
+  /// text; completion chip replaces the in-progress word. An empty tracker
+  /// falls through to a plain append — that keeps backend-driven suggestion
+  /// lists (setState) working exactly as before.
+  fileprivate func applySuggestion(_ s: String) {
+    guard let proxy = host?.hostTextDocumentProxy else { return }
+    if let last = lastAutocorrect, s == last.original {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      if ctx.hasSuffix(last.corrected + last.boundary) {
+        replaceTail(count: last.corrected.count + last.boundary.count,
+                    with: last.original + last.boundary, proxy: proxy)
+      }
+      resetTypingContext()
+      updateAutoCap()
+      return
+    }
+    let word = currentWord
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    guard word.isEmpty || ctx.hasSuffix(word) else { resetTypingContext(); return }
+    let cased = matchCase(of: word, to: s)
+    replaceTail(count: word.count, with: cased + " ", proxy: proxy)
+    lastInsertedChar = " "
+    resetTypingContext()
+    updateAutoCap()
   }
 
   /// Write a deep-link target into the shared App Group. The main app checks
@@ -4404,13 +4957,26 @@ final class SDUIRenderer: NSObject {
   /// changed (returnKeyType / primaryLanguage / hasMultipleKeyboards) so we're
   /// not remounting on every keystroke.
   private var lastReflectedReturnKey: UIReturnKeyType?
+  private var lastFieldContextReadAt: TimeInterval = 0
   func reflectFieldContext() {
+    // This fires from textDidChange — i.e. on EVERY keystroke — and each of
+    // the three host reads below crosses into the host app (proxy traits /
+    // textInputMode). The values only actually change on focus switches, so
+    // throttle the reads; kb.host.traitRefreshMs=0 restores per-keystroke.
+    let minInterval = flagDouble("kb.host.traitRefreshMs", 500) / 1000.0
+    let now = Date().timeIntervalSince1970
+    if minInterval > 0, now - lastFieldContextReadAt < minInterval { return }
+    lastFieldContextReadAt = now
     let rt = host?.hostReturnKeyType() ?? .default
     let lang = host?.hostPrimaryLanguageCode() ?? "EN"
     let multi = host?.hostNeedsInputModeSwitchKey() ?? false
     var changed = false
     if lastReflectedReturnKey != rt         { lastReflectedReturnKey = rt; changed = true }
-    if state.primaryLanguage != lang        { state.primaryLanguage = lang; changed = true }
+    if state.primaryLanguage != lang        {
+      state.primaryLanguage = lang
+      cachedCheckerLang = nil   // autocorrect follows the active language
+      changed = true
+    }
     if state.hasMultipleKeyboards != multi  { state.hasMultipleKeyboards = multi; changed = true }
     if changed { stateChanged() }
   }
