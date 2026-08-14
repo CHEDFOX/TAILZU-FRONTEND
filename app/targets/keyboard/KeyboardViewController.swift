@@ -230,6 +230,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
     loadDictionary() // pick up edits made in the app
+    // Re-assert the explicit height: the constraint installed at viewDidLoad
+    // predates the window, and if the system's own sizing won that first
+    // pass the 999-priority constant never re-engaged.
+    applyKeyboardHeight()
     // Re-pull the server config on every appearance (throttled) so a backend
     // deploy lands the next time the keyboard shows — without recreating the
     // extension process or shipping a new build.
@@ -348,6 +352,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// is on AND `root` is present, hand off the whole keyboard view to the
   /// SDUIRenderer. Otherwise this is a no-op and the hand-built path remains
   /// on screen — that's the fallback contract.
+  /// Raw bytes of the last config payload handed to the renderer. cacheVersion
+  /// only changes on deploys, so per-USER changes (active tone, pinned presets,
+  /// media uploads) ship under the SAME version — byte-comparing the payload is
+  /// what lets those through (updateConfig force:) while identical refetches
+  /// stay a true no-op.
+  private var lastAppliedConfigData: Data?
+
   private func applySDUIIfAvailable(_ data: Data) {
     guard let kb = SDUIRenderer.decodeConfig(data),
           kb.features?.sdui == true,
@@ -358,9 +369,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // waiting for iOS to recreate the whole extension process — the core reason
     // OTA config edits seemed never to land on the keyboard.
     if let renderer = sduiRenderer {
-      renderer.updateConfig(kb)
+      if data == lastAppliedConfigData { return }
+      lastAppliedConfigData = data
+      renderer.updateConfig(kb, force: true)
       return
     }
+    lastAppliedConfigData = data
     // Tear down the hand-built subtree (rows, top bar, callouts). The renderer
     // will mount its own subtree spanning the whole keyboard view. IMPORTANT:
     // detach statusLabel from mainStack BEFORE removing subviews so we can
@@ -398,6 +412,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     ])
     // Kept invisible by default; setStatus() reveals it when text non-empty.
     statusLabel.isHidden = true
+    // Now that the renderer exists, the SDUI-only height constraint can apply
+    // (on the cold-start fast path applyConfig ran BEFORE the mount, when the
+    // sduiRenderer guard still failed).
+    applyKeyboardHeight()
   }
 
   /// Explicit keyboard height (kb.height.pt). Absent/0 → the system default,
@@ -405,6 +423,14 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// never conflict-crash (the standard custom-keyboard height technique).
   private var keyboardHeightConstraint: NSLayoutConstraint?
   private func applyKeyboardHeight() {
+    // SDUI-only: the value is derived from the SDUI tree's row arithmetic
+    // (272 = 5×44 + 4×10 + 12). The hand-built stack sums to 258, so pinning
+    // it to 272 over-constrains that layout — legacy keeps system sizing.
+    guard sduiRenderer != nil else {
+      keyboardHeightConstraint?.isActive = false
+      keyboardHeightConstraint = nil
+      return
+    }
     let raw = kbConfig?.flags["kb.height.pt"]
     let h = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 0
     guard h > 0 else {
@@ -1580,7 +1606,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     flashKeysForText(inserted)
     pendingPartial = ""
     dictatedSomething = true
-    sduiRenderer?.resetTypingContext()
+    // The commit always ends with a trailing space → clean word boundary.
+    sduiRenderer?.resetTypingContext(tailAtBoundary: true)
     // Track for the top-bar UNDO. Multiple finals in one session collapse to
     // "undo the most recent final" — matches user expectation of "take back
     // what just appeared".
