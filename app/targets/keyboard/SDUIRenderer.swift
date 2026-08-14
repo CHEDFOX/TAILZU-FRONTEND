@@ -137,6 +137,43 @@ final class KeyPlaneView: UIView {
   /// (0 = language-model bias off). Only ever shifts AMBIGUOUS touches (gap /
   /// slop zone); a touch landing inside a key's real bounds is never stolen.
   var lmBiasPt: CGFloat = 0
+  /// kb.touch.vSlop — vertical reach of every key beyond its rect. The 10pt
+  /// row gaps are fully covered from both sides; nearest-row scoring (see
+  /// keyAt) decides the winner.
+  var vSlop: CGFloat = 8
+  /// kb.touch.topRowUpSlop — extra upward reach for the TOP letter row, so a
+  /// touch that overshoots q..p toward the toolbar still types. Real toolbar
+  /// controls (mic, tone pill, suggestion chips) are obstacle-vetoed.
+  var topRowUpSlop: CGFloat = 12
+  /// kb.touch.bottomRowDownSlop — extra downward reach for the BOTTOM letter
+  /// row toward the space row; the space/return/123 keys themselves are
+  /// obstacle-vetoed so only the true gap is claimed.
+  var bottomRowDownSlop: CGFloat = 10
+  /// kb.touch.edgeToMargin — each row's outermost key owns its side margin
+  /// all the way to the keyboard edge (the dead corners beside "a" and "l"
+  /// on the indented middle row — native types the edge letter there).
+  var edgeToMargin = true
+
+  /// Live, enabled controls elsewhere in the tree (shift / delete / space /
+  /// return / mic / tone / suggestion chips). Their rects VETO plane
+  /// ownership: a point inside one is never claimed for a letter, which is
+  /// what makes the generous slops above safe.
+  private struct WeakView { weak var v: UIView? }
+  private var obstacles: [WeakView] = []
+  private var obstacleRects: [CGRect] = []
+  func setObstacles(_ views: [UIView]) {
+    obstacles = views.map { WeakView(v: $0) }
+    refreshObstacleRects()
+  }
+  private func refreshObstacleRects() {
+    var out: [CGRect] = []
+    for w in obstacles {
+      guard let v = w.v, v.window != nil, !v.isHidden, v.alpha > 0.01 else { continue }
+      let r = convert(v.bounds, from: v)
+      if r.width > 0, r.height > 0 { out.append(r) }
+    }
+    obstacleRects = out
+  }
 
   /// Per-active-touch state: the key currently under that finger.
   private final class Track {
@@ -162,7 +199,11 @@ final class KeyPlaneView: UIView {
   var hasActiveTouches: Bool { !tracks.isEmpty }
 
   /// Key frames in this view's coordinate space, refreshed on layout.
-  private var frames: [(button: UIButton, char: String, rect: CGRect)] = []
+  /// `rect` is the key's real frame; `own` is its OWNERSHIP box — rect grown
+  /// by the row-aware slops and (for a row's outermost keys) out to the
+  /// keyboard edge. A touch must land inside `own` to be a candidate; the
+  /// nearest `rect` (both axes) then wins.
+  private var frames: [(button: UIButton, char: String, rect: CGRect, own: CGRect)] = []
 
   init(keys: [Key], renderer: SDUIRenderer) {
     self.keys = keys
@@ -181,14 +222,49 @@ final class KeyPlaneView: UIView {
   }
 
   private func refreshFrames() {
-    var out: [(UIButton, String, CGRect)] = []
+    var raw: [(UIButton, String, CGRect)] = []
     for k in keys {
       guard let b = k.button, b.window != nil else { continue }
       let r = convert(b.bounds, from: b)
       if r.width <= 0 || r.height <= 0 { continue }
-      out.append((b, k.char, r))
+      raw.append((b, k.char, r))
+    }
+    // Cluster keys into rows by vertical center (rows sit ~54pt apart; 8pt
+    // tolerance absorbs any per-key constraint rounding).
+    var rowYs: [CGFloat] = []
+    for (_, _, r) in raw where !rowYs.contains(where: { abs($0 - r.midY) < 8 }) {
+      rowYs.append(r.midY)
+    }
+    rowYs.sort()
+    func rowIndex(_ r: CGRect) -> Int {
+      rowYs.firstIndex(where: { abs($0 - r.midY) < 8 }) ?? 0
+    }
+    // Per-row horizontal extremes → which keys are the row's outermost.
+    var minXByRow: [Int: CGFloat] = [:], maxXByRow: [Int: CGFloat] = [:]
+    for (_, _, r) in raw {
+      let i = rowIndex(r)
+      minXByRow[i] = min(minXByRow[i] ?? r.minX, r.minX)
+      maxXByRow[i] = max(maxXByRow[i] ?? r.maxX, r.maxX)
+    }
+    let lastRow = rowYs.count - 1
+    var out: [(UIButton, String, CGRect, CGRect)] = []
+    for (b, ch, r) in raw {
+      let i = rowIndex(r)
+      let up = i == 0 ? topRowUpSlop : vSlop
+      let down = i == lastRow ? bottomRowDownSlop : vSlop
+      let sideReach = r.width / 2 + 6
+      var left = r.minX - sideReach
+      var right = r.maxX + sideReach
+      if edgeToMargin {
+        if r.minX <= (minXByRow[i] ?? r.minX) + 0.5 { left = bounds.minX }
+        if r.maxX >= (maxXByRow[i] ?? r.maxX) - 0.5 { right = bounds.maxX }
+      }
+      let own = CGRect(x: left, y: r.minY - up,
+                       width: right - left, height: r.height + up + down)
+      out.append((b, ch, r, own))
     }
     frames = out
+    refreshObstacleRects()
   }
 
   /// The character key nearest `point`, but only when `point` genuinely lands
@@ -197,29 +273,30 @@ final class KeyPlaneView: UIView {
   /// touches fall through to the controls beneath.
   private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
     if frames.isEmpty { refreshFrames() }
+    // A point inside a REAL control (shift / delete / space / return / mic /
+    // tone / suggestion chip) is never ours — it falls through to that
+    // control. This veto is what lets the ownership boxes be generous.
+    for o in obstacleRects where o.contains(point) { return nil }
     // Language-model bias: the set of letters likely to follow the last typed
-    // character (backend bigram table). A likely key's effective distance to a
-    // GAP touch shrinks by lmBiasPt, so ambiguous near-misses resolve toward
-    // the letter the user probably meant — the cheap version of the system
-    // keyboard's dynamic hit-target resizing. Direct in-bounds hits keep
-    // dist 0 and always win (see the max(0.01, …) clamp).
+    // character (backend bigram table). A likely key's score for an AMBIGUOUS
+    // touch shrinks by lmBiasPt — the cheap version of the system keyboard's
+    // dynamic hit-target resizing. Direct in-bounds hits score 0 and always
+    // win (see the max(0.01, …) clamp).
     let likely: Set<String> = lmBiasPt > 0 ? (renderer?.lmLikelyNext() ?? []) : []
-    var best: (button: UIButton, char: String, dist: CGFloat)?
+    var best: (button: UIButton, char: String, score: CGFloat)?
     for f in frames {
-      // Vertically inside the key's row band (+small margin).
-      if abs(point.y - f.rect.midY) > f.rect.height / 2 + 6 { continue }
-      // Horizontal distance to the rect (0 when inside it).
-      var dx: CGFloat
-      if point.x < f.rect.minX { dx = f.rect.minX - point.x }
-      else if point.x > f.rect.maxX { dx = point.x - f.rect.maxX }
-      else { dx = 0 }
-      // Only own the point within ~half a key of a real key; beyond that
-      // (shift / delete columns) let it fall through.
-      if dx > f.rect.width / 2 + 6 { continue }
-      if dx > 0, !likely.isEmpty, likely.contains(f.char) {
-        dx = max(0.01, dx - lmBiasPt)
+      guard f.own.contains(point) else { continue }
+      // Distance from the point to the key's REAL rect, both axes (0 inside).
+      // Scoring dx+dy makes a touch in the vertical row gap resolve to the
+      // NEAREST row — the old single-axis check resolved between-row touches
+      // by iteration order, i.e. arbitrarily.
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      var score = dx + dy
+      if score > 0, !likely.isEmpty, likely.contains(f.char) {
+        score = max(0.01, score - lmBiasPt)
       }
-      if best == nil || dx < best!.dist { best = (f.button, f.char, dx) }
+      if best == nil || score < best!.score { best = (f.button, f.char, score) }
     }
     guard let b = best else { return nil }
     return (b.button, b.char)
@@ -1335,6 +1412,26 @@ struct KBStateSnapshot {
     )
   }
 
+  /// True when the only difference from `other` is trackpadActive. MUST be
+  /// handled without a remount: the rebuild tears down the space key while
+  /// its long-press gesture is mid-flight, cancelling the gesture — which is
+  /// exactly the bug that made hold-space cursor movement die the instant it
+  /// armed.
+  func isTrackpadOnlyDelta(from other: KBStateSnapshot) -> Bool {
+    shift == other.shift &&
+    capsLock == other.capsLock &&
+    layoutId == other.layoutId &&
+    dictating == other.dictating &&
+    refining == other.refining &&
+    hasFullAccess == other.hasFullAccess &&
+    status == other.status &&
+    tone == other.tone &&
+    primaryLanguage == other.primaryLanguage &&
+    hasMultipleKeyboards == other.hasMultipleKeyboards &&
+    appearance == other.appearance &&
+    trackpadActive != other.trackpadActive
+  }
+
   /// True when the only difference from `other` is shift and/or capsLock —
   /// safe to apply via in-place setTitle on letter buttons without a full
   /// tree rebuild.
@@ -1493,7 +1590,10 @@ final class SDUIRenderer: NSObject {
   /// to go idle (bounded retries so a rest-a-finger user can't stall forever).
   private var pendingRemountRetries = 0
   private func remountWhenIdle() {
-    if keyPlane?.hasActiveTouches == true, pendingRemountRetries < 20 {
+    // Also hold off while the space-bar trackpad is scrubbing: rebuilding the
+    // tree destroys the space key mid-gesture and cancels the cursor drag.
+    if (keyPlane?.hasActiveTouches == true || state.trackpadActive),
+       pendingRemountRetries < 20 {
       pendingRemountRetries += 1
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
         self?.remountWhenIdle()
@@ -1576,6 +1676,10 @@ final class SDUIRenderer: NSObject {
         plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
         plane.lmBiasPt = flagBool("kb.touch.lmBias.enabled", false)
           ? flagCGFloat("kb.touch.lmBias.pt", 3) : 0
+        plane.vSlop = flagCGFloat("kb.touch.vSlop", 8)
+        plane.topRowUpSlop = flagCGFloat("kb.touch.topRowUpSlop", 12)
+        plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
+        plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
         plane.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(plane)   // topmost — intercepts char touches only
         NSLayoutConstraint.activate([
@@ -1585,6 +1689,10 @@ final class SDUIRenderer: NSObject {
           plane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         keyPlane = plane
+        // Everything interactive that ISN'T a plane letter (shift, delete,
+        // space, return, mic, tone pill, suggestion chips) vetoes the plane's
+        // generous reach — a touch inside any of them always goes to them.
+        plane.setObstacles(collectPlaneObstacles())
       }
     }
     // Keep the fast-shift snapshot in sync on EVERY remount path (mount,
@@ -1606,7 +1714,10 @@ final class SDUIRenderer: NSObject {
   /// how you tell a freshly-loaded extension from a cached old one.
   /// K4: autocorrect + suggestions, press-order rollover, LM hit-target bias,
   /// plane-side accent trays, per-keystroke XPC cuts, cold-start fast path.
-  static let buildStamp = "K4"
+  /// K5: native touch spaces — row-aware vertical slops with nearest-row
+  /// scoring, edge-margin capture beside a/l, obstacle-vetoed reach — and the
+  /// space-bar trackpad fixed (trackpad state changes no longer remount).
+  static let buildStamp = "K5"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -1655,6 +1766,14 @@ final class SDUIRenderer: NSObject {
 
   func stateChanged() {
     let currentSnap = KBStateSnapshot.from(state)
+    // Trackpad enter/exit NEVER remounts — see isTrackpadOnlyDelta. The
+    // native look (blanked keys) is applied in place instead.
+    if let last = lastRenderSnapshot,
+       currentSnap.isTrackpadOnlyDelta(from: last) {
+      applyTrackpadVisual(active: currentSnap.trackpadActive)
+      lastRenderSnapshot = currentSnap
+      return
+    }
     if let last = lastRenderSnapshot,
        currentSnap.isShiftOnlyDelta(from: last),
        !letterButtonsByChar.isEmpty {
@@ -1673,6 +1792,19 @@ final class SDUIRenderer: NSObject {
       // already guarded; state remounts get the same protection now.
       self.remountWhenIdle()
     }
+  }
+
+  /// Native space-bar trackpad look, applied WITHOUT a remount: letters dim
+  /// (native blanks them), the callout hides, and the touch plane stops
+  /// claiming touches so a stray second finger can't type mid-scrub. All
+  /// in-place mutations on live views — the space key and its long-press
+  /// gesture survive untouched.
+  private func applyTrackpadVisual(active: Bool) {
+    let alpha: CGFloat = active ? 0.35 : 1
+    for (_, btn) in letterButtonsByChar { btn.alpha = alpha }
+    weakShiftButton?.alpha = alpha
+    keyPlane?.isUserInteractionEnabled = !active
+    if active { hideKeyCallout() }
   }
 
   /// In-place letter case swap + shift icon refresh. Runs synchronously
@@ -3104,6 +3236,25 @@ final class SDUIRenderer: NSObject {
   fileprivate func updateSuggestionBarInPlace() {
     guard let row = suggestionRowStack, row.window != nil else { return }
     renderSuggestionChips(into: row)
+    // Chips are obstacles for the touch plane's top-row reach; refresh the
+    // veto list whenever the chip set changes.
+    keyPlane?.setObstacles(collectPlaneObstacles())
+  }
+
+  /// Every live, enabled control in the mounted tree that the plane must not
+  /// steal touches from. Plane-managed letter keys have userInteraction OFF,
+  /// so they're excluded naturally.
+  private func collectPlaneObstacles() -> [UIView] {
+    guard let rootV = mountedRoot else { return [] }
+    var out: [UIView] = []
+    func walk(_ v: UIView) {
+      if let c = v as? UIControl, c.isEnabled, c.isUserInteractionEnabled, !c.isHidden {
+        out.append(c)
+      }
+      for s in v.subviews { walk(s) }
+    }
+    walk(rootV)
+    return out
   }
 
   /// Waveform bars — driven by a 30 FPS Timer modulating bar heights from
@@ -4845,6 +4996,7 @@ final class SDUIRenderer: NSObject {
       case "hasFullAccess":        return .bool(state.hasFullAccess)
       case "status":               return .string(state.status)
       case "micLevel":             return .number(Double(state.micLevel))
+      case "hasSuggestions":       return .bool(!state.suggestions.isEmpty)
       case "tone":                 return .string(state.tone)
       case "trackpadActive":       return .bool(state.trackpadActive)
       case "primaryLanguage":      return .string(state.primaryLanguage)
