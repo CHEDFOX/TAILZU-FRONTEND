@@ -118,9 +118,22 @@ final class KeyHitButton: UIButton {
 // slide-cancel, press feedback, press-order rollover and LM-biased targeting
 // all live here.
 final class KeyPlaneView: UIView {
-  struct Key { weak var button: UIButton?; let char: String }
+  /// What a plane-managed key does. Characters commit text; shift and
+  /// layer-switch keys are plane-managed too (K7) so a finger can go DOWN on
+  /// them and SLIDE onto a character — the two native gestures (shift→letter
+  /// one-shot capital, 123→symbol layer-peek) that per-button touch handling
+  /// can never express.
+  enum Role {
+    case character(String)
+    case shift
+    case layerSwitch(target: String?)
+  }
+  struct Key { weak var button: UIButton?; let role: Role }
 
-  private let keys: [Key]
+  /// The plane is PERSISTENT across remounts (K7): rebind() swaps the key set
+  /// while live touches keep flowing — that's what lets a layer-peek remount
+  /// happen mid-touch and the same finger continue onto the new layer's keys.
+  private var keys: [Key] = []
   private weak var renderer: SDUIRenderer?
 
   /// kb.keyPlane.rolloverCommit — commit an already-held key the moment a NEW
@@ -153,6 +166,19 @@ final class KeyPlaneView: UIView {
   /// all the way to the keyboard edge (the dead corners beside "a" and "l"
   /// on the indented middle row — native types the edge letter there).
   var edgeToMargin = true
+  /// kb.shift.longPressMs — hold-to-caps-lock threshold for the plane-managed
+  /// shift key (its old gesture recognizer is dead once the plane owns it).
+  var shiftLongPressMs: Double = 350
+  /// kb.swipe.enabled — QuickPath-style glide typing. Engages when a single
+  /// finger traverses ≥ swipeMinKeys distinct character keys.
+  var swipeEnabled = false
+  /// kb.swipe.minKeys — distinct keys a drag must cross before it reads as a
+  /// swipe instead of a roll.
+  var swipeMinKeys = 3
+  /// kb.swipe.trail.* — the fading ink trail behind a swipe.
+  var trailColor: UIColor = UIColor(white: 1, alpha: 0.85)
+  var trailWidth: CGFloat = 7
+  var trailFadeMs: Double = 260
 
   /// Live, enabled controls elsewhere in the tree (shift / delete / space /
   /// return / mic / tone / suggestion chips). Their rects VETO plane
@@ -194,10 +220,21 @@ final class KeyPlaneView: UIView {
     var committed = false
     /// Where the touch started, for the hold-vs-roll accent-tray decision.
     var startPoint: CGPoint = .zero
-    /// Pending accent-tray hold timer; invalidated on roll/lift/commit.
+    /// Pending accent-tray / shift-hold timer; invalidated on roll/lift/commit.
     var trayTimer: Timer?
     /// True while this finger is driving an open accent tray.
     var trayActive = false
+    /// Non-nil when this touch began on shift or a layer-switch key.
+    var specialRole: Role?
+    /// The layout to return to after a layer-peek commit (nil = plain tap,
+    /// stay on the switched layer).
+    var peekReturn: String?
+    /// True once this touch has been promoted to a QuickPath swipe.
+    var swipeMode = false
+    /// The ordered distinct character keys the swipe has crossed.
+    var sweptChars: [String] = []
+    /// Sampled path points (plane coords) for the trail + decode geometry.
+    var pathPoints: [CGPoint] = []
     init(_ b: UIButton?, _ c: String?) { button = b; char = c }
     deinit { trayTimer?.invalidate() }
   }
@@ -213,17 +250,36 @@ final class KeyPlaneView: UIView {
   /// keyboard edge. A touch must land inside `own` to be a candidate; the
   /// nearest `rect` (both axes) then wins.
   private var frames: [(button: UIButton, char: String, rect: CGRect, own: CGRect)] = []
+  /// Shift / layer-switch key frames — separate from the character grid:
+  /// they're touch-DOWN anchors (a finger can begin here and slide onto a
+  /// character), never roll targets.
+  private var roleFrames: [(button: UIButton, role: Role, rect: CGRect)] = []
+  /// The swipe ink trail.
+  private let trailLayer = CAShapeLayer()
 
-  init(keys: [Key], renderer: SDUIRenderer) {
-    self.keys = keys
+  init(renderer: SDUIRenderer) {
     self.renderer = renderer
     super.init(frame: .zero)
     isMultipleTouchEnabled = true
     isUserInteractionEnabled = true
     backgroundColor = .clear
     isOpaque = false
+    trailLayer.fillColor = nil
+    trailLayer.lineCap = .round
+    trailLayer.lineJoin = .round
+    layer.addSublayer(trailLayer)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// Swap the key set after a remount. Live touches keep their Track state —
+  /// stale weak buttons resolve to nil and re-target against the fresh
+  /// geometry on the next move (this is what layer-peek rides on).
+  func rebind(keys: [Key]) {
+    self.keys = keys
+    frames = []
+    roleFrames = []
+    refreshFrames()
+  }
 
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -232,12 +288,17 @@ final class KeyPlaneView: UIView {
 
   private func refreshFrames() {
     var raw: [(UIButton, String, CGRect)] = []
+    var roles: [(UIButton, Role, CGRect)] = []
     for k in keys {
       guard let b = k.button, b.window != nil else { continue }
       let r = convert(b.bounds, from: b)
       if r.width <= 0 || r.height <= 0 { continue }
-      raw.append((b, k.char, r))
+      switch k.role {
+      case .character(let ch): raw.append((b, ch, r))
+      case .shift, .layerSwitch: roles.append((b, k.role, r))
+      }
     }
+    roleFrames = roles
     // Cluster keys into rows by vertical center (rows sit ~54pt apart; 8pt
     // tolerance absorbs any per-key constraint rounding).
     var rowYs: [CGFloat] = []
@@ -282,10 +343,13 @@ final class KeyPlaneView: UIView {
   /// touches fall through to the controls beneath.
   private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
     if frames.isEmpty { refreshFrames() }
-    // A point inside a REAL control (shift / delete / space / return / mic /
-    // tone / suggestion chip) is never ours — it falls through to that
-    // control. This veto is what lets the ownership boxes be generous.
+    // A point inside a REAL control (delete / space / return / mic / tone /
+    // suggestion chip) is never a character's — it falls through to that
+    // control. Same for the plane-managed shift/layer keys: they're role
+    // anchors, and the letter rows' edge-to-margin reach must not swallow
+    // them. This veto is what lets the ownership boxes be generous.
     for o in obstacleRects where o.contains(point) { return nil }
+    if roleKeyAt(point) != nil { return nil }
     // Language-model bias: the set of letters likely to follow the last typed
     // character (backend bigram table). A likely key's score for an AMBIGUOUS
     // touch shrinks by lmBiasPt — the cheap version of the system keyboard's
@@ -311,15 +375,25 @@ final class KeyPlaneView: UIView {
     return (b.button, b.char)
   }
 
+  /// The shift / layer key whose REAL rect (+ its hit slop band) contains the
+  /// point. Role keys are exact-rect anchors — no gap stealing.
+  private func roleKeyAt(_ point: CGPoint) -> (button: UIButton, role: Role)? {
+    for f in roleFrames {
+      let expanded = f.rect.insetBy(dx: -2, dy: -8)   // matches KeyHitButton slop
+      if expanded.contains(point) { return (f.button, f.role) }
+    }
+    return nil
+  }
+
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     // Refresh geometry BEFORE deciding ownership — touchesBegan re-derives it
     // anyway, and deciding here on stale frames/obstacles (e.g. suggestion
     // chips that appeared since the last layout) would claim a touch that
     // keyAt then refuses, silently swallowing it.
     refreshFrames()
-    // Own the touch only over the character grid; else nil so shift / delete /
-    // space / mic below receive it normally.
-    return keyAt(point) != nil ? self : nil
+    // Own the character grid + the plane-managed shift/layer keys; else nil
+    // so delete / space / return / mic below receive the touch normally.
+    return (keyAt(point) != nil || roleKeyAt(point) != nil) ? self : nil
   }
 
   // MARK: - Multi-touch
@@ -339,6 +413,39 @@ final class KeyPlaneView: UIView {
     flushPendingCommits()
     for t in touches {
       let p = t.location(in: self)
+      // Shift / layer-switch keys first — their rects are vetoed out of
+      // keyAt, so the checks are disjoint.
+      if let role = roleKeyAt(p) {
+        let track = Track(role.button, nil)
+        track.startPoint = p
+        track.specialRole = role.role
+        tracks[ObjectIdentifier(t)] = track
+        renderer?.planeDown(role.button)
+        switch role.role {
+        case .shift:
+          renderer?.planeShiftDown()
+          // Hold → caps lock (the button's old gesture recognizer is dead
+          // under the plane). .common mode — .default timers pause mid-touch.
+          let timer = Timer(timeInterval: shiftLongPressMs / 1000.0, repeats: false) {
+            [weak self, weak track] _ in
+            // Still a pure hold (never slid onto a character) → caps lock.
+            guard let self = self, let track = track, track.char == nil else { return }
+            self.renderer?.planeShiftLongPress()
+          }
+          RunLoop.main.add(timer, forMode: .common)
+          track.trayTimer = timer
+        case .layerSwitch(let target):
+          // Layer-peek: switch NOW (touch-down, like native) — the renderer
+          // remounts synchronously and rebinds this persistent plane, so THIS
+          // touch keeps flowing and can slide onto the new layer's keys.
+          // peekReturn remembers where to bounce back to after a slide-commit;
+          // a plain tap (no slide) stays on the switched layer.
+          track.peekReturn = renderer?.planePeekBegan(target: target)
+        case .character:
+          break
+        }
+        continue
+      }
       let hit = keyAt(p)
       let track = Track(hit?.button, hit?.char)
       track.startPoint = p
@@ -352,7 +459,7 @@ final class KeyPlaneView: UIView {
         let timer = Timer(timeInterval: trayLongPressMs / 1000.0, repeats: false) {
           [weak self, weak track] _ in
           guard let self = self, let track = track,
-                !track.committed, !track.trayActive else { return }
+                !track.committed, !track.trayActive, !track.swipeMode else { return }
           if self.renderer?.planeTryPresentAccentTray(for: track.button, char: track.char) == true {
             track.trayActive = true
           }
@@ -374,6 +481,14 @@ final class KeyPlaneView: UIView {
         renderer?.planeUpdateAccentTray(at: p)
         continue
       }
+      if track.swipeMode {
+        track.pathPoints.append(p)
+        if let ch = keyAt(p)?.char, ch != track.sweptChars.last {
+          track.sweptChars.append(ch)
+        }
+        updateTrail(with: track.pathPoints)
+        continue
+      }
       // A hold that drifts is a roll, not a long-press — disarm the tray.
       if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > 12 {
         track.trayTimer?.invalidate()
@@ -381,13 +496,60 @@ final class KeyPlaneView: UIView {
       }
       let hit = keyAt(p)
       if track.button !== hit?.button {
-        track.trayTimer?.invalidate()   // rolled onto another key — no tray
+        track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
         track.trayTimer = nil
         if let old = track.button { renderer?.planeUp(old) }   // rolled off old
         if let nw = hit?.button { renderer?.planeDown(nw) }    // onto the next
         track.button = hit?.button
         track.char = hit?.char
+        // Record traversal for swipe promotion (character tracks only).
+        if track.specialRole == nil, let ch = hit?.char, ch != track.sweptChars.last {
+          track.sweptChars.append(ch)
+        }
       }
+      track.pathPoints.append(p)
+      // Promote to a QuickPath swipe: a single finger gliding across ≥N
+      // distinct keys is a word-shape, not a roll. Roll semantics stay for
+      // short drifts and for role (shift/layer) slides.
+      if swipeEnabled, track.specialRole == nil, !track.swipeMode,
+         tracks.count == 1, track.sweptChars.count >= swipeMinKeys,
+         renderer?.planeCanSwipe() == true {
+        track.swipeMode = true
+        track.trayTimer?.invalidate()
+        track.trayTimer = nil
+        if let b = track.button { renderer?.planeUp(b) }   // no held-key visual mid-swipe
+        renderer?.planeSwipeEngaged()
+        updateTrail(with: track.pathPoints)
+      }
+    }
+  }
+
+  // MARK: - Swipe trail
+
+  private func updateTrail(with points: [CGPoint]) {
+    guard points.count > 1 else { return }
+    let tail = points.suffix(40)
+    let path = UIBezierPath()
+    path.move(to: tail.first!)
+    for pt in tail.dropFirst() { path.addLine(to: pt) }
+    trailLayer.strokeColor = trailColor.cgColor
+    trailLayer.lineWidth = trailWidth
+    trailLayer.opacity = 1
+    trailLayer.path = path.cgPath
+  }
+
+  private func fadeTrail() {
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.toValue = 0
+    fade.duration = trailFadeMs / 1000.0
+    fade.fillMode = .forwards
+    fade.isRemovedOnCompletion = false
+    trailLayer.add(fade, forKey: "fade")
+    DispatchQueue.main.asyncAfter(deadline: .now() + trailFadeMs / 1000.0) { [weak self] in
+      self?.trailLayer.path = nil
+      self?.trailLayer.removeAnimation(forKey: "fade")
+      self?.trailLayer.opacity = 0
     }
   }
 
@@ -397,12 +559,36 @@ final class KeyPlaneView: UIView {
       track.trayTimer?.invalidate()
       if let b = track.button { renderer?.planeUp(b) }
       if track.committed { continue }   // already typed by press-order rollover
+      if track.swipeMode {
+        fadeTrail()
+        renderer?.planeSwipeCommit(sweptChars: track.sweptChars)
+        continue
+      }
       if track.trayActive {
         let p = t.location(in: self)
         // Released on a chip → that accent; still on the key below the tray →
         // the base char (matching iOS); slid anywhere else → nothing.
         let stillOnKey = keyAt(p)?.char == track.char
         renderer?.planeCommitAccentTray(at: p, fallbackChar: stillOnKey ? track.char : nil)
+        continue
+      }
+      if let role = track.specialRole {
+        switch role {
+        case .shift:
+          // Slid from shift onto a letter → one-shot capital commits here;
+          // a plain shift tap already armed on touch-down.
+          if let char = track.char { renderer?.planeCommit(char: char) }
+        case .layerSwitch:
+          if let char = track.char {
+            // Layer-peek: press 123/#+=/ABC, slide to a key, release — the
+            // key commits and the layer bounces back to where the peek began.
+            renderer?.planeCommit(char: char)
+            if let back = track.peekReturn { renderer?.planePeekReturn(to: back) }
+          }
+          // No slide → plain tap: stay on the switched layer.
+        case .character:
+          break
+        }
         continue
       }
       // Commit the char under the finger at release. If it slid off the grid
@@ -416,6 +602,7 @@ final class KeyPlaneView: UIView {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
       track.trayTimer?.invalidate()
       if track.trayActive { renderer?.planeDismissAccentTray() }
+      if track.swipeMode { fadeTrail() }
       if let b = track.button { renderer?.planeUp(b) }
     }
   }
@@ -428,7 +615,8 @@ final class KeyPlaneView: UIView {
   /// behind the tray would type behind the user's back.
   func flushPendingCommits() {
     guard rolloverCommit else { return }
-    for (_, track) in tracks where !track.committed && !track.trayActive {
+    for (_, track) in tracks
+    where !track.committed && !track.trayActive && !track.swipeMode && track.specialRole == nil {
       track.trayTimer?.invalidate()
       track.trayTimer = nil
       if let b = track.button { renderer?.planeUp(b) }
@@ -1368,6 +1556,10 @@ final class KBState {
   /// true, other keys visually dim and touch tracking on space becomes cursor
   /// movement instead of insertion.
   var trackpadActive: Bool = false
+  /// Flow-session state (kb.mic.mode = "flow"): false = no background mic is
+  /// armed, so the mic key shows the "Start Flow" bolt instead of the mark.
+  /// Defaults true so non-flow modes never flash the bolt.
+  var flowArmed: Bool = true
   // -------- OS-derived state exposed to the backend tree --------------------
   // These read via bind: { text: "primaryLanguage" } / visibleIf conditions,
   // so backend can drive things like "show EN when multi-keyboard, else space"
@@ -1408,6 +1600,7 @@ struct KBStateSnapshot {
   let primaryLanguage: String
   let hasMultipleKeyboards: Bool
   let appearance: String
+  let flowArmed: Bool
 
   static func from(_ s: KBState) -> KBStateSnapshot {
     KBStateSnapshot(
@@ -1422,7 +1615,8 @@ struct KBStateSnapshot {
       trackpadActive: s.trackpadActive,
       primaryLanguage: s.primaryLanguage,
       hasMultipleKeyboards: s.hasMultipleKeyboards,
-      appearance: s.appearance
+      appearance: s.appearance,
+      flowArmed: s.flowArmed
     )
   }
 
@@ -1443,6 +1637,7 @@ struct KBStateSnapshot {
     primaryLanguage == other.primaryLanguage &&
     hasMultipleKeyboards == other.hasMultipleKeyboards &&
     appearance == other.appearance &&
+    flowArmed == other.flowArmed &&
     trackpadActive != other.trackpadActive
   }
 
@@ -1460,6 +1655,7 @@ struct KBStateSnapshot {
     primaryLanguage == other.primaryLanguage &&
     hasMultipleKeyboards == other.hasMultipleKeyboards &&
     appearance == other.appearance &&
+    flowArmed == other.flowArmed &&
     (shift != other.shift || capsLock != other.capsLock)
   }
 }
@@ -1609,6 +1805,8 @@ final class SDUIRenderer: NSObject {
     config = newConfig
     // Flag-derived caches follow the config.
     parsedBigrams = nil
+    parsedConfusables = nil
+    swipeWords = nil
     cachedCheckerLang = nil
     syncToneFromConfig()
     // If the active layout no longer exists in the new config, fall back to its
@@ -1654,7 +1852,8 @@ final class SDUIRenderer: NSObject {
     dismissToneSheet(animated: false)
     dismissAccentTray()
     mountedRoot?.removeFromSuperview()
-    keyPlane?.removeFromSuperview()   // rebuilt below if kb.keyPlane.enabled
+    // NOTE: keyPlane is NOT torn down — it's persistent (K7) and rebinds to
+    // the fresh tree below, so touches survive layer-peek remounts.
     // Drop any visible key-pop balloon so a mid-touch rebuild can't orphan it
     // pointing at a now-deallocated key (it's re-created lazily on next press).
     calloutView?.removeFromSuperview()
@@ -1663,6 +1862,7 @@ final class SDUIRenderer: NSObject {
     // tree renders. Keeping stale refs would leak old buttons and cause
     // the fast path to call setTitle on removed subviews.
     letterButtonsByChar.removeAll(keepingCapacity: true)
+    layerKeyRegistry.removeAll(keepingCapacity: true)
     weakShiftButton = nil
     let v = render(node: root)
     v.translatesAutoresizingMaskIntoConstraints = false
@@ -1705,13 +1905,31 @@ final class SDUIRenderer: NSObject {
     // through the plane too now (kb.keyPlane.accentTrays), so nothing is lost
     // by having it on.
     if flagBool("kb.keyPlane.enabled", true) {
-      let planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
+      var planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
         guard !char.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         btn.isUserInteractionEnabled = false   // plane owns its touches now
-        return KeyPlaneView.Key(button: btn, char: char)
+        return KeyPlaneView.Key(button: btn, role: .character(char))
+      }
+      // Shift joins the plane (K7): touch-down arms it AND the same finger can
+      // slide onto a letter for a native one-shot capital.
+      if flagBool("kb.keyPlane.shift", true), let shift = weakShiftButton {
+        shift.isUserInteractionEnabled = false
+        planeKeys.append(KeyPlaneView.Key(button: shift, role: .shift))
+      }
+      // Layer keys join too (K7): touch-down switches instantly, and holding
+      // through the switch + sliding to a key = native layer-peek.
+      if flagBool("kb.layerPeek.enabled", true) {
+        for entry in layerKeyRegistry {
+          entry.btn.isUserInteractionEnabled = false
+          planeKeys.append(KeyPlaneView.Key(button: entry.btn, role: .layerSwitch(target: entry.target)))
+        }
       }
       if !planeKeys.isEmpty {
-        let plane = KeyPlaneView(keys: planeKeys, renderer: self)
+        // The new tree's constraints must be RESOLVED before the plane snaps
+        // its key frames — critical on the layer-peek path, where this remount
+        // runs synchronously inside an active touch.
+        container.layoutIfNeeded()
+        let plane = keyPlane ?? KeyPlaneView(renderer: self)
         plane.rolloverCommit = flagBool("kb.keyPlane.rolloverCommit", true)
         plane.accentTraysEnabled = flagBool("kb.keyPlane.accentTrays", true)
         plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
@@ -1721,20 +1939,37 @@ final class SDUIRenderer: NSObject {
         plane.topRowUpSlop = flagCGFloat("kb.touch.topRowUpSlop", 12)
         plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
         plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
-        plane.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(plane)   // topmost — intercepts char touches only
-        NSLayoutConstraint.activate([
-          plane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-          plane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-          plane.topAnchor.constraint(equalTo: container.topAnchor),
-          plane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
+        plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
+        plane.swipeMinKeys = max(2, Int(flagDouble("kb.swipe.minKeys", 3)))
+        plane.trailColor = flagColor("kb.swipe.trail.color", "#FFFFFFD9")
+        plane.trailWidth = flagCGFloat("kb.swipe.trail.width", 7)
+        plane.trailFadeMs = flagDouble("kb.swipe.trail.fadeMs", 260)
+        if plane.superview !== container {
+          plane.translatesAutoresizingMaskIntoConstraints = false
+          container.addSubview(plane)   // topmost — intercepts plane-key touches only
+          NSLayoutConstraint.activate([
+            plane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            plane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            plane.topAnchor.constraint(equalTo: container.topAnchor),
+            plane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+          ])
+        } else {
+          container.bringSubviewToFront(plane)
+        }
+        plane.rebind(keys: planeKeys)
         keyPlane = plane
-        // Everything interactive that ISN'T a plane letter (shift, delete,
-        // space, return, mic, tone pill, suggestion chips) vetoes the plane's
+        // Everything interactive that ISN'T plane-managed (delete, space,
+        // return, mic, tone pill, suggestion chips) vetoes the plane's
         // generous reach — a touch inside any of them always goes to them.
         plane.setObstacles(collectPlaneObstacles())
+      } else {
+        keyPlane?.removeFromSuperview()
+        keyPlane = nil
       }
+    } else {
+      keyPlane?.removeFromSuperview()
+      keyPlane = nil
     }
     // Keep the fast-shift snapshot in sync on EVERY remount path (mount,
     // updateConfig, appearanceDidChange, stateChanged) — previously only the
@@ -1765,7 +2000,11 @@ final class SDUIRenderer: NSObject {
   /// K6: audit fixes — tracker-validity guards around autocorrect, hit-slop-
   /// aware obstacle veto, shift on touch-down, punctuation pull-back, layer
   /// auto-return, symbol long-press alternates, appearance/tone config sync.
-  static let buildStamp = "K6"
+  /// K7: QuickPath swipe typing (embedded lexicon + trail), persistent touch
+  /// plane with role keys — instant layer switches, real layer-peek, slide-
+  /// from-shift capitals — async spellcheck/completions, confusable-pair
+  /// chips, backspace autocorrect revert, flow-armed mic glyph.
+  static let buildStamp = "K7"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -1809,6 +2048,9 @@ final class SDUIRenderer: NSObject {
   /// diffs are present, or when we haven't tracked the previous snapshot.
   private var pendingRemount: Bool = false
   private var letterButtonsByChar: [String: UIButton] = [:]
+  /// Layer-switch keys ("123"/"ABC"/"#+=") registered during render so the
+  /// touch plane can own them for layer-peek. `target` nil = cycle.
+  private var layerKeyRegistry: [(btn: UIButton, target: String?)] = []
   private var weakShiftButton: UIButton?
   private var lastRenderSnapshot: KBStateSnapshot?
 
@@ -2077,6 +2319,12 @@ final class SDUIRenderer: NSObject {
     // tap time instead, so title and inserted text always agree.
     let payload = node.props?["char"]?.asString ?? ch
     bindTap(btn, node: node, defaultAction: .insertKey(char: payload))
+    // Layer-switch keys register for the plane's layer-peek handling (press →
+    // instant switch; press-slide-release → peek). Detected by their action,
+    // not their label, so backend renames don't break it.
+    if let ref = node.on?["onPress"], case .switchLayout(let target)? = resolve(ref) {
+      layerKeyRegistry.append((btn, target))
+    }
 
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
@@ -2843,7 +3091,7 @@ final class SDUIRenderer: NSObject {
     guard let letters = config.layouts?.first?.language,
           !letters.isEmpty, state.layoutId != letters else { return }
     state.layoutId = letters
-    stateChanged()
+    remount()   // synchronous — the flip lands in the same frame as the tap
   }
 
   /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
@@ -2968,6 +3216,12 @@ final class SDUIRenderer: NSObject {
 
   @objc private func handleShiftLongPress(_ gr: UILongPressGestureRecognizer) {
     guard gr.state == .began else { return }
+    shiftHoldLock()
+  }
+
+  /// Hold-to-caps-lock, shared by the gesture path (plane off) and the
+  /// plane's shift-hold timer.
+  private func shiftHoldLock() {
     if state.capsLock {
       // Locked → unlock back to lowercase.
       state.capsLock = false
@@ -2980,6 +3234,32 @@ final class SDUIRenderer: NSObject {
     lastShiftTapTime = 0
     stateChanged()
     fireKeyHaptic()
+  }
+
+  // MARK: - Plane role-key callbacks (shift + layer-peek, K7)
+
+  /// Shift went down on the plane: arm/toggle exactly like a tap (the plane
+  /// fires this on touch-DOWN, which is the native timing).
+  fileprivate func planeShiftDown() { handleShiftTap() }
+
+  /// Shift held on the plane → caps lock.
+  fileprivate func planeShiftLongPress() { shiftHoldLock() }
+
+  /// A layer key went down: switch NOW (synchronous remount — the persistent
+  /// plane rebinds and the same touch keeps working on the new layer).
+  /// Returns the layout to bounce back to if this turns into a slide-commit.
+  fileprivate func planePeekBegan(target: String?) -> String? {
+    let origin = state.layoutId
+    run(.inline(.switchLayout(language: target)))
+    return origin == state.layoutId ? nil : origin
+  }
+
+  /// A layer-peek slide committed a key: bounce back to where the peek began.
+  fileprivate func planePeekReturn(to layout: String) {
+    guard (config.layouts ?? []).contains(where: { $0.language == layout }),
+          state.layoutId != layout else { return }
+    state.layoutId = layout
+    remount()
   }
 
   private func handleShiftTap() {
@@ -3071,6 +3351,13 @@ final class SDUIRenderer: NSObject {
     return btn
   }
   @objc private func deleteDown() {
+    // Backspace right after an autocorrect reverts it instead of deleting —
+    // and deliberately does NOT arm the repeat timer (holding through a
+    // revert must not machine-gun the restored text).
+    if maybeRevertAutocorrectOnDelete() {
+      fireKeyHaptic()
+      return
+    }
     // First delete fires immediately on touch-down (Apple's pattern).
     host?.hostTextDocumentProxy.deleteBackward()
     noteDeletedBackward()
@@ -3228,6 +3515,16 @@ final class SDUIRenderer: NSObject {
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .scaleAspectFill
       btn.imageView?.startAnimating()
+    } else if !state.flowArmed,
+              !["local", "stream", "handoff"].contains(flagString("kb.mic.mode", "flow").lowercased()) {
+      // Flow mode with NO session armed: show the "Start Flow" bolt (Wispr's
+      // model) so the arm-first tap looks different from a ready mic.
+      let cfgSym = UIImage.SymbolConfiguration(
+        pointSize: flagCGFloat("kb.flow.glyphSize", 16), weight: .semibold)
+      btn.setImage(UIImage(systemName: flagString("kb.flow.startGlyph", "bolt.fill"),
+                           withConfiguration: cfgSym), for: .normal)
+      btn.imageEdgeInsets = .zero
+      btn.imageView?.contentMode = .center
     } else if let spec = flagIcon("kb.mic.idleIcon"),
               let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
       // Backend-pushed idle art (kb.mic.idleIcon — the media-registry
@@ -4231,6 +4528,9 @@ final class SDUIRenderer: NSObject {
       noteTyped(inserted)
       updateAutoCap(afterTyping: inserted)
     case .deleteBackward:
+      // Backspace right after an autocorrect UNDOES it (consumes the press) —
+      // the fastest revert path, matching user muscle memory.
+      if maybeRevertAutocorrectOnDelete() { return }
       proxy?.deleteBackward()
       noteDeletedBackward()
       updateAutoCap()
@@ -4279,7 +4579,10 @@ final class SDUIRenderer: NSObject {
         let idx = langs.firstIndex(of: state.layoutId) ?? -1
         state.layoutId = langs[(idx + 1) % langs.count]
       }
-      stateChanged()
+      // SYNCHRONOUS remount, not stateChanged(): a layer flip must land in
+      // the same frame as the tap (native feel), and layer-peek needs the new
+      // layer's keys bound before the finger's next move event.
+      remount()
     case .showLanguageMenu:
       presentLanguageMenu()
     case .startDictation:
@@ -4811,8 +5114,23 @@ final class SDUIRenderer: NSObject {
   /// "word, ") — the native auto-space pull-back.
   private var pendingAutoSpace = false
   /// Last applied correction, kept so the suggestion bar can offer the typed
-  /// original as a one-tap revert (native behavior).
+  /// original as a one-tap revert (native behavior), and so a backspace right
+  /// after the correction undoes it (kb.autocorrect.backspaceRevert).
   private var lastAutocorrect: (original: String, corrected: String, boundary: String)?
+  /// Last word this engine COMMITTED whole (swipe insert, confusable offer
+  /// target) — suggestion chips replace it in place.
+  private var lastCommittedWord: (word: String, boundary: String)?
+  /// Bumped on every text mutation; async checker results are dropped when
+  /// the generation moved (the user typed on while the checker ran).
+  private var typingGeneration = 0
+  /// Parsed kb.autocorrect.confusables: word → alternatives to OFFER (never
+  /// auto-replace — real-word swaps are suggestions, not corrections).
+  private var parsedConfusables: [String: [String]]?
+  /// Background spell-check lane: UITextChecker work (guesses can cost
+  /// 10-30ms) stays off the tap handler. Serial queue = single-thread
+  /// confinement for the non-thread-safe checker.
+  private static let spellQueue = DispatchQueue(label: "kb.spellcheck", qos: .userInitiated)
+  private static let bgChecker = UITextChecker()
   /// Last single character inserted — seeds the bigram bias for the NEXT touch.
   fileprivate var lastInsertedChar: String?
   /// Parsed kb.touch.bigrams: previous char → set of likely next chars.
@@ -4844,6 +5162,8 @@ final class SDUIRenderer: NSObject {
   /// and fires the boundary pipeline on terminators.
   private func noteTyped(_ inserted: String) {
     lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
     if inserted.count == 1, let c = inserted.first {
       lastInsertedChar = inserted
       if c == "'" || c == "\u{2019}" || c.isLetter || c.isNumber {
@@ -4864,6 +5184,8 @@ final class SDUIRenderer: NSObject {
 
   private func noteDeletedBackward() {
     lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
     lastInsertedChar = nil   // unknown context now — bias off until next insert
     pendingAutoSpace = false
     if currentWord.isEmpty {
@@ -4885,6 +5207,8 @@ final class SDUIRenderer: NSObject {
   func resetTypingContext(tailAtBoundary: Bool = false) {
     currentWord = ""
     lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
     pendingAutoSpace = false
     trackerValid = tailAtBoundary
     if !state.suggestions.isEmpty {
@@ -4940,7 +5264,11 @@ final class SDUIRenderer: NSObject {
     }
     guard autocorrectOn else { return }
 
-    // 2) Spell correction.
+    // 2) Spell correction — ASYNC (K7). rangeOfMisspelledWord + guesses cost
+    // 10-30ms on older devices, which used to ride inside the space-tap
+    // handler. The check runs on the spell queue; the result applies back on
+    // main ONLY if the document tail is still exactly word+boundary (a
+    // generation counter + a fresh context read guard the race).
     let minLen = Int(flagDouble("kb.autocorrect.minLen", 3))
     guard word.count >= minLen, word.count <= 24 else { return }
     // Plain ASCII letters (+apostrophe) only: digits, symbols, and accented
@@ -4948,19 +5276,74 @@ final class SDUIRenderer: NSObject {
     guard word.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
     else { return }
     let lang = autocorrectLanguage()
-    let ns = word as NSString
-    let full = NSRange(location: 0, length: ns.length)
-    let miss = textChecker.rangeOfMisspelledWord(
-      in: word, range: full, startingAt: 0, wrap: false, language: lang)
-    guard miss.location != NSNotFound else { return }
-    let guesses = textChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
-    guard let corrected = pickCorrection(for: word, from: guesses) else { return }
+    let neighbors = keyNeighborMap()
+    let maxDist = flagDouble("kb.autocorrect.maxDistance", 2.0)
+    let generation = typingGeneration
+    let isNewline = boundary == "\n"
+    Self.spellQueue.async { [weak self] in
+      let ns = word as NSString
+      let full = NSRange(location: 0, length: ns.length)
+      let miss = Self.bgChecker.rangeOfMisspelledWord(
+        in: word, range: full, startingAt: 0, wrap: false, language: lang)
+      guard miss.location != NSNotFound else {
+        // Spelled fine — real-word confusables ("their/there") are OFFERED
+        // as chips, never auto-swapped.
+        DispatchQueue.main.async {
+          guard let self = self, self.typingGeneration == generation else { return }
+          self.offerConfusables(for: word, boundary: boundary)
+        }
+        return
+      }
+      let guesses = Self.bgChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
+      guard let corrected = SDUIRenderer.pickCorrection(
+        for: word, from: guesses, neighbors: neighbors, maxDist: maxDist) else { return }
+      DispatchQueue.main.async {
+        self?.applyAsyncCorrection(word: word, boundary: boundary, corrected: corrected,
+                                   generation: generation, newlineBoundary: isNewline)
+      }
+    }
+  }
+
+  /// Apply a background-checked correction — only while it's still safe: the
+  /// generation must not have moved, and (except for newline boundaries,
+  /// where the context is line-scoped and unreadable) the document tail must
+  /// still be exactly word+boundary.
+  private func applyAsyncCorrection(word: String, boundary: String, corrected: String,
+                                    generation: Int, newlineBoundary: Bool) {
+    guard typingGeneration == generation, let proxy = host?.hostTextDocumentProxy else { return }
     let cased = matchCase(of: word, to: corrected)
     guard cased != word else { return }
+    if !newlineBoundary {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      guard ctx.hasSuffix(word + boundary) else { return }
+      let head = ctx.dropLast(word.count + boundary.count)
+      if let p = head.last, p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" { return }
+    }
     replaceTail(count: word.count + boundary.count, with: cased + boundary, proxy: proxy)
+    typingGeneration += 1
     lastAutocorrect = (word, cased, boundary)
     // Revert affordance: the typed original shows as a chip; tapping restores it.
     state.suggestions = [word]
+    updateSuggestionBarInPlace()
+  }
+
+  /// Real-word confusion pairs (kb.autocorrect.confusables). The word is
+  /// spelled fine, so it's never auto-replaced — the alternatives appear as
+  /// chips that swap the committed word in place.
+  private func offerConfusables(for word: String, boundary: String) {
+    if parsedConfusables == nil {
+      var out: [String: [String]] = [:]
+      if case .object(let table)? = config.flags?["kb.autocorrect.confusables"] {
+        for (k, v) in table {
+          if let arr = v.asArray { out[k.lowercased()] = arr.compactMap { $0.asString } }
+          else if let s = v.asString { out[k.lowercased()] = [s] }
+        }
+      }
+      parsedConfusables = out
+    }
+    guard let alts = parsedConfusables?[word.lowercased()], !alts.isEmpty else { return }
+    lastCommittedWord = (word, boundary)
+    state.suggestions = alts.map { matchCase(of: word, to: $0) }
     updateSuggestionBarInPlace()
   }
 
@@ -4971,11 +5354,12 @@ final class SDUIRenderer: NSObject {
 
   /// Best guess within the edit-distance budget, or nil to leave the word
   /// alone. Deliberately conservative: a wrong correction costs the user far
-  /// more trust than a missed one.
-  private func pickCorrection(for typed: String, from guesses: [String]) -> String? {
+  /// more trust than a missed one. Static + parameterized so it runs on the
+  /// spell queue with values captured on main.
+  private static func pickCorrection(for typed: String, from guesses: [String],
+                                     neighbors: [Character: Set<Character>],
+                                     maxDist: Double) -> String? {
     guard !guesses.isEmpty else { return nil }
-    let maxDist = flagDouble("kb.autocorrect.maxDistance", 2.0)
-    let neighbors = keyNeighborMap()
     var best: (word: String, dist: Double)?
     for g in guesses.prefix(8) {
       guard !g.isEmpty, abs(g.count - typed.count) <= 1 else { continue }
@@ -4990,8 +5374,8 @@ final class SDUIRenderer: NSObject {
   /// physical neighbors costs 0.5 (a fat-finger, not a different word);
   /// inserting a missing apostrophe or word-splitting space costs 0.5
   /// ("dont" → "don't", "alot" → "a lot"); everything else costs 1.
-  private func weightedEditDistance(_ a: [Character], _ b: [Character],
-                                    neighbors: [Character: Set<Character>]) -> Double {
+  private static func weightedEditDistance(_ a: [Character], _ b: [Character],
+                                           neighbors: [Character: Set<Character>]) -> Double {
     let n = a.count, m = b.count
     guard n > 0, m > 0 else { return Double(max(n, m)) }
     var prev = (0...m).map { Double($0) }
@@ -5080,18 +5464,33 @@ final class SDUIRenderer: NSObject {
       }
       return
     }
-    var out: [String] = []
-    if currentWord.count >= 2,
-       currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" }) {
-      let ns = currentWord as NSString
-      let comps = textChecker.completions(
-        forPartialWordRange: NSRange(location: 0, length: ns.length),
-        in: currentWord, language: autocorrectLanguage()) ?? []
-      out = Array(comps.prefix(max(1, Int(flagDouble("kb.suggestions.max", 3)))))
+    guard currentWord.count >= 2,
+          currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
+    else {
+      if !state.suggestions.isEmpty {
+        state.suggestions = []
+        updateSuggestionBarInPlace()
+      }
+      return
     }
-    if state.suggestions != out {
-      state.suggestions = out
-      updateSuggestionBarInPlace()
+    // Completions off the keystroke path (K7): computed on the spell queue,
+    // applied only if the word is still what the user is typing.
+    let word = currentWord
+    let lang = autocorrectLanguage()
+    let maxN = max(1, Int(flagDouble("kb.suggestions.max", 3)))
+    Self.spellQueue.async { [weak self] in
+      let ns = word as NSString
+      let comps = Self.bgChecker.completions(
+        forPartialWordRange: NSRange(location: 0, length: ns.length),
+        in: word, language: lang) ?? []
+      let out = Array(comps.prefix(maxN))
+      DispatchQueue.main.async {
+        guard let self = self, self.currentWord == word else { return }
+        if self.state.suggestions != out {
+          self.state.suggestions = out
+          self.updateSuggestionBarInPlace()
+        }
+      }
     }
   }
 
@@ -5110,6 +5509,20 @@ final class SDUIRenderer: NSObject {
       resetTypingContext(tailAtBoundary: true)
       updateAutoCap()
       return
+    }
+    // Swipe alternates + confusable offers: the chip replaces the last word
+    // this engine committed whole.
+    if let lc = lastCommittedWord {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      if ctx.hasSuffix(lc.word + lc.boundary) {
+        replaceTail(count: lc.word.count + lc.boundary.count,
+                    with: s + lc.boundary, proxy: proxy)
+        lastInsertedChar = lc.boundary.last.map(String.init)
+        resetTypingContext(tailAtBoundary: true)
+        updateAutoCap()
+        return
+      }
+      lastCommittedWord = nil
     }
     let word = currentWord
     let ctx = proxy.documentContextBeforeInput ?? ""
@@ -5136,6 +5549,172 @@ final class SDUIRenderer: NSObject {
     resetTypingContext(tailAtBoundary: true)
     pendingAutoSpace = true   // typing punctuation next pulls the space back
     updateAutoCap()
+  }
+
+  // MARK: - QuickPath swipe typing (K7)
+  //
+  // The plane promotes a single-finger glide across ≥ kb.swipe.minKeys keys
+  // into a swipe; on lift the swept key sequence decodes into a word:
+  //   • candidates must anchor to the swipe's first and last keys (± physical
+  //     neighbors) — the strongest constraint in shape writing,
+  //   • every letter must appear IN ORDER along the swept keys (exact key or
+  //     neighbor; doubled letters ride one key; apostrophes are free),
+  //   • ranked by corpus frequency (embedded list + kb.swipe.extraWords),
+  //     subsequence exactness, and length affinity.
+  // Best candidate inserts with a trailing auto-space; runners-up land in the
+  // suggestion bar and swap in place via lastCommittedWord.
+
+  /// Frequency-ordered core lexicon. Deliberately compact — the goal is the
+  /// words people actually glide (function words + everyday vocabulary); the
+  /// backend extends OTA via kb.swipe.extraWords.
+  private static let swipeCoreWords: [String] = (
+    "the be to of and a in that have i it for not on with he as you do at this " +
+    "but his by from they we say her she or an will my one all would there their " +
+    "what so up out if about who get which go me when make can like time no just " +
+    "him know take people into year your good some could them see other than then " +
+    "now look only come its over think also back after use two how our work first " +
+    "well way even new want because any these give day most us is was are been has " +
+    "had were said did having may should am place made find where much too very " +
+    "still being going before great same those both does another around thought " +
+    "while together children saw few though feel man men woman women child life " +
+    "world school state family student group country problem hand part case week " +
+    "company system program question government number night point home water room " +
+    "mother area money story fact month lot right study book eye job word business " +
+    "issue side kind head house service friend father power hour game line end " +
+    "member law car city community name president team minute idea body information " +
+    "nothing ago face others level office door health person art war history party " +
+    "result change morning reason research girl guy moment air teacher force " +
+    "education call try ask need become leave put mean keep let begin seem help " +
+    "talk turn start show hear play run move live believe hold bring happen write " +
+    "provide sit stand lose pay meet include continue set learn lead understand " +
+    "watch follow stop create speak read allow add spend grow open walk win offer " +
+    "remember love consider appear buy wait serve die send expect build stay fall " +
+    "cut reach kill remain little important different small large next early young " +
+    "public bad able best better sure free low late hard major economic strong " +
+    "possible whole real american big high old hello thanks thank please sorry " +
+    "okay yeah cool nice awesome happy tomorrow today tonight later maybe really " +
+    "actually definitely probably haha gonna wanna gotta yes no here come coming " +
+    "meeting message send sent text call called calling home working dinner lunch " +
+    "coffee drink food great night week weekend friday monday tuesday wednesday " +
+    "thursday saturday sunday don't can't won't didn't i'm i'll i've it's that's " +
+    "what's you're we're they're isn't wasn't couldn't wouldn't shouldn't"
+  ).split(separator: " ").map(String.init)
+
+  private var swipeWords: [String]?
+  private func swipeLexicon() -> [String] {
+    if let w = swipeWords { return w }
+    var words = Self.swipeCoreWords
+    if case .array(let extra)? = config.flags?["kb.swipe.extraWords"] {
+      words.append(contentsOf: extra.compactMap { $0.asString?.lowercased() })
+    }
+    swipeWords = words
+    return words
+  }
+
+  fileprivate func planeCanSwipe() -> Bool { !swipeLexicon().isEmpty }
+
+  fileprivate func planeSwipeEngaged() {
+    hideKeyCallout()
+    fireKeyHaptic()
+  }
+
+  fileprivate func planeSwipeCommit(sweptChars: [String]) {
+    let candidates = decodeSwipe(sweptChars)
+    guard var best = candidates.first, let proxy = host?.hostTextDocumentProxy else { return }
+    // "i" and its contractions capitalize themselves, like native.
+    if best == "i" || best.hasPrefix("i'") {
+      best = "I" + best.dropFirst()
+    }
+    if state.capsLock { best = best.uppercased() }
+    else if state.shift { best = best.prefix(1).uppercased() + best.dropFirst() }
+    // Separate from a trailing word, then insert with the auto-space.
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    let lead = (ctx.isEmpty || ctx.last!.isWhitespace || ctx.last!.isNewline) ? "" : " "
+    proxy.insertText(lead + best + " ")
+    if state.shift && !state.capsLock {
+      state.shift = false
+      stateChanged()
+    }
+    lastInsertedChar = " "
+    resetTypingContext(tailAtBoundary: true)
+    pendingAutoSpace = true
+    lastCommittedWord = (best, " ")
+    let maxAlt = max(0, Int(flagDouble("kb.swipe.maxAlternates", 3)))
+    let alts = candidates.dropFirst().prefix(maxAlt).map { matchCase(of: best, to: $0) }
+    if !alts.isEmpty {
+      state.suggestions = Array(alts)
+      updateSuggestionBarInPlace()
+    }
+    updateAutoCap()
+    fireKeyHaptic()
+  }
+
+  /// Decode a swept key sequence into ranked word candidates.
+  private func decodeSwipe(_ swept: [String]) -> [String] {
+    let sweptChars: [Character] = swept.compactMap { $0.lowercased().first }
+    guard sweptChars.count >= 2, let first = sweptChars.first, let last = sweptChars.last
+    else { return [] }
+    let neighbors = keyNeighborMap()
+    let lexicon = swipeLexicon()
+    let total = max(1, lexicon.count)
+
+    func near(_ a: Character, _ b: Character) -> Bool {
+      a == b || neighbors[a]?.contains(b) == true
+    }
+    /// Letters of `word` (apostrophes skipped) must appear in order along the
+    /// swept keys; doubled letters consume one key. Returns the share of
+    /// exact-key (non-neighbor) matches, or nil when the shape doesn't fit.
+    func subsequenceExactness(_ word: [Character]) -> Double? {
+      var i = 0
+      var exact = 0, matched = 0
+      var prev: Character? = nil
+      for wc in word {
+        if wc == "'" || wc == "\u{2019}" { continue }
+        if wc == prev { prev = wc; continue }   // doubled letter rides one key
+        var found = false
+        while i < sweptChars.count {
+          let sc = sweptChars[i]
+          i += 1
+          if sc == wc { exact += 1; matched += 1; found = true; break }
+          if near(sc, wc) { matched += 1; found = true; break }
+        }
+        if !found { return nil }
+        prev = wc
+      }
+      return matched == 0 ? nil : Double(exact) / Double(matched)
+    }
+
+    var scored: [(String, Double)] = []
+    for (rank, word) in lexicon.enumerated() {
+      let letters = Array(word.filter { $0 != "'" && $0 != "\u{2019}" })
+      guard letters.count >= 2, letters.count <= sweptChars.count + 2 else { continue }
+      guard let wf = letters.first, let wl = letters.last,
+            near(first, wf), near(last, wl) else { continue }
+      guard let exactness = subsequenceExactness(Array(word)) else { continue }
+      let freq = 1.0 - Double(rank) / Double(total)
+      let lengthAffinity = 1.0 - min(
+        1.0, abs(Double(sweptChars.count) - Double(letters.count) * 1.6) / Double(sweptChars.count))
+      scored.append((word, freq * 2.0 + exactness * 1.5 + lengthAffinity * 0.6))
+    }
+    return scored.sorted { $0.1 > $1.1 }.prefix(4).map { $0.0 }
+  }
+
+  /// Backspace immediately after an autocorrect restores the typed original
+  /// (consuming the delete). kb.autocorrect.backspaceRevert kills it OTA.
+  private func maybeRevertAutocorrectOnDelete() -> Bool {
+    guard flagBool("kb.autocorrect.backspaceRevert", true),
+          let last = lastAutocorrect,
+          let proxy = host?.hostTextDocumentProxy else { return false }
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    guard ctx.hasSuffix(last.corrected + last.boundary) else {
+      lastAutocorrect = nil
+      return false
+    }
+    replaceTail(count: last.corrected.count + last.boundary.count,
+                with: last.original + last.boundary, proxy: proxy)
+    resetTypingContext(tailAtBoundary: true)
+    updateAutoCap()
+    return true
   }
 
   /// Write a deep-link target into the shared App Group. The main app checks
@@ -5232,6 +5811,7 @@ final class SDUIRenderer: NSObject {
       case "status":               return .string(state.status)
       case "micLevel":             return .number(Double(state.micLevel))
       case "hasSuggestions":       return .bool(!state.suggestions.isEmpty)
+      case "flowArmed":            return .bool(state.flowArmed)
       case "tone":                 return .string(state.tone)
       case "trackpadActive":       return .bool(state.trackpadActive)
       case "primaryLanguage":      return .string(state.primaryLanguage)
@@ -5332,6 +5912,14 @@ final class SDUIRenderer: NSObject {
   func reflectRefining(_ v: Bool) {
     if state.refining == v { return }
     state.refining = v
+    stateChanged()
+  }
+  /// Flow-session armed state (host-owned). Drives the mic key's
+  /// "Start Flow" bolt vs the ready mic mark, so "tap opens the app to arm"
+  /// is visually distinct from "tap to dictate".
+  func reflectFlowArmed(_ armed: Bool) {
+    if state.flowArmed == armed { return }
+    state.flowArmed = armed
     stateChanged()
   }
   func reflectMicLevel(_ l: CGFloat) {

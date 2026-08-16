@@ -1176,7 +1176,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   ///   • recording → a checkmark. Tap to finish (Wispr taps ✓ to end an utterance).
   /// Called on appear, after the backend config loads, and on every transition.
   private func refreshFlowButton() {
-    guard (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() == "flow" else { return }
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "flow"
+    // The SDUI mic renders the armed/unarmed distinction itself — feed it the
+    // live session state (this hub runs on appear, arm, record, and end).
+    if !["local", "stream", "handoff"].contains(mode) {
+      sduiRenderer?.reflectFlowArmed(flow.isSessionActive || flowRecording)
+    }
+    guard mode == "flow" else { return }
     if flowRecording {
       micButton.imageView?.stopAnimating()
       micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
