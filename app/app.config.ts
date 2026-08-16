@@ -62,8 +62,12 @@ const config: ExpoConfig = {
       // permission but doesn't ship a Usage Description. Bake all of them in
       // so backend-driven features can call the corresponding permission
       // APIs without a rebuild.
+      // MUST describe the real behavior: besides tap-to-dictate, a Flow
+      // Session keeps the microphone active in the background (with iOS's
+      // recording indicator visible) so the keyboard can dictate without
+      // reopening the app. Understating this is a 5.1.1 rejection.
       NSMicrophoneUsageDescription:
-        "Tailzu records audio only while you hold the microphone button, converts it to text, and lets you insert the cleaned-up text into your current message.",
+        "Tailzu uses the microphone for voice typing. When you start a Flow session, the mic stays on in the background (the recording indicator stays visible) so you can dictate straight from the keyboard; it turns off automatically after a few minutes of inactivity, or anytime from Settings → End Flow session.",
       NSCameraUsageDescription:
         "Tailzu uses the camera when you tap the scan button so it can read printed text or a QR code and turn it into a message.",
       NSPhotoLibraryUsageDescription:

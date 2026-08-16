@@ -238,7 +238,10 @@ export default function SduiApp() {
     try {
       await callEndpoint("PUT", "/v1/profile", { language: code });
     } catch {
-      /* best-effort: even if the write fails, fall through and continue */
+      // The local pick is committed, so the picker won't return — but the
+      // server never localized anything. Say so instead of silently leaving
+      // the whole app in English with no visible reason.
+      showToast("Couldn't save your language — you can change it anytime in Settings.", "error");
     }
     await loadBoot();
   }, [loadBoot]);

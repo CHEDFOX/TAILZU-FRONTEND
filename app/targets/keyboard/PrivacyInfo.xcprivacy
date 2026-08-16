@@ -8,11 +8,15 @@
   <array/>
   <key>NSPrivacyCollectedDataTypes</key>
   <array>
+    <!-- Linked = true: uploads carry the user's bearer token (shared keychain),
+         so audio + text are attributable to the signed-in account server-side.
+         Must match the main app's declarations — inconsistent linkage for the
+         same data across app/extension reads as a privacy-label mismatch. -->
     <dict>
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeAudioData</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>
@@ -24,7 +28,7 @@
       <key>NSPrivacyCollectedDataType</key>
       <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
       <key>NSPrivacyCollectedDataTypeLinked</key>
-      <false/>
+      <true/>
       <key>NSPrivacyCollectedDataTypeTracking</key>
       <false/>
       <key>NSPrivacyCollectedDataTypePurposes</key>
