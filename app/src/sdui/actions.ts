@@ -33,7 +33,7 @@ import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken } from "../notifications/push";
-import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession } from "../../modules/tulmi-bridge";
+import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession, endFlowSession } from "../../modules/tulmi-bridge";
 import { getSupabaseAccessToken } from "../auth/supabaseClient";
 import { getBaseUrl, getLanguage } from "../storage";
 
@@ -522,6 +522,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         getLanguage(),
       ]);
       armFlowSession(base, tok ?? "dev", lang || "auto", idleTimeoutMs);
+      await runAction(action.onSuccess, ctx);
+      break;
+    }
+
+    // End the background-audio Flow Session NOW — the user-facing off switch
+    // for the background microphone (App Review requires the user to be able
+    // to stop a background capture without force-quitting). Backend wires it
+    // from Settings; safe no-op when no session is armed.
+    case "endFlowSession": {
+      endFlowSession();
       await runAction(action.onSuccess, ctx);
       break;
     }
