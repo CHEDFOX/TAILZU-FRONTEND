@@ -226,6 +226,12 @@ final class KeyPlaneView: UIView {
     var trayActive = false
     /// Non-nil when this touch began on shift or a layer-switch key.
     var specialRole: Role?
+    /// True while this track owes a planeUp (a planeDown was delivered and
+    /// not yet balanced). Balanced by identity-independent bookkeeping: after
+    /// a layer-peek remount the pressed button is deallocated (weak → nil),
+    /// and skipping the balance leaked planeActiveTouchCount +1 per peek —
+    /// killing key-pop callouts for the rest of the session.
+    var pressed = false
     /// The layout to return to after a layer-peek commit (nil = plain tap,
     /// stay on the switched layer).
     var peekReturn: String?
@@ -375,14 +381,23 @@ final class KeyPlaneView: UIView {
     return (b.button, b.char)
   }
 
-  /// The shift / layer key whose REAL rect (+ its hit slop band) contains the
-  /// point. Role keys are exact-rect anchors — no gap stealing.
+  /// The shift / layer key whose rect (+ its OWN hit slop) contains the
+  /// point — NEAREST wins when slop bands overlap (shift and "123" sit in
+  /// adjacent rows; first-match order made shift swallow taps aimed at 123).
   private func roleKeyAt(_ point: CGPoint) -> (button: UIButton, role: Role)? {
+    var best: (button: UIButton, role: Role, dist: CGFloat)?
     for f in roleFrames {
-      let expanded = f.rect.insetBy(dx: -2, dy: -8)   // matches KeyHitButton slop
-      if expanded.contains(point) { return (f.button, f.role) }
+      let slop = (f.button as? KeyHitButton)?.hitSlop
+        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+      let expanded = f.rect.inset(by: UIEdgeInsets(
+        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+      guard expanded.contains(point) else { continue }
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if best == nil || d < best!.dist { best = (f.button, f.role, d) }
     }
-    return nil
+    return best.map { ($0.button, $0.role) }
   }
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -421,6 +436,7 @@ final class KeyPlaneView: UIView {
         track.specialRole = role.role
         tracks[ObjectIdentifier(t)] = track
         renderer?.planeDown(role.button)
+        track.pressed = true
         switch role.role {
         case .shift:
           renderer?.planeShiftDown()
@@ -449,8 +465,12 @@ final class KeyPlaneView: UIView {
       let hit = keyAt(p)
       let track = Track(hit?.button, hit?.char)
       track.startPoint = p
+      // Seed the swipe path with the STARTING key — sweptChars otherwise only
+      // gains keys on roll-off, so every swipe decoded anchored one key late
+      // ("hello" swiped h→o arrived as e-l-o and matched nothing).
+      if let ch = hit?.char { track.sweptChars = [ch] }
       tracks[ObjectIdentifier(t)] = track
-      if let b = hit?.button { renderer?.planeDown(b) }
+      if let b = hit?.button { renderer?.planeDown(b); track.pressed = true }
       // Arm the accent-tray hold for this finger. Fires only if the finger is
       // still down, hasn't rolled/committed, and the key actually has accents
       // (the renderer decides that when presenting). Timer goes to .common —
@@ -483,6 +503,7 @@ final class KeyPlaneView: UIView {
       }
       if track.swipeMode {
         track.pathPoints.append(p)
+        if track.pathPoints.count > 128 { track.pathPoints.removeFirst(64) }
         if let ch = keyAt(p)?.char, ch != track.sweptChars.last {
           track.sweptChars.append(ch)
         }
@@ -498,8 +519,13 @@ final class KeyPlaneView: UIView {
       if track.button !== hit?.button {
         track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
         track.trayTimer = nil
-        if let old = track.button { renderer?.planeUp(old) }   // rolled off old
-        if let nw = hit?.button { renderer?.planeDown(nw) }    // onto the next
+        if track.pressed {
+          // Balance the outstanding down even if the pressed button was
+          // deallocated by a peek remount (weak → nil).
+          if let old = track.button { renderer?.planeUp(old) } else { renderer?.planeUpLost() }
+          track.pressed = false
+        }
+        if let nw = hit?.button { renderer?.planeDown(nw); track.pressed = true }
         track.button = hit?.button
         track.char = hit?.char
         // Record traversal for swipe promotion (character tracks only).
@@ -507,12 +533,18 @@ final class KeyPlaneView: UIView {
           track.sweptChars.append(ch)
         }
       }
-      track.pathPoints.append(p)
+      if swipeEnabled {
+        track.pathPoints.append(p)
+        // Bounded: only the trail tail + decode use these, and a long jittery
+        // hold must not grow memory inside a jetsam-capped extension.
+        if track.pathPoints.count > 128 { track.pathPoints.removeFirst(64) }
+      }
       // Promote to a QuickPath swipe: a single finger gliding across ≥N
       // distinct keys is a word-shape, not a roll. Roll semantics stay for
       // short drifts and for role (shift/layer) slides.
       if swipeEnabled, track.specialRole == nil, !track.swipeMode,
-         tracks.count == 1, track.sweptChars.count >= swipeMinKeys,
+         tracks.values.filter({ !$0.committed }).count == 1,
+         track.sweptChars.count >= swipeMinKeys,
          renderer?.planeCanSwipe() == true {
         track.swipeMode = true
         track.trayTimer?.invalidate()
@@ -526,8 +558,15 @@ final class KeyPlaneView: UIView {
 
   // MARK: - Swipe trail
 
+  /// Invalidates a pending fade-cleanup when a NEW swipe starts within
+  /// trailFadeMs of the previous one (the stale asyncAfter used to nil the
+  /// fresh trail's path, and the lingering fade animation pinned opacity 0).
+  private var trailGeneration = 0
+
   private func updateTrail(with points: [CGPoint]) {
     guard points.count > 1 else { return }
+    trailGeneration += 1
+    trailLayer.removeAnimation(forKey: "fade")
     let tail = points.suffix(40)
     let path = UIBezierPath()
     path.move(to: tail.first!)
@@ -539,6 +578,8 @@ final class KeyPlaneView: UIView {
   }
 
   private func fadeTrail() {
+    trailGeneration += 1
+    let gen = trailGeneration
     let fade = CABasicAnimation(keyPath: "opacity")
     fade.fromValue = 1
     fade.toValue = 0
@@ -547,9 +588,10 @@ final class KeyPlaneView: UIView {
     fade.isRemovedOnCompletion = false
     trailLayer.add(fade, forKey: "fade")
     DispatchQueue.main.asyncAfter(deadline: .now() + trailFadeMs / 1000.0) { [weak self] in
-      self?.trailLayer.path = nil
-      self?.trailLayer.removeAnimation(forKey: "fade")
-      self?.trailLayer.opacity = 0
+      guard let self = self, self.trailGeneration == gen else { return }
+      self.trailLayer.path = nil
+      self.trailLayer.removeAnimation(forKey: "fade")
+      self.trailLayer.opacity = 0
     }
   }
 
@@ -557,7 +599,10 @@ final class KeyPlaneView: UIView {
     for t in touches {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
       track.trayTimer?.invalidate()
-      if let b = track.button { renderer?.planeUp(b) }
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
       if track.committed { continue }   // already typed by press-order rollover
       if track.swipeMode {
         fadeTrail()
@@ -567,9 +612,13 @@ final class KeyPlaneView: UIView {
       if track.trayActive {
         let p = t.location(in: self)
         // Released on a chip → that accent; still on the key below the tray →
-        // the base char (matching iOS); slid anywhere else → nothing.
+        // the base char (matching iOS); slid anywhere else → nothing. If the
+        // tray itself was destroyed under this finger (peek remount from a
+        // second touch), the held key must STILL type — lostTrayFallback.
         let stillOnKey = keyAt(p)?.char == track.char
-        renderer?.planeCommitAccentTray(at: p, fallbackChar: stillOnKey ? track.char : nil)
+        renderer?.planeCommitAccentTray(at: p,
+                                        fallbackChar: stillOnKey ? track.char : nil,
+                                        lostTrayFallback: track.char)
         continue
       }
       if let role = track.specialRole {
@@ -603,7 +652,10 @@ final class KeyPlaneView: UIView {
       track.trayTimer?.invalidate()
       if track.trayActive { renderer?.planeDismissAccentTray() }
       if track.swipeMode { fadeTrail() }
-      if let b = track.button { renderer?.planeUp(b) }
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
     }
   }
 
@@ -619,7 +671,10 @@ final class KeyPlaneView: UIView {
     where !track.committed && !track.trayActive && !track.swipeMode && track.specialRole == nil {
       track.trayTimer?.invalidate()
       track.trayTimer = nil
-      if let b = track.button { renderer?.planeUp(b) }
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
       if let c = track.char { renderer?.planeCommit(char: c) }
       track.committed = true
       track.button = nil
@@ -2004,7 +2059,11 @@ final class SDUIRenderer: NSObject {
   /// plane with role keys — instant layer switches, real layer-peek, slide-
   /// from-shift capitals — async spellcheck/completions, confusable-pair
   /// chips, backspace autocorrect revert, flow-armed mic glyph.
-  static let buildStamp = "K7"
+  /// K8: pre-submission audit fixes — newline-correction race guard, swipe
+  /// first-key seeding, press-balance across peek remounts, nearest-role
+  /// resolution, async remounts off button callbacks, multi-language-safe
+  /// layer auto-return.
+  static let buildStamp = "K8"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -2094,6 +2153,7 @@ final class SDUIRenderer: NSObject {
     let alpha: CGFloat = active ? 0.35 : 1
     for (_, btn) in letterButtonsByChar { btn.alpha = alpha }
     weakShiftButton?.alpha = alpha
+    for entry in layerKeyRegistry { entry.btn.alpha = alpha }
     keyPlane?.isUserInteractionEnabled = !active
     if active { hideKeyCallout() }
   }
@@ -2319,12 +2379,6 @@ final class SDUIRenderer: NSObject {
     // tap time instead, so title and inserted text always agree.
     let payload = node.props?["char"]?.asString ?? ch
     bindTap(btn, node: node, defaultAction: .insertKey(char: payload))
-    // Layer-switch keys register for the plane's layer-peek handling (press →
-    // instant switch; press-slide-release → peek). Detected by their action,
-    // not their label, so backend renames don't break it.
-    if let ref = node.on?["onPress"], case .switchLayout(let target)? = resolve(ref) {
-      layerKeyRegistry.append((btn, target))
-    }
 
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
@@ -2867,6 +2921,7 @@ final class SDUIRenderer: NSObject {
     // The ASCII-only guard keeps autocorrect away from accented words anyway.
     lastAutocorrect = nil
     pendingAutoSpace = false
+    typingGeneration += 1   // any in-flight async correction is now stale
     currentWord += ch
     refreshSuggestions()
     updateAutoCap(afterTyping: ch)
@@ -2915,14 +2970,18 @@ final class SDUIRenderer: NSObject {
 
   /// Release while a tray is open: a chip commits its accent; off-chip but
   /// still on the held key commits the base char (`fallbackChar`); anywhere
-  /// else commits nothing.
-  fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?) {
+  /// else commits nothing. `lostTrayFallback` covers the tray being destroyed
+  /// under the finger (peek remount from another touch): `fallbackChar` was
+  /// computed against the NEW layer's geometry and may be nil, but the held
+  /// key must still type.
+  fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?,
+                                         lostTrayFallback: String? = nil) {
     // If the tray is already gone (dismissed by a remount or another path),
     // the held key must still type its base char — losing the keystroke
     // entirely is the one unacceptable outcome.
     guard let tray = activeAccentTray, let container = mountContainer else {
       dismissAccentTray()
-      if let base = fallbackChar { run(.inline(.insertKey(char: base))) }
+      if let base = lostTrayFallback ?? fallbackChar { run(.inline(.insertKey(char: base))) }
       return
     }
     defer { dismissAccentTray() }
@@ -3077,6 +3136,7 @@ final class SDUIRenderer: NSObject {
       _lastSpaceTapTime = now
       lastInsertedChar = " "   // word-start bigram row (" " entry) arms next-letter bias
       pendingAutoSpace = false
+      typingGeneration += 1    // stale-guard for the async checker (symmetry with noteTyped)
       handleWordBoundary(boundary: " ")
     }
     // Native returns to the letter layer after a space typed on 123/#+=.
@@ -3088,10 +3148,20 @@ final class SDUIRenderer: NSObject {
   /// layer, like the system keyboard. kb.layer.returnAfterSpace kills it OTA.
   private func autoReturnToLetters() {
     guard flagBool("kb.layer.returnAfterSpace", true) else { return }
-    guard let letters = config.layouts?.first?.language,
-          !letters.isEmpty, state.layoutId != letters else { return }
+    // Only bounce back from SYMBOL layers. config.layouts is the LANGUAGE
+    // list — treating layouts.first as "the letter layer" yanked a user
+    // typing on any non-first language back to English on every space.
+    let symbolIds = Set(flagString("kb.layer.symbolIds", "123,sym")
+      .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    guard symbolIds.contains(state.layoutId) else { return }
+    let letters = flagString("kb.layer.lettersId", "en")
+    guard (config.layouts ?? []).contains(where: { $0.language == letters }),
+          state.layoutId != letters else { return }
     state.layoutId = letters
-    remount()   // synchronous — the flip lands in the same frame as the tap
+    // Async: this runs inside the space/return button's own action handler —
+    // a synchronous remount would deallocate that very button (and its
+    // gestures) mid-callback.
+    DispatchQueue.main.async { [weak self] in self?.remount() }
   }
 
   /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
@@ -3245,21 +3315,31 @@ final class SDUIRenderer: NSObject {
   /// Shift held on the plane → caps lock.
   fileprivate func planeShiftLongPress() { shiftHoldLock() }
 
+  /// True only for the duration of a plane-initiated layer switch — the one
+  /// caller for which run(.switchLayout)'s remount must be synchronous.
+  private var planePeekInProgress = false
+
   /// A layer key went down: switch NOW (synchronous remount — the persistent
   /// plane rebinds and the same touch keeps working on the new layer).
   /// Returns the layout to bounce back to if this turns into a slide-commit.
   fileprivate func planePeekBegan(target: String?) -> String? {
     let origin = state.layoutId
+    planePeekInProgress = true
     run(.inline(.switchLayout(language: target)))
+    planePeekInProgress = false
     return origin == state.layoutId ? nil : origin
   }
 
   /// A layer-peek slide committed a key: bounce back to where the peek began.
+  /// Called from the plane's touchesEnded — the plane survives the rebuild,
+  /// so synchronous is safe here.
   fileprivate func planePeekReturn(to layout: String) {
     guard (config.layouts ?? []).contains(where: { $0.language == layout }),
           state.layoutId != layout else { return }
     state.layoutId = layout
+    planePeekInProgress = true
     remount()
+    planePeekInProgress = false
   }
 
   private func handleShiftTap() {
@@ -3656,15 +3736,25 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  /// One-shot latch for the remount fallback below: a tree with NO
+  /// SuggestionBar node at all would otherwise remount on EVERY completion
+  /// update (the snapshot can't see suggestions), reintroducing the
+  /// per-keystroke rebuild. Cleared when a bar actually mounts.
+  private var suggestionBarRemountAttempted = false
+
   fileprivate func updateSuggestionBarInPlace() {
     guard let row = suggestionRowStack, row.window != nil else {
       // No live bar: a backend tree may gate the SuggestionBar node on
       // state.hasSuggestions (visibleIf CULLS it, so there's no row to fill
-      // in place). Remount so the gate re-evaluates and the bar appears —
-      // once mounted, subsequent updates take the in-place path again.
-      if !state.suggestions.isEmpty { stateChanged() }
+      // in place). Remount ONCE so the gate re-evaluates — if the tree simply
+      // has no bar, don't keep paying rebuilds for it.
+      if !state.suggestions.isEmpty, !suggestionBarRemountAttempted {
+        suggestionBarRemountAttempted = true
+        stateChanged()
+      }
       return
     }
+    suggestionBarRemountAttempted = false
     renderSuggestionChips(into: row)
     // Chips are obstacles for the touch plane's top-row reach; refresh the
     // veto list AFTER the chips have frames (next runloop tick) — collecting
@@ -4245,6 +4335,14 @@ final class SDUIRenderer: NSObject {
     keyTouchUp(button)
   }
 
+  /// Balance an outstanding planeDown whose button no longer exists (a
+  /// layer-peek remount deallocated it). Only the counter + callout need
+  /// closing — there is no view left to restore.
+  fileprivate func planeUpLost() {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+    hideKeyCallout()
+  }
+
   /// Commit the character under the finger on release. Routes through the exact
   /// insertKey path a button tap uses, so live shift / capsLock casing applies.
   fileprivate func planeCommit(char: String) { run(.inline(.insertKey(char: char))) }
@@ -4469,6 +4567,14 @@ final class SDUIRenderer: NSObject {
     if let ref = node.on?["onPress"] {
       let action = UIAction { [weak self] _ in self?.run(ref) }
       btn.addAction(action, for: .touchUpInside)
+      // Layer-switch keys register for the plane's layer-peek handling (press
+      // → instant switch; press-slide-release → peek). Detected here in the
+      // SHARED tap binder — not in buildLetterKey — so a "123" shipped as an
+      // IconKey (or any node type) gets peek instead of silently keeping a
+      // touchUpInside that would remount mid-callback.
+      if case .switchLayout(let target)? = resolve(ref) {
+        layerKeyRegistry.append((btn, target))
+      }
     } else if let def = defaultAction {
       let action = UIAction { [weak self] _ in self?.run(.inline(def)) }
       btn.addAction(action, for: .touchUpInside)
@@ -4567,6 +4673,12 @@ final class SDUIRenderer: NSObject {
       lastAutocorrect = nil
       lastInsertedChar = "\n"
       pendingAutoSpace = false
+      // Bump BEFORE the boundary pipeline captures it: the newline path skips
+      // the post-hoc context verification (line-scoped context), so the
+      // generation counter is its ONLY race guard — without this bump a
+      // second Return arriving before the async checker finished let the
+      // correction replaceTail against moved text.
+      typingGeneration += 1
       handleWordBoundary(boundary: "\n", preInsertContext: preCtx)
       // Native returns to the letter layer after a return from 123/#+=.
       autoReturnToLetters()
@@ -4579,10 +4691,18 @@ final class SDUIRenderer: NSObject {
         let idx = langs.firstIndex(of: state.layoutId) ?? -1
         state.layoutId = langs[(idx + 1) % langs.count]
       }
-      // SYNCHRONOUS remount, not stateChanged(): a layer flip must land in
-      // the same frame as the tap (native feel), and layer-peek needs the new
-      // layer's keys bound before the finger's next move event.
-      remount()
+      // Layer-peek (the plane's touch-down switch) NEEDS a synchronous
+      // remount — the new layer's keys must be bound before the finger's
+      // next move event, and the plane view survives the rebuild. Every
+      // OTHER path into switchLayout is a real UIControl's action handler
+      // (ABC/123 tap with the plane off, backend sequences): a synchronous
+      // remount there deallocates the very button mid-callback, so those
+      // defer one runloop tick.
+      if planePeekInProgress {
+        remount()
+      } else {
+        DispatchQueue.main.async { [weak self] in self?.remount() }
+      }
     case .showLanguageMenu:
       presentLanguageMenu()
     case .startDictation:
@@ -5098,7 +5218,6 @@ final class SDUIRenderer: NSObject {
   //   kb.touch.lmBias.enabled / .pt + kb.touch.bigrams
   //     — next-letter hit-target bias, consumed by KeyPlaneView.keyAt.
 
-  private let textChecker = UITextChecker()
   /// The word being typed since the last boundary. A best-effort mirror of the
   /// document tail: handleWordBoundary VERIFIES it against the real context
   /// before touching the document, so a stale mirror can never corrupt text.
@@ -5511,14 +5630,20 @@ final class SDUIRenderer: NSObject {
       return
     }
     // Swipe alternates + confusable offers: the chip replaces the last word
-    // this engine committed whole.
+    // this engine committed whole. The bar STAYS up (native behavior): the
+    // untapped alternates plus the word just swapped out remain available,
+    // so the user can keep flipping until they like it.
     if let lc = lastCommittedWord {
       let ctx = proxy.documentContextBeforeInput ?? ""
       if ctx.hasSuffix(lc.word + lc.boundary) {
+        let remaining = state.suggestions.filter { $0 != s } + [lc.word]
         replaceTail(count: lc.word.count + lc.boundary.count,
                     with: s + lc.boundary, proxy: proxy)
         lastInsertedChar = lc.boundary.last.map(String.init)
         resetTypingContext(tailAtBoundary: true)
+        lastCommittedWord = (s, lc.boundary)
+        state.suggestions = remaining
+        updateSuggestionBarInPlace()
         updateAutoCap()
         return
       }
@@ -5566,39 +5691,41 @@ final class SDUIRenderer: NSObject {
 
   /// Frequency-ordered core lexicon. Deliberately compact — the goal is the
   /// words people actually glide (function words + everyday vocabulary); the
-  /// backend extends OTA via kb.swipe.extraWords.
-  private static let swipeCoreWords: [String] = (
-    "the be to of and a in that have i it for not on with he as you do at this " +
-    "but his by from they we say her she or an will my one all would there their " +
-    "what so up out if about who get which go me when make can like time no just " +
-    "him know take people into year your good some could them see other than then " +
-    "now look only come its over think also back after use two how our work first " +
-    "well way even new want because any these give day most us is was are been has " +
-    "had were said did having may should am place made find where much too very " +
-    "still being going before great same those both does another around thought " +
-    "while together children saw few though feel man men woman women child life " +
-    "world school state family student group country problem hand part case week " +
-    "company system program question government number night point home water room " +
-    "mother area money story fact month lot right study book eye job word business " +
-    "issue side kind head house service friend father power hour game line end " +
-    "member law car city community name president team minute idea body information " +
-    "nothing ago face others level office door health person art war history party " +
-    "result change morning reason research girl guy moment air teacher force " +
-    "education call try ask need become leave put mean keep let begin seem help " +
-    "talk turn start show hear play run move live believe hold bring happen write " +
-    "provide sit stand lose pay meet include continue set learn lead understand " +
-    "watch follow stop create speak read allow add spend grow open walk win offer " +
-    "remember love consider appear buy wait serve die send expect build stay fall " +
-    "cut reach kill remain little important different small large next early young " +
-    "public bad able best better sure free low late hard major economic strong " +
-    "possible whole real american big high old hello thanks thank please sorry " +
-    "okay yeah cool nice awesome happy tomorrow today tonight later maybe really " +
-    "actually definitely probably haha gonna wanna gotta yes no here come coming " +
-    "meeting message send sent text call called calling home working dinner lunch " +
-    "coffee drink food great night week weekend friday monday tuesday wednesday " +
-    "thursday saturday sunday don't can't won't didn't i'm i'll i've it's that's " +
-    "what's you're we're they're isn't wasn't couldn't wouldn't shouldn't"
-  ).split(separator: " ").map(String.init)
+  /// backend extends OTA via kb.swipe.extraWords. A single multi-line literal
+  /// (no `+` chain — 29 chained overloaded operators is how a file earns
+  /// "unable to type-check in reasonable time").
+  private static let swipeCoreWords: [String] = """
+    the be to of and a in that have i it for not on with he as you do at this
+    but his by from they we say her she or an will my one all would there their
+    what so up out if about who get which go me when make can like time no just
+    him know take people into year your good some could them see other than then
+    now look only come its over think also back after use two how our work first
+    well way even new want because any these give day most us is was are been has
+    had were said did having may should am place made find where much too very
+    still being going before great same those both does another around thought
+    while together children saw few though feel man men woman women child life
+    world school state family student group country problem hand part case week
+    company system program question government number night point home water room
+    mother area money story fact month lot right study book eye job word business
+    issue side kind head house service friend father power hour game line end
+    member law car city community name president team minute idea body information
+    nothing ago face others level office door health person art war history party
+    result change morning reason research girl guy moment air teacher force
+    education call try ask need become leave put mean keep let begin seem help
+    talk turn start show hear play run move live believe hold bring happen write
+    provide sit stand lose pay meet include continue set learn lead understand
+    watch follow stop create speak read allow add spend grow open walk win offer
+    remember love consider appear buy wait serve die send expect build stay fall
+    cut reach kill remain little important different small large next early young
+    public bad able best better sure free low late hard major economic strong
+    possible whole real american big high old hello thanks thank please sorry
+    okay yeah cool nice awesome happy tomorrow today tonight later maybe really
+    actually definitely probably haha gonna wanna gotta yes no here come coming
+    meeting message send sent text call called calling home working dinner lunch
+    coffee drink food great night week weekend friday monday tuesday wednesday
+    thursday saturday sunday don't can't won't didn't i'm i'll i've it's that's
+    what's you're we're they're isn't wasn't couldn't wouldn't shouldn't
+    """.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
 
   private var swipeWords: [String]?
   private func swipeLexicon() -> [String] {

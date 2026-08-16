@@ -416,6 +416,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // (on the cold-start fast path applyConfig ran BEFORE the mount, when the
     // sduiRenderer guard still failed).
     applyKeyboardHeight()
+    // Same ordering problem for the flow-armed glyph: every earlier
+    // refreshFlowButton() ran against sduiRenderer == nil, and the state
+    // defaults to "armed" — so a cold-started keyboard showed the ready mic
+    // even with no session. Seed the real value now.
+    renderer.reflectFlowArmed(flow.isSessionActive || flowRecording)
   }
 
   /// Explicit keyboard height (kb.height.pt). Absent/0 → the system default,
