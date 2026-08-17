@@ -53,16 +53,14 @@ export const useTheme = (): ThemeTokens => {
 // --- Styling ----------------------------------------------------------------
 
 /**
- * Title Case: capitalize the first letter of every word, leaving the rest as-is
- * (so contractions/acronyms aren't mangled). Applied to app COPY only — never to
- * user-entered or bound/dynamic text (see staticText).
+ * Copy renders EXACTLY as the backend wrote it. This used to Title-Case every
+ * static string — which mangled whole body paragraphs into "Tap Tailzu Again
+ * And Turn On "Allow Full Access"" and made every screen read broken. Casing
+ * is an authoring decision, and the catalog owns the copy; the renderer must
+ * never rewrite it. (Overline keeps its uppercase via its own textTransform.)
  */
-function titleCase(s: string): string {
-  return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
-}
-/** Title-case static copy, but pass bound/dynamic text (user data) through untouched. */
-export function staticText(node: Node, raw: string): string {
-  return node.bind?.content != null ? raw : titleCase(raw);
+export function staticText(_node: Node, raw: string): string {
+  return raw;
 }
 
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
@@ -259,11 +257,13 @@ const Button = ({ props, style, fire }: CompProps) => {
       disabled={props.disabled}
       impactOnRelease={!isSecondary && !isGhost}
       style={[
-        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, alignItems: "center", opacity: props.disabled ? 0.5 : 1 },
+        // paddingHorizontal matters: a hug-width button without it renders the
+        // label touching the pill's edges ("Allow Microphone" overflow bug).
+        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, paddingHorizontal: 28, alignItems: "center", opacity: props.disabled ? 0.5 : 1 },
         style,
       ]}
     >
-      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{titleCase(props.label ?? "")}</Text>
+      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{props.label ?? ""}</Text>
     </SpringPressable>
   );
 };
@@ -315,7 +315,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{titleCase(props.label ?? "")}</Text>
+      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label ?? ""}</Text>
     </SpringPressable>
   );
 };
