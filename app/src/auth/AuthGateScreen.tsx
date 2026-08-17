@@ -364,7 +364,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       Animated.parallel([
         Animated.timing(entryFade, { toValue: 0, duration: 220, useNativeDriver: true }),
         Animated.timing(verifyFade, { toValue: 1, duration: 320, delay: 80, useNativeDriver: true }),
-      ]).start(() => codeRef.current?.focus?.());
+        // finished guard: an interrupted fade (user backed out mid-animation)
+        // must not yank the keyboard open over the entry screen.
+      ]).start(({ finished }) => { if (finished) codeRef.current?.focus?.(); });
     } else if (phase === "entry") {
       Animated.parallel([
         Animated.timing(verifyFade, { toValue: 0, duration: 180, useNativeDriver: true }),
@@ -581,6 +583,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   </View>
                 ))}
               </Pressable>
+              {/* No autoFocus: it fires at MOUNT, while this block is still at
+                  opacity 0 — the number pad shot up over an invisible code row
+                  and the boxes faded in late ("the code box is hiding"). The
+                  fade-completion callback focuses instead: boxes land fully
+                  visible first, THEN the keyboard rises. */}
               <TextInput underlineColorAndroid="transparent"
                 ref={codeRef}
                 style={s.hiddenInput}
@@ -589,7 +596,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 keyboardType="number-pad"
                 maxLength={CODE_LEN}
                 textContentType="oneTimeCode"
-                autoFocus
                 editable={phase === "verify"}
               />
               <View style={s.verifyStatus}>{phase === "verifying" ? <MicroLoader /> : null}</View>
