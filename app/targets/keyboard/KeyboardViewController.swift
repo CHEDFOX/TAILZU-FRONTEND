@@ -759,30 +759,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return b
   }
 
-  /// The mic-button image. Backend can push a custom asset (static image OR
-  /// animated GIF/APNG) via the `kb.mic.idleIcon.url` config flag; when set,
-  /// we return that (animated frames included). Falls back to the bundled
-  /// TailzuMark, then the SF `mic.fill` symbol.
+  /// The mic-button image. OWNER DECISION: always the static bundled
+  /// TailzuMark (SF `mic.fill` as last resort) — kb.mic.idleIcon.url is
+  /// deliberately ignored so backend-pushed media (animated GIF/APNG) can
+  /// never replace the brand mark on the idle mic again.
   private func brandMarkImage() -> UIImage {
-    if let url = kbConfig?.flags["kb.mic.idleIcon.url"] as? String,
-       !url.isEmpty {
-      if let img = TulmiImageLoader.cached(url, onLoad: { [weak self] in
-        // Re-apply the image on the button once the async fetch completes,
-        // and kick UIKit into playing the animation loop.
-        guard let self = self else { return }
-        DispatchQueue.main.async {
-          if let ready = TulmiImageLoader.cached(url) {
-            self.micButton.setImage(ready, for: .normal)
-            self.micButton.imageView?.startAnimating()
-          }
-        }
-      }) {
-        // If the image is animated, UIKit picks that up from
-        // `UIImage.animatedImage(with:duration:)` and the imageView loops it
-        // once startAnimating() fires (kicked below whenever we set it).
-        return img
-      }
-    }
     if let mark = UIImage(named: "TailzuMark") {
       return mark.withRenderingMode(.alwaysOriginal)
     }
@@ -1854,7 +1835,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     sduiRenderer?.reflectRefining(true)
 
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
-    TulmiBackend.refine(text: full, targetApp: targetApp) { [weak self] result in
+    // The tone the user picked on the keyboard's pill (tone ID, App Group) —
+    // sent explicitly so refine matches the pill even before the keyboard's
+    // fire-and-forget PUT /v1/personality save has landed server-side.
+    let pickedTone = UserDefaults(suiteName: TulmiFlow.appGroup)?.string(forKey: "tulmi.kb.tone")
+    TulmiBackend.refine(text: full, targetApp: targetApp, tone: pickedTone) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
