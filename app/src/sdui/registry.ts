@@ -32,7 +32,7 @@ export const CORE_COMPONENTS = [
 
   // v3 data viz
   "LineChart", "BarChart", "Sparkline", "ProgressRing", "Gauge",
-  "StatCard", "Waveform",
+  "StatCard", "Waveform", "PieChart", "DonutChart",
 
   // v3 media
   "Video", "Audio", "Camera", "QRScanner", "ImagePickerButton",

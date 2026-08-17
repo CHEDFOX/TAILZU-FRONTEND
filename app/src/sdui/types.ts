@@ -143,6 +143,9 @@ export interface ScreenRequest {
   authToken?: string;
   /** Params passed by a `navigate` action (e.g. an item id). */
   params?: Record<string, unknown>;
+  /** Device UTC offset in minutes (-getTimezoneOffset()) so server-baked
+   * per-day stats bucket in the user's local day, not Greenwich's. */
+  tzOffsetMinutes?: number;
 }
 
 export interface ScreenResponse {
