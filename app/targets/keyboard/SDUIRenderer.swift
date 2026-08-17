@@ -2100,7 +2100,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K9"
+  static let buildStamp = "K10"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -2675,10 +2675,41 @@ final class SDUIRenderer: NSObject {
     return [("none", "Tone"), ("casual", "Casual"), ("formal", "Formal"), ("excited", "Excited")]
   }
 
-  // MARK: - Tone sheet (hold the tone pill → pick a tone directly)
+  // MARK: - Tone sheet (hold the tone pill → pick a voice / tone directly)
 
   private weak var toneSheetOverlay: UIView?
   private weak var toneSheetBlur: UIVisualEffectView?
+  /// Voice picked on the keyboard this session — keeps the sheet's checkmark
+  /// right before the next config refetch echoes kb.personality.activeId back.
+  private var localActiveVoiceId: String?
+
+  /// The user's keyboard voice set (kb.personality.pinned — managed from the
+  /// app's Voice screen "Keyboard voices" card). Empty when nothing is pinned.
+  private func pinnedKeyboardVoices() -> [(id: String, name: String, tone: String)] {
+    guard case .array(let arr)? = config.flags?["kb.personality.pinned"] else { return [] }
+    return arr.compactMap { item in
+      guard case .object(let o) = item, let id = o["id"]?.asString, !id.isEmpty else { return nil }
+      return (id, o["name"]?.asString ?? id.capitalized, o["tone"]?.asString ?? "")
+    }
+  }
+
+  /// Tiny section label ("VOICES" / "TONES") for the sheet's stack.
+  private func toneSheetHeader(_ text: String) -> UIView {
+    let wrap = UIView()
+    let l = UILabel()
+    l.text = text.uppercased()
+    l.font = .systemFont(ofSize: 10, weight: .bold)
+    l.textColor = UIColor(white: 1, alpha: 0.4)
+    l.translatesAutoresizingMaskIntoConstraints = false
+    wrap.addSubview(l)
+    NSLayoutConstraint.activate([
+      l.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 16),
+      l.trailingAnchor.constraint(lessThanOrEqualTo: wrap.trailingAnchor, constant: -16),
+      l.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 7),
+      l.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -2),
+    ])
+    return wrap
+  }
 
   @objc private func toneSheetLongPress(_ gr: UILongPressGestureRecognizer) {
     guard gr.state == .began, let anchor = gr.view as? UIButton else { return }
@@ -2717,15 +2748,55 @@ final class SDUIRenderer: NSObject {
     vstack.translatesAutoresizingMaskIntoConstraints = false
     vstack.isLayoutMarginsRelativeArrangement = true
     vstack.layoutMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
-    container.addSubview(vstack)
+    // Scroll wrapper: voices + tones together can outgrow the keyboard's
+    // height, and an extension can't draw past its frame — the sheet hugs its
+    // content (high-priority equal-height) until the bottom clamp below stops
+    // it, then the list scrolls instead of clipping rows off.
+    let scroll = UIScrollView()
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    scroll.showsVerticalScrollIndicator = false
+    container.addSubview(scroll)
+    scroll.addSubview(vstack)
+    let hug = scroll.heightAnchor.constraint(equalTo: vstack.heightAnchor)
+    hug.priority = .defaultHigh
     NSLayoutConstraint.activate([
-      vstack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-      vstack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-      vstack.topAnchor.constraint(equalTo: container.topAnchor),
-      vstack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      scroll.topAnchor.constraint(equalTo: container.topAnchor),
+      scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      vstack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+      vstack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+      vstack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+      vstack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+      vstack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+      hug,
     ])
 
     let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+
+    // Keyboard voices first (when the user has pinned any): switch the whole
+    // writing voice right from the keyboard — the app's "Keyboard voices" card
+    // decides what's listed here. Picking one also adopts its tone below.
+    let voices = pinnedKeyboardVoices()
+    if !voices.isEmpty {
+      let activeVoice = localActiveVoiceId ?? config.flags?["kb.personality.activeId"]?.asString
+      vstack.addArrangedSubview(toneSheetHeader("Voices"))
+      for v in voices {
+        let isActive = v.id == activeVoice
+        let btn = UIButton(type: .system)
+        btn.setTitle(isActive ? "\(v.name)  ✓" : v.name, for: .normal)
+        btn.setTitleColor(isActive ? accent : .white, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: isActive ? .semibold : .medium)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+        btn.contentHorizontalAlignment = .leading
+        let pickedId = v.id, pickedTone = v.tone
+        btn.addAction(UIAction { [weak self] _ in self?.selectVoice(id: pickedId, tone: pickedTone) },
+                      for: .touchUpInside)
+        vstack.addArrangedSubview(btn)
+      }
+      vstack.addArrangedSubview(toneSheetHeader("Tones"))
+    }
+
     for tone in configuredTones() {
       let btn = UIButton(type: .system)
       let isActive = tone.label.caseInsensitiveCompare(state.tone) == .orderedSame
@@ -2751,6 +2822,9 @@ final class SDUIRenderer: NSObject {
       container.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 8),
       container.topAnchor.constraint(equalTo: host.topAnchor, constant: anchorFrame.maxY + 6),
       container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+      // Never grow past the keyboard's own frame — the scroll wrapper takes
+      // over when content is taller than this allows.
+      container.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor, constant: -8),
     ])
     toneSheetOverlay = container
 
@@ -2776,6 +2850,28 @@ final class SDUIRenderer: NSObject {
     fireKeyHaptic()
     dismissToneSheet(animated: true)
     stateChanged()   // remount → the tone pill rebinds to the new state.tone
+  }
+
+  /// A keyboard voice was picked from the sheet. Persists server-side (the
+  /// active voice is what /v1/refine writes with) and adopts the voice's own
+  /// tone locally, so the pill + the explicit refine tone don't keep overriding
+  /// the voice with a stale earlier pick.
+  private func selectVoice(id: String, tone: String) {
+    localActiveVoiceId = id
+    var body: [String: Any] = ["activePresetId": id]
+    if !tone.isEmpty { body["activeTone"] = tone }
+    TulmiBackend.putPersonalityQuick(body: body) { _ in }
+    if !tone.isEmpty {
+      let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+      ud?.set(tone, forKey: "tulmi.kb.tone")
+      ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
+      if let match = configuredTones().first(where: { $0.id == tone }) {
+        state.tone = match.label
+      }
+    }
+    fireKeyHaptic()
+    dismissToneSheet(animated: true)
+    stateChanged()
   }
 
   private func dismissToneSheet(animated: Bool) {
