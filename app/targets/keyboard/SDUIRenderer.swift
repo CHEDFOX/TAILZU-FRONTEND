@@ -3596,9 +3596,11 @@ final class SDUIRenderer: NSObject {
       btn.imageView?.contentMode = .scaleAspectFill
       btn.imageView?.startAnimating()
     } else if !state.flowArmed,
+              flagBool("kb.flow.armGlyph.enabled", false),
               !["local", "stream", "handoff"].contains(flagString("kb.mic.mode", "flow").lowercased()) {
-      // Flow mode with NO session armed: show the "Start Flow" bolt (Wispr's
-      // model) so the arm-first tap looks different from a ready mic.
+      // OFF by default (owner preference: the mic is icon-only and always the
+      // brand mark). When enabled, an unarmed flow session shows the "Start
+      // Flow" bolt so the arm-first tap looks different from a ready mic.
       let cfgSym = UIImage.SymbolConfiguration(
         pointSize: flagCGFloat("kb.flow.glyphSize", 16), weight: .semibold)
       btn.setImage(UIImage(systemName: flagString("kb.flow.startGlyph", "bolt.fill"),
