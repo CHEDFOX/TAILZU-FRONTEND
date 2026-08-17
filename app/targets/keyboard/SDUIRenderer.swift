@@ -220,6 +220,9 @@ final class KeyPlaneView: UIView {
     var committed = false
     /// Where the touch started, for the hold-vs-roll accent-tray decision.
     var startPoint: CGPoint = .zero
+    /// When the touch started — lets touchesCancelled tell a quick tap the
+    /// system gesture recognizer stole (commit it) from a real swipe (drop it).
+    let downAt = CACurrentMediaTime()
     /// Pending accent-tray / shift-hold timer; invalidated on roll/lift/commit.
     var trayTimer: Timer?
     /// True while this finger is driving an open accent tray.
@@ -517,20 +520,34 @@ final class KeyPlaneView: UIView {
       }
       let hit = keyAt(p)
       if track.button !== hit?.button {
-        track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
-        track.trayTimer = nil
-        if track.pressed {
-          // Balance the outstanding down even if the pressed button was
-          // deallocated by a peek remount (weak → nil).
-          if let old = track.button { renderer?.planeUp(old) } else { renderer?.planeUpLost() }
-          track.pressed = false
-        }
-        if let nw = hit?.button { renderer?.planeDown(nw); track.pressed = true }
-        track.button = hit?.button
-        track.char = hit?.char
-        // Record traversal for swipe promotion (character tracks only).
-        if track.specialRole == nil, let ch = hit?.char, ch != track.sweptChars.last {
-          track.sweptChars.append(ch)
+        // NATIVE HYSTERESIS: a light, glancing touch drifts through DEAD
+        // slivers — an obstacle's edge, a point past the slop bands — at
+        // exactly the moment of lift, and clearing the key there dropped the
+        // keystroke ("only a hard touch registers"). Like the system
+        // keyboard: leaving the pressed key's zone does NOT release it; only
+        // entering ANOTHER key retargets, and only a deliberate slide (a
+        // full key-size beyond the pressed key's rect) cancels.
+        if hit == nil,
+           let curBtn = track.button,
+           let cur = frames.first(where: { $0.button === curBtn }),
+           cur.rect.insetBy(dx: -cur.rect.width, dy: -cur.rect.height).contains(p) {
+          // Jitter, not a slide — keep the key held.
+        } else {
+          track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
+          track.trayTimer = nil
+          if track.pressed {
+            // Balance the outstanding down even if the pressed button was
+            // deallocated by a peek remount (weak → nil).
+            if let old = track.button { renderer?.planeUp(old) } else { renderer?.planeUpLost() }
+            track.pressed = false
+          }
+          if let nw = hit?.button { renderer?.planeDown(nw); track.pressed = true }
+          track.button = hit?.button
+          track.char = hit?.char
+          // Record traversal for swipe promotion (character tracks only).
+          if track.specialRole == nil, let ch = hit?.char, ch != track.sweptChars.last {
+            track.sweptChars.append(ch)
+          }
         }
       }
       if swipeEnabled {
@@ -655,6 +672,22 @@ final class KeyPlaneView: UIView {
       if track.pressed {
         if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
         track.pressed = false
+      }
+      // iOS CANCELS (not ends) touches its system-gesture recognizer claims,
+      // and the home-indicator band overlaps the keyboard's bottom rows —
+      // quick LIGHT taps there are its favorite prey. The system keyboard
+      // still types those; silently dropping them read as "only hard touches
+      // register". Commit when the cancelled touch was a plain short tap that
+      // never really moved; a cancelled real gesture (control-center swipe)
+      // has drift/duration and still dies here. No double-type risk: UIKit
+      // never delivers touchesEnded for a cancelled touch.
+      if !track.committed, !track.trayActive, !track.swipeMode,
+         track.specialRole == nil, let char = track.char,
+         CACurrentMediaTime() - track.downAt < 0.30 {
+        let p = t.location(in: self)
+        if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < 12 {
+          renderer?.planeCommit(char: char)
+        }
       }
     }
   }
@@ -2100,7 +2133,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K10"
+  static let buildStamp = "K11"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
