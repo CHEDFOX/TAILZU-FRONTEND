@@ -167,6 +167,7 @@ enum TulmiBackend {
   static func refine(
     text: String,
     targetApp: String,
+    tone: String? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = URL(string: "\(baseUrl)/v1/refine") else {
@@ -181,11 +182,16 @@ enum TulmiBackend {
     // Use the user's chosen language (falls back to "auto" when unset). The
     // backend's cleanup pipeline prompts the LLM to output in this language,
     // so refinement lands in the user's tongue instead of always English.
-    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+    // `tone` (a tone ID picked on the keyboard's pill) overrides the server's
+    // saved activeTone for this call — the server falls back to the profile
+    // when it's absent (body.tone ?? personality.activeTone).
+    var payload: [String: Any] = [
       "text": text,
       "targetApp": targetApp,
       "language": language,
-    ])
+    ]
+    if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
+    req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
     URLSession.shared.dataTask(with: req) { data, response, error in
       if let error = error {

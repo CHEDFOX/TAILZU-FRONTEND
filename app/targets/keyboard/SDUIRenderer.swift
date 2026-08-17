@@ -1833,11 +1833,48 @@ final class SDUIRenderer: NSObject {
   /// Reflect the app-side active tone (kb.personality.activeTone, a tone ID)
   /// onto the pill's display label so the keyboard opens showing the tone the
   /// user actually picked in the app.
+  ///
+  /// A tone picked ON THE KEYBOARD must survive this: the host refetches the
+  /// config on every open (and forces updates through whenever the per-user
+  /// payload differs), so unconditionally re-applying the config tone snapped
+  /// the pill back to the app's tone moments after every keyboard-side pick —
+  /// "tones aren't user-choosable". The baseline key records which app-side
+  /// tone the pick was made AGAINST: while the config still echoes that same
+  /// id (a stale echo, or our own PUT landing), the local pick wins; only a
+  /// genuinely NEW app-side selection overrides it.
   private func syncToneFromConfig() {
     guard let activeId = config.flags?["kb.personality.activeTone"]?.asString else { return }
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    if let pick = ud?.string(forKey: "tulmi.kb.tone"), !pick.isEmpty,
+       ud?.string(forKey: "tulmi.kb.tone.baseline") == activeId,
+       let match = configuredTones().first(where: { $0.id == pick }) {
+      state.tone = match.label
+      return
+    }
     if let match = configuredTones().first(where: { $0.id == activeId }) {
       state.tone = match.label
+      // The app-side tone is authoritative here — refresh the mirror so the
+      // refine pipeline sends the same id the pill now shows.
+      ud?.set(activeId, forKey: "tulmi.kb.tone")
+      ud?.set(activeId, forKey: "tulmi.kb.tone.baseline")
     }
+  }
+
+  /// The user picked a tone ON THE KEYBOARD (tap-cycle or the hold sheet).
+  /// Three writes make it actually take effect:
+  ///   • App Group `tulmi.kb.tone` — the picked ID; the host sends it
+  ///     explicitly with every /v1/refine call so the very next refine uses
+  ///     it even before the server save lands.
+  ///   • App Group `tulmi.kb.tone.baseline` — the app-side activeTone the
+  ///     pick was made against (see syncToneFromConfig).
+  ///   • Server `PUT /v1/personality {activeTone}` (fire-and-forget partial
+  ///     merge) — the app's Voice screen and future sessions agree with the
+  ///     pill instead of silently reverting it.
+  private func persistTonePick(id: String) {
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    ud?.set(id, forKey: "tulmi.kb.tone")
+    ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
+    TulmiBackend.putPersonalityQuick(body: ["activeTone": id]) { _ in }
   }
 
   /// Swap in a freshly-fetched config and rebuild the tree in place. This is the
@@ -2063,7 +2100,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K8"
+  static let buildStamp = "K9"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -2735,9 +2772,7 @@ final class SDUIRenderer: NSObject {
 
   private func selectTone(id: String, label: String) {
     state.tone = label
-    // Publish the tone ID (not the display label) so the main app's per-tone
-    // refine prompt receives the id it actually keys on.
-    UserDefaults(suiteName: "group.com.tulmi.app")?.set(id, forKey: "tulmi.kb.tone")
+    persistTonePick(id: id)
     fireKeyHaptic()
     dismissToneSheet(animated: true)
     stateChanged()   // remount → the tone pill rebinds to the new state.tone
@@ -3607,17 +3642,11 @@ final class SDUIRenderer: NSObject {
                            withConfiguration: cfgSym), for: .normal)
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .center
-    } else if let spec = flagIcon("kb.mic.idleIcon"),
-              let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
-      // Backend-pushed idle art (kb.mic.idleIcon — the media-registry
-      // mic.animation upload). Previously only consulted while DICTATING, so
-      // an uploaded idle animation never showed at idle on the SDUI path.
-      btn.setImage(img, for: .normal)
-      btn.imageView?.contentMode = .scaleAspectFill
-      btn.imageView?.startAnimating()
-      let inset = flagCGFloat("kb.mic.idleIconInset", 8)
-      btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
+      // OWNER DECISION: the idle mic is ALWAYS the static brand mark — never
+      // backend-pushed media. kb.mic.idleIcon is deliberately NOT consulted at
+      // idle (it remains only the recording fallback above); an uploaded
+      // animation must not replace the mark again.
       // Idle brand mark, inset so it reads as an icon centered on the circle.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
       btn.imageView?.stopAnimating()
@@ -4721,14 +4750,14 @@ final class SDUIRenderer: NSObject {
       host?.hostRunRefine()
     case .cycleTone:
       // Cycle through the backend tone list (kb.personality.tones). The pill
-      // shows the LABEL; the App Group carries the ID for the refine pipeline.
+      // shows the LABEL; persistTonePick carries the ID to the refine
+      // pipeline + server so the choice actually sticks.
       let tones = configuredTones()
       let idx = tones.firstIndex(where: { $0.label.caseInsensitiveCompare(state.tone) == .orderedSame }) ?? -1
       let next = tones[(idx + 1) % max(1, tones.count)]
       state.tone = next.label
       stateChanged()
-      let d = UserDefaults(suiteName: "group.com.tulmi.app")
-      d?.set(next.id, forKey: "tulmi.kb.tone")
+      persistTonePick(id: next.id)
       fireKeyHaptic()
     case .openApp(let screenId):
       // Apple restricts NSExtensionContext.open to Today extensions; keyboard

@@ -7,8 +7,8 @@
  *
  * Phone is OFF by default and turned on FROM THE BACKEND — bootstrap flag
  * auth.enablePhone (needs an SMS provider in Supabase); no app update required.
- * Google is intentionally off for now (the scaffold lives in authConfig); it
- * needs a native iOS URL scheme, so it can't be flipped on via OTA.
+ * Google is live (client IDs in authConfig, reversed-client-id URL scheme in
+ * app.config.ts) — native-build only, it can't be flipped on via OTA.
  *
  * Back from the code step: top-left arrow OR swipe-right-from-the-left-edge
  * (the app-wide edge-swipe capability, src/sdui/gestures) — swipe, haptic, back.
@@ -66,6 +66,9 @@ const CODE_LEN = 6;
 const WHITE = "#FFFFFF";
 const VOID = "#000000";
 const ABYSS = "#050508";
+// RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
+// the pill layers collapse to a zero-height centered hairline. Spell it out.
+const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
 
 interface Field { id: string; type: "email" | "phone" }
 interface ActiveMethod { type: "email" | "phone"; value: string }
@@ -317,8 +320,15 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // called unconditionally (rules-of-hooks); with placeholder IDs it just builds
   // an unused request. Uses id-token flow because Supabase's signInWithIdToken
   // needs the OIDC id_token, not an access token.
+  //
+  // On native iOS/Android this is really the authorization-CODE flow under the
+  // hood: promptAsync resolves with only the code, and expo-auth-session then
+  // exchanges it for tokens in the background, delivering the id_token through
+  // the hook's RESPONSE object — never through the promptAsync result. So the
+  // sign-in completion lives in the googleResponse effect below, not in the
+  // button handler.
   const googleEnabled = isGoogleConfigured();
-  const [googleRequest, , googlePrompt] = Google.useIdTokenAuthRequest({
+  const [googleRequest, googleResponse, googlePrompt] = Google.useIdTokenAuthRequest({
     iosClientId: GOOGLE_OAUTH.iosClientId,
     androidClientId: GOOGLE_OAUTH.androidClientId,
     webClientId: GOOGLE_OAUTH.webClientId,
@@ -460,7 +470,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       });
       if (!cred.identityToken) throw new Error("no identity token");
       const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw);
-      if (error) { flashError(); return; }
+      if (error) {
+        flashError();
+        Alert.alert("Couldn't sign in with Apple", String(error.message ?? error));
+        return;
+      }
       // Apple gives the name only on first consent — stash it to pre-fill the
       // post-onboarding name card.
       const given = cred.fullName?.givenName ?? "";
@@ -469,30 +483,62 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (full) setAuthName(full).catch(() => {});
       onAuthed();
     } catch (e: any) {
-      if (e?.code !== "ERR_REQUEST_CANCELED") flashError();
+      if (e?.code !== "ERR_REQUEST_CANCELED") {
+        flashError();
+        Alert.alert("Couldn't sign in with Apple", String(e?.message ?? e ?? "Sign-in error"));
+      }
     }
   }, [flashError, onAuthed]);
 
   const onGoogle = useCallback(async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      // promptAsync opens the Google consent sheet and resolves when it closes.
-      const res = await googlePrompt();
-      if (res?.type !== "success") {
-        // Cancel/dismiss is silent; a real error flashes the field.
-        if (res?.type === "error") flashError();
+      // Opens the Google consent sheet. On native the resolved value only
+      // carries the authorization code — the id_token lands in googleResponse
+      // after expo-auth-session's background code exchange, so completion is
+      // handled by the effect below.
+      await googlePrompt();
+    } catch (e: any) {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "OAuth error"));
+    }
+  }, [googlePrompt, flashError]);
+
+  // Completes Google sign-in once the hook delivers the exchanged tokens.
+  // Errors get a visible reason — a silent shake made every failure
+  // (misconfigured Supabase provider, missing id_token, network) look identical.
+  const googleHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (!googleResponse || googleHandled.current === googleResponse) return;
+    googleHandled.current = googleResponse;
+    if (googleResponse.type === "error") {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", String(googleResponse.error?.message ?? googleResponse.error ?? "OAuth error"));
+      return;
+    }
+    if (googleResponse.type !== "success") return; // cancel / dismiss — silent
+    const idToken = (googleResponse.params as Record<string, string> | undefined)?.id_token
+      || googleResponse.authentication?.idToken;
+    if (!idToken) {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", "Google didn't return an identity token.");
+      return;
+    }
+    (async () => {
+      // The id_token echoes the request's nonce (when one was used) — Supabase
+      // rejects the token unless that same nonce is passed alongside it.
+      const { error } = await supabaseAuth.signInWithGoogle(idToken, googleRequest?.nonce ?? undefined);
+      if (error) {
+        flashError();
+        Alert.alert("Couldn't sign in with Google", String(error.message ?? error));
         return;
       }
-      // id-token flow → res.params.id_token (fall back to the authentication obj).
-      const idToken = res.params?.id_token ?? res.authentication?.idToken;
-      if (!idToken) { flashError(); return; }
-      const { error } = await supabaseAuth.signInWithGoogle(idToken);
-      if (error) { flashError(); return; }
       onAuthed();
-    } catch {
+    })().catch((e: any) => {
       flashError();
-    }
-  }, [googlePrompt, flashError, onAuthed]);
+      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "Network error"));
+    });
+  }, [googleResponse, googleRequest, flashError, onAuthed]);
 
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
@@ -578,10 +624,10 @@ const s = StyleSheet.create({
   block: { alignItems: "center", width: "100%" },
 
   pillWrap: { width: PILL_W, height: PILL_H, borderRadius: PILL_H / 2, justifyContent: "center" },
-  pill: { ...(StyleSheet as any).absoluteFillObject, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
+  pill: { ...FILL, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
   // Android has no blur behind it — needs a stronger fill to stay visible.
   pillAndroid: { backgroundColor: "rgba(255,255,255,0.12)" },
-  pillBorder: { ...(StyleSheet as any).absoluteFillObject, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
+  pillBorder: { ...FILL, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
   countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
   flag: { fontSize: 18, marginRight: 5 },
@@ -608,7 +654,7 @@ const s = StyleSheet.create({
   verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center" },
 
   modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...(StyleSheet as any).absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  modalBackdrop: { ...FILL, backgroundColor: "rgba(0,0,0,0.55)" },
   modalSheet: { height: SH * 0.72, backgroundColor: ABYSS, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingHorizontal: 18 },
   modalHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)", marginBottom: 12 },
   modalSearch: { height: 44, borderRadius: 12, paddingHorizontal: 12, backgroundColor: "rgba(255,255,255,0.06)", color: WHITE, fontSize: 15, marginBottom: 8 },
