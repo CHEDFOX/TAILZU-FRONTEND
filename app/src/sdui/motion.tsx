@@ -16,7 +16,7 @@
  * wrap its own visual with the same motion in one JSX line.
  */
 import React, { useCallback, useRef } from "react";
-import { Animated, Pressable, StyleProp, ViewStyle, PressableProps } from "react-native";
+import { Animated, Pressable, StyleProp, StyleSheet, ViewStyle, PressableProps } from "react-native";
 import * as Haptics from "expo-haptics";
 
 // Tuned to feel snappy but never abrupt. Spring, not linear — a linear
@@ -39,6 +39,11 @@ export type SpringPressableProps = {
   /** Fire an impact haptic (medium) on press-up too. Rare — use for
    *  hero actions like submitting a form. */
   impactOnRelease?: boolean;
+  /** Flash this color over the surface on press — the brand's "typing has
+   *  our color" moment, same amber the keyboard flashes on every key. Snaps
+   *  on in ~60ms, decays out over ~280ms after release. The overlay copies
+   *  the caller style's borderRadius so pills stay pills mid-flash. */
+  flashColor?: string;
   children?: React.ReactNode;
 };
 
@@ -46,24 +51,36 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
   const {
     onPress, onLongPress, disabled, hitSlop, style,
     pressScale = PRESS_SCALE, haptic = true, impactOnRelease = false,
+    flashColor,
     children,
   } = props;
 
   const scale = useRef(new Animated.Value(1)).current;
+  const flash = useRef(new Animated.Value(0)).current;
 
   const pressIn = useCallback(() => {
     if (disabled) return;
     if (haptic) Haptics.selectionAsync().catch(() => {});
     Animated.spring(scale, { toValue: pressScale, ...SPRING_DOWN }).start();
-  }, [disabled, haptic, pressScale, scale]);
+    if (flashColor) {
+      Animated.timing(flash, { toValue: 1, duration: 60, useNativeDriver: true }).start();
+    }
+  }, [disabled, haptic, pressScale, scale, flashColor, flash]);
 
   const pressOut = useCallback(() => {
     if (disabled) return;
     Animated.spring(scale, { toValue: 1, ...SPRING_UP }).start();
+    if (flashColor) {
+      Animated.timing(flash, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+    }
     if (impactOnRelease) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     }
-  }, [disabled, impactOnRelease, scale]);
+  }, [disabled, impactOnRelease, scale, flashColor, flash]);
+
+  // The flash overlay sits between the surface (the caller's background) and
+  // the children (the label), so text stays crisp over the amber.
+  const radius = flashColor ? (StyleSheet.flatten(style) as ViewStyle | undefined)?.borderRadius : undefined;
 
   return (
     <Pressable
@@ -75,6 +92,17 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
       hitSlop={hitSlop}
     >
       <Animated.View style={[{ transform: [{ scale }] }, style]}>
+        {flashColor ? (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: "absolute", left: 0, right: 0, top: 0, bottom: 0,
+              backgroundColor: flashColor,
+              borderRadius: radius,
+              opacity: flash,
+            }}
+          />
+        ) : null}
         {children}
       </Animated.View>
     </Pressable>
