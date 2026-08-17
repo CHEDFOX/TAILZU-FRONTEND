@@ -140,7 +140,14 @@ export async function bootstrap(): Promise<BootstrapResponse> {
 }
 
 export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
-  const body: ScreenRequest = { screenId, params, capabilities: buildCapabilities() };
+  const body: ScreenRequest = {
+    screenId,
+    params,
+    capabilities: buildCapabilities(),
+    // JS getTimezoneOffset is minutes BEHIND UTC (positive west) — negate so
+    // the server receives the conventional "UTC+X in minutes" sign.
+    tzOffsetMinutes: -new Date().getTimezoneOffset(),
+  };
   return withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
 }
 
