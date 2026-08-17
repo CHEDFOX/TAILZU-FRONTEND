@@ -240,30 +240,39 @@ const Icon = ({ props, style }: CompProps) => {
   return <Text style={[{ fontSize: 20, color: theme.color.text }, style]}>{props.name}</Text>;
 };
 
+// The brand accent — the warm amber the keyboard flashes on every key press.
+// Buttons app-wide flash it on tap ("typing has our color" carried into the
+// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED.
+export const BRAND_ACCENT = "#E8A23C";
+
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
   const isSecondary = props.variant === "secondary";
   const isGhost = props.variant === "ghost";
   const bg =
     props.variant === "danger" ? theme.color.danger :
-    isGhost ? "transparent" :
-    isSecondary ? "#3a3a44" : theme.color.primary;
-  // Secondary stays white text on its dark chip; primary/danger auto-contrast so
-  // a white button reads with black text (and orange/dark with white).
-  const labelColor = isGhost ? theme.color.text : (isSecondary ? "#fff" : readableOn(bg));
+    isGhost || isSecondary ? "transparent" : theme.color.primary;
+  const labelColor = isGhost ? theme.color.text
+    : isSecondary ? "rgba(255,255,255,0.88)"
+    : readableOn(bg);
   return (
     <SpringPressable
       onPress={() => fire("onPress")}
       disabled={props.disabled}
       impactOnRelease={!isSecondary && !isGhost}
+      flashColor={BRAND_ACCENT}
       style={[
         // paddingHorizontal matters: a hug-width button without it renders the
         // label touching the pill's edges ("Allow Microphone" overflow bug).
-        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, paddingHorizontal: 28, alignItems: "center", opacity: props.disabled ? 0.5 : 1 },
+        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 17, paddingHorizontal: 28, alignItems: "center", justifyContent: "center", opacity: props.disabled ? 0.5 : 1 },
+        // Secondary: a quiet hairline outline (the editorial look the auth
+        // screen's social circles use) — the old solid gray chip read heavy
+        // and cheap next to the white primary.
+        isSecondary ? { borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.04)" } : null,
         style,
       ]}
     >
-      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{props.label ?? ""}</Text>
+      <Text style={{ color: labelColor, fontWeight: isSecondary ? "600" : "700", fontSize: 16, letterSpacing: 0.4 }}>{props.label ?? ""}</Text>
     </SpringPressable>
   );
 };
@@ -306,6 +315,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
       }}
       // Chips get a slightly gentler press than buttons — they're smaller.
       pressScale={0.92}
+      flashColor={BRAND_ACCENT}
       style={[
         {
           paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.radius.pill, borderWidth: 1,
