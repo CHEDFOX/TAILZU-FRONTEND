@@ -21,6 +21,7 @@ import { WebView } from "react-native-webview";
 import type { CompProps } from "./components";
 import { useTheme, tok, staticText } from "./components";
 import { evalCondition } from "./actions";
+import { MediaPlayer } from "../media/MediaPlayer";
 
 // ---------------------------------------------------------------------------
 // Layout / navigation
@@ -628,11 +629,28 @@ const Waveform = ({ node, props, style, store }: CompProps) => {
 // Video/Audio: real playback requires expo-video/expo-audio hooks. Ship a
 // placeholder that shows a link + tap-to-open; upgrade via OTA to the fancy
 // player when we style it. Backend contract stays stable.
-const Video = ({ props, style }: CompProps) => (
-  <View style={[styles.mediaPlaceholder, style]}>
-    <Text style={styles.mediaText}>▶︎ Video: {String(props.source ?? "")}</Text>
-  </View>
-);
+// Real media node (was a text placeholder): renders the app's MediaPlayer.
+// `playing` is bindable, so the backend can drive play/pause from state —
+// e.g. the Train screen's refine trigger plays the brand media while the
+// variants generate and pauses when they land. An mp4 freezes on its frame
+// when paused; an animated GIF unmounts when paused, revealing whatever the
+// backend stacked beneath it.
+const Video = ({ props, style }: CompProps) => {
+  const raw: any = props.source;
+  // Accept a full MediaSpec ({ source, freezeOnPause, … }) or a bare source.
+  const spec = raw && typeof raw === "object" && "source" in raw ? raw : { source: raw };
+  return (
+    <MediaPlayer
+      spec={spec as any}
+      style={style}
+      contentFit={(props.contentFit as any) ?? "cover"}
+      autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
+      loop={(props.loop as boolean | undefined) ?? true}
+      muted={props.muted !== false}
+      playing={typeof props.playing === "boolean" ? props.playing : undefined}
+    />
+  );
+};
 const Audio = ({ props, style }: CompProps) => (
   <View style={[styles.mediaPlaceholder, style]}>
     <Text style={styles.mediaText}>♫ Audio: {String(props.source ?? "")}</Text>
