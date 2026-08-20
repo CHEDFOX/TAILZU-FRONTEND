@@ -179,6 +179,19 @@ final class KeyPlaneView: UIView {
   var trailColor: UIColor = UIColor(white: 1, alpha: 0.85)
   var trailWidth: CGFloat = 7
   var trailFadeMs: Double = 260
+  /// kb.touch.holdMultiplier — how far a finger may drift off the pressed key
+  /// before the press is CANCELLED, as a multiple of the key's own size.
+  /// Native keeps a key held through a lot of drift; only a deliberate slide
+  /// cancels. Lower = twitchier, higher = stickier. 0 restores the old
+  /// no-hysteresis behavior (any drift onto dead space drops the keystroke).
+  var holdMultiplier: CGFloat = 1.0
+  /// kb.touch.cancelCommit.* — iOS CANCELS touches its system gesture
+  /// recognizer claims, and the home-indicator band overlaps the bottom row,
+  /// so quick light taps there get cancelled rather than ended. A cancelled
+  /// touch this short and this still is treated as a real tap and commits.
+  /// Set maxMs to 0 to stop rescuing cancelled taps entirely.
+  var cancelCommitMaxMs: Double = 300
+  var cancelCommitMaxDrift: CGFloat = 12
 
   /// Live, enabled controls elsewhere in the tree (shift / delete / space /
   /// return / mic / tone / suggestion chips). Their rects VETO plane
@@ -528,9 +541,11 @@ final class KeyPlaneView: UIView {
         // entering ANOTHER key retargets, and only a deliberate slide (a
         // full key-size beyond the pressed key's rect) cancels.
         if hit == nil,
+           holdMultiplier > 0,
            let curBtn = track.button,
            let cur = frames.first(where: { $0.button === curBtn }),
-           cur.rect.insetBy(dx: -cur.rect.width, dy: -cur.rect.height).contains(p) {
+           cur.rect.insetBy(dx: -cur.rect.width * holdMultiplier,
+                            dy: -cur.rect.height * holdMultiplier).contains(p) {
           // Jitter, not a slide — keep the key held.
         } else {
           track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
@@ -681,11 +696,12 @@ final class KeyPlaneView: UIView {
       // never really moved; a cancelled real gesture (control-center swipe)
       // has drift/duration and still dies here. No double-type risk: UIKit
       // never delivers touchesEnded for a cancelled touch.
-      if !track.committed, !track.trayActive, !track.swipeMode,
+      if cancelCommitMaxMs > 0,
+         !track.committed, !track.trayActive, !track.swipeMode,
          track.specialRole == nil, let char = track.char,
-         CACurrentMediaTime() - track.downAt < 0.30 {
+         (CACurrentMediaTime() - track.downAt) * 1000 < cancelCommitMaxMs {
         let p = t.location(in: self)
-        if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < 12 {
+        if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < cancelCommitMaxDrift {
           renderer?.planeCommit(char: char)
         }
       }
@@ -2070,6 +2086,11 @@ final class SDUIRenderer: NSObject {
         plane.trailColor = flagColor("kb.swipe.trail.color", "#FFFFFFD9")
         plane.trailWidth = flagCGFloat("kb.swipe.trail.width", 7)
         plane.trailFadeMs = flagDouble("kb.swipe.trail.fadeMs", 260)
+        // K11 touch feel — the values most likely to need tuning from real
+        // field use, so they're OTA-adjustable rather than baked in.
+        plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
+        plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
+        plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
         if plane.superview !== container {
           plane.translatesAutoresizingMaskIntoConstraints = false
           container.addSubview(plane)   // topmost — intercepts plane-key touches only
@@ -2133,7 +2154,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K11"
+  static let buildStamp = "K12"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -4511,11 +4532,42 @@ final class SDUIRenderer: NSObject {
   /// generator silently no-ops without it. Cheaper than instantiating a new
   /// generator per tap.
   private var selectionGenerator: UISelectionFeedbackGenerator?
+  /// Backend-tunable, because key haptics are the single most polarizing
+  /// keyboard setting and this used to need a rebuild to change at all:
+  ///   kb.haptics.enabled  (bool,   default true)  — master switch
+  ///   kb.haptics.style    (string, default "selection") — "selection" |
+  ///                       "light" | "medium" | "heavy" | "rigid" | "soft"
+  /// Full Access is still required by iOS; without it the generator no-ops.
+  private var impactGenerator: UIImpactFeedbackGenerator?
+  private var impactGeneratorStyle: String = ""
+
   fileprivate func fireKeyHaptic() {
     guard host?.hostHasFullAccess == true else { return }
-    if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
-    selectionGenerator?.selectionChanged()
-    selectionGenerator?.prepare() // pre-cache the next one
+    guard flagBool("kb.haptics.enabled", true) else { return }
+    let style = flagString("kb.haptics.style", "selection").lowercased()
+    if style == "selection" {
+      if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
+      selectionGenerator?.selectionChanged()
+      selectionGenerator?.prepare() // pre-cache the next one
+      return
+    }
+    // Impact styles. The generator is rebuilt only when the style actually
+    // changes — allocating one per keystroke would cost real time on the
+    // typing hot path.
+    if impactGenerator == nil || impactGeneratorStyle != style {
+      var mapped: UIImpactFeedbackGenerator.FeedbackStyle = .medium
+      switch style {
+      case "light": mapped = .light
+      case "heavy": mapped = .heavy
+      case "rigid": if #available(iOS 13.0, *) { mapped = .rigid }
+      case "soft": if #available(iOS 13.0, *) { mapped = .soft }
+      default: break
+      }
+      impactGenerator = UIImpactFeedbackGenerator(style: mapped)
+      impactGeneratorStyle = style
+    }
+    impactGenerator?.impactOccurred()
+    impactGenerator?.prepare()
   }
 
   // MARK: - Key-pop callout (native magnified bubble)
@@ -5557,6 +5609,10 @@ final class SDUIRenderer: NSObject {
     let lang = autocorrectLanguage()
     let neighbors = keyNeighborMap()
     let maxDist = flagDouble("kb.autocorrect.maxDistance", 2.0)
+    // Captured on main (the flag store isn't queue-safe) and handed to the
+    // static scorer running on the spell queue.
+    let neighborCost = flagDouble("kb.autocorrect.neighborCost", 0.5)
+    let punctCost = flagDouble("kb.autocorrect.punctCost", 0.5)
     let generation = typingGeneration
     let isNewline = boundary == "\n"
     Self.spellQueue.async { [weak self] in
@@ -5575,7 +5631,8 @@ final class SDUIRenderer: NSObject {
       }
       let guesses = Self.bgChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
       guard let corrected = SDUIRenderer.pickCorrection(
-        for: word, from: guesses, neighbors: neighbors, maxDist: maxDist) else { return }
+        for: word, from: guesses, neighbors: neighbors, maxDist: maxDist,
+        neighborCost: neighborCost, punctCost: punctCost) else { return }
       DispatchQueue.main.async {
         self?.applyAsyncCorrection(word: word, boundary: boundary, corrected: corrected,
                                    generation: generation, newlineBoundary: isNewline)
@@ -5637,24 +5694,35 @@ final class SDUIRenderer: NSObject {
   /// spell queue with values captured on main.
   private static func pickCorrection(for typed: String, from guesses: [String],
                                      neighbors: [Character: Set<Character>],
-                                     maxDist: Double) -> String? {
+                                     maxDist: Double,
+                                     neighborCost: Double,
+                                     punctCost: Double) -> String? {
     guard !guesses.isEmpty else { return nil }
     var best: (word: String, dist: Double)?
     for g in guesses.prefix(8) {
       guard !g.isEmpty, abs(g.count - typed.count) <= 1 else { continue }
       let d = weightedEditDistance(
-        Array(typed.lowercased()), Array(g.lowercased()), neighbors: neighbors)
+        Array(typed.lowercased()), Array(g.lowercased()), neighbors: neighbors,
+        neighborCost: neighborCost, punctCost: punctCost)
       if d <= maxDist, best == nil || d < best!.dist { best = (g, d) }
     }
     return best?.word
   }
 
   /// Levenshtein with keyboard-aware costs: substituting a key for one of its
-  /// physical neighbors costs 0.5 (a fat-finger, not a different word);
-  /// inserting a missing apostrophe or word-splitting space costs 0.5
-  /// ("dont" → "don't", "alot" → "a lot"); everything else costs 1.
+  /// physical neighbors costs `neighborCost` (a fat-finger, not a different
+  /// word); inserting a missing apostrophe or word-splitting space costs
+  /// `punctCost` ("dont" → "don\'t", "alot" → "a lot"); everything else 1.
+  ///
+  /// Both are backend-tunable (kb.autocorrect.neighborCost / .punctCost)
+  /// because together with kb.autocorrect.maxDistance they ARE the
+  /// aggressiveness dial: lower costs mean more words get "fixed". A wrong
+  /// correction costs far more trust than a missed one, so this needs to be
+  /// adjustable without a rebuild.
   private static func weightedEditDistance(_ a: [Character], _ b: [Character],
-                                           neighbors: [Character: Set<Character>]) -> Double {
+                                           neighbors: [Character: Set<Character>],
+                                           neighborCost: Double,
+                                           punctCost: Double) -> Double {
     let n = a.count, m = b.count
     guard n > 0, m > 0 else { return Double(max(n, m)) }
     var prev = (0...m).map { Double($0) }
@@ -5664,9 +5732,9 @@ final class SDUIRenderer: NSObject {
       for j in 1...m {
         let subCost: Double
         if a[i-1] == b[j-1] { subCost = 0 }
-        else if neighbors[a[i-1]]?.contains(b[j-1]) == true { subCost = 0.5 }
+        else if neighbors[a[i-1]]?.contains(b[j-1]) == true { subCost = neighborCost }
         else { subCost = 1 }
-        let insCost: Double = (b[j-1] == "'" || b[j-1] == " ") ? 0.5 : 1
+        let insCost: Double = (b[j-1] == "'" || b[j-1] == " ") ? punctCost : 1
         cur[j] = min(prev[j-1] + subCost,   // substitute
                      prev[j] + 1,           // drop a typed char
                      cur[j-1] + insCost)    // insert a candidate char
