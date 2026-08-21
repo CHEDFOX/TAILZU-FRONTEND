@@ -172,8 +172,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     [".", ",", "?", "!", "'"],
   ]
 
+  override func didReceiveMemoryWarning() {
+    super.didReceiveMemoryWarning()
+    // A keyboard extension lives under a ~48-60MB jetsam ceiling; a rising
+    // count here is the early warning before users start seeing the keyboard
+    // vanish mid-sentence.
+    KeyboardTelemetry.bump(.memoryWarnings)
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
+    KeyboardTelemetry.bump(.coldStarts)
     // Do NOT paint an opaque background on the extension view. Native iOS
     // keyboards leave the inputView transparent and let the theme's
     // backgroundEffect (a UIVisualEffectView blur) do all the frosting — that's
@@ -345,6 +354,19 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         DispatchQueue.main.async { self?.applyConfig(cfg) }
       }
       DispatchQueue.main.async { self?.applySDUIIfAvailable(data) }
+      // Piggyback the counter upload on the config refresh the keyboard
+      // already performs — no extra wake-up, and KeyboardTelemetry's own
+      // interval keeps it to roughly twice an hour even for a heavy user.
+      if let pending = KeyboardTelemetry.pendingUpload() {
+        TulmiBackend.postTelemetry(
+          counters: pending.counters,
+          windowMs: pending.windowMs,
+          build: SDUIRenderer.buildStamp,
+        ) { ok in
+          // Clear ONLY on success, so a dropped request doesn't lose the data.
+          if ok { KeyboardTelemetry.commitUpload(pending.counters) }
+        }
+      }
     }
   }
 
@@ -1832,6 +1854,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       return
     }
     setStatus("")  // transient — refined text will land in the field
+    KeyboardTelemetry.bump(.refineRequested)
     sduiRenderer?.reflectRefining(true)
 
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
@@ -1854,6 +1877,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
             self.setStatus("")
           }
         case .failure(let error):
+          KeyboardTelemetry.bump(.refineFailed)
           self.setStatus(self.statusForBackendError(error), actionable: true)
         }
         self.sduiRenderer?.reflectRefining(false)
@@ -1964,6 +1988,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Stop any in-flight recording / timers if the keyboard goes away.
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    // The extension can be killed the moment it's dismissed, so write the tail
+    // of this session's counters now instead of waiting for the throttle.
+    KeyboardTelemetry.flushToDisk()
     deleteTimer?.invalidate()
     deleteTimer = nil
     if isRecording {
