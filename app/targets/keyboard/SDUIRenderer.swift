@@ -588,6 +588,51 @@ final class KeyPlaneView: UIView {
     }
   }
 
+  /// The keys the finger actually TURNED on.
+  ///
+  /// A swipe crosses many keys incidentally, but it changes direction at the
+  /// letters that matter — that corner is the strongest signal in swipe
+  /// decoding and the old decoder ignored it completely, using only the set of
+  /// crossed keys. Any word whose letters appeared in order among those keys
+  /// scored, so a long glide matched almost anything.
+  ///
+  /// Detection: walk the path with a lookaround window, measure the turn angle
+  /// between the incoming and outgoing direction, and treat a sharp turn as a
+  /// deliberate stop. Endpoints always count — a word starts and ends where
+  /// the finger did.
+  func pivotChars(_ points: [CGPoint]) -> [String] {
+    guard points.count >= 2 else { return [] }
+    let window = 3
+    var pivotPoints: [CGPoint] = [points.first!]
+    var i = window
+    while i < points.count - window {
+      let p = points[i]
+      let a = points[i - window], b = points[i + window]
+      let v1 = CGVector(dx: p.x - a.x, dy: p.y - a.y)
+      let v2 = CGVector(dx: b.x - p.x, dy: b.y - p.y)
+      let m1 = hypot(v1.dx, v1.dy), m2 = hypot(v2.dx, v2.dy)
+      // Ignore jitter: a turn only means something if the finger actually
+      // travelled far enough on both sides of it.
+      if m1 > 8, m2 > 8 {
+        let cosA = (v1.dx * v2.dx + v1.dy * v2.dy) / (m1 * m2)
+        // ~55°+ of turn. Gentle arcs through a key are pass-throughs, not stops.
+        if cosA < 0.57 {
+          pivotPoints.append(p)
+          i += window   // one corner, not a cluster of adjacent samples
+        }
+      }
+      i += 1
+    }
+    pivotPoints.append(points.last!)
+
+    var out: [String] = []
+    for p in pivotPoints {
+      guard let ch = keyAt(p)?.char else { continue }
+      if ch != out.last { out.append(ch) }
+    }
+    return out
+  }
+
   // MARK: - Swipe trail
 
   /// Invalidates a pending fade-cleanup when a NEW swipe starts within
@@ -638,7 +683,12 @@ final class KeyPlaneView: UIView {
       if track.committed { continue }   // already typed by press-order rollover
       if track.swipeMode {
         fadeTrail()
-        renderer?.planeSwipeCommit(sweptChars: track.sweptChars)
+        // Pivots are the shape information the old decoder threw away — see
+        // pivotChars(). Without them any word whose letters merely appear in
+        // order among the crossed keys matched, which is why long swipes
+        // returned near-random words.
+        renderer?.planeSwipeCommit(sweptChars: track.sweptChars,
+                                   pivots: pivotChars(track.pathPoints))
         continue
       }
       if track.trayActive {
@@ -2158,7 +2208,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K13"
+  static let buildStamp = "K14"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -5984,9 +6034,9 @@ final class SDUIRenderer: NSObject {
     fireKeyHaptic()
   }
 
-  fileprivate func planeSwipeCommit(sweptChars: [String]) {
+  fileprivate func planeSwipeCommit(sweptChars: [String], pivots: [String] = []) {
     KeyboardTelemetry.bump(.swipeCommitted)
-    let candidates = decodeSwipe(sweptChars)
+    let candidates = decodeSwipe(sweptChars, pivots: pivots)
     guard var best = candidates.first, let proxy = host?.hostTextDocumentProxy else { return }
     // "i" and its contractions capitalize themselves, like native.
     if best == "i" || best.hasPrefix("i'") {
@@ -6017,13 +6067,23 @@ final class SDUIRenderer: NSObject {
   }
 
   /// Decode a swept key sequence into ranked word candidates.
-  private func decodeSwipe(_ swept: [String]) -> [String] {
+  private func decodeSwipe(_ swept: [String], pivots: [String] = []) -> [String] {
     let sweptChars: [Character] = swept.compactMap { $0.lowercased().first }
     guard sweptChars.count >= 2, let first = sweptChars.first, let last = sweptChars.last
     else { return [] }
     let neighbors = keyNeighborMap()
-    let lexicon = swipeLexicon()
-    let total = max(1, lexicon.count)
+    // Core high-frequency list FIRST (rank drives the frequency score), then
+    // dictionary candidates derived from this specific swipe — the core list
+    // alone is ~350 words, so without this almost every real word a user
+    // swipes has no entry to match at all.
+    let core = swipeLexicon()
+    let lexicon = core + dictionaryCandidates(for: sweptChars, pivots: pivots, excluding: Set(core))
+    let total = max(1, core.count)
+
+    // Pivot letters — where the finger actually turned. Treated as a hard
+    // constraint below: a word that doesn't account for a deliberate corner
+    // isn't what the user traced.
+    let pivotChars: [Character] = pivots.compactMap { $0.lowercased().first }
 
     func near(_ a: Character, _ b: Character) -> Bool {
       a == b || neighbors[a]?.contains(b) == true
@@ -6051,19 +6111,96 @@ final class SDUIRenderer: NSObject {
       return matched == 0 ? nil : Double(exact) / Double(matched)
     }
 
+    /// Every letter the finger deliberately turned on must appear in the word,
+    /// in order (neighbours allowed — a corner can land a key off).
+    func coversPivots(_ letters: [Character]) -> Bool {
+      guard pivotChars.count > 2 else { return true } // endpoints only: no info
+      var i = 0
+      for pc in pivotChars {
+        var found = false
+        while i < letters.count {
+          let lc = letters[i]
+          i += 1
+          if near(lc, pc) { found = true; break }
+        }
+        if !found { return false }
+      }
+      return true
+    }
+
     var scored: [(String, Double)] = []
     for (rank, word) in lexicon.enumerated() {
       let letters = Array(word.filter { $0 != "'" && $0 != "\u{2019}" })
       guard letters.count >= 2, letters.count <= sweptChars.count + 2 else { continue }
       guard let wf = letters.first, let wl = letters.last,
             near(first, wf), near(last, wl) else { continue }
+      guard coversPivots(letters) else { continue }
       guard let exactness = subsequenceExactness(Array(word)) else { continue }
-      let freq = 1.0 - Double(rank) / Double(total)
+      // Dictionary-derived candidates sit past the core list, so their rank
+      // would compute a negative frequency — floor it instead: they're valid
+      // words, just without a frequency prior.
+      let freq = rank < total ? 1.0 - Double(rank) / Double(total) : 0.0
       let lengthAffinity = 1.0 - min(
         1.0, abs(Double(sweptChars.count) - Double(letters.count) * 1.6) / Double(sweptChars.count))
-      scored.append((word, freq * 2.0 + exactness * 1.5 + lengthAffinity * 0.6))
+      // A word that uses MORE of the pivots is more likely the traced one.
+      let pivotBonus = pivotChars.count > 2
+        ? min(1.0, Double(letters.count) / Double(max(1, pivotChars.count))) * 0.4
+        : 0
+      scored.append((word, freq * 2.0 + exactness * 1.5 + lengthAffinity * 0.6 + pivotBonus))
     }
     return scored.sorted { $0.1 > $1.1 }.prefix(4).map { $0.0 }
+  }
+
+  /// Real-dictionary candidates for THIS swipe.
+  ///
+  /// The curated list is a fast path for the few hundred most common words;
+  /// everything else a user swipes ("invoice", "Thursday", their colleague's
+  /// name) simply had no entry to match. UITextChecker carries the system
+  /// dictionary we already use for autocorrect, so we hand it the swipe's own
+  /// letters — the pivot letters spell a plausible skeleton, and the checker's
+  /// guesses fill in the vowels a glide skips. The user's personal vocabulary
+  /// is included too, since those are exactly the words a generic dictionary
+  /// will never have.
+  private func dictionaryCandidates(for swept: [Character], pivots: [String],
+                                    excluding: Set<String>) -> [String] {
+    var out: [String] = []
+    var seen = excluding
+
+    func consider(_ raw: String) {
+      let w = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard w.count >= 2, !seen.contains(w) else { return }
+      guard w.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" }) else { return }
+      seen.insert(w)
+      out.append(w)
+    }
+
+    // The user's own dictionary first — names and jargon no lexicon has.
+    if let vocab = config.flags?["kb.personality.vocabulary"]?.asString {
+      for term in vocab.split(whereSeparator: { $0 == "," || $0 == "\n" }) {
+        consider(String(term))
+      }
+    }
+
+    // Ask the spell checker to repair the swipe's own letter sequence. A glide
+    // reads as a badly-misspelled word, which is precisely what guesses() is
+    // built to fix.
+    let lang = autocorrectLanguage()
+    let skeletons: [String] = {
+      var s: [String] = [String(swept)]
+      let pivotWord = pivots.compactMap { $0.lowercased().first }
+      if pivotWord.count >= 2 { s.append(String(pivotWord)) }
+      return s
+    }()
+    for skeleton in skeletons {
+      let ns = skeleton as NSString
+      guard ns.length >= 2, ns.length <= 32 else { continue }
+      let range = NSRange(location: 0, length: ns.length)
+      // Bounded: this runs synchronously on the commit (once per swipe, not
+      // per keystroke), so we take the top few and stop.
+      let guesses = Self.bgChecker.guesses(forWordRange: range, in: skeleton, language: lang) ?? []
+      for g in guesses.prefix(12) { consider(g) }
+    }
+    return out
   }
 
   /// Backspace immediately after an autocorrect restores the typed original
