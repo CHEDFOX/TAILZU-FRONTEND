@@ -140,6 +140,40 @@ enum TulmiBackend {
   /// switch preset + tone without pulling the whole profile down. Backend
   /// does a partial merge so an { activePresetId, activeTone } body doesn't
   /// disturb the rest of the profile (vocabulary, sign-off, etc.).
+  /// Upload keyboard diagnostic COUNTERS. Fire-and-forget: telemetry must
+  /// never surface to a user who is mid-sentence, so failures are silent and
+  /// the counters simply stay pending for the next attempt (the caller only
+  /// clears them on success).
+  static func postTelemetry(
+    counters: [String: Int],
+    windowMs: Int,
+    build: String,
+    completion: @escaping (Bool) -> Void,
+  ) {
+    guard let url = URL(string: "\(baseUrl)/v1/keyboard/telemetry"), !token.isEmpty else {
+      completion(false)
+      return
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.timeoutInterval = 15
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+      "counters": counters,
+      "windowMs": windowMs,
+      "build": build,
+      "appVersion": appVersion,
+      "platform": "ios",
+    ])
+    URLSession.shared.dataTask(with: req) { _, response, error in
+      let ok = error == nil
+        && (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } == true
+      completion(ok)
+    }.resume()
+  }
+
   static func putPersonalityQuick(
     body: [String: Any],
     completion: @escaping (Result<Void, Error>) -> Void,

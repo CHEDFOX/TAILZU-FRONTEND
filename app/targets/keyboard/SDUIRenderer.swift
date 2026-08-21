@@ -702,6 +702,9 @@ final class KeyPlaneView: UIView {
          (CACurrentMediaTime() - track.downAt) * 1000 < cancelCommitMaxMs {
         let p = t.location(in: self)
         if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < cancelCommitMaxDrift {
+          // Counts how often iOS stole a real tap and we rescued it — the
+          // measure of whether the K11 fix is doing anything in the field.
+          KeyboardTelemetry.bump(.touchesCancelledRescued)
           renderer?.planeCommit(char: char)
         }
       }
@@ -1920,6 +1923,7 @@ final class SDUIRenderer: NSObject {
   ///     merge) — the app's Voice screen and future sessions agree with the
   ///     pill instead of silently reverting it.
   private func persistTonePick(id: String) {
+    KeyboardTelemetry.bump(.toneChanged)
     let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
     ud?.set(id, forKey: "tulmi.kb.tone")
     ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
@@ -2154,7 +2158,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K12"
+  static let buildStamp = "K13"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -2911,6 +2915,7 @@ final class SDUIRenderer: NSObject {
   /// tone locally, so the pill + the explicit refine tone don't keep overriding
   /// the voice with a stale earlier pick.
   private func selectVoice(id: String, tone: String) {
+    KeyboardTelemetry.bump(.voiceChanged)
     localActiveVoiceId = id
     var body: [String: Any] = ["activePresetId": id]
     if !tone.isEmpty { body["activeTone"] = tone }
@@ -4526,7 +4531,10 @@ final class SDUIRenderer: NSObject {
 
   /// Commit the character under the finger on release. Routes through the exact
   /// insertKey path a button tap uses, so live shift / capsLock casing applies.
-  fileprivate func planeCommit(char: String) { run(.inline(.insertKey(char: char))) }
+  fileprivate func planeCommit(char: String) {
+    KeyboardTelemetry.bump(.keystrokes)
+    run(.inline(.insertKey(char: char)))
+  }
 
   /// Selection-changed haptic on every key. Requires Full Access to fire; the
   /// generator silently no-ops without it. Cheaper than instantiating a new
@@ -5658,6 +5666,9 @@ final class SDUIRenderer: NSObject {
     replaceTail(count: word.count + boundary.count, with: cased + boundary, proxy: proxy)
     typingGeneration += 1
     lastAutocorrect = (word, cased, boundary)
+    // Denominator for the revert rate — the pair is what makes the signal
+    // meaningful ("4 reverts" means nothing without "out of how many").
+    KeyboardTelemetry.bump(.autocorrectApplied)
     // Revert affordance: the typed original shows as a chip; tapping restores it.
     state.suggestions = [word]
     updateSuggestionBarInPlace()
@@ -5974,6 +5985,7 @@ final class SDUIRenderer: NSObject {
   }
 
   fileprivate func planeSwipeCommit(sweptChars: [String]) {
+    KeyboardTelemetry.bump(.swipeCommitted)
     let candidates = decodeSwipe(sweptChars)
     guard var best = candidates.first, let proxy = host?.hostTextDocumentProxy else { return }
     // "i" and its contractions capitalize themselves, like native.
@@ -6067,6 +6079,9 @@ final class SDUIRenderer: NSObject {
     }
     replaceTail(count: last.corrected.count + last.boundary.count,
                 with: last.original + last.boundary, proxy: proxy)
+    // The sharpest quality signal we have: the user just backspaced a
+    // correction, i.e. told us it was wrong.
+    KeyboardTelemetry.bump(.autocorrectReverted)
     resetTypingContext(tailAtBoundary: true)
     updateAutoCap()
     return true
