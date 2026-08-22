@@ -458,8 +458,32 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       keyboardHeightConstraint = nil
       return
     }
+    // Native scales the keyboard with the phone — an SE and a Pro Max do not
+    // get the same key size. A single constant made us proportionally huge on
+    // small devices and cramped on large ones, which is exactly the "doesn't
+    // feel like the system keyboard" discomfort.
+    //
+    // kb.height.byWidth is a breakpoint table the backend owns:
+    //   [{ "maxWidth": 375, "height": 252 }, { "maxWidth": 413, "height": 264 },
+    //    { "maxWidth": 9999, "height": 278 }]
+    // First entry whose maxWidth >= the screen width wins. kb.height.pt stays
+    // the fallback for older configs and for anything the table doesn't cover.
     let raw = kbConfig?.flags["kb.height.pt"]
-    let h = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 0
+    var h = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 0
+    if let table = kbConfig?.flags["kb.height.byWidth"] as? [[String: Any]] {
+      let width = UIScreen.main.bounds.width
+      // Sorted so an out-of-order table from the backend still resolves to the
+      // narrowest matching bucket rather than whichever happened to be first.
+      let rows: [(w: Double, h: Double)] = table.compactMap { r in
+        guard let mw = (r["maxWidth"] as? Double) ?? (r["maxWidth"] as? Int).map(Double.init),
+              let rh = (r["height"] as? Double) ?? (r["height"] as? Int).map(Double.init)
+        else { return nil }
+        return (mw, rh)
+      }.sorted { $0.w < $1.w }
+      if let match = rows.first(where: { Double(width) <= $0.w }) ?? rows.last {
+        h = match.h
+      }
+    }
     guard h > 0 else {
       keyboardHeightConstraint?.isActive = false
       keyboardHeightConstraint = nil
