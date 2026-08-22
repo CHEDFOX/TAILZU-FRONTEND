@@ -1706,6 +1706,14 @@ final class KBState {
   var status: String = ""
   var micLevel: CGFloat = 0
   var suggestions: [String] = []
+  /// WHAT the chips currently mean — they are three different things, and
+  /// styling them identically misleads the user:
+  ///   "revert"     — an autocorrect ALREADY landed; the chip is the word the
+  ///                  user originally typed. Tapping it undoes the correction.
+  ///   "alternates" — the word is spelled fine but confusable ("their"); the
+  ///                  chips are other real words. None is "the" answer.
+  ///   "candidates" — ranked swipe results; the first genuinely is the best.
+  var suggestionKind: String = "candidates"
   /// Tone the tools-bar pill cycles through. Values chosen server-side via
   /// config.flags["kb.tones"] or the default set below when unset.
   var tone: String = "Neutral"
@@ -2208,7 +2216,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K15"
+  static let buildStamp = "K16"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -3980,16 +3988,27 @@ final class SDUIRenderer: NSObject {
     let chipFg = flagColor("kb.suggestion.chipFg", dark ? "#FFFFFFF2" : "#000000E6")
     let borderColor = flagColor("kb.suggestion.chipBorder", dark ? "#FFFFFF24" : "#00000018")
     let borderWidth = flagCGFloat("kb.suggestion.chipBorderWidth", 1)
-    // The lead chip is what a boundary press will commit — give it the brand
-    // accent so the user can see which one is "the" correction at a glance.
-    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true)
+    // Emphasis follows MEANING, not list position. Only "candidates" (ranked
+    // swipe results) have a genuine best answer worth the brand accent.
+    //   • revert     — the chip is the user's OWN word after an autocorrect
+    //                  landed. Painting "undo" in brand amber points the eye
+    //                  at rejecting the correction, which is backwards; iOS
+    //                  instead QUOTES the original, the universal "keep what
+    //                  you typed" signal. We do the same.
+    //   • alternates — confusable real words; none is "the" answer, so
+    //                  emphasizing the first would be an arbitrary claim.
+    let kind = state.suggestionKind
+    let isRevert = kind == "revert"
+    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
     let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
     let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
 
     for (i, s) in state.suggestions.enumerated() {
       let isLead = leadEnabled && i == 0
       let chip = UIButton(type: .system)
-      chip.setTitle(s, for: .normal)
+      // Quote a revert so it reads as "keep what you typed" rather than as
+      // another word being suggested to you.
+      chip.setTitle(isRevert ? "\u{201C}\(s)\u{201D}" : s, for: .normal)
       chip.setTitleColor(isLead ? leadFg : chipFg, for: .normal)
       chip.titleLabel?.font = .systemFont(ofSize: fontSize, weight: isLead ? .semibold : .regular)
       chip.backgroundColor = isLead ? leadBg : chipBg
@@ -5755,6 +5774,7 @@ final class SDUIRenderer: NSObject {
     // meaningful ("4 reverts" means nothing without "out of how many").
     KeyboardTelemetry.bump(.autocorrectApplied)
     // Revert affordance: the typed original shows as a chip; tapping restores it.
+    state.suggestionKind = "revert"
     state.suggestions = [word]
     updateSuggestionBarInPlace()
   }
@@ -5775,6 +5795,7 @@ final class SDUIRenderer: NSObject {
     }
     guard let alts = parsedConfusables?[word.lowercased()], !alts.isEmpty else { return }
     lastCommittedWord = (word, boundary)
+    state.suggestionKind = "alternates"
     state.suggestions = alts.map { matchCase(of: word, to: $0) }
     updateSuggestionBarInPlace()
   }
@@ -6094,6 +6115,7 @@ final class SDUIRenderer: NSObject {
     let maxAlt = max(0, Int(flagDouble("kb.swipe.maxAlternates", 3)))
     let alts = candidates.dropFirst().prefix(maxAlt).map { matchCase(of: best, to: $0) }
     if !alts.isEmpty {
+      state.suggestionKind = "candidates"
       state.suggestions = Array(alts)
       updateSuggestionBarInPlace()
     }
