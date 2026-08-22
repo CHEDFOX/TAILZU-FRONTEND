@@ -2208,7 +2208,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K14"
+  static let buildStamp = "K15"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -3922,6 +3922,9 @@ final class SDUIRenderer: NSObject {
     //   kb.suggestion.chipPadV   (default 4)   — vertical padding inside chip
     //   kb.suggestion.chipPadH   (default 12)  — horizontal padding inside chip
     //   kb.suggestion.height     (default 36)
+    //   kb.suggestion.fontSize   (default 15)
+    //   kb.suggestion.chipBg / .chipFg / .chipBorder / .chipBorderWidth
+    //   kb.suggestion.emphasizeFirst (default true) + .leadBg / .leadFg
     let gap = flagCGFloat("kb.suggestion.gap", 8)
     let edge = flagCGFloat("kb.suggestion.edgeInset", 8)
     let barHeight = flagCGFloat("kb.suggestion.height", 36)
@@ -3952,17 +3955,49 @@ final class SDUIRenderer: NSObject {
   /// path.
   private weak var suggestionRowStack: UIStackView?
 
+  /// Suggestion chips.
+  ///
+  /// These used to be painted with keyBgColor()/keyTextColor() — the exact
+  /// fill and text of a LETTER KEY — so they read as three stray keys floating
+  /// in the tools row rather than as something offered to tap. They also had
+  /// no font control, no border and no hierarchy, while every real key around
+  /// them has deliberate sizing and a shadow.
+  ///
+  /// Now they're their own surface: a quieter translucent fill with a hairline
+  /// edge (the app's editorial language), and the FIRST chip carries the brand
+  /// accent because it's the one that will actually be applied — native's
+  /// centre-slot emphasis, mapped honestly onto our ranked list. Every value
+  /// is backend-tunable so the look can be adjusted without a rebuild.
   private func renderSuggestionChips(into row: UIStackView) {
     row.arrangedSubviews.forEach { $0.removeFromSuperview() }
     let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
     let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
     let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
-    for s in state.suggestions {
+    let fontSize = flagCGFloat("kb.suggestion.fontSize", 15)
+    let dark = keyIsDark(keyBgColor())
+    // Deliberately NOT the key fill: a suggestion is an offer, not a key.
+    let chipBg = flagColor("kb.suggestion.chipBg", dark ? "#FFFFFF14" : "#00000012")
+    let chipFg = flagColor("kb.suggestion.chipFg", dark ? "#FFFFFFF2" : "#000000E6")
+    let borderColor = flagColor("kb.suggestion.chipBorder", dark ? "#FFFFFF24" : "#00000018")
+    let borderWidth = flagCGFloat("kb.suggestion.chipBorderWidth", 1)
+    // The lead chip is what a boundary press will commit — give it the brand
+    // accent so the user can see which one is "the" correction at a glance.
+    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true)
+    let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
+    let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
+
+    for (i, s) in state.suggestions.enumerated() {
+      let isLead = leadEnabled && i == 0
       let chip = UIButton(type: .system)
       chip.setTitle(s, for: .normal)
-      chip.setTitleColor(keyTextColor(), for: .normal)
-      chip.backgroundColor = keyBgColor()
+      chip.setTitleColor(isLead ? leadFg : chipFg, for: .normal)
+      chip.titleLabel?.font = .systemFont(ofSize: fontSize, weight: isLead ? .semibold : .regular)
+      chip.backgroundColor = isLead ? leadBg : chipBg
       chip.layer.cornerRadius = chipRadius
+      if !isLead, borderWidth > 0 {
+        chip.layer.borderWidth = borderWidth
+        chip.layer.borderColor = borderColor.cgColor
+      }
       chip.contentEdgeInsets = UIEdgeInsets(top: chipPadV, left: chipPadH, bottom: chipPadV, right: chipPadH)
       let action = UIAction { [weak self] _ in
         self?.applySuggestion(s)
