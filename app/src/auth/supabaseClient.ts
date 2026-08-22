@@ -82,9 +82,11 @@ export const supabaseAuth = {
   signInWithApple: (identityToken: string, nonce?: string) =>
     supabase.auth.signInWithIdToken({ provider: "apple", token: identityToken, nonce }),
 
-  /** Google (id token from native Google sign-in). */
-  signInWithGoogle: (idToken: string) =>
-    supabase.auth.signInWithIdToken({ provider: "google", token: idToken }),
+  /** Google (id token from native Google sign-in). Pass the auth request's
+   *  nonce when one was used — Supabase rejects id_tokens whose nonce claim
+   *  arrives without the matching raw nonce. */
+  signInWithGoogle: (idToken: string, nonce?: string) =>
+    supabase.auth.signInWithIdToken({ provider: "google", token: idToken, nonce }),
 
   getSession: () => supabase.auth.getSession(),
   getUser: () => supabase.auth.getUser(),

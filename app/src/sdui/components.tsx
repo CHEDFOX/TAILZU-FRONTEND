@@ -24,11 +24,15 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import type { Node, NodeEvent, ThemeTokens } from "./types";
+import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
 import * as api from "../api";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
+import { SpringPressable } from "./motion";
 import { DictionaryEditor, WordChips } from "./dictionary";
+import { Image as ExpoImage } from "expo-image";
+import { resolveMedia } from "../media/resolveMedia";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -49,20 +53,18 @@ export const useTheme = (): ThemeTokens => {
 // --- Styling ----------------------------------------------------------------
 
 /**
- * Title Case: capitalize the first letter of every word, leaving the rest as-is
- * (so contractions/acronyms aren't mangled). Applied to app COPY only — never to
- * user-entered or bound/dynamic text (see staticText).
+ * Copy renders EXACTLY as the backend wrote it. This used to Title-Case every
+ * static string — which mangled whole body paragraphs into "Tap Tailzu Again
+ * And Turn On "Allow Full Access"" and made every screen read broken. Casing
+ * is an authoring decision, and the catalog owns the copy; the renderer must
+ * never rewrite it. (Overline keeps its uppercase via its own textTransform.)
  */
-function titleCase(s: string): string {
-  return s.replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
-}
-/** Title-case static copy, but pass bound/dynamic text (user data) through untouched. */
-function staticText(node: Node, raw: string): string {
-  return node.bind?.content != null ? raw : titleCase(raw);
+export function staticText(_node: Node, raw: string): string {
+  return raw;
 }
 
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
-function tok(value: any, theme: ThemeTokens): any {
+export function tok(value: any, theme: ThemeTokens): any {
   if (typeof value === "string" && value.startsWith("$")) return getPath(theme, value.slice(1));
   return value;
 }
@@ -122,6 +124,28 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   if (s.minHeight != null) out.minHeight = tok(s.minHeight, theme);
   if (s.minWidth != null) out.minWidth = tok(s.minWidth, theme);
   if (s.maxWidth != null) out.maxWidth = tok(s.maxWidth, theme);
+  if (s.maxHeight != null) out.maxHeight = tok(s.maxHeight, theme);
+  // RN/CSS-flavored aliases. The newer catalog screens (personality, paywall,
+  // overlays) author styles with React Native property names directly
+  // (flexDirection / alignItems / backgroundColor / borderRadius / aspectRatio…)
+  // instead of the SDUI-canonical short keys (direction / align / background /
+  // radius) handled above. Without these passthroughs every `flexDirection:"row"`
+  // was dropped and the row collapsed to a column, and fills/radii vanished.
+  // Colors + dimensions route through `tok` so theme tokens still resolve.
+  if (s.flexDirection) out.flexDirection = s.flexDirection;
+  if (s.alignItems) out.alignItems = s.alignItems;
+  if (s.justifyContent) out.justifyContent = s.justifyContent;
+  if (s.alignContent) out.alignContent = s.alignContent;
+  if (s.flexWrap) out.flexWrap = s.flexWrap;
+  if (s.flexGrow != null) out.flexGrow = s.flexGrow;
+  if (s.flexShrink != null) out.flexShrink = s.flexShrink;
+  if (s.flexBasis != null) out.flexBasis = s.flexBasis;
+  if (s.aspectRatio != null) out.aspectRatio = s.aspectRatio;
+  if (s.backgroundColor != null) out.backgroundColor = tok(s.backgroundColor, theme);
+  if (s.borderRadius != null) out.borderRadius = tok(s.borderRadius, theme);
+  if (s.lineHeight != null) out.lineHeight = tok(s.lineHeight, theme);
+  if (s.letterSpacing != null) out.letterSpacing = s.letterSpacing;
+  if (s.textTransform) out.textTransform = s.textTransform;
   for (const k of ["marginTop", "marginBottom", "marginLeft", "marginRight", "marginHorizontal", "marginVertical",
                    "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "paddingHorizontal", "paddingVertical"]) {
     if (s[k] != null) out[k] = tok(s[k], theme);
@@ -161,6 +185,9 @@ export interface CompProps {
   store: Store;
   children: React.ReactNode;
   fire: (event: NodeEvent, value?: any) => void;
+  /** Full render context (store + actions + flags + labels + nav). Lets
+   *  conditional components (e.g. IfElse) evaluate against real flags. */
+  ctx: Ctx;
 }
 
 // --- Components -------------------------------------------------------------
@@ -194,35 +221,59 @@ const TextC = ({ node, props, style }: CompProps) => {
   return <Text style={[textVariant(props.variant, theme), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
-const ImageC = ({ props, style }: CompProps) => (
-  <Image source={{ uri: props.source }} style={[{ width: "100%", aspectRatio: props.aspectRatio ?? 1.6, borderRadius: 10 }, style]} />
-);
+const ImageC = ({ props, style }: CompProps) => {
+  // Resolve the source through the media registry so both a raw URL string AND
+  // a media-key spec ({ key: "card.voice" }) work — the old code fed
+  // props.source straight into { uri }, so a { key } object produced a broken
+  // image. Use expo-image so remote GIFs animate on both platforms and
+  // contentFit ("cover" for a background fill, "contain" for a framed asset)
+  // is honored.
+  const m = resolveMedia(props.source as any);
+  const src = m.kind === "uri" ? { uri: m.uri } : m.kind === "bundled" ? m.source : null;
+  const base = { width: "100%" as const, aspectRatio: props.aspectRatio ?? 1.6, borderRadius: 10 };
+  if (!src) return <View style={[base, style] as any} />;
+  return <ExpoImage source={src as any} contentFit={props.contentFit ?? "cover"} style={[base, style] as any} />;
+};
 
 const Icon = ({ props, style }: CompProps) => {
   const theme = useTheme();
   return <Text style={[{ fontSize: 20, color: theme.color.text }, style]}>{props.name}</Text>;
 };
 
+// The brand accent — the warm amber the keyboard flashes on every key press.
+// Buttons app-wide flash it on tap ("typing has our color" carried into the
+// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED.
+export const BRAND_ACCENT = "#E8A23C";
+
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
   const isSecondary = props.variant === "secondary";
+  const isGhost = props.variant === "ghost";
   const bg =
     props.variant === "danger" ? theme.color.danger :
-    isSecondary ? "#3a3a44" : theme.color.primary;
-  // Secondary stays white text on its dark chip; primary/danger auto-contrast so
-  // a white button reads with black text (and orange/dark with white).
-  const labelColor = isSecondary ? "#fff" : readableOn(bg);
+    isGhost || isSecondary ? "transparent" : theme.color.primary;
+  const labelColor = isGhost ? theme.color.text
+    : isSecondary ? "rgba(255,255,255,0.88)"
+    : readableOn(bg);
   return (
-    <Pressable
+    <SpringPressable
       onPress={() => fire("onPress")}
       disabled={props.disabled}
-      style={({ pressed }) => [
-        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 16, alignItems: "center", opacity: props.disabled ? 0.5 : pressed ? 0.85 : 1 },
+      impactOnRelease={!isSecondary && !isGhost}
+      flashColor={BRAND_ACCENT}
+      style={[
+        // paddingHorizontal matters: a hug-width button without it renders the
+        // label touching the pill's edges ("Allow Microphone" overflow bug).
+        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 17, paddingHorizontal: 28, alignItems: "center", justifyContent: "center", opacity: props.disabled ? 0.5 : 1 },
+        // Secondary: a quiet hairline outline (the editorial look the auth
+        // screen's social circles use) — the old solid gray chip read heavy
+        // and cheap next to the white primary.
+        isSecondary ? { borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.04)" } : null,
         style,
       ]}
     >
-      <Text style={{ color: labelColor, fontWeight: "700", fontSize: 15, letterSpacing: 0.5 }}>{titleCase(props.label ?? "")}</Text>
-    </Pressable>
+      <Text style={{ color: labelColor, fontWeight: isSecondary ? "600" : "700", fontSize: 16, letterSpacing: 0.4 }}>{props.label ?? ""}</Text>
+    </SpringPressable>
   );
 };
 
@@ -257,11 +308,14 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
   const theme = useTheme();
   const selected = props.group ? store.get(props.group) === props.value : !!props.selected;
   return (
-    <Pressable
+    <SpringPressable
       onPress={() => {
         if (props.group) store.set(props.group, props.value);
         fire("onPress");
       }}
+      // Chips get a slightly gentler press than buttons — they're smaller.
+      pressScale={0.92}
+      flashColor={BRAND_ACCENT}
       style={[
         {
           paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.radius.pill, borderWidth: 1,
@@ -271,18 +325,27 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{titleCase(props.label ?? "")}</Text>
-    </Pressable>
+      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label ?? ""}</Text>
+    </SpringPressable>
   );
 };
 
-const Card = ({ children, style }: CompProps) => {
+const Card = ({ node, children, style, fire }: CompProps) => {
   const theme = useTheme();
-  return (
-    <View style={[{ backgroundColor: theme.color.card, borderRadius: theme.radius.md, padding: 14, borderWidth: 1, borderColor: theme.color.border }, style]}>
-      {children}
-    </View>
-  );
+  const base = { backgroundColor: theme.color.card, borderRadius: theme.radius.md, padding: 14, borderWidth: 1, borderColor: theme.color.border };
+  // A Card with an onPress handler is tappable. The old Card ignored `fire`
+  // entirely, so every Card that carried `on.onPress` (the tone cards on the
+  // You tab, media cards, etc.) was silently dead. Wrap it in a gentle
+  // SpringPressable when — and only when — an onPress is wired, so plain Cards
+  // stay inert Views.
+  if (node.on?.onPress) {
+    return (
+      <SpringPressable onPress={() => fire("onPress")} pressScale={0.98} style={[base, style]}>
+        {children}
+      </SpringPressable>
+    );
+  }
+  return <View style={[base, style]}>{children}</View>;
 };
 
 const Divider = ({ style }: CompProps) => {
@@ -325,10 +388,13 @@ const Quote = ({ props, style }: CompProps) => {
 
 const Badge = ({ props, style }: CompProps) => {
   const theme = useTheme();
-  const tone = props.tone === "accent" ? theme.color.primary : theme.color.label;
+  // Accept both `label` (canonical) and `text` (used by the paywall plan cards)
+  // so a badge is never rendered empty. "brand"/"accent" both map to the accent.
+  const tone = props.tone === "accent" || props.tone === "brand" ? theme.color.primary : theme.color.label;
+  const content = props.label ?? props.text ?? "";
   return (
     <View style={[{ alignSelf: "flex-start", paddingHorizontal: 11, paddingVertical: 5, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: tone, marginBottom: 24 }, style]}>
-      <Text style={{ color: tone, fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }}>{props.label ?? ""}</Text>
+      <Text style={{ color: tone, fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }}>{content}</Text>
     </View>
   );
 };
@@ -382,6 +448,21 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     committed: "",
   });
   const wantLive = props.live === true && isStreamAvailable();
+
+  // Stop the recorder + live stream on unmount if we're still recording, so a
+  // tab switch / navigation / SDUI refetch mid-dictation doesn't leak the mic
+  // or the streaming WebSocket. Mirrors VoiceToggle's teardown (morphControls).
+  // Idempotent: optional-chaining + `.catch` make a double-stop / not-recording
+  // unmount safe.
+  const recordingRef = useRef(false);
+  useEffect(() => { recordingRef.current = recording; }, [recording]);
+  useEffect(() => () => {
+    if (recordingRef.current) {
+      live.current.session?.stop();
+      live.current.session = null;
+      recorder.stop().catch(() => {});
+    }
+  }, [recorder]);
 
   async function startLive() {
     try {
@@ -477,8 +558,12 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         targetApp: props.targetApp,
         language: props.language,
       });
-      if (bindPath) store.set(bindPath, cleanedText);
-      fire("onChange", cleanedText);
+      // Only write on a non-empty result — recording silence returns "" and
+      // must NOT wipe whatever the user already had in the bound field.
+      if (cleanedText) {
+        if (bindPath) store.set(bindPath, cleanedText);
+        fire("onChange", cleanedText);
+      }
     } catch (e: any) {
       fire("onError", e?.message ?? "transcription failed");
     } finally {
@@ -695,10 +780,14 @@ const styles_dots = {
   dot: { width: 6, height: 6, borderRadius: 3 },
 };
 
+import { REGISTRY_V3 } from "./componentsV3";
+import { Slideshow } from "./Slideshow";
+
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
-  DictionaryEditor, WordChips,
+  DictionaryEditor, WordChips, Slideshow,
+  ...REGISTRY_V3,
 };

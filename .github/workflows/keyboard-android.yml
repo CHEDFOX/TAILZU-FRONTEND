@@ -1,0 +1,77 @@
+name: keyboard-android-compile
+
+# Compile-checks the Android keyboard (Kotlin) WITHOUT an EAS build, so native
+# errors surface in seconds on a free ubuntu runner instead of after a paid,
+# 20-minute EAS build. Runs the full Expo prebuild + a debug native compile,
+# which pulls in the local `tulmi-keyboard` module (Stream.kt, TulmiAudioFx.kt,
+# SDUIRenderer.kt, …).
+#
+# Only runs when native Android / config surface changes — pure-JS commits skip
+# it. Trigger manually from the Actions tab via "Run workflow" too.
+
+on:
+  push:
+    paths:
+      - "app/modules/tulmi-keyboard/android/**"
+      - "app/android/**"
+      - "app/app.config.ts"
+      - "app/package.json"
+      - "app/package-lock.json"
+      - ".github/workflows/keyboard-android.yml"
+  workflow_dispatch: {}
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Expo prebuild (android)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compile Kotlin — catches keyboard-module errors
+        working-directory: app/android
+        # compileDebugKotlin compiles :app AND its dependency modules' Kotlin
+        # (incl. the tulmi-keyboard module) WITHOUT the heavy C++/NDK builds or
+        # APK packaging — a fast "does the Kotlin compile" gate.
+        #
+        # The init script gives every Android module a versionName. Expo's
+        # module-publishing config reads android.defaultConfig.versionName at
+        # configure time; a plain `expo prebuild` (no EAS) leaves it undefined
+        # on the library modules, which otherwise fails with
+        # "SoftwareComponent with name 'release' not found". Registered from an
+        # init script it runs before the Expo plugin's afterEvaluate.
+        run: |
+          cat > /tmp/ci-version.init.gradle <<'EOF'
+          allprojects {
+              afterEvaluate { p ->
+                  def androidExt = p.extensions.findByName('android')
+                  if (androidExt != null) {
+                      try {
+                          if (androidExt.defaultConfig.versionName == null) { androidExt.defaultConfig.versionName = '0.1.0' }
+                          if (androidExt.defaultConfig.versionCode == null) { androidExt.defaultConfig.versionCode = 1 }
+                      } catch (ignored) {}
+                  }
+              }
+          }
+          EOF
+          ./gradlew :app:compileDebugKotlin \
+            --init-script /tmp/ci-version.init.gradle \
+            --console=plain --stacktrace

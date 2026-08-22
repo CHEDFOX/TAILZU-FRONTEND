@@ -27,7 +27,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var allKeys: [UIButton] = []            // themable keys currently on screen
   private var bottomKeys: [UIButton] = []         // persistent bottom-row themable keys
   private var keyRowStacks: [UIStackView] = []    // the 3 rebuilt rows (per page)
-  private var mainStack: UIStackView!
+  private var mainStack: UIStackView!  // nil-safe after SDUI takeover (see loadAndApplyConfig)
 
   private let statusLabel = UILabel()
   private var nextKeyboardButton: UIButton!
@@ -37,8 +37,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var returnButton: UIButton?
   private var shiftButton: UIButton?
   private var pageToggleButton: UIButton?         // bottom-left 123 / ABC
+  private var undoButton: UIButton!               // top-bar undo — reverts the last insert
   private var currentTone = "Formal"
   private let tones = ["Formal", "Casual", "Very Casual", "Excited"]
+
+  // Last insert tracking for the top-bar UNDO. Whenever we insert cleaned voice
+  // text, refined text, or a paste, we record what we inserted here so a single
+  // undo tap can delete exactly that string. `lastRawTranscript` (if set) is
+  // re-inserted in its place — used by refine to revert to the pre-refine text.
+  private var lastInserted: String?
+  private var lastRawTranscript: String?
 
   // Native-feel key press haptic (KeyboardKit standard = selectionChanged on tap).
   // Requires "Allow Full Access"; UISelectionFeedbackGenerator is silent without it.
@@ -57,14 +65,90 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Server-driven config (theme/labels/flags); nil until fetched/cached.
   private var kbConfig: TulmiBackend.KbConfig?
 
+  // SDUI (server-driven UI) renderer. Non-nil when `features.sdui == true` and
+  // the fetched config carries a `root` KeyboardNode tree — in that case the
+  // hand-built UI below is torn down and the renderer owns the keyboard view.
+  // When nil, the hand-built path stays as the fallback.
+  private var sduiRenderer: SDUIRenderer?
+
   // Microphone / dictation state (file-based, one-shot).
   private var audioRecorder: AVAudioRecorder?
   private var recordingURL: URL?
   private var isRecording = false
 
+  // Personality quick-swap row above the keys — tap = switch, long-press =
+  // tone popover. Content flows from the keyboard config's
+  // kb.personality.pinned flag. See TulmiPersonalityRow.swift.
+  private let personalityRow = TulmiPersonalityRow()
+
+  // Mic handoff: kept as a fallback for hosts that refuse in-extension
+  // recording. Default path is now local (see micTapped) — my earlier
+  // "iOS blocks recording" refactor was wrong; Wispr Flow, Grammarly, etc.
+  // all record in-extension with Full Access on.
+  private lazy var handoff: TulmiHandoff = {
+    let h = TulmiHandoff()
+    h.onResult = { [weak self] text, cancelled in
+      guard let self = self else { return }
+      self.isHandoffActive = false
+      self.micButton.setImage(self.brandMarkImage(), for: .normal)
+      // Never let a conversational refusal ("I didn't catch that") reach the
+      // field — drop it to nothing, same guard the streaming path uses.
+      if cancelled || text.isEmpty || self.looksLikeFiller(text) {
+        self.setStatus("")
+        return
+      }
+      self.textDocumentProxy.insertText(text)
+      self.lastInserted = text
+      self.lastRawTranscript = nil
+      self.setStatus("")
+    }
+    return h
+  }()
+  private var isHandoffActive = false
+
+  // Flow Session (background-audio mic — kb.mic.mode="flow"). The app holds the
+  // mic alive in the background; this coordinator drives each dictation and
+  // receives live transcripts over Darwin + the App Group. See TulmiFlow.
+  private lazy var flow: TulmiFlow = {
+    let f = TulmiFlow()
+    f.onTranscript = { [weak self] text, isFinal in
+      guard let self = self else { return }
+      // The final ALWAYS commits (that's the after-stop text). Interim partials
+      // only paint the field live when kb.mic.liveText is on — backend flips it
+      // without a rebuild. Off → the field stays put until you stop, then the
+      // final lands in one shot.
+      if isFinal { self.commitFinal(text) }
+      else if self.micLiveText { self.replacePartial(with: text) }
+    }
+    f.onEnded = { [weak self] in
+      guard let self = self else { return }
+      // Session expired / turned off — reset the mic UI. The button flips back
+      // to "Start Flow"; the next tap re-opens the app to arm a fresh session.
+      self.flowRecording = false
+      self.pendingPartial = ""
+      self.sduiRenderer?.reflectDictating(false)
+      self.refreshFlowButton()
+    }
+    return f
+  }()
+  private var flowRecording = false
+  // Bumped on each dictation start / abandon so a stale dead-app watchdog can
+  // tell whether it still refers to the current dictation.
+  private var flowDictationToken = 0
+
   // Live (streaming) dictation state.
   private var stream: TulmiStream?
   private var isStreaming = false
+  // Set synchronously the instant a stream start begins, BEFORE the async mic
+  // permission round-trip — so a double-tap can't spawn two TulmiStreams (the
+  // second would orphan the first's engine + tap + socket). Cleared once the
+  // stream actually starts, or on any bail.
+  private var isStartingStream = false
+  // Same synchronous guard for the file-based record path: set the instant a
+  // record start begins, BEFORE the async mic-permission round-trip, so a
+  // double-tap can't spawn two AVAudioRecorders (the second would orphan the
+  // first's mic/engine). Cleared once recording begins, or on any bail.
+  private var isStartingRecording = false
   private var pendingPartial = "" // partial text currently shown in the field
   private var dictatedSomething = false // a final landed this session → auto-refine on close
 
@@ -88,19 +172,97 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     [".", ",", "?", "!", "'"],
   ]
 
+  override func didReceiveMemoryWarning() {
+    super.didReceiveMemoryWarning()
+    // A keyboard extension lives under a ~48-60MB jetsam ceiling; a rising
+    // count here is the early warning before users start seeing the keyboard
+    // vanish mid-sentence.
+    KeyboardTelemetry.bump(.memoryWarnings)
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
-    view.backgroundColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1) // #15151b-ish
+    KeyboardTelemetry.bump(.coldStarts)
+    // Do NOT paint an opaque background on the extension view. Native iOS
+    // keyboards leave the inputView transparent and let the theme's
+    // backgroundEffect (a UIVisualEffectView blur) do all the frosting — that's
+    // why native keys look like they're floating on frosted glass instead of
+    // sitting on a solid slab. Any opaque paint here defeats the blur.
+    view.backgroundColor = .clear
     writeKeyboardStatus()
     loadDictionary()
-    buildKeyboard()
-    loadAndApplyConfig()
+    loadSupplementaryLexicon()
+    // Cold-start fast path: with a cached SDUI config, mount SDUI directly and
+    // never build the legacy keyboard at all. The old order (buildKeyboard →
+    // loadAndApplyConfig → SDUI teardown) constructed ~40 buttons + a full
+    // Auto Layout pass on the main thread at every extension launch, purely to
+    // throw them away — the single biggest avoidable cost on the keyboard's
+    // appear latency. The legacy build remains the no-cache / no-SDUI fallback.
+    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config"),
+       let kb = SDUIRenderer.decodeConfig(data),
+       kb.features?.sdui == true, kb.root != nil {
+      // The dictation/flow paths mutate these implicitly-unwrapped hand-built
+      // controls unconditionally (they've always existed before). Give them
+      // detached placeholders — never added to a superview — so every such
+      // mutation is a harmless no-op instead of a nil crash. The SDUI tree
+      // renders its own mic/tone keys.
+      micButton = UIButton(type: .system)
+      tonePill = UIButton(type: .system)
+      undoButton = UIButton(type: .system)
+      nextKeyboardButton = UIButton(type: .system)
+      if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }  // flags (mic mode, height…)
+      applySDUIIfAvailable(data)
+      fetchRemoteConfig()
+    } else {
+      buildKeyboard()
+      loadAndApplyConfig()
+    }
+  }
+
+  /// iOS-provided lexicon (contact names, Settings → Text Replacement). Merged
+  /// as a SECOND lookup behind the user's own Tailzu dictionary — never
+  /// overriding it — and consumed by hostExpansion(for:) at word boundaries.
+  private var lexiconExpansions: [String: String] = [:]
+  private func loadSupplementaryLexicon() {
+    requestSupplementaryLexicon { [weak self] lexicon in
+      var map: [String: String] = [:]
+      for entry in lexicon.entries {
+        let trigger = entry.userInput.lowercased()
+        guard !trigger.isEmpty, trigger != entry.documentText.lowercased() else { continue }
+        map[trigger] = entry.documentText
+      }
+      DispatchQueue.main.async { self?.lexiconExpansions = map }
+    }
   }
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
     loadDictionary() // pick up edits made in the app
+    // Re-assert the explicit height: the constraint installed at viewDidLoad
+    // predates the window, and if the system's own sizing won that first
+    // pass the 999-priority constant never re-engaged.
+    applyKeyboardHeight()
+    // Re-pull the server config on every appearance (throttled) so a backend
+    // deploy lands the next time the keyboard shows — without recreating the
+    // extension process or shipping a new build.
+    fetchRemoteConfig()
+    // Reflect the Flow Session state each time the keyboard reappears — so after
+    // the user arms in the app and swipes back, the button flips from "Start
+    // Flow" to the live mic without needing another config fetch. No-op unless
+    // kb.mic.mode="flow".
+    refreshFlowButton()
+  }
+
+  /// System appearance flipped (Settings → dark mode toggle, or the user's
+  /// automatic-appearance schedule). Route to the SDUI renderer so it picks
+  /// the right theme palette + re-renders. No-op when the hand-built path
+  /// is active.
+  override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+    super.traitCollectionDidChange(previousTraitCollection)
+    if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+      sduiRenderer?.appearanceDidChange()
+    }
   }
 
   /// Publish the keyboard's live state to the shared App Group so the main app
@@ -111,6 +273,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
     d?.set(hasFullAccess, forKey: "tulmi.kb.fullAccess")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.lastActive")
+    // Reflect to the SDUI renderer so visibleIf conditions gated on
+    // state.hasFullAccess update on Full Access flips.
+    sduiRenderer?.reflectHasFullAccess(hasFullAccess)
   }
 
   // MARK: - Text-expansion dictionary (trigger → replacement, from the app)
@@ -120,16 +285,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var expansions: [String: String] = [:]
 
   private func loadDictionary() {
-    guard let json = UserDefaults(suiteName: "group.com.tulmi.app")?.string(forKey: "tulmi.dictionary"),
-          let data = json.data(using: .utf8),
-          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
-    var map: [String: String] = [:]
-    for e in arr {
-      if let w = e["word"] as? String, let r = e["replacement"] as? String, !w.isEmpty {
-        map[w.lowercased()] = r
+    // Read + parse off the main thread so a large dictionary can't hitch
+    // viewDidLoad / viewWillAppear (this ran synchronously on the hot path
+    // before). `expansions` is only ever assigned on the main thread, so
+    // expandLastWord() — which reads it on main — never races the parse.
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let json = UserDefaults(suiteName: "group.com.tulmi.app")?.string(forKey: "tulmi.dictionary"),
+            let data = json.data(using: .utf8),
+            let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+      var map: [String: String] = [:]
+      for e in arr {
+        if let w = e["word"] as? String, let r = e["replacement"] as? String, !w.isEmpty {
+          map[w.lowercased()] = r
+        }
       }
+      DispatchQueue.main.async { self?.expansions = map }
     }
-    expansions = map
   }
 
   /// If the word right before the cursor is a trigger, replace it. Returns true
@@ -152,20 +323,190 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Server-driven config (theme/labels/flags), cached for offline
 
   private func loadAndApplyConfig() {
-    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config"),
-       let cfg = TulmiBackend.parseConfig(data) {
-      applyConfig(cfg)
+    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config") {
+      if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }
+      applySDUIIfAvailable(data)
     }
-    TulmiBackend.keyboardConfigData { result in
-      guard case .success(let data) = result, let cfg = TulmiBackend.parseConfig(data) else { return }
+    fetchRemoteConfig()
+  }
+
+  // Timestamp of the last remote config fetch — throttles the per-appearance
+  // refetch so a launch (viewDidLoad + viewWillAppear both firing) doesn't
+  // double-fetch, while still picking up a backend deploy on a later appearance.
+  private var lastConfigFetchAt: TimeInterval = 0
+
+  /// Fetch the latest keyboard config and apply it LIVE. Called on load AND on
+  /// every keyboard appearance (throttled 3s), so a backend deploy + cache bump
+  /// lands the next time the keyboard shows — no extension-process recreation and
+  /// no app rebuild. Only overwrites the cache on a genuine success (TulmiBackend
+  /// now rejects non-2xx), so an expired-token 401 can't clobber a good config.
+  private func fetchRemoteConfig() {
+    let now = Date().timeIntervalSince1970
+    guard now - lastConfigFetchAt > 3 else { return }
+    lastConfigFetchAt = now
+    // [weak self]: this completion captures the controller across a network
+    // round-trip. A strong capture pins the whole keyboard view tree alive for
+    // the duration inside the extension's tight (~48–60 MB) memory budget.
+    TulmiBackend.keyboardConfigData { [weak self] result in
+      guard case .success(let data) = result else { return }
       UserDefaults.standard.set(data, forKey: "tulmi_kb_config")
-      DispatchQueue.main.async { self.applyConfig(cfg) }
+      if let cfg = TulmiBackend.parseConfig(data) {
+        DispatchQueue.main.async { self?.applyConfig(cfg) }
+      }
+      DispatchQueue.main.async { self?.applySDUIIfAvailable(data) }
+      // Piggyback the counter upload on the config refresh the keyboard
+      // already performs — no extra wake-up, and KeyboardTelemetry's own
+      // interval keeps it to roughly twice an hour even for a heavy user.
+      if let pending = KeyboardTelemetry.pendingUpload() {
+        TulmiBackend.postTelemetry(
+          counters: pending.counters,
+          windowMs: pending.windowMs,
+          build: SDUIRenderer.buildStamp,
+        ) { ok in
+          // Clear ONLY on success, so a dropped request doesn't lose the data.
+          if ok { KeyboardTelemetry.commitUpload(pending.counters) }
+        }
+      }
+    }
+  }
+
+  /// Try to decode the config as a full SDUI response and, if `features.sdui`
+  /// is on AND `root` is present, hand off the whole keyboard view to the
+  /// SDUIRenderer. Otherwise this is a no-op and the hand-built path remains
+  /// on screen — that's the fallback contract.
+  /// Raw bytes of the last config payload handed to the renderer. cacheVersion
+  /// only changes on deploys, so per-USER changes (active tone, pinned presets,
+  /// media uploads) ship under the SAME version — byte-comparing the payload is
+  /// what lets those through (updateConfig force:) while identical refetches
+  /// stay a true no-op.
+  private var lastAppliedConfigData: Data?
+
+  private func applySDUIIfAvailable(_ data: Data) {
+    guard let kb = SDUIRenderer.decodeConfig(data),
+          kb.features?.sdui == true,
+          kb.root != nil
+    else { return }
+    // Already mounted → push the fresh config into the LIVE renderer so a backend
+    // deploy applies on the current session (right after the refetch), instead of
+    // waiting for iOS to recreate the whole extension process — the core reason
+    // OTA config edits seemed never to land on the keyboard.
+    if let renderer = sduiRenderer {
+      if data == lastAppliedConfigData { return }
+      lastAppliedConfigData = data
+      renderer.updateConfig(kb, force: true)
+      return
+    }
+    lastAppliedConfigData = data
+    // Tear down the hand-built subtree (rows, top bar, callouts). The renderer
+    // will mount its own subtree spanning the whole keyboard view. IMPORTANT:
+    // detach statusLabel from mainStack BEFORE removing subviews so we can
+    // re-attach it as an overlay on top of the SDUI root — otherwise every
+    // subsequent setStatus() writes to a detached label and every mic /
+    // permission / recording error is invisible.
+    statusLabel.removeFromSuperview()
+    for sub in view.subviews { sub.removeFromSuperview() }
+    mainStack = nil
+    keyRowStacks.removeAll()
+    letterButtons.removeAll()
+    allKeys.removeAll()
+    bottomKeys.removeAll()
+    calloutLabel = nil
+    let renderer = SDUIRenderer(controller: self, config: kb)
+    sduiRenderer = renderer
+    renderer.mount(into: view)
+    // Re-attach statusLabel as a floating overlay pinned to the top of the
+    // keyboard view. Sits above whatever SDUI has mounted so error/status
+    // strings show up regardless of the tree shape.
+    statusLabel.translatesAutoresizingMaskIntoConstraints = false
+    statusLabel.backgroundColor = UIColor(white: 0, alpha: 0.75)
+    statusLabel.textColor = .white
+    statusLabel.textAlignment = .center
+    statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
+    statusLabel.numberOfLines = 2
+    statusLabel.layer.cornerRadius = 8
+    statusLabel.layer.masksToBounds = true
+    view.addSubview(statusLabel)
+    NSLayoutConstraint.activate([
+      statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+      statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+      statusLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
+      statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+    ])
+    // Kept invisible by default; setStatus() reveals it when text non-empty.
+    statusLabel.isHidden = true
+    // Now that the renderer exists, the SDUI-only height constraint can apply
+    // (on the cold-start fast path applyConfig ran BEFORE the mount, when the
+    // sduiRenderer guard still failed).
+    applyKeyboardHeight()
+    // Same ordering problem for the flow-armed glyph: every earlier
+    // refreshFlowButton() ran against sduiRenderer == nil, and the state
+    // defaults to "armed" — so a cold-started keyboard showed the ready mic
+    // even with no session. Seed the real value now.
+    renderer.reflectFlowArmed(flow.isSessionActive || flowRecording)
+  }
+
+  /// Explicit keyboard height (kb.height.pt). Absent/0 → the system default,
+  /// exactly as before. Priority 999 so the system's own placement constraints
+  /// never conflict-crash (the standard custom-keyboard height technique).
+  private var keyboardHeightConstraint: NSLayoutConstraint?
+  private func applyKeyboardHeight() {
+    // SDUI-only: the value is derived from the SDUI tree's row arithmetic
+    // (272 = 5×44 + 4×10 + 12). The hand-built stack sums to 258, so pinning
+    // it to 272 over-constrains that layout — legacy keeps system sizing.
+    guard sduiRenderer != nil else {
+      keyboardHeightConstraint?.isActive = false
+      keyboardHeightConstraint = nil
+      return
+    }
+    // Native scales the keyboard with the phone — an SE and a Pro Max do not
+    // get the same key size. A single constant made us proportionally huge on
+    // small devices and cramped on large ones, which is exactly the "doesn't
+    // feel like the system keyboard" discomfort.
+    //
+    // kb.height.byWidth is a breakpoint table the backend owns:
+    //   [{ "maxWidth": 375, "height": 252 }, { "maxWidth": 413, "height": 264 },
+    //    { "maxWidth": 9999, "height": 278 }]
+    // First entry whose maxWidth >= the screen width wins. kb.height.pt stays
+    // the fallback for older configs and for anything the table doesn't cover.
+    let raw = kbConfig?.flags["kb.height.pt"]
+    var h = (raw as? Double) ?? (raw as? Int).map(Double.init) ?? 0
+    if let table = kbConfig?.flags["kb.height.byWidth"] as? [[String: Any]] {
+      let width = UIScreen.main.bounds.width
+      // Sorted so an out-of-order table from the backend still resolves to the
+      // narrowest matching bucket rather than whichever happened to be first.
+      let rows: [(w: Double, h: Double)] = table.compactMap { r in
+        guard let mw = (r["maxWidth"] as? Double) ?? (r["maxWidth"] as? Int).map(Double.init),
+              let rh = (r["height"] as? Double) ?? (r["height"] as? Int).map(Double.init)
+        else { return nil }
+        return (mw, rh)
+      }.sorted { $0.w < $1.w }
+      if let match = rows.first(where: { Double(width) <= $0.w }) ?? rows.last {
+        h = match.h
+      }
+    }
+    guard h > 0 else {
+      keyboardHeightConstraint?.isActive = false
+      keyboardHeightConstraint = nil
+      return
+    }
+    if let c = keyboardHeightConstraint {
+      c.constant = CGFloat(h)
+    } else {
+      let c = view.heightAnchor.constraint(equalToConstant: CGFloat(h))
+      c.priority = UILayoutPriority(999)
+      c.isActive = true
+      keyboardHeightConstraint = c
     }
   }
 
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
     kbConfig = cfg
-    view.backgroundColor = UIColor(tulmiHex: cfg.background)
+    applyKeyboardHeight()
+    // Legacy path: also keep the extension view transparent so the OS-provided
+    // keyboard region + backdrop show through. cfg.background is still applied
+    // as the fallback color the blur/effect sits over (see SDUIRenderer),
+    // but the ROOT view itself must stay clear or the blur has nothing to frost.
+    view.backgroundColor = .clear
     for b in allKeys {
       b.backgroundColor = UIColor(tulmiHex: cfg.key)
       b.setTitleColor(UIColor(tulmiHex: cfg.keyText), for: .normal)
@@ -178,6 +519,85 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     statusLabel.textColor = UIColor(tulmiHex: cfg.keyText)
     micButton?.isEnabled = cfg.voice
     micButton?.alpha = cfg.voice ? 1 : 0.4
+    // Now that the mode + flow glyph/label flags are known, reflect the Flow
+    // Session state on the mic button (Start Flow / mic / checkmark).
+    refreshFlowButton()
+
+    // Personality chip row — populated from the pinned presets on the
+    // config. Backend passes them in the `flags` bag as
+    // kb.personality.pinned (array of { id, name, emoji, tone }).
+    populatePersonalityRow(from: cfg, accent: accentColor)
+  }
+
+  /// Read the pinned personalities from config flags and (re)render the row.
+  /// Hides the row entirely when the user hasn't pinned anything so the
+  /// keyboard's total height doesn't shift for casual users.
+  private func populatePersonalityRow(from cfg: TulmiBackend.KbConfig, accent: UIColor) {
+    let raw = cfg.flags["kb.personality.pinned"] as? [[String: Any]] ?? []
+    if raw.isEmpty {
+      personalityRow.isHidden = true
+      return
+    }
+    let chips: [TulmiPersonalityRow.ChipData] = raw.compactMap { m in
+      guard let id = m["id"] as? String, !id.isEmpty else { return nil }
+      return TulmiPersonalityRow.ChipData(
+        id: id,
+        name: (m["name"] as? String) ?? id.capitalized,
+        emoji: (m["emoji"] as? String) ?? "•",
+        tone: (m["tone"] as? String) ?? "casual",
+      )
+    }
+    if chips.isEmpty {
+      personalityRow.isHidden = true
+      return
+    }
+    let activeId = (cfg.flags["kb.personality.activeId"] as? String) ?? chips[0].id
+    let chipBg = UIColor(tulmiHex: cfg.key).withAlphaComponent(0.7)
+    let chipFg = UIColor(tulmiHex: cfg.keyText).withAlphaComponent(0.9)
+    // Backend-driven fast-tone list for the long-press sheet. Accepts either the
+    // rich shape (array of { id, label }) or a plain array of label strings
+    // (legacy); nil → the row keeps its built-in fallback tones.
+    let tones: [(id: String, label: String)]? = {
+      if let rich = cfg.flags["kb.personality.tones"] as? [[String: Any]] {
+        let mapped = rich.compactMap { m -> (id: String, label: String)? in
+          guard let id = m["id"] as? String, !id.isEmpty else { return nil }
+          return (id: id, label: (m["label"] as? String) ?? id.capitalized)
+        }
+        return mapped.isEmpty ? nil : mapped
+      }
+      return nil
+    }()
+    personalityRow.update(chips: chips, activeId: activeId,
+                          accentColor: accent, chipBgColor: chipBg, chipFgColor: chipFg,
+                          tones: tones)
+    personalityRow.isHidden = false
+  }
+
+  /// Chip tapped (or a tone chosen in the long-press popover). Fires a
+  /// backend save so the next refine call uses the new voice/tone; also
+  /// updates our in-memory cfg so the row stays in sync without a full
+  /// config refetch.
+  private func applyPersonalityChange(presetId: String, tone: String?) {
+    // Persist server-side (best-effort — never block the keyboard on a
+    // network hop). Backend's PUT /v1/personality does a partial merge, so
+    // sending just these two fields doesn't disturb the user's vocabulary.
+    let body: [String: Any] = tone == nil
+      ? ["activePresetId": presetId]
+      : ["activePresetId": presetId, "activeTone": tone!]
+    TulmiBackend.putPersonalityQuick(body: body) { _ in /* fire-and-forget */ }
+
+    // Optimistically flip the row's active state so the UI feels instant.
+    var flags = kbConfig?.flags ?? [:]
+    flags["kb.personality.activeId"] = presetId
+    if let tone = tone { flags["kb.personality.activeTone"] = tone }
+    if let cfg = kbConfig {
+      let next = TulmiBackend.KbConfig(
+        background: cfg.background, key: cfg.key, keyText: cfg.keyText, accent: cfg.accent,
+        voice: cfg.voice, refine: cfg.refine, liveVoice: cfg.liveVoice, labels: cfg.labels,
+        flags: flags,
+      )
+      kbConfig = next
+    }
   }
 
   private func label(_ key: String, _ fallback: String) -> String {
@@ -210,22 +630,37 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     topBar.spacing = 10
     let menuBtn = makeGlyphButton(symbol: "line.3.horizontal")
     menuBtn.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
-    let undoBtn = makeGlyphButton(symbol: "arrow.uturn.backward")
-    undoBtn.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
+    undoButton = makeGlyphButton(symbol: "arrow.uturn.backward")
+    undoButton.addTarget(self, action: #selector(undoTapped), for: .touchUpInside)
     let flex = UIView()
     flex.setContentHuggingPriority(.defaultLow, for: .horizontal)
     flex.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     tonePill = makeTonePill(title: currentTone)
     micButton = makeCircleButton(symbol: "mic.fill")
     micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
-    [menuBtn, undoBtn, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
+    [menuBtn, undoButton!, flex, tonePill, micButton!].forEach { topBar.addArrangedSubview($0) }
     topBar.heightAnchor.constraint(equalToConstant: 40).isActive = true
     stack.addArrangedSubview(topBar)
 
-    // Status line (hidden until there's something to say).
+    // Personality quick-swap row — 6 chips of the user's pinned voices.
+    // Hidden by default; the config-fetch reveals it when
+    // kb.personality.pinned is populated. See TulmiPersonalityRow.swift.
+    personalityRow.isHidden = true
+    personalityRow.onSelect = { [weak self] presetId, tone in
+      self?.applyPersonalityChange(presetId: presetId, tone: tone)
+    }
+    stack.addArrangedSubview(personalityRow)
+
+    // Status label is kept in the layout stack — the mic button's own press
+    // state + the flash-across-keys animation cover the "something is
+    // happening" cases, but the label is the ONLY channel for permission
+    // errors ("Enable Full Access", "Microphone denied") the user needs to
+    // see to unblock themselves. Hidden by default; setStatus() shows it
+    // only when text is non-empty.
     statusLabel.textColor = UIColor(white: 0.7, alpha: 1)
     statusLabel.font = .systemFont(ofSize: 12)
     statusLabel.textAlignment = .center
+    statusLabel.numberOfLines = 2
     statusLabel.isHidden = true
     stack.addArrangedSubview(statusLabel)
 
@@ -284,7 +719,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     row3.heightAnchor.constraint(equalToConstant: 44).isActive = true
     keyRowStacks.append(row3)
 
-    // Insert above the bottom row (which sits at index 2 after topBar + status).
+    // Insert above the bottom row (which sits at index 2 after topBar + personalityRow).
     for (i, r) in keyRowStacks.enumerated() {
       mainStack.insertArrangedSubview(r, at: 2 + i)
     }
@@ -329,6 +764,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     space.titleLabel?.font = .systemFont(ofSize: 14)
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
+    // Native-style trackpad cursor: hold the space bar (~0.25s), then slide to
+    // move the text cursor. A quick tap still inserts a space; once the
+    // long-press recognizes, cancelsTouchesInView stops the held space from also
+    // inserting one. allowableMovement is unbounded so a jittery hold still
+    // enters trackpad mode. Horizontal travel maps to character-offset moves.
+    let spaceCursor = UILongPressGestureRecognizer(target: self, action: #selector(spaceCursorPan(_:)))
+    spaceCursor.minimumPressDuration = 0.25
+    spaceCursor.allowableMovement = .greatestFiniteMagnitude
+    space.addGestureRecognizer(spaceCursor)
     let ret = makeKeyButton(title: "return")
     ret.backgroundColor = .white            // white "button" (overridden by cfg.accent)
     ret.setTitleColor(.black, for: .normal) // dark text for contrast on white/light accents
@@ -361,9 +805,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return b
   }
 
-  /// The Tailzu brand mark (the soundwave logo) bundled in the keyboard
-  /// target's Assets.xcassets. Rendered as-is (already black) so it reads as
-  /// the logo on the white circle. Falls back to the SF mic symbol if missing.
+  /// The mic-button image. OWNER DECISION: always the static bundled
+  /// TailzuMark (SF `mic.fill` as last resort) — kb.mic.idleIcon.url is
+  /// deliberately ignored so backend-pushed media (animated GIF/APNG) can
+  /// never replace the brand mark on the idle mic again.
   private func brandMarkImage() -> UIImage {
     if let mark = UIImage(named: "TailzuMark") {
       return mark.withRenderingMode(.alwaysOriginal)
@@ -418,7 +863,21 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   @objc private func menuTapped() { /* options menu — wired later */ }
 
   @objc private func undoTapped() {
-    // Undo the last word.
+    // Priority 1: if we tracked the last insert (voice-clean, streaming final,
+    // or refine), delete exactly that many chars and optionally re-insert the
+    // pre-refine raw so undo reads as "revert refine".
+    if let last = lastInserted, !last.isEmpty {
+      let proxy = textDocumentProxy
+      for _ in 0..<last.count { proxy.deleteBackward() }
+      if let raw = lastRawTranscript, !raw.isEmpty { proxy.insertText(raw) }
+      lastInserted = nil
+      lastRawTranscript = nil
+      if hasFullAccess { selectionHaptic.selectionChanged() }
+      flashUndoCheckmark()
+      return
+    }
+    // Fallback: last-word delete (original behavior — useful for keys typed by
+    // hand, which aren't tracked as a single insert).
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
     if before.isEmpty { return }
     var count = 0
@@ -428,6 +887,19 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       count += 1
     }
     for _ in 0..<max(count, 1) { textDocumentProxy.deleteBackward() }
+    if hasFullAccess { selectionHaptic.selectionChanged() }
+    flashUndoCheckmark()
+  }
+
+  /// Briefly swap the undo glyph for a checkmark so the user sees the action
+  /// landed. Matches the native "confirmed" affordance without any new colors.
+  private func flashUndoCheckmark() {
+    guard let btn = undoButton else { return }
+    let original = UIImage(systemName: "arrow.uturn.backward")
+    btn.setImage(UIImage(systemName: "checkmark"), for: .normal)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak btn] in
+      btn?.setImage(original, for: .normal)
+    }
   }
 
   private func makeKeyButton(title: String) -> UIButton {
@@ -561,6 +1033,37 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     rebuildKeyArea()
   }
 
+  // MARK: - Space-bar trackpad cursor (native "hold space → slide" behavior)
+
+  private var spaceCursorLastX: CGFloat = 0
+  private var spaceCursorAccumX: CGFloat = 0
+
+  @objc private func spaceCursorPan(_ gr: UILongPressGestureRecognizer) {
+    switch gr.state {
+    case .began:
+      spaceCursorLastX = gr.location(in: view).x
+      spaceCursorAccumX = 0
+      UISelectionFeedbackGenerator().selectionChanged()
+    case .changed:
+      let x = gr.location(in: view).x
+      spaceCursorAccumX += x - spaceCursorLastX
+      spaceCursorLastX = x
+      // ~9 points of finger travel per one-character cursor move (tuned to feel
+      // like the system keyboard). adjustTextPosition wraps across lines.
+      let step: CGFloat = 9
+      while spaceCursorAccumX >= step {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: 1)
+        spaceCursorAccumX -= step
+      }
+      while spaceCursorAccumX <= -step {
+        textDocumentProxy.adjustTextPosition(byCharacterOffset: -1)
+        spaceCursorAccumX += step
+      }
+    default:
+      break
+    }
+  }
+
   @objc private func spaceTapped() {
     let now = Date().timeIntervalSince1970
     // Text-expansion: if the just-typed word is a dictionary trigger, swap it
@@ -590,15 +1093,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     textDocumentProxy.deleteBackward()
     deleteTimer?.invalidate()
     // Native: 0.5s initial delay, then repeat every 0.1s.
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+    // .common runloop mode so the timer keeps firing while the finger is
+    // held (tracking mode); scheduledTimer defaults to .default which
+    // pauses during tracking and gives the "delete only fires after
+    // release" bug.
+    let t = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
       self?.startDeleteRepeat()
     }
+    RunLoop.main.add(t, forMode: .common)
+    deleteTimer = t
   }
 
   private func startDeleteRepeat() {
-    deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+    let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
       self?.textDocumentProxy.deleteBackward()
     }
+    RunLoop.main.add(t, forMode: .common)
+    deleteTimer = t
   }
 
   @objc private func deleteTouchUp() {
@@ -612,6 +1123,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   /// Re-evaluate shift after the document text changes (sentence start → cap).
   override func textDidChange(_ textInput: UITextInput?) {
+    // Refresh the SDUI renderer's field-context cache first — this fires when
+    // the user switches focus between fields too, so it's the right hook for
+    // "return key label changed from Go → Send". Cheap (no-op if unchanged).
+    sduiRenderer?.reflectFieldContext()
     if isStreaming || isRecording { return }
     if shiftState == .locked { return } // caps-lock overrides auto-cap
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
@@ -634,24 +1149,366 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     return false
   }
 
-  // MARK: - Mic / dictation (inline; requires Full Access)
+  // MARK: - Mic / dictation
 
   @objc private func micTapped() {
-    if kbConfig?.liveVoice == true {
+    // iOS blocks the microphone inside a keyboard extension, so the ONLY
+    // reliable path is Flow (the background-audio session held by the main
+    // app). An ABSENT or UNKNOWN kb.mic.mode must therefore resolve to "flow";
+    // the in-extension record paths run ONLY when the backend EXPLICITLY opts
+    // into them:
+    //   kb.mic.mode = "stream"   → live WebSocket dictation
+    //   kb.mic.mode = "local"    → batch record → upload → refine
+    //   kb.mic.mode = "handoff"  → hand the mic to the main app for one capture
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "flow"
+    switch mode {
+    case "handoff":
+      if isHandoffActive { cancelHandoff() } else { beginMicHandoff() }
+    case "stream":
       if isStreaming { stopStreaming() } else { startStreaming() }
-    } else {
+    case "local":
+      // Explicit opt-in to in-keyboard batch recording.
       if isRecording { stopAndTranscribe() } else { startRecording() }
+    default:
+      // "flow" — and any ABSENT/UNKNOWN mode — the Wispr model, the only
+      // reliable iOS mic. If the app already holds a live session, toggle
+      // dictation right here in the keyboard. If not, open the app once to arm
+      // it (the user swipes back and dictations run without leaving the keyboard).
+      if flow.isSessionActive {
+        if flowRecording { stopFlowDictation() } else { startFlowDictation() }
+      } else {
+        openAppToArmFlow()
+      }
     }
+  }
+
+  // MARK: - Flow Session (background-audio mic)
+
+  private func flowGlyph(_ key: String, _ fallback: String) -> String {
+    (kbConfig?.flags[key] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+  }
+
+  /// Whether dictated words paint the field LIVE as you speak (true) or only
+  /// arrive as one committed block AFTER you stop (false). This is the "button
+  /// logic" the backend tunes without a rebuild — `kb.mic.liveText`. Governs the
+  /// Flow path and the in-keyboard stream path alike. Default true preserves the
+  /// live-typing feel when the flag is absent; the backend sets the desired
+  /// value. (Note: with a batch provider like Groq there are no interim partials
+  /// to begin with, so text arrives after stop regardless of this flag; the flag
+  /// is what lets a streaming provider like Deepgram ALSO defer to after-stop.)
+  private var micLiveText: Bool {
+    (kbConfig?.flags["kb.mic.liveText"] as? Bool) ?? true
+  }
+
+  /// Reflect the Flow Session state on the mic button + status — Wispr's exact
+  /// model, all three states backend-tunable:
+  ///   • no live session → a "Start Flow" affordance (distinct glyph + hint).
+  ///     The first tap opens the app once to arm the background mic.
+  ///   • session armed, idle → the mic. Tap to talk.
+  ///   • recording → a checkmark. Tap to finish (Wispr taps ✓ to end an utterance).
+  /// Called on appear, after the backend config loads, and on every transition.
+  private func refreshFlowButton() {
+    let mode = (kbConfig?.flags["kb.mic.mode"] as? String)?.lowercased() ?? "flow"
+    // The SDUI mic renders the armed/unarmed distinction itself — feed it the
+    // live session state (this hub runs on appear, arm, record, and end).
+    if !["local", "stream", "handoff"].contains(mode) {
+      sduiRenderer?.reflectFlowArmed(flow.isSessionActive || flowRecording)
+    }
+    guard mode == "flow" else { return }
+    if flowRecording {
+      micButton.imageView?.stopAnimating()
+      micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
+      micButton.tintColor = .black
+      return
+    }
+    if flow.isSessionActive {
+      // Armed & idle — the mic. Tap to talk. Clear any lingering Flow hint.
+      micButton.setImage(brandMarkImage(), for: .normal)
+      micButton.imageView?.startAnimating()
+      let hint = label("flow_start_hint", "Tap to start Flow")
+      let arming = label("flow_arming", "Turning on Flow — swipe back when you land in Tailzu.")
+      if statusLabel.text == hint || statusLabel.text == arming { setStatus("") }
+    } else {
+      // No session — this is "Start Flow", not a dictation mic. A distinct glyph
+      // + a persistent hint make it obvious the first tap opens the app to arm.
+      // (Backend can blank kb.flow.startGlyph→mic or flow_start_hint→"" to hide.)
+      micButton.imageView?.stopAnimating()
+      micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.startGlyph", "bolt.fill")), for: .normal)
+      micButton.tintColor = .black
+      setStatus(label("flow_start_hint", "Tap to start Flow"), actionable: true)
+    }
+  }
+
+  private func startFlowDictation() {
+    pendingPartial = ""
+    flowRecording = true
+    flowDictationToken &+= 1
+    let token = flowDictationToken
+    let hbAtStart = flow.heartbeatStamp    // liveness baseline (see watchdog below)
+    // Morph to the "finish" affordance (checkmark) — Wispr's tap-✓-to-end.
+    micButton.imageView?.stopAnimating()
+    micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.stopGlyph", "checkmark")), for: .normal)
+    micButton.tintColor = .black
+    setStatus("")                          // clear the "Tap to start Flow" hint
+    sduiRenderer?.reflectDictating(true)   // particles burst — recording
+    flow.startDictation()                  // nudge the app to begin capturing
+    // Liveness confirm (fixes "animates but records nothing" / "records with no
+    // app alive"). A LIVE app keeps stamping its heartbeat ~1×/sec after we nudge
+    // it, so within ~1.3s the stamp MUST advance. If it hasn't advanced — or the
+    // session already reads inactive — the app is force-quit/suspended and we're
+    // animating into a dead mic: bail and re-open to re-arm. This "did it advance"
+    // test is what the old absolute-age check missed: a just-died app's last
+    // stamp can still look fresh for a couple of seconds, so the tap slipped past.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { [weak self] in
+      guard let self = self, self.flowRecording, token == self.flowDictationToken else { return }
+      if !self.flow.isSessionActive || self.flow.heartbeatStamp == hbAtStart {
+        self.abandonDeadFlowDictation()
+      }
+    }
+  }
+
+  /// The Flow Session turned out to be dead (app force-quit) while we were
+  /// "recording". Stop the animation and re-open the app to arm a fresh session
+  /// so the user isn't stuck talking to a mic that captures nothing.
+  private func abandonDeadFlowDictation() {
+    flowRecording = false
+    pendingPartial = ""
+    flowDictationToken &+= 1                // invalidate any in-flight watchdog
+    sduiRenderer?.reflectDictating(false)
+    flow.markSessionDead()
+    micButton.imageView?.stopAnimating()
+    micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.startGlyph", "bolt.fill")), for: .normal)
+    micButton.tintColor = .black
+    NSLog("[Tailzu][kb] flow: session was dead (app force-quit) — re-arming.")
+    openAppToArmFlow()
+  }
+
+  private func stopFlowDictation() {
+    flowRecording = false
+    flow.stopDictation()                   // app finalizes; final lands via onTranscript
+    // Back to the armed-idle mic — the session stays live for the next utterance
+    // (no app trip). The final transcript still commits via onTranscript.
+    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.imageView?.startAnimating()
+    sduiRenderer?.reflectDictating(false)
+  }
+
+  /// Open the app once to arm a Flow Session. The keyboard can't call openURL,
+  /// so we drop a deep-link tombstone the app consumes on foreground (routes to
+  /// the SDUI "flow_arm" screen, which calls armFlowSession) AND try the
+  /// responder-chain open for an instant hop.
+  private func openAppToArmFlow() {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
+    // The mic is a UIButton(type:.system): tapping it toward an app-switch can
+    // leave its auto-highlight stuck (the "greyed out, no response" you saw).
+    // Force it back to a clean, obviously-tappable state on every tap.
+    resetMicButtonAppearance()
+    // The App-Group tombstone above is the guaranteed half (opening Tailzu by
+    // hand also consumes it and arms Flow). Show the optimistic status now and
+    // downgrade it only when BOTH open mechanisms report failure — the attempt
+    // is asynchronous (extensionContext.open reports via completion handler).
+    // iOS 26 refuses container-app opens from keyboards WITHOUT Full Access
+    // ("unable to make sandbox extension: 2") — and a delete/reinstall silently
+    // resets that toggle to OFF. Without this gate, that state is
+    // indistinguishable from "the open mechanism is broken".
+    guard hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."),
+                actionable: true)
+      return
+    }
+    setStatus(label("flow_arming", "Turning on Flow — swipe back into your app."), actionable: true)
+    attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened, diag in
+      guard let self = self else { return }
+      // A tap that rides into an app switch can leave the system button stuck
+      // in its grey highlight — clear it whenever the attempt settles.
+      self.resetMicButtonAppearance()
+      // OTA-switchable field diagnostics: with kb.coldOpen.debugStatus on, the
+      // status bar shows the binary stamp + exactly which open path ran and
+      // what iOS answered — a console-log substitute readable on the phone.
+      if (self.kbConfig?.flags["kb.coldOpen.debugStatus"] as? Bool) ?? false {
+        self.setStatus("\(SDUIRenderer.buildStamp) · \(diag)", actionable: true)
+        return
+      }
+      if !opened {
+        self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
+                       actionable: true)
+      }
+    }
+    // Insurance for the same grey-mic stick when the completion is slow: UIKit
+    // re-applies the highlight as the touch sequence ends, after our sync
+    // reset above ran. One more pass on the next runloop turn clears it.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      self?.resetMicButtonAppearance()
+    }
+  }
+
+  /// Best-effort open of the containing app.
+  ///
+  /// GROUNDING — this is no longer folklore. An Apple DTS engineer answered
+  /// exactly our case (voice keyboard opens its container app to record) on
+  /// developer.apple.com/forums/thread/812091 (Jan 2026):
+  ///  • ALLOWED: App Review 4.4.1's "keyboards must not launch other apps"
+  ///    explicitly EXCLUDES the containing app.
+  ///  • MECHANISM: walk the responder chain for the real UIApplication object
+  ///    (`as? UIApplication` — NOT "first thing that answers responds(to:)")
+  ///    and call the modern open(_:options:completionHandler:) ON IT, which
+  ///    reports genuine success/failure via its completion handler.
+  ///  • iOS 26: this REQUIRES "Allow Full Access" — without it, iOS logs
+  ///    "unable to make sandbox extension: 2" and refuses the open.
+  ///
+  /// Post-mortems this design absorbs:
+  ///  • The crash build fired the modern selector's IMP at the FIRST responder
+  ///    that merely CLAIMED responds(to:) — an internal proxy with a
+  ///    mismatched ABI — and passed Swift structs through a C function
+  ///    pointer. Typed method call on the genuine UIApplication fixes both.
+  ///  • The extensionContext.open-first variant deferred the fallback behind
+  ///    an async completion, pushing it OUTSIDE the tap's user-interaction
+  ///    window (iOS only honors extension-initiated switches inside it), and
+  ///    ctx.open is refused for keyboards anyway. Everything here runs
+  ///    synchronously inside the tap.
+  ///  • Exactly ONE mechanism fires per tap — two together cancel each other
+  ///    (see the field history in openURLViaResponderChain).
+  /// The completion also carries a compact diagnostic of which path ran and
+  /// what iOS answered ("app✓ open=NO", "app✗ legacy=YES", …) so the keyboard
+  /// can display it in the field via kb.coldOpen.debugStatus.
+  private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool, String) -> Void) {
+    guard let url = url else { completion(false, "no-url"); return }
+    var depth = 0
+    var responder: UIResponder? = self
+    while let r = responder {
+      if let app = r as? UIApplication {
+        NSLog("[Tailzu][kb] cold-open: UIApplication found in chain — calling modern open.")
+        app.open(url, options: [:]) { ok in
+          NSLog("[Tailzu][kb] cold-open: modern open reported %@.", ok ? "SUCCESS" : "FAILURE")
+          DispatchQueue.main.async { completion(ok, "app✓@\(depth) open=\(ok ? "YES" : "NO")") }
+        }
+        return
+      }
+      depth += 1
+      responder = r.next
+    }
+    // No UIApplication anywhere in the chain (older iOS variants) — fall back
+    // to the untouched build-38 legacy path. Mutually exclusive with the
+    // modern call above, so no double-fire is possible.
+    NSLog("[Tailzu][kb] cold-open: no UIApplication in chain — build-38 legacy fallback.")
+    let hit = openURLViaResponderChain(url)
+    completion(hit, "app✗ legacy=\(hit ? "YES" : "NO")")
+  }
+
+  /// Clear any stuck highlight/dim so the mic never looks "greyed out & dead"
+  /// after a tap that tried (and maybe failed) to switch apps.
+  private func resetMicButtonAppearance() {
+    micButton.isHighlighted = false
+    micButton.alpha = 1
+    micButton.backgroundColor = .white
+  }
+
+  private func beginMicHandoff() {
+    guard hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      return
+    }
+    let hostBundle = parentBundleIdentifier() ?? ""
+    isHandoffActive = true
+    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    setStatus(handoff.isAppWarm
+              ? label("mic_handoff_warm", "🎙️ Speak in Tulmi — swipe back when done")
+              : label("mic_handoff_cold", "Opening Tulmi… grant mic once, then swipe back"))
+    _ = handoff.beginHandoff(hostApp: hostBundle) { [weak self] url in
+      return self?.openURLViaResponderChain(url) ?? false
+    }
+  }
+
+  private func cancelHandoff() {
+    handoff.cancelPending()
+    isHandoffActive = false
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
+    setStatus("")
+  }
+
+  /// Best-effort "open a URL from a keyboard extension." Apple doesn't provide
+  /// a first-class API, so we walk the responder chain for something that can
+  /// open a URL. The OLD version cast each responder `as? UIApplication` — but
+  /// that class almost never appears in a keyboard extension's responder chain,
+  /// so it returned false and the app didn't open (the "works sometimes" bug).
+  /// Match by CAPABILITY instead: any responder that RESPONDS to `openURL:`
+  /// (UIApplication does) — the trick shipping keyboards (Gboard, Grammarly)
+  /// actually use, and it hits far more often. Still best-effort: iOS can refuse
+  /// it, which is why we ALWAYS leave the App-Group tombstone so the user
+  /// opening the app by hand still arms Flow.
+  @discardableResult
+  private func openURLViaResponderChain(_ url: URL) -> Bool {
+    // Walk the ENTIRE responder chain and call openURL: on EVERY responder that
+    // services it — build 38's mechanism, made more reliable. Build 38 stopped
+    // at the FIRST responder that answered, which is often NOT the real
+    // UIApplication, so it opened only "sometimes". Hitting every responder that
+    // answers guarantees the real opener (UIApplication) is reached — the
+    // "sometimes → reliably" difference. Requires "Allow Full Access" ON.
+    //
+    // TWO deliberate choices, both learned the hard way:
+    //  • Match by CAPABILITY (responds(to:)), NOT `as? UIApplication`. That cast
+    //    almost never matches in a keyboard extension's responder chain, so it
+    //    returns false and the app never opens.
+    //  • Invoke via perform(), NOT a direct app.open(_:options:completionHandler:).
+    //    open() is NS_EXTENSION_UNAVAILABLE, so a direct call FAILS the real
+    //    app-extension build — even though the CI's plain `swiftc -typecheck`
+    //    (no -application-extension) lets it pass. perform() bypasses that at
+    //    runtime and is how shipping keyboards do it.
+    // FIELD HISTORY — read before touching this function again:
+    //  • build 38: this exact form (legacy openURL:, FIRST responder match,
+    //    stop) → opened the app on a cold tap MOST of the time, never crashed.
+    //  • walk-every-responder variant → NEVER opened (a second invocation
+    //    cancels the switch the first started).
+    //  • modern openURL:options:completionHandler: via a runtime IMP cast →
+    //    CRASHED the extension on invocation (tap → iOS swaps in the native
+    //    keyboard). An extension crash is strictly worse than a refused open.
+    // This is the stable ceiling for the unsupported cold-open trick; the
+    // App-Group tombstone (written before this is called) remains the
+    // guaranteed path, and warm-keeping makes cold taps rare.
+    let sel = NSSelectorFromString("openURL:")
+    var responder: UIResponder? = self
+    while let r = responder {
+      if r.responds(to: sel) {
+        _ = r.perform(sel, with: url)
+        return true
+      }
+      responder = r.next
+    }
+    return false
+  }
+
+  /// The bundle identifier of the host app (the app the keyboard is inside).
+  /// Best-effort — some fields are only readable in specific iOS versions.
+  private func parentBundleIdentifier() -> String? {
+    // NSExtensionContext exposes hostAppBundleID on some iOS versions only.
+    // Fall back to the process name so we always send SOMETHING.
+    return Bundle.main.object(forInfoDictionaryKey: "NSExtensionHostBundleID") as? String
+      ?? ProcessInfo.processInfo.processName
   }
 
   // MARK: - Live (streaming) dictation
 
   private func startStreaming() {
+    // Re-entry guard: ignore a second start while one is already in flight or
+    // running. requestRecordPermission is async, so without this a double-tap
+    // spawns a second TulmiStream that orphans the first's engine/tap/socket.
+    guard !isStreaming, !isStartingStream else { return }
+    // Full Access is required for network AND mic in a keyboard extension.
+    // Without it, requestRecordPermission returns false with no explanation,
+    // so we check first and route the user to Settings with a clear message.
+    guard self.hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      return
+    }
+    isStartingStream = true
     AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
+        self.isStartingStream = false
         guard granted else {
-          self.setStatus("Open the Tulmi app once to allow microphone access.")
+          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."), actionable: true)
           return
         }
         self.beginStreaming()
@@ -664,26 +1521,64 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     dictatedSomething = false
     isStreaming = true
     micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-    setStatus(label("listening", "🎙️ Listening…"))
+    setStatus("")  // transient — mic button animation is the visible cue
+    sduiRenderer?.reflectDictating(true)
     let s = TulmiStream { [weak self] event in
       DispatchQueue.main.async { self?.handleStreamEvent(event) }
     }
     stream = s
-    s.start(targetApp: "Generic", language: "auto")
+    // Backend flags: kb.dictation.targetApp (default "Generic"), kb.dictation.language (default "auto")
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // Flag override takes precedence (lets backend force a specific language
+    // for debugging / A/B tests); otherwise use the user's chosen language
+    // from the shared App Group. Empty falls through to "auto" so the STT
+    // provider does language detection + code-switch handling on its own.
+    let lang = (kbConfig?.flags["kb.dictation.language"] as? String) ?? TulmiBackend.language
+    s.start(targetApp: targetApp, language: lang)
   }
 
   private func handleStreamEvent(_ event: TulmiStream.Event) {
     switch event {
     case .ready:
-      setStatus(label("listening", "🎙️ Listening…"))
+      setStatus("")  // transient — mic button animation is the visible cue
     case .partial(let text):
-      replacePartial(with: text)
+      // Same backend-tuned rule as Flow: only paint interim words live when
+      // kb.mic.liveText is on; otherwise wait for the final (after-stop).
+      if micLiveText { replacePartial(with: text) }
     case .finalText(let text):
       commitFinal(text)
     case .error(let msg):
-      setStatus("Error: \(msg)")
+      // A 401/unauthorized means the shared token expired. Batch would fail the
+      // same way, so DON'T silently fall back to it — tell the user to reopen
+      // the app once, which re-shares a fresh token on foreground.
+      let lower = msg.lowercased()
+      if lower.contains("unauthorized") || lower.contains("invalid or missing token") {
+        endStreaming()
+        setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable: true)
+        return
+      }
+      // The WebSocket dropped BEFORE we committed a word. The OLD behavior fell
+      // back to in-extension batch recording — but iOS blocks the microphone
+      // inside a keyboard extension, so that recorder captures nothing. Rather
+      // than a dead silent fallback, end cleanly and point the user at the main
+      // app (which CAN hold the mic). Once a partial has landed we instead keep
+      // that text and surface the generic error below.
+      if !dictatedSomething && pendingPartial.isEmpty {
+        endStreaming()
+        setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable: true)
+        return
+      }
+      setStatus(label("voice_not_listening", "444 : Not Listening"))
       endStreaming()
     case .closed:
+      // A partial may still be sitting in the field that never got its
+      // finalizing "final" (socket closed right after the last partial). It's
+      // real dictated text already at the cursor — treat it as committed so the
+      // tail isn't dropped and refine still runs over it.
+      if !pendingPartial.isEmpty {
+        dictatedSomething = true
+        pendingPartial = ""
+      }
       endStreaming()
       if dictatedSomething && (kbConfig?.refine ?? true) { refineTapped() }
       dictatedSomething = false
@@ -695,36 +1590,122 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     proxy.insertText(text)
     pendingPartial = text
+    // Dictation rewrote the tail — the renderer's typed-word tracker is void.
+    sduiRenderer?.resetTypingContext()
+  }
+
+  // Conversational refusal/clarification the STT/refine can emit on silence
+  // ("I didn't catch that", "say that again", "no speech detected"). The server
+  // now filters these, but this is the last line of defense: such a string must
+  // NEVER land on the typepad. Precise + length-bounded so a real short
+  // dictation is never dropped. Mirrors the backend looksLikeMeta guard.
+  private static let fillerPatterns: [NSRegularExpression] = {
+    let pats = [
+      "\\bi (didn'?t|couldn'?t|can'?t|could not|did not) (catch|hear|understand|make out) (that|it|you|anything)\\b",
+      "\\bi (don'?t|didn'?t) get anything\\b",
+      "\\b(could|can) you (say (that|it) again|repeat that)\\b",
+      "\\bsay (that|it) again\\b",
+      "\\b(please )?repeat that\\b",
+      "\\bno (speech|audio|input|sound) (was )?(detected|found|received|captured)\\b",
+      "\\bnothing (was said|to transcribe|was detected|was captured)\\b",
+    ]
+    return pats.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+  }()
+
+  private func looksLikeFiller(_ text: String) -> Bool {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty, t.count <= 140 else { return false }
+    let r = NSRange(t.startIndex..., in: t)
+    return Self.fillerPatterns.contains { $0.firstMatch(in: t, options: [], range: r) != nil }
+  }
+
+  /// Remove whatever provisional partial is currently showing at the cursor.
+  private func clearPendingPartial() {
+    guard !pendingPartial.isEmpty else { return }
+    let proxy = textDocumentProxy
+    for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
+    pendingPartial = ""
   }
 
   private func commitFinal(_ text: String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Empty final = the utterance finalized to nothing (silence/noise). Never
+    // insert a bare space; and clear any provisional partial so noise can't get
+    // stranded at the cursor. (The server now sends an empty final for exactly
+    // this — a sanitized-to-nothing segment.)
+    guard !trimmed.isEmpty else { clearPendingPartial(); return }
+    // Never commit a conversational refusal to the typepad — drop it and wipe
+    // the provisional partial it was replacing.
+    guard !looksLikeFiller(trimmed) else { clearPendingPartial(); return }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
-    proxy.insertText(text.hasSuffix(" ") ? text : text + " ")
+    let inserted = text.hasSuffix(" ") ? text : text + " "
+    proxy.insertText(inserted)
+    flashKeysForText(inserted)
     pendingPartial = ""
     dictatedSomething = true
+    // The commit always ends with a trailing space → clean word boundary.
+    sduiRenderer?.resetTypingContext(tailAtBoundary: true)
+    // Track for the top-bar UNDO. Multiple finals in one session collapse to
+    // "undo the most recent final" — matches user expectation of "take back
+    // what just appeared".
+    lastInserted = inserted
+    lastRawTranscript = nil
   }
 
   private func stopStreaming() {
+    // Don't tear down yet. finish() stops the mic and asks the server to flush
+    // the speech engine's final tail + send "done" — we keep the socket AND the
+    // stream reference alive so those tail segments still land at the cursor.
+    // Teardown happens when .closed arrives (handleStreamEvent) or finish()'s
+    // watchdog fires. Tearing down here (the old behaviour) cancelled the socket
+    // before the tail arrived → truncated endings.
+    guard let s = stream else { endStreaming(); return }
     setStatus(label("transcribing", "Finishing…"))
-    stream?.finish()
-    endStreaming()
+    s.finish()
   }
 
   private func endStreaming() {
     isStreaming = false
+    // Stop mic capture + audio session on EVERY teardown path. The .error and
+    // .closed events land here WITHOUT going through finish()/cancel(), so
+    // without this the AVAudioEngine tap and audio session stay live (mic hot,
+    // other-app audio not restored) until nondeterministic dealloc — and it can
+    // race the local-record fallback that re-activates the session. cancel() is
+    // idempotent, so calling it after a graceful finish() (stopStreaming) is safe.
+    stream?.cancel()
     stream = nil
-    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
     if statusLabel.text == label("transcribing", "Finishing…") { setStatus("") }
+    sduiRenderer?.reflectDictating(false)
   }
 
   private func startRecording() {
+    // Synchronous re-entry guard (mirrors isStartingStream): a fast double-tap
+    // would otherwise clear the async requestRecordPermission twice and spawn a
+    // second AVAudioRecorder that orphans the first's mic/engine. Bail if a
+    // start is already in flight or a recording is live.
+    guard !isRecording, !isStartingRecording else { return }
+    // Every early-return path below must call bailDictating() so the SDUI
+    // mic button flips back to idle and the next tap can start again.
+    // Without this, state.dictating stays true after a bail and the second
+    // tap dispatches stopDictation into a no-op branch (isRecording=false)
+    // — that's exactly the symptom the user reported: "line-on-orange shows
+    // but nothing lands in the field and no POST hits the backend."
+    guard self.hasFullAccess else {
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      bailDictating()
+      return
+    }
+    isStartingRecording = true
     let session = AVAudioSession.sharedInstance()
     session.requestRecordPermission { [weak self] granted in
       DispatchQueue.main.async {
         guard let self = self else { return }
+        self.isStartingRecording = false
         guard granted else {
-          self.setStatus("Open the Tulmi app once to allow microphone access.")
+          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tailzu settings to allow it."), actionable: true)
+          self.bailDictating()
           return
         }
         self.beginRecording(session: session)
@@ -732,57 +1713,134 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
   }
 
+  /// Reset the SDUI dictating state so the mic button flips back to idle
+  /// after a permission/config/hardware bail. Also mirrored into the
+  /// state so any binding reading state.dictating re-evaluates.
+  private func bailDictating() {
+    sduiRenderer?.reflectDictating(false)
+  }
+
   private func beginRecording(session: AVAudioSession) {
-    do {
-      try session.setCategory(.record, mode: .default)
-      try session.setActive(true)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
+    // Backend flags:
+    //   kb.audio.sampleRate  (default 16000) — Hz
+    //   kb.audio.channels    (default 1)
+    //   kb.audio.quality     (default "high") — min/low/medium/high/max
+    // (Format is fixed AAC — changing it requires a native filename change too.)
+    let flags = kbConfig?.flags ?? [:]
+    let sr = flags["kb.audio.sampleRate"] as? Double ?? 16000
+    let ch = flags["kb.audio.channels"] as? Int ?? 1
+    let quality: AVAudioQuality = {
+      switch (flags["kb.audio.quality"] as? String ?? "high").lowercased() {
+      case "min":    return .min
+      case "low":    return .low
+      case "medium": return .medium
+      case "max":    return .max
+      default:       return .high
+      }
+    }()
+    let settings: [String: Any] = [
+      AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+      AVSampleRateKey: sr,
+      AVNumberOfChannelsKey: ch,
+      AVEncoderAudioQualityKey: quality.rawValue,
+    ]
 
-      let url = FileManager.default.temporaryDirectory.appendingPathComponent("tulmi_rec.m4a")
-      let settings: [String: Any] = [
-        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-        AVSampleRateKey: 16000,
-        AVNumberOfChannelsKey: 1,
-        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-      ]
-      let recorder = try AVAudioRecorder(url: url, settings: settings)
-      recorder.delegate = self
-      recorder.record()
-
-      audioRecorder = recorder
-      recordingURL = url
-      isRecording = true
-      micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-      setStatus(label("listening", "🎙️ Listening… tap to stop"))
-    } catch {
-      setStatus("Mic error: \(error.localizedDescription)")
-      cleanupRecorder()
+    // Configure the session for the given category/mode and actually START a
+    // recorder. Returns the LIVE recorder, or nil if the route didn't come up
+    // so the caller can retry with a plainer category.
+    //
+    // Key point: inside a keyboard extension a category can be ACCEPTED (no
+    // throw) yet still fail to provision a mic input — so `record() == false`
+    // is a real, recoverable failure, not just a thrown error. The old code
+    // only fell back when setCategory THREW, so a non-functional .voiceChat IO
+    // dead-ended at "444 : Not Listening". We also prepareToRecord() to warm
+    // the input route (record() right after setActive can otherwise return
+    // false before the route settles).
+    func tryStart(_ category: AVAudioSession.Category, _ mode: AVAudioSession.Mode) -> AVAudioRecorder? {
+      do {
+        try session.setCategory(category, mode: mode, options: [.duckOthers])
+        try session.setActive(true)
+        let r = try AVAudioRecorder(url: url, settings: settings)
+        r.delegate = self
+        // Metering on so we can drive voice-reactive UI (mic art speed follows
+        // level, same behavior as the main app's dictation screen).
+        r.isMeteringEnabled = true
+        r.prepareToRecord()
+        if r.record() { return r }
+        r.stop()
+      } catch {
+        // fall through — the caller retries with a plainer session
+      }
+      return nil
     }
+
+    // 1) OS voice-processing (.voiceChat → AEC/NS/AGC) for clean speech in a
+    //    noisy room. 2) If that route won't come up in the extension, reset the
+    //    session and retry with a plain capture session.
+    var recorder = tryStart(.playAndRecord, .voiceChat)
+    if recorder == nil {
+      try? session.setActive(false)
+      recorder = tryStart(.record, .default)
+    }
+    guard let live = recorder else {
+      // Both routes failed — the extension couldn't provision a mic input
+      // (record() == false). In a keyboard this almost always means "Allow
+      // Full Access" is OFF (or the host app revoked it). Surface a clear,
+      // actionable message rather than a cryptic code or silent dead mic.
+      NSLog("[Tailzu][kb] beginRecording: both audio routes failed (record()==false) — likely Full Access off / host blocked mic")
+      setStatus(
+        label("mic_unavailable", "Couldn’t start the mic. Turn on “Allow Full Access” in Settings › General › Keyboard › Keyboards › Tailzu."),
+        actionable: true,
+      )
+      cleanupRecorder()
+      bailDictating()
+      return
+    }
+
+    audioRecorder = live
+    recordingURL = url
+    isRecording = true
+    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    setStatus("")  // transient — mic button animation is the visible cue
+    sduiRenderer?.reflectDictating(true)
   }
 
   private func stopAndTranscribe() {
     isRecording = false
-    micButton.setImage(brandMarkImage(), for: .normal)
+    micButton.setImage(brandMarkImage(), for: .normal); micButton.imageView?.startAnimating()
+    sduiRenderer?.reflectDictating(false)
     audioRecorder?.stop()
     try? AVAudioSession.sharedInstance().setActive(false)
 
     guard let url = recordingURL,
           FileManager.default.fileExists(atPath: url.path) else {
-      setStatus("No audio captured.")
+      setStatus(label("voice_not_listening", "444 : Not Listening"))
       cleanupRecorder()
       return
     }
-    setStatus(label("transcribing", "Transcribing…"))
+    setStatus("")  // transient — refined text will land in the field
     let fileURL = url
 
-    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: "Generic") { [weak self] result in
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
         case .success(let cleaned):
-          self.textDocumentProxy.insertText(cleaned)
-          self.setStatus("")
-        case .failure(let err):
-          self.setStatus("Error: \(err.localizedDescription)")
+          // Drop a conversational refusal to nothing rather than typing it into
+          // the field — same last-line-of-defense guard as the streaming path.
+          if self.looksLikeFiller(cleaned) {
+            self.setStatus("")
+          } else {
+            self.textDocumentProxy.insertText(cleaned)
+            self.flashKeysForText(cleaned)
+            self.lastInserted = cleaned
+            self.lastRawTranscript = nil
+            self.setStatus("")
+          }
+        case .failure(let error):
+          self.setStatus(self.statusForBackendError(error), actionable: true)
         }
         self.cleanupRecorder()
       }
@@ -794,6 +1852,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     recordingURL = nil
   }
 
+  /// Map a backend error to a user-facing status. A 401 means the token the
+  /// main app shared into the Keychain has expired — the keyboard can't refresh
+  /// a Supabase session itself, so the fix is to open the app once (which
+  /// re-shares a fresh token on foreground). Everything else is the generic
+  /// "backend unavailable" copy.
+  private func statusForBackendError(_ error: Error) -> String {
+    if case TulmiBackend.BackendError.http(let code, _) = error, code == 401 {
+      return label("auth_expired", "Open Tailzu once to sign in again")
+    }
+    return "" // generic backend hiccup is cosmetic — suppress (no 222 code)
+  }
+
   // MARK: - Refine
 
   @objc private func refineTapped() {
@@ -802,21 +1872,39 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let after = proxy.documentContextAfterInput ?? ""
     let full = (before + after).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !full.isEmpty else {
-      setStatus("Type something first, then tap ✨")
+      // Nothing to refine — do NOT print instructions onto the typepad. Just a
+      // tiny haptic nudge so the tap isn't silent, and bail.
+      if hasFullAccess { selectionHaptic.selectionChanged() }
       return
     }
-    setStatus(label("refining", "Refining…"))
+    setStatus("")  // transient — refined text will land in the field
+    KeyboardTelemetry.bump(.refineRequested)
+    sduiRenderer?.reflectRefining(true)
 
-    TulmiBackend.refine(text: full, targetApp: "Generic") { [weak self] result in
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // The tone the user picked on the keyboard's pill (tone ID, App Group) —
+    // sent explicitly so refine matches the pill even before the keyboard's
+    // fire-and-forget PUT /v1/personality save has landed server-side.
+    let pickedTone = UserDefaults(suiteName: TulmiFlow.appGroup)?.string(forKey: "tulmi.kb.tone")
+    TulmiBackend.refine(text: full, targetApp: targetApp, tone: pickedTone) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
         case .success(let refined):
-          self.replaceFieldText(before: before, after: after, with: refined)
-          self.setStatus("")
-        case .failure(let err):
-          self.setStatus("Error: \(err.localizedDescription)")
+          // If refine came back as a conversational refusal, DON'T apply it —
+          // replacing would wipe the user's field text with the refusal. Leave
+          // the original text untouched (drop the bad refine to nothing).
+          if self.looksLikeFiller(refined) {
+            self.setStatus("")
+          } else {
+            self.replaceFieldText(before: before, after: after, with: refined)
+            self.setStatus("")
+          }
+        case .failure(let error):
+          KeyboardTelemetry.bump(.refineFailed)
+          self.setStatus(self.statusForBackendError(error), actionable: true)
         }
+        self.sduiRenderer?.reflectRefining(false)
       }
     }
   }
@@ -826,13 +1914,97 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     proxy.adjustTextPosition(byCharacterOffset: after.count)
     for _ in 0..<(before.count + after.count) { proxy.deleteBackward() }
     proxy.insertText(newText)
+    flashKeysForText(newText)
+    // Track for UNDO: keep the pre-refine text as "raw" so a single undo tap
+    // reverts refine back to what the user originally had.
+    lastInserted = newText
+    lastRawTranscript = before + after
+  }
+
+  // MARK: - Key flash on response arrival
+
+  /// Fired whenever a refined / transcribed response lands at the cursor.
+  /// Runs a staggered orange flash across the keys that spell out the
+  /// arriving text — a visible "the keyboard just typed that" signal that
+  /// echoes the response in the physical space the user is looking at
+  /// (the keys), not the text field (which is in another app entirely).
+  ///
+  /// Backend flags (all optional, sensible defaults baked in):
+  ///   kb.flash.color            — hex accent (default = the keyboard's
+  ///                                accent color)
+  ///   kb.flash.durationMs       — how long each key stays orange
+  ///                                (default 260ms)
+  ///   kb.flash.staggerMs        — delay between successive letters
+  ///                                (default 32ms — feels like ~30wpm)
+  ///   kb.flash.enabled          — false → no-op the whole feature
+  private func flashKeysForText(_ text: String) {
+    let flags = kbConfig?.flags ?? [:]
+    if (flags["kb.flash.enabled"] as? Bool) == false { return }
+
+    let colorHex = flags["kb.flash.color"] as? String ?? kbConfig?.accent ?? "#E8A23C"
+    let flashColor = UIColor(tulmiHex: colorHex)
+    let durationMs = flags["kb.flash.durationMs"] as? Double ?? 260
+    let staggerMs = flags["kb.flash.staggerMs"] as? Double ?? 32
+    let duration = durationMs / 1000.0
+    let stagger = staggerMs / 1000.0
+
+    // Cap at a reasonable length so a paragraph-long refine doesn't queue
+    // 500 animations — the eye reads "typing wave" in the first ~30 keys.
+    let charLimit = 40
+    let chars = Array(text.lowercased().prefix(charLimit))
+
+    for (i, ch) in chars.enumerated() {
+      let delay = Double(i) * stagger
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        self?.flashKey(matching: ch, color: flashColor, duration: duration)
+      }
+    }
+  }
+
+  /// Locate the on-screen key that would insert `char` and briefly tint it.
+  /// Space is the space bar; letters map by title; unknown chars are ignored
+  /// (they'd need a page switch to be visible; the flash still adds up on
+  /// letters even if a few chars miss).
+  private func flashKey(matching char: Character, color: UIColor, duration: TimeInterval) {
+    let target: UIButton?
+
+    if char == " " {
+      // Space is one of the persistent bottom-row buttons.
+      target = bottomKeys.first(where: { $0.currentTitle == " " || $0.titleLabel?.text?.trimmingCharacters(in: .whitespaces).isEmpty == true })
+    } else {
+      // Letters: match by button title (case-insensitive, ignoring shift state).
+      let want = String(char)
+      target = allKeys.first { btn in
+        (btn.currentTitle ?? "").lowercased() == want
+      }
+    }
+
+    guard let btn = target else { return }
+    let restore = btn.backgroundColor ?? .clear
+    UIView.animate(withDuration: 0.08, animations: {
+      btn.backgroundColor = color
+    }, completion: { _ in
+      UIView.animate(withDuration: duration - 0.08, delay: 0, options: [.curveEaseOut], animations: {
+        btn.backgroundColor = restore
+      })
+    })
   }
 
   // MARK: - Status
 
-  private func setStatus(_ text: String) {
-    statusLabel.text = text
-    statusLabel.isHidden = text.isEmpty
+  private func setStatus(_ text: String, actionable: Bool = false) {
+    // ALWAYS log to the device console (Console.app / Xcode) — even when the
+    // banner is suppressed — so a mic that bails is DIAGNOSABLE. Suppressing
+    // every on-screen string made all failures invisible; this keeps the trail.
+    if !text.isEmpty { NSLog("[Tailzu][kb] status: %@", text) }
+    // Cosmetic/transient chatter stays hidden — the mic animation is the cue:
+    // the 444/222 codes, "Listening…", "Finishing…". But ACTIONABLE guidance
+    // (Enable Full Access, mic denied, open the app to sign in) MUST show, or a
+    // blocked mic looks completely dead with no way to recover.
+    let show = actionable && !text.isEmpty
+    statusLabel.text = show ? text : ""
+    statusLabel.isHidden = !show
+    sduiRenderer?.reflectStatus(show ? text : "")
   }
 
   override func textWillChange(_ textInput: UITextInput?) {}
@@ -840,6 +2012,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Stop any in-flight recording / timers if the keyboard goes away.
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    // The extension can be killed the moment it's dismissed, so write the tail
+    // of this session's counters now instead of waiting for the throttle.
+    KeyboardTelemetry.flushToDisk()
     deleteTimer?.invalidate()
     deleteTimer = nil
     if isRecording {
@@ -847,13 +2022,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       audioRecorder?.stop()
       try? AVAudioSession.sharedInstance().setActive(false)
       cleanupRecorder()
+      bailDictating()   // flip the SDUI mic button back to idle
       setStatus("")
     }
     if isStreaming {
       stream?.cancel()
-      endStreaming()
+      endStreaming()    // already resets the SDUI dictating state
       setStatus("")
     }
+    // Flow / handoff can also be mid-flight when the keyboard is dismissed. Reset
+    // their state + UI so the mic button doesn't reappear stuck in "recording" on
+    // the next appearance.
+    if flowRecording {
+      flowRecording = false
+      pendingPartial = ""
+    }
+    isHandoffActive = false
+    sduiRenderer?.reflectDictating(false)
   }
 }
 
@@ -867,20 +2052,138 @@ extension UIColor {
     return (0.299 * r + 0.587 * g + 0.114 * b) > 0.6
   }
 
-  /// Parse "#rrggbb" (server theme tokens) into a UIColor; falls back to gray.
+  /// Parse "#rrggbb" or "#rrggbbaa" (server theme tokens) into a UIColor.
+  /// 8-char adds the trailing alpha byte (0-255). Falls back to gray on
+  /// anything else — the SDUI schema uses hex strings throughout.
   convenience init(tulmiHex hex: String) {
     var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
     if s.hasPrefix("#") { s.removeFirst() }
     var rgb: UInt64 = 0
-    guard s.count == 6, Scanner(string: s).scanHexInt64(&rgb) else {
-      self.init(white: 0.15, alpha: 1)
+    if s.count == 6, Scanner(string: s).scanHexInt64(&rgb) {
+      self.init(
+        red: CGFloat((rgb & 0xFF0000) >> 16) / 255.0,
+        green: CGFloat((rgb & 0x00FF00) >> 8) / 255.0,
+        blue: CGFloat(rgb & 0x0000FF) / 255.0,
+        alpha: 1
+      )
       return
     }
-    self.init(
-      red: CGFloat((rgb & 0xFF0000) >> 16) / 255.0,
-      green: CGFloat((rgb & 0x00FF00) >> 8) / 255.0,
-      blue: CGFloat(rgb & 0x0000FF) / 255.0,
-      alpha: 1
-    )
+    if s.count == 8, Scanner(string: s).scanHexInt64(&rgb) {
+      self.init(
+        red: CGFloat((rgb & 0xFF000000) >> 24) / 255.0,
+        green: CGFloat((rgb & 0x00FF0000) >> 16) / 255.0,
+        blue: CGFloat((rgb & 0x0000FF00) >> 8) / 255.0,
+        alpha: CGFloat(rgb & 0x000000FF) / 255.0
+      )
+      return
+    }
+    self.init(white: 0.15, alpha: 1)
+  }
+}
+
+// MARK: - SDUI host bridge
+
+/// UIInputViewAudioFeedback conformance — required for playInputClick() to
+/// actually play the system click. Returning true whenever Full Access is on
+/// lets Apple respect the user's "Keyboard Feedback → Sound" toggle. When
+/// Full Access is off, the sound API silently no-ops anyway.
+extension KeyboardViewController: UIInputViewAudioFeedback {
+  var enableInputClicksWhenVisible: Bool { hasFullAccess }
+}
+
+/// The renderer holds `self` weakly and calls into these host hooks so that
+/// dictation / refine / text-proxy semantics stay in the existing code path.
+extension KeyboardViewController: KBHostControllerProtocol {
+  var hostTextDocumentProxy: UITextDocumentProxy { textDocumentProxy }
+  var hostHasFullAccess: Bool { hasFullAccess }
+  var hostExtensionContext: NSExtensionContext? { extensionContext }
+
+  func hostLabel(_ key: String, _ fallback: String) -> String { label(key, fallback) }
+
+  func hostStartDictation() {
+    // Route through the same entry point the mic button uses so the streaming
+    // vs file-based branch is chosen from cfg.liveVoice.
+    if !isStreaming && !isRecording {
+      micTapped()
+    }
+  }
+  func hostStopDictation() {
+    // Symmetric with the mode dispatch in micTapped(): stop whichever mic path
+    // is actually live. Flow + handoff were missing, so a stop tap in those
+    // modes fell through to the "not listening" branch and could never end the
+    // session (Flow in particular could not be stopped at all).
+    if flowRecording { stopFlowDictation() }
+    else if isHandoffActive { cancelHandoff() }
+    else if isStreaming { stopStreaming() }
+    else if isRecording { stopAndTranscribe() }
+    else {
+      // Neither flag is set — startRecording bailed silently before
+      // isRecording could flip true (Full Access off / mic permission
+      // denied / AVAudioSession threw). The SDUI mic button was flipped
+      // optimistically to state.dictating=true on tap 1, so we MUST reset
+      // it here or the icon stays as "recording" forever. Also surface a
+      // status so the user knows what happened.
+      NSLog("[Tailzu] hostStopDictation: neither streaming nor recording — resetting SDUI dictating state.")
+      sduiRenderer?.reflectDictating(false)
+      if statusLabel.text?.isEmpty ?? true {
+        setStatus(label("voice_not_listening", "444 : Not Listening"))
+      }
+    }
+  }
+  func hostRunRefine() { refineTapped() }
+  func hostAdvanceInputMode() { advanceToNextInputMode() }
+  func hostPresent(_ vc: UIViewController) {
+    present(vc, animated: true, completion: nil)
+  }
+
+  /// The current field's autocap trait, read via the text-input traits on the
+  /// text document proxy. Defaults to `.sentences` (Apple's default) when the
+  /// proxy doesn't expose the trait.
+  func hostAutocapitalizationType() -> UITextAutocapitalizationType {
+    (textDocumentProxy as? UITextInputTraits)?.autocapitalizationType ?? .sentences
+  }
+
+  /// The current field's returnKeyType. Same lookup path — mirrors what
+  /// Apple's system keyboard reads to render "Go / Send / Search / Done…"
+  /// with the system-blue accent on action keys.
+  func hostReturnKeyType() -> UIReturnKeyType {
+    (textDocumentProxy as? UITextInputTraits)?.returnKeyType ?? .default
+  }
+
+  /// The current field's autocorrection trait — the renderer keeps autocorrect
+  /// and suggestion chips out of fields that opt out (URL, email, code).
+  func hostAutocorrectionType() -> UITextAutocorrectionType {
+    (textDocumentProxy as? UITextInputTraits)?.autocorrectionType ?? .default
+  }
+
+  /// Word-boundary text expansion: the user's Tailzu dictionary first (their
+  /// explicit triggers always win), then the iOS supplementary lexicon
+  /// (contacts, system text replacements).
+  func hostExpansion(for word: String) -> String? {
+    let key = word.lowercased()
+    return expansions[key] ?? lexiconExpansions[key]
+  }
+
+  /// Whether the OS wants a next-keyboard switch key visible. This is true iff
+  /// the user has more than one keyboard installed — the same flag native iOS
+  /// checks before rendering the language code on space.
+  func hostNeedsInputModeSwitchKey() -> Bool { needsInputModeSwitchKey }
+
+  /// The two-letter primary language code (uppercased) of the currently active
+  /// input mode — matches what native iOS labels its space bar with when
+  /// multiple keyboards are enabled. Falls back to the device locale.
+  func hostPrimaryLanguageCode() -> String {
+    // primaryLanguage returns "en-US"-style; take the language part and upper-case.
+    // Locale.current.language is iOS 16+, but the keyboard deploys to iOS 15.1,
+    // so fall back to the (deprecated but 15-safe) languageCode there.
+    let localeLang: String?
+    if #available(iOS 16.0, *) {
+      localeLang = Locale.current.language.languageCode?.identifier
+    } else {
+      localeLang = Locale.current.languageCode
+    }
+    let raw = textInputMode?.primaryLanguage ?? localeLang
+    guard let head = raw?.split(separator: "-").first, !head.isEmpty else { return "EN" }
+    return head.uppercased()
   }
 }

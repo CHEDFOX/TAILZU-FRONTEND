@@ -1,16 +1,22 @@
 /**
  * SDUI transport. Talks to the Experience service (/v1/app/*) with the same
- * base URL + dev auth as src/api.ts.
+ * base URL + Supabase auth as src/api.ts.
  */
-import { Platform } from "react-native";
+import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
+import * as Localization from "expo-localization";
 import { getBaseUrl, getLanguage } from "../storage";
-import { getAccessToken } from "../auth/auth";
-import type { BootstrapResponse, ScreenResponse } from "./types";
+import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
+import type {
+  BootstrapResponse,
+  ScreenResponse,
+  BootstrapRequest,
+  ScreenRequest,
+} from "./types";
+import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
 
 export const APP_VERSION = "1.0.0";
-const SDUI_SCHEMA_VERSION = 1;
 
 /**
  * Share the current backend URL + the user's token with the native keyboard
@@ -48,14 +54,41 @@ async function commonHeaders(): Promise<Record<string, string>> {
 }
 
 export function buildCapabilities() {
+  const { width, height } = Dimensions.get("window");
+  const colorScheme: "light" | "dark" = Appearance.getColorScheme() === "dark" ? "dark" : "light";
+  const locale = Localization.getLocales?.()[0]?.languageTag ?? "en-US";
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
-    platform: Platform.OS === "ios" ? "ios" : "android",
+    platform: (Platform.OS === "ios" ? "ios" : "android") as "ios" | "android",
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
+    device: {
+      width: Math.round(width),
+      height: Math.round(height),
+      scale: PixelRatio.get(),
+      colorScheme,
+      locale,
+      // The renderer disables non-essential motion when the OS asks (a11y).
+      // We don't currently plumb AccessibilityInfo through this synchronous
+      // capability builder; the server-side default is "assume off".
+      reduceMotion: false,
+      rtl: I18nManager.isRTL,
+    },
   };
+}
+
+/**
+ * Retryable-error tag. 429 (rate-limited) and 5xx (transient backend errors)
+ * are worth retrying; 4xx client errors are not. Kept as a class so
+ * `withRetry` can type-check the branch without brittle string parsing.
+ */
+class RetryableFetchError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "RetryableFetchError";
+  }
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -65,20 +98,57 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  if (!res.ok) {
+    // 429 (rate-limit) and 5xx (server) → let `withRetry` back off and try
+    // again; other 4xx are permanent (bad screen id, unauthorized) — throw a
+    // plain Error and stop.
+    if (res.status === 429 || res.status >= 500) {
+      throw new RetryableFetchError(res.status, `${path} → ${res.status}`);
+    }
+    throw new Error(`${path} → ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
+/**
+ * Retry-with-backoff for transient failures (429 / 5xx / network). Exponential:
+ * ~200 ms, 400 ms, 800 ms, capped at 2 s. Only retries the `RetryableFetchError`
+ * class and native network errors (TypeError from fetch); permanent 4xx errors
+ * short-circuit on the first attempt.
+ */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const retryable =
+        err instanceof RetryableFetchError || err instanceof TypeError;
+      if (!retryable || i === attempts - 1) throw err;
+      const backoff = Math.min(2000, 200 * Math.pow(2, i));
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+  // TS control-flow appeaser: unreachable in practice.
+  throw lastErr;
+}
+
 export async function bootstrap(): Promise<BootstrapResponse> {
-  return post<BootstrapResponse>("/v1/app/bootstrap", { capabilities: buildCapabilities() });
+  const body: BootstrapRequest = { capabilities: buildCapabilities() };
+  return withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
 }
 
 export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
-  return post<ScreenResponse>("/v1/app/screen", {
+  const body: ScreenRequest = {
     screenId,
     params,
     capabilities: buildCapabilities(),
-  });
+    // JS getTimezoneOffset is minutes BEHIND UTC (positive west) — negate so
+    // the server receives the conventional "UTC+X in minutes" sign.
+    tzOffsetMinutes: -new Date().getTimezoneOffset(),
+  };
+  return withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
 }
 
 /**
@@ -100,12 +170,35 @@ export async function fetchAuthConfig(): Promise<{ enablePhone: boolean } | null
   }
 }
 
+/**
+ * Path-only calls to the backend. `path` MUST start with "/v1/" so a
+ * malicious/misconfigured backend response can't ever redirect this action to
+ * an arbitrary URL. The base URL is added by us, not the caller.
+ */
+function assertBackendPath(path: string): void {
+  if (typeof path !== "string" || !path.startsWith("/v1/")) {
+    throw new Error(`callEndpoint: refusing non-/v1/ path: ${path}`);
+  }
+  // Reject anything that could break out of base — schemes, protocol-relative
+  // URLs (//host), or embedded credentials.
+  if (
+    path.includes("://") ||
+    path.startsWith("//") ||
+    path.includes("@") ||
+    path.includes("\r") ||
+    path.includes("\n")
+  ) {
+    throw new Error(`callEndpoint: unsafe path: ${path}`);
+  }
+}
+
 /** Generic call used by the `callEndpoint` action. */
 export async function callEndpoint(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<any> {
+  assertBackendPath(path);
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
     method,

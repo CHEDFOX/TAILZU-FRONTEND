@@ -58,6 +58,17 @@ private final class Streamer: NSObject {
   )!
   private var tapInstalled = false
 
+  /// Guards the object refs the realtime audio tap reads (task/converter) while
+  /// the main thread frees them — reading an object reference mid-write is
+  /// undefined in Swift and can over-release → use-after-free. Same pattern as
+  /// FlowSessionManager; the tap holds it only for a two-pointer snapshot.
+  private let avLock = NSLock()
+  private func captureAV() -> (AVAudioConverter?, URLSessionWebSocketTask?) {
+    avLock.lock(); defer { avLock.unlock() }; return (converter, task)
+  }
+  private func setTask(_ t: URLSessionWebSocketTask?) { avLock.lock(); task = t; avLock.unlock() }
+  private func setConverter(_ c: AVAudioConverter?) { avLock.lock(); converter = c; avLock.unlock() }
+
   init(emit: @escaping (String, [String: Any]) -> Void) {
     self.emit = emit
     super.init()
@@ -71,7 +82,7 @@ private final class Streamer: NSObject {
     var req = URLRequest(url: url)
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let task = session.webSocketTask(with: req)
-    self.task = task
+    setTask(task)
     task.resume()
     receiveLoop()
 
@@ -93,19 +104,24 @@ private final class Streamer: NSObject {
   }
 
   func finish() {
+    // Keep the socket open after "stop" so the engine's flushed tail + "done"
+    // still arrive (cancelling here truncated the ending). Watchdog force-closes
+    // if "done" never comes.
     stopCapture()
-    if let task = task {
-      task.send(.string("{\"type\":\"stop\"}")) { _ in
-        task.cancel(with: .normalClosure, reason: nil)
-      }
+    guard let task = task else { emit("onClosed", [:]); return }
+    task.send(.string("{\"type\":\"stop\"}")) { _ in }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+      guard let self = self, self.task != nil else { return }
+      self.task?.cancel(with: .normalClosure, reason: nil)
+      self.setTask(nil)
+      self.emit("onClosed", [:])
     }
-    task = nil
   }
 
   func cancel() {
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
-    task = nil
+    setTask(nil)
   }
 
   private func startCapture() {
@@ -119,7 +135,7 @@ private final class Streamer: NSObject {
     }
     let input = engine.inputNode
     let inputFormat = input.outputFormat(forBus: 0)
-    converter = AVAudioConverter(from: inputFormat, to: targetFormat)
+    setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
     input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)
     }
@@ -128,6 +144,8 @@ private final class Streamer: NSObject {
     do {
       try engine.start()
     } catch {
+      // Don't leak the tap + active audio session when the engine won't start.
+      stopCapture()
       emit("onError", ["message": "Mic start: \(error.localizedDescription)"])
     }
   }
@@ -142,7 +160,9 @@ private final class Streamer: NSObject {
   }
 
   private func sendBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
-    guard let converter = converter, let task = task else { return }
+    // Snapshot the object refs under the lock so main can't free them mid-use.
+    let (snapConv, snapTask) = captureAV()
+    guard let converter = snapConv, let task = snapTask else { return }
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
     guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
@@ -188,7 +208,9 @@ private final class Streamer: NSObject {
     switch type {
     case "ready": emit("onReady", [:])
     case "partial": emit("onPartial", ["text": json["text"] as? String ?? ""])
-    case "final", "done": emit("onFinal", ["text": json["text"] as? String ?? ""])
+    case "final": emit("onFinal", ["text": json["text"] as? String ?? ""])
+    // "done" is the terminal marker, not a transcript — no text to insert.
+    case "done": emit("onClosed", [:])
     case "error": emit("onError", ["message": json["message"] as? String ?? "stream error"])
     default: break
     }

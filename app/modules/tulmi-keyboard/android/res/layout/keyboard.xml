@@ -5,6 +5,46 @@
     android:orientation="vertical"
     android:background="#15151b">
 
+    <!--
+      Top bar. Mirrors the iOS Wispr-style top row: a right-aligned tone pill
+      that opens a popup with persistent tones (Casual/Neutral/Formal), an
+      Emoji On/Off toggle, and one-shot commands (Shorter/Longer/Bullet points).
+      Wired in TulmiKeyboardService.onCreateInputView.
+    -->
+    <LinearLayout
+        android:id="@+id/top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical|end"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="4dp">
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/tone_pill"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
+            android:text="Neutral"
+            android:textAllCaps="false"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:textColor="#000000"
+            android:minHeight="0dp"
+            android:minWidth="0dp"
+            android:stateListAnimator="@null" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/status"
         android:layout_width="match_parent"

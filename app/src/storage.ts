@@ -41,6 +41,14 @@ export async function getLanguage(): Promise<string | null> {
 
 export async function setLanguage(code: string): Promise<void> {
   await AsyncStorage.setItem(KEY_LANGUAGE, code);
+  // Mirror into the shared App Group so the iOS keyboard extension sees it
+  // (STT + refine both bias off this). Bridge no-ops when not available.
+  try {
+    const bridge = await import("../modules/tulmi-bridge");
+    bridge.setKeyboardLanguage(code);
+  } catch {
+    // bridge missing (Expo Go / test env) — writing to AsyncStorage is enough
+  }
 }
 
 // Name captured from the auth provider (Apple gives it only on first consent),
