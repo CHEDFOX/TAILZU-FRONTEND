@@ -1706,6 +1706,14 @@ final class KBState {
   var status: String = ""
   var micLevel: CGFloat = 0
   var suggestions: [String] = []
+  /// WHAT the chips currently mean — they are three different things, and
+  /// styling them identically misleads the user:
+  ///   "revert"     — an autocorrect ALREADY landed; the chip is the word the
+  ///                  user originally typed. Tapping it undoes the correction.
+  ///   "alternates" — the word is spelled fine but confusable ("their"); the
+  ///                  chips are other real words. None is "the" answer.
+  ///   "candidates" — ranked swipe results; the first genuinely is the best.
+  var suggestionKind: String = "candidates"
   /// Tone the tools-bar pill cycles through. Values chosen server-side via
   /// config.flags["kb.tones"] or the default set below when unset.
   var tone: String = "Neutral"
@@ -2208,7 +2216,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K15"
+  static let buildStamp = "K18"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -3658,10 +3666,29 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  /// Resolve a functional key's glyph from DATA rather than a compiled-in
+  /// constant.
+  ///
+  /// Order: the node's own `props.icon` (so a tree can style one key), then a
+  /// global flag (so the backend can restyle every keyboard at once), then the
+  /// SF Symbol we shipped with. Accepts the full icon-spec vocabulary —
+  /// { sf }, { emoji }, { url }, { asset } — so a glyph can become an emoji or
+  /// a hosted image without a rebuild, which is what "backspace looks wrong in
+  /// this locale" actually needs.
+  private func applyKeyGlyph(_ btn: UIButton, node: KBNode, flag: String, fallbackSF: String) {
+    if let spec = node.props?["icon"] ?? flagIcon(flag),
+       let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      btn.setImage(img, for: .normal)
+      btn.imageView?.contentMode = .scaleAspectFit
+      return
+    }
+    btn.setImage(UIImage(systemName: fallbackSF), for: .normal)
+  }
+
   /// Backspace — tap deletes one; long-press repeats (200ms initial then 40ms).
   private func buildBackspaceKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "delete.left"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.backspace", fallbackSF: "delete.left")
     btn.tintColor = keyTextColor()
     btn.addTarget(self, action: #selector(deleteDown), for: .touchDown)
     // .touchDragExit included: dragging off the held key must stop the
@@ -3748,7 +3775,7 @@ final class SDUIRenderer: NSObject {
   /// falls through to a `showLanguageMenu` action if `on.onLongPress` is set.
   private func buildGlobeKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "globe"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.globe", fallbackSF: "globe")
     btn.tintColor = keyTextColor()
     let action = UIAction { [weak self] _ in self?.host?.hostAdvanceInputMode() }
     btn.addAction(action, for: .touchUpInside)
@@ -3905,7 +3932,7 @@ final class SDUIRenderer: NSObject {
   /// Refine key — dispatches runRefine.
   private func buildRefineKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "sparkles"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.refine", fallbackSF: "sparkles")
     btn.tintColor = keyTextColor()
     let action = UIAction { [weak self] _ in self?.run(.inline(.runRefine)) }
     btn.addAction(action, for: .touchUpInside)
@@ -3980,21 +4007,51 @@ final class SDUIRenderer: NSObject {
     let chipFg = flagColor("kb.suggestion.chipFg", dark ? "#FFFFFFF2" : "#000000E6")
     let borderColor = flagColor("kb.suggestion.chipBorder", dark ? "#FFFFFF24" : "#00000018")
     let borderWidth = flagCGFloat("kb.suggestion.chipBorderWidth", 1)
-    // The lead chip is what a boundary press will commit — give it the brand
-    // accent so the user can see which one is "the" correction at a glance.
-    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true)
+    // Emphasis follows MEANING, not list position. Only "candidates" (ranked
+    // swipe results) have a genuine best answer worth the brand accent.
+    //   • revert     — the chip is the user's OWN word after an autocorrect
+    //                  landed. Painting "undo" in brand amber points the eye
+    //                  at rejecting the correction, which is backwards; iOS
+    //                  instead QUOTES the original, the universal "keep what
+    //                  you typed" signal. We do the same.
+    //   • alternates — confusable real words; none is "the" answer, so
+    //                  emphasizing the first would be an arbitrary claim.
+    let kind = state.suggestionKind
+    let isRevert = kind == "revert"
+    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
     let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
     let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
 
+    // The bar can also render as a plain divided row (native's three-slot
+    // strip) instead of pills — kb.suggestion.style, so the whole shape is a
+    // backend decision, not a compiled-in one.
+    let flatStyle = flagString("kb.suggestion.style", "chips").lowercased() == "flat"
+    let dividerColor = flagColor("kb.suggestion.dividerColor", dark ? "#FFFFFF24" : "#00000018")
+
     for (i, s) in state.suggestions.enumerated() {
       let isLead = leadEnabled && i == 0
+      // A divider between slots, as the system strip has. Added BEFORE the
+      // chip so it separates rather than trails.
+      if flatStyle, i > 0 {
+        let sep = UIView()
+        sep.backgroundColor = dividerColor
+        sep.translatesAutoresizingMaskIntoConstraints = false
+        sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        sep.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.suggestion.dividerHeight", 18)).isActive = true
+        row.addArrangedSubview(sep)
+      }
       let chip = UIButton(type: .system)
-      chip.setTitle(s, for: .normal)
+      // Quote a revert so it reads as "keep what you typed" rather than as
+      // another word being suggested to you.
+      chip.setTitle(isRevert ? "\u{201C}\(s)\u{201D}" : s, for: .normal)
       chip.setTitleColor(isLead ? leadFg : chipFg, for: .normal)
       chip.titleLabel?.font = .systemFont(ofSize: fontSize, weight: isLead ? .semibold : .regular)
-      chip.backgroundColor = isLead ? leadBg : chipBg
-      chip.layer.cornerRadius = chipRadius
-      if !isLead, borderWidth > 0 {
+      // Flat mode paints no surface at all — the words sit on the bar, native
+      // style. The lead still reads as the lead through weight and colour.
+      chip.backgroundColor = flatStyle ? .clear : (isLead ? leadBg : chipBg)
+      if flatStyle, isLead { chip.setTitleColor(leadBg, for: .normal) }
+      chip.layer.cornerRadius = flatStyle ? 0 : chipRadius
+      if !flatStyle, !isLead, borderWidth > 0 {
         chip.layer.borderWidth = borderWidth
         chip.layer.borderColor = borderColor.cgColor
       }
@@ -5755,6 +5812,7 @@ final class SDUIRenderer: NSObject {
     // meaningful ("4 reverts" means nothing without "out of how many").
     KeyboardTelemetry.bump(.autocorrectApplied)
     // Revert affordance: the typed original shows as a chip; tapping restores it.
+    state.suggestionKind = "revert"
     state.suggestions = [word]
     updateSuggestionBarInPlace()
   }
@@ -5775,6 +5833,7 @@ final class SDUIRenderer: NSObject {
     }
     guard let alts = parsedConfusables?[word.lowercased()], !alts.isEmpty else { return }
     lastCommittedWord = (word, boundary)
+    state.suggestionKind = "alternates"
     state.suggestions = alts.map { matchCase(of: word, to: $0) }
     updateSuggestionBarInPlace()
   }
@@ -6094,6 +6153,7 @@ final class SDUIRenderer: NSObject {
     let maxAlt = max(0, Int(flagDouble("kb.swipe.maxAlternates", 3)))
     let alts = candidates.dropFirst().prefix(maxAlt).map { matchCase(of: best, to: $0) }
     if !alts.isEmpty {
+      state.suggestionKind = "candidates"
       state.suggestions = Array(alts)
       updateSuggestionBarInPlace()
     }
