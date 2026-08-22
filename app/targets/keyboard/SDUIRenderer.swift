@@ -2216,7 +2216,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K17"
+  static let buildStamp = "K18"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -3666,10 +3666,29 @@ final class SDUIRenderer: NSObject {
     }
   }
 
+  /// Resolve a functional key's glyph from DATA rather than a compiled-in
+  /// constant.
+  ///
+  /// Order: the node's own `props.icon` (so a tree can style one key), then a
+  /// global flag (so the backend can restyle every keyboard at once), then the
+  /// SF Symbol we shipped with. Accepts the full icon-spec vocabulary —
+  /// { sf }, { emoji }, { url }, { asset } — so a glyph can become an emoji or
+  /// a hosted image without a rebuild, which is what "backspace looks wrong in
+  /// this locale" actually needs.
+  private func applyKeyGlyph(_ btn: UIButton, node: KBNode, flag: String, fallbackSF: String) {
+    if let spec = node.props?["icon"] ?? flagIcon(flag),
+       let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      btn.setImage(img, for: .normal)
+      btn.imageView?.contentMode = .scaleAspectFit
+      return
+    }
+    btn.setImage(UIImage(systemName: fallbackSF), for: .normal)
+  }
+
   /// Backspace — tap deletes one; long-press repeats (200ms initial then 40ms).
   private func buildBackspaceKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "delete.left"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.backspace", fallbackSF: "delete.left")
     btn.tintColor = keyTextColor()
     btn.addTarget(self, action: #selector(deleteDown), for: .touchDown)
     // .touchDragExit included: dragging off the held key must stop the
@@ -3756,7 +3775,7 @@ final class SDUIRenderer: NSObject {
   /// falls through to a `showLanguageMenu` action if `on.onLongPress` is set.
   private func buildGlobeKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "globe"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.globe", fallbackSF: "globe")
     btn.tintColor = keyTextColor()
     let action = UIAction { [weak self] _ in self?.host?.hostAdvanceInputMode() }
     btn.addAction(action, for: .touchUpInside)
@@ -3913,7 +3932,7 @@ final class SDUIRenderer: NSObject {
   /// Refine key — dispatches runRefine.
   private func buildRefineKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
-    btn.setImage(UIImage(systemName: "sparkles"), for: .normal)
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.refine", fallbackSF: "sparkles")
     btn.tintColor = keyTextColor()
     let action = UIAction { [weak self] _ in self?.run(.inline(.runRefine)) }
     btn.addAction(action, for: .touchUpInside)
@@ -4003,17 +4022,36 @@ final class SDUIRenderer: NSObject {
     let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
     let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
 
+    // The bar can also render as a plain divided row (native's three-slot
+    // strip) instead of pills — kb.suggestion.style, so the whole shape is a
+    // backend decision, not a compiled-in one.
+    let flatStyle = flagString("kb.suggestion.style", "chips").lowercased() == "flat"
+    let dividerColor = flagColor("kb.suggestion.dividerColor", dark ? "#FFFFFF24" : "#00000018")
+
     for (i, s) in state.suggestions.enumerated() {
       let isLead = leadEnabled && i == 0
+      // A divider between slots, as the system strip has. Added BEFORE the
+      // chip so it separates rather than trails.
+      if flatStyle, i > 0 {
+        let sep = UIView()
+        sep.backgroundColor = dividerColor
+        sep.translatesAutoresizingMaskIntoConstraints = false
+        sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        sep.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.suggestion.dividerHeight", 18)).isActive = true
+        row.addArrangedSubview(sep)
+      }
       let chip = UIButton(type: .system)
       // Quote a revert so it reads as "keep what you typed" rather than as
       // another word being suggested to you.
       chip.setTitle(isRevert ? "\u{201C}\(s)\u{201D}" : s, for: .normal)
       chip.setTitleColor(isLead ? leadFg : chipFg, for: .normal)
       chip.titleLabel?.font = .systemFont(ofSize: fontSize, weight: isLead ? .semibold : .regular)
-      chip.backgroundColor = isLead ? leadBg : chipBg
-      chip.layer.cornerRadius = chipRadius
-      if !isLead, borderWidth > 0 {
+      // Flat mode paints no surface at all — the words sit on the bar, native
+      // style. The lead still reads as the lead through weight and colour.
+      chip.backgroundColor = flatStyle ? .clear : (isLead ? leadBg : chipBg)
+      if flatStyle, isLead { chip.setTitleColor(leadBg, for: .normal) }
+      chip.layer.cornerRadius = flatStyle ? 0 : chipRadius
+      if !flatStyle, !isLead, borderWidth > 0 {
         chip.layer.borderWidth = borderWidth
         chip.layer.borderColor = borderColor.cgColor
       }
