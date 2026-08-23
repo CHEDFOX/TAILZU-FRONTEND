@@ -278,6 +278,13 @@ final class KeyPlaneView: UIView {
   private var roleFrames: [(button: UIButton, role: Role, rect: CGRect)] = []
   /// The swipe ink trail.
   private let trailLayer = CAShapeLayer()
+  /// Union of every key's ownership box — the region where a tap must ALWAYS
+  /// resolve to a key rather than falling through to nothing.
+  private var gridBand: CGRect = .zero
+  /// kb.touch.fillGaps — claim every point inside the letter grid for its
+  /// nearest key. Off restores the old behaviour where a point outside every
+  /// ownership box was simply dropped.
+  var fillGaps = true
 
   init(renderer: SDUIRenderer) {
     self.renderer = renderer
@@ -356,6 +363,16 @@ final class KeyPlaneView: UIView {
       out.append((b, ch, r, own))
     }
     frames = out
+    // The letter grid's outer band, including the row slops. Everything inside
+    // this belongs to SOME key (see keyAt's nearest-key fallback); everything
+    // outside is the tools row or the bottom row and must stay unclaimed.
+    if let first = out.first {
+      var band = first.3
+      for f in out { band = band.union(f.3) }
+      gridBand = band
+    } else {
+      gridBand = .zero
+    }
     refreshObstacleRects()
   }
 
@@ -393,8 +410,24 @@ final class KeyPlaneView: UIView {
       }
       if best == nil || score < best!.score { best = (f.button, f.char, score) }
     }
-    guard let b = best else { return nil }
-    return (b.button, b.char)
+    if let b = best { return (b.button, b.char) }
+
+    // NO ownership box claimed the point. Native has no such holes — every
+    // pixel of the letter grid belongs to a key — but ours dropped the tap
+    // entirely, which is the "tapping between keys does nothing" dead zone.
+    // Inside the grid band, fall back to the plainly nearest key. Outside it
+    // we still return nil: that's the tools row or the bottom row, and their
+    // own controls must keep receiving those touches.
+    guard fillGaps, gridBand.contains(point) else { return nil }
+    var nearest: (button: UIButton, char: String, d: CGFloat)?
+    for f in frames {
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if nearest == nil || d < nearest!.d { nearest = (f.button, f.char, d) }
+    }
+    guard let n = nearest else { return nil }
+    return (n.button, n.char)
   }
 
   /// The shift / layer key whose rect (+ its OWN hit slop) contains the
@@ -2150,6 +2183,7 @@ final class SDUIRenderer: NSObject {
         plane.trailFadeMs = flagDouble("kb.swipe.trail.fadeMs", 260)
         // K11 touch feel — the values most likely to need tuning from real
         // field use, so they're OTA-adjustable rather than baked in.
+        plane.fillGaps = flagBool("kb.touch.fillGaps", true)
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
@@ -2216,7 +2250,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K18"
+  static let buildStamp = "K19"
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
