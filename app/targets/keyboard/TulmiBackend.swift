@@ -202,6 +202,10 @@ enum TulmiBackend {
     text: String,
     targetApp: String,
     tone: String? = nil,
+    /// Text already in the field BEFORE this dictation. Sent as context so the
+    /// model can fit the new sentence to an existing draft without rewriting
+    /// it — refining the whole field would edit words the user never dictated.
+    context: String? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = URL(string: "\(baseUrl)/v1/refine") else {
@@ -225,6 +229,7 @@ enum TulmiBackend {
       "language": language,
     ]
     if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
+    if let context = context, !context.isEmpty { payload["context"] = context }
     req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
     URLSession.shared.dataTask(with: req) { data, response, error in
