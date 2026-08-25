@@ -395,6 +395,16 @@ final class FlowSessionManager: NSObject {
         self.finalizeClose(c)
       }
     case "done":
+      // The SECOND engine's reading of the same audio, when the server ran two
+      // and they disagreed (STT_LIVE_DUAL). It never goes to the cursor — the
+      // keyboard hands it to /v1/refine alongside the streamed transcript so
+      // the two get reconciled into one sentence. Without relaying it here the
+      // shadow engine's work is computed and then thrown away, and the refine
+      // call has only one reading to work from.
+      if let alt = (json["alternative"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !alt.isEmpty {
+        store?.set(alt, forKey: "tulmi.flow.alternative")
+      }
       // Clean terminal marker — close now if we were draining after a stop.
       DispatchQueue.main.async { [weak self] in
         guard let self = self, let c = self.pendingClose else { return }

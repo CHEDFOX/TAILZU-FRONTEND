@@ -206,6 +206,11 @@ enum TulmiBackend {
     /// model can fit the new sentence to an existing draft without rewriting
     /// it — refining the whole field would edit words the user never dictated.
     context: String? = nil,
+    /// A SECOND speech engine's reading of the same audio, when the server ran
+    /// two and they disagreed. The endpoint reconciles the pair rather than
+    /// picking one — each engine fails in different places, so together they
+    /// can reconstruct a sentence neither got fully right.
+    alternative: String? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = URL(string: "\(baseUrl)/v1/refine") else {
@@ -230,6 +235,7 @@ enum TulmiBackend {
     ]
     if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
     if let context = context, !context.isEmpty { payload["context"] = context }
+    if let alternative = alternative, !alternative.isEmpty { payload["alternative"] = alternative }
     req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
     URLSession.shared.dataTask(with: req) { data, response, error in

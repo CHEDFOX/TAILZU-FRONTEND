@@ -1329,9 +1329,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     KeyboardTelemetry.bump(.refineRequested)
     sduiRenderer?.reflectRefining(true)
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
-    let pickedTone = UserDefaults(suiteName: TulmiFlow.appGroup)?.string(forKey: "tulmi.kb.tone")
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    let pickedTone = ud?.string(forKey: "tulmi.kb.tone")
+    // The shadow engine's reading, relayed by the app when the server ran two
+    // engines and they disagreed. Consumed once — a stale alternative from an
+    // earlier utterance must never be reconciled into this one.
+    let alternative = ud?.string(forKey: "tulmi.flow.alternative")
+    ud?.removeObject(forKey: "tulmi.flow.alternative")
     TulmiBackend.refine(text: spoken, targetApp: targetApp, tone: pickedTone,
-                        context: priorText.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                        context: priorText.trimmingCharacters(in: .whitespacesAndNewlines),
+                        alternative: alternative) {
       [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
