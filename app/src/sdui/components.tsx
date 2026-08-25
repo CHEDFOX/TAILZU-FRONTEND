@@ -783,12 +783,13 @@ const styles_dots = {
 import { REGISTRY_V3 } from "./componentsV3";
 import { Slideshow } from "./Slideshow";
 import { ParticleMark } from "./ParticleMark";
+import { BinaryReveal } from "./BinaryReveal";
 
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
-  DictionaryEditor, WordChips, Slideshow, ParticleMark,
+  DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
   ...REGISTRY_V3,
 };
