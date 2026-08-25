@@ -531,7 +531,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
     // Personality chip row — populated from the pinned presets on the
     // config. Backend passes them in the `flags` bag as
-    // kb.personality.pinned (array of { id, name, emoji, tone }).
+    // kb.personality.pinned (array of { id, name, tone }).
     populatePersonalityRow(from: cfg, accent: accentColor)
   }
 
@@ -549,7 +549,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       return TulmiPersonalityRow.ChipData(
         id: id,
         name: (m["name"] as? String) ?? id.capitalized,
-        emoji: (m["emoji"] as? String) ?? "•",
         tone: (m["tone"] as? String) ?? "casual",
       )
     }
