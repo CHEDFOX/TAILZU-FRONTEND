@@ -94,11 +94,26 @@ export default function SduiApp() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [showConnection, setShowConnection] = useState(false);
   const [updateDismissed, setUpdateDismissed] = useState(false);
-  // Whether the post-onboarding name + gender card is done (loaded from storage;
-  // default true so it never flashes before we know).
+  // Whether the post-onboarding name + gender card is done. Default true so it
+  // never flashes before we know.
+  //
+  // The SERVER is the authority (bootstrap flag profile.complete): the card's
+  // answers live on the account, so a reinstall or a second device doesn't ask
+  // again. Device storage is only the offline fallback, and only ever to
+  // SUPPRESS the card — a local "not done" must not override a server that says
+  // this user already answered.
   const [profileDone, setProfileDoneState] = useState(true);
 
-  useEffect(() => { getProfileDone().then(setProfileDoneState).catch(() => {}); }, []);
+  // Set the moment the user finishes the card, so a bootstrap refresh that
+  // still carries the pre-save answer can't put it back in front of them.
+  const profileJustDone = useRef(false);
+
+  useEffect(() => {
+    if (profileJustDone.current) return;
+    const serverSaysComplete = boot?.flags?.["profile.complete"];
+    if (typeof serverSaysComplete === "boolean") { setProfileDoneState(serverSaysComplete); return; }
+    getProfileDone().then((done) => { if (done) setProfileDoneState(true); }).catch(() => {});
+  }, [boot]);
 
   // A deep-link / push-notification screen target that arrived DURING cold boot,
   // before loadBoot committed the first stack. Stashed here and applied once we
@@ -712,7 +727,7 @@ export default function SduiApp() {
           back to "home" only for backward-compat with old bootstrap. */}
       {!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags) && (
         <ProfileGate
-          onDone={() => setProfileDoneState(true)}
+          onDone={() => { profileJustDone.current = true; setProfileDoneState(true); }}
           mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
         />
       )}
