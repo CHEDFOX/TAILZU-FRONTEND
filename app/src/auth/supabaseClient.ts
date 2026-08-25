@@ -73,8 +73,13 @@ export const supabaseAuth = {
   verifyEmailCode: (email: string, token: string) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
 
-  /** Phone OTP (needs an SMS provider configured in Supabase). */
-  sendPhoneCode: (phone: string) => supabase.auth.signInWithOtp({ phone }),
+  /** Phone OTP — signs UP as readily as it signs in (needs an SMS provider in
+   *  Supabase). `shouldCreateUser` is spelled out rather than left to the
+   *  library default: this is the whole sign-up path for a phone-first user,
+   *  and if it ever defaulted otherwise a new number would get "Signups not
+   *  allowed for otp" instead of an account. */
+  sendPhoneCode: (phone: string) =>
+    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true } }),
   verifyPhoneCode: (phone: string, token: string) =>
     supabase.auth.verifyOtp({ phone, token, type: "sms" }),
 
