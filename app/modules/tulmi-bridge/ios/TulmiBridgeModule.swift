@@ -147,9 +147,14 @@ public class TulmiBridgeModule: Module {
     // when it loads. The app then holds the mic alive in the background and the
     // keyboard drives each dictation over Darwin notifications (see
     // FlowSessionManager). idleTimeoutMs comes from the backend (kb.flow.*).
-    Function("armFlowSession") { (baseUrl: String, token: String, language: String, idleTimeoutMs: Double) in
+    // `oneShot` picks the transport for each utterance: false streams it to the
+    // socket (partials at the cursor), true buffers it and POSTs once at stop
+    // (nothing until the finished text lands). Backend-chosen — see
+    // kb.flow.transport.
+    Function("armFlowSession") { (baseUrl: String, token: String, language: String, idleTimeoutMs: Double, oneShot: Bool) in
       FlowSessionManager.shared.arm(
-        baseUrl: baseUrl, token: token, language: language, idleTimeoutMs: idleTimeoutMs)
+        baseUrl: baseUrl, token: token, language: language, idleTimeoutMs: idleTimeoutMs,
+        oneShot: oneShot)
     }
 
     // End the Flow Session (user turned Flow off). Deactivates the audio session
