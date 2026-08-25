@@ -7,11 +7,12 @@
  * be reached from React Native, so the motion existed in exactly one place and
  * nowhere else in the product could use it.
  *
- * The physics are the same, deliberately — dots seeded on the mark's own opaque
- * pixels, an outward burst, elastic wall and pairwise collisions, drag with a
- * high speed floor so the swarm never settles, then a damped spring home. What
- * differs is what drives it: the keyboard switches modes when recording starts
- * and stops, while here it runs a continuous cycle with no input at all.
+ * The physics and the numbers are the same, deliberately — dots seeded on the
+ * mark's own opaque pixels, an outward burst, elastic wall and pairwise
+ * collisions, drag with a high speed floor so the swarm never settles, a damped
+ * spring home, then a handoff to the crisp artwork. The ONLY difference is what
+ * drives it: the keyboard switches modes when recording starts and stops, while
+ * here the same round trip runs on a loop with no input at all.
  *
  * Skia, not react-native-svg: this draws every dot into ONE path on the UI
  * thread each frame. The same work as N animated SVG circles crossing the
@@ -25,25 +26,31 @@
  *   speed         multiplier on the whole cycle (default 1; >1 = faster)
  *   circular      clip to a circle (default true)
  *   background    fill behind the dots (default transparent)
+ *   holdMark      show the CRISP mark during the hold beat instead of the dots
+ *                 sitting in its shape (default true). This is what the
+ *                 keyboard does — the dots reassemble and then hand off to the
+ *                 real artwork — and it is the difference between "the mark"
+ *                 and "a dotted approximation of the mark".
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import {
   Canvas,
+  Image as SkiaImage,
   Path,
   Skia,
   useImage,
   type SkImage,
   type SkPath,
 } from "@shopify/react-native-skia";
-import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import { runOnJS, useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
 
 const MARK = require("../../assets/tailzu-mark.png");
 
-// Cycle timings at speed 1, in seconds. "fast motion" is the point of this
-// component, so these are already brisk — burst, a short wander, spring home,
-// a beat on the formed mark, repeat.
+// Cycle timings at speed 1, in seconds — burst, wander, spring home, a beat on
+// the formed mark, repeat. Leave `speed` at 1 to match the keyboard exactly;
+// anything faster stops being the same animation.
 const T_WANDER = 1.15;
 const T_ASSEMBLE = 0.55;
 const T_HOLD = 0.45;
@@ -109,6 +116,7 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
   const color = String(props?.color ?? "#E8A23C");
   const speed = Number(props?.speed) > 0 ? Number(props.speed) : 1;
   const circular = props?.circular !== false;
+  const holdMark = props?.holdMark !== false;
   const background = props?.background ? String(props.background) : "transparent";
 
   const image = useImage(MARK);
@@ -124,6 +132,9 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
   // allocating per frame is what makes particle fields stutter.
   const dots = useSharedValue<number[]>([]);
   const phase = useSharedValue(0);   // 0 wander · 1 assemble · 2 hold
+  // Mirrored to React state: the crisp mark is a Skia <Image>, which only the
+  // render tree can swap in, so the worklet has to hand the phase across.
+  const [holding, setHolding] = useState(false);
   const clock = useSharedValue(0);
   const tick = useSharedValue(0);
   const targets = useSharedValue<number[]>([]);
@@ -258,11 +269,13 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
         }
         phase.value = 2;
         clock.value = 0;
+        if (holdMark) runOnJS(setHolding)(true);
       }
     } else if (clock.value >= T_HOLD) {
       burst(d, size, dotRadius);
       phase.value = 0;
       clock.value = 0;
+      if (holdMark) runOnJS(setHolding)(false);
     }
 
     tick.value += 1;
@@ -277,6 +290,11 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
     for (let i = 0; i < d.length; i += 4) p.addCircle(d[i], d[i + 1], dotRadius);
     return p;
   }, [dotRadius]);
+
+  // The mark is sampled inset by 6/44 of the box (see markPoints), so the
+  // crisp artwork has to land on exactly that rect or it would jump on handoff.
+  const inset = (6 / 44) * size;
+  const inner = size - inset * 2;
 
   if (home == null) {
     // Hold the space while the mark decodes, so the layout doesn't jump.
@@ -298,7 +316,13 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
       pointerEvents="none"
     >
       <Canvas style={{ width: size, height: size }}>
-        <Path path={path} color={color} />
+        {holding && image ? (
+          // The reassembled frame IS the mark, so show the real artwork rather
+          // than a ring of dots tracing it. Same handoff the keyboard makes.
+          <SkiaImage image={image} x={inset} y={inset} width={inner} height={inner} fit="contain" />
+        ) : (
+          <Path path={path} color={color} />
+        )}
       </Canvas>
     </View>
   );
