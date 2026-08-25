@@ -1862,6 +1862,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       clearPendingPartial()
       dictatedSomething = true
       flowDictatedText += inserted
+      // A final that lands AFTER the mic stopped has nothing scheduled to write
+      // it — the tail wait may already have run out. Re-arm on it. This is what
+      // keeps a slow arrival (a one-shot upload, a late streamed tail) from
+      // being accumulated and then silently dropped, whatever the keyboard
+      // believed about the transport.
+      if !flowRecording, kbConfig?.refine ?? true { awaitDictationTail() }
       return
     }
     let proxy = textDocumentProxy
