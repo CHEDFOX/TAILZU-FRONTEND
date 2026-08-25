@@ -815,9 +815,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// deliberately ignored so backend-pushed media (animated GIF/APNG) can
   /// never replace the brand mark on the idle mic again.
   private func brandMarkImage() -> UIImage {
-    if let mark = UIImage(named: "TailzuMark") {
+    if let mark = SDUIRenderer.tailzuMark() {
       return mark.withRenderingMode(.alwaysOriginal)
     }
+    NSLog("[Tailzu][kb] TailzuMark missing from the bundle — showing the system mic.")
     return UIImage(systemName: "mic.fill") ?? UIImage()
   }
 
