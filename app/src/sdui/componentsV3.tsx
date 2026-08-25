@@ -568,7 +568,7 @@ const PieChart = ({ props, style }: CompProps) => {
 
   return (
     <View style={[{ flexDirection: legendRight ? "row" : "column", alignItems: "center", gap: 16 }, style]}>
-      <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <View style={{ width: size, height: size, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
         <Svg width={size} height={size}>
           {total <= 0 ? (
             <Circle cx={cx} cy={cy} r={r - 1} fill="none" stroke="#2a2a30" strokeWidth={2} />
@@ -592,7 +592,10 @@ const PieChart = ({ props, style }: CompProps) => {
         )}
       </View>
       {showLegend && slices.length > 0 && (
-        <View style={{ gap: 7 }}>
+        // Beside the chart the legend must take the REMAINING width and be
+        // allowed to shrink inside it (minWidth:0 — without it a flex child
+        // refuses to go below its content and the row runs past the card).
+        <View style={[{ gap: 7 }, legendRight ? { flex: 1, minWidth: 0 } : null]}>
           {slices.map((s) => (
             <View key={s.i} style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: s.color }]} />
@@ -941,8 +944,16 @@ const styles = StyleSheet.create({
   pieCenterLabel: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   legendDot: { width: 10, height: 10, borderRadius: 3 },
-  legendLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13, minWidth: 96 },
-  legendValue: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  // minWidth keeps the values aligned when the legend sits BELOW the chart
+  // (rows are then intrinsically sized); flexShrink lets a long label ellipsize
+  // rather than push the percentage out of the card when it sits BESIDE it.
+  legendLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13, minWidth: 72, flexShrink: 1 },
+  // marginLeft:auto pins the percentage to the right edge of the legend column;
+  // flexShrink:0 stops it being the thing that gets squeezed.
+  legendValue: {
+    color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "600",
+    fontVariant: ["tabular-nums"], marginLeft: "auto", flexShrink: 0,
+  },
 });
 
 export const REGISTRY_V3: Record<string, React.ComponentType<CompProps>> = {
