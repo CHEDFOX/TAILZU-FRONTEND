@@ -1204,6 +1204,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     (kbConfig?.flags["kb.mic.liveText"] as? Bool) ?? true
   }
 
+  /// kb.mic.deferUntilStop — hold EVERYTHING back until the user stops, then
+  /// insert the refined text once.
+  ///
+  /// Showing the raw transcript and then rewriting it makes the product look
+  /// like it is making mistakes and correcting them: the user watches "whats
+  /// up" appear and turn into "WhatsApp". Inserting only the finished sentence
+  /// makes it look like it understood them. Speed is unaffected — both engines
+  /// still stream while the user talks, so transcription is already done when
+  /// they stop and only the writing step remains.
+  ///
+  /// It also removes the hardest part of the live path: nothing was ever put at
+  /// the cursor, so there is no tail to match, no partial to reconcile, and no
+  /// way to eat an edit the user made mid-refine.
+  private var micDeferUntilStop: Bool {
+    (kbConfig?.flags["kb.mic.deferUntilStop"] as? Bool) ?? true
+  }
+
   /// Reflect the Flow Session state on the mic button + status — Wispr's exact
   /// model, all three states backend-tunable:
   ///   • no live session → a "Start Flow" affordance (distinct glyph + hint).
@@ -1319,15 +1336,25 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let spoken = flowDictatedText.trimmingCharacters(in: .whitespacesAndNewlines)
     flowDictatedText = ""
     guard !spoken.isEmpty else { return }
-    // Text the user had ALREADY written before speaking. Sent as context so the
-    // model can fit the new sentence to an existing draft — never rewritten.
+
+    // DEFERRED mode put nothing at the cursor, so there is no tail to find and
+    // nothing to protect — the refined sentence is simply inserted. LIVE mode
+    // already wrote the raw transcript, so we must locate that exact tail and
+    // replace it, and bail if the field moved under us.
+    let deferred = micDeferUntilStop
     let before = textDocumentProxy.documentContextBeforeInput ?? ""
-    let tailNow = flowTail(spoken, in: before)
-    guard !tailNow.isEmpty else { return }   // field changed under us; leave it
-    let priorText = String(before.dropLast(tailNow.count))
+    var tailNow = ""
+    if !deferred {
+      tailNow = flowTail(spoken, in: before)
+      guard !tailNow.isEmpty else { return }   // field changed under us; leave it
+    }
+    // What the user had already written. Sent as context so the model can fit
+    // the new sentence to an existing draft — never rewritten.
+    let priorText = deferred ? before : String(before.dropLast(tailNow.count))
 
     KeyboardTelemetry.bump(.refineRequested)
     sduiRenderer?.reflectRefining(true)
+    if deferred { setStatus(label("refining", "Writing…")) }
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
     let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
     let pickedTone = ud?.string(forKey: "tulmi.kb.tone")
@@ -1336,34 +1363,52 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // earlier utterance must never be reconciled into this one.
     let alternative = ud?.string(forKey: "tulmi.flow.alternative")
     ud?.removeObject(forKey: "tulmi.flow.alternative")
+
     TulmiBackend.refine(text: spoken, targetApp: targetApp, tone: pickedTone,
                         context: priorText.trimmingCharacters(in: .whitespacesAndNewlines),
-                        alternative: alternative) {
-      [weak self] result in
+                        alternative: alternative) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         self.sduiRenderer?.reflectRefining(false)
-        switch result {
-        case .success(let refined):
+        self.setStatus("")
+
+        // Decide what text to land. A refusal or an empty completion is a
+        // failure dressed as success — treat it as one.
+        var finalText: String?
+        if case .success(let refined) = result {
           let clean = refined.trimmingCharacters(in: .whitespacesAndNewlines)
-          // A refusal or an empty result must never replace real dictation —
-          // the raw transcript already at the cursor is better than nothing.
-          guard !clean.isEmpty, !self.looksLikeFiller(clean) else { return }
-          // Only swap if the dictated tail is STILL the last thing in the field.
-          // The user may have typed or deleted while we were away; rewriting
-          // then would eat their edit.
-          let ctx = self.textDocumentProxy.documentContextBeforeInput ?? ""
-          let tail = self.flowTail(spoken, in: ctx)
-          guard !tail.isEmpty, ctx.hasSuffix(tail) else { return }
-          for _ in 0..<tail.count { self.textDocumentProxy.deleteBackward() }
-          self.textDocumentProxy.insertText(clean + " ")
-          self.lastInserted = clean + " "
-          self.lastRawTranscript = spoken
-          self.sduiRenderer?.resetTypingContext(tailAtBoundary: true)
-        case .failure:
-          // Keep the raw transcript. A failed refine is a no-op, never a loss.
+          if !clean.isEmpty, !self.looksLikeFiller(clean) { finalText = clean }
+        } else {
           KeyboardTelemetry.bump(.refineFailed)
         }
+
+        if deferred {
+          // NOTHING is at the cursor yet, so this branch must ALWAYS insert
+          // something — falling back to the raw transcript when refine failed.
+          // Silently dropping a user's dictation because a network call failed
+          // would be the worst outcome in the whole product.
+          let text = finalText ?? spoken
+          self.textDocumentProxy.insertText(text + " ")
+          self.flashKeysForText(text)
+          self.lastInserted = text + " "
+          self.lastRawTranscript = (finalText == nil) ? nil : spoken
+          self.sduiRenderer?.resetTypingContext(tailAtBoundary: true)
+          return
+        }
+
+        // LIVE mode: the raw transcript is already at the cursor. Only swap it
+        // when refine actually produced something better AND the tail is still
+        // the last thing in the field — the user may have typed or deleted
+        // while we were away, and rewriting then would eat their edit.
+        guard let clean = finalText else { return }
+        let ctx = self.textDocumentProxy.documentContextBeforeInput ?? ""
+        let tail = self.flowTail(spoken, in: ctx)
+        guard !tail.isEmpty, ctx.hasSuffix(tail) else { return }
+        for _ in 0..<tail.count { self.textDocumentProxy.deleteBackward() }
+        self.textDocumentProxy.insertText(clean + " ")
+        self.lastInserted = clean + " "
+        self.lastRawTranscript = spoken
+        self.sduiRenderer?.resetTypingContext(tailAtBoundary: true)
       }
     }
   }
@@ -1722,9 +1767,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Never commit a conversational refusal to the typepad — drop it and wipe
     // the provisional partial it was replacing.
     guard !looksLikeFiller(trimmed) else { clearPendingPartial(); return }
+    let inserted = text.hasSuffix(" ") ? text : text + " "
+    // Deferred mode: keep the words, show nothing. The finished sentence lands
+    // in one piece when the user stops (see refineDictation).
+    guard !micDeferUntilStop else {
+      clearPendingPartial()
+      dictatedSomething = true
+      flowDictatedText += inserted
+      return
+    }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
-    let inserted = text.hasSuffix(" ") ? text : text + " "
     proxy.insertText(inserted)
     flashKeysForText(inserted)
     pendingPartial = ""
