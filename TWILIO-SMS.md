@@ -12,8 +12,9 @@ phone pill with no provider configured gets a dead end.
 
 ## 1. Twilio → Supabase
 
-Supabase dashboard → **Authentication → Providers → Phone** → enable, then pick
-an SMS provider.
+Supabase dashboard → **Authentication → Configuration → Providers → Phone**
+(older projects: Authentication → Providers → Phone) → toggle the Phone
+provider on, then pick from the **SMS Provider** dropdown.
 
 ### Which Twilio product
 
@@ -30,14 +31,29 @@ whole ballgame — see the India note below.
 
 Twilio console → the values Supabase asks for:
 
-| Supabase field | Twilio console |
-|---|---|
-| Account SID | Account Info on the dashboard home (`AC…`) |
-| Auth Token | same panel — reveal it |
-| Message Service SID | **Verify → Services → your service** (`VA…`) |
+Create the Verify service FIRST — the SID it hands you is the third field.
+Twilio console → **Verify → Services → Create new** → name it `Tailzu` → enable
+**SMS** as a verification channel (leave the rest off unless you want voice
+fallback). The `VA…` on the next screen is the one you need.
 
-Create the Verify service first (Verify → Services → Create), name it `Tailzu`,
-and turn OFF every channel except SMS unless you want voice fallback.
+With `SMS Provider: Twilio Verify` selected, Supabase asks for exactly three
+values:
+
+| Supabase field | Where in Twilio |
+|---|---|
+| Twilio Account SID | Console home → Account Info (`AC…`) |
+| Twilio Auth Token | same panel — reveal it |
+| Twilio Verify Service SID | the service you just made (`VA…`) |
+
+Note the difference from the plain **Twilio** provider: that one wants a
+*Messaging* Service SID (`MG…`) and makes you write the SMS body yourself in a
+required **SMS Message** field. Verify owns the message, so that field is not
+part of this path — one less thing to get wrong, and one less thing to register
+in India.
+
+While you are on the page: **OTP expiry** and **OTP length** live here too. The
+app's code boxes are fixed at 6 (`CODE_LEN`), so leave length at 6 or the
+verify screen will not accept a full code.
 
 ### India (read this before testing)
 
@@ -46,10 +62,23 @@ receive commercial SMS from an unregistered sender. This is regulator-side, not
 Twilio-side — no amount of Twilio config bypasses it, and the failure mode is
 silent (Twilio reports the message accepted, the phone never buzzes).
 
-Confirm with Twilio support what your account needs for Indian delivery on
-Verify **before** you launch phone sign-in to Indian users. If registration is
-required, it takes days, not hours. Until it's confirmed working, test on a
-non-Indian number so you're not debugging a regulator.
+Concretely, DLT wants three things registered: a **Principal Entity** (your
+business), a **Header** / sender ID, and every **content template**. Entity and
+header are yours to register no matter which provider sends the message —
+budget 7–10 business days. Verify may cover the template side, since Twilio
+owns the message body on that path; confirm that with Twilio support rather
+than assuming it.
+
+Do this **before** you launch phone sign-in to Indian users, and test on a
+non-Indian number until it is confirmed, so you are not debugging a regulator
+while you are also debugging your own wiring.
+
+### Rate limits
+
+Supabase Auth caps SMS sends per hour project-wide (**Authentication → Rate
+Limits**). The default is low enough to hit while testing on one number and it
+fails as a generic error, so if codes stop arriving after a handful of tries,
+look there before you suspect Twilio.
 
 ### Verify it works
 
