@@ -521,7 +521,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         getSupabaseAccessToken(),
         getLanguage(),
       ]);
-      armFlowSession(base, tok ?? "dev", lang || "auto", idleTimeoutMs);
+      armFlowSession(base, tok ?? "dev", lang || "auto", idleTimeoutMs, action.oneShot === true);
       await runAction(action.onSuccess, ctx);
       break;
     }

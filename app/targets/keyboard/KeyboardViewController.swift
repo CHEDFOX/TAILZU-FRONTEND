@@ -151,6 +151,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var isStartingRecording = false
   private var pendingPartial = "" // partial text currently shown in the field
   private var dictatedSomething = false // a final landed this session → auto-refine on close
+  /// Everything committed during THIS dictation, so the refine pass can rewrite
+  /// exactly what was spoken and nothing else. Refining the whole field would
+  /// edit words the user typed by hand and never asked us to touch.
+  private var flowDictatedText = ""
+  /// Invalidates an in-flight tail wait when a new dictation starts.
+  private var flowTailToken = 0
 
   // QWERTY letter rows.
   private let rows: [[String]] = [
@@ -1200,6 +1206,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     (kbConfig?.flags["kb.mic.liveText"] as? Bool) ?? true
   }
 
+  /// kb.mic.deferUntilStop — hold EVERYTHING back until the user stops, then
+  /// insert the refined text once.
+  ///
+  /// Showing the raw transcript and then rewriting it makes the product look
+  /// like it is making mistakes and correcting them: the user watches "whats
+  /// up" appear and turn into "WhatsApp". Inserting only the finished sentence
+  /// makes it look like it understood them. Speed is unaffected — both engines
+  /// still stream while the user talks, so transcription is already done when
+  /// they stop and only the writing step remains.
+  ///
+  /// It also removes the hardest part of the live path: nothing was ever put at
+  /// the cursor, so there is no tail to match, no partial to reconcile, and no
+  /// way to eat an edit the user made mid-refine.
+  private var micDeferUntilStop: Bool {
+    (kbConfig?.flags["kb.mic.deferUntilStop"] as? Bool) ?? true
+  }
+
   /// Reflect the Flow Session state on the mic button + status — Wispr's exact
   /// model, all three states backend-tunable:
   ///   • no live session → a "Start Flow" affordance (distinct glyph + hint).
@@ -1241,8 +1264,23 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func startFlowDictation() {
     pendingPartial = ""
+    flowDictatedText = ""
     flowRecording = true
+    flowTailToken &+= 1                    // a still-waiting tail from the last
+                                           // utterance must not write into this one
     flowDictationToken &+= 1
+    // The one-shot transport uploads from the APP, which cannot see this text
+    // field. Leave what's at the cursor (and where we are) in the App Group so
+    // the written sentence still fits the draft it's joining — the same context
+    // the streaming path passes to /v1/refine itself.
+    if let ug = UserDefaults(suiteName: TulmiFlow.appGroup) {
+      let before = String((textDocumentProxy.documentContextBeforeInput ?? "").suffix(600))
+      ug.set(before.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "tulmi.flow.context")
+      ug.set((kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic",
+             forKey: "tulmi.flow.targetApp")
+      ug.removeObject(forKey: "tulmi.flow.failed")
+      ug.removeObject(forKey: "tulmi.flow.preRefined")
+    }
     let token = flowDictationToken
     let hbAtStart = flow.heartbeatStamp    // liveness baseline (see watchdog below)
     // Morph to the "finish" affordance (checkmark) — Wispr's tap-✓-to-end.
@@ -1291,6 +1329,186 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     micButton.setImage(brandMarkImage(), for: .normal)
     micButton.imageView?.startAnimating()
     sduiRenderer?.reflectDictating(false)
+    // STOP is the signal that the thought is finished — and the only moment a
+    // refine can be correct. An instruction usually arrives at the END of an
+    // utterance ("...make it formal", "...write this in Marathi"), so refining
+    // per sentence or per pause would commit the wrong text before the
+    // instruction was ever heard. The tail may still be in flight, so give the
+    // last final a beat to land before reading what was said.
+    guard kbConfig?.refine ?? true else { return }
+    // Nothing is at the cursor in deferred mode, so say what's happening —
+    // otherwise stopping the mic looks like it lost the words.
+    if micDeferUntilStop { setStatus(label("refining", "Writing…")) }
+    awaitDictationTail()
+  }
+
+  /// Wait for the last of the utterance to land, then write it.
+  ///
+  /// The tail arrives on very different clocks depending on transport: a
+  /// streamed utterance is usually complete within a beat of stop, while a
+  /// one-shot utterance hasn't been transcribed AT ALL yet — the app is still
+  /// uploading it. A single blind timer can't serve both, so poll for the words
+  /// on the settle interval up to a hard deadline, and give up quietly if
+  /// nothing ever arrives (silence, or an upload that failed).
+  private func awaitDictationTail() {
+    flowTailToken &+= 1
+    let settle = Double(kbConfig?.flags["kb.flow.settleMs"] as? Int ?? 450) / 1000.0
+    let waitMs = kbConfig?.flags["kb.flow.tailWaitMs"] as? Int
+      ?? (flowOneShot ? 20000 : 1200)
+    pollDictationTail(token: flowTailToken, settle: settle,
+                      deadline: Date().addingTimeInterval(Double(waitMs) / 1000.0))
+  }
+
+  private func pollDictationTail(token: Int, settle: Double, deadline: Date) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
+      guard let self = self, self.flowTailToken == token else { return }
+      // A new dictation started — that one owns the cursor now.
+      guard !self.flowRecording else { return }
+      // The app gave up sending the utterance. Say so rather than waiting out
+      // the deadline in silence — the user needs to know the words are gone.
+      let ug = UserDefaults(suiteName: TulmiFlow.appGroup)
+      if ug?.bool(forKey: "tulmi.flow.failed") == true {
+        ug?.removeObject(forKey: "tulmi.flow.failed")
+        self.setStatus(self.label("dictation_failed", "Couldn't hear that — try again"))
+        KeyboardTelemetry.bump(.refineFailed)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+          guard let self = self, self.flowTailToken == token else { return }
+          self.setStatus("")
+        }
+        return
+      }
+      if self.flowDictatedText.isEmpty {
+        guard Date() < deadline else { self.setStatus(""); return }
+        self.pollDictationTail(token: token, settle: settle, deadline: deadline)
+        return
+      }
+      self.refineDictation()
+    }
+  }
+
+  /// True when the app buffers each utterance and sends it in one request at
+  /// stop rather than streaming it. Backend's choice; the app reads the same
+  /// flag when it arms the session, so the two stay in step.
+  private var flowOneShot: Bool {
+    (kbConfig?.flags["kb.flow.transport"] as? String) == "oneshot"
+  }
+
+  /// Refine what was just dictated — and ONLY that.
+  ///
+  /// This is what brings keyboard dictation up to the app's quality: the raw
+  /// transcript becomes properly written text, an embedded instruction is
+  /// executed instead of transcribed, the user's script is preserved, and
+  /// their tone/style portrait applies. Everything the streaming path alone
+  /// cannot do.
+  private func refineDictation() {
+    let spoken = flowDictatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    flowDictatedText = ""
+    guard !spoken.isEmpty else { return }
+
+    // ONE-SHOT transport: the app POSTed the whole utterance to
+    // /v1/transcribe-clean, which transcribes AND writes in a single call, so
+    // what just arrived is already the finished sentence. Refining it again
+    // would be a second pass over written text — slower, and each pass drifts
+    // further from what the user actually said. Consumed once, so a stale
+    // marker can never suppress the refine of a later streamed utterance.
+    let ugroup = UserDefaults(suiteName: TulmiFlow.appGroup)
+    let preRefined = ugroup?.bool(forKey: "tulmi.flow.preRefined") ?? false
+    ugroup?.removeObject(forKey: "tulmi.flow.preRefined")
+    if preRefined {
+      // Live mode already put this exact text at the cursor — nothing to do.
+      guard micDeferUntilStop else { return }
+      textDocumentProxy.insertText(spoken + " ")
+      flashKeysForText(spoken)
+      lastInserted = spoken + " "
+      lastRawTranscript = nil
+      sduiRenderer?.resetTypingContext(tailAtBoundary: true)
+      return
+    }
+
+    // DEFERRED mode put nothing at the cursor, so there is no tail to find and
+    // nothing to protect — the refined sentence is simply inserted. LIVE mode
+    // already wrote the raw transcript, so we must locate that exact tail and
+    // replace it, and bail if the field moved under us.
+    let deferred = micDeferUntilStop
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    var tailNow = ""
+    if !deferred {
+      tailNow = flowTail(spoken, in: before)
+      guard !tailNow.isEmpty else { return }   // field changed under us; leave it
+    }
+    // What the user had already written. Sent as context so the model can fit
+    // the new sentence to an existing draft — never rewritten.
+    let priorText = deferred ? before : String(before.dropLast(tailNow.count))
+
+    KeyboardTelemetry.bump(.refineRequested)
+    sduiRenderer?.reflectRefining(true)
+    if deferred { setStatus(label("refining", "Writing…")) }
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    let pickedTone = ud?.string(forKey: "tulmi.kb.tone")
+    // The shadow engine's reading, relayed by the app when the server ran two
+    // engines and they disagreed. Consumed once — a stale alternative from an
+    // earlier utterance must never be reconciled into this one.
+    let alternative = ud?.string(forKey: "tulmi.flow.alternative")
+    ud?.removeObject(forKey: "tulmi.flow.alternative")
+
+    TulmiBackend.refine(text: spoken, targetApp: targetApp, tone: pickedTone,
+                        context: priorText.trimmingCharacters(in: .whitespacesAndNewlines),
+                        alternative: alternative) { [weak self] result in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        self.sduiRenderer?.reflectRefining(false)
+        self.setStatus("")
+
+        // Decide what text to land. A refusal or an empty completion is a
+        // failure dressed as success — treat it as one.
+        var finalText: String?
+        if case .success(let refined) = result {
+          let clean = refined.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !clean.isEmpty, !self.looksLikeFiller(clean) { finalText = clean }
+        } else {
+          KeyboardTelemetry.bump(.refineFailed)
+        }
+
+        if deferred {
+          // NOTHING is at the cursor yet, so this branch must ALWAYS insert
+          // something — falling back to the raw transcript when refine failed.
+          // Silently dropping a user's dictation because a network call failed
+          // would be the worst outcome in the whole product.
+          let text = finalText ?? spoken
+          self.textDocumentProxy.insertText(text + " ")
+          self.flashKeysForText(text)
+          self.lastInserted = text + " "
+          self.lastRawTranscript = (finalText == nil) ? nil : spoken
+          self.sduiRenderer?.resetTypingContext(tailAtBoundary: true)
+          return
+        }
+
+        // LIVE mode: the raw transcript is already at the cursor. Only swap it
+        // when refine actually produced something better AND the tail is still
+        // the last thing in the field — the user may have typed or deleted
+        // while we were away, and rewriting then would eat their edit.
+        guard let clean = finalText else { return }
+        let ctx = self.textDocumentProxy.documentContextBeforeInput ?? ""
+        let tail = self.flowTail(spoken, in: ctx)
+        guard !tail.isEmpty, ctx.hasSuffix(tail) else { return }
+        for _ in 0..<tail.count { self.textDocumentProxy.deleteBackward() }
+        self.textDocumentProxy.insertText(clean + " ")
+        self.lastInserted = clean + " "
+        self.lastRawTranscript = spoken
+        self.sduiRenderer?.resetTypingContext(tailAtBoundary: true)
+      }
+    }
+  }
+
+  /// The dictated text as it actually sits in the field (it was inserted with a
+  /// trailing space, and the field may normalise whitespace). Empty when the
+  /// tail no longer matches — the caller then leaves the field alone.
+  private func flowTail(_ spoken: String, in context: String) -> String {
+    for candidate in [spoken + " ", spoken] where context.hasSuffix(candidate) {
+      return candidate
+    }
+    return ""
   }
 
   /// Open the app once to arm a Flow Session. The keyboard can't call openURL,
@@ -1637,13 +1855,28 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Never commit a conversational refusal to the typepad — drop it and wipe
     // the provisional partial it was replacing.
     guard !looksLikeFiller(trimmed) else { clearPendingPartial(); return }
+    let inserted = text.hasSuffix(" ") ? text : text + " "
+    // Deferred mode: keep the words, show nothing. The finished sentence lands
+    // in one piece when the user stops (see refineDictation).
+    guard !micDeferUntilStop else {
+      clearPendingPartial()
+      dictatedSomething = true
+      flowDictatedText += inserted
+      // A final that lands AFTER the mic stopped has nothing scheduled to write
+      // it — the tail wait may already have run out. Re-arm on it. This is what
+      // keeps a slow arrival (a one-shot upload, a late streamed tail) from
+      // being accumulated and then silently dropped, whatever the keyboard
+      // believed about the transport.
+      if !flowRecording, kbConfig?.refine ?? true { awaitDictationTail() }
+      return
+    }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
-    let inserted = text.hasSuffix(" ") ? text : text + " "
     proxy.insertText(inserted)
     flashKeysForText(inserted)
     pendingPartial = ""
     dictatedSomething = true
+    flowDictatedText += inserted
     // The commit always ends with a trailing space → clean word boundary.
     sduiRenderer?.resetTypingContext(tailAtBoundary: true)
     // Track for the top-bar UNDO. Multiple finals in one session collapse to

@@ -49,6 +49,30 @@ final class FlowSessionManager: NSObject {
   private var capturing = false   // AVAudioEngine tap is live (runs continuously while armed)
   private var dictating = false   // a single utterance is currently streaming to the server
 
+  // MARK: One-shot mode
+  //
+  // Instead of streaming this utterance over a socket, buffer the PCM and POST
+  // it once to /v1/transcribe-clean when the user stops.
+  //
+  // Why it exists: a dropped socket loses the words outright — they were never
+  // anywhere but in flight — and with deferred insert the user is left with
+  // nothing at all. A buffered utterance still exists on the phone after a
+  // failed request, so it can be retried. That endpoint also already runs the
+  // Sarvam+Whisper fusion AND the writing step in one call, which is the same
+  // path the in-app mic uses, so both surfaces stop diverging.
+  //
+  // Cost: transcription starts at stop rather than finishing during speech.
+  private var oneShot = false
+  private var pcm = Data()
+  private let pcmLock = NSLock()
+  /// ~2 minutes of 16 kHz mono int16. Far beyond any real dictation, and a hard
+  /// ceiling matters here: this buffer lives in a background app whose memory
+  /// iOS is happy to reclaim.
+  private static let pcmCap = 16_000 * 2 * 120
+  /// The utterance currently being uploaded — held so a failed request can be
+  /// retried with the same audio rather than losing it.
+  private var lastUtterance = Data()
+
   /// Guards the two OBJECT refs the realtime audio thread (sendBuffer) reads
   /// while the main thread frees them: `task` and `converter`. Reading an object
   /// reference while another thread writes it is undefined in Swift and can
@@ -97,11 +121,13 @@ final class FlowSessionManager: NSObject {
   /// audio session and keeps it active — that's what keeps the app alive after
   /// the user swipes back to their app. Registers the Darwin observers the
   /// keyboard nudges. Idempotent; calling again refreshes the idle window.
-  func arm(baseUrl: String, token: String, language: String, idleTimeoutMs: Double) {
+  func arm(baseUrl: String, token: String, language: String, idleTimeoutMs: Double,
+           oneShot: Bool = false) {
     self.baseUrl = baseUrl
     self.token = token
     self.language = language.isEmpty ? "auto" : language
     self.idleTimeout = idleTimeoutMs > 0 ? idleTimeoutMs / 1000.0 : 300
+    self.oneShot = oneShot
 
     registerObservers()
     activateAudioSession()
@@ -277,6 +303,10 @@ final class FlowSessionManager: NSObject {
     resetIdleTimer()
     dictating = true
     if !capturing { startCapture() }   // safety net — the engine should already be live
+    if oneShot {
+      pcmLock.lock(); pcm = Data(); pcmLock.unlock()
+      return                            // no socket: the buffer IS the transport
+    }
     openStream()
   }
 
@@ -284,6 +314,7 @@ final class FlowSessionManager: NSObject {
     guard dictating else { return }
     resetIdleTimer()
     dictating = false
+    if oneShot { uploadUtterance(); return }
     // Stop STREAMING this utterance — but deliberately keep the engine running
     // (do NOT stopCapture) so the app stays alive in the background between
     // dictations. Ask the server to flush the tail. We do NOT close on a blind
@@ -395,6 +426,16 @@ final class FlowSessionManager: NSObject {
         self.finalizeClose(c)
       }
     case "done":
+      // The SECOND engine's reading of the same audio, when the server ran two
+      // and they disagreed (STT_LIVE_DUAL). It never goes to the cursor — the
+      // keyboard hands it to /v1/refine alongside the streamed transcript so
+      // the two get reconciled into one sentence. Without relaying it here the
+      // shadow engine's work is computed and then thrown away, and the refine
+      // call has only one reading to work from.
+      if let alt = (json["alternative"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !alt.isEmpty {
+        store?.set(alt, forKey: "tulmi.flow.alternative")
+      }
       // Clean terminal marker — close now if we were draining after a stop.
       DispatchQueue.main.async { [weak self] in
         guard let self = self, let c = self.pendingClose else { return }
@@ -453,8 +494,10 @@ final class FlowSessionManager: NSObject {
     // discarded here — their only job was to keep the app alive in the background.
     guard dictating else { return }
     // Snapshot the object refs under the lock so main can't free them mid-use.
+    // In one-shot there is no socket — the converter alone is enough.
     let (snapConv, snapTask) = captureAV()
-    guard let converter = snapConv, let task = snapTask else { return }
+    guard let converter = snapConv else { return }
+    guard oneShot || snapTask != nil else { return }
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
     guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
@@ -466,6 +509,128 @@ final class FlowSessionManager: NSObject {
     }
     guard status != .error, out.frameLength > 0, let ch = out.int16ChannelData else { return }
     let data = Data(bytes: ch[0], count: Int(out.frameLength) * MemoryLayout<Int16>.size)
-    task.send(.data(data)) { _ in }
+    if oneShot {
+      // Runs on the realtime audio thread — a lock around an append is the
+      // cheapest safe option; anything heavier here glitches the capture.
+      pcmLock.lock()
+      if pcm.count < FlowSessionManager.pcmCap { pcm.append(data) }
+      pcmLock.unlock()
+      return
+    }
+    snapTask?.send(.data(data)) { _ in }
+  }
+
+  // MARK: - One-shot upload
+
+  /// POST the buffered utterance to /v1/transcribe-clean and relay the finished
+  /// text. That endpoint returns text that is ALREADY transcribed, fused and
+  /// written, so the keyboard inserts it as-is rather than refining again.
+  /// Drain the capture buffer and send the utterance. Called on main at stop.
+  private func uploadUtterance() {
+    // Hold the audio until it either lands or is given up on — that is the
+    // whole advantage of buffering over streaming: a failed request can be
+    // retried, where a dropped socket has nothing left to retry with.
+    pcmLock.lock(); lastUtterance = pcm; pcm = Data(); pcmLock.unlock()
+    // Under 0.1s of audio is a mis-tap, not speech. Say so instead of leaving
+    // the keyboard waiting on words that were never spoken.
+    guard lastUtterance.count > 3200 else {
+      lastUtterance = Data()
+      giveUpOnUtterance()
+      return
+    }
+    sendUtterance(retriesLeft: 1)
+  }
+
+  private func giveUpOnUtterance() {
+    store?.set(true, forKey: "tulmi.flow.failed")
+    relay("", isFinal: true)
+  }
+
+  private func sendUtterance(retriesLeft: Int) {
+    let audio = lastUtterance
+    guard let url = URL(string: "\(baseUrl)/v1/transcribe-clean") else { return }
+
+    let body = wavContainer(for: audio)
+    let boundary = "Boundary-\(UUID().uuidString)"
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.timeoutInterval = 90
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+    var form = Data()
+    func field(_ name: String, _ value: String) {
+      form.append("--\(boundary)\r\n".data(using: .utf8)!)
+      form.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+      form.append("\(value)\r\n".data(using: .utf8)!)
+    }
+    // The language is a SOFT hint only — the backend never pins the recognizer
+    // to it (see pipeline/stt.ts). Sent so vocabulary bias still applies.
+    field("language", language)
+    // Written by the keyboard at dictation start: the user's picked tone, what
+    // is already at their cursor, and which app they're typing in. Without
+    // these the one-shot path would write in a default voice and ignore the
+    // draft it's joining — worse than the streaming path it replaces.
+    if let tone = store?.string(forKey: "tulmi.kb.tone"), !tone.isEmpty { field("tone", tone) }
+    if let ctx = store?.string(forKey: "tulmi.flow.context"), !ctx.isEmpty { field("context", ctx) }
+    if let app = store?.string(forKey: "tulmi.flow.targetApp"), !app.isEmpty { field("targetApp", app) }
+    form.append("--\(boundary)\r\n".data(using: .utf8)!)
+    form.append("Content-Disposition: form-data; name=\"audio\"; filename=\"u.wav\"\r\n".data(using: .utf8)!)
+    form.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+    form.append(body)
+    form.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+    req.httpBody = form
+
+    URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
+      guard let self = self else { return }
+      let ok = (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? false
+      guard ok, let data = data,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else {
+        // The audio is still in hand, so a flaky network costs a retry rather
+        // than the user's words.
+        // `lastUtterance` is main-thread state (endDictation writes it too), so
+        // every decision about it happens there.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (retriesLeft > 0 ? 0.8 : 0)) {
+          [weak self] in
+          guard let self = self else { return }
+          if retriesLeft > 0 { self.sendUtterance(retriesLeft: retriesLeft - 1); return }
+          // Out of retries. Tell the keyboard explicitly so it stops waiting and
+          // shows a failure, instead of sitting on "Writing…" until its deadline.
+          self.lastUtterance = Data()
+          self.giveUpOnUtterance()
+        }
+        return
+      }
+      // cleanedText is the written result; transcript is the raw fallback.
+      let text = (json["cleanedText"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        ?? (json["transcript"] as? String) ?? ""
+      DispatchQueue.main.async { [weak self] in self?.lastUtterance = Data() }
+      guard !text.isEmpty else { self.giveUpOnUtterance(); return }
+      // Mark it: this text came back already written, so the keyboard must not
+      // run a second refine over it.
+      self.store?.set(true, forKey: "tulmi.flow.preRefined")
+      self.relay(text, isFinal: true)
+    }.resume()
+  }
+
+  /// Wrap raw 16 kHz mono int16 PCM in a WAV container. The endpoint infers the
+  /// format from the container, so the header is what makes a bare buffer
+  /// decodable at all.
+  private func wavContainer(for pcmData: Data) -> Data {
+    let sampleRate: UInt32 = 16000, channels: UInt16 = 1, bits: UInt16 = 16
+    let byteRate = sampleRate * UInt32(channels) * UInt32(bits / 8)
+    let blockAlign = channels * (bits / 8)
+    var out = Data()
+    func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { out.append(contentsOf: $0) } }
+    func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { out.append(contentsOf: $0) } }
+    out.append("RIFF".data(using: .ascii)!)
+    u32(UInt32(36 + pcmData.count))
+    out.append("WAVEfmt ".data(using: .ascii)!)
+    u32(16); u16(1); u16(channels); u32(sampleRate); u32(byteRate); u16(blockAlign); u16(bits)
+    out.append("data".data(using: .ascii)!)
+    u32(UInt32(pcmData.count))
+    out.append(pcmData)
+    return out
   }
 }
