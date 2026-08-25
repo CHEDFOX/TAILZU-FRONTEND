@@ -25,7 +25,13 @@ interface TulmiBridgeNative {
   completeKeyboardHandoff?(sessionId: string, text: string): void;
   cancelKeyboardHandoff?(sessionId: string): void;
   // Flow Session (background-audio mic) — iOS only.
-  armFlowSession?(baseUrl: string, token: string, language: string, idleTimeoutMs: number): void;
+  armFlowSession?(
+    baseUrl: string,
+    token: string,
+    language: string,
+    idleTimeoutMs: number,
+    oneShot: boolean,
+  ): void;
   endFlowSession?(): void;
   isFlowActive?(): boolean;
 }
@@ -120,15 +126,24 @@ export function isBridgeAvailable(): boolean {
  * the user swipes back to their app, and the keyboard can drive dictation. iOS
  * only (the keyboard can't record itself); no-op elsewhere. `idleTimeoutMs` is
  * how long the session stays live with no dictation before it must be re-armed.
+ * `oneShot` buffers each utterance and sends it in one request at stop instead
+ * of streaming it (backend's choice — kb.flow.transport).
  */
 export function armFlowSession(
   baseUrl: string,
   token: string,
   language: string,
   idleTimeoutMs: number,
+  oneShot = false,
 ): void {
   try {
-    native?.armFlowSession?.(baseUrl, token, language || "auto", idleTimeoutMs || 300000);
+    native?.armFlowSession?.(
+      baseUrl,
+      token,
+      language || "auto",
+      idleTimeoutMs || 300000,
+      oneShot === true,
+    );
   } catch {
     /* best-effort; never block the app */
   }

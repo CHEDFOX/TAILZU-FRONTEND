@@ -349,7 +349,8 @@ export default function SduiApp() {
             getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
           ]);
           const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-          armFlowSession(base, tok ?? "dev", lang || "auto", idle);
+          const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
+          armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
         })();
         setStack([{ screenId: "flow_arm" }]);
         return "navigated";
@@ -409,7 +410,8 @@ export default function SduiApp() {
             getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
           ]);
           const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-          armFlowSession(base, tok ?? "dev", lang || "auto", idle);
+          const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
+          armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
         })();
       }
       if (phase !== "ready") return;

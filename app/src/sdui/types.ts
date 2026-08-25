@@ -276,7 +276,13 @@ export type ActionSpec =
   // cancel a pending handoff — same wire notification, empty text
   | { kind: "cancelKeyboardHandoff"; sessionId?: string; onSuccess?: ActionRef }
   // arm the background-audio Flow Session (iOS); no-op on Android
-  | { kind: "armFlowSession"; idleTimeoutMs?: number; onSuccess?: ActionRef }
+  | {
+      kind: "armFlowSession";
+      idleTimeoutMs?: number;
+      /** Buffer each utterance and send it once at stop, instead of streaming. */
+      oneShot?: boolean;
+      onSuccess?: ActionRef;
+    }
   | { kind: "endFlowSession"; onSuccess?: ActionRef }
   // cache / dev
   | { kind: "clearCache" }
