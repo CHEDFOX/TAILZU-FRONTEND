@@ -44,6 +44,8 @@ export const CORE_COMPONENTS = [
   // loop. The keyboard's recording visual, ported off Swift so the app can use
   // it too (see ParticleMark.tsx).
   "ParticleMark",
+  // BinaryReveal — a wordmark decoding itself out of 0s and 1s, on a loop.
+  "BinaryReveal",
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
