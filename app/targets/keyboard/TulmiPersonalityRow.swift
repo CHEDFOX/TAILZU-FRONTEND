@@ -3,7 +3,7 @@ import UIKit
 /// The personality quick-swap row that sits above the keyboard keys.
 ///
 /// Reads its content from `kb.personality.pinned` in the keyboard config
-/// (an array of `{ id, name, emoji, tone }` — see backend
+/// (an array of `{ id, name, tone }` — see backend
 /// experience/catalog.ts) and highlights the active preset from
 /// `kb.personality.activeId`.
 ///
@@ -25,7 +25,6 @@ final class TulmiPersonalityRow: UIView {
   struct ChipData {
     let id: String
     let name: String
-    let emoji: String
     let tone: String
   }
 
@@ -130,7 +129,7 @@ final class TulmiPersonalityRow: UIView {
 
   private func makeChipButton(_ chip: ChipData) -> UIButton {
     let b = UIButton(type: .custom)
-    b.setTitle("\(chip.emoji) \(chip.name)", for: .normal)
+    b.setTitle(chip.name, for: .normal)
     b.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
     b.contentEdgeInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
     b.layer.cornerRadius = 14
