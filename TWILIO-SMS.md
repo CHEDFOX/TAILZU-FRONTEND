@@ -80,6 +80,22 @@ the next app launch with no build involved.
 
 ---
 
+## Signing UP by phone
+
+`shouldCreateUser: true` is set on the phone path, so a number that has never
+been seen creates an account rather than being rejected. Two Supabase project
+settings still have to allow it:
+
+- **Authentication → Sign In / Providers → Allow new users to sign up** — global,
+  and already on (email signup works).
+- **Phone provider → Confirm phone** — verifying the SMS code confirms the
+  number in the same step. No second confirmation screen exists in the app.
+
+Nothing in our schema references an email address: profiles, personalities,
+history, usage and telemetry all key on `user_id`. A phone-only account
+onboards, trains a style portrait, and uses the keyboard exactly like an
+email one.
+
 ## What a phone account looks like
 
 Supabase creates a user with `phone` set and `email` null. Identity everywhere
