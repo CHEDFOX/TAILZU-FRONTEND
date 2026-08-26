@@ -102,6 +102,8 @@ interface KBHost {
     fun applySuggestion(word: String)
     /** Text was just committed by a key; the word under the caret has changed. */
     fun onTextInserted()
+    /** A trace crossed these letters, in order. The host decodes them to a word. */
+    fun onSwipe(letters: String)
     fun rootView(): View?
     fun onStateChanged()
 }
@@ -377,6 +379,36 @@ class SDUIRenderer(
         rootNode?.let { render(it, container) }
         // Baseline for the next fast-shift comparison.
         lastTreeKey = treeKey()
+        publishKeyGeometry(container)
+    }
+
+    /**
+     * Hand the autocorrect cost model the keys AS LAID OUT.
+     *
+     * Adjacency has to come from the real geometry, not a hardcoded QWERTY
+     * table: the backend can send any layout, including scripts whose rows look
+     * nothing like a Latin keyboard, and a wrong neighbour map turns the cost
+     * model from a help into a hazard.
+     *
+     * Positions only exist after layout, so this waits for a layout pass rather
+     * than reading zeroes off freshly-added views.
+     */
+    private fun publishKeyGeometry(container: View) {
+        if (letterButtonsByChar.isEmpty()) return
+        container.post {
+            val centres = HashMap<Char, android.graphics.PointF>()
+            for ((base, btn) in letterButtonsByChar) {
+                val ch = base.firstOrNull() ?: continue
+                if (btn.width == 0 || btn.height == 0) continue
+                val loc = IntArray(2)
+                btn.getLocationInWindow(loc)
+                centres[ch] = android.graphics.PointF(
+                    loc[0] + btn.width / 2f,
+                    loc[1] + btn.height / 2f,
+                )
+            }
+            if (centres.size >= 2) TulmiAutocorrect.setKeyCentres(centres)
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -446,6 +478,18 @@ class SDUIRenderer(
             // key and WHEN, the key's own listener decides what that means. A
             // mic or tone key is not a keystroke, and firing feedback here as
             // well as in the listener buzzes twice for one tap.
+            //
+            // Swipe is OFF unless the backend turns it on. A swipe that guesses
+            // the wrong word costs far more trust than no swipe at all, so it
+            // ships dark and gets enabled per cohort once the revert counter
+            // says it earns its place.
+            swipeEnabled = flagBoolean("kb.swipe.enabled", false)
+            onSwipe = { keys ->
+                val letters = keys.mapNotNull { k ->
+                    (k as? Button)?.text?.toString()?.takeIf { it.length == 1 }?.lowercase()
+                }.joinToString("")
+                if (letters.length >= 2) host.onSwipe(letters)
+            }
         }
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
