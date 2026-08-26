@@ -1,6 +1,24 @@
-apply plugin: 'com.android.library'
-apply plugin: 'kotlin-android'
-apply plugin: 'expo-module-gradle-plugin'
+// Matches the shape every expo-module in node_modules uses. Two things here are
+// load-bearing:
+//
+//   1. The `plugins {}` block, not `apply plugin:`. expo-module-gradle-plugin
+//      configures the Android library itself, and applying com.android.library
+//      and kotlin-android ahead of it by hand leaves it half-configured.
+//
+//   2. versionCode / versionName in defaultConfig. Expo's autolinking reads
+//      android.defaultConfig.versionName while configuring the module, and
+//      without it the whole :expo project fails to evaluate:
+//
+//        Failed to apply plugin 'expo-autolinking'.
+//          > A problem occurred configuring project ':tulmi-bridge'.
+//            > 'android.defaultConfig.versionName' is not defined
+//
+//      Library modules do not USE a version name for anything — but the value
+//      being read has to exist.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
 
 group = 'expo.modules.tulmibridge'
 version = '1.0.0'
@@ -9,5 +27,7 @@ android {
   namespace "expo.modules.tulmibridge"
   defaultConfig {
     minSdkVersion 24
+    versionCode 1
+    versionName "1.0.0"
   }
 }

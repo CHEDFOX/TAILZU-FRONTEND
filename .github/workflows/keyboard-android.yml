@@ -52,26 +52,9 @@ jobs:
         # (incl. the tulmi-keyboard module) WITHOUT the heavy C++/NDK builds or
         # APK packaging — a fast "does the Kotlin compile" gate.
         #
-        # The init script gives every Android module a versionName. Expo's
-        # module-publishing config reads android.defaultConfig.versionName at
-        # configure time; a plain `expo prebuild` (no EAS) leaves it undefined
-        # on the library modules, which otherwise fails with
-        # "SoftwareComponent with name 'release' not found". Registered from an
-        # init script it runs before the Expo plugin's afterEvaluate.
-        run: |
-          cat > /tmp/ci-version.init.gradle <<'EOF'
-          allprojects {
-              afterEvaluate { p ->
-                  def androidExt = p.extensions.findByName('android')
-                  if (androidExt != null) {
-                      try {
-                          if (androidExt.defaultConfig.versionName == null) { androidExt.defaultConfig.versionName = '0.1.0' }
-                          if (androidExt.defaultConfig.versionCode == null) { androidExt.defaultConfig.versionCode = 1 }
-                      } catch (ignored) {}
-                  }
-              }
-          }
-          EOF
-          ./gradlew :app:compileDebugKotlin \
-            --init-script /tmp/ci-version.init.gradle \
-            --console=plain --stacktrace
+        # This used to run with an init script that injected a versionName into
+        # every module, because :tulmi-bridge did not declare one. That made CI
+        # green while a real EAS build failed on the same line — the gate was
+        # testing a configuration nobody ships. The module declares its own
+        # version now; if that ever regresses, this job is supposed to fail.
+        run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace
