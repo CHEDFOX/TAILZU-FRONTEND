@@ -13,6 +13,10 @@ on:
   push:
     paths:
       - "app/modules/tulmi-keyboard/android/**"
+      # tulmi-bridge too. It was missing, so the module whose Gradle config
+      # broke the EAS build was never watched by the job meant to catch exactly
+      # that — the fix commit did not even trigger a run.
+      - "app/modules/tulmi-bridge/android/**"
       - "app/android/**"
       - "app/app.config.ts"
       - "app/package.json"
