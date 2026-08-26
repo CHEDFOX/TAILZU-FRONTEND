@@ -7,12 +7,21 @@
  * be reached from React Native, so the motion existed in exactly one place and
  * nowhere else in the product could use it.
  *
- * The physics and the numbers are the same, deliberately — dots seeded on the
- * mark's own opaque pixels, an outward burst, elastic wall and pairwise
- * collisions, drag with a high speed floor so the swarm never settles, a damped
- * spring home, then a handoff to the crisp artwork. The ONLY difference is what
- * drives it: the keyboard switches modes when recording starts and stops, while
- * here the same round trip runs on a loop with no input at all.
+ * Same flow, same seeding, same way home — one thing deliberately dropped.
+ *
+ *   disperse   the mark comes apart and drifts outward in VACUUM: no drag, no
+ *              collisions, no bouncing. Each dot keeps the velocity it was
+ *              given until the rim stops it.
+ *   hold       held apart, untouched.
+ *   assemble   a damped spring back onto the mark's own pixels — this half is
+ *              the keyboard's, unchanged.
+ *   hold       the crisp artwork, then round again.
+ *
+ * What is NOT here is the keyboard's wander — the elastic wall, the pairwise
+ * collisions, the speed floor that keeps the swarm zipping. That exists because
+ * the keyboard has to read as ACTIVE for however long a recording runs. This is
+ * a single unhurried breath on a screen nobody is talking to, so the same
+ * busy-ness would fight it.
  *
  * Skia, not react-native-svg: this draws every dot into ONE path on the UI
  * thread each frame. The same work as N animated SVG circles crossing the
@@ -51,15 +60,18 @@ const MARK = require("../../assets/tailzu-mark.png");
 // Cycle timings at speed 1, in seconds — burst, wander, spring home, a beat on
 // the formed mark, repeat. Leave `speed` at 1 to match the keyboard exactly;
 // anything faster stops being the same animation.
-const T_WANDER = 1.15;
-const T_ASSEMBLE = 0.55;
-const T_HOLD = 0.45;
+const T_DISPERSE = 1.7;      // slow drift outward
+const T_SCATTER_HOLD = 0.55; // held apart
+const T_ASSEMBLE = 0.7;      // spring home
+const T_HOLD = 1.1;          // held as the mark
 
-// Physics, carried over from MicParticleView so the two read as one motion.
-const BURST_MIN = 55;
-const BURST_MAX = 110;
-const DRAG = 0.99;
-const MIN_SPEED = 24;
+// The drift out. Slow and narrow-banded: a wide spread would have some dots at
+// the rim while others had barely left the mark, which reads as a fizzle rather
+// than as one thing coming apart.
+const DRIFT_MIN = 16;
+const DRIFT_MAX = 26;
+
+// The way home. Straight from MicParticleView — this half IS the keyboard's.
 const STIFFNESS = 26;
 const DAMPING = 0.8;
 
@@ -131,7 +143,7 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
   // Flat [x, y, vx, vy] per dot. One array mutated in place on the UI thread —
   // allocating per frame is what makes particle fields stutter.
   const dots = useSharedValue<number[]>([]);
-  const phase = useSharedValue(0);   // 0 wander · 1 assemble · 2 hold
+  const phase = useSharedValue(0);   // 0 disperse · 3 hold apart · 1 assemble · 2 hold mark
   // Mirrored to React state: the crisp mark is a Skia <Image>, which only the
   // render tree can swap in, so the worklet has to hand the phase across.
   const [holding, setHolding] = useState(false);
@@ -168,8 +180,8 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
     targets.value = seeded.slice();
     phase.value = 0;
     clock.value = 0;
-    // Kick them apart immediately so the very first frame is already moving.
-    burst(dots.value, size, dotRadius);
+    // Push them apart immediately so the very first frame is already moving.
+    drift(dots.value, size);
     tick.value = tick.value + 1;
   }, [seeded, size, dotRadius, dots, targets, phase, clock, tick]);
 
@@ -186,61 +198,41 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
     const wall = Math.max(0, size / 2 - dotRadius);
 
     if (phase.value === 0) {
+      // DISPERSE — vacuum. No drag, no collisions, no bouncing: each dot holds
+      // the velocity it was given and drifts straight out, the way matter comes
+      // apart with nothing to push back on it. The keyboard's version deliberately
+      // does the opposite (elastic wall, pairwise collisions, a speed floor) because
+      // it has to read as ACTIVE for as long as a recording lasts. This one is a
+      // single unhurried breath, so the busy-ness would only fight it.
       for (let i = 0; i < d.length; i += 4) {
         d[i] += d[i + 2] * dt;
         d[i + 1] += d[i + 3] * dt;
         const dx = d[i] - c;
         const dy = d[i + 1] - c;
         const dist = Math.sqrt(dx * dx + dy * dy);
+        // The wall stops them rather than reflecting them — they settle thin
+        // against the rim instead of pinging back through the middle.
         if (dist > wall && dist > 0) {
           const nx = dx / dist;
           const ny = dy / dist;
           d[i] = c + nx * wall;
           d[i + 1] = c + ny * wall;
-          const vn = d[i + 2] * nx + d[i + 3] * ny;
-          d[i + 2] -= 2 * vn * nx;
-          d[i + 3] -= 2 * vn * ny;
+          d[i + 2] = 0;
+          d[i + 3] = 0;
         }
       }
-      // Pairwise elastic collisions. O(n²), and at ~90 dots that is 4k checks a
-      // frame — nothing on the UI thread, and it is what makes the swarm read
-      // as matter rather than as drifting sparks.
-      const minD = dotRadius * 2;
-      for (let a = 0; a < d.length; a += 4) {
-        for (let b = a + 4; b < d.length; b += 4) {
-          const dx = d[b] - d[a];
-          const dy = d[b + 1] - d[a + 1];
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist >= minD || dist <= 0.0001) continue;
-          const nx = dx / dist;
-          const ny = dy / dist;
-          const overlap = (minD - dist) / 2;
-          d[a] -= nx * overlap;
-          d[a + 1] -= ny * overlap;
-          d[b] += nx * overlap;
-          d[b + 1] += ny * overlap;
-          const rvn = (d[b + 2] - d[a + 2]) * nx + (d[b + 3] - d[a + 3]) * ny;
-          if (rvn < 0) {
-            d[a + 2] += rvn * nx;
-            d[a + 3] += rvn * ny;
-            d[b + 2] -= rvn * nx;
-            d[b + 3] -= rvn * ny;
-          }
-        }
+      if (clock.value >= T_DISPERSE) {
+        phase.value = 3;
+        clock.value = 0;
       }
-      // Bleed the burst off, but floor the speed high so the swarm keeps
-      // zipping instead of drifting to a near-stop before the cycle turns.
+    } else if (phase.value === 3) {
+      // HOLD, scattered. Whatever is still drifting keeps drifting; nothing is
+      // nudged. The pause is what makes the assemble land.
       for (let i = 0; i < d.length; i += 4) {
-        d[i + 2] *= DRAG;
-        d[i + 3] *= DRAG;
-        const s = Math.sqrt(d[i + 2] * d[i + 2] + d[i + 3] * d[i + 3]);
-        if (s > 0.001 && s < MIN_SPEED) {
-          const k = MIN_SPEED / s;
-          d[i + 2] *= k;
-          d[i + 3] *= k;
-        }
+        d[i] += d[i + 2] * dt;
+        d[i + 1] += d[i + 3] * dt;
       }
-      if (clock.value >= T_WANDER) {
+      if (clock.value >= T_SCATTER_HOLD) {
         phase.value = 1;
         clock.value = 0;
       }
@@ -272,7 +264,7 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
         if (holdMark) runOnJS(setHolding)(true);
       }
     } else if (clock.value >= T_HOLD) {
-      burst(d, size, dotRadius);
+      drift(d, size);
       phase.value = 0;
       clock.value = 0;
       if (holdMark) runOnJS(setHolding)(false);
@@ -329,11 +321,12 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
 };
 
 /**
- * An outward kick from the centre through each dot, so the mark visibly bursts
- * apart rather than dissolving. The angular jitter stops dots at the same
- * radius moving in lockstep, which would read as a ring rather than a scatter.
+ * Set every dot drifting outward from the centre through its own position, so
+ * the mark comes apart along its own shape rather than dissolving in place. The
+ * angular jitter stops dots at the same radius moving in lockstep, which would
+ * read as an expanding ring instead of a scatter.
  */
-function burst(d: number[], size: number, dotRadius: number): void {
+function drift(d: number[], size: number): void {
   "worklet";
   const c = size / 2;
   for (let i = 0; i < d.length; i += 4) {
@@ -351,7 +344,7 @@ function burst(d: number[], size: number, dotRadius: number): void {
     const j = Math.random() - 0.5;
     const rx = dx * Math.cos(j) - dy * Math.sin(j);
     const ry = dx * Math.sin(j) + dy * Math.cos(j);
-    const b = BURST_MIN + Math.random() * (BURST_MAX - BURST_MIN);
+    const b = DRIFT_MIN + Math.random() * (DRIFT_MAX - DRIFT_MIN);
     d[i + 2] = rx * b;
     d[i + 3] = ry * b;
   }
