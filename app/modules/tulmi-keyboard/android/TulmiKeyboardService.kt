@@ -115,11 +115,48 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         const val CODE_REFINE = -101
     }
 
+    /** Fills the suggestion bar. Null when the device has no spell checker. */
+    private var corrections: TulmiCorrections? = null
+
+    /**
+     * Ask for suggestions on the word the caret is sitting in. The word comes
+     * from the InputConnection rather than from a buffer we keep ourselves —
+     * the user can move the caret, paste, or have the field edited under us,
+     * and a local buffer would drift out of step with all three.
+     */
+    private fun suggestForCaretWord() {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
+        val word = before.takeLastWhile { !it.isWhitespace() }
+        corrections?.suggest(word)
+    }
+
+    /** Accept a chip: swap the caret's word for the chosen one. */
+    override fun applySuggestion(word: String) {
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
+        val typed = before.takeLastWhile { !it.isWhitespace() }
+        if (typed.isNotEmpty()) ic.deleteSurroundingText(typed.length, 0)
+        ic.commitText("$word ", 1)
+        TulmiTelemetry.bump(TulmiTelemetry.SUGGESTION_ACCEPTED)
+        corrections?.clear()
+        kbState.suggestions = emptyList()
+        sduiRenderer?.stateChanged()
+    }
+
     override fun onCreateInputView(): View {
         // Pick up shared prefs + preload cached config synchronously so we can
         // decide SDUI vs fallback BEFORE inflating anything.
         Net.load(this)
         loadTonePrefs()
+        TulmiTelemetry.load(this)
+        TulmiTelemetry.bump(TulmiTelemetry.COLD_STARTS)
+        if (corrections == null) {
+            corrections = TulmiCorrections(this) { words ->
+                kbState.suggestions = words
+                sduiRenderer?.stateChanged()
+            }
+        }
 
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         val cached = prefs.getString("config_json", null)
@@ -194,6 +231,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     private fun persistTonePrefs() {
+        TulmiTelemetry.bump(TulmiTelemetry.TONE_CHANGED)
         getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE).edit()
             .putString("tone", currentTone)
             .putBoolean("emoji", emojiOn)
@@ -274,6 +312,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 prefs.edit().putString("config_json", json).apply()
                 main.post { applyRawJson(json) }
             } catch (_: Exception) { /* offline → keep cached/defaults */ }
+            // Piggyback the batch on the trip we were already making. Counters
+            // are cleared only once the POST succeeded, so a failed upload
+            // costs a window's delay rather than the data.
+            try {
+                TulmiTelemetry.pendingUpload(this)?.let { (counters, windowMs) ->
+                    Net.postTelemetry(counters, windowMs, SDUIRenderer.BUILD_STAMP)
+                    TulmiTelemetry.commitUpload(this, counters)
+                }
+            } catch (_: Exception) { /* keep the counters for the next window */ }
         }.start()
     }
 
@@ -300,6 +347,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     private fun applyConfig(cfg: Net.KbConfig) {
         kbConfig = cfg
+        // The user's own words, from the same flag iOS reads. Offered ahead of
+        // the device dictionary so a name we were told about is never
+        // "corrected" into a common word.
+        corrections?.vocabulary = (sduiConfig?.flags?.opt("kb.personality.vocabulary") as? String)
+            ?.split(Regex("[,\n]"))
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: emptyList()
         // If we're rendering via SDUI, the theme lives in the tree, not on the
         // fallback views — skip the legacy color-apply and let the SDUI path
         // pick up the fresh JSON (see applyRawJson below).
@@ -335,20 +390,33 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
         val ic = currentInputConnection ?: return
         when (primaryCode) {
-            CODE_DELETE -> ic.deleteSurroundingText(1, 0)
+            CODE_DELETE -> {
+                ic.deleteSurroundingText(1, 0)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+            }
             CODE_SHIFT -> {
                 caps = !caps
                 keyboard?.let { it.isShifted = caps }
                 keyboardView?.invalidateAllKeys()
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
-            CODE_SPACE -> ic.commitText(" ", 1)
-            CODE_MIC -> if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."))
+            CODE_SPACE -> {
+                ic.commitText(" ", 1)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                // A space ends the word, so the bar has nothing left to offer.
+                corrections?.clear()
+            }
+            CODE_MIC -> {
+                TulmiTelemetry.bump(TulmiTelemetry.MIC_TAPS)
+                if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."))
+            }
             CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."))
             else -> {
                 var ch = primaryCode.toChar()
                 if (caps) ch = Character.toUpperCase(ch)
                 ic.commitText(ch.toString(), 1)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                suggestForCaretWord()
             }
         }
     }
@@ -386,10 +454,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         streaming = true
         kbState.dictating = true
         sduiRenderer?.stateChanged()
-        setStatus(label("listening", "🎙️ Listening…"))
+        setStatus(label("listening", "Listening…"))
         val target = targetAppName()
         stream = Stream(
-            onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
+            onReady = { main.post { setStatus(label("listening", "Listening…")) } },
             // Only paint interim words live when the backend's kb.mic.liveText is
             // on; otherwise wait for the final so text lands in one block after
             // stop. The final always commits either way.
@@ -452,6 +520,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // trailing space at the cursor. Empty finals carry no words.
         if (text.isBlank()) return
         val ic = currentInputConnection ?: return
+        TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
         // Never commit a conversational refusal to the field — drop it and wipe
         // the provisional partial it was replacing.
         if (looksLikeFiller(text)) {
@@ -496,7 +565,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
     }
 
-    /** Dictation closed → auto-refine what was just spoken (replaces the old ✨ key). */
+    /** Dictation closed -> auto-refine what was just spoken (replaces the old Refine key). */
     private fun onDictationClosed() {
         // A partial may still be in the field that never got its finalizing
         // "final" (socket closed right after the last partial). It's real
@@ -553,7 +622,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             kbState.dictating = true
             sduiRenderer?.stateChanged()
             startMicLevelPolling()
-            setStatus(label("listening", "🎙️ Listening… tap mic to stop"))
+            setStatus(label("listening", "Listening… tap mic to stop"))
         } catch (e: Exception) {
             setStatus(label("voice_not_listening", "444 : Not Listening"))
             cleanupRecorder()
@@ -685,12 +754,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val after = ic.getTextAfterCursor(10000, 0)?.toString() ?: ""
         val full = (before + after).trim()
         if (full.isEmpty()) {
-            setStatus("Type something first, then tap ✨")
+            setStatus(label("refineEmpty", "Type something first, then tap Refine"))
             return
         }
         kbState.refining = true
         sduiRenderer?.stateChanged()
         setStatus(label("refining", "Refining…"))
+        TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
         val target = targetAppName()
         // Read the currently-selected tone fresh from prefs so refine honors it,
         // whether it was set by the hand-built pill or the SDUI cycleTone (both
@@ -844,6 +914,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         try { stream?.cancel() } catch (_: Exception) {}
         recording = false
         streaming = false
+        // Last chance to keep the counters — the throttle means the most recent
+        // ones have not been written yet.
+        try { TulmiTelemetry.persist(this, force = true) } catch (_: Exception) {}
+        try { corrections?.close() } catch (_: Exception) {}
+        corrections = null
         main.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
