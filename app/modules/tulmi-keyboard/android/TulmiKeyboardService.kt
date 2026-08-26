@@ -122,6 +122,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      *  node disappearing — the layout is the backend's to change, not ours. */
     private var suggestionsEnabled: Boolean = true
 
+    /** kb.autocorrect.enabled. */
+    private var autocorrectEnabled: Boolean = true
+
+    /** The correction just applied, so an immediate backspace can take it back.
+     *  Reverting is also the sharpest quality signal the product has: a user
+     *  undoing a correction is them saying it was wrong, in the clearest terms
+     *  available, and it is counted. */
+    private var lastCorrection: Pair<String, String>? = null
+
     /** Exactly what the CURRENT dictation has put into the field, and what was
      *  already there before it started. Refine works on the first and is given
      *  the second as context — without these it rewrites the whole draft. */
@@ -142,8 +151,95 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         corrections?.suggest(word)
     }
 
+    /**
+     * Turn a traced path into a word.
+     *
+     * The path gives the letters the finger crossed, which is a skeleton of the
+     * word and not the word: it has every letter the user passed over, and none
+     * of the ones they glided through without stopping. Android's spell checker
+     * is asked to resolve that skeleton — the same dictionary that already
+     * backs the suggestion bar, in the languages the device actually has, so a
+     * swipe works in Hindi or Marathi for anyone who installed them.
+     *
+     * A guess is only taken if it starts and ends on the letters the finger
+     * genuinely started and ended on. Those two are the ones the user was
+     * deliberate about; everything between them was travel.
+     */
+    override fun onSwipe(letters: String) {
+        val corr = corrections ?: return
+        val first = letters.first()
+        val last = letters.last()
+        corr.resolve(letters) { candidates ->
+            val word = candidates.firstOrNull {
+                it.length >= 2 &&
+                    it.first().lowercaseChar() == first &&
+                    it.last().lowercaseChar() == last
+            } ?: return@resolve
+            val ic = currentInputConnection ?: return@resolve
+            // Replace whatever partial word the trace started on, then leave a
+            // space — a swiped word is a finished word.
+            val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
+            val partial = before.takeLastWhile { !it.isWhitespace() }
+            if (partial.isNotEmpty()) ic.deleteSurroundingText(partial.length, 0)
+            ic.commitText("$word ", 1)
+            TulmiTelemetry.bump(TulmiTelemetry.SWIPE_COMMITTED)
+            corr.clear()
+            kbState.suggestions = emptyList()
+            sduiRenderer?.stateChanged()
+        }
+    }
+
     override fun onTextInserted() {
+        // Any inserted character invalidates a pending revert — the user moved
+        // on, and backspace now means backspace again.
+        lastCorrection = null
         suggestForCaretWord()
+    }
+
+    /**
+     * Replace the word at the caret with its correction, if there is one worth
+     * making. Called at a word boundary, before the boundary character lands.
+     *
+     * Uses the candidate cached from the last spell-check reply rather than
+     * asking now: the checker is another process, and a round trip here would
+     * put IPC on the keystroke path and land the correction after the space.
+     */
+    private fun autocorrectAtBoundary() {
+        if (!autocorrectEnabled) return
+        val ic = currentInputConnection ?: return
+        val candidate = corrections?.topCandidate ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
+        val typed = before.takeLastWhile { !it.isWhitespace() }
+        if (typed.isEmpty()) return
+        if (!TulmiAutocorrect.accepts(typed, candidate)) return
+
+        ic.deleteSurroundingText(typed.length, 0)
+        ic.commitText(candidate, 1)
+        lastCorrection = typed to candidate
+        TulmiTelemetry.bump(TulmiTelemetry.AUTOCORRECT_APPLIED)
+    }
+
+    /**
+     * Undo the correction just applied. Returns true when it handled the
+     * backspace, so the caller does not also delete a character.
+     */
+    private fun revertCorrection(): Boolean {
+        val (typed, applied) = lastCorrection ?: return false
+        lastCorrection = null
+        val ic = currentInputConnection ?: return false
+        // The correction has to still be the tail — if the field moved, deleting
+        // by its length would eat something else.
+        val before = ic.getTextBeforeCursor(applied.length + 8, 0)?.toString() ?: return false
+        val tail = before.trimEnd()
+        if (!tail.endsWith(applied)) return false
+        // Include any space typed after it, so the caret lands where the user
+        // expects: at the end of the word they are taking back.
+        val trailing = before.length - tail.length
+        ic.deleteSurroundingText(applied.length + trailing, 0)
+        ic.commitText(typed, 1)
+        TulmiTelemetry.bump(TulmiTelemetry.AUTOCORRECT_REVERTED)
+        suggestForCaretWord()
+        return true
     }
 
     /** Accept a chip: swap the caret's word for the chosen one. */
@@ -375,6 +471,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // them all along; Android simply never looked, so the bar could be
         // neither turned off nor resized from the server.
         corrections?.maxSuggestions = (flags?.get("kb.suggestions.max") as? Number)?.toInt() ?: 3
+        // The cost model is a judgement call that should be settled with the
+        // revert counter, not with an opinion — so every weight is tunable.
+        autocorrectEnabled = (flags?.get("kb.autocorrect.enabled") as? Boolean) ?: true
+        (flags?.get("kb.autocorrect.neighborCost") as? Number)?.let {
+            TulmiAutocorrect.neighbourCost = it.toFloat()
+        }
+        (flags?.get("kb.autocorrect.punctCost") as? Number)?.let {
+            TulmiAutocorrect.punctCost = it.toFloat()
+        }
+        (flags?.get("kb.autocorrect.maxCostPerChar") as? Number)?.let {
+            TulmiAutocorrect.maxCostPerChar = it.toFloat()
+        }
+        (flags?.get("kb.autocorrect.minLength") as? Number)?.let {
+            TulmiAutocorrect.minLength = it.toInt()
+        }
         suggestionsEnabled = (flags?.get("kb.suggestions.enabled") as? Boolean) ?: true
         if (!suggestionsEnabled) {
             corrections?.clear()
@@ -416,6 +527,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val ic = currentInputConnection ?: return
         when (primaryCode) {
             CODE_DELETE -> {
+                // A backspace straight after a correction means "no, I meant
+                // what I typed" — put it back rather than deleting a character
+                // of a word the user never chose.
+                if (revertCorrection()) return
                 ic.deleteSurroundingText(1, 0)
                 TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
                 // The word just changed under the bar. Re-ask, or it keeps
@@ -436,6 +551,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
             CODE_SPACE -> {
+                autocorrectAtBoundary()
                 ic.commitText(" ", 1)
                 TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
                 // A space ends the word, so the bar has nothing left to offer.
