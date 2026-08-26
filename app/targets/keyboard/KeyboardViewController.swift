@@ -531,7 +531,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
     // Personality chip row — populated from the pinned presets on the
     // config. Backend passes them in the `flags` bag as
-    // kb.personality.pinned (array of { id, name, emoji, tone }).
+    // kb.personality.pinned (array of { id, name, tone }).
     populatePersonalityRow(from: cfg, accent: accentColor)
   }
 
@@ -549,7 +549,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       return TulmiPersonalityRow.ChipData(
         id: id,
         name: (m["name"] as? String) ?? id.capitalized,
-        emoji: (m["emoji"] as? String) ?? "•",
         tone: (m["tone"] as? String) ?? "casual",
       )
     }
@@ -816,9 +815,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// deliberately ignored so backend-pushed media (animated GIF/APNG) can
   /// never replace the brand mark on the idle mic again.
   private func brandMarkImage() -> UIImage {
-    if let mark = UIImage(named: "TailzuMark") {
+    if let mark = SDUIRenderer.tailzuMark() {
       return mark.withRenderingMode(.alwaysOriginal)
     }
+    NSLog("[Tailzu][kb] TailzuMark missing from the bundle — showing the system mic.")
     return UIImage(systemName: "mic.fill") ?? UIImage()
   }
 

@@ -40,6 +40,12 @@ export const CORE_COMPONENTS = [
   // Slideshow — cycles through a MediaSpec[] at a backend-defined speed.
   // Powers intro sequences, paywall carousels, onboarding walkthroughs.
   "Slideshow",
+  // ParticleMark — the brand mark bursting into particles and re-forming, on a
+  // loop. The keyboard's recording visual, ported off Swift so the app can use
+  // it too (see ParticleMark.tsx).
+  "ParticleMark",
+  // BinaryReveal — a wordmark decoding itself out of 0s and 1s, on a loop.
+  "BinaryReveal",
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
