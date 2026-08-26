@@ -17,6 +17,7 @@ on:
       # broke the EAS build was never watched by the job meant to catch exactly
       # that — the fix commit did not even trigger a run.
       - "app/modules/tulmi-bridge/android/**"
+      - "app/modules/tulmi-stream/android/**"
       - "app/android/**"
       - "app/app.config.ts"
       - "app/package.json"
