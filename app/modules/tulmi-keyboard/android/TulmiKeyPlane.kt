@@ -66,6 +66,27 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      *  belong with the key, not with the resolver. */
     var onKeyCommitted: ((View) -> Unit)? = null
 
+    /** kb.swipe.enabled — trace a word across the keys instead of tapping it. */
+    var swipeEnabled: Boolean = false
+
+    /** How far a finger must travel before the gesture stops being a press and
+     *  becomes a trace. Below this, a slightly sloppy tap is still a tap. */
+    var swipeMinTravelPx: Float = 44f * context.resources.displayMetrics.density
+
+    /**
+     * A completed trace, as the keys it turned on. Fired instead of a key
+     * commit — a swipe types a word, not the letter it happened to end on.
+     */
+    var onSwipe: ((List<View>) -> Unit)? = null
+
+    // The trace, as the primary pointer walks it. Only one finger traces; a
+    // second pointer during a swipe is ignored rather than starting a race.
+    private var tracing = false
+    private var traceTravel = 0f
+    private var lastTraceX = 0f
+    private var lastTraceY = 0f
+    private val traced = ArrayList<View>(12)
+
     // Per-pointer state. Small arrays rather than maps — this is the touch path
     // and at most a few fingers are ever down.
     private val pointerIds = IntArray(MAX_POINTERS) { -1 }
@@ -110,23 +131,51 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     // Stay on the pressed key while the finger is anywhere in
                     // its grown rect. Only a move that lands on ANOTHER key
                     // retargets — drifting into a gap keeps what you pressed.
+                    if (swipeEnabled && slot == 0) {
+                        traceTravel += hypot(x - lastTraceX, y - lastTraceY)
+                        lastTraceX = x
+                        lastTraceY = y
+                        if (!tracing && traceTravel >= swipeMinTravelPx) {
+                            // Long enough to be deliberate. Everything the
+                            // finger has already crossed counts, starting with
+                            // the key it pressed.
+                            tracing = true
+                            traced.clear()
+                            traced.add(held)
+                        }
+                    }
                     if (within(held, x, y, holdMultiplier)) continue
                     val next = keyAt(x, y) ?: continue
                     if (next === held) continue
                     setPressed(held, false)
                     owners[slot] = next
                     setPressed(next, true)
+                    // A trace records each NEW key it enters. Consecutive
+                    // duplicates are dropped, so wobbling on one key does not
+                    // double a letter — a real double letter comes from the
+                    // dictionary, not from the path.
+                    if (tracing && traced.lastOrNull() !== next) traced.add(next)
                 }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val i = ev.actionIndex
+                if (tracing && slotOf(ev.getPointerId(i)) == 0) {
+                    // A trace types a word, not the letter it ended on — so the
+                    // key under the finger must NOT also commit.
+                    val path = ArrayList(traced)
+                    endTrace()
+                    releaseSilently(ev.getPointerId(i))
+                    if (path.size >= 2) onSwipe?.invoke(path)
+                    return true
+                }
                 release(ev.getPointerId(i), commit = true, x = ev.getX(i), y = ev.getY(i))
             }
 
             MotionEvent.ACTION_CANCEL -> {
                 // Everything still down was cancelled by something outside this
                 // view. Rescue the ones that were taps.
+                endTrace()
                 for (slot in 0 until MAX_POINTERS) {
                     val id = pointerIds[slot]
                     if (id != -1) release(id, commit = false, x = downX[slot], y = downY[slot])
@@ -136,9 +185,29 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         return true
     }
 
+    /** Drop a pointer's ownership without firing its key. */
+    private fun releaseSilently(id: Int) {
+        val slot = slotOf(id) ?: return
+        owners[slot]?.let { setPressed(it, false) }
+        pointerIds[slot] = -1
+        owners[slot] = null
+    }
+
+    private fun endTrace() {
+        tracing = false
+        traceTravel = 0f
+        traced.clear()
+    }
+
     private fun claim(id: Int, x: Float, y: Float) {
         val key = keyAt(x, y) ?: return
         val slot = freeSlot() ?: return
+        if (slot == 0) {
+            traceTravel = 0f
+            lastTraceX = x
+            lastTraceY = y
+            tracing = false
+        }
         pointerIds[slot] = id
         owners[slot] = key
         downX[slot] = x
