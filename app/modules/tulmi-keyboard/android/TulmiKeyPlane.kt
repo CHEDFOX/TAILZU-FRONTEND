@@ -1,0 +1,250 @@
+package com.tulmi.app.keyboard
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Rect
+import android.view.MotionEvent
+import android.view.View
+import android.widget.LinearLayout
+import kotlin.math.abs
+import kotlin.math.hypot
+
+/**
+ * A row of keys that owns its own touch, instead of leaving each key to Android's
+ * per-view dispatch. The Android half of iOS's KeyPlaneView.
+ *
+ * Android's default is: a Button gets the touch that lands inside its own bounds,
+ * and nothing else. Three things follow from that, and all three are felt.
+ *
+ *   DEAD ZONES. The margin between two keys belongs to neither, so a tap there
+ *   does nothing at all. On a phone keyboard those margins are a real fraction
+ *   of the surface, and every tap that lands in one is a character the user
+ *   meant to type and did not get. `fillGaps` gives every point in the row to
+ *   its nearest key, so there is nowhere left to miss.
+ *
+ *   TWITCH RETARGETING. A finger that rolls a millimetre while pressing crosses
+ *   into the neighbour and types that instead. `holdMultiplier` grows the owned
+ *   key's rect once it is owned, so a small drift stays on the key you pressed
+ *   and only a deliberate move to another key retargets.
+ *
+ *   CANCELLED TAPS. A scroll container, a system gesture, or the IME itself can
+ *   cancel a touch that the user experienced as a completed tap. Android drops
+ *   it. `cancelCommit` keeps the ones that were short and barely moved — those
+ *   were taps, whatever the framework decided.
+ *
+ * Multi-touch is press-order: each pointer owns its own key, and fast typing
+ * where the next key goes down before the last comes up commits both, in the
+ * order they were pressed.
+ *
+ * The plane does NOT reimplement what a key does. It resolves which key a touch
+ * belongs to and when it fires, then calls performClick() — so every listener
+ * the renderer already attached keeps working untouched.
+ *
+ * Anything whose gesture is not a tap — a suggestion strip that scrolls, the
+ * personality row, a key that repeats while held — is left to handle its own
+ * touch, because the plane would break it. See isKey().
+ */
+class TulmiKeyPlane(context: Context) : LinearLayout(context) {
+
+    /** kb.keyPlane.enabled — off restores stock per-view dispatch exactly. */
+    var planeEnabled: Boolean = true
+
+    /** kb.touch.fillGaps — give the margins between keys to the nearest key. */
+    var fillGaps: Boolean = true
+
+    /** kb.touch.holdMultiplier — how far a finger may drift off the pressed key
+     *  before another one can take it. 1.0 disables the slack. */
+    var holdMultiplier: Float = 1.35f
+
+    /** kb.touch.cancelCommit.maxMs / .maxDriftPt — a cancelled touch this short
+     *  and this still was a tap; commit it rather than losing the character. */
+    var cancelCommitMaxMs: Long = 300L
+    var cancelCommitMaxDriftPx: Float = 12f * context.resources.displayMetrics.density
+
+    /** Fired just before a key's own listener runs, for anything that wants to
+     *  observe commits centrally. Left unset by default — feedback and counting
+     *  belong with the key, not with the resolver. */
+    var onKeyCommitted: ((View) -> Unit)? = null
+
+    // Per-pointer state. Small arrays rather than maps — this is the touch path
+    // and at most a few fingers are ever down.
+    private val pointerIds = IntArray(MAX_POINTERS) { -1 }
+    private val owners = arrayOfNulls<View>(MAX_POINTERS)
+    private val downX = FloatArray(MAX_POINTERS)
+    private val downY = FloatArray(MAX_POINTERS)
+    private val downAt = LongArray(MAX_POINTERS)
+
+    private val hitRect = Rect()
+
+    init {
+        orientation = HORIZONTAL
+        isMotionEventSplittingEnabled = false   // the plane splits pointers itself
+    }
+
+    /**
+     * Take the gesture only when it starts on a key. A touch that begins on a
+     * scrolling strip or a custom row belongs to that view.
+     */
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (!planeEnabled) return false
+        if (ev.actionMasked != MotionEvent.ACTION_DOWN) return false
+        return keyAt(ev.x, ev.y) != null
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (!planeEnabled) return super.onTouchEvent(ev)
+
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = ev.actionIndex
+                claim(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until ev.pointerCount) {
+                    val slot = slotOf(ev.getPointerId(i)) ?: continue
+                    val x = ev.getX(i)
+                    val y = ev.getY(i)
+                    val held = owners[slot] ?: continue
+                    // Stay on the pressed key while the finger is anywhere in
+                    // its grown rect. Only a move that lands on ANOTHER key
+                    // retargets — drifting into a gap keeps what you pressed.
+                    if (within(held, x, y, holdMultiplier)) continue
+                    val next = keyAt(x, y) ?: continue
+                    if (next === held) continue
+                    setPressed(held, false)
+                    owners[slot] = next
+                    setPressed(next, true)
+                }
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val i = ev.actionIndex
+                release(ev.getPointerId(i), commit = true, x = ev.getX(i), y = ev.getY(i))
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                // Everything still down was cancelled by something outside this
+                // view. Rescue the ones that were taps.
+                for (slot in 0 until MAX_POINTERS) {
+                    val id = pointerIds[slot]
+                    if (id != -1) release(id, commit = false, x = downX[slot], y = downY[slot])
+                }
+            }
+        }
+        return true
+    }
+
+    private fun claim(id: Int, x: Float, y: Float) {
+        val key = keyAt(x, y) ?: return
+        val slot = freeSlot() ?: return
+        pointerIds[slot] = id
+        owners[slot] = key
+        downX[slot] = x
+        downY[slot] = y
+        downAt[slot] = System.currentTimeMillis()
+        setPressed(key, true)
+    }
+
+    private fun release(id: Int, commit: Boolean, x: Float, y: Float) {
+        val slot = slotOf(id) ?: return
+        val key = owners[slot]
+        val heldMs = System.currentTimeMillis() - downAt[slot]
+        val drift = hypot(x - downX[slot], y - downY[slot])
+
+        pointerIds[slot] = -1
+        owners[slot] = null
+        if (key == null) return
+        setPressed(key, false)
+
+        // A normal lift always commits. A CANCEL commits only when the gesture
+        // looked like a tap — short, and barely moved.
+        val shouldCommit = commit ||
+            (heldMs <= cancelCommitMaxMs && drift <= cancelCommitMaxDriftPx)
+        if (!shouldCommit) return
+
+        onKeyCommitted?.invoke(key)
+        key.performClick()
+    }
+
+    /**
+     * Which key owns this point.
+     *
+     * Inside a key's bounds it is that key. In the margin between keys it is the
+     * nearest key by centre distance when fillGaps is on — which is what stops a
+     * tap in a gap from doing nothing — and nothing at all when it is off.
+     */
+    private fun keyAt(x: Float, y: Float): View? {
+        var nearest: View? = null
+        var nearestDist = Float.MAX_VALUE
+        for (i in 0 until childCount) {
+            val c = getChildAt(i)
+            if (!isKey(c)) continue
+            c.getHitRect(hitRect)
+            if (hitRect.contains(x.toInt(), y.toInt())) return c
+            if (!fillGaps) continue
+            val cx = (hitRect.left + hitRect.right) / 2f
+            val cy = (hitRect.top + hitRect.bottom) / 2f
+            // Horizontal distance dominates in a key ROW: a point below the row
+            // still belongs to the key above it, not to a far key that happens
+            // to be vertically closer.
+            val d = abs(x - cx) + abs(y - cy) * 0.25f
+            if (d < nearestDist) { nearestDist = d; nearest = c }
+        }
+        return nearest
+    }
+
+    /** Is the point inside this key's rect, grown by `scale` about its centre. */
+    private fun within(v: View, x: Float, y: Float, scale: Float): Boolean {
+        v.getHitRect(hitRect)
+        if (scale <= 1f) return hitRect.contains(x.toInt(), y.toInt())
+        val cx = (hitRect.left + hitRect.right) / 2f
+        val cy = (hitRect.top + hitRect.bottom) / 2f
+        val hw = hitRect.width() * scale / 2f
+        val hh = hitRect.height() * scale / 2f
+        return x >= cx - hw && x <= cx + hw && y >= cy - hh && y <= cy + hh
+    }
+
+    /**
+     * Only real keys.
+     *
+     * A ViewGroup (a scrolling suggestion strip, the personality row) has
+     * gestures of its own that a tap-resolver would destroy. So does anything
+     * tagged RAW_TOUCH — the backspace key tracks its own UP/CANCEL to stop
+     * long-press repeat, and if the plane swallowed those it would delete until
+     * the field was empty.
+     *
+     * Everything else clickable is a key, whatever class it is: a letter is a
+     * Button, backspace and the globe can be ImageButtons.
+     */
+    private fun isKey(v: View): Boolean =
+        v.visibility == VISIBLE && v.isClickable && v !is android.view.ViewGroup &&
+            v.tag != RAW_TOUCH
+
+    private fun setPressed(v: View, pressed: Boolean) {
+        v.isPressed = pressed
+    }
+
+    private fun slotOf(id: Int): Int? {
+        for (i in 0 until MAX_POINTERS) if (pointerIds[i] == id) return i
+        return null
+    }
+
+    private fun freeSlot(): Int? {
+        for (i in 0 until MAX_POINTERS) if (pointerIds[i] == -1) return i
+        return null
+    }
+
+    companion object {
+        /** More fingers than anyone types with; the array cost is nil. */
+        private const val MAX_POINTERS = 5
+
+        /**
+         * Tag a key with this and the plane will not take its touches. For keys
+         * whose behaviour IS the gesture — press-and-hold to repeat, drag to
+         * move the caret — rather than a tap.
+         */
+        const val RAW_TOUCH = "tulmi.rawTouch"
+    }
+}
