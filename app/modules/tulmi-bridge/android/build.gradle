@@ -1,28 +1,18 @@
 // Local Expo module — never published to a Maven repo.
 //
-// That last part is load-bearing. expo-module-gradle-plugin runs applyPublishing
-// by default, which builds a MavenPublication from the module. Doing that needs
-// two things a local library does not have:
+// canBePublished false is the load-bearing line. expo-module-gradle-plugin
+// builds a MavenPublication for every module by default, and that needs both an
+// android.defaultConfig.versionName (which AGP 8 removed from the LIBRARY DSL,
+// so it cannot be supplied) and a 'release' SoftwareComponent. A module that is
+// only ever consumed by :app in this repo has neither, and the result is a
+// configuration failure that takes the whole :expo project down with it.
 //
-//   * android.defaultConfig.versionName — AGP 8 removed versionName from the
-//     LIBRARY DSL entirely, so it cannot be supplied. Setting it changes
-//     nothing; the read still returns null.
-//   * a 'release' SoftwareComponent, which only exists once publishing is
-//     configured.
-//
-// Both surfaced as the EAS failure:
-//
-//   Failed to apply plugin 'expo-autolinking'.
-//     > A problem occurred configuring project ':tulmi-bridge'.
-//       > 'android.defaultConfig.versionName' is not defined
-//   A problem occurred configuring project ':expo'.
-//     > SoftwareComponent with name 'release' not found.
-//
-// canBePublished false skips that path — the same escape expo-constants uses.
-plugins {
-  id 'com.android.library'
-  id 'expo-module-gradle-plugin'
-}
+// Same escape :expo itself uses (node_modules/expo/android/build.gradle), and
+// the same plugin-application order, which is the combination known to work
+// here.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
 
 group = 'expo.modules.tulmibridge'
 version = '1.0.0'
