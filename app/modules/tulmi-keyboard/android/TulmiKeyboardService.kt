@@ -142,6 +142,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         corrections?.suggest(word)
     }
 
+    override fun onTextInserted() {
+        suggestForCaretWord()
+    }
+
     /** Accept a chip: swap the caret's word for the chosen one. */
     override fun applySuggestion(word: String) {
         val ic = currentInputConnection ?: return
