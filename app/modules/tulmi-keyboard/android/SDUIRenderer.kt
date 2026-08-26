@@ -94,6 +94,12 @@ interface KBHost {
     fun setStatus(text: String)
     fun state(): KBState
     fun config(): KBConfig
+    /**
+     * Accept a suggestion chip: REPLACE the word the caret is in, not append
+     * to it. Appending is the obvious-looking implementation and the wrong one
+     * — tapping "hello" after typing "helo" would leave "helohello".
+     */
+    fun applySuggestion(word: String)
     fun rootView(): View?
     fun onStateChanged()
 }
@@ -616,7 +622,7 @@ class SDUIRenderer(
                 background = keyBackground(node)
             }
         } else {
-            keyButton("🌐", node)
+            keyButton(kbConfig.labels["globe"] ?: "\u2295", node)   // circled plus, a text mark not a pictograph
         }
         view.setOnClickListener {
             hapticTap(view)
@@ -684,7 +690,7 @@ class SDUIRenderer(
                     background = keyBackground(node)
                 }
             } else {
-                keyButton("🎙️", node)
+                keyButton(kbConfig.labels["mic"] ?: "\u25CF", node)     // filled circle; the brand mark replaces it when the drawable loads
             }
         }
 
@@ -698,7 +704,7 @@ class SDUIRenderer(
 
     /** RefineKey — triggers the existing refine path. */
     private fun renderRefineKey(node: KBNode, parent: ViewGroup) {
-        val label = kbConfig.labels["refine"] ?: "✨"
+        val label = kbConfig.labels["refine"] ?: "Refine"
         val b = keyButton(label, node)
         b.setOnClickListener {
             hapticTap(b)
@@ -726,7 +732,7 @@ class SDUIRenderer(
             }
             chip.setOnClickListener {
                 hapticTap(chip)
-                insertText(s)
+                host.applySuggestion(s)
             }
             val lp = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -1821,6 +1827,15 @@ class SDUIRenderer(
     // renderer stay in one place; the fallback path still uses Net.parseConfig.
     // =======================================================================
     companion object {
+        /**
+         * Which Android keyboard build a telemetry batch came from. Bump it
+         * with any change to typing, correction or dictation behaviour —
+         * counters are meaningless if two builds report into one bucket.
+         * Deliberately its own series: this keyboard is not a port of the iOS
+         * one and its stamps should never be read as tracking K-numbers.
+         */
+        const val BUILD_STAMP = "A1"
+
         /** True iff the raw JSON opts in to SDUI and ships a root tree. */
         fun isSDUI(rawJson: String): Boolean {
             return try {

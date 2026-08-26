@@ -155,6 +155,33 @@ object Net {
         }
     }
 
+    /**
+     * Ship a telemetry batch. Counters only — the payload is built by
+     * TulmiTelemetry, which cannot hold anything but integers.
+     *
+     * Throws on failure so the caller keeps the counters for the next window
+     * rather than dropping them; losing a batch to a flaky network would make
+     * quiet periods indistinguishable from failing uploads.
+     */
+    fun postTelemetry(counters: JSONObject, windowMs: Long, build: String) {
+        val json = JSONObject()
+            .put("counters", counters)
+            .put("windowMs", windowMs)
+            .put("build", build)
+            .put("platform", "android")
+            .toString()
+        val req = Request.Builder()
+            .url("$baseUrl/v1/keyboard/telemetry")
+            .addHeader("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) {
+                throw RuntimeException("telemetry ${res.code}: ${res.body?.string() ?: ""}")
+            }
+        }
+    }
+
     fun transcribeClean(file: File, targetApp: String): String {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("audio", "audio.m4a", file.asRequestBody("audio/m4a".toMediaType()))
