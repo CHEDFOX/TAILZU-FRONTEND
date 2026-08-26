@@ -350,7 +350,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // The user's own words, from the same flag iOS reads. Offered ahead of
         // the device dictionary so a name we were told about is never
         // "corrected" into a common word.
-        corrections?.vocabulary = (sduiConfig?.flags?.opt("kb.personality.vocabulary") as? String)
+        corrections?.vocabulary = (sduiConfig?.flags?.get("kb.personality.vocabulary") as? String)
             ?.split(Regex("[,\n]"))
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
