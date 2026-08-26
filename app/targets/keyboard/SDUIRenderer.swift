@@ -2250,7 +2250,20 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K23"
+  static let buildStamp = "K25"
+
+  /// The bundled brand mark.
+  ///
+  /// Looked up three ways because the one-argument form and the Bundle.main
+  /// form do NOT always agree inside an app extension, and the cost of getting
+  /// it wrong is Apple's own mic glyph appearing on our keyboard. Bundle(for:)
+  /// is the authoritative one — it resolves against the binary this class was
+  /// compiled into, whatever the host decided Bundle.main is.
+  static func tailzuMark() -> UIImage? {
+    if let m = UIImage(named: "TailzuMark", in: Bundle(for: SDUIRenderer.self), compatibleWith: nil) { return m }
+    if let m = UIImage(named: "TailzuMark") { return m }
+    return UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
+  }
   private weak var buildStampLabel: UILabel?
   private func addBuildStamp(to container: UIView) {
     // Default FALSE: a debug marker must never ship visible in a store build
@@ -3875,7 +3888,7 @@ final class SDUIRenderer: NSObject {
         // wall and each other, instead of a few big blobs. Backend-tunable.
         let count = Int(flagCGFloat("kb.mic.particles.count", 60))
         let dotR = flagCGFloat("kb.mic.particles.radius", 0.9)
-        let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
+        let mark = SDUIRenderer.tailzuMark()
         particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
         currentMicParticles = particles
       }
@@ -3908,7 +3921,7 @@ final class SDUIRenderer: NSObject {
                            withConfiguration: cfgSym), for: .normal)
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .center
-    } else if let mark = UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil) {
+    } else if let mark = SDUIRenderer.tailzuMark() {
       // OWNER DECISION: the idle mic is ALWAYS the static brand mark — never
       // backend-pushed media. kb.mic.idleIcon is deliberately NOT consulted at
       // idle (it remains only the recording fallback above); an uploaded
@@ -3920,6 +3933,11 @@ final class SDUIRenderer: NSObject {
       let inset = flagCGFloat("kb.mic.idleIconInset", 8)
       btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     } else {
+      // Only reachable if the brand mark is missing from the built extension —
+      // i.e. the asset catalog did not compile in. Apple's mic on OUR keyboard
+      // is the visible symptom of a packaging failure, so it is logged rather
+      // than quietly worn.
+      NSLog("[Tailzu][kb] TailzuMark missing from the bundle — showing the system mic.")
       btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
     }
     btn.tintColor = tint
