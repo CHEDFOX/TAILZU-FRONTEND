@@ -118,6 +118,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     /** Fills the suggestion bar. Null when the device has no spell checker. */
     private var corrections: TulmiCorrections? = null
 
+    /** kb.suggestions.enabled. Off means the bar stays empty rather than the
+     *  node disappearing — the layout is the backend's to change, not ours. */
+    private var suggestionsEnabled: Boolean = true
+
     /**
      * Ask for suggestions on the word the caret is sitting in. The word comes
      * from the InputConnection rather than from a buffer we keep ourselves —
@@ -125,6 +129,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * and a local buffer would drift out of step with all three.
      */
     private fun suggestForCaretWord() {
+        if (!suggestionsEnabled) return
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val word = before.takeLastWhile { !it.isWhitespace() }
@@ -350,11 +355,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // The user's own words, from the same flag iOS reads. Offered ahead of
         // the device dictionary so a name we were told about is never
         // "corrected" into a common word.
-        corrections?.vocabulary = (sduiConfig?.flags?.get("kb.personality.vocabulary") as? String)
+        val flags = sduiConfig?.flags
+        corrections?.vocabulary = (flags?.get("kb.personality.vocabulary") as? String)
             ?.split(Regex("[,\n]"))
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
             ?: emptyList()
+        // Honour the same two knobs iOS reads. The backend has been shipping
+        // them all along; Android simply never looked, so the bar could be
+        // neither turned off nor resized from the server.
+        corrections?.maxSuggestions = (flags?.get("kb.suggestions.max") as? Number)?.toInt() ?: 3
+        suggestionsEnabled = (flags?.get("kb.suggestions.enabled") as? Boolean) ?: true
+        if (!suggestionsEnabled) {
+            corrections?.clear()
+            kbState.suggestions = emptyList()
+        }
         // If we're rendering via SDUI, the theme lives in the tree, not on the
         // fallback views — skip the legacy color-apply and let the SDUI path
         // pick up the fresh JSON (see applyRawJson below).
@@ -393,11 +408,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             CODE_DELETE -> {
                 ic.deleteSurroundingText(1, 0)
                 TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                // The word just changed under the bar. Re-ask, or it keeps
+                // offering corrections for a word that is no longer there.
+                suggestForCaretWord()
             }
             CODE_SHIFT -> {
                 caps = !caps
                 keyboard?.let { it.isShifted = caps }
                 keyboardView?.invalidateAllKeys()
+                // The SDUI tree draws from kbState, not from the legacy
+                // KeyboardView — without these two lines shift flipped the
+                // internal flag and NOTHING on screen changed. refreshAutoCap
+                // already did this, which is why auto-capitalisation appeared
+                // to work while the shift key looked dead.
+                kbState.shift = caps
+                sduiRenderer?.stateChanged()
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
             CODE_SPACE -> {
@@ -446,7 +471,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            setStatus("Open the Tailzu app once to allow microphone access.")
+            setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."))
             return
         }
         pendingPartial = ""
@@ -593,7 +618,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            setStatus("Open the Tailzu app once to allow microphone access.")
+            setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."))
             return
         }
         try {
@@ -665,6 +690,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                         return@post
                     }
                     currentInputConnection?.commitText(cleaned, 1)
+                    TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
+                    corrections?.clear()
                     setStatus("")
                     // A one-shot tone command (Shorter/Longer/Bullets) is only
                     // meaningful if a refine actually consumes it — same as the
@@ -773,10 +800,22 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 val refined = Net.refine(full, target, tone)
                 main.post {
                     val conn = currentInputConnection
-                    conn?.deleteSurroundingText(before.length, after.length)
-                    conn?.commitText(refined, 1)
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
+                    if (conn == null) return@post
+                    // `before`/`after` were measured before a call that takes
+                    // seconds. Deleting by those lengths now would eat whatever
+                    // the user typed in the meantime, or — if they moved the
+                    // caret — a span of text somewhere else entirely. Check the
+                    // field still holds exactly what we sent before touching it.
+                    val nowBefore = conn.getTextBeforeCursor(10000, 0)?.toString() ?: ""
+                    val nowAfter = conn.getTextAfterCursor(10000, 0)?.toString() ?: ""
+                    if (nowBefore != before || nowAfter != after) {
+                        setStatus(label("refine_stale", "Text changed — refine cancelled"))
+                        return@post
+                    }
+                    conn.deleteSurroundingText(before.length, after.length)
+                    conn.commitText(refined, 1)
                     setStatus("")
                     flashKeysForText(refined)
                 }
@@ -784,6 +823,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 main.post {
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
+                    TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
                     setStatus(statusForError(e))
                 }
             }
@@ -894,6 +934,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun onFinishInput() {
         super.onFinishInput()
+        // The chips belonged to the field being left. Carrying them into the
+        // next one would offer corrections for a word the user never typed there.
+        corrections?.clear()
+        kbState.suggestions = emptyList()
+        // onFinishInput fires far more often than onDestroy and the service
+        // usually survives it — this is the realistic last chance to keep
+        // whatever the throttle has not written yet.
+        try { TulmiTelemetry.persist(this) } catch (_: Exception) {}
         if (recording) {
             recording = false
             cleanupRecorder()
