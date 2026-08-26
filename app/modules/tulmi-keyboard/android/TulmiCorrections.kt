@@ -49,6 +49,11 @@ class TulmiCorrections(
     /** How many chips the bar shows. Backend-tunable to match iOS. */
     var maxSuggestions: Int = 3
 
+    private companion object {
+        /** Ask for a few, so the first that starts and ends correctly can win. */
+        const val MAX_RESOLVE = 5
+    }
+
     /** The word currently being checked, so a late reply for an older word
      *  cannot overwrite suggestions for the one being typed now. */
     private var inFlight: String = ""
@@ -74,6 +79,7 @@ class TulmiCorrections(
         val w = word.trim()
         if (w.isEmpty()) {
             inFlight = ""
+            topCandidate = null
             onSuggestions(emptyList())
             return
         }
@@ -97,11 +103,43 @@ class TulmiCorrections(
         }
     }
 
+    /** The best correction for the word being typed, or null. Cached from the
+     *  last spell-check reply so a space keypress can act SYNCHRONOUSLY — asking
+     *  the checker at commit time would put an IPC round trip on the keystroke
+     *  path and land the correction after the space. */
+    var topCandidate: String? = null
+        private set
+
     /** Nothing is in flight and the bar should be empty — e.g. after a commit. */
     fun clear() {
         inFlight = ""
+        topCandidate = null
         onSuggestions(emptyList())
     }
+
+    /**
+     * One-off lookup that does NOT touch the suggestion bar — for the swipe
+     * decoder, which asks about a traced skeleton rather than about the word
+     * the user is typing.
+     *
+     * Kept separate from suggest() on purpose: routing it through the bar's
+     * state would make a trace flash chips for a string the user never typed,
+     * and a late reply would fight the word they moved on to.
+     */
+    fun resolve(skeleton: String, onResult: (List<String>) -> Unit) {
+        val s = session
+        if (s == null) { onResult(emptyList()); return }
+        pendingResolve = onResult
+        runCatching {
+            s.getSentenceSuggestions(arrayOf(TextInfo(skeleton)), MAX_RESOLVE)
+        }.onFailure {
+            pendingResolve = null
+            onResult(emptyList())
+        }
+    }
+
+    /** Set while a resolve() is in flight; consumed by the next reply. */
+    private var pendingResolve: ((List<String>) -> Unit)? = null
 
     fun close() {
         runCatching { session?.close() }
@@ -120,6 +158,14 @@ class TulmiCorrections(
             for (i in 0 until sentence.suggestionsCount) {
                 words += infoWords(sentence.getSuggestionsInfoAt(i))
             }
+        }
+        // A resolve() is waiting on the next reply and owns it — hand it over
+        // rather than letting it repaint the bar for a word nobody typed.
+        val waiting = pendingResolve
+        if (waiting != null) {
+            pendingResolve = null
+            main.post { waiting(dedupe(words)) }
+            return
         }
         deliver(words)
     }
@@ -141,7 +187,11 @@ class TulmiCorrections(
             // A reply that arrived after the user moved on belongs to a word
             // that is no longer being typed — drop it rather than showing
             // suggestions for something already committed.
-            if (inFlight == typed) onSuggestions(merged.take(maxSuggestions + 1))
+            if (inFlight != typed) return@post
+            // merged[0] is the typed word itself; the first real alternative is
+            // what autocorrect would apply.
+            topCandidate = merged.getOrNull(1)
+            onSuggestions(merged.take(maxSuggestions + 1))
         }
     }
 
