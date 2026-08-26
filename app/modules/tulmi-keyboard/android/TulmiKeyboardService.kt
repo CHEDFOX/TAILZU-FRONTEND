@@ -122,6 +122,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      *  node disappearing — the layout is the backend's to change, not ours. */
     private var suggestionsEnabled: Boolean = true
 
+    /** Exactly what the CURRENT dictation has put into the field, and what was
+     *  already there before it started. Refine works on the first and is given
+     *  the second as context — without these it rewrites the whole draft. */
+    private var dictatedText = ""
+    private var priorText = ""
+
     /**
      * Ask for suggestions on the word the caret is sitting in. The word comes
      * from the InputConnection rather than from a buffer we keep ourselves —
@@ -476,6 +482,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
         pendingPartial = ""
         dictatedSomething = false
+        dictatedText = ""
+        priorText = (currentInputConnection?.getTextBeforeCursor(4000, 0)?.toString() ?: "")
         streaming = true
         kbState.dictating = true
         sduiRenderer?.stateChanged()
@@ -554,9 +562,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             return
         }
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
-        ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
+        val inserted = if (text.endsWith(" ")) text else "$text "
+        ic.commitText(inserted, 1)
         pendingPartial = ""
         dictatedSomething = true
+        // Accumulate the exact span this dictation owns, so refine can rewrite
+        // that and nothing else. Several finals can arrive in one utterance.
+        dictatedText += inserted
     }
 
     private fun stopStreaming() {
@@ -606,9 +618,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             // in as a trailing suffix before refine — the backend command-mode
             // detector reads the field and rewrites accordingly.
             applyPendingCommandToField()
-            if (kbConfig?.refine != false) refineField()
+            // Refine what was DICTATED, not the whole field. refineField() would
+            // hand the model the user's entire draft and let it rewrite
+            // paragraphs nobody asked it to touch.
+            if (kbConfig?.refine != false) refineDictated(dictatedText, priorText)
         }
         dictatedSomething = false
+        dictatedText = ""
     }
 
     private fun startRecording() {
@@ -689,10 +705,17 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                         setStatus("")
                         return@post
                     }
-                    currentInputConnection?.commitText(cleaned, 1)
+                    val conn = currentInputConnection
+                    // What the user had already written, BEFORE this dictation
+                    // lands. Handed to refine as context so the new sentence is
+                    // fitted to the draft it joins — and so refine rewrites the
+                    // dictated span ONLY.
+                    val prior = (conn?.getTextBeforeCursor(4000, 0)?.toString() ?: "")
+                    conn?.commitText(cleaned, 1)
                     TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
                     corrections?.clear()
                     setStatus("")
+                    if (kbConfig?.refine != false) refineDictated(cleaned, prior)
                     // A one-shot tone command (Shorter/Longer/Bullets) is only
                     // meaningful if a refine actually consumes it — same as the
                     // streaming path's onDictationClosed(). Appending it without a
@@ -701,7 +724,6 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     // refine is enabled; otherwise leave it pending for next time.
                     if (pendingCommand != null && kbConfig?.refine != false) {
                         applyPendingCommandToField()
-                        refineField()
                     }
                 }
             } catch (e: Exception) {
@@ -774,6 +796,56 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     // --- refine (smart autocorrect of the whole field) ----------------------
+
+    /**
+     * Refine ONLY what was just dictated, leaving the rest of the draft alone.
+     *
+     * The old behaviour ran refineField() after a dictation, which rewrites the
+     * WHOLE field — so speaking one sentence into a long draft handed the model
+     * the entire draft and let it rewrite paragraphs the user never asked it to
+     * touch. iOS has always refined just the dictated span with the prior text
+     * as context; this is that.
+     *
+     * `spoken` is the exact string that was committed, so the replacement is
+     * anchored to it: if the tail no longer matches, the field moved under us
+     * and we leave it alone rather than deleting by a stale length.
+     */
+    private fun refineDictated(spoken: String, prior: String) {
+        val text = spoken.trim()
+        if (text.isEmpty()) return
+        kbState.refining = true
+        sduiRenderer?.stateChanged()
+        setStatus(label("refining", "Refining…"))
+        TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
+        val target = targetAppName()
+        val tone = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+            .getString("tone", "Neutral") ?: "Neutral"
+        Thread {
+            try {
+                val refined = Net.refine(text, target, tone, prior.trim())
+                main.post {
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    setStatus("")
+                    val conn = currentInputConnection ?: return@post
+                    if (refined.isBlank() || looksLikeFiller(refined)) return@post
+                    // Replace the dictated tail only if it is still the tail.
+                    val before = conn.getTextBeforeCursor(spoken.length + 8, 0)?.toString() ?: ""
+                    if (!before.endsWith(spoken)) return@post
+                    conn.deleteSurroundingText(spoken.length, 0)
+                    conn.commitText(refined, 1)
+                    flashKeysForText(refined)
+                }
+            } catch (e: Exception) {
+                main.post {
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
+                    setStatus(statusForError(e))
+                }
+            }
+        }.start()
+    }
 
     private fun refineField() {
         val ic = currentInputConnection ?: return

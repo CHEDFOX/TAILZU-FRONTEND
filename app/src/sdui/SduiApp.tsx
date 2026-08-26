@@ -398,6 +398,34 @@ export default function SduiApp() {
     pendingLinkRef.current = null;
   }, [phase, consumeKeyboardEntry]);
 
+  // Arm the Flow Session as soon as we have the flags, NOT only on a
+  // background→foreground transition.
+  //
+  // AppState "change" fires on a TRANSITION. Launching the app from the home
+  // screen is a cold start straight into "active" — no transition, no event, no
+  // arm. So the most ordinary thing a user can do (open the app, swipe away,
+  // dictate from the keyboard somewhere else) left the session unarmed, and the
+  // keyboard correctly found nothing alive and reopened the app. The keyboard
+  // was not being stupid; nobody had ever armed anything.
+  //
+  // The keyboard-initiated cold launch was already covered by its tombstone.
+  // This is the same hole for a user-initiated one.
+  //
+  // arm() is idempotent — re-arming just refreshes the idle window — so running
+  // this whenever the flags land is safe and self-healing.
+  useEffect(() => {
+    if (bootRef.current?.flags?.["kb.flow.armOnForeground"] !== true) return;
+    if (AppState.currentState !== "active") return;
+    void (async () => {
+      const [base, tok, lang] = await Promise.all([
+        getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+      ]);
+      const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
+      const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
+      armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+    })();
+  }, [boot]);
+
   // Refetch bootstrap + current screen when the app returns to the foreground
   // — so a user who left the app open, backgrounded it for hours, and comes
   // back doesn't stare at stale UI. Also picks up a bumped cacheVersion.

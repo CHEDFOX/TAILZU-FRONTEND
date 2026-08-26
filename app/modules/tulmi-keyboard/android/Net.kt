@@ -126,7 +126,16 @@ object Net {
         }
     }
 
-    fun refine(text: String, targetApp: String, tone: String = ""): String {
+    fun refine(
+        text: String,
+        targetApp: String,
+        tone: String = "",
+        /** What is already in the field around the selection. iOS has always
+         *  sent this; Android never did, so the model was asked to write a
+         *  sentence with no sight of the draft it was joining — and produced
+         *  something that read as a paragraph on its own and wrong in place. */
+        context: String = "",
+    ): String {
         // Route to the backend's per-tone endpoint when a known LLM tone is
         // selected; "none" → skip-refine endpoint; everything else (Neutral,
         // empty, or anything unrecognized) → the catch-all /v1/refine that
@@ -141,7 +150,10 @@ object Net {
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
+            // Never pin the recognizer or the writer to a language — the
+            // backend detects it. Same contract as iOS.
             .put("language", "auto")
+            .apply { if (context.isNotBlank()) put("context", context) }
             .toString()
         val req = Request.Builder()
             .url("$baseUrl$path")
