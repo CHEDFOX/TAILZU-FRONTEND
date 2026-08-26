@@ -100,6 +100,8 @@ interface KBHost {
      * — tapping "hello" after typing "helo" would leave "helohello".
      */
     fun applySuggestion(word: String)
+    /** Text was just committed by a key; the word under the caret has changed. */
+    fun onTextInserted()
     fun rootView(): View?
     fun onStateChanged()
 }
@@ -427,8 +429,23 @@ class SDUIRenderer(
 
     /** Row = horizontal LinearLayout. */
     private fun renderRow(node: KBNode, parent: ViewGroup) {
-        val ll = LinearLayout(host.context()).apply {
+        // Every row is a key plane. It only takes over a gesture that STARTS on
+        // a Button, so rows carrying a scrolling strip or the personality row
+        // behave exactly as before; rows of keys gain gap-filling, drift
+        // tolerance and cancelled-tap rescue. See TulmiKeyPlane.
+        val ll = TulmiKeyPlane(host.context()).apply {
             orientation = LinearLayout.HORIZONTAL
+            planeEnabled = flagBoolean("kb.keyPlane.enabled", true)
+            fillGaps = flagBoolean("kb.touch.fillGaps", true)
+            holdMultiplier = flagFloat("kb.touch.holdMultiplier", 1.35f)
+            cancelCommitMaxMs = flagFloat("kb.touch.cancelCommit.maxMs", 300f).toLong()
+            cancelCommitMaxDriftPx =
+                flagFloat("kb.touch.cancelCommit.maxDriftPt", 12f) *
+                    host.context().resources.displayMetrics.density
+            // Deliberately no haptic or counter here: the plane decides WHICH
+            // key and WHEN, the key's own listener decides what that means. A
+            // mic or tone key is not a keystroke, and firing feedback here as
+            // well as in the listener buzzes twice for one tap.
         }
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
@@ -602,6 +619,9 @@ class SDUIRenderer(
             invokeEvent(node, "onLongPress")
             true
         }
+        // The repeat below is driven by this key's OWN up/cancel. The key plane
+        // must not intercept them, or the repeat never stops.
+        view.tag = TulmiKeyPlane.RAW_TOUCH
         view.setOnTouchListener { _, e ->
             if (e.action == android.view.MotionEvent.ACTION_UP ||
                 e.action == android.view.MotionEvent.ACTION_CANCEL
@@ -1220,6 +1240,12 @@ class SDUIRenderer(
 
     private fun insertText(text: String) {
         host.ic()?.commitText(text, 1)
+        TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+        // SDUI keys commit straight through here and never reach onKey(), so
+        // this — not the legacy key handler — is where the suggestion bar has
+        // to be told the word changed. Wiring it to onKey() left the bar dead
+        // on the path every user is actually on.
+        host.onTextInserted()
     }
 
     // --- Tone pill (SDUI) ---------------------------------------------------
