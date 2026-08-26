@@ -1,20 +1,24 @@
-// Matches the shape every expo-module in node_modules uses. Two things here are
-// load-bearing:
+// Local Expo module — never published to a Maven repo.
 //
-//   1. The `plugins {}` block, not `apply plugin:`. expo-module-gradle-plugin
-//      configures the Android library itself, and applying com.android.library
-//      and kotlin-android ahead of it by hand leaves it half-configured.
+// That last part is load-bearing. expo-module-gradle-plugin runs applyPublishing
+// by default, which builds a MavenPublication from the module. Doing that needs
+// two things a local library does not have:
 //
-//   2. versionCode / versionName in defaultConfig. Expo's autolinking reads
-//      android.defaultConfig.versionName while configuring the module, and
-//      without it the whole :expo project fails to evaluate:
+//   * android.defaultConfig.versionName — AGP 8 removed versionName from the
+//     LIBRARY DSL entirely, so it cannot be supplied. Setting it changes
+//     nothing; the read still returns null.
+//   * a 'release' SoftwareComponent, which only exists once publishing is
+//     configured.
 //
-//        Failed to apply plugin 'expo-autolinking'.
-//          > A problem occurred configuring project ':tulmi-bridge'.
-//            > 'android.defaultConfig.versionName' is not defined
+// Both surfaced as the EAS failure:
 //
-//      Library modules do not USE a version name for anything — but the value
-//      being read has to exist.
+//   Failed to apply plugin 'expo-autolinking'.
+//     > A problem occurred configuring project ':tulmi-bridge'.
+//       > 'android.defaultConfig.versionName' is not defined
+//   A problem occurred configuring project ':expo'.
+//     > SoftwareComponent with name 'release' not found.
+//
+// canBePublished false skips that path — the same escape expo-constants uses.
 plugins {
   id 'com.android.library'
   id 'expo-module-gradle-plugin'
@@ -23,11 +27,13 @@ plugins {
 group = 'expo.modules.tulmibridge'
 version = '1.0.0'
 
+expoModule {
+  canBePublished false
+}
+
 android {
   namespace "expo.modules.tulmibridge"
   defaultConfig {
     minSdkVersion 24
-    versionCode 1
-    versionName "1.0.0"
   }
 }
