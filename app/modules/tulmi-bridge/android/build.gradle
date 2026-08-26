@@ -1,9 +1,25 @@
+// Local Expo module — never published to a Maven repo.
+//
+// canBePublished false is the load-bearing line. expo-module-gradle-plugin
+// builds a MavenPublication for every module by default, and that needs both an
+// android.defaultConfig.versionName (which AGP 8 removed from the LIBRARY DSL,
+// so it cannot be supplied) and a 'release' SoftwareComponent. A module that is
+// only ever consumed by :app in this repo has neither, and the result is a
+// configuration failure that takes the whole :expo project down with it.
+//
+// Same escape :expo itself uses (node_modules/expo/android/build.gradle), and
+// the same plugin-application order, which is the combination known to work
+// here.
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 apply plugin: 'expo-module-gradle-plugin'
 
 group = 'expo.modules.tulmibridge'
 version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
 
 android {
   namespace "expo.modules.tulmibridge"
