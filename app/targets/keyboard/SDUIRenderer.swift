@@ -202,8 +202,23 @@ final class KeyPlaneView: UIView {
   private var obstacleRects: [CGRect] = []
   func setObstacles(_ views: [UIView]) {
     obstacles = views.map { WeakView(v: $0) }
+    obstaclesDirty = false
     refreshObstacleRects()
   }
+
+  /// The obstacle VIEW LIST is stale — re-pull it before the next touch
+  /// resolves.
+  ///
+  /// Finding the obstacles means walking the whole mounted hierarchy, and that
+  /// used to run on every suggestion update, i.e. on nearly every keystroke.
+  /// It is now pull-based like the frames: the renderer says "this changed",
+  /// and the walk happens at most once, when a finger actually arrives.
+  ///
+  /// Their RECTS are a separate matter and stay live regardless —
+  /// refreshFrames() re-derives them every time it runs, so chips that merely
+  /// changed width are always measured correctly without re-walking anything.
+  func setObstaclesDirty() { obstaclesDirty = true }
+  private var obstaclesDirty = false
   private func refreshObstacleRects() {
     var out: [CGRect] = []
     for w in obstacles {
@@ -307,15 +322,40 @@ final class KeyPlaneView: UIView {
     self.keys = keys
     frames = []
     roleFrames = []
-    refreshFrames()
+    framesDirty = true
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    refreshFrames()
+    // MARK dirty rather than recomputing. Layout runs far more often than
+    // touches do — every suggestion chip repaint triggers a pass — and the
+    // geometry is only ever READ when a finger arrives. Recomputing here paid
+    // the full cost on every layout and threw most of it away.
+    framesDirty = true
+  }
+
+  /// True when the cached rects may no longer match the screen.
+  ///
+  /// The keys are NOT subviews of the plane (it converts their bounds in from
+  /// the mount container), so the plane's own layoutSubviews is not a reliable
+  /// signal on its own — the container can re-lay-out its keys while the
+  /// plane's bounds never change. So a new touch SEQUENCE also marks dirty,
+  /// which keeps the "always resolve against live geometry" guarantee that
+  /// made hard-press-only typing go away, while collapsing the several
+  /// refreshes UIKit used to force per finger-down into exactly one.
+  private var framesDirty = true
+
+  private func ensureFrames() {
+    if obstaclesDirty, let r = renderer {
+      obstaclesDirty = false
+      obstacles = r.planeObstacleViews().map { WeakView(v: $0) }
+      framesDirty = true
+    }
+    if framesDirty || frames.isEmpty { refreshFrames() }
   }
 
   private func refreshFrames() {
+    framesDirty = false
     var raw: [(UIButton, String, CGRect)] = []
     var roles: [(UIButton, Role, CGRect)] = []
     for k in keys {
@@ -335,20 +375,28 @@ final class KeyPlaneView: UIView {
       rowYs.append(r.midY)
     }
     rowYs.sort()
-    func rowIndex(_ r: CGRect) -> Int {
-      rowYs.firstIndex(where: { abs($0 - r.midY) < 8 }) ?? 0
+    // Resolve each key's row ONCE. This used to be a closure called inside two
+    // further loops, each doing its own linear scan of rowYs — quadratic work
+    // rebuilt on every hit test. Now it is a single pass, and the loops below
+    // read the answer.
+    var rowOf = [Int](repeating: 0, count: raw.count)
+    for (n, entry) in raw.enumerated() {
+      rowOf[n] = rowYs.firstIndex(where: { abs($0 - entry.2.midY) < 8 }) ?? 0
     }
     // Per-row horizontal extremes → which keys are the row's outermost.
     var minXByRow: [Int: CGFloat] = [:], maxXByRow: [Int: CGFloat] = [:]
-    for (_, _, r) in raw {
-      let i = rowIndex(r)
+    for (n, entry) in raw.enumerated() {
+      let i = rowOf[n]
+      let r = entry.2
       minXByRow[i] = min(minXByRow[i] ?? r.minX, r.minX)
       maxXByRow[i] = max(maxXByRow[i] ?? r.maxX, r.maxX)
     }
     let lastRow = rowYs.count - 1
     var out: [(UIButton, String, CGRect, CGRect)] = []
-    for (b, ch, r) in raw {
-      let i = rowIndex(r)
+    out.reserveCapacity(raw.count)
+    for (n, entry) in raw.enumerated() {
+      let (b, ch, r) = entry
+      let i = rowOf[n]
       let up = i == 0 ? topRowUpSlop : vSlop
       let down = i == lastRow ? bottomRowDownSlop : vSlop
       let sideReach = r.width / 2 + 6
@@ -381,7 +429,7 @@ final class KeyPlaneView: UIView {
   /// reach). Returns nil for the special-key columns and other rows so those
   /// touches fall through to the controls beneath.
   private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
-    if frames.isEmpty { refreshFrames() }
+    ensureFrames()
     // A point inside a REAL control (delete / space / return / mic / tone /
     // suggestion chip) is never a character's — it falls through to that
     // control. Same for the plane-managed shift/layer keys: they're role
@@ -450,14 +498,42 @@ final class KeyPlaneView: UIView {
   }
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-    // Refresh geometry BEFORE deciding ownership — touchesBegan re-derives it
-    // anyway, and deciding here on stale frames/obstacles (e.g. suggestion
-    // chips that appeared since the last layout) would claim a touch that
-    // keyAt then refuses, silently swallowing it.
-    refreshFrames()
+    // Geometry must be live before deciding ownership — deciding on stale
+    // frames/obstacles (e.g. suggestion chips that appeared since the last
+    // layout) would claim a touch that keyAt then refuses, silently
+    // swallowing it.
+    //
+    // But UIKit calls hitTest SEVERAL times per finger-down (the touch itself,
+    // then again while gesture recognizers arbitrate), and this used to run a
+    // full rebuild every single time. A new sequence marks dirty once; the
+    // repeat calls within it hit the cache.
+    if tracks.isEmpty { framesDirty = true }
+    ensureFrames()
     // Own the character grid + the plane-managed shift/layer keys; else nil
     // so delete / space / return / mic below receive the touch normally.
-    return (keyAt(point) != nil || roleKeyAt(point) != nil) ? self : nil
+    return owns(point) ? self : nil
+  }
+
+  /// Ownership only — same accept/reject decision as
+  /// `keyAt(point) != nil || roleKeyAt(point) != nil`, without resolving WHICH
+  /// key or consulting the language model.
+  ///
+  /// hitTest only ever needed the yes/no. Running the full scored resolve
+  /// there meant every ambiguity computation — distance scoring across every
+  /// key, the bigram lookup — was performed and thrown away, several times per
+  /// keypress, before the real resolve in touchesBegan did it again.
+  private func owns(_ point: CGPoint) -> Bool {
+    for o in obstacleRects where o.contains(point) { return false }
+    for f in roleFrames {
+      let slop = (f.button as? KeyHitButton)?.hitSlop
+        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+      let expanded = f.rect.inset(by: UIEdgeInsets(
+        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+      if expanded.contains(point) { return true }
+    }
+    for f in frames where f.own.contains(point) { return true }
+    // The nearest-key gap fallback claims anything inside the letter band.
+    return fillGaps && !frames.isEmpty && gridBand.contains(point)
   }
 
   // MARK: - Multi-touch
@@ -469,8 +545,10 @@ final class KeyPlaneView: UIView {
     // stale positions — mis-detecting keys and dropping all but dead-center taps.
     // This is the fix for "the keyboard only responds to a hard touch on the key"
     // AND poor fast-typing: detection is now always against live geometry.
-    // Cheap — a couple dozen convert() calls, once per finger-down.
-    refreshFrames()
+    // hitTest already marked this sequence dirty and refreshed, so this is
+    // normally a cached no-op — it stays as the guarantee that the resolve
+    // below never runs against rects the plane never re-derived.
+    ensureFrames()
     // Press-order rollover: a NEW finger down commits every still-held key
     // right now, so overlapped presses land in the order they were pressed —
     // not the order the fingers happened to lift.
@@ -4047,8 +4125,21 @@ final class SDUIRenderer: NSObject {
   /// accent because it's the one that will actually be applied — native's
   /// centre-slot emphasis, mapped honestly onto our ranked list. Every value
   /// is backend-tunable so the look can be adjusted without a rebuild.
-  private func renderSuggestionChips(into row: UIStackView) {
-    row.arrangedSubviews.forEach { $0.removeFromSuperview() }
+  /// Reused chip / divider views.
+  ///
+  /// These were rebuilt from scratch on every suggestion update — that is on
+  /// nearly every keystroke — which churned the view tree and, worse, made the
+  /// touch plane's obstacle list point at dead views, forcing a full hierarchy
+  /// walk to rediscover the replacements. Stable identities remove both costs;
+  /// a reused chip reads its word from `state.suggestions` at TAP time via its
+  /// tag, so it can never apply a stale suggestion.
+  private var chipPool: [UIButton] = []
+  private var dividerPool: [UIView] = []
+
+  /// Returns true when the row's arranged subviews CHANGED — the only case
+  /// where the plane's obstacle list has to be re-walked.
+  @discardableResult
+  private func renderSuggestionChips(into row: UIStackView) -> Bool {
     let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
     let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
     let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
@@ -4080,19 +4171,44 @@ final class SDUIRenderer: NSObject {
     let flatStyle = flagString("kb.suggestion.style", "chips").lowercased() == "flat"
     let dividerColor = flagColor("kb.suggestion.dividerColor", dark ? "#FFFFFF24" : "#00000018")
 
-    for (i, s) in state.suggestions.enumerated() {
+    let items = state.suggestions
+
+    // Grow the pools to fit. They only ever grow, and to the largest bar the
+    // user has seen — three or four views.
+    while chipPool.count < items.count {
+      let b = UIButton(type: .system)
+      // The handler resolves the word from the LIVE state through the sender's
+      // tag rather than capturing it, which is what makes reuse safe: a
+      // recycled chip always applies the word it is currently showing.
+      b.addAction(UIAction { [weak self] act in
+        guard let self = self,
+              let btn = act.sender as? UIButton,
+              btn.tag >= 0, btn.tag < self.state.suggestions.count else { return }
+        self.applySuggestion(self.state.suggestions[btn.tag])
+      }, for: .touchUpInside)
+      chipPool.append(b)
+    }
+    while dividerPool.count < max(0, items.count - 1) {
+      let sep = UIView()
+      sep.translatesAutoresizingMaskIntoConstraints = false
+      sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
+      sep.heightAnchor.constraint(
+        equalToConstant: flagCGFloat("kb.suggestion.dividerHeight", 18)).isActive = true
+      dividerPool.append(sep)
+    }
+
+    var desired: [UIView] = []
+    for (i, s) in items.enumerated() {
       let isLead = leadEnabled && i == 0
       // A divider between slots, as the system strip has. Added BEFORE the
       // chip so it separates rather than trails.
       if flatStyle, i > 0 {
-        let sep = UIView()
+        let sep = dividerPool[i - 1]
         sep.backgroundColor = dividerColor
-        sep.translatesAutoresizingMaskIntoConstraints = false
-        sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        sep.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.suggestion.dividerHeight", 18)).isActive = true
-        row.addArrangedSubview(sep)
+        desired.append(sep)
       }
-      let chip = UIButton(type: .system)
+      let chip = chipPool[i]
+      chip.tag = i
       // Quote a revert so it reads as "keep what you typed" rather than as
       // another word being suggested to you.
       chip.setTitle(isRevert ? "\u{201C}\(s)\u{201D}" : s, for: .normal)
@@ -4103,17 +4219,25 @@ final class SDUIRenderer: NSObject {
       chip.backgroundColor = flatStyle ? .clear : (isLead ? leadBg : chipBg)
       if flatStyle, isLead { chip.setTitleColor(leadBg, for: .normal) }
       chip.layer.cornerRadius = flatStyle ? 0 : chipRadius
+      // Assigned unconditionally: a REUSED chip that carried a border last
+      // pass must lose it when it becomes the lead, rather than keeping a
+      // stale edge from whatever it was showing before.
       if !flatStyle, !isLead, borderWidth > 0 {
         chip.layer.borderWidth = borderWidth
         chip.layer.borderColor = borderColor.cgColor
+      } else {
+        chip.layer.borderWidth = 0
       }
       chip.contentEdgeInsets = UIEdgeInsets(top: chipPadV, left: chipPadH, bottom: chipPadV, right: chipPadH)
-      let action = UIAction { [weak self] _ in
-        self?.applySuggestion(s)
-      }
-      chip.addAction(action, for: .touchUpInside)
-      row.addArrangedSubview(chip)
+      desired.append(chip)
     }
+
+    // Touch the stack only when the ARRANGEMENT changed. Re-adding identical
+    // views would invalidate layout — and the obstacle list — for nothing.
+    if row.arrangedSubviews.elementsEqual(desired, by: { $0 === $1 }) { return false }
+    row.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    desired.forEach { row.addArrangedSubview($0) }
+    return true
   }
 
   /// One-shot latch for the remount fallback below: a tree with NO
@@ -4135,19 +4259,22 @@ final class SDUIRenderer: NSObject {
       return
     }
     suggestionBarRemountAttempted = false
-    renderSuggestionChips(into: row)
-    // Chips are obstacles for the touch plane's top-row reach; refresh the
-    // veto list AFTER the chips have frames (next runloop tick) — collecting
-    // them pre-layout records zero-sized rects that filter out.
-    DispatchQueue.main.async { [weak self] in
-      guard let self = self else { return }
-      self.keyPlane?.setObstacles(self.collectPlaneObstacles())
+    // Chips are obstacles for the touch plane's top-row reach. Only a changed
+    // ARRANGEMENT can change which views those are — a chip that merely swapped
+    // its word is the same view, and its new rect is picked up by the plane's
+    // own refresh when the next touch lands. So the hierarchy walk that used to
+    // run on every keystroke now runs only when the bar's shape changes.
+    if renderSuggestionChips(into: row) {
+      keyPlane?.setObstaclesDirty()
     }
   }
 
   /// Every live, enabled control in the mounted tree that the plane must not
   /// steal touches from. Plane-managed letter keys have userInteraction OFF,
   /// so they're excluded naturally.
+  /// Pull side of the plane's obstacle refresh — see setObstaclesDirty().
+  fileprivate func planeObstacleViews() -> [UIView] { collectPlaneObstacles() }
+
   private func collectPlaneObstacles() -> [UIView] {
     guard let rootV = mountedRoot else { return [] }
     var out: [UIView] = []
