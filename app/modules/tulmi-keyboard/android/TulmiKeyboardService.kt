@@ -1226,6 +1226,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val key = "return.${fallback.lowercase()}"
         val labelText = kbConfig?.labels?.get(key) ?: fallback
         kbState.returnLabel = labelText
+
+        // Does the globe key have anywhere to go?
+        //
+        // The SDUI tree gates GlobeKey on state.hasMultipleKeyboards, and
+        // NOTHING on Android ever set it — so the condition read null, and the
+        // globe never rendered at all. Its handler was fully written and simply
+        // unreachable, which on a phone using gesture navigation (no nav bar,
+        // so no system IME-switch button either) left a user with more than one
+        // keyboard no way out of ours except the Settings app.
+        kbState.hasMultipleKeyboards = runCatching {
+            val imm = getSystemService(INPUT_METHOD_SERVICE)
+                as? android.view.inputmethod.InputMethodManager
+            (imm?.enabledInputMethodList?.size ?: 0) > 1
+        }.getOrDefault(false)
+
         sduiRenderer?.stateChanged()
     }
 

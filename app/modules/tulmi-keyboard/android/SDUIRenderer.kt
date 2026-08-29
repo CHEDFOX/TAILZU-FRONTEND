@@ -67,6 +67,13 @@ class KBState(
      * a new input field takes focus. */
     var returnLabel: String = "Return",
     /**
+     * More than one keyboard is enabled on the device, so the globe key has
+     * somewhere to go. The SDUI tree gates GlobeKey on this — a device with
+     * only Tailzu installed shows no switcher, because there is nothing to
+     * switch to.
+     */
+    var hasMultipleKeyboards: Boolean = false,
+    /**
      * Backend scratch dict. setState / toggleState / incrementState / clearState
      * (and callEndpoint.assignTo) write here; bind + visibleIf read it back via
      * `state.user.<key>`. This is what lets the backend compose stateful
@@ -415,6 +422,7 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
+            s.hasMultipleKeyboards,
             // suggestions deliberately NOT fingerprinted — they are applied in
             // place by refreshSuggestionBarInPlace(). Including them here put a
             // full teardown-and-rebuild of the whole keyboard on the keystroke
@@ -1805,6 +1813,7 @@ class SDUIRenderer(
             "dictating" -> s.dictating
             "refining" -> s.refining
             "hasFullAccess" -> s.hasFullAccess
+            "hasMultipleKeyboards" -> s.hasMultipleKeyboards
             "status" -> s.status
             "micLevel" -> s.micLevel
             "suggestions" -> s.suggestions
