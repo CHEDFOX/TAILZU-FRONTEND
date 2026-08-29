@@ -329,9 +329,84 @@ class SDUIRenderer(
         // shift key in place instead of tearing down and rebuilding the tree.
         if (letterButtonsByChar.isNotEmpty() && treeKey() == lastTreeKey) {
             applyFastShiftUpdate()
+            // Suggestions are NOT in treeKey, so a completion change lands here
+            // rather than forcing a rebuild. It used to be fingerprinted, which
+            // meant every keystroke that changed the word list tore down the
+            // entire keyboard — removeAllViews(), a full re-walk of the tree,
+            // every key re-inflated, geometry re-published — to repaint three
+            // chips. That was the Android lag.
+            refreshSuggestionBarInPlace()
             return
         }
         redraw()
+    }
+
+    /** The live suggestion row, for chip refreshes that must never remount. */
+    private var suggestionRow: LinearLayout? = null
+
+    /** Chip surface, captured from the SuggestionBar node at render time. */
+    private var suggestionChipBackground: (() -> android.graphics.drawable.Drawable?)? = null
+
+    /** Marks a row's current contents so an identical refill is skipped. */
+    private val SUGGESTION_TAG_PREFIX = "tulmi.sugg:"
+
+    /**
+     * One-shot latch for the fallback below. A tree that has NO SuggestionBar
+     * node at all (or gates it behind visibleIf) has no row to fill in place —
+     * so redraw ONCE to let that gate re-evaluate, and then stop, rather than
+     * paying a rebuild on every keystroke forever.
+     */
+    private var suggestionRemountAttempted = false
+
+    private fun refreshSuggestionBarInPlace() {
+        val want = host.state().suggestions
+        val row = suggestionRow
+        // isAttachedToWindow, not parent != null: redraw() detaches the whole
+        // tree from the container, but the row's parent (its scroll view) stays
+        // set — so a parent check would happily fill a dead row forever.
+        if (row == null || !row.isAttachedToWindow) {
+            if (want.isNotEmpty() && !suggestionRemountAttempted) {
+                suggestionRemountAttempted = true
+                redraw()
+            }
+            return
+        }
+        suggestionRemountAttempted = false
+        if (row.tag == SUGGESTION_TAG_PREFIX + want.joinToString("")) return
+        fillSuggestionRow(row, want)
+    }
+
+    /**
+     * Fill (or refill) a suggestion row. Chip views are REUSED — only their
+     * text and click target change — so a repaint costs no inflation and no
+     * layout churn beyond the widths actually changing.
+     */
+    private fun fillSuggestionRow(row: LinearLayout, words: List<String>) {
+        while (row.childCount > words.size) row.removeViewAt(row.childCount - 1)
+        for (i in words.indices) {
+            val chip = if (i < row.childCount) {
+                row.getChildAt(i) as Button
+            } else {
+                val b = Button(host.context())
+                suggestionChipBackground?.invoke()?.let { b.background = it }
+                val lp = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
+                row.addView(b, lp)
+                b
+            }
+            val word = words[i]
+            chip.text = word
+            chip.setTextColor(parseHex(kbConfig.theme.keyText))
+            // Rebound every pass: a reused chip must apply the word it is
+            // showing NOW, never the one it carried before.
+            chip.setOnClickListener {
+                hapticTap(chip)
+                host.applySuggestion(word)
+            }
+        }
+        row.tag = SUGGESTION_TAG_PREFIX + words.joinToString("")
     }
 
     /** Fingerprint of every tree input EXCEPT shift/caps. When this is unchanged
@@ -340,7 +415,11 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
-            s.suggestions.joinToString("\u0001"), currentTone(), micReassembling,
+            // suggestions deliberately NOT fingerprinted — they are applied in
+            // place by refreshSuggestionBarInPlace(). Including them here put a
+            // full teardown-and-rebuild of the whole keyboard on the keystroke
+            // path, just to repaint three chips.
+            currentTone(), micReassembling,
             // Fingerprint the scratch dict so a setState/toggle/increment/clear
             // forces a full redraw (visibleIf/bind gates on state.user.* must
             // re-evaluate) instead of being swallowed by the fast-shift path.
@@ -374,6 +453,10 @@ class SDUIRenderer(
         // Reset the fast-shift refs — repopulated as the fresh tree renders.
         letterButtonsByChar.clear()
         shiftButton = null
+        // Dropped with the tree that owned them; renderSuggestionBar re-registers
+        // if the fresh tree still has a bar.
+        suggestionRow = null
+        suggestionChipBackground = null
         container.removeAllViews()
         applyEffect(container, kbConfig.theme.backgroundEffect ?: KBEffect.Solid(kbConfig.theme.background))
         rootNode?.let { render(it, container) }
@@ -788,22 +871,11 @@ class SDUIRenderer(
             row,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
         )
-        for (s in host.state().suggestions) {
-            val chip = Button(host.context()).apply {
-                text = s
-                background = keyBackground(node)
-                setTextColor(parseHex(kbConfig.theme.keyText))
-            }
-            chip.setOnClickListener {
-                hapticTap(chip)
-                host.applySuggestion(s)
-            }
-            val lp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
-            row.addView(chip, lp)
-        }
+        // The chip surface comes from the bar NODE, so it has to be captured
+        // here — the in-place refresh runs without a node in hand.
+        suggestionChipBackground = { keyBackground(node) }
+        suggestionRow = row
+        fillSuggestionRow(row, host.state().suggestions)
         addChildWithStyle(parent, scroll, node.style, isRow = parent.isHorizontal())
     }
 
