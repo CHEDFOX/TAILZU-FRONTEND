@@ -1241,6 +1241,24 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             (imm?.enabledInputMethodList?.size ?: 0) > 1
         }.getOrDefault(false)
 
+        // A field that only takes numbers gets the number pad, not QWERTY.
+        //
+        // The field TELLS us this — inputType is how every other keyboard knows
+        // to show a dialer for an OTP box or an amount. Making the user find
+        // "123" for a field that cannot accept a letter is work we imposed.
+        //
+        // Leaving one restores letters, so the pad can never outlive the field
+        // that asked for it.
+        val cls = (info?.inputType ?: 0) and
+            android.text.InputType.TYPE_MASK_CLASS
+        val numericField = cls == android.text.InputType.TYPE_CLASS_NUMBER ||
+            cls == android.text.InputType.TYPE_CLASS_PHONE
+        if (numericField) {
+            kbState.layoutId = "num"
+        } else if (kbState.layoutId == "num") {
+            kbState.layoutId = "en"
+        }
+
         sduiRenderer?.stateChanged()
     }
 
