@@ -170,8 +170,6 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         invalidate()
     }
 
-    fun drawnKeys(): List<DrawnKey> = drawnKeys
-
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         if (drawnKeys.isEmpty()) { super.onLayout(changed, l, t, r, b); return }
         layoutDrawnKeys((r - l).toFloat(), (b - t).toFloat())

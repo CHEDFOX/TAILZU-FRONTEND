@@ -760,12 +760,12 @@ class SDUIRenderer(
 
     private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
 
-    private companion object DrawnKeyTiming {
-        /** Hold before backspace starts repeating, then the gap between deletes.
-         *  Matches the Button path's own repeat. */
-        const val BACKSPACE_REPEAT_DELAY_MS = 400L
-        const val BACKSPACE_REPEAT_MS = 50L
-    }
+    /** Hold before backspace starts repeating, then the gap between deletes.
+     *  Matches the Button path's own repeat. Plain properties, NOT a second
+     *  companion object — a class gets exactly one, and this file already has
+     *  it (parseHex lives there). */
+    private val BACKSPACE_REPEAT_DELAY_MS = 400L
+    private val BACKSPACE_REPEAT_MS = 50L
 
     /** Spacer = flex-weighted empty View. Direction inferred from parent orientation. */
     private fun renderSpacer(node: KBNode, parent: ViewGroup) {
