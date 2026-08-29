@@ -54,6 +54,19 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** kb.keyPlane.enabled — off restores stock per-view dispatch exactly. */
     var planeEnabled: Boolean = true
 
+    /**
+     * Swallow every touch and act on none of them.
+     *
+     * Set while the mic is recording. The keys are blurred to say "not now",
+     * and this is what makes that true rather than decorative — without it a
+     * stray thumb mid-utterance types a character into the very text the
+     * refine pass is about to rewrite.
+     *
+     * Intercepting rather than disabling: a disabled ViewGroup still lets its
+     * children take touches, and the row must eat the gesture whole.
+     */
+    var locked: Boolean = false
+
     /** kb.touch.fillGaps — give the margins between keys to the nearest key. */
     var fillGaps: Boolean = true
 
@@ -240,6 +253,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      * scrolling strip or a custom row belongs to that view.
      */
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return true
         if (!planeEnabled) return false
         if (ev.actionMasked != MotionEvent.ACTION_DOWN) return false
         return keyAt(ev.x, ev.y) != null
@@ -247,6 +261,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return true          // consumed, and deliberately inert
         if (!planeEnabled) return super.onTouchEvent(ev)
 
         when (ev.actionMasked) {
@@ -285,7 +300,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     owners[slot] = next
                     setPressed(next, true)
                     (next as? DrawnKey)?.let { it.suppressCommit = false; it.onPressStart?.invoke() }
-                    cancelLongPress()
+                    cancelArmedLongPress()
                     // A trace records each NEW key it enters. Consecutive
                     // duplicates are dropped, so wobbling on one key does not
                     // double a letter — a real double letter comes from the
@@ -358,7 +373,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     }
 
     private fun release(id: Int, commit: Boolean, x: Float, y: Float) {
-        cancelLongPress()
+        cancelArmedLongPress()
         val slot = slotOf(id) ?: return
         val key = owners[slot]
         val heldMs = System.currentTimeMillis() - downAt[slot]
@@ -413,7 +428,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private var armedLongPress: Runnable? = null
 
     private fun armLongPress(o: Any) {
-        cancelLongPress()
+        cancelArmedLongPress()
         val k = o as? DrawnKey ?: return
         val action = k.onLongPress ?: return
         val r = Runnable {
@@ -428,7 +443,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         longPressHandler.postDelayed(r, LONG_PRESS_MS)
     }
 
-    private fun cancelLongPress() {
+    private fun cancelArmedLongPress() {
         armedLongPress?.let { longPressHandler.removeCallbacks(it) }
         armedLongPress = null
     }
