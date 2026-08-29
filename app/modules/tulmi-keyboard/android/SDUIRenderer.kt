@@ -433,6 +433,19 @@ class SDUIRenderer(
         for ((base, btn) in letterButtonsByChar) {
             btn.text = if (upper) base.uppercase() else base.lowercase()
         }
+        // Drawn rows re-label in place and repaint — one invalidate per row,
+        // versus a setText on every Button and the layout pass that follows.
+        if (drawnLettersByChar.isNotEmpty()) {
+            for ((base, k) in drawnLettersByChar) {
+                k.label = if (upper) base.uppercase() else base.lowercase()
+            }
+            drawnShiftKey?.let { k ->
+                k.label = if (host.state().capsLock) "\u21ea" else "\u21e7"
+                k.textColor = parseHex(
+                    if (upper) kbConfig.theme.accent else kbConfig.theme.keyText)
+            }
+            for (p in drawnPlanes) p.invalidate()
+        }
         shiftButton?.let { b ->
             b.text = if (host.state().capsLock) "⇪" else "⇧"
             b.setTextColor(parseHex(if (upper) kbConfig.theme.accent else kbConfig.theme.keyText))
@@ -453,6 +466,9 @@ class SDUIRenderer(
         // Reset the fast-shift refs — repopulated as the fresh tree renders.
         letterButtonsByChar.clear()
         shiftButton = null
+        drawnLettersByChar.clear()
+        drawnShiftKey = null
+        drawnPlanes.clear()
         // Dropped with the tree that owned them; renderSuggestionBar re-registers
         // if the fresh tree still has a bar.
         suggestionRow = null
@@ -567,18 +583,180 @@ class SDUIRenderer(
             // ships dark and gets enabled per cohort once the revert counter
             // says it earns its place.
             swipeEnabled = flagBoolean("kb.swipe.enabled", false)
-            onSwipe = { keys ->
-                val letters = keys.mapNotNull { k ->
-                    (k as? Button)?.text?.toString()?.takeIf { it.length == 1 }?.lowercase()
-                }.joinToString("")
-                if (letters.length >= 2) host.onSwipe(letters)
+            // The plane hands back the LETTERS it crossed — it knows them in
+            // both modes, where the old Button cast only worked in one.
+            onSwipe = { letters ->
+                val word = letters.joinToString("")
+                if (word.length >= 2) host.onSwipe(word)
             }
         }
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
         applyEvents(ll, node)
+        // Drawn keys: ONE view for the row instead of a Button per key. Only
+        // taken when every child is a plain key — the tools row carries a mic
+        // and a scrolling suggestion strip, real views with their own gestures.
+        if (flagBoolean("kb.render.drawnKeys", false) && buildDrawnRow(node, ll)) return
         for (c in node.children) render(c, ll)
+    }
+
+    /** Key types the drawn path paints. Anything else sends the WHOLE row back
+     *  to the view path — all or nothing, never a mix. */
+    private fun isDrawableKey(t: String) = t == "LetterKey" || t == "ShiftKey" ||
+        t == "BackspaceKey" || t == "SpaceKey" || t == "ReturnKey" || t == "Spacer"
+
+    /** Drawn letter keys, so the fast-shift path can re-label without a rebuild. */
+    private val drawnLettersByChar = HashMap<String, TulmiKeyPlane.DrawnKey>()
+    private val drawnPlanes = ArrayList<TulmiKeyPlane>()
+
+    /**
+     * Paint a row of keys onto the plane itself.
+     *
+     * Returns false when the row holds anything the drawn path does not
+     * faithfully reproduce, in which case the caller renders it as views
+     * exactly as before. That fallback is the safety story: an unhandled key
+     * type degrades one row to the old path, it never breaks it.
+     *
+     * GlobeKey is deliberately absent from isDrawableKey — it carries an icon
+     * from the system drawable registry and its own IME-switch behaviour, and a
+     * hand-drawn approximation of a system affordance is worse than the real
+     * one. Its row falls back, which is the correct outcome.
+     */
+    private fun buildDrawnRow(node: KBNode, plane: TulmiKeyPlane): Boolean {
+        if (node.children.isEmpty()) return false
+        if (node.children.any { !isDrawableKey(it.type) }) return false
+        val dm = host.context().resources.displayMetrics
+        val st = host.state()
+        val keys = ArrayList<TulmiKeyPlane.DrawnKey>(node.children.size)
+
+        for (c in node.children) {
+            val flex = numFromStyle(c.style["flex"]) ?: 1f
+            val fixedW = (numFromStyle(c.style["width"]) ?: 0f) * dm.density
+            if (c.type == "Spacer") {
+                keys += TulmiKeyPlane.DrawnKey("", flex, fixedW, isSpacer = true)
+                continue
+            }
+            val fill = parseHex((c.style["bg"] as? String) ?: kbConfig.theme.key)
+            val fg = parseHex((c.style["fg"] as? String) ?: kbConfig.theme.keyText)
+            val size = (numFromStyle(c.style["fontSize"]) ?: 16f) * dm.scaledDensity
+            val radius = kbConfig.theme.keyRadius * dm.density
+
+            // Case is read from LIVE state at COMMIT time, never baked into the
+            // key — the same rule the Button path follows, so a fast-shift
+            // repaint can never desync from what actually gets typed.
+            val raw = if (c.bind["content"] == "tone") currentTone()
+                      else ((c.props["char"] as? String) ?: "")
+            val hasPress = c.on.containsKey("onPress")
+            val upper = st.shift || st.capsLock
+            val label = when (c.type) {
+                "LetterKey" -> if (raw.length == 1) {
+                    if (upper) raw.uppercase() else raw.lowercase()
+                } else raw
+                "SpaceKey" -> kbConfig.labels["space"] ?: "space"
+                "ReturnKey" -> kbConfig.labels["return"] ?: "return"
+                "ShiftKey" -> if (st.capsLock) "⇪" else "⇧"
+                "BackspaceKey" -> "⌫"
+                else -> ""
+            }
+            val labelColor = if (c.type == "ShiftKey" && upper) {
+                parseHex(kbConfig.theme.accent)
+            } else fg
+
+            var pressEnd: (() -> Unit)? = null
+            var pressStart: (() -> Unit)? = null
+            val key: TulmiKeyPlane.DrawnKey
+            val commit: () -> Unit = when (c.type) {
+                "ShiftKey" -> {
+                    {
+                        val s = host.state()
+                        s.shift = !s.shift
+                        s.capsLock = false
+                        host.onStateChanged()
+                        invokeEvent(c, "onPress")
+                    }
+                }
+                "BackspaceKey" -> {
+                    { host.ic()?.deleteSurroundingText(1, 0); invokeEvent(c, "onPress") }
+                }
+                "SpaceKey" -> { { insertText(" "); invokeEvent(c, "onPress") } }
+                "ReturnKey" -> {
+                    { host.ic()?.commitText("\n", 1); invokeEvent(c, "onPress") }
+                }
+                else -> {
+                    {
+                        if (hasPress) invokeEvent(c, "onPress") else {
+                            val s = host.state()
+                            val ins = if (raw.length == 1) {
+                                if (s.shift || s.capsLock) raw.uppercase() else raw.lowercase()
+                            } else raw
+                            insertText(ins)
+                            if (s.shift && !s.capsLock) { s.shift = false; host.onStateChanged() }
+                        }
+                    }
+                }
+            }
+
+            key = TulmiKeyPlane.DrawnKey(
+                label = label, flex = flex, fixedWidthPx = fixedW,
+                fill = fill, textColor = labelColor, textSizePx = size, radiusPx = radius,
+                onCommit = { hapticTap(plane); commit() },
+                onLongPress = when (c.type) {
+                    // Long-press shift = caps lock, as on the Button path.
+                    "ShiftKey" -> {
+                        {
+                            val s = host.state()
+                            s.capsLock = !s.capsLock
+                            s.shift = false
+                            host.onStateChanged()
+                        }
+                    }
+                    else -> if (c.on.containsKey("onLongPress")) {
+                        { invokeEvent(c, "onLongPress") }
+                    } else null
+                },
+                onPressStart = { pressStart?.invoke() },
+                onPressEnd = { pressEnd?.invoke() },
+            )
+
+            // Backspace repeats while held. Wired through press start/end
+            // rather than long-press because it must run UNTIL RELEASE, and it
+            // suppresses the release commit so the last delete isn't doubled.
+            if (c.type == "BackspaceKey") {
+                var repeat: Runnable? = null
+                val r = object : Runnable {
+                    override fun run() {
+                        key.suppressCommit = true
+                        host.ic()?.deleteSurroundingText(1, 0)
+                        handler.postDelayed(this, BACKSPACE_REPEAT_MS)
+                    }
+                }
+                repeat = r
+                pressStart = { handler.postDelayed(r, BACKSPACE_REPEAT_DELAY_MS) }
+                pressEnd = { repeat?.let { handler.removeCallbacks(it) } }
+            }
+
+            keys += key
+            if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
+                drawnLettersByChar[raw.lowercase()] = key
+            }
+            if (c.type == "ShiftKey") drawnShiftKey = key
+        }
+
+        plane.drawnGapPx = (numFromStyle(node.style["gap"]) ?: 0f) * dm.density
+        plane.pressedFill = parseHex(kbConfig.theme.keyPressed)
+        plane.setDrawnKeys(keys)
+        drawnPlanes += plane
+        return true
+    }
+
+    private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
+
+    private companion object DrawnKeyTiming {
+        /** Hold before backspace starts repeating, then the gap between deletes.
+         *  Matches the Button path's own repeat. */
+        const val BACKSPACE_REPEAT_DELAY_MS = 400L
+        const val BACKSPACE_REPEAT_MS = 50L
     }
 
     /** Spacer = flex-weighted empty View. Direction inferred from parent orientation. */
