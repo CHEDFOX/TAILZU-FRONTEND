@@ -10,6 +10,7 @@
  * any backend-driven node can't leave the user on a blank screen — they get a
  * recover-in-place UI, and "Reset" reloads the JS bundle for a clean reboot.
  */
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import SduiApp from "./src/sdui/SduiApp";
 import { ErrorBoundary } from "./src/sdui/ErrorBoundary";
 
@@ -22,8 +23,14 @@ try {
 
 export default function App() {
   return (
-    <ErrorBoundary onReset={() => { Updates?.reloadAsync?.().catch(() => {}); }}>
-      <SduiApp />
-    </ErrorBoundary>
+    // SafeAreaProvider is REQUIRED, not decorative: useSafeAreaInsets() throws
+    // without it, and the tab bar calls it on every render — so its absence is
+    // a crash on every screen, not a layout nicety. It wraps the ErrorBoundary
+    // rather than sitting inside it so the recovery UI is inset-aware too.
+    <SafeAreaProvider>
+      <ErrorBoundary onReset={() => { Updates?.reloadAsync?.().catch(() => {}); }}>
+        <SduiApp />
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
