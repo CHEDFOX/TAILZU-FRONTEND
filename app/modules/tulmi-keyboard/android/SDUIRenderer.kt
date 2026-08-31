@@ -67,6 +67,13 @@ class KBState(
      * a new input field takes focus. */
     var returnLabel: String = "Return",
     /**
+     * More than one keyboard is enabled on the device, so the globe key has
+     * somewhere to go. The SDUI tree gates GlobeKey on this — a device with
+     * only Tailzu installed shows no switcher, because there is nothing to
+     * switch to.
+     */
+    var hasMultipleKeyboards: Boolean = false,
+    /**
      * Backend scratch dict. setState / toggleState / incrementState / clearState
      * (and callEndpoint.assignTo) write here; bind + visibleIf read it back via
      * `state.user.<key>`. This is what lets the backend compose stateful
@@ -415,6 +422,7 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
+            s.hasMultipleKeyboards,
             // suggestions deliberately NOT fingerprinted — they are applied in
             // place by refreshSuggestionBarInPlace(). Including them here put a
             // full teardown-and-rebuild of the whole keyboard on the keystroke
@@ -432,6 +440,19 @@ class SDUIRenderer(
         val upper = host.state().shift || host.state().capsLock
         for ((base, btn) in letterButtonsByChar) {
             btn.text = if (upper) base.uppercase() else base.lowercase()
+        }
+        // Drawn rows re-label in place and repaint — one invalidate per row,
+        // versus a setText on every Button and the layout pass that follows.
+        if (drawnLettersByChar.isNotEmpty()) {
+            for ((base, k) in drawnLettersByChar) {
+                k.label = if (upper) base.uppercase() else base.lowercase()
+            }
+            drawnShiftKey?.let { k ->
+                k.label = if (host.state().capsLock) "\u21ea" else "\u21e7"
+                k.textColor = parseHex(
+                    if (upper) kbConfig.theme.accent else kbConfig.theme.keyText)
+            }
+            for (p in drawnPlanes) p.invalidate()
         }
         shiftButton?.let { b ->
             b.text = if (host.state().capsLock) "⇪" else "⇧"
@@ -453,6 +474,10 @@ class SDUIRenderer(
         // Reset the fast-shift refs — repopulated as the fresh tree renders.
         letterButtonsByChar.clear()
         shiftButton = null
+        drawnLettersByChar.clear()
+        drawnShiftKey = null
+        drawnPlanes.clear()
+        lockableRows.clear()
         // Dropped with the tree that owned them; renderSuggestionBar re-registers
         // if the fresh tree still has a bar.
         suggestionRow = null
@@ -463,6 +488,8 @@ class SDUIRenderer(
         // Baseline for the next fast-shift comparison.
         lastTreeKey = treeKey()
         publishKeyGeometry(container)
+        // dictating is fingerprinted in treeKey, so a start/stop lands here.
+        applyDictationLock(host.state().dictating)
     }
 
     /**
@@ -567,19 +594,216 @@ class SDUIRenderer(
             // ships dark and gets enabled per cohort once the revert counter
             // says it earns its place.
             swipeEnabled = flagBoolean("kb.swipe.enabled", false)
-            onSwipe = { keys ->
-                val letters = keys.mapNotNull { k ->
-                    (k as? Button)?.text?.toString()?.takeIf { it.length == 1 }?.lowercase()
-                }.joinToString("")
-                if (letters.length >= 2) host.onSwipe(letters)
+            // The plane hands back the LETTERS it crossed — it knows them in
+            // both modes, where the old Button cast only worked in one.
+            onSwipe = { letters ->
+                val word = letters.joinToString("")
+                if (word.length >= 2) host.onSwipe(word)
             }
         }
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
         applyEvents(ll, node)
+        // A row of KEYS is blurred and locked while the mic records. The tools
+        // row is not: the mic that stops the recording lives there, and blurring
+        // the way out of a state is how you strand someone in it.
+        if (node.children.none { it.type == "MicKey" || it.type == "SuggestionBar" }) {
+            lockableRows += ll
+        }
+        // Drawn keys: ONE view for the row instead of a Button per key. Only
+        // taken when every child is a plain key — the tools row carries a mic
+        // and a scrolling suggestion strip, real views with their own gestures.
+        if (flagBoolean("kb.render.drawnKeys", false) && buildDrawnRow(node, ll)) return
         for (c in node.children) render(c, ll)
     }
+
+    /** Key types the drawn path paints. Anything else sends the WHOLE row back
+     *  to the view path — all or nothing, never a mix. */
+    private fun isDrawableKey(t: String) = t == "LetterKey" || t == "ShiftKey" ||
+        t == "BackspaceKey" || t == "SpaceKey" || t == "ReturnKey" || t == "Spacer"
+
+    /** Key rows that blur + stop taking touches while dictation is live. */
+    private val lockableRows = ArrayList<TulmiKeyPlane>()
+
+    /**
+     * Blur the keys and take them out of service while the mic is recording.
+     *
+     * The blur is the honest signal — the keys are still there, they are just
+     * not yours for the moment — and `locked` is what makes it true rather than
+     * cosmetic. RenderEffect is API 31+; older devices get the dim alone, which
+     * says the same thing with less polish rather than nothing at all.
+     */
+    private fun applyDictationLock(active: Boolean) {
+        if (!flagBoolean("kb.dictation.dim.enabled", true)) return
+        val radius = flagFloat("kb.dictation.dim.blurRadius", 14f)
+        val dimAlpha = flagFloat("kb.dictation.dim.keyAlpha", 0.45f)
+        for (row in lockableRows) {
+            row.locked = active
+            row.alpha = if (active) dimAlpha else 1f
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                row.setRenderEffect(
+                    if (active && radius > 0f) {
+                        android.graphics.RenderEffect.createBlurEffect(
+                            radius, radius, android.graphics.Shader.TileMode.CLAMP)
+                    } else null
+                )
+            }
+        }
+    }
+
+    /** Drawn letter keys, so the fast-shift path can re-label without a rebuild. */
+    private val drawnLettersByChar = HashMap<String, TulmiKeyPlane.DrawnKey>()
+    private val drawnPlanes = ArrayList<TulmiKeyPlane>()
+
+    /**
+     * Paint a row of keys onto the plane itself.
+     *
+     * Returns false when the row holds anything the drawn path does not
+     * faithfully reproduce, in which case the caller renders it as views
+     * exactly as before. That fallback is the safety story: an unhandled key
+     * type degrades one row to the old path, it never breaks it.
+     *
+     * GlobeKey is deliberately absent from isDrawableKey — it carries an icon
+     * from the system drawable registry and its own IME-switch behaviour, and a
+     * hand-drawn approximation of a system affordance is worse than the real
+     * one. Its row falls back, which is the correct outcome.
+     */
+    private fun buildDrawnRow(node: KBNode, plane: TulmiKeyPlane): Boolean {
+        if (node.children.isEmpty()) return false
+        if (node.children.any { !isDrawableKey(it.type) }) return false
+        val dm = host.context().resources.displayMetrics
+        val st = host.state()
+        val keys = ArrayList<TulmiKeyPlane.DrawnKey>(node.children.size)
+
+        for (c in node.children) {
+            val flex = numFromStyle(c.style["flex"]) ?: 1f
+            val fixedW = (numFromStyle(c.style["width"]) ?: 0f) * dm.density
+            if (c.type == "Spacer") {
+                keys += TulmiKeyPlane.DrawnKey("", flex, fixedW, isSpacer = true)
+                continue
+            }
+            val fill = parseHex((c.style["bg"] as? String) ?: kbConfig.theme.key)
+            val fg = parseHex((c.style["fg"] as? String) ?: kbConfig.theme.keyText)
+            val size = (numFromStyle(c.style["fontSize"]) ?: 16f) * dm.scaledDensity
+            val radius = kbConfig.theme.keyRadius * dm.density
+
+            // Case is read from LIVE state at COMMIT time, never baked into the
+            // key — the same rule the Button path follows, so a fast-shift
+            // repaint can never desync from what actually gets typed.
+            val raw = if (c.bind["content"] == "tone") currentTone()
+                      else ((c.props["char"] as? String) ?: "")
+            val hasPress = c.on.containsKey("onPress")
+            val upper = st.shift || st.capsLock
+            val label = when (c.type) {
+                "LetterKey" -> if (raw.length == 1) {
+                    if (upper) raw.uppercase() else raw.lowercase()
+                } else raw
+                "SpaceKey" -> kbConfig.labels["space"] ?: "space"
+                "ReturnKey" -> kbConfig.labels["return"] ?: "return"
+                "ShiftKey" -> if (st.capsLock) "⇪" else "⇧"
+                "BackspaceKey" -> "⌫"
+                else -> ""
+            }
+            val labelColor = if (c.type == "ShiftKey" && upper) {
+                parseHex(kbConfig.theme.accent)
+            } else fg
+
+            var pressEnd: (() -> Unit)? = null
+            var pressStart: (() -> Unit)? = null
+            val key: TulmiKeyPlane.DrawnKey
+            val commit: () -> Unit = when (c.type) {
+                "ShiftKey" -> {
+                    {
+                        val s = host.state()
+                        s.shift = !s.shift
+                        s.capsLock = false
+                        host.onStateChanged()
+                        invokeEvent(c, "onPress")
+                    }
+                }
+                "BackspaceKey" -> {
+                    { host.ic()?.deleteSurroundingText(1, 0); invokeEvent(c, "onPress") }
+                }
+                "SpaceKey" -> { { insertText(" "); invokeEvent(c, "onPress") } }
+                "ReturnKey" -> {
+                    { host.ic()?.commitText("\n", 1); invokeEvent(c, "onPress") }
+                }
+                else -> {
+                    {
+                        if (hasPress) invokeEvent(c, "onPress") else {
+                            val s = host.state()
+                            val ins = if (raw.length == 1) {
+                                if (s.shift || s.capsLock) raw.uppercase() else raw.lowercase()
+                            } else raw
+                            insertText(ins)
+                            if (s.shift && !s.capsLock) { s.shift = false; host.onStateChanged() }
+                        }
+                    }
+                }
+            }
+
+            key = TulmiKeyPlane.DrawnKey(
+                label = label, flex = flex, fixedWidthPx = fixedW,
+                fill = fill, textColor = labelColor, textSizePx = size, radiusPx = radius,
+                onCommit = { hapticTap(plane, hapticIdFor(c, raw)); commit() },
+                onLongPress = when (c.type) {
+                    // Long-press shift = caps lock, as on the Button path.
+                    "ShiftKey" -> {
+                        {
+                            val s = host.state()
+                            s.capsLock = !s.capsLock
+                            s.shift = false
+                            host.onStateChanged()
+                        }
+                    }
+                    else -> if (c.on.containsKey("onLongPress")) {
+                        { invokeEvent(c, "onLongPress") }
+                    } else null
+                },
+                onPressStart = { pressStart?.invoke() },
+                onPressEnd = { pressEnd?.invoke() },
+            )
+
+            // Backspace repeats while held. Wired through press start/end
+            // rather than long-press because it must run UNTIL RELEASE, and it
+            // suppresses the release commit so the last delete isn't doubled.
+            if (c.type == "BackspaceKey") {
+                var repeat: Runnable? = null
+                val r = object : Runnable {
+                    override fun run() {
+                        key.suppressCommit = true
+                        host.ic()?.deleteSurroundingText(1, 0)
+                        handler.postDelayed(this, BACKSPACE_REPEAT_MS)
+                    }
+                }
+                repeat = r
+                pressStart = { handler.postDelayed(r, BACKSPACE_REPEAT_DELAY_MS) }
+                pressEnd = { repeat?.let { handler.removeCallbacks(it) } }
+            }
+
+            keys += key
+            if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
+                drawnLettersByChar[raw.lowercase()] = key
+            }
+            if (c.type == "ShiftKey") drawnShiftKey = key
+        }
+
+        plane.drawnGapPx = (numFromStyle(node.style["gap"]) ?: 0f) * dm.density
+        plane.pressedFill = parseHex(kbConfig.theme.keyPressed)
+        plane.setDrawnKeys(keys)
+        drawnPlanes += plane
+        return true
+    }
+
+    private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
+
+    /** Hold before backspace starts repeating, then the gap between deletes.
+     *  Matches the Button path's own repeat. Plain properties, NOT a second
+     *  companion object — a class gets exactly one, and this file already has
+     *  it (parseHex lives there). */
+    private val BACKSPACE_REPEAT_DELAY_MS = 400L
+    private val BACKSPACE_REPEAT_MS = 50L
 
     /** Spacer = flex-weighted empty View. Direction inferred from parent orientation. */
     private fun renderSpacer(node: KBNode, parent: ViewGroup) {
@@ -612,7 +836,7 @@ class SDUIRenderer(
             letterButtonsByChar[raw.lowercase()] = b
         }
         b.setOnClickListener {
-            hapticTap(b)
+            hapticTap(b, raw.ifEmpty { label })
             // If the backend attached an onPress action (tone pill → cycleTone,
             // layer keys "123"/"ABC"/"#+=" → switchLayout, …), dispatch THAT and
             // do NOT type the label. Only a plain letter (no onPress override)
@@ -668,7 +892,7 @@ class SDUIRenderer(
         val label = kbConfig.labels["space"] ?: "space"
         val b = keyButton(label, node)
         b.setOnClickListener {
-            hapticTap(b)
+            hapticTap(b, "space")
             insertText(" ")
             invokeEvent(node, "onPress")
         }
@@ -687,7 +911,7 @@ class SDUIRenderer(
         if (active) b.setTextColor(parseHex(kbConfig.theme.accent))
         shiftButton = b   // let the fast-shift path recolor it in place
         b.setOnClickListener {
-            hapticTap(b)
+            hapticTap(b, "shift")
             val s = host.state()
             s.shift = !s.shift
             s.capsLock = false
@@ -695,7 +919,7 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         b.setOnLongClickListener {
-            hapticTap(b)
+            hapticTap(b, "shift")
             val s = host.state()
             s.capsLock = !s.capsLock
             s.shift = false
@@ -711,7 +935,7 @@ class SDUIRenderer(
         val label = kbConfig.labels["return"] ?: "return"
         val b = keyButton(label, node)
         b.setOnClickListener {
-            hapticTap(b)
+            hapticTap(b, "return")
             host.ic()?.commitText("\n", 1)
             invokeEvent(node, "onPress")
         }
@@ -730,7 +954,7 @@ class SDUIRenderer(
             keyButton("⌫", node)
         }
         view.setOnClickListener {
-            hapticTap(view)
+            hapticTap(view, "backspace")
             host.ic()?.deleteSurroundingText(1, 0)
             invokeEvent(node, "onPress")
         }
@@ -741,7 +965,7 @@ class SDUIRenderer(
             }
         }
         view.setOnLongClickListener {
-            hapticTap(view)
+            hapticTap(view, "backspace")
             handler.postDelayed(repeat, 300)
             invokeEvent(node, "onLongPress")
             true
@@ -772,13 +996,13 @@ class SDUIRenderer(
             keyButton(kbConfig.labels["globe"] ?: "\u2295", node)   // circled plus, a text mark not a pictograph
         }
         view.setOnClickListener {
-            hapticTap(view)
+            hapticTap(view, "globe")
             val imm = host.context().getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
             imm?.showInputMethodPicker()
             invokeEvent(node, "onPress")
         }
         view.setOnLongClickListener {
-            hapticTap(view)
+            hapticTap(view, "globe")
             host.cycleLayout()
             invokeEvent(node, "onLongPress")
             true
@@ -842,7 +1066,7 @@ class SDUIRenderer(
         }
 
         view.setOnClickListener {
-            hapticTap(view)
+            hapticTap(view, "mic")
             if (host.state().dictating) host.stopDictation() else host.startDictation()
             invokeEvent(node, "onPress")
         }
@@ -854,7 +1078,7 @@ class SDUIRenderer(
         val label = kbConfig.labels["refine"] ?: "Refine"
         val b = keyButton(label, node)
         b.setOnClickListener {
-            hapticTap(b)
+            hapticTap(b, "refine")
             host.runRefine()
             invokeEvent(node, "onPress")
         }
@@ -1554,7 +1778,42 @@ class SDUIRenderer(
         root.performHapticFeedback(constant)
     }
 
-    private fun hapticTap(v: View) {
+    /**
+     * Should THIS key buzz?
+     *
+     * Two independent ways to be on, because "every key" and "the keys I chose"
+     * are different preferences and neither should erase the other. Both
+     * default off: a keyboard that buzzes on every letter out of the box is a
+     * setting people go hunting for how to turn OFF.
+     *
+     * A null id is something that is not a key in the picker — a suggestion
+     * chip, a personality tile. Those follow the master switch only, since the
+     * user was never offered a choice about them individually.
+     */
+    private fun hapticsOn(keyId: String?): Boolean {
+        if (flagBoolean("kb.haptics.all", false)) return true
+        val id = keyId?.lowercase() ?: return false
+        val map = kbConfig.flags["kb.haptics.keys"] as? Map<*, *> ?: return false
+        // Lowercased on BOTH sides — the picker writes "q", the shifted key
+        // reports "Q", and a case mismatch would silently drop the setting.
+        return map[id] == true
+    }
+
+    /** The name a key is known by in kb.haptics.keys — what it types, or its
+     *  role. Shared by both render paths so they cannot drift. */
+    private fun hapticIdFor(node: KBNode, raw: String): String = when (node.type) {
+        "ShiftKey" -> "shift"
+        "BackspaceKey" -> "backspace"
+        "SpaceKey" -> "space"
+        "ReturnKey" -> "return"
+        "GlobeKey" -> "globe"
+        "MicKey" -> "mic"
+        "RefineKey" -> "refine"
+        else -> raw
+    }
+
+    private fun hapticTap(v: View, keyId: String? = null) {
+        if (!hapticsOn(keyId)) return
         v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
@@ -1627,6 +1886,7 @@ class SDUIRenderer(
             "dictating" -> s.dictating
             "refining" -> s.refining
             "hasFullAccess" -> s.hasFullAccess
+            "hasMultipleKeyboards" -> s.hasMultipleKeyboards
             "status" -> s.status
             "micLevel" -> s.micLevel
             "suggestions" -> s.suggestions

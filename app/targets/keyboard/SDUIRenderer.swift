@@ -1309,6 +1309,9 @@ protocol KBHostControllerProtocol: AnyObject {
   /// The current field's returnKeyType, so the Return key can render its
   /// context-appropriate label (Go / Search / Send / Done…) + accent color.
   func hostReturnKeyType() -> UIReturnKeyType
+  /// True when the focused field only accepts numbers, so the renderer can
+  /// show the number pad instead of QWERTY.
+  func hostIsNumericField() -> Bool
   /// True when the user has multiple keyboards enabled (Apple exposes this as
   /// UIInputViewController.needsInputModeSwitchKey). When true, the space bar
   /// shows the current language code (e.g. "EN") like native iOS; when false
@@ -2794,11 +2797,32 @@ final class SDUIRenderer: NSObject {
     //   kb.dictation.dim.fadeMs   (default 250)   — fade-in duration
     guard flagBool("kb.dictation.dim.enabled", true) else { return }
     guard let container = mountContainer, recordingDimView == nil else { return }
-    let dim = UIView()
+    // A BLUR, not just a scrim, when the platform can do it — the keys should
+    // read as behind frosted glass rather than merely darkened. The tint stays
+    // underneath it so the amount of hiding is still one flag.
+    let dim: UIView
+    if flagBool("kb.dictation.dim.blur", true) {
+      let style: UIBlurEffect.Style =
+        state.appearance == "light" ? .systemThinMaterialLight : .systemThinMaterialDark
+      let v = UIVisualEffectView(effect: UIBlurEffect(style: style))
+      v.contentView.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
+        .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
+      dim = v
+    } else {
+      let v = UIView()
+      v.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
+        .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
+      dim = v
+    }
     dim.translatesAutoresizingMaskIntoConstraints = false
-    dim.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
-      .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
-    dim.isUserInteractionEnabled = false
+    // SWALLOW touches. This was false, so every key under the dim stayed live:
+    // the keyboard LOOKED disabled while dictating and typed anyway, which is
+    // the worst of both — a stray thumb landing mid-utterance inserted a
+    // character into the text the refine pass was about to rewrite.
+    //
+    // The tools row is raised above this view below, so the mic that STOPS the
+    // recording is still reachable. Nothing else is.
+    dim.isUserInteractionEnabled = flagBool("kb.dictation.dim.blocksTouches", true)
     dim.alpha = 0
     container.addSubview(dim)
     NSLayoutConstraint.activate([
@@ -6748,6 +6772,21 @@ final class SDUIRenderer: NSObject {
       changed = true
     }
     if state.hasMultipleKeyboards != multi  { state.hasMultipleKeyboards = multi; changed = true }
+    // A field that only takes numbers gets the number pad, not QWERTY.
+    //
+    // The field TELLS us this — keyboardType is how every other keyboard knows
+    // to show a dialer for an OTP box or an amount. Making the user hunt for
+    // "123" in a field that cannot accept a letter is work we imposed.
+    //
+    // Leaving the field restores letters, so the pad can never outlive the
+    // field that asked for it. Only "num" is reset, so a user who deliberately
+    // switched to 123 or symbols keeps their choice.
+    let numeric = host?.hostIsNumericField() ?? false
+    if numeric, state.layoutId != "num" {
+      state.layoutId = "num"; changed = true
+    } else if !numeric, state.layoutId == "num" {
+      state.layoutId = "en"; changed = true
+    }
     if changed { stateChanged() }
   }
 

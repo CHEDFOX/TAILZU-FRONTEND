@@ -2383,6 +2383,20 @@ extension KeyboardViewController: KBHostControllerProtocol {
     (textDocumentProxy as? UITextInputTraits)?.returnKeyType ?? .default
   }
 
+  /// Does this field only accept numbers?
+  ///
+  /// The keyboard types Apple exposes for numeric entry. `.numbersAndPunctuation`
+  /// is deliberately NOT here: it accepts text too, and swapping a user into a
+  /// dialer for a field that takes both takes away more than it gives.
+  func hostIsNumericField() -> Bool {
+    switch (textDocumentProxy as? UITextInputTraits)?.keyboardType ?? .default {
+    case .numberPad, .phonePad, .decimalPad, .asciiCapableNumberPad:
+      return true
+    default:
+      return false
+    }
+  }
+
   /// The current field's autocorrection trait — the renderer keeps autocorrect
   /// and suggestion chips out of fields that opt out (URL, email, code).
   func hostAutocorrectionType() -> UITextAutocorrectionType {

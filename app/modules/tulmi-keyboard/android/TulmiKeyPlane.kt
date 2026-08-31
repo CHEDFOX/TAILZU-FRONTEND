@@ -2,7 +2,12 @@ package com.tulmi.app.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.widget.LinearLayout
@@ -49,6 +54,19 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** kb.keyPlane.enabled — off restores stock per-view dispatch exactly. */
     var planeEnabled: Boolean = true
 
+    /**
+     * Swallow every touch and act on none of them.
+     *
+     * Set while the mic is recording. The keys are blurred to say "not now",
+     * and this is what makes that true rather than decorative — without it a
+     * stray thumb mid-utterance types a character into the very text the
+     * refine pass is about to rewrite.
+     *
+     * Intercepting rather than disabling: a disabled ViewGroup still lets its
+     * children take touches, and the row must eat the gesture whole.
+     */
+    var locked: Boolean = false
+
     /** kb.touch.fillGaps — give the margins between keys to the nearest key. */
     var fillGaps: Boolean = true
 
@@ -77,7 +95,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      * A completed trace, as the keys it turned on. Fired instead of a key
      * commit — a swipe types a word, not the letter it happened to end on.
      */
-    var onSwipe: ((List<View>) -> Unit)? = null
+    var onSwipe: ((List<String>) -> Unit)? = null
 
     // The trace, as the primary pointer walks it. Only one finger traces; a
     // second pointer during a swipe is ignored rather than starting a race.
@@ -85,12 +103,140 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private var traceTravel = 0f
     private var lastTraceX = 0f
     private var lastTraceY = 0f
-    private val traced = ArrayList<View>(12)
+    private val traced = ArrayList<Any>(12)
+
+    // ---------------------------------------------------------------- drawn
+    //
+    // DRAWN MODE. The plane can own its keys as GEOMETRY instead of as child
+    // views: one View for a whole row, keys painted straight onto its canvas.
+    //
+    // The view-per-key model is what separates us from the system keyboards.
+    // Android's own IME does not build a Button per letter — it draws them all
+    // into one surface — because 30-odd views mean 30 measure/layout passes and
+    // 30 TextViews shaping text on every change. That cost lands exactly while
+    // a finger is down.
+    //
+    // Touch is NOT reimplemented here. The state machine below is owner-
+    // agnostic: an owner is a child View in view mode and a DrawnKey in drawn
+    // mode, and rectOf/pressOwner/commitOwner are the only places that care.
+    // One implementation, so gap-fill, drift tolerance, rollover and
+    // cancel-commit cannot drift apart between the two.
+
+    /**
+     * One key the plane paints itself.
+     *
+     * `flex` and `fixedWidthPx` mirror what LinearLayout was doing: a flex key
+     * shares the leftover width, a fixed key takes exactly its own. A spacer
+     * occupies width and is never drawn, hit, or committed.
+     */
+    class DrawnKey(
+        /** var: the fast-shift path re-labels letters in place, no rebuild. */
+        var label: String,
+        val flex: Float = 1f,
+        val fixedWidthPx: Float = 0f,
+        val fill: Int = 0,
+        var textColor: Int = 0,
+        val textSizePx: Float = 0f,
+        val radiusPx: Float = 0f,
+        val isSpacer: Boolean = false,
+        /** Drawn instead of the label when set — shift, backspace, globe. */
+        val glyph: ((Canvas, RectF, Paint) -> Unit)? = null,
+        val onCommit: () -> Unit = {},
+        val onLongPress: (() -> Unit)? = null,
+        /** Finger down / finger gone. Backspace uses this pair to run its
+         *  repeat-while-held; a plain letter leaves both unset. */
+        val onPressStart: (() -> Unit)? = null,
+        val onPressEnd: (() -> Unit)? = null,
+    ) {
+        /** Filled in by the plane at layout time. */
+        val rect = RectF()
+
+        /** Set by a key that already acted while held — a backspace whose
+         *  repeat has fired must not delete once more on release. */
+        var suppressCommit = false
+    }
+
+    /** Non-empty puts the plane in drawn mode. */
+    private var drawnKeys: List<DrawnKey> = emptyList()
+    private var pressedKey: DrawnKey? = null
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+    }
+
+    /** Colour a key flashes on press (theme.keyPressed). */
+    var pressedFill: Int = 0
+
+    /** Horizontal gap between keys, in px — the row's `gap` style. */
+    var drawnGapPx: Float = 0f
+
+    /**
+     * Hand the plane a row of keys to paint. Replaces any child views: the two
+     * modes are exclusive, because a row is either drawn or built, never both.
+     */
+    fun setDrawnKeys(keys: List<DrawnKey>) {
+        if (childCount > 0) removeAllViews()
+        drawnKeys = keys
+        pressedKey = null
+        setWillNotDraw(keys.isEmpty())
+        requestLayout()
+        invalidate()
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        if (drawnKeys.isEmpty()) { super.onLayout(changed, l, t, r, b); return }
+        layoutDrawnKeys((r - l).toFloat(), (b - t).toFloat())
+    }
+
+    /** Same width split LinearLayout performed, done once per layout. */
+    private fun layoutDrawnKeys(w: Float, h: Float) {
+        if (drawnKeys.isEmpty() || w <= 0f) return
+        val gaps = drawnGapPx * (drawnKeys.size - 1).coerceAtLeast(0)
+        var fixed = 0f
+        var flexTotal = 0f
+        for (k in drawnKeys) {
+            if (k.fixedWidthPx > 0f) fixed += k.fixedWidthPx else flexTotal += k.flex
+        }
+        val free = (w - gaps - fixed).coerceAtLeast(0f)
+        val unit = if (flexTotal > 0f) free / flexTotal else 0f
+        var x = 0f
+        for (k in drawnKeys) {
+            val kw = if (k.fixedWidthPx > 0f) k.fixedWidthPx else unit * k.flex
+            k.rect.set(x, 0f, x + kw, h)
+            x += kw + drawnGapPx
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (drawnKeys.isEmpty()) return
+        for (k in drawnKeys) {
+            if (k.isSpacer || k.rect.width() <= 0f) continue
+            fillPaint.color = if (k === pressedKey && pressedFill != 0) pressedFill else k.fill
+            canvas.drawRoundRect(k.rect, k.radiusPx, k.radiusPx, fillPaint)
+            val g = k.glyph
+            if (g != null) {
+                g(canvas, k.rect, textPaint)
+                continue
+            }
+            if (k.label.isEmpty()) continue
+            textPaint.color = k.textColor
+            textPaint.textSize = k.textSizePx
+            // Centre on the text's own metrics, not on the font's line box —
+            // otherwise descenders push every glyph visibly high in the key.
+            val fm = textPaint.fontMetrics
+            val baseline = k.rect.centerY() - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(k.label, k.rect.centerX(), baseline, textPaint)
+        }
+    }
 
     // Per-pointer state. Small arrays rather than maps — this is the touch path
     // and at most a few fingers are ever down.
+    //
+    // `owners` is Any? so one state machine drives both modes: the entry is a
+    // child View when the row was built, and a DrawnKey when it was painted.
     private val pointerIds = IntArray(MAX_POINTERS) { -1 }
-    private val owners = arrayOfNulls<View>(MAX_POINTERS)
+    private val owners = arrayOfNulls<Any>(MAX_POINTERS)
     private val downX = FloatArray(MAX_POINTERS)
     private val downY = FloatArray(MAX_POINTERS)
     private val downAt = LongArray(MAX_POINTERS)
@@ -107,6 +253,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      * scrolling strip or a custom row belongs to that view.
      */
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return true
         if (!planeEnabled) return false
         if (ev.actionMasked != MotionEvent.ACTION_DOWN) return false
         return keyAt(ev.x, ev.y) != null
@@ -114,6 +261,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (locked) return true          // consumed, and deliberately inert
         if (!planeEnabled) return super.onTouchEvent(ev)
 
         when (ev.actionMasked) {
@@ -148,8 +296,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     val next = keyAt(x, y) ?: continue
                     if (next === held) continue
                     setPressed(held, false)
+                    (held as? DrawnKey)?.onPressEnd?.invoke()
                     owners[slot] = next
                     setPressed(next, true)
+                    (next as? DrawnKey)?.let { it.suppressCommit = false; it.onPressStart?.invoke() }
+                    cancelArmedLongPress()
                     // A trace records each NEW key it enters. Consecutive
                     // duplicates are dropped, so wobbling on one key does not
                     // double a letter — a real double letter comes from the
@@ -166,7 +317,10 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     val path = ArrayList(traced)
                     endTrace()
                     releaseSilently(ev.getPointerId(i))
-                    if (path.size >= 2) onSwipe?.invoke(path)
+                    val letters = path.mapNotNull { labelOf(it) }
+                        .filter { it.length == 1 }
+                        .map { it.lowercase() }
+                    if (letters.size >= 2) onSwipe?.invoke(letters)
                     return true
                 }
                 release(ev.getPointerId(i), commit = true, x = ev.getX(i), y = ev.getY(i))
@@ -188,7 +342,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** Drop a pointer's ownership without firing its key. */
     private fun releaseSilently(id: Int) {
         val slot = slotOf(id) ?: return
-        owners[slot]?.let { setPressed(it, false) }
+        owners[slot]?.let { setPressed(it, false); (it as? DrawnKey)?.onPressEnd?.invoke() }
         pointerIds[slot] = -1
         owners[slot] = null
     }
@@ -214,9 +368,12 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         downY[slot] = y
         downAt[slot] = System.currentTimeMillis()
         setPressed(key, true)
+        (key as? DrawnKey)?.let { it.suppressCommit = false; it.onPressStart?.invoke() }
+        if (slot == 0) armLongPress(key)
     }
 
     private fun release(id: Int, commit: Boolean, x: Float, y: Float) {
+        cancelArmedLongPress()
         val slot = slotOf(id) ?: return
         val key = owners[slot]
         val heldMs = System.currentTimeMillis() - downAt[slot]
@@ -226,6 +383,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         owners[slot] = null
         if (key == null) return
         setPressed(key, false)
+        (key as? DrawnKey)?.onPressEnd?.invoke()
 
         // A normal lift always commits. A CANCEL commits only when the gesture
         // looked like a tap — short, and barely moved.
@@ -233,8 +391,74 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             (heldMs <= cancelCommitMaxMs && drift <= cancelCommitMaxDriftPx)
         if (!shouldCommit) return
 
-        onKeyCommitted?.invoke(key)
-        key.performClick()
+        commitOwner(key)
+    }
+
+    /**
+     * Fire a key. A built key runs its click listener; a drawn key its lambda.
+     *
+     * onKeyCommitted takes a View, so it is view-mode only. Nothing sets it —
+     * feedback and counting belong with the key — and rather than invent a
+     * View to pass, drawn mode simply doesn't have it.
+     */
+    private fun commitOwner(o: Any) {
+        when (o) {
+            is DrawnKey -> {
+                if (o.suppressCommit) { o.suppressCommit = false } else o.onCommit()
+            }
+            is View -> { onKeyCommitted?.invoke(o); o.performClick() }
+        }
+    }
+
+    /** The owner's visible text, for the swipe trace. */
+    private fun labelOf(o: Any): String? = when (o) {
+        is DrawnKey -> o.label
+        is android.widget.Button -> o.text?.toString()
+        else -> null
+    }
+
+    /**
+     * Long-press for drawn keys.
+     *
+     * View mode never had this THROUGH the plane — the plane commits with
+     * performClick(), which does not fire an OnLongClickListener — so a drawn
+     * key that arms its own timer is strictly more capable, not a regression.
+     */
+    private val longPressHandler = Handler(Looper.getMainLooper())
+    private var armedLongPress: Runnable? = null
+
+    private fun armLongPress(o: Any) {
+        cancelArmedLongPress()
+        val k = o as? DrawnKey ?: return
+        val action = k.onLongPress ?: return
+        val r = Runnable {
+            armedLongPress = null
+            // The key is consumed by the long-press: clear it so the lift
+            // that follows does not ALSO type the character.
+            for (i in 0 until MAX_POINTERS) if (owners[i] === k) owners[i] = null
+            setPressed(k, false)
+            action()
+        }
+        armedLongPress = r
+        longPressHandler.postDelayed(r, LONG_PRESS_MS)
+    }
+
+    private fun cancelArmedLongPress() {
+        armedLongPress?.let { longPressHandler.removeCallbacks(it) }
+        armedLongPress = null
+    }
+
+    /** The owner's rect in plane coordinates. */
+    private fun rectOf(o: Any, out: Rect): Boolean = when (o) {
+        is DrawnKey -> {
+            out.set(
+                o.rect.left.toInt(), o.rect.top.toInt(),
+                o.rect.right.toInt(), o.rect.bottom.toInt(),
+            )
+            true
+        }
+        is View -> { o.getHitRect(out); true }
+        else -> false
     }
 
     /**
@@ -244,7 +468,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      * nearest key by centre distance when fillGaps is on — which is what stops a
      * tap in a gap from doing nothing — and nothing at all when it is off.
      */
-    private fun keyAt(x: Float, y: Float): View? {
+    private fun keyAt(x: Float, y: Float): Any? {
+        if (drawnKeys.isNotEmpty()) return drawnKeyAt(x, y)
         var nearest: View? = null
         var nearestDist = Float.MAX_VALUE
         for (i in 0 until childCount) {
@@ -264,9 +489,29 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         return nearest
     }
 
+    /**
+     * Drawn-mode twin of keyAt. Same two-stage rule: a point inside a key's own
+     * rect is that key; otherwise, with fillGaps on, the nearest by centre —
+     * so the margins between keys belong to somebody and a tap there types.
+     */
+    private fun drawnKeyAt(x: Float, y: Float): DrawnKey? {
+        var nearest: DrawnKey? = null
+        var nearestDist = Float.MAX_VALUE
+        for (k in drawnKeys) {
+            if (k.isSpacer) continue
+            if (k.rect.contains(x, y)) return k
+            if (!fillGaps) continue
+            // Horizontal distance dominates in a key ROW, exactly as in view
+            // mode: a point below the row belongs to the key above it.
+            val d = abs(x - k.rect.centerX()) + abs(y - k.rect.centerY()) * 0.25f
+            if (d < nearestDist) { nearestDist = d; nearest = k }
+        }
+        return nearest
+    }
+
     /** Is the point inside this key's rect, grown by `scale` about its centre. */
-    private fun within(v: View, x: Float, y: Float, scale: Float): Boolean {
-        v.getHitRect(hitRect)
+    private fun within(o: Any, x: Float, y: Float, scale: Float): Boolean {
+        if (!rectOf(o, hitRect)) return false
         if (scale <= 1f) return hitRect.contains(x.toInt(), y.toInt())
         val cx = (hitRect.left + hitRect.right) / 2f
         val cy = (hitRect.top + hitRect.bottom) / 2f
@@ -291,8 +536,16 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         v.visibility == VISIBLE && v.isClickable && v !is android.view.ViewGroup &&
             v.tag != RAW_TOUCH
 
-    private fun setPressed(v: View, pressed: Boolean) {
-        v.isPressed = pressed
+    private fun setPressed(o: Any, pressed: Boolean) {
+        when (o) {
+            is View -> o.isPressed = pressed
+            is DrawnKey -> {
+                // One repaint of one view, versus a Button re-running its
+                // background state list and invalidating its own layer.
+                pressedKey = if (pressed) o else null
+                invalidate()
+            }
+        }
     }
 
     private fun slotOf(id: Int): Int? {
@@ -308,6 +561,9 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     companion object {
         /** More fingers than anyone types with; the array cost is nil. */
         private const val MAX_POINTERS = 5
+
+        /** Hold before a drawn key's long-press fires. Matches Android's own. */
+        private const val LONG_PRESS_MS = 500L
 
         /**
          * Tag a key with this and the plane will not take its touches. For keys

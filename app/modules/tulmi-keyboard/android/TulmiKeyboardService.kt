@@ -1226,6 +1226,39 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val key = "return.${fallback.lowercase()}"
         val labelText = kbConfig?.labels?.get(key) ?: fallback
         kbState.returnLabel = labelText
+
+        // Does the globe key have anywhere to go?
+        //
+        // The SDUI tree gates GlobeKey on state.hasMultipleKeyboards, and
+        // NOTHING on Android ever set it — so the condition read null, and the
+        // globe never rendered at all. Its handler was fully written and simply
+        // unreachable, which on a phone using gesture navigation (no nav bar,
+        // so no system IME-switch button either) left a user with more than one
+        // keyboard no way out of ours except the Settings app.
+        kbState.hasMultipleKeyboards = runCatching {
+            val imm = getSystemService(INPUT_METHOD_SERVICE)
+                as? android.view.inputmethod.InputMethodManager
+            (imm?.enabledInputMethodList?.size ?: 0) > 1
+        }.getOrDefault(false)
+
+        // A field that only takes numbers gets the number pad, not QWERTY.
+        //
+        // The field TELLS us this — inputType is how every other keyboard knows
+        // to show a dialer for an OTP box or an amount. Making the user find
+        // "123" for a field that cannot accept a letter is work we imposed.
+        //
+        // Leaving one restores letters, so the pad can never outlive the field
+        // that asked for it.
+        val cls = (info?.inputType ?: 0) and
+            android.text.InputType.TYPE_MASK_CLASS
+        val numericField = cls == android.text.InputType.TYPE_CLASS_NUMBER ||
+            cls == android.text.InputType.TYPE_CLASS_PHONE
+        if (numericField) {
+            kbState.layoutId = "num"
+        } else if (kbState.layoutId == "num") {
+            kbState.layoutId = "en"
+        }
+
         sduiRenderer?.stateChanged()
     }
 
