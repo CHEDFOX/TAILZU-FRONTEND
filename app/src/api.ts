@@ -135,11 +135,24 @@ export async function transcribeClean(
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`transcribe failed: ${res.status} ${res.body ?? ""}`);
   }
-  return JSON.parse(res.body) as {
-    cleanedText: string;
-    transcript: string;
-    usage: Usage;
-  };
+  // A 2xx with a body that is not JSON means something between us and the
+  // backend answered instead of the backend — a proxy landing page, a captive
+  // portal, a misrouted domain. JSON.parse surfaces that as
+  // "Unexpected token <", which tells the user nothing and sends the next hour
+  // to the wrong place. Say what actually happened.
+  try {
+    return JSON.parse(res.body) as {
+      cleanedText: string;
+      transcript: string;
+      usage: Usage;
+    };
+  } catch {
+    throw new Error(
+      `transcribe: the server returned ${res.status} but not JSON — check the ` +
+      `backend URL is reaching Tailzu and not a proxy or parked domain. ` +
+      `First bytes: ${String(res.body ?? "").slice(0, 80)}`,
+    );
+  }
 }
 
 // --- Voice: live (streaming) dictation --------------------------------------
