@@ -44,6 +44,10 @@ export const CORE_COMPONENTS = [
   // loop. The keyboard's recording visual, ported off Swift so the app can use
   // it too (see ParticleMark.tsx).
   "ParticleMark",
+  // KeyboardPreview — a real keyboard, drawn as one component. Powers the
+  // haptics picker, where the user chooses keys by pointing at where their
+  // thumbs go, so a reflowed list of chips would not do.
+  "KeyboardPreview",
   // BinaryReveal — a wordmark decoding itself out of 0s and 1s, on a loop.
   "BinaryReveal",
 

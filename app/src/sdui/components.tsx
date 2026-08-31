@@ -792,6 +792,7 @@ import { REGISTRY_V3 } from "./componentsV3";
 import { Slideshow } from "./Slideshow";
 import { ParticleMark } from "./ParticleMark";
 import { BinaryReveal } from "./BinaryReveal";
+import KeyboardPreview from "./KeyboardPreview";
 
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
@@ -799,5 +800,6 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
+  KeyboardPreview,
   ...REGISTRY_V3,
 };
