@@ -169,7 +169,20 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "callEndpoint": {
       try {
         const body = action.body != null ? resolveValue(action.body, ctx) : undefined;
-        const res = await callEndpoint(action.method, action.path, body);
+        // Paths can carry state too: "/v1/history/$state.item.id".
+        //
+        // resolveValue only rewrites a string that IS a reference; a path is a
+        // string that CONTAINS one, so it was being sent literally — inside a
+        // list row that meant deleting the row hit /v1/history/$state.item.id
+        // and 404'd. Tokens run to the first character that cannot be part of a
+        // path segment.
+        const path = action.path.includes("$state.")
+          ? action.path.replace(/\$state\.[A-Za-z0-9_.]+/g, (m) => {
+              const v = ctx.store.get(m.slice("$state.".length));
+              return v == null ? "" : encodeURIComponent(String(v));
+            })
+          : action.path;
+        const res = await callEndpoint(action.method, path, body);
         // Any write can change what a screen renders. Dropping every cached
         // screen after one is the difference between a settings toggle that
         // sticks and one that appears to revert when you navigate back.
