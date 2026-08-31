@@ -150,6 +150,35 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
                    "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "paddingHorizontal", "paddingVertical"]) {
     if (s[k] != null) out[k] = tok(s[k], theme);
   }
+  // Typography, borders and shadows the backend could not reach before.
+  //
+  // fontFamily is the significant one: the theme could set ONE family for the
+  // whole app and no node could differ, so any typographic pairing — a serif
+  // display over a sans body — needed a build. It resolves through `tok`, so
+  // "$font.family" works alongside a literal name.
+  if (s.fontFamily != null) out.fontFamily = tok(s.fontFamily, theme);
+  if (s.fontStyle) out.fontStyle = s.fontStyle;
+  if (s.textDecorationLine) out.textDecorationLine = s.textDecorationLine;
+  // Per-corner radius and per-side borders — a card with one rounded edge, or
+  // a rule under a heading, were both impossible to express.
+  for (const k of ["borderTopLeftRadius", "borderTopRightRadius",
+                   "borderBottomLeftRadius", "borderBottomRightRadius",
+                   "borderTopWidth", "borderBottomWidth", "borderLeftWidth", "borderRightWidth"]) {
+    if (s[k] != null) out[k] = tok(s[k], theme);
+  }
+  for (const k of ["borderTopColor", "borderBottomColor", "borderLeftColor", "borderRightColor"]) {
+    if (s[k] != null) out[k] = tok(s[k], theme);
+  }
+  if (s.borderStyle) out.borderStyle = s.borderStyle;
+  // Elevation. iOS wants the four shadow props, Android wants `elevation`;
+  // both are passed so one style works on both.
+  if (s.shadowColor != null) out.shadowColor = tok(s.shadowColor, theme);
+  if (s.shadowOpacity != null) out.shadowOpacity = s.shadowOpacity;
+  if (s.shadowRadius != null) out.shadowRadius = s.shadowRadius;
+  if (s.shadowOffset != null) out.shadowOffset = s.shadowOffset;
+  if (s.elevation != null) out.elevation = s.elevation;
+  if (s.rowGap != null) out.rowGap = tok(s.rowGap, theme);
+  if (s.columnGap != null) out.columnGap = tok(s.columnGap, theme);
   return out;
 }
 
