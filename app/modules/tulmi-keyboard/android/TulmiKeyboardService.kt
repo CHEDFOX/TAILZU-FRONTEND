@@ -1241,6 +1241,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             (imm?.enabledInputMethodList?.size ?: 0) > 1
         }.getOrDefault(false)
 
+        // Follow the system appearance. Read here rather than once at create:
+        // the user can flip dark/light while the keyboard is open, and the IME
+        // is not recreated for it.
+        kbState.appearance = if (
+            (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        ) "dark" else "light"
+
         // A field that only takes numbers gets the number pad, not QWERTY.
         //
         // The field TELLS us this — inputType is how every other keyboard knows
