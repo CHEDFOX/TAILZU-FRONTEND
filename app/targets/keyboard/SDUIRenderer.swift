@@ -3713,7 +3713,7 @@ final class SDUIRenderer: NSObject {
     }
     lastShiftTapTime = 0
     stateChanged()
-    fireKeyHaptic()
+    fireKeyHaptic("shift")
   }
 
   // MARK: - Plane role-key callbacks (shift + layer-peek, K7)
@@ -3771,7 +3771,7 @@ final class SDUIRenderer: NSObject {
       state.shift = true
       lastShiftTapTime = 0
       stateChanged()
-      fireKeyHaptic()
+      fireKeyHaptic("shift")
       return
     }
     // Single tap → one-shot uppercase for the next letter.
@@ -3864,7 +3864,7 @@ final class SDUIRenderer: NSObject {
     // and deliberately does NOT arm the repeat timer (holding through a
     // revert must not machine-gun the restored text).
     if maybeRevertAutocorrectOnDelete() {
-      fireKeyHaptic()
+      fireKeyHaptic("backspace")
       return
     }
     // First delete fires immediately on touch-down (Apple's pattern).
@@ -3889,7 +3889,7 @@ final class SDUIRenderer: NSObject {
     deleteTimer = initial
     // Selection haptic on first press so touch-down feels alive even when the
     // repeat hasn't kicked in yet.
-    fireKeyHaptic()
+    fireKeyHaptic("backspace")
   }
 
   private func startDeleteRepeat() {
@@ -4836,7 +4836,10 @@ final class SDUIRenderer: NSObject {
     // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
     // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
     UIDevice.current.playInputClick()
-    fireKeyHaptic()
+    // The title IS the key id for a letter or a punctuation key — matching
+    // what the picker writes and what Android reads. Lowercased inside
+    // hapticsOn, so a shifted "Q" and a picked "q" are the same key.
+    fireKeyHaptic(btn.title(for: .normal))
     showKeyCallout(for: btn)
   }
 
@@ -4907,9 +4910,33 @@ final class SDUIRenderer: NSObject {
   private var impactGenerator: UIImpactFeedbackGenerator?
   private var impactGeneratorStyle: String = ""
 
-  fileprivate func fireKeyHaptic() {
+  /// Should THIS key buzz?
+  ///
+  /// Android already read the per-key settings the app's Haptics picker
+  /// writes; iOS read only the old master switch, so every choice made in that
+  /// picker did nothing here and every key buzzed regardless. Both platforms
+  /// now answer the question the same way, from the same two flags:
+  ///
+  ///   kb.haptics.all   — every key. The picker's master toggle.
+  ///   kb.haptics.keys  — the individual keys the user picked.
+  ///
+  /// Independent, not nested: turning "all" off must not discard the keys
+  /// somebody chose one at a time. A nil id is something the picker never
+  /// offered (a suggestion chip, the tone pill) and follows the master only.
+  ///
+  /// kb.haptics.enabled stays as the kill switch above both, so a build can
+  /// still be silenced outright from the backend.
+  private func hapticsOn(_ keyId: String?) -> Bool {
+    if flagBool("kb.haptics.all", false) { return true }
+    guard let id = keyId?.lowercased(), !id.isEmpty else { return false }
+    guard case .object(let map)? = config.flags?["kb.haptics.keys"] else { return false }
+    return map[id]?.asBool == true
+  }
+
+  fileprivate func fireKeyHaptic(_ keyId: String? = nil) {
     guard host?.hostHasFullAccess == true else { return }
     guard flagBool("kb.haptics.enabled", true) else { return }
+    guard hapticsOn(keyId) else { return }
     let style = flagString("kb.haptics.style", "selection").lowercased()
     if style == "selection" {
       if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
@@ -5305,7 +5332,7 @@ final class SDUIRenderer: NSObject {
       state.tone = next.label
       stateChanged()
       persistTonePick(id: next.id)
-      fireKeyHaptic()
+      fireKeyHaptic("tone")
     case .openApp(let screenId):
       // Apple restricts NSExtensionContext.open to Today extensions; keyboard
       // extensions cannot launch URLs directly. We drop a tombstone in the

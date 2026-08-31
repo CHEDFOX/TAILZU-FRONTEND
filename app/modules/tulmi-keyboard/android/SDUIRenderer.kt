@@ -74,6 +74,17 @@ class KBState(
      */
     var hasMultipleKeyboards: Boolean = false,
     /**
+     * "dark" or "light" — the system appearance.
+     *
+     * The keyboard tree emits TWO tools rows, one gated on each, because the
+     * tone pill's colours are hex literals that cannot auto-flip. Android had
+     * no such field, so the condition resolved null: the light row was always
+     * hidden and the DARK row always shown, which put a dark pill on a light
+     * keyboard for every light-mode user. Same shape as the globe key —
+     * a tree gated on state one platform never set.
+     */
+    var appearance: String = "dark",
+    /**
      * Backend scratch dict. setState / toggleState / incrementState / clearState
      * (and callEndpoint.assignTo) write here; bind + visibleIf read it back via
      * `state.user.<key>`. This is what lets the backend compose stateful
@@ -422,7 +433,7 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
-            s.hasMultipleKeyboards,
+            s.hasMultipleKeyboards, s.appearance,
             // suggestions deliberately NOT fingerprinted — they are applied in
             // place by refreshSuggestionBarInPlace(). Including them here put a
             // full teardown-and-rebuild of the whole keyboard on the keystroke
@@ -1887,6 +1898,7 @@ class SDUIRenderer(
             "refining" -> s.refining
             "hasFullAccess" -> s.hasFullAccess
             "hasMultipleKeyboards" -> s.hasMultipleKeyboards
+            "appearance" -> s.appearance
             "status" -> s.status
             "micLevel" -> s.micLevel
             "suggestions" -> s.suggestions
