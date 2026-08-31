@@ -19,6 +19,7 @@ import {
 import * as Updates from "expo-updates";
 import { bootstrap, fetchScreen, peekScreen, invalidateScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
+import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
@@ -172,6 +173,9 @@ export default function SduiApp() {
     setPhase("loading");
     try {
       const b = await bootstrap();
+      // Register any typeface the backend supplied. Never awaited: the first
+      // screens draw in the system font and re-render when a face lands.
+      loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
       // If the user's language flips the layout direction, this restarts the
       // app — so do it before we commit the rest of the boot state.
       if (await applyDirection(b.flags)) return;
@@ -497,6 +501,9 @@ export default function SduiApp() {
       (async () => {
         try {
           const b = await bootstrap();
+      // Register any typeface the backend supplied. Never awaited: the first
+      // screens draw in the system font and re-render when a face lands.
+      loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
           setBoot((prev) => {
             // If cacheVersion changed, the whole screen cache is stale — bump
             // reload so the current screen refetches. Otherwise still update
@@ -532,6 +539,9 @@ export default function SduiApp() {
         (async () => {
           try {
             const b = await bootstrap();
+      // Register any typeface the backend supplied. Never awaited: the first
+      // screens draw in the system font and re-render when a face lands.
+      loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
             if (await applyDirection(b.flags)) return; // RTL change → app restarts
             setBoot(b);
             setReload((n) => n + 1);
