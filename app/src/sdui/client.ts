@@ -139,6 +139,53 @@ export async function bootstrap(): Promise<BootstrapResponse> {
   return withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
 }
 
+/**
+ * Screens already fetched, keyed by screen + params.
+ *
+ * Every navigation used to be a full network round trip — with retry — before
+ * anything could render, which is why moving between tabs and in and out of a
+ * card felt slow. The backend has been sending `cacheTtlSeconds` on every
+ * screen all along and the client simply ignored it.
+ *
+ * Entries are kept even once stale: a stale screen is shown IMMEDIATELY while a
+ * fresh one is fetched behind it, so navigation is instant and the content
+ * catches up. That is the right trade for screens that are almost always
+ * unchanged between visits — and screens that must never be stale say so
+ * themselves with cacheTtlSeconds: 0.
+ */
+type CacheEntry = { at: number; ttlMs: number; screen: ScreenResponse };
+const screenCache = new Map<string, CacheEntry>();
+
+function cacheKey(screenId: string, params?: Record<string, any>): string {
+  return params && Object.keys(params).length
+    ? `${screenId}::${JSON.stringify(params)}`
+    : screenId;
+}
+
+/** A cached screen, fresh or stale, or null. `stale` says whether to revalidate. */
+export function peekScreen(
+  screenId: string,
+  params?: Record<string, any>,
+): { screen: ScreenResponse; stale: boolean } | null {
+  const hit = screenCache.get(cacheKey(screenId, params));
+  if (!hit) return null;
+  // ttlMs 0 means the screen asked never to be reused — drop it rather than
+  // serving it stale, or a settings toggle would show its old value.
+  if (hit.ttlMs <= 0) return null;
+  return { screen: hit.screen, stale: Date.now() - hit.at > hit.ttlMs };
+}
+
+/**
+ * Drop cached screens. Called after any write that could change what a screen
+ * renders, so a saved setting is never followed by its own stale copy.
+ */
+export function invalidateScreens(screenId?: string): void {
+  if (!screenId) { screenCache.clear(); return; }
+  for (const k of Array.from(screenCache.keys())) {
+    if (k === screenId || k.startsWith(`${screenId}::`)) screenCache.delete(k);
+  }
+}
+
 export async function fetchScreen(screenId: string, params?: Record<string, any>): Promise<ScreenResponse> {
   const body: ScreenRequest = {
     screenId,
@@ -148,7 +195,20 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
     // the server receives the conventional "UTC+X in minutes" sign.
     tzOffsetMinutes: -new Date().getTimezoneOffset(),
   };
-  return withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
+  const screen = await withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
+  const ttl = Number(screen.cacheTtlSeconds ?? 0);
+  if (Number.isFinite(ttl) && ttl > 0) {
+    screenCache.set(cacheKey(screenId, params), {
+      at: Date.now(),
+      // Capped: a backend that sends a very long TTL should not be able to
+      // pin a screen in memory past the session it was fetched in.
+      ttlMs: Math.min(ttl, 900) * 1000,
+      screen,
+    });
+  } else {
+    screenCache.delete(cacheKey(screenId, params));
+  }
+  return screen;
 }
 
 /**
