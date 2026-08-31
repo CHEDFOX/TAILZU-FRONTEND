@@ -2800,18 +2800,31 @@ final class SDUIRenderer: NSObject {
     // A BLUR, not just a scrim, when the platform can do it — the keys should
     // read as behind frosted glass rather than merely darkened. The tint stays
     // underneath it so the amount of hiding is still one flag.
+    // The TINT follows the appearance.
+    //
+    // It used to be black at 45% unconditionally. Our background is transparent
+    // by design — iOS's own keyboard region shows through — and in LIGHT
+    // appearance that region is pale, so black over it did not read as
+    // "dimmed": it read as a grey slab dropped behind the whole keyboard.
+    //
+    // Tinting toward the surface the user is already looking at keeps it a
+    // veil in both appearances, and the blur is what actually carries the
+    // "not now". kb.dictation.dim.color still overrides if a build needs it.
+    let light = state.appearance == "light"
+    let tint = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
+      .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.08))
     let dim: UIView
     if flagBool("kb.dictation.dim.blur", true) {
-      let style: UIBlurEffect.Style =
-        state.appearance == "light" ? .systemThinMaterialLight : .systemThinMaterialDark
+      let style: UIBlurEffect.Style = light ? .systemThinMaterialLight : .systemThinMaterialDark
       let v = UIVisualEffectView(effect: UIBlurEffect(style: style))
-      v.contentView.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
-        .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
+      v.contentView.backgroundColor = tint
       dim = v
     } else {
+      // No blur to carry the signal, so the veil has to do it alone — but from
+      // the appearance's own side, never a black slab over a pale keyboard.
       let v = UIView()
-      v.backgroundColor = flagColor("kb.dictation.dim.color", "#000000")
-        .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.45))
+      v.backgroundColor = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
+        .withAlphaComponent(flagCGFloat("kb.dictation.dim.fallbackAlpha", 0.5))
       dim = v
     }
     dim.translatesAutoresizingMaskIntoConstraints = false
