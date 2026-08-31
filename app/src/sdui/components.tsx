@@ -690,15 +690,23 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
 /**
  * Row — a tappable settings/list row: label on the left, an optional value +
  * chevron on the right, separated by a hairline. `danger` tints the label (e.g.
- * Delete account). Fires onPress.
+ * Delete account). Fires onPress, and onLongPress when the backend binds one.
+ *
+ * onLongPress was already in the node event type and had never been wired to
+ * anything, so a tree could ask for it and silently get nothing. A row only
+ * becomes long-pressable when a handler is actually bound — otherwise a long
+ * hold stays an ordinary press, as it was.
  */
-const Row = ({ props, style, fire }: CompProps) => {
+const Row = ({ props, style, node, fire }: CompProps) => {
   const theme = useTheme();
   const danger = !!props.danger;
   const showChevron = props.chevron !== false;
+  const hasLongPress = !!node?.on?.onLongPress;
   return (
     <Pressable
       onPress={() => fire("onPress")}
+      onLongPress={hasLongPress ? () => fire("onLongPress") : undefined}
+      delayLongPress={Number(props.longPressMs) > 0 ? Number(props.longPressMs) : 400}
       style={({ pressed }) => [
         {
           flexDirection: "row",
