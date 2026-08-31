@@ -17,7 +17,9 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, fetchScreen, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { bootstrap, fetchScreen, peekScreen, invalidateScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
 import { ThemeContext } from "./components";
 import { Store } from "./state";
@@ -297,6 +299,16 @@ export default function SduiApp() {
   useEffect(() => {
     if (phase !== "ready" || !current) return;
     let alive = true;
+    // Show what we already have INSTANTLY, then revalidate behind it. A screen
+    // the user has opened before should not make them wait on the network to
+    // see it again; that wait is the whole of "the app feels slow".
+    const cached = peekScreen(current.screenId, current.params);
+    if (cached) {
+      setScreen(cached.screen);
+      setScreenError(null);
+      // Fresh enough to trust — don't refetch at all.
+      if (!cached.stale) { setScreenLoading(false); return; }
+    }
     setScreenLoading(true);
     setScreenError(null);
     fetchScreen(current.screenId, current.params)
@@ -618,6 +630,11 @@ export default function SduiApp() {
 
   const canGoBack = stack.length > 1;
   const tabs = boot?.navigation.kind === "tabs" ? boot.navigation.tabs : [];
+  // Real device insets — home indicator on iPhone, gesture bar on Android.
+  const insets = useSafeAreaInsets();
+  // Bumped on every tab tap so the thread plucks again even when the tab does
+  // not change.
+  const [tabPluck, setTabPluck] = useState(0);
 
   // Version gate: backend can force or suggest an app update.
   const update = boot?.update;
@@ -647,8 +664,8 @@ export default function SduiApp() {
               "Connection" entry, and stands in for the removed Settings tab.
               Hidden on pushed screens, where the back arrow + title own the bar. */}
           {!canGoBack && (
-            <Pressable onPress={() => nav.push("settings")} hitSlop={10}>
-              <Text style={[styles.headerIcon, { color: theme.color.muted }]}>⚙</Text>
+            <Pressable onPress={() => nav.push("settings")} hitSlop={12} accessibilityLabel="Settings">
+              <SettingsLines color={theme.color.muted} />
             </Pressable>
           )}
         </View>
@@ -703,21 +720,46 @@ export default function SduiApp() {
         )}
         {screenLoading && (
           <View style={styles.loadingOverlay} pointerEvents="none">
-            <ActivityIndicator color={theme.color.primary} />
+            <ActivityIndicator color={THREAD_ACTIVE} />
           </View>
         )}
       </View>
 
       {!hideChrome && tabs.length > 0 && (
-        <View style={[styles.tabs, { backgroundColor: theme.color.surface, borderTopColor: theme.color.border }]}>
+        <View style={[styles.tabs, {
+          backgroundColor: theme.color.surface,
+          borderTopColor: theme.color.border,
+          // Lift the row clear of the system gesture area on BOTH platforms.
+          // There was no inset at all, so the tabs sat directly against the
+          // home indicator on iPhone and the gesture bar on Android — a tap
+          // near the bottom of a tab went to the OS, not to us. The floor keeps
+          // a comfortable strip on hardware with no inset to report.
+          paddingBottom: Math.max(insets.bottom, 12) + 6,
+        }]}>
           {tabs.map((t) => {
             const active = t.id === tabId;
             return (
-              <Pressable key={t.id} style={styles.tab} onPress={() => nav.switchTab(t.id)}>
-                <Text style={{ color: active ? theme.color.text : theme.color.muted, fontWeight: active ? "700" : "400" }}>
-                  {t.title}
-                </Text>
-                {active && <View style={[styles.tabUnderline, { backgroundColor: theme.color.primary }]} />}
+              <Pressable
+                key={t.id}
+                style={styles.tab}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={t.title}
+                onPress={() => {
+                  // Bump the nonce so tapping the tab you are already on
+                  // plucks the thread again — the tap should always feel
+                  // answered, not only when it changes screens.
+                  setTabPluck((n) => n + 1);
+                  nav.switchTab(t.id);
+                }}
+              >
+                <TabThreadIcon
+                  id={t.id}
+                  title={t.title}
+                  active={active}
+                  color={theme.color.muted}
+                  nonce={tabPluck}
+                />
               </Pressable>
             );
           })}
@@ -992,8 +1034,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingTop: 56, paddingBottom: 12, paddingHorizontal: 16 },
   brand: { fontSize: 22, fontWeight: "800" },
   headerIcon: { fontSize: 24, fontWeight: "700" },
-  tabs: { flexDirection: "row", borderTopWidth: 1 },
-  tab: { flex: 1, paddingVertical: 14, alignItems: "center" },
+  tabs: { flexDirection: "row", borderTopWidth: 1, paddingTop: 12 },
+  tab: { flex: 1, paddingVertical: 6, alignItems: "center", justifyContent: "center" },
   tabUnderline: { height: 2, width: 28, borderRadius: 2, marginTop: 6 },
   loadingOverlay: { position: "absolute", top: 8, right: 16 },
   toast: { position: "absolute", left: 16, right: 16, bottom: 76, padding: 14, borderRadius: 10 },

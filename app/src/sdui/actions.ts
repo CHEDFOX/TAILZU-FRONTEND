@@ -28,7 +28,7 @@ import * as Tracking from "expo-tracking-transparency";
 import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
-import { callEndpoint } from "./client";
+import { callEndpoint, invalidateScreens } from "./client";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
@@ -159,11 +159,21 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     }
 
     // ------------------------------------------------------------ data / net
-    case "refresh": ctx.nav.reloadCurrent(); break;
+    case "refresh":
+      // A refresh means "the server knows something I don't" — so drop the
+      // cache first, or reloadCurrent would happily re-serve the copy we are
+      // trying to get past.
+      invalidateScreens();
+      ctx.nav.reloadCurrent();
+      break;
     case "callEndpoint": {
       try {
         const body = action.body != null ? resolveValue(action.body, ctx) : undefined;
         const res = await callEndpoint(action.method, action.path, body);
+        // Any write can change what a screen renders. Dropping every cached
+        // screen after one is the difference between a settings toggle that
+        // sticks and one that appears to revert when you navigate back.
+        if (action.method && action.method.toUpperCase() !== "GET") invalidateScreens();
         if (action.assignTo) ctx.store.set(action.assignTo, res);
         await runAction(action.onSuccess, ctx);
         if (action.path === "/v1/profile" && body != null && typeof body === "object" && "language" in body) {
