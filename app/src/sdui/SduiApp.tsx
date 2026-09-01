@@ -87,6 +87,17 @@ async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
 
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
+  // HOOKS BELONG HERE, above every early return.
+  //
+  // These two sat further down, past the `auth` / `language` / `connect`
+  // returns. React counts hooks per render: those phases ran two fewer, and
+  // the moment the app reached `ready` it saw two more and threw "Rendered
+  // more hooks than during the previous render" — a blank screen, arriving
+  // exactly as the Connection screen handed over.
+  const insets = useSafeAreaInsets();
+  /** Bumped on every tab tap so the thread plucks again even when the tab
+   *  does not change. */
+  const [tabPluck, setTabPluck] = useState(0);
   const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth" | "language">("loading");
   const [tabId, setTabId] = useState("");
   const [stack, setStack] = useState<NavItem[]>([]);
@@ -640,11 +651,6 @@ export default function SduiApp() {
 
   const canGoBack = stack.length > 1;
   const tabs = boot?.navigation.kind === "tabs" ? boot.navigation.tabs : [];
-  // Real device insets — home indicator on iPhone, gesture bar on Android.
-  const insets = useSafeAreaInsets();
-  // Bumped on every tab tap so the thread plucks again even when the tab does
-  // not change.
-  const [tabPluck, setTabPluck] = useState(0);
 
   // Version gate: backend can force or suggest an app update.
   const update = boot?.update;
