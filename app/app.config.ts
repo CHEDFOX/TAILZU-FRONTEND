@@ -37,7 +37,24 @@ const config: ExpoConfig = {
   // OTA updates (EAS Update). The fingerprint policy ties each update to the
   // native build's fingerprint, so a JS-only OTA can never land on an
   // incompatible binary (e.g. after a keyboard/permission/native change).
-  runtimeVersion: { policy: "fingerprint" },
+  // appVersion, NOT fingerprint.
+  //
+  // The fingerprint policy hashes the native project — and it hashes it on
+  // whichever machine runs the command. `eas build` computes it on EAS's
+  // Linux/macOS builders; `eas update` computes it on the publisher's laptop.
+  // The same commit produced d6ee7792 on the builder, 6d2ada59 on Windows and
+  // f6856889 on Linux, so every update published from the laptop was served to
+  // a runtime no build has ever reported. It uploaded successfully and reached
+  // nobody, which is indistinguishable from nothing happening.
+  //
+  // appVersion is a string both sides read the same way, so an update matches
+  // any build of that version from any machine.
+  //
+  // The obligation it carries: this no longer stops JS that assumes new native
+  // code from reaching a build that lacks it. BUMP `version` below whenever a
+  // release changes anything native — a new module, a permission, the keyboard
+  // extension — so those builds stop accepting updates meant for the next one.
+  runtimeVersion: { policy: "appVersion" },
   updates: EAS_PROJECT_ID
     ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` }
     : {},
