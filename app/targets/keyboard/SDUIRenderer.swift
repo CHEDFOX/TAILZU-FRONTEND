@@ -605,6 +605,18 @@ final class KeyPlaneView: UIView {
     return owns(point) ? self : nil
   }
 
+  /// What the plane actually holds right now, for the build stamp.
+  ///
+  /// Every question asked about this keyboard so far — is the plane installed,
+  /// does it own the bottom row, how much of the surface do the obstacles veto
+  /// — was answered by reading the source and guessing. Five times, wrongly.
+  /// These are the same facts, measured on the device.
+  var partitionReport: (keys: Int, actions: Int, roles: Int, obstacles: Int, band: CGRect) {
+    ensureFrames()
+    let actions = frames.filter { $0.char.isEmpty }.count
+    return (frames.count, actions, roleFrames.count, obstacleRects.count, gridBand)
+  }
+
   /// Ownership only — same accept/reject decision as
   /// `keyAt(point) != nil || roleKeyAt(point) != nil`, without resolving WHICH
   /// key or consulting the language model.
@@ -2500,7 +2512,24 @@ final class SDUIRenderer: NSObject {
     guard flagBool("kb.buildStamp.enabled", false) else { return }
     buildStampLabel?.removeFromSuperview()
     let l = UILabel()
-    l.text = Self.buildStamp
+    // The stamp is the only instrument that reaches a device without a
+    // debugger, so it carries the numbers that actually settle an argument
+    // rather than just a version string:
+    //
+    //   k  keys in the touch partition (0 = the plane is not running)
+    //   a  of those, action keys — space/return/backspace
+    //   r  shift + layer keys
+    //   v  controls vetoing the plane; a big number here IS the dead zone
+    //   h  the partitioned band's height in points
+    //
+    // "K26 k30 a0 r4 v9 h180" says the partition is live but the action keys
+    // never registered. "K26 k0" says the plane is not installed at all. Both
+    // were guesses before; now they are readings.
+    if let p = keyPlane?.partitionReport {
+      l.text = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles) h\(Int(p.band.height))"
+    } else {
+      l.text = "\(Self.buildStamp) NOPLANE"
+    }
     l.font = .systemFont(ofSize: 9, weight: .heavy)
     l.textColor = UIColor.systemOrange.withAlphaComponent(0.9)
     l.isUserInteractionEnabled = false   // never intercepts key touches
@@ -2512,6 +2541,15 @@ final class SDUIRenderer: NSObject {
       l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
     ])
     buildStampLabel = l
+    // Read again once the layout has settled. This runs during the mount, so
+    // the keys have no frames yet and every number above would be a zero —
+    // reporting "the plane owns nothing" for the one reason that has nothing
+    // to do with the plane.
+    DispatchQueue.main.async { [weak self, weak l] in
+      guard let self = self, let l = l, let p = self.keyPlane?.partitionReport else { return }
+      l.text = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles) h\(Int(p.band.height))"
+      l.sizeToFit()
+    }
   }
 
   /// Public hook — actions call this after mutating KBState.
