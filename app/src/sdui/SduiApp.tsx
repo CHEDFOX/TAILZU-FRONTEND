@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, fetchScreen, peekScreen, invalidateScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { bootstrap, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -305,6 +305,19 @@ export default function SduiApp() {
   }, [loadBoot]);
 
   const current = stack[stack.length - 1];
+
+  // Warm the other tabs once we are up. Runs after the first screen has been
+  // asked for, so it never delays what the user is actually looking at — and
+  // by the time they reach for a tab, it is already in the cache.
+  useEffect(() => {
+    if (phase !== "ready" || !boot) return;
+    const ids = boot.navigation.kind === "tabs"
+      ? boot.navigation.tabs.map((t) => t.screenId)
+      : [];
+    if (!ids.length) return;
+    const t = setTimeout(() => { void prefetchScreens(ids); }, 600);
+    return () => clearTimeout(t);
+  }, [phase, boot]);
 
   // Fetch the current screen whenever the top of the stack (or reload) changes.
   // On failure we surface a visible error state with a retry button instead of
