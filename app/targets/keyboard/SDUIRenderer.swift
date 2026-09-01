@@ -325,8 +325,47 @@ final class KeyPlaneView: UIView {
     framesDirty = true
   }
 
+  /// kb.debug.showTouchRects — paint what the plane actually owns.
+  ///
+  /// Four sessions of reasoning about this geometry produced four wrong
+  /// answers, because "it feels dead here" and "the rect does not cover here"
+  /// cannot be matched up by argument. This draws the answer: every key's
+  /// ownership box, the obstacle rects that veto them, and the grid band. A
+  /// dead zone is then simply a place with no colour on it.
+  ///
+  /// Off by default and backend-flippable, so it can be turned on against a
+  /// real device and off again without a build.
+  var debugRects = false {
+    didSet { if debugRects != oldValue { setNeedsDisplay() } }
+  }
+
+  override func draw(_ rect: CGRect) {
+    super.draw(rect)
+    guard debugRects, let ctx = UIGraphicsGetCurrentContext() else { return }
+    ensureFrames()
+    // Ownership boxes — overlapping fills, so a well-covered gap reads DARKER
+    // than a thinly covered one and a dead one reads as bare.
+    ctx.setFillColor(UIColor.systemGreen.withAlphaComponent(0.16).cgColor)
+    for f in frames { ctx.fill(f.own) }
+    // The keys themselves, so the boxes can be read against what they belong to.
+    ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.5).cgColor)
+    ctx.setLineWidth(1)
+    for f in frames { ctx.stroke(f.rect) }
+    // Vetoes: anywhere red sits, a letter can never win the touch.
+    ctx.setFillColor(UIColor.systemRed.withAlphaComponent(0.22).cgColor)
+    for o in obstacleRects { ctx.fill(o) }
+    // Role keys (shift / layer) with their own slop.
+    ctx.setStrokeColor(UIColor.systemOrange.withAlphaComponent(0.9).cgColor)
+    for f in roleFrames { ctx.stroke(f.rect) }
+    // The band outside which keyAt refuses everything.
+    ctx.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.8).cgColor)
+    ctx.setLineWidth(2)
+    ctx.stroke(gridBand)
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
+    if debugRects { setNeedsDisplay() }
     // MARK dirty rather than recomputing. Layout runs far more often than
     // touches do — every suggestion chip repaint triggers a pass — and the
     // geometry is only ever READ when a finger arrives. Recomputing here paid
@@ -2287,6 +2326,12 @@ final class SDUIRenderer: NSObject {
         // K11 touch feel — the values most likely to need tuning from real
         // field use, so they're OTA-adjustable rather than baked in.
         plane.fillGaps = flagBool("kb.touch.fillGaps", true)
+        plane.debugRects = flagBool("kb.debug.showTouchRects", false)
+        // A UIView with no drawRect skips display entirely; the overlay needs
+        // it back on, and only when it is actually being used.
+        plane.isOpaque = false
+        plane.backgroundColor = .clear
+        plane.contentMode = .redraw
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
