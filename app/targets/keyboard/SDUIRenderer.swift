@@ -503,11 +503,20 @@ final class KeyPlaneView: UIView {
     // layout) would claim a touch that keyAt then refuses, silently
     // swallowing it.
     //
-    // But UIKit calls hitTest SEVERAL times per finger-down (the touch itself,
-    // then again while gesture recognizers arbitrate), and this used to run a
-    // full rebuild every single time. A new sequence marks dirty once; the
-    // repeat calls within it hit the cache.
-    if tracks.isEmpty { framesDirty = true }
+    // ALWAYS re-derive. hitTest decides OWNERSHIP, and it runs before
+    // touchesBegan — so stale rects here mean the touch is declined outright
+    // and never reaches the resolve at all.
+    //
+    // This was gated on `tracks.isEmpty` to avoid repeat work within one
+    // finger-down. That gate is exactly wrong while typing fast: touches
+    // overlap, tracks is never empty, and the whole burst resolves against
+    // rects derived before it started. Dead touches, only at speed.
+    //
+    // Affordable because refreshFrames is no longer quadratic — it resolves
+    // each key's row once instead of rescanning inside two nested loops. A
+    // handful of convert() calls per finger-down is a price worth paying to
+    // never decline a real touch.
+    framesDirty = true
     ensureFrames()
     // Own the character grid + the plane-managed shift/layer keys; else nil
     // so delete / space / return / mic below receive the touch normally.
@@ -545,9 +554,22 @@ final class KeyPlaneView: UIView {
     // stale positions — mis-detecting keys and dropping all but dead-center taps.
     // This is the fix for "the keyboard only responds to a hard touch on the key"
     // AND poor fast-typing: detection is now always against live geometry.
-    // hitTest already marked this sequence dirty and refreshed, so this is
-    // normally a cached no-op — it stays as the guarantee that the resolve
-    // below never runs against rects the plane never re-derived.
+    // EVERY finger-down re-derives, not once per sequence.
+    //
+    // hitTest only marks dirty when `tracks` is empty. Typing fast means
+    // touches overlap, so tracks is never empty and the frames derived at the
+    // start of a burst were reused for its whole duration. The keys are not
+    // subviews of the plane — it converts their bounds in — so the plane's own
+    // layoutSubviews does not reliably fire when they move, and a remount
+    // mid-burst left the cache holding weak refs to buttons that no longer
+    // exist. A touch resolving to a dead button does nothing at all: a dead
+    // touch, and only ever while typing fast.
+    //
+    // This is cheap now. refreshFrames used to be quadratic — a rowIndex
+    // closure rescanned inside two nested loops — which is why it was worth
+    // avoiding per touch; it resolves each key's row once. Correctness on the
+    // typing path is worth more than the remaining handful of convert() calls.
+    framesDirty = true
     ensureFrames()
     // Press-order rollover: a NEW finger down commits every still-held key
     // right now, so overlapped presses land in the order they were pressed —
