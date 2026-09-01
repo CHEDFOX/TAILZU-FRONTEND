@@ -661,7 +661,10 @@ final class KeyPlaneView: UIView {
           // peekReturn remembers where to bounce back to after a slide-commit;
           // a plain tap (no slide) stays on the switched layer.
           track.peekReturn = renderer?.planePeekBegan(target: target)
-        case .character:
+        // Neither reaches roleKeyAt: characters and action keys live in
+        // `frames`, not `roles`. Listed so the switch stays exhaustive and a
+        // future role cannot be silently forgotten here.
+        case .character, .action:
           break
         }
         continue
@@ -905,7 +908,7 @@ final class KeyPlaneView: UIView {
             if let back = track.peekReturn { renderer?.planePeekReturn(to: back) }
           }
           // No slide → plain tap: stay on the switched layer.
-        case .character:
+        case .character, .action:
           break
         }
         continue
