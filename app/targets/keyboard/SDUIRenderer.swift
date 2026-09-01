@@ -2476,7 +2476,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K25"
+  static let buildStamp = "K26"
 
   /// The bundled brand mark.
   ///
