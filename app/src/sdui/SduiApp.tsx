@@ -190,11 +190,18 @@ export default function SduiApp() {
       // If the user's language flips the layout direction, this restarts the
       // app — so do it before we commit the rest of the boot state.
       if (await applyDirection(b.flags)) return;
-      setBoot(b);
-      // Publish the current media registry to the resolver so every <Media>
-      // component in the tree can look up keys → URLs synchronously. Runs on
-      // every bootstrap so hot registry pushes take effect on the next refresh.
+      // Publish the media registry BEFORE setBoot, not after.
+      //
+      // setBoot triggers the render that mounts the first screen, and the
+      // resolver is MODULE state rather than React state — so a component that
+      // resolves a key while the registry is still empty gets nothing and is
+      // never re-rendered when it arrives. The intro did exactly that: its
+      // timer ran, the screen held, and the media never appeared.
+      //
+      // Nothing reads the registry before this line, so publishing first costs
+      // nothing and removes the race entirely.
       setMediaRegistry(pickMediaRegistry(b));
+      setBoot(b);
       const firstTab = b.navigation.kind === "tabs" ? b.navigation.tabs[0]?.id ?? "" : "";
       setTabId(firstTab);
       setShowConnection(false);
@@ -527,7 +534,11 @@ export default function SduiApp() {
           const b = await bootstrap();
       // Register any typeface the backend supplied. Never awaited: the first
       // screens draw in the system font and re-render when a face lands.
-      loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
+          loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
+          // Before setBoot, always: a media upload only reaches the resolver
+          // through one of these refreshes, and a component that re-renders
+          // first would resolve against the old registry.
+          setMediaRegistry(pickMediaRegistry(b));
           setBoot((prev) => {
             // If cacheVersion changed, the whole screen cache is stale — bump
             // reload so the current screen refetches. Otherwise still update
@@ -567,6 +578,7 @@ export default function SduiApp() {
       // screens draw in the system font and re-render when a face lands.
       loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
             if (await applyDirection(b.flags)) return; // RTL change → app restarts
+            setMediaRegistry(pickMediaRegistry(b));
             setBoot(b);
             setReload((n) => n + 1);
           } catch {
