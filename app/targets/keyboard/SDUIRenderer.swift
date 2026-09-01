@@ -127,6 +127,10 @@ final class KeyPlaneView: UIView {
     case character(String)
     case shift
     case layerSwitch(target: String?)
+    /// A key that is not a character but must still own its share of the
+    /// surface — space, return, backspace, globe. Committing one fires the
+    /// button's own action, so nothing about what it DOES moves into the plane.
+    case action
   }
   struct Key { weak var button: UIButton?; let role: Role }
 
@@ -403,6 +407,10 @@ final class KeyPlaneView: UIView {
       if r.width <= 0 || r.height <= 0 { continue }
       switch k.role {
       case .character(let ch): raw.append((b, ch, r))
+      // "" marks an action key. It takes part in the partition exactly like a
+      // letter — same ownership box, same gap filling, same nearest-key
+      // fallback — and only differs at the moment of commit.
+      case .action: raw.append((b, "", r))
       case .shift, .layerSwitch: roles.append((b, k.role, r))
       }
     }
@@ -499,13 +507,21 @@ final class KeyPlaneView: UIView {
     }
     if let b = best { return (b.button, b.char) }
 
-    // NO ownership box claimed the point. Native has no such holes — every
-    // pixel of the letter grid belongs to a key — but ours dropped the tap
-    // entirely, which is the "tapping between keys does nothing" dead zone.
-    // Inside the grid band, fall back to the plainly nearest key. Outside it
-    // we still return nil: that's the tools row or the bottom row, and their
-    // own controls must keep receiving those touches.
-    guard fillGaps, gridBand.contains(point) else { return nil }
+    // NO ownership box claimed the point — so give it to the nearest key,
+    // full stop.
+    //
+    // This used to be gated on gridBand, the letter grid's bounding box, so
+    // everything outside it was refused: the bottom row, and every gap between
+    // its keys. Those fell back to each button's own hit area, which is the
+    // key and a few points of slop — and a tap anywhere else did nothing at
+    // all. That is the dead zone.
+    //
+    // The gate is unnecessary now that space, return, backspace and the rest
+    // are in the partition too: nearest-key gives the space/return gap to
+    // space or return rather than to a distant letter. The only remaining veto
+    // is a real control — the mic, the tone pill, a suggestion chip — checked
+    // at the top of this function, which is where a veto belongs.
+    guard fillGaps else { return nil }
     var nearest: (button: UIButton, char: String, d: CGFloat)?
     for f in frames {
       let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
@@ -880,12 +896,12 @@ final class KeyPlaneView: UIView {
         case .shift:
           // Slid from shift onto a letter → one-shot capital commits here;
           // a plain shift tap already armed on touch-down.
-          if let char = track.char { renderer?.planeCommit(char: char) }
+          commit(track)
         case .layerSwitch:
-          if let char = track.char {
+          if track.char != nil {
             // Layer-peek: press 123/#+=/ABC, slide to a key, release — the
             // key commits and the layer bounces back to where the peek began.
-            renderer?.planeCommit(char: char)
+            commit(track)
             if let back = track.peekReturn { renderer?.planePeekReturn(to: back) }
           }
           // No slide → plain tap: stay on the switched layer.
@@ -896,7 +912,7 @@ final class KeyPlaneView: UIView {
       }
       // Commit the char under the finger at release. If it slid off the grid
       // (button == nil) nothing commits — native slide-to-cancel.
-      if let char = track.char { renderer?.planeCommit(char: char) }
+      commit(track)
     }
   }
 
@@ -920,14 +936,14 @@ final class KeyPlaneView: UIView {
       // never delivers touchesEnded for a cancelled touch.
       if cancelCommitMaxMs > 0,
          !track.committed, !track.trayActive, !track.swipeMode,
-         track.specialRole == nil, let char = track.char,
+         track.specialRole == nil, track.char != nil,
          (CACurrentMediaTime() - track.downAt) * 1000 < cancelCommitMaxMs {
         let p = t.location(in: self)
         if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < cancelCommitMaxDrift {
           // Counts how often iOS stole a real tap and we rescued it — the
           // measure of whether the K11 fix is doing anything in the field.
           KeyboardTelemetry.bump(.touchesCancelledRescued)
-          renderer?.planeCommit(char: char)
+          commit(track)
         }
       }
     }
@@ -939,6 +955,21 @@ final class KeyPlaneView: UIView {
   /// letter→special-key overlaps keep press order exactly like letter→letter.
   /// A finger driving an open accent tray is exempt: committing its base char
   /// behind the tray would type behind the user's back.
+  /// Commit a track: a character inserts, an action key fires its own button.
+  ///
+  /// Action keys carry "" as their char so they can share the partition with
+  /// letters. Routing every commit through here is what stops that sentinel
+  /// leaking — an empty insert would type nothing and look exactly like the
+  /// dead touch this change exists to remove.
+  private func commit(_ track: Track) {
+    guard let ch = track.char else { return }
+    if ch.isEmpty {
+      track.button?.sendActions(for: .touchUpInside)
+    } else {
+      renderer?.planeCommit(char: ch)
+    }
+  }
+
   func flushPendingCommits() {
     guard rolloverCommit else { return }
     for (_, track) in tracks
@@ -949,7 +980,7 @@ final class KeyPlaneView: UIView {
         if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
         track.pressed = false
       }
-      if let c = track.char { renderer?.planeCommit(char: c) }
+      commit(track)
       track.committed = true
       track.button = nil
     }
@@ -2241,6 +2272,7 @@ final class SDUIRenderer: NSObject {
     // the fast path to call setTitle on removed subviews.
     letterButtonsByChar.removeAll(keepingCapacity: true)
     layerKeyRegistry.removeAll(keepingCapacity: true)
+    actionKeyRegistry.removeAll(keepingCapacity: true)
     weakShiftButton = nil
     let v = render(node: root)
     v.translatesAutoresizingMaskIntoConstraints = false
@@ -2300,6 +2332,18 @@ final class SDUIRenderer: NSObject {
         for entry in layerKeyRegistry {
           entry.btn.isUserInteractionEnabled = false
           planeKeys.append(KeyPlaneView.Key(button: entry.btn, role: .layerSwitch(target: entry.target)))
+        }
+      }
+      // Space / return / backspace join the partition so no point between them
+      // belongs to nobody. They keep their own actions — the plane only decides
+      // WHICH key a touch meant, then fires that button.
+      //
+      // Their interaction stays ON: the plane can decline a touch (it is above
+      // them, and returns nil when a real control vetoes), and when it does the
+      // button must still work on its own.
+      if flagBool("kb.keyPlane.actionKeys", true) {
+        for b in actionKeyRegistry {
+          planeKeys.append(KeyPlaneView.Key(button: b, role: .action))
         }
       }
       if !planeKeys.isEmpty {
@@ -2458,6 +2502,25 @@ final class SDUIRenderer: NSObject {
   /// Layer-switch keys ("123"/"ABC"/"#+=") registered during render so the
   /// touch plane can own them for layer-peek. `target` nil = cycle.
   private var layerKeyRegistry: [(btn: UIButton, target: String?)] = []
+
+  /// Non-letter keys that still take part in the touch partition: space,
+  /// return, backspace.
+  ///
+  /// Without them the plane partitioned only the letter grid and refused
+  /// everything else, so the bottom row fell back to each button's own hit
+  /// area and the gaps between those keys belonged to nobody. Registering them
+  /// is what lets nearest-key give the space/return gap to space or return
+  /// rather than to a distant letter.
+  ///
+  /// GlobeKey is deliberately absent: it opens the system keyboard switcher,
+  /// and a near-miss silently swapping the user's keyboard is far worse than a
+  /// near-miss doing nothing.
+  private var actionKeyRegistry: [UIButton] = []
+
+  private func registerActionKey(_ v: UIView?) {
+    guard let b = v as? UIButton else { return }
+    actionKeyRegistry.append(b)
+  }
   private var weakShiftButton: UIButton?
   private var lastRenderSnapshot: KBStateSnapshot?
 
@@ -2579,10 +2642,10 @@ final class SDUIRenderer: NSObject {
     case "ProgressBar":          v = buildProgressBar(node: node)
     case "Toggle":               v = buildToggleNode(node: node)
     case "ScrollView":           v = buildScrollView(node: node)
-    case "SpaceKey":             v = buildSpaceKey(node: node)
+    case "SpaceKey":             v = buildSpaceKey(node: node); registerActionKey(v)
     case "ShiftKey":             v = buildShiftKey(node: node)
-    case "ReturnKey":            v = buildReturnKey(node: node)
-    case "BackspaceKey":         v = buildBackspaceKey(node: node)
+    case "ReturnKey":            v = buildReturnKey(node: node); registerActionKey(v)
+    case "BackspaceKey":         v = buildBackspaceKey(node: node); registerActionKey(v)
     case "GlobeKey":             v = buildGlobeKey(node: node)
     case "MicKey":               v = buildMicKey(node: node)
     case "RefineKey":            v = buildRefineKey(node: node)
@@ -4382,11 +4445,21 @@ final class SDUIRenderer: NSObject {
   private func collectPlaneObstacles() -> [UIView] {
     guard let rootV = mountedRoot else { return [] }
     var out: [UIView] = []
+    // Keys the plane now partitions must NOT also veto it. An obstacle is
+    // checked before anything else and returns "not ours", so leaving space,
+    // return and backspace in this list would hand their gaps straight back to
+    // the per-button hit areas — exactly the dead zones registering them was
+    // meant to remove.
+    //
+    // Their interaction stays enabled as a safety net: if the plane ever
+    // declines a touch, the button still works on its own.
+    let planeOwned = Set(actionKeyRegistry.map { ObjectIdentifier($0) })
     func walk(_ v: UIView) {
       // NOTE: no isEnabled check — a DISABLED control (e.g. mic with voice
       // off) must still block the plane; its area going to a letter would
       // type where the user expected a dead button.
-      if let c = v as? UIControl, c.isUserInteractionEnabled, !c.isHidden {
+      if let c = v as? UIControl, c.isUserInteractionEnabled, !c.isHidden,
+         !planeOwned.contains(ObjectIdentifier(c)) {
         out.append(c)
       }
       for s in v.subviews { walk(s) }
