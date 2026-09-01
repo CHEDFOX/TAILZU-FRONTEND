@@ -37,7 +37,7 @@ const config: ExpoConfig = {
   // OTA updates (EAS Update). The fingerprint policy ties each update to the
   // native build's fingerprint, so a JS-only OTA can never land on an
   // incompatible binary (e.g. after a keyboard/permission/native change).
-  // appVersion, NOT fingerprint.
+  // A FIXED STRING, not a policy.
   //
   // The fingerprint policy hashes the native project — and it hashes it on
   // whichever machine runs the command. `eas build` computes it on EAS's
@@ -47,14 +47,17 @@ const config: ExpoConfig = {
   // a runtime no build has ever reported. It uploaded successfully and reached
   // nobody, which is indistinguishable from nothing happening.
   //
-  // appVersion is a string both sides read the same way, so an update matches
-  // any build of that version from any machine.
+  // This exact value is what build 55 — the binary on the device — reports.
+  // Pinning it means updates reach that build without another round through
+  // the store, and every future build reports the same thing, so one string
+  // keeps them all on the same update stream.
   //
-  // The obligation it carries: this no longer stops JS that assumes new native
-  // code from reaching a build that lacks it. BUMP `version` below whenever a
-  // release changes anything native — a new module, a permission, the keyboard
-  // extension — so those builds stop accepting updates meant for the next one.
-  runtimeVersion: { policy: "appVersion" },
+  // The obligation it carries: nothing now stops JS that assumes new native
+  // code from reaching a build that lacks it. CHANGE THIS STRING whenever a
+  // release adds native capability — a module, a permission, keyboard-extension
+  // work — so older builds stop accepting updates written for the newer one.
+  // Any new value works; it only has to differ.
+  runtimeVersion: "d6ee7792e54ee5112449c6690444b1445752f2ab",
   updates: EAS_PROJECT_ID
     ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` }
     : {},
