@@ -179,6 +179,25 @@ export function peekScreen(
  * Drop cached screens. Called after any write that could change what a screen
  * renders, so a saved setting is never followed by its own stale copy.
  */
+/**
+ * Warm the cache for screens the user is about to reach.
+ *
+ * A TTL only helps the SECOND visit; the first still waits on the network,
+ * which is why every tab felt slow the first time even with caching on. The
+ * tab destinations are known at boot, so they can be fetched while the user is
+ * still reading the first screen — by the time they tap, it is already there.
+ *
+ * Sequential and silent on purpose: this is background work, so it must not
+ * compete with the screen actually being looked at, and must never surface an
+ * error for a screen nobody has asked for yet.
+ */
+export async function prefetchScreens(ids: string[]): Promise<void> {
+  for (const id of ids) {
+    if (peekScreen(id)) continue;           // already warm
+    try { await fetchScreen(id); } catch { /* silent: nobody is waiting on it */ }
+  }
+}
+
 export function invalidateScreens(screenId?: string): void {
   if (!screenId) { screenCache.clear(); return; }
   for (const k of Array.from(screenCache.keys())) {
