@@ -487,16 +487,23 @@ final class KeyPlaneView: UIView {
       out.append((b, ch, r, own))
     }
     frames = out
-    // The outer band of every key in the partition — letters AND the action
-    // keys — including the row slops. Everything inside it belongs to SOME key
-    // (see keyAt's nearest-key fallback); everything outside is the tools row
-    // or the suggestion strip and must stay unclaimed.
-    if let first = out.first {
-      var band = first.3
-      for f in out { band = band.union(f.3) }
-      gridBand = band
-    } else {
+    // The key area. Every point in it belongs to SOME key — see owns() and
+    // keyAt's fallback — and nothing outside it (the tools row, the
+    // suggestion strip) is ever claimed.
+    //
+    // Built from the keys' REAL rects, not their ownership boxes, and only
+    // from keys that are actually on the plane. A key whose rect converts to
+    // somewhere off the keyboard — one did, and made this band three times
+    // the keyboard's height — cannot stretch it any more. Full width: the
+    // margins beside the outer keys are theirs too.
+    var span = CGRect.null
+    for f in out where f.2.intersects(bounds) { span = span.union(f.2) }
+    if span.isNull {
       gridBand = .zero
+    } else {
+      gridBand = CGRect(x: bounds.minX, y: span.minY - topRowUpSlop,
+                        width: bounds.width,
+                        height: span.height + topRowUpSlop + bottomRowDownSlop)
     }
     refreshObstacleRects()
   }
@@ -554,7 +561,9 @@ final class KeyPlaneView: UIView {
     // would type instead of doing nothing.
     guard fillGaps, gridBand.contains(point) else { return nil }
     var nearest: (button: UIButton, char: String, d: CGFloat)?
-    for f in frames {
+    // Only keys actually on the plane. One that converts to somewhere off the
+    // keyboard is never the right answer, however the distances work out.
+    for f in frames where f.rect.intersects(bounds) {
       let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
       let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
       let d = dx + dy
@@ -666,9 +675,16 @@ final class KeyPlaneView: UIView {
         top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
       if expanded.contains(point) { return true }
     }
+    if frames.isEmpty { return false }
+    // The whole rule, when gaps are filled: inside the key area and not on a
+    // control means it is ours, and keyAt gives it to the nearest key. It
+    // used to also require the point to fall inside some key's ownership
+    // box, which made "is this ours" depend on per-key reach, slops, and a
+    // band computed from those — three things that each had to be right, and
+    // that could not be told apart from the outside when one was not.
+    if fillGaps { return gridBand.contains(point) }
     for f in frames where f.own.contains(point) { return true }
-    // The nearest-key gap fallback claims anything inside the letter band.
-    return fillGaps && !frames.isEmpty && gridBand.contains(point)
+    return false
   }
 
   // MARK: - Multi-touch
@@ -2520,7 +2536,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K27"
+  static let buildStamp = "K28"
 
   /// The bundled brand mark.
   ///
