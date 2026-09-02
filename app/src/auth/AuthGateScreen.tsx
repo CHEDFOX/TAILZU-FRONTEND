@@ -173,6 +173,11 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
   const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
   const [country, setCountry] = useState<Country>(() => pickCountry(region));
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Phone: the number box does not open until a country is chosen. The flag
+  // then takes the badge's place and the cursor lands in the box, so one
+  // tap on the pill is the whole first step and the second is just typing.
+  const [countryPicked, setCountryPicked] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const digits = value.replace(/\D/g, "");
   const valid = isPhone ? digits.length >= 6 && digits.length <= 14 : EMAIL_RX.test(value.trim());
@@ -246,22 +251,35 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
       <View style={s.pillBorder} pointerEvents="none" />
 
       <Animated.View style={[s.contentRow, { opacity: inputOpacity }]} pointerEvents="box-none">
-        {isPhone && (
+        {isPhone && !countryPicked && (
+          <TouchableOpacity
+            style={s.pickRow}
+            activeOpacity={0.7}
+            onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+            accessibilityRole="button"
+            accessibilityLabel="Choose your country"
+          >
+            <Text style={s.pickText}>Phone</Text>
+            <Chevron />
+          </TouchableOpacity>
+        )}
+        {isPhone && countryPicked && (
           <TouchableOpacity
             style={s.countryChip}
             activeOpacity={0.7}
             onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Country ${country.name}, change`}
           >
-            <Text style={s.flag}>{country.flag}</Text>
             <Text style={s.dial}>{country.dial}</Text>
-            <Chevron />
           </TouchableOpacity>
         )}
-        <TextInput underlineColorAndroid="transparent"
+        {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
+          ref={inputRef}
           style={s.input}
           value={value}
           onChangeText={setValue}
-          placeholder={isPhone ? "Phone" : "Email"}
+          placeholder={isPhone ? "Number" : "Email"}
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
           autoCorrect={false}
@@ -269,12 +287,16 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
           textContentType={isPhone ? "telephoneNumber" : "emailAddress"}
           returnKeyType="go"
           onSubmitEditing={() => validRef.current && commit()}
-        />
+        />}
       </Animated.View>
 
-      {/* badge — swipe me (envelope / phone) */}
+      {/* badge — swipe me. Envelope for email; the phone mark until a country
+          is chosen, then that country's flag, so the pill itself says which
+          number it is asking for. */}
       <Animated.View style={[s.envWrap, { transform: [{ translateX: envX }] }]} {...pan.panHandlers}>
-        <View style={s.envCircle}>{isPhone ? <PhoneMark /> : <Envelope />}</View>
+        <View style={s.envCircle}>
+          {!isPhone ? <Envelope /> : countryPicked ? <Text style={s.badgeFlag}>{country.flag}</Text> : <PhoneMark />}
+        </View>
       </Animated.View>
 
       {/* white arrow badge — tap to send (appears when valid) */}
@@ -289,7 +311,14 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
           visible={pickerOpen}
           current={country}
           onClose={() => setPickerOpen(false)}
-          onSelect={(c) => { setCountry(c); Haptics.selectionAsync().catch(() => {}); }}
+          onSelect={(c) => {
+            setCountry(c);
+            setCountryPicked(true);
+            Haptics.selectionAsync().catch(() => {});
+            // The modal is still closing; focus once it has let go of the
+            // screen, or the keyboard fights the dismissal.
+            setTimeout(() => inputRef.current?.focus(), 260);
+          }}
         />
       )}
     </View>
@@ -549,7 +578,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
-          {phase === "entry" && (
+          {phase === "entry" && (<>
+            <View style={s.brandWrap} accessibilityRole="header">
+              <Text style={s.brand}>Tailzu</Text>
+              <Text style={s.tag}>You talk. It writes.</Text>
+            </View>
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
                 <View key={f.id} style={{ marginTop: i === 0 ? 0 : 18 }}>
@@ -570,7 +603,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 )}
               </View>
             </Animated.View>
-          )}
+          </>)}
 
           {phase === "sending" && <EmailSendAnimation />}
 
@@ -628,6 +661,9 @@ const s = StyleSheet.create({
   backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   stack: { flex: 1, alignItems: "center", justifyContent: "center" },
   block: { alignItems: "center", width: "100%" },
+  brandWrap: { alignItems: "center", marginBottom: 34 },
+  brand: { fontSize: 40, fontWeight: "700", color: WHITE, letterSpacing: -0.5 },
+  tag: { marginTop: 6, fontSize: 16, fontWeight: "300", color: "rgba(255,255,255,0.72)", letterSpacing: 0.2 },
 
   pillWrap: { width: PILL_W, height: PILL_H, borderRadius: PILL_H / 2, justifyContent: "center" },
   pill: { ...FILL, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
@@ -637,6 +673,9 @@ const s = StyleSheet.create({
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
   countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
   flag: { fontSize: 18, marginRight: 5 },
+  pickRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 4 },
+  pickText: { fontSize: 15, fontWeight: "300", color: "rgba(255,255,255,0.32)", letterSpacing: 0.3 },
+  badgeFlag: { fontSize: 20, lineHeight: 24 },
   dial: { fontSize: 15, fontWeight: "300", color: WHITE, marginRight: 4 },
   input: { flex: 1, fontSize: 15, fontWeight: "300", color: WHITE, letterSpacing: 0.3, padding: 0 },
 
