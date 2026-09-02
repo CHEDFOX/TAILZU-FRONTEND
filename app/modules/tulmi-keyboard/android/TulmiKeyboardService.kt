@@ -144,7 +144,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * and a local buffer would drift out of step with all three.
      */
     private fun suggestForCaretWord() {
-        if (!suggestionsEnabled) return
+        // The spell-check reply feeds TWO things: the bar's suggestions and
+        // the candidate autocorrect applies at the next boundary. Gating the
+        // request on the bar alone meant that hiding the bar silently turned
+        // autocorrect off too. Ask whenever either consumer is on; what the
+        // bar SHOWS is decided where the reply lands.
+        if (!suggestionsEnabled && !autocorrectEnabled) return
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val word = before.takeLastWhile { !it.isWhitespace() }
@@ -264,7 +269,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         TulmiTelemetry.bump(TulmiTelemetry.COLD_STARTS)
         if (corrections == null) {
             corrections = TulmiCorrections(this) { words ->
-                kbState.suggestions = words
+                // topCandidate is already set inside TulmiCorrections by now;
+                // the bar is the only thing the flag hides.
+                kbState.suggestions = if (suggestionsEnabled) words else emptyList()
                 sduiRenderer?.stateChanged()
             }
         }
