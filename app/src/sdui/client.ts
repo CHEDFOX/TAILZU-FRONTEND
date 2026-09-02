@@ -4,7 +4,7 @@
  */
 import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
 import * as Localization from "expo-localization";
-import { getBaseUrl, getLanguage } from "../storage";
+import { bumpLaunchCount, getBaseUrl, getLanguage } from "../storage";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type {
   BootstrapResponse,
@@ -135,7 +135,11 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 }
 
 export async function bootstrap(): Promise<BootstrapResponse> {
-  const body: BootstrapRequest = { capabilities: buildCapabilities() };
+  // Counted here rather than at the call site so every bootstrap — cold
+  // start, reconnect, re-bootstrap after a language change — agrees on what
+  // "an open" is.
+  const launchCount = await bumpLaunchCount();
+  const body: BootstrapRequest = { capabilities: buildCapabilities(), launchCount };
   return withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
 }
 

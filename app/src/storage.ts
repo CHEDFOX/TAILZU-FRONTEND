@@ -33,6 +33,26 @@ export async function setOnboarded(): Promise<void> {
 
 // Whether the user has picked their language on the post-auth language screen
 // (so it shows once, even if the rest of onboarding isn't finished yet).
+const KEY_LAUNCHES = "tulmi.launchCount";
+
+/**
+ * Opens of this app, this one included.
+ *
+ * The server times its arrival prompt by familiarity — "once they have been
+ * here a few times" — and familiarity is a thing only the client can count.
+ * Per install, deliberately: a reinstall is a fresh acquaintance.
+ */
+export async function bumpLaunchCount(): Promise<number> {
+  try {
+    const n = Number(await AsyncStorage.getItem(KEY_LAUNCHES)) || 0;
+    const next = n + 1;
+    await AsyncStorage.setItem(KEY_LAUNCHES, String(next));
+    return next;
+  } catch {
+    return 0;   // unreadable storage must never cost the boot
+  }
+}
+
 const KEY_LANGUAGE = "tulmi.language";
 
 export async function getLanguage(): Promise<string | null> {
