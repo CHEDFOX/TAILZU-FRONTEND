@@ -35,7 +35,7 @@ import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } fro
 import { registerForPushToken } from "../notifications/push";
 import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession, endFlowSession } from "../../modules/tulmi-bridge";
 import { getSupabaseAccessToken } from "../auth/supabaseClient";
-import { getBaseUrl, getLanguage } from "../storage";
+import { setLanguage, getBaseUrl, getLanguage } from "../storage";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -190,6 +190,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         if (action.assignTo) ctx.store.set(action.assignTo, res);
         await runAction(action.onSuccess, ctx);
         if (action.path === "/v1/profile" && body != null && typeof body === "object" && "language" in body) {
+          // The keyboard reads its language from the App Group, and that was
+          // only ever written by the first-launch pick. A change made here in
+          // Settings updated the profile and the app's locale but left the
+          // keyboard dictating and refining in the OLD language — a Hindi
+          // speaker who picked English at first launch and switched later got
+          // Hindi speech "refined" toward English. Mirror it every time.
+          const code = (body as { language?: unknown }).language;
+          if (typeof code === "string" && code) {
+            try { await setLanguage(code); } catch { /* storage only; never block the save */ }
+          }
           ctx.nav.refreshLocale();
         }
       } catch {
