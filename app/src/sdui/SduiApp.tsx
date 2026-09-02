@@ -303,7 +303,18 @@ export default function SduiApp() {
             : [{ screenId: firstScreenId }, { screenId: "paywall" }],
         );
       } else {
-        setStack([{ screenId: firstScreenId }]);
+        // A question the backend wants asked again, presented ON TOP of the
+        // app rather than in front of it: pushed like the soft paywall, so
+        // back and edge-swipe both dismiss it and the app is right there
+        // underneath. The server decides whether and when; the client only
+        // honours it. Skipped when it names the screen we are already on, so
+        // a prompt can never bury its own subject.
+        const promptScreenId = b.flags?.["promptScreenId"];
+        setStack(
+          typeof promptScreenId === "string" && promptScreenId && promptScreenId !== firstScreenId
+            ? [{ screenId: firstScreenId }, { screenId: promptScreenId }]
+            : [{ screenId: firstScreenId }],
+        );
       }
       setPhase("ready");
     } catch {
