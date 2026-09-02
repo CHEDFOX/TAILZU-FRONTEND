@@ -196,6 +196,10 @@ export type ActionSpec =
   // local state
   | { kind: "setState"; path: string; value: any }
   | { kind: "toggleState"; path: string }
+  /** Add or remove one value in the array at `path`. `min` refuses the removal
+   *  that would take the array below that length, so a required multi-select
+   *  cannot be emptied. */
+  | { kind: "toggleInArray"; path: string; value: unknown; min?: number }
   | { kind: "incrementState"; path: string; by?: number }
   | { kind: "clearState"; path: string }
   // feedback
@@ -440,6 +444,10 @@ export type KeyboardActionSpec =
   // ----- state store (backend scratch dict) -----
   | { kind: "setState"; path: string; value: unknown }
   | { kind: "toggleState"; path: string }
+  /** Add or remove one value in the array at `path`. `min` refuses the removal
+   *  that would take the array below that length, so a required multi-select
+   *  cannot be emptied. */
+  | { kind: "toggleInArray"; path: string; value: unknown; min?: number }
   | { kind: "incrementState"; path: string; by?: number }
   | { kind: "clearState"; path: string }
   // ----- network + analytics + logging -----
