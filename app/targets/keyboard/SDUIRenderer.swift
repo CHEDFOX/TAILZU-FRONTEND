@@ -239,6 +239,12 @@ final class KeyPlaneView: UIView {
           top: -k.hitSlop.top, left: -k.hitSlop.left,
           bottom: -k.hitSlop.bottom, right: -k.hitSlop.right))
       }
+      // A plane-owned key vetoes only what it draws — see the same clamp in
+      // refreshFrames. Without this a stretched space or return button
+      // vetoed a column of the keyboard from its row to the screen's edge.
+      if planeOwnedIds.contains(ObjectIdentifier(v)), r.height > KeyPlaneView.maxKeyHeight {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: KeyPlaneView.maxKeyHeight)
+      }
       // Action keys (space, return, backspace) are the exception: they veto
       // only their PAINTED rect. The halo is what made the gaps around them
       // dead — an obstacle is checked before anything else, so a 10pt band
@@ -305,6 +311,10 @@ final class KeyPlaneView: UIView {
   /// True while any finger is down on the plane. The renderer defers config
   /// remounts on this — swapping the tree mid-touch dropped the keystroke.
   var hasActiveTouches: Bool { !tracks.isEmpty }
+
+  /// The tallest a key can be. Rows are 44pt; 64 leaves headroom for larger
+  /// layouts and still rejects a button stretched to fill a container.
+  static let maxKeyHeight: CGFloat = 64
 
   /// Key frames in this view's coordinate space, refreshed on layout.
   /// `rect` is the key's real frame; `own` is its OWNERSHIP box — rect grown
@@ -432,8 +442,18 @@ final class KeyPlaneView: UIView {
     var roles: [(UIButton, Role, CGRect)] = []
     for k in keys {
       guard let b = k.button, b.window != nil else { continue }
-      let r = convert(b.bounds, from: b)
+      var r = convert(b.bounds, from: b)
       if r.width <= 0 || r.height <= 0 { continue }
+      // A key is never taller than its row. The container can be far taller
+      // than the visible keyboard (the input view is screen-height until the
+      // system settles it), and a button in the last row that a stack has
+      // stretched to fill that reports a rect running off the bottom of the
+      // screen — one did, at ~570pt. Its box, the band and its veto were all
+      // derived from that. Clamp to the tallest plausible key so the geometry
+      // follows what the key draws, not what its view was stretched to.
+      if r.height > KeyPlaneView.maxKeyHeight {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: KeyPlaneView.maxKeyHeight)
+      }
       switch k.role {
       case .character(let ch): raw.append((b, ch, r))
       // "" marks an action key. It takes part in the partition exactly like a
@@ -616,10 +636,10 @@ final class KeyPlaneView: UIView {
     // Own the character grid + the plane-managed shift/layer keys; else nil
     // so delete / space / return / mic below receive the touch normally.
     let owned = owns(point)
-    if debugRects {
+    if debugRects || onDebugHit != nil {
       lastHit = (point, owned)
       onDebugHit?()
-      setNeedsDisplay()
+      if debugRects { setNeedsDisplay() }
     }
     return owned ? self : nil
   }
@@ -634,20 +654,19 @@ final class KeyPlaneView: UIView {
                         planeH: CGFloat, outlier: String) {
     ensureFrames()
     let actions = frames.filter { $0.char.isEmpty }.count
-    // The key whose rect sits farthest from the plane's vertical centre.
-    // A band far taller than the plane means at least one key is converting
-    // to somewhere it is not; this names it.
-    let mid = bounds.midY
-    var worst: (label: String, y: CGFloat, d: CGFloat) = ("-", 0, -1)
+    // The TALLEST key, measured from the view's real bounds rather than the
+    // clamped rect, so the stamp reports what the view actually is. The first
+    // readout used distance-from-centre and named the wrong key.
+    var worst: (label: String, top: CGFloat, bottom: CGFloat, h: CGFloat) = ("-", 0, 0, -1)
     for f in frames {
-      let d = abs(f.rect.midY - mid)
-      if d > worst.d {
+      let raw = convert(f.button.bounds, from: f.button)
+      if raw.height > worst.h {
         let label = f.char.isEmpty ? (f.button.accessibilityIdentifier ?? "act") : f.char
-        worst = (label, f.rect.midY, d)
+        worst = (label, raw.minY, raw.maxY, raw.height)
       }
     }
     return (frames.count, actions, roleFrames.count, obstacleRects.count, gridBand,
-            bounds.height, "\(worst.label)@\(Int(worst.y))")
+            bounds.height, "\(worst.label)\(Int(worst.top))-\(Int(worst.bottom))")
   }
 
   /// Debug only: the last point hitTest was asked about, and its answer.
@@ -2536,7 +2555,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K28"
+  static let buildStamp = "K29"
 
   /// The bundled brand mark.
   ///
