@@ -2,6 +2,7 @@
  * SDUI transport. Talks to the Experience service (/v1/app/*) with the same
  * base URL + Supabase auth as src/api.ts.
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
 import * as Localization from "expo-localization";
 import { bumpLaunchCount, getBaseUrl, getLanguage } from "../storage";
@@ -134,13 +135,117 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
   throw lastErr;
 }
 
+// ---------------------------------------------------------------------------
+// Persisted cache
+//
+// Everything the app draws comes from the server, so without a disk cache a
+// cold start is a blank screen until the network answers — every launch, on
+// every connection. Two things persist:
+//
+//   - The last bootstrap. A cold start paints from it at once and the fresh
+//     one replaces it when it lands; offline, it IS the app.
+//   - Every screen the server marked cacheable (cacheTtlSeconds > 0). They
+//     load into the in-memory cache as STALE at boot, so a screen the user
+//     has seen before appears instantly and refreshes behind itself.
+//
+// Both are keyed by the base url, and screens by the server's cacheVersion
+// too, so pointing at another server or a server-side bump orphans every old
+// entry rather than serving it. Screens that ask never to be cached
+// (cacheTtlSeconds 0 — anything sensitive or live) are never written.
+//
+// Nothing here blocks: writes are fire-and-forget, and the one read at boot
+// is small and bounded. A failure in any of it costs the cache, never the app.
+// ---------------------------------------------------------------------------
+const BOOT_KEY = (base: string) => `tulmi.cache.boot:${base}`;
+const SCREEN_PREFIX = (base: string, ver: string) => `tulmi.cache.screen:${base}:${ver}:`;
+const PERSIST_MAX_SCREENS = 40;
+let persistBase = "";
+let persistVersion = "";
+
+/** The last bootstrap this install received from the current server, or null. */
+export async function peekBootstrap(): Promise<BootstrapResponse | null> {
+  try {
+    const base = await getBaseUrl();
+    const raw = await AsyncStorage.getItem(BOOT_KEY(base));
+    if (!raw) return null;
+    const b = JSON.parse(raw) as BootstrapResponse;
+    return b && typeof b === "object" && b.navigation && b.initialScreenId ? b : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistBootstrap(base: string, b: BootstrapResponse): void {
+  AsyncStorage.setItem(BOOT_KEY(base), JSON.stringify(b)).catch(() => {});
+}
+
+/**
+ * Load persisted screens for this server + cacheVersion into memory, as stale,
+ * and drop persisted screens from any other version. Called once per boot,
+ * before the first screen renders.
+ */
+export async function hydrateScreenCache(cacheVersion: string): Promise<void> {
+  try {
+    const base = await getBaseUrl();
+    persistBase = base;
+    persistVersion = String(cacheVersion ?? "");
+    const keys = await AsyncStorage.getAllKeys();
+    const mine = SCREEN_PREFIX(base, persistVersion);
+    const stale: string[] = [];
+    const live: string[] = [];
+    for (const k of keys) {
+      if (!k.startsWith("tulmi.cache.screen:")) continue;
+      (k.startsWith(mine) ? live : stale).push(k);
+    }
+    if (stale.length) AsyncStorage.multiRemove(stale).catch(() => {});
+    if (!live.length) return;
+    const rows = await AsyncStorage.multiGet(live);
+    for (const [k, raw] of rows) {
+      if (!raw) continue;
+      try {
+        const screen = JSON.parse(raw) as ScreenResponse;
+        const cacheK = k.slice(mine.length);
+        // Only fill what the session has not already fetched fresh.
+        if (!screenCache.has(cacheK)) {
+          screenCache.set(cacheK, { at: 0, ttlMs: 1, screen });   // stale on arrival
+        }
+      } catch { /* one bad row must not cost the rest */ }
+    }
+  } catch { /* cache only */ }
+}
+
+function persistScreen(cacheK: string, screen: ScreenResponse): void {
+  if (!persistBase) return;
+  const key = SCREEN_PREFIX(persistBase, persistVersion) + cacheK;
+  AsyncStorage.setItem(key, JSON.stringify(screen))
+    .then(async () => {
+      // Bounded: keep the most recent N for this version, drop the rest.
+      const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SCREEN_PREFIX(persistBase, persistVersion)));
+      if (keys.length > PERSIST_MAX_SCREENS) {
+        await AsyncStorage.multiRemove(keys.slice(0, keys.length - PERSIST_MAX_SCREENS));
+      }
+    })
+    .catch(() => {});
+}
+
+function unpersistScreens(cacheK?: string): void {
+  if (!persistBase) return;
+  const prefix = SCREEN_PREFIX(persistBase, persistVersion);
+  if (cacheK) { AsyncStorage.removeItem(prefix + cacheK).catch(() => {}); return; }
+  AsyncStorage.getAllKeys()
+    .then((keys) => AsyncStorage.multiRemove(keys.filter((k) => k.startsWith(prefix))))
+    .catch(() => {});
+}
+
 export async function bootstrap(): Promise<BootstrapResponse> {
   // Counted here rather than at the call site so every bootstrap — cold
   // start, reconnect, re-bootstrap after a language change — agrees on what
   // "an open" is.
   const launchCount = await bumpLaunchCount();
   const body: BootstrapRequest = { capabilities: buildCapabilities(), launchCount };
-  return withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
+  const b = await withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
+  getBaseUrl().then((base) => persistBootstrap(base, b)).catch(() => {});
+  return b;
 }
 
 /**
@@ -203,6 +308,7 @@ export async function prefetchScreens(ids: string[]): Promise<void> {
 }
 
 export function invalidateScreens(screenId?: string): void {
+  unpersistScreens(screenId ? cacheKey(screenId) : undefined);
   if (!screenId) { screenCache.clear(); return; }
   for (const k of Array.from(screenCache.keys())) {
     if (k === screenId || k.startsWith(`${screenId}::`)) screenCache.delete(k);
@@ -221,6 +327,7 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
   const screen = await withRetry(() => post<ScreenResponse>("/v1/app/screen", body));
   const ttl = Number(screen.cacheTtlSeconds ?? 0);
   if (Number.isFinite(ttl) && ttl > 0) {
+    persistScreen(cacheKey(screenId, params), screen);
     screenCache.set(cacheKey(screenId, params), {
       at: Date.now(),
       // Capped: a backend that sends a very long TTL should not be able to
