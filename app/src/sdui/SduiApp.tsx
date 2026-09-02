@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -243,14 +243,20 @@ export default function SduiApp() {
 
   const loadBoot = useCallback(async () => {
     setPhase("loading");
-    try {
-      const b = await bootstrap();
+    // Everything below `commitBoot` is what a bootstrap turns into on screen.
+    // It runs twice on a cold start: once at once from the last bootstrap on
+    // disk, so the app paints before the network answers, and again when the
+    // fresh one lands, which replaces it (a changed cacheVersion refetches the
+    // current screen). Offline, the first run is the whole app instead of the
+    // connect screen. A screen that had never bootstrapped waits, as before.
+    const commitBoot = async (b: BootstrapResponse): Promise<boolean> => {
+      await hydrateScreenCache(String(b.cacheVersion ?? ""));
       // Register any typeface the backend supplied. Never awaited: the first
       // screens draw in the system font and re-render when a face lands.
       loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
       // If the user's language flips the layout direction, this restarts the
       // app — so do it before we commit the rest of the boot state.
-      if (await applyDirection(b.flags)) return;
+      if (await applyDirection(b.flags)) return false;
       // Publish the media registry BEFORE setBoot, not after.
       //
       // setBoot triggers the render that mounts the first screen, and the
@@ -304,7 +310,7 @@ export default function SduiApp() {
       }
       if (needsLanguagePick && !langPicked) {
         setPhase("language");
-        return;
+        return false;
       }
       const postLangScreenId =
         (b.flags?.["postLanguageScreenId"] as string | undefined) ?? b.initialScreenId;
@@ -359,8 +365,31 @@ export default function SduiApp() {
         }
       }
       setPhase("ready");
+      return true;
+    };
+    let paintedFromDisk = false;
+    try {
+      const cached = await peekBootstrap();
+      const fresh = bootstrap();
+      if (cached) {
+        // Give the network a beat; on a good connection the fresh bootstrap
+        // wins outright and the disk copy is never shown.
+        const first = await Promise.race([
+          fresh.then((b) => ({ b, fresh: true })),
+          new Promise<{ b: BootstrapResponse; fresh: false }>((r) => setTimeout(() => r({ b: cached, fresh: false }), 350)),
+        ]);
+        if (!first.fresh) {
+          paintedFromDisk = await commitBoot(first.b);
+          const b = await fresh;
+          await commitBoot(b);
+          return;
+        }
+        await commitBoot(first.b);
+        return;
+      }
+      await commitBoot(await fresh);
     } catch {
-      setPhase("connect");
+      if (!paintedFromDisk) setPhase("connect");
     }
   }, []);
 
