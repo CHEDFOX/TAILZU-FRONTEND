@@ -161,6 +161,43 @@ export default function SduiApp() {
   // True once phase === "ready": lets the mount-once link listener apply a HOT
   // link immediately, vs. stashing a COLD one for the cold-entry effect.
   const readyRef = useRef(false);
+
+  /**
+   * The backend's arrival prompt, held until the user is plainly idle.
+   *
+   * A card that appears the moment the app opens interrupts whatever brought
+   * the user here. So it is armed, not shown: after the delay it appears only
+   * if they are still sitting on the screen they landed on, having neither
+   * navigated nor switched tabs. Anyone who started doing something never
+   * sees it, and the server will ask again on a later launch.
+   *
+   * The timer is cancelled on any navigation and on unmount, so a dismissed
+   * or superseded prompt can never surface later on top of unrelated work.
+   */
+  const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptIdleRef = useRef(false);
+
+  const cancelArrivalPrompt = useCallback(() => {
+    promptIdleRef.current = false;
+    if (promptTimer.current) {
+      clearTimeout(promptTimer.current);
+      promptTimer.current = null;
+    }
+  }, []);
+
+  const armArrivalPrompt = useCallback((screenId: string, afterMs: number) => {
+    cancelArrivalPrompt();
+    promptIdleRef.current = true;
+    promptTimer.current = setTimeout(() => {
+      promptTimer.current = null;
+      // Still untouched? Then this is a pause, and the card is welcome.
+      if (!promptIdleRef.current || !readyRef.current) return;
+      promptIdleRef.current = false;
+      setStack((cur) => (cur.length === 1 ? [...cur, { screenId }] : cur));
+    }, Math.max(0, afterMs));
+  }, [cancelArrivalPrompt]);
+
+  useEffect(() => cancelArrivalPrompt, [cancelArrivalPrompt]);
   // Set once nav/boot exist (effect below). Lets the mount-once link listener
   // dispatch `{kind:"action"}` deep links without capturing a stale nav/flags.
   const runLinkActionRef = useRef<(kind: string, params?: Record<string, string>) => void>(() => {});
@@ -303,18 +340,23 @@ export default function SduiApp() {
             : [{ screenId: firstScreenId }, { screenId: "paywall" }],
         );
       } else {
-        // A question the backend wants asked again, presented ON TOP of the
-        // app rather than in front of it: pushed like the soft paywall, so
-        // back and edge-swipe both dismiss it and the app is right there
-        // underneath. The server decides whether and when; the client only
-        // honours it. Skipped when it names the screen we are already on, so
-        // a prompt can never bury its own subject.
+        setStack([{ screenId: firstScreenId }]);
+        // A question the backend wants asked again — presented ON TOP of the
+        // app rather than in front of it, and only once the user has stopped.
+        //
+        // It is pushed like the soft paywall, so back and edge-swipe dismiss
+        // it and the app is right there underneath. But it is NOT pushed at
+        // boot: landing a card the instant the app opens interrupts whatever
+        // the user came to do. armArrivalPrompt waits, and abandons the card
+        // if they start doing something in the meantime.
+        //
+        // The server decides whether, which, and how long to wait; the client
+        // only honours it. Skipped when it names the screen we are already on,
+        // so a prompt can never bury its own subject.
         const promptScreenId = b.flags?.["promptScreenId"];
-        setStack(
-          typeof promptScreenId === "string" && promptScreenId && promptScreenId !== firstScreenId
-            ? [{ screenId: firstScreenId }, { screenId: promptScreenId }]
-            : [{ screenId: firstScreenId }],
-        );
+        if (typeof promptScreenId === "string" && promptScreenId && promptScreenId !== firstScreenId) {
+          armArrivalPrompt(promptScreenId, Number(b.flags?.["promptAfterMs"]) || 9000);
+        }
       }
       setPhase("ready");
     } catch {
@@ -614,9 +656,20 @@ export default function SduiApp() {
 
   const nav: NavApi = useMemo(
     () => ({
-      push: (screenId, params) => setStack((s) => [...s, { screenId, params }]),
-      back: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
+      // Any of these means the user is doing something, so a pending arrival
+      // prompt is dropped rather than landing on top of it. The server will
+      // ask again on a later launch; interrupting is the one thing it must
+      // not do.
+      push: (screenId, params) => {
+        cancelArrivalPrompt();
+        setStack((s) => [...s, { screenId, params }]);
+      },
+      back: () => {
+        cancelArrivalPrompt();
+        setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+      },
       switchTab: (id) => {
+        cancelArrivalPrompt();
         if (boot?.navigation.kind !== "tabs") return;
         const tab = boot.navigation.tabs.find((t) => t.id === id);
         if (!tab) return;
@@ -643,7 +696,7 @@ export default function SduiApp() {
         })();
       },
     }),
-    [boot],
+    [boot, cancelArrivalPrompt],
   );
 
   // Keep the mount-once deep-link listener reading fresh values: readiness (so a
