@@ -633,7 +633,7 @@ final class KeyPlaneView: UIView {
     for f in frames {
       let d = abs(f.rect.midY - mid)
       if d > worst.d {
-        let label = f.char.isEmpty ? (f.button?.accessibilityIdentifier ?? "act") : f.char
+        let label = f.char.isEmpty ? (f.button.accessibilityIdentifier ?? "act") : f.char
         worst = (label, f.rect.midY, d)
       }
     }
