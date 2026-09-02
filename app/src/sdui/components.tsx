@@ -281,9 +281,11 @@ const Button = ({ props, style, fire }: CompProps) => {
   const bg =
     props.variant === "danger" ? theme.color.danger :
     isGhost || isSecondary ? "transparent" : theme.color.primary;
-  const labelColor = isGhost ? theme.color.text
-    : isSecondary ? "rgba(255,255,255,0.88)"
-    : readableOn(bg);
+  // Secondary was a hard-coded near-white, which is invisible on a light
+  // theme — the tone editor's Edit and Cancel rendered as empty pills for
+  // anyone whose phone was in light mode. The theme's own text colour reads
+  // on the theme's own surface, in both modes.
+  const labelColor = isGhost || isSecondary ? theme.color.text : readableOn(bg);
   return (
     <SpringPressable
       onPress={() => fire("onPress")}
