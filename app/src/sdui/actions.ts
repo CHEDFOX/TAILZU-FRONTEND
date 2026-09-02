@@ -87,7 +87,14 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
     if ("lt" in cond) return Number(resolveValue(`$state.${cond.lt[0]}`, ctx)) < cond.lt[1];
     if ("lte" in cond) return Number(resolveValue(`$state.${cond.lte[0]}`, ctx)) <= cond.lte[1];
     if ("in" in cond) return Array.isArray(cond.in[1]) && cond.in[1].includes(resolveValue(`$state.${cond.in[0]}`, ctx));
-    if ("contains" in cond) return String(resolveValue(`$state.${cond.contains[0]}`, ctx) ?? "").includes(cond.contains[1]);
+    if ("contains" in cond) {
+      // An ARRAY is tested for membership, not for a substring of its joined
+      // form. Stringifying ["hinglish"] gives "hinglish", whose substring "hi"
+      // would light up Hindi in a multi-select — a wrong answer that looks
+      // right. Strings keep substring semantics.
+      const v = resolveValue(`$state.${cond.contains[0]}`, ctx);
+      return Array.isArray(v) ? v.includes(cond.contains[1]) : String(v ?? "").includes(cond.contains[1]);
+    }
     if ("startsWith" in cond) return String(resolveValue(`$state.${cond.startsWith[0]}`, ctx) ?? "").startsWith(cond.startsWith[1]);
     if ("endsWith" in cond) return String(resolveValue(`$state.${cond.endsWith[0]}`, ctx) ?? "").endsWith(cond.endsWith[1]);
     if ("truthy" in cond) return !!ctx.store.get(cond.truthy);
@@ -211,6 +218,24 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // -------------------------------------------------------------- state
     case "setState": ctx.store.set(action.path, resolveValue(action.value, ctx)); break;
     case "toggleState": ctx.store.toggle(action.path); break;
+    // Add or remove one value in an array at `path` — the primitive a
+    // multi-select needs and the only one the store could not express. `min`
+    // keeps a required choice from being emptied: with min 1, unchecking the
+    // last item does nothing rather than leaving the user with no answer.
+    case "toggleInArray": {
+      const cur = ctx.store.get(action.path);
+      const list = Array.isArray(cur) ? [...cur] : [];
+      const value = resolveValue(action.value, ctx);
+      const at = list.indexOf(value);
+      if (at >= 0) {
+        if (list.length <= Number(action.min ?? 0)) break;
+        list.splice(at, 1);
+      } else {
+        list.push(value);
+      }
+      ctx.store.set(action.path, list);
+      break;
+    }
     case "incrementState": {
       const cur = Number(ctx.store.get(action.path) ?? 0);
       ctx.store.set(action.path, cur + (action.by ?? 1));

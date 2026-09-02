@@ -85,6 +85,30 @@ async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
   return true;
 }
 
+/**
+ * The device's language, when it is one Tailzu supports.
+ *
+ * Region is dropped ("hi-IN" → "hi"): the choice drives recognition and
+ * writing, where the language matters and the region does not. An
+ * unsupported language returns null and the user stays on "auto".
+ */
+const SUPPORTED_SYSTEM_LANGUAGES = new Set([
+  "hi", "mr", "ta", "te", "bn", "gu", "pa", "kn", "ml", "ur",
+  "en", "es", "fr", "de", "pt", "ar", "ja", "ko", "zh", "ru",
+]);
+
+function inferSystemLanguage(): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Localization = require("expo-localization");
+    const tag = Localization.getLocales?.()?.[0]?.languageCode;
+    const code = String(tag ?? "").trim().toLowerCase().split("-")[0];
+    return SUPPORTED_SYSTEM_LANGUAGES.has(code) ? code : null;
+  } catch {
+    return null;   // module absent — the user keeps "auto"
+  }
+}
+
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
   // HOOKS BELONG HERE, above every early return.
@@ -219,7 +243,28 @@ export default function SduiApp() {
       //                                    language step commits.
       const needsLanguagePick = boot?.flags?.["needsLanguagePick"] === true
         || b.flags?.["needsLanguagePick"] === true;
-      const langPicked = !!(await getLanguage());
+      let langPicked = !!(await getLanguage());
+      // Nothing stored: take the answer from the phone rather than asking.
+      //
+      // The language does real work — it is the script exemplar the recognizer
+      // is primed with, the default output language, and what the app's copy is
+      // translated into — so leaving it unset costs a Hindi-first user all
+      // three. Their phone's language is usually the honest answer, and this
+      // runs whether or not the pick screen is enabled, so turning that screen
+      // off never leaves the signal empty.
+      //
+      // Only for languages we actually support; anything else stays "auto",
+      // which is a real answer (detect per utterance), not a missing one.
+      if (!langPicked) {
+        const sys = inferSystemLanguage();
+        if (sys) {
+          try {
+            await setLanguage(sys);
+            await callEndpoint("PUT", "/v1/profile", { language: sys });
+            langPicked = true;
+          } catch { /* a default is not worth failing the boot for */ }
+        }
+      }
       if (needsLanguagePick && !langPicked) {
         setPhase("language");
         return;
