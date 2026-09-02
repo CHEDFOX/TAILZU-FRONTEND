@@ -677,6 +677,17 @@ final class KeyPlaneView: UIView {
   private(set) var lastHit: (point: CGPoint, owned: Bool)?
   var onDebugHit: (() -> Void)?
 
+  /// Debug counters for the stamp. `cancelled` is every touch iOS took back
+  /// instead of ending; `rescued` those the short-and-still rule committed
+  /// anyway; `committed` every character the plane typed. On a keyboard that
+  /// owns its whole surface these are the only numbers that separate "the
+  /// tap never reached release" from "it did and typed": cancelled close to
+  /// committed means iOS is taking the taps, and the rescue's bounds are
+  /// what to tune.
+  private(set) var dbgCancelled = 0
+  private(set) var dbgRescued = 0
+  private(set) var dbgCommitted = 0
+
   /// Ownership only — same accept/reject decision as
   /// `keyAt(point) != nil || roleKeyAt(point) != nil`, without resolving WHICH
   /// key or consulting the language model.
@@ -1028,6 +1039,7 @@ final class KeyPlaneView: UIView {
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
     for t in touches {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      dbgCancelled += 1
       track.trayTimer?.invalidate()
       if track.trayActive { renderer?.planeDismissAccentTray() }
       if track.swipeMode { fadeTrail() }
@@ -1052,6 +1064,7 @@ final class KeyPlaneView: UIView {
           // Counts how often iOS stole a real tap and we rescued it — the
           // measure of whether the K11 fix is doing anything in the field.
           KeyboardTelemetry.bump(.touchesCancelledRescued)
+          dbgRescued += 1
           commit(track)
         }
       }
@@ -1079,8 +1092,10 @@ final class KeyPlaneView: UIView {
       track.button?.sendActions(for: .touchDown)
       track.button?.sendActions(for: .touchUpInside)
     } else {
+      dbgCommitted += 1
       renderer?.planeCommit(char: ch)
     }
+    onDebugHit?()
   }
 
   func flushPendingCommits() {
@@ -2635,6 +2650,8 @@ final class SDUIRenderer: NSObject {
     if let h = plane.lastHit {
       t += " t(\(Int(h.point.x)),\(Int(h.point.y)))\(h.owned ? "Y" : "N")"
     }
+    // n typed by the plane · c cancelled by iOS · s of those rescued
+    t += " n\(plane.dbgCommitted) c\(plane.dbgCancelled) s\(plane.dbgRescued)"
     return t
   }
 
