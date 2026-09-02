@@ -352,6 +352,10 @@ final class KeyPlaneView: UIView {
     frames = []
     roleFrames = []
     framesDirty = true
+    // The plane is persistent with constant bounds, so its own layout never
+    // runs after a remount and the overlay was only ever drawn once — from
+    // the first frame, with nothing in it. Repaint on every rebind.
+    if debugRects { setNeedsDisplay() }
   }
 
   /// kb.debug.showTouchRects — paint what the plane actually owns.
@@ -602,7 +606,13 @@ final class KeyPlaneView: UIView {
     ensureFrames()
     // Own the character grid + the plane-managed shift/layer keys; else nil
     // so delete / space / return / mic below receive the touch normally.
-    return owns(point) ? self : nil
+    let owned = owns(point)
+    if debugRects {
+      lastHit = (point, owned)
+      onDebugHit?()
+      setNeedsDisplay()
+    }
+    return owned ? self : nil
   }
 
   /// What the plane actually holds right now, for the build stamp.
@@ -611,11 +621,33 @@ final class KeyPlaneView: UIView {
   /// does it own the bottom row, how much of the surface do the obstacles veto
   /// — was answered by reading the source and guessing. Five times, wrongly.
   /// These are the same facts, measured on the device.
-  var partitionReport: (keys: Int, actions: Int, roles: Int, obstacles: Int, band: CGRect) {
+  var partitionReport: (keys: Int, actions: Int, roles: Int, obstacles: Int, band: CGRect,
+                        planeH: CGFloat, outlier: String) {
     ensureFrames()
     let actions = frames.filter { $0.char.isEmpty }.count
-    return (frames.count, actions, roleFrames.count, obstacleRects.count, gridBand)
+    // The key whose rect sits farthest from the plane's vertical centre.
+    // A band far taller than the plane means at least one key is converting
+    // to somewhere it is not; this names it.
+    let mid = bounds.midY
+    var worst: (label: String, y: CGFloat, d: CGFloat) = ("-", 0, -1)
+    for f in frames {
+      let d = abs(f.rect.midY - mid)
+      if d > worst.d {
+        let label = f.char.isEmpty ? (f.button?.accessibilityIdentifier ?? "act") : f.char
+        worst = (label, f.rect.midY, d)
+      }
+    }
+    return (frames.count, actions, roleFrames.count, obstacleRects.count, gridBand,
+            bounds.height, "\(worst.label)@\(Int(worst.y))")
   }
+
+  /// Debug only: the last point hitTest was asked about, and its answer.
+  /// "Y" means the plane took the touch and will resolve it; "N" means it
+  /// declined and the touch fell through to whatever is beneath. A dead gap
+  /// with N is an ownership bug; with Y it is a commit bug. Nothing else
+  /// separates those two.
+  private(set) var lastHit: (point: CGPoint, owned: Bool)?
+  var onDebugHit: (() -> Void)?
 
   /// Ownership only — same accept/reject decision as
   /// `keyAt(point) != nil || roleKeyAt(point) != nil`, without resolving WHICH
@@ -2525,11 +2557,7 @@ final class SDUIRenderer: NSObject {
     // "K26 k30 a0 r4 v9 h180" says the partition is live but the action keys
     // never registered. "K26 k0" says the plane is not installed at all. Both
     // were guesses before; now they are readings.
-    if let p = keyPlane?.partitionReport {
-      l.text = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles) h\(Int(p.band.height))"
-    } else {
-      l.text = "\(Self.buildStamp) NOPLANE"
-    }
+    l.text = stampText()
     l.font = .systemFont(ofSize: 9, weight: .heavy)
     l.textColor = UIColor.systemOrange.withAlphaComponent(0.9)
     l.isUserInteractionEnabled = false   // never intercepts key touches
@@ -2546,10 +2574,33 @@ final class SDUIRenderer: NSObject {
     // reporting "the plane owns nothing" for the one reason that has nothing
     // to do with the plane.
     DispatchQueue.main.async { [weak self, weak l] in
-      guard let self = self, let l = l, let p = self.keyPlane?.partitionReport else { return }
-      l.text = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles) h\(Int(p.band.height))"
+      guard let self = self, let l = l else { return }
+      l.text = self.stampText()
       l.sizeToFit()
     }
+    // And on every touch the plane is asked about, so the last verdict is
+    // always on screen: tap a dead spot, read whether the plane took it.
+    keyPlane?.onDebugHit = { [weak self, weak l] in
+      guard let self = self, let l = l else { return }
+      l.text = self.stampText()
+      l.sizeToFit()
+    }
+  }
+
+  /// One line that settles the argument. Fields:
+  ///   k keys in the partition   a action keys   r shift/layer   v vetoes
+  ///   P plane height            y band top      h band height
+  ///   o the key farthest from the plane's middle, and its y — the outlier
+  ///   t last touch (x,y) and Y/N for whether the plane took it
+  private func stampText() -> String {
+    guard let plane = keyPlane else { return "\(Self.buildStamp) NOPLANE" }
+    let p = plane.partitionReport
+    var t = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles)"
+    t += " P\(Int(p.planeH)) y\(Int(p.band.minY)) h\(Int(p.band.height)) o\(p.outlier)"
+    if let h = plane.lastHit {
+      t += " t(\(Int(h.point.x)),\(Int(h.point.y)))\(h.owned ? "Y" : "N")"
+    }
+    return t
   }
 
   /// Public hook — actions call this after mutating KBState.
@@ -2587,8 +2638,9 @@ final class SDUIRenderer: NSObject {
   /// near-miss doing nothing.
   private var actionKeyRegistry: [UIButton] = []
 
-  private func registerActionKey(_ v: UIView?) {
+  private func registerActionKey(_ v: UIView?, _ tag: String) {
     guard let b = v as? UIButton else { return }
+    b.accessibilityIdentifier = tag
     actionKeyRegistry.append(b)
   }
   private var weakShiftButton: UIButton?
@@ -2712,10 +2764,10 @@ final class SDUIRenderer: NSObject {
     case "ProgressBar":          v = buildProgressBar(node: node)
     case "Toggle":               v = buildToggleNode(node: node)
     case "ScrollView":           v = buildScrollView(node: node)
-    case "SpaceKey":             v = buildSpaceKey(node: node); registerActionKey(v)
+    case "SpaceKey":             v = buildSpaceKey(node: node); registerActionKey(v, "SP")
     case "ShiftKey":             v = buildShiftKey(node: node)
-    case "ReturnKey":            v = buildReturnKey(node: node); registerActionKey(v)
-    case "BackspaceKey":         v = buildBackspaceKey(node: node); registerActionKey(v)
+    case "ReturnKey":            v = buildReturnKey(node: node); registerActionKey(v, "RET")
+    case "BackspaceKey":         v = buildBackspaceKey(node: node); registerActionKey(v, "DEL")
     case "GlobeKey":             v = buildGlobeKey(node: node)
     case "MicKey":               v = buildMicKey(node: node)
     case "RefineKey":            v = buildRefineKey(node: node)
