@@ -270,9 +270,44 @@ const Stack = ({ node, children, style, fire }: CompProps) => {
 
 const Spacer = ({ style }: CompProps) => <View style={style.height || style.width ? style : { flex: 1 }} />;
 
+/**
+ * Turn an ISO timestamp into something a person reads.
+ *
+ * This has to happen on the device, not the server: the server knows the
+ * instant but not the timezone, and a history list that says 08:30 to someone
+ * who dictated at 14:00 is worse than no time at all.
+ *
+ * Recent entries get elapsed time, because in a list of things you just did
+ * "4m ago" answers the question and a date does not. Past a week the date is
+ * the more useful fact and the year appears only when it is not this one.
+ */
+function humanTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return iso;
+  const secs = Math.max(0, (Date.now() - then) / 1000);
+  if (secs < 45) return "just now";
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  if (secs < 7 * 86400) return `${Math.round(secs / 86400)}d ago`;
+  const d = new Date(then);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, {
+    day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
 const TextC = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[textVariant(props.variant, theme), style]}>{staticText(node, props.content ?? "")}</Text>;
+  const raw = staticText(node, props.content ?? "");
+  // `format` lets the backend hand over a machine value and ask for the human
+  // one, instead of shipping a pre-formatted string it cannot localise or
+  // place in the reader's timezone.
+  const shown =
+    props.format === "relative" && typeof raw === "string" ? humanTime(raw)
+    : props.format === "datetime" && typeof raw === "string" && Number.isFinite(Date.parse(raw))
+      ? new Date(raw).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : raw;
+  return <Text style={[textVariant(props.variant, theme), style]}>{shown}</Text>;
 };
 
 const ImageC = ({ props, style }: CompProps) => {
