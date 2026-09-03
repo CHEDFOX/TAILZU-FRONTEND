@@ -230,18 +230,59 @@ const Tabs = ({ props, style }: CompProps) => {
 // Inputs
 // ---------------------------------------------------------------------------
 
-const Switch = ({ node, style, store, fire }: CompProps) => {
+/**
+ * An iOS-shaped switch that is ours, not Apple's.
+ *
+ * It was 44x26 with a thumb that teleported and a hardcoded iOS green. The
+ * green is the problem: a system colour on a control the system did not draw
+ * reads as borrowed, and it is the one element on the screen not speaking the
+ * product's own language. On means ON in this app, so it wears the accent.
+ *
+ * Real iOS proportions (51x31, 27 thumb) because those are simply the ones
+ * that look right, and a spring on the thumb because the whole appeal of this
+ * control is that it feels like a physical thing being thrown.
+ */
+const Switch = ({ node, props, style, store, fire }: CompProps) => {
   const bindKey = node.bind?.value;
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
   const value = !!store.get(bindKey ?? "");
+  const theme = useTheme();
+  const onColor = (props.onColor as string) || theme.color.primary;
+  const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue: value ? 1 : 0,
+      useNativeDriver: false,   // track colour interpolates, which the native driver cannot
+      friction: 9,
+      tension: 90,
+    }).start();
+  }, [value, anim]);
   const toggle = () => {
     if (bindKey) store.set(bindKey, !value);
     fire("onChange", !value);
   };
   return (
-    <Pressable onPress={toggle} style={[styles.switchTrack, value && styles.switchTrackOn, style]}>
-      <Animated.View style={[styles.switchThumb, value && { transform: [{ translateX: 20 }] }]} />
+    <Pressable onPress={toggle} accessibilityRole="switch" accessibilityState={{ checked: value }}>
+      <Animated.View
+        style={[
+          styles.switchTrack,
+          {
+            backgroundColor: anim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [theme.color.border ?? "#333", onColor],
+            }),
+          },
+          style,
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.switchThumb,
+            { transform: [{ translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [0, 20] }) }] },
+          ]}
+        />
+      </Animated.View>
     </Pressable>
   );
 };
@@ -891,9 +932,14 @@ const styles = StyleSheet.create({
   tabItemActive: { borderBottomWidth: 2, borderBottomColor: "#fff" },
   tabText: { color: "#888" },
   tabTextActive: { color: "#fff", fontWeight: "700" },
-  switchTrack: { width: 44, height: 26, borderRadius: 13, backgroundColor: "#333", padding: 3, justifyContent: "center" },
-  switchTrackOn: { backgroundColor: "#4CD964" },
-  switchThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff" },
+  // Apple's own proportions. The track colour is set per-render from the
+  // theme, not here, so it follows the brand rather than the system.
+  switchTrack: { width: 51, height: 31, borderRadius: 16, padding: 2, justifyContent: "center" },
+  switchThumb: {
+    width: 27, height: 27, borderRadius: 14, backgroundColor: "#fff",
+    shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 }, elevation: 2,
+  },
   stepperRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   stepperBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#1c1c25", alignItems: "center", justifyContent: "center" },
   stepperBtnText: { color: "#fff", fontSize: 18, fontWeight: "600" },
