@@ -50,6 +50,9 @@ export const CORE_COMPONENTS = [
   "KeyboardPreview",
   // BinaryReveal — a wordmark decoding itself out of 0s and 1s, on a loop.
   "BinaryReveal",
+  // MorphOut — the opening scene drawn into the mic it becomes, so the intro
+  // hands over to home as one object rather than two.
+  "MorphOut",
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
