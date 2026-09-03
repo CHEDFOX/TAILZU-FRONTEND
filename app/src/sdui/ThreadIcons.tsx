@@ -58,20 +58,43 @@ function Frame({ active, nonce, size, children }: {
 }
 
 /**
- * YOU — a single zig-zag thread.
+ * YOU — a fingerprint, wound.
  *
- * One continuous run, because a person is one thread. The peaks are
- * deliberately uneven in height and the spacing drifts, so it reads as pulled
- * by hand rather than stepped by an algorithm. One end overshoots.
+ * This was a zig-zag: seven straight segments, next to a brain built from
+ * chords and a circle built from a chord envelope. It read as the icon nobody
+ * had thought about, because it was.
+ *
+ * A fingerprint is the right answer and not an arbitrary one. It is the mark
+ * that means a specific person and no other, and it is already made of what
+ * this set is made of — continuous open lines that never quite close. Nothing
+ * else in the bar could be mistaken for it.
+ *
+ * Drawn as four open whorls that do not nest evenly, plus two ridge endings —
+ * the short stubs where a real ridge stops between its neighbours, which is
+ * the detail that makes a print look printed rather than drawn. Each arc opens
+ * at a different angle so the eye never finds a shared seam.
  */
 export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d="M3.5 20.4 L7.8 10.9 L11.6 21.3 L15.9 8.2 L20.2 22.1 L24.1 11.8 L28.6 19.2"
-        stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {/* loose end past the last pin */}
-      <Path d="M28.6 19.2 L30.4 22.6" stroke={c} strokeWidth={1.3} strokeLinecap="round" fill="none" opacity={0.75} />
+      {/* the core curl — where every ridge turns back on itself */}
+      <Path d="M13.6 16.6 C13.1 14.1 17.5 13.4 18.0 15.9 C18.4 18.2 15.1 19.3 13.9 17.6"
+        stroke={c} strokeWidth={1.5} strokeLinecap="round" fill="none" />
+      {/* Whorls that wrap nearly all the way round, each opening at a
+          DIFFERENT angle. Drawn as arcs opening only ~60°: at 200° they read
+          as a wifi fan, which is the wrong icon entirely. */}
+      <Path d="M12.0 19.2 A 5.0 5.6 0 1 1 17.5 20.9"
+        stroke={c} strokeWidth={1.45} strokeLinecap="round" fill="none" opacity={0.95} />
+      <Path d="M12.2 22.5 A 7.2 8.0 0 1 1 19.4 22.5"
+        stroke={c} strokeWidth={1.4} strokeLinecap="round" fill="none" opacity={0.82} />
+      <Path d="M12.6 25.2 A 9.4 10.2 0 1 1 21.2 24.0"
+        stroke={c} strokeWidth={1.35} strokeLinecap="round" fill="none" opacity={0.68} />
+      {/* ridge endings — the short stubs a real print is full of */}
+      <Path d="M15.4 21.4 L15.6 23.6" stroke={c} strokeWidth={1.1} strokeLinecap="round" fill="none" opacity={0.6} />
+      <Path d="M19.0 19.6 L20.4 21.2" stroke={c} strokeWidth={1.0} strokeLinecap="round" fill="none" opacity={0.5} />
+      {/* the thread leaving the print, as every icon here has one */}
+      <Path d="M21.2 24.0 L23.4 26.8" stroke={c} strokeWidth={1.2} strokeLinecap="round" fill="none" opacity={0.7} />
     </Frame>
   );
 }
@@ -93,13 +116,15 @@ export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { n
                C22.3 25.0 25.6 21.9 25.0 18.6 C27.6 17.1 27.5 13.0 25.1 11.6
                C25.4 7.7 20.8 4.3 15.8 5.1 Z"
         stroke={c} strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {/* chords — the winding that fills the shape */}
-      <Path d="M15.9 5.4 L15.6 24.6" stroke={c} strokeWidth={1.35} strokeLinecap="round" opacity={0.9} fill="none" />
-      <Path d="M6.4 11.9 L20.6 8.0" stroke={c} strokeWidth={1.05} strokeLinecap="round" opacity={0.6} fill="none" />
-      <Path d="M6.9 18.0 L21.8 13.4" stroke={c} strokeWidth={1.05} strokeLinecap="round" opacity={0.6} fill="none" />
-      <Path d="M12.1 23.6 L24.6 17.1" stroke={c} strokeWidth={1.05} strokeLinecap="round" opacity={0.55} fill="none" />
-      <Path d="M10.2 7.4 L9.1 21.9" stroke={c} strokeWidth={0.95} strokeLinecap="round" opacity={0.45} fill="none" />
-      <Path d="M21.4 7.2 L22.3 21.4" stroke={c} strokeWidth={0.95} strokeLinecap="round" opacity={0.45} fill="none" />
+      {/* The fissure between the hemispheres, full strength — this one line is
+          what makes the shape read as a brain rather than a bean. */}
+      <Path d="M15.9 5.4 L15.6 24.6" stroke={c} strokeWidth={1.3} strokeLinecap="round" opacity={0.85} fill="none" />
+      {/* Three chords, not six. At 26pt a dense winding stops being folds and
+          becomes a mesh, and a woven ball is not a brain — the silhouette has
+          to win. These suggest the folds and then get out of the way. */}
+      <Path d="M7.4 12.4 L19.4 8.6" stroke={c} strokeWidth={0.95} strokeLinecap="round" opacity={0.5} fill="none" />
+      <Path d="M7.8 18.2 L20.8 14.2" stroke={c} strokeWidth={0.95} strokeLinecap="round" opacity={0.5} fill="none" />
+      <Path d="M12.6 22.8 L23.2 17.4" stroke={c} strokeWidth={0.9} strokeLinecap="round" opacity={0.42} fill="none" />
       {/* the stem, and a thread end left hanging */}
       <Path d="M15.7 24.4 L15.2 28.3" stroke={c} strokeWidth={1.3} strokeLinecap="round" fill="none" opacity={0.8} />
     </Frame>
@@ -107,36 +132,39 @@ export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { n
 }
 
 /**
- * STATS — a circular winding.
+ * STATS — a rising thread, pulled taut over pins.
  *
- * Pins around a ring with the thread crossing the middle at a fixed step, which
- * is how a real string-art circle is made: the envelope of all those straight
- * chords is the curve you see, and no curve was ever drawn. The ring itself is
- * left slightly open so it reads as wound, not printed.
+ * This was a circular chord winding: beautiful on its own, and at 26pt almost
+ * indistinguishable from the brain beside it. Two round icons full of straight
+ * lines is one idea shown twice, and the bar has three seconds to be read.
+ *
+ * A climb over pins is unmistakable at any size, says what the tab holds
+ * without a chart's furniture, and is still the same craft — the thread is
+ * straight between pins because thread is, and the pins are where it turns.
  */
 export function ThreadStats({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
-  const R = 11, CX = 16, CY = 16, N = 13, STEP = 5;
-  const pt = (i: number) => {
-    const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-    return [CX + R * Math.cos(a), CY + R * Math.sin(a)];
-  };
-  const chords: string[] = [];
-  for (let i = 0; i < N; i++) {
-    const [x1, y1] = pt(i);
-    const [x2, y2] = pt((i * STEP) % N);
-    chords.push(`M${x1.toFixed(1)} ${y1.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)}`);
-  }
+  // Uneven on purpose: a monotonic climb reads as a logo, and real numbers
+  // dip. The third pin falls below the second.
+  const pins: Array<[number, number]> = [[5.0, 23.6], [10.6, 18.8], [16.0, 20.6], [21.4, 13.2], [27.0, 7.8]];
+  const line = pins.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      {/* the ring, deliberately not closed */}
-      <Circle cx={CX} cy={CY} r={R} stroke={c} strokeWidth={1.7} fill="none"
-        strokeDasharray="58 8" strokeLinecap="round" opacity={0.95} />
-      {chords.map((d, i) => (
-        <Path key={i} d={d} stroke={c} strokeWidth={0.95} strokeLinecap="round"
-          opacity={0.42 + (i % 3) * 0.12} fill="none" />
+      {/* the ground the pins are driven into — open at both ends */}
+      <Path d="M3.6 27.0 L28.4 27.0" stroke={c} strokeWidth={1.15} strokeLinecap="round"
+        fill="none" opacity={0.45} strokeDasharray="17 5" />
+      {/* two threads dropped to the ground, so the climb has a scale */}
+      <Path d="M10.6 18.8 L10.6 26.6" stroke={c} strokeWidth={0.95} strokeLinecap="round" fill="none" opacity={0.4} />
+      <Path d="M21.4 13.2 L21.4 26.6" stroke={c} strokeWidth={0.95} strokeLinecap="round" fill="none" opacity={0.4} />
+      {/* the climb */}
+      <Path d={line} stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      {/* the pins it turns on */}
+      {pins.map(([x, y], i) => (
+        <Circle key={i} cx={x} cy={y} r={i === pins.length - 1 ? 1.5 : 1.15} fill={c}
+          opacity={i === pins.length - 1 ? 1 : 0.85} />
       ))}
-      <Path d="M16 5 L17.9 2.2" stroke={c} strokeWidth={1.25} strokeLinecap="round" fill="none" opacity={0.75} />
+      {/* the end, carrying on past the last pin */}
+      <Path d="M27.0 7.8 L29.5 4.9" stroke={c} strokeWidth={1.25} strokeLinecap="round" fill="none" opacity={0.7} />
     </Frame>
   );
 }
