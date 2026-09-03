@@ -853,7 +853,24 @@ export default function SduiApp() {
       <View style={{ flex: 1 }}>
         {screen ? (
           <ThemeContext.Provider value={theme}>
-            <ScreenHost screen={screen} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
+            {/*
+              KEYED BY SCREEN. Without this React keeps the same component
+              instance across a navigation, because the element type and
+              position never change — so every node's onAppear, which fires
+              once on mount with an empty dep array, does NOT fire again.
+
+              That strands any screen whose exit depends on onAppear. The
+              intro is exactly that: its timer is what moves it on, so
+              returning to it from another screen left the media looping with
+              nothing to end it, forever.
+
+              The key is the screen's identity, not its content, so a
+              revalidation of the SAME screen still updates in place and does
+              not restart its animations or re-fire its actions.
+            */}
+            <ScreenHost
+              key={`${current?.screenId ?? ""}:${JSON.stringify(current?.params ?? {})}`}
+              screen={screen} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
           </ThemeContext.Provider>
         ) : screenError ? (
           // Never-loaded-once + failure: render a real error card with a
