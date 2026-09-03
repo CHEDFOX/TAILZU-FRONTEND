@@ -1584,6 +1584,8 @@ protocol KBHostControllerProtocol: AnyObject {
   /// The current field's returnKeyType, so the Return key can render its
   /// context-appropriate label (Go / Search / Send / Done…) + accent color.
   func hostReturnKeyType() -> UIReturnKeyType
+  /// What kind of field the cursor is in, in words — see the implementation.
+  func hostFieldKind() -> String
   /// True when the focused field only accepts numbers, so the renderer can
   /// show the number pad instead of QWERTY.
   func hostIsNumericField() -> Bool
