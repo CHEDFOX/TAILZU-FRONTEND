@@ -307,7 +307,16 @@ const TextC = ({ node, props, style }: CompProps) => {
     : props.format === "datetime" && typeof raw === "string" && Number.isFinite(Date.parse(raw))
       ? new Date(raw).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
     : raw;
-  return <Text style={[textVariant(props.variant, theme), style]}>{shown}</Text>;
+  return (
+    <Text
+      style={[textVariant(props.variant, theme), style]}
+      // Authored on the history rows and previously dropped, so a long
+      // dictation rendered in full and blew the card out.
+      numberOfLines={Number(props.numberOfLines) > 0 ? Number(props.numberOfLines) : undefined}
+    >
+      {shown}
+    </Text>
+  );
 };
 
 const ImageC = ({ props, style }: CompProps) => {
@@ -429,9 +438,17 @@ const Card = ({ node, children, style, fire }: CompProps) => {
   // You tab, media cards, etc.) was silently dead. Wrap it in a gentle
   // SpringPressable when — and only when — an onPress is wired, so plain Cards
   // stay inert Views.
-  if (node.on?.onPress) {
+  // onLongPress too. It was never wired, and long-press is the ONLY delete
+  // affordance in the app — the history row's "hold to delete" did nothing,
+  // so DELETE /v1/history/:id was unreachable from the interface entirely.
+  if (node.on?.onPress || node.on?.onLongPress) {
     return (
-      <SpringPressable onPress={() => fire("onPress")} pressScale={0.98} style={[base, style]}>
+      <SpringPressable
+        onPress={node.on?.onPress ? () => fire("onPress") : undefined}
+        onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
+        pressScale={0.98}
+        style={[base, style]}
+      >
         {children}
       </SpringPressable>
     );
