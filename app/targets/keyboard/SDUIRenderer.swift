@@ -420,6 +420,23 @@ final class KeyPlaneView: UIView {
     // witness noticing first, so that is the only case that needs the flag.
     // Anything else the witness catches for one convert.
     if !bounds.equalTo(geoBounds) { framesDirty = true }
+    // Then bring the geometry up to date HERE, while the user is not touching
+    // anything, rather than leaving it for the first touch to pay for.
+    //
+    // This is what the debug overlay was accidentally doing: its draw() called
+    // ensureFrames() every frame, so the rects were always warm before a
+    // finger arrived — and the keyboard measurably felt better with it on.
+    // Turning it off removed the warming along with the paint.
+    //
+    // It matters because convert(_:from:) is only cheap against a settled
+    // layer tree. Called with layout still pending it resolves that layout
+    // first, so the first touch after any change was paying for the tree as
+    // well as the geometry, at exactly the wrong moment. layoutSubviews runs
+    // at frame boundaries, where that cost is free.
+    //
+    // Cheap by construction: with nothing moved this is the witness check and
+    // returns after one convert.
+    ensureFrames()
   }
 
   /// True when the cached rects may no longer match the screen.
@@ -2537,11 +2554,13 @@ final class SDUIRenderer: NSObject {
         // field use, so they're OTA-adjustable rather than baked in.
         plane.fillGaps = flagBool("kb.touch.fillGaps", true)
         plane.debugRects = flagBool("kb.debug.showTouchRects", false)
-        // A UIView with no drawRect skips display entirely; the overlay needs
-        // it back on, and only when it is actually being used.
-        plane.isOpaque = false
+        // A UIView with no drawRect skips display entirely — which is what we
+        // want in production. Only the overlay needs a backing store, so only
+        // the overlay asks for one; leaving .redraw on shipped every user a
+        // full-keyboard bitmap to composite for nothing.
         plane.backgroundColor = .clear
-        plane.contentMode = .redraw
+        plane.isOpaque = false
+        plane.contentMode = plane.debugRects ? .redraw : .scaleToFill
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
