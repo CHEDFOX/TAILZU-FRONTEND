@@ -409,11 +409,17 @@ final class KeyPlaneView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     if debugRects { setNeedsDisplay() }
-    // MARK dirty rather than recomputing. Layout runs far more often than
-    // touches do — every suggestion chip repaint triggers a pass — and the
-    // geometry is only ever READ when a finger arrives. Recomputing here paid
-    // the full cost on every layout and threw most of it away.
-    framesDirty = true
+    // Marking dirty here defeats the witness, because layout runs constantly
+    // for reasons that never move a key: the key-popup balloon is added to the
+    // container on every single press, and that lays the container out, and
+    // that lays this view out. Every keypress would therefore force a full
+    // grid rebuild on the next touch — exactly while the user is typing
+    // fastest, which is when they can least afford it.
+    //
+    // Only a change to this view's OWN bounds can move the keys without the
+    // witness noticing first, so that is the only case that needs the flag.
+    // Anything else the witness catches for one convert.
+    if !bounds.equalTo(geoBounds) { framesDirty = true }
   }
 
   /// True when the cached rects may no longer match the screen.
