@@ -427,17 +427,47 @@ final class KeyPlaneView: UIView {
   /// refreshes UIKit used to force per finger-down into exactly one.
   private var framesDirty = true
 
+  /// One key's converted rect, kept as the witness for "has the grid moved?".
+  ///
+  /// The guarantee this class needs is that a touch resolves against LIVE
+  /// geometry — stale rects are what made only hard, dead-centre taps type.
+  /// It used to buy that by rebuilding everything on every hit test: ~31 keys
+  /// plus every obstacle, converted one by one. UIKit hit-tests a view
+  /// repeatedly per touch and touchesBegan then did it again, so a single
+  /// finger-down cost that rebuild several times over, on the main thread,
+  /// between the finger landing and anything appearing.
+  ///
+  /// That is a lag the user feels as dropped taps: while the main thread is
+  /// converting rectangles it is not accepting touches, and light quick taps
+  /// are the ones that fall in the gap.
+  ///
+  /// The keys live in a stack — if the grid moves, every key moves with it —
+  /// so ONE key's rect answers the question. Checking it costs a single
+  /// convert; only when it disagrees does the full rebuild run. Same
+  /// guarantee, a thirtieth of the work.
+  private var geoWitness: CGRect = .null
+  private var geoBounds: CGRect = .null
+
   private func ensureFrames() {
     if obstaclesDirty, let r = renderer {
       obstaclesDirty = false
       obstacles = r.planeObstacleViews().map { WeakView(v: $0) }
       framesDirty = true
     }
-    if framesDirty || frames.isEmpty { refreshFrames() }
+    if framesDirty || frames.isEmpty { refreshFrames(); return }
+    // Cheap check: has anything actually moved since the last rebuild?
+    guard let first = frames.first?.button, first.window != nil else { refreshFrames(); return }
+    let now = convert(first.bounds, from: first)
+    if bounds.equalTo(geoBounds), now.equalTo(geoWitness) { return }
+    refreshFrames()
   }
 
   private func refreshFrames() {
     framesDirty = false
+    defer {
+      geoBounds = bounds
+      geoWitness = frames.first.map { f in convert(f.button.bounds, from: f.button) } ?? .null
+    }
     var raw: [(UIButton, String, CGRect)] = []
     var roles: [(UIButton, Role, CGRect)] = []
     for k in keys {
@@ -631,7 +661,10 @@ final class KeyPlaneView: UIView {
     // each key's row once instead of rescanning inside two nested loops. A
     // handful of convert() calls per finger-down is a price worth paying to
     // never decline a real touch.
-    framesDirty = true
+    // No forced rebuild: ensureFrames checks the witness and rebuilds only if
+    // the grid has actually moved. Forcing it here — and again in
+    // touchesBegan — meant every finger-down paid for the full geometry twice
+    // over before a character could appear.
     ensureFrames()
     // Own the character grid + the plane-managed shift/layer keys; else nil
     // so delete / space / return / mic below receive the touch normally.
@@ -737,11 +770,10 @@ final class KeyPlaneView: UIView {
     // exist. A touch resolving to a dead button does nothing at all: a dead
     // touch, and only ever while typing fast.
     //
-    // This is cheap now. refreshFrames used to be quadratic — a rowIndex
-    // closure rescanned inside two nested loops — which is why it was worth
-    // avoiding per touch; it resolves each key's row once. Correctness on the
-    // typing path is worth more than the remaining handful of convert() calls.
-    framesDirty = true
+    // hitTest ran microseconds ago and already brought the geometry up to
+    // date, so this is the witness check and nothing more — one convert.
+    // Forcing the rebuild here as well made every finger-down pay for the
+    // whole grid twice, on the main thread, before a character appeared.
     ensureFrames()
     // Press-order rollover: a NEW finger down commits every still-held key
     // right now, so overlapped presses land in the order they were pressed —
