@@ -241,7 +241,32 @@ const Screen = ({ children, style }: CompProps) => {
   );
 };
 
-const Stack = ({ children, style }: CompProps) => <View style={style}>{children}</View>;
+/**
+ * A box — and, when the backend gives it one, a tappable box.
+ *
+ * It used to be a bare View, so `on.onPress` on a Stack did nothing at all.
+ * Not an error, not a warning: the node rendered perfectly and simply could
+ * not be tapped. The Languages rows were built that way and every tap fell
+ * through, which is the kind of failure that looks like a backend bug for a
+ * day before anyone suspects the container.
+ *
+ * Pressable only when there is something to press, so the thousands of plain
+ * Stacks in the tree keep costing exactly one View.
+ */
+const Stack = ({ node, children, style, fire }: CompProps) => {
+  if (!node.on?.onPress && !node.on?.onLongPress) return <View style={style}>{children}</View>;
+  return (
+    <Pressable
+      onPress={node.on?.onPress ? () => fire("onPress") : undefined}
+      onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
+      // A row of text is not obviously a button, so the press has to say so.
+      style={({ pressed }) => [style, pressed && { opacity: 0.6 }]}
+      accessibilityRole="button"
+    >
+      {children}
+    </Pressable>
+  );
+};
 
 const Spacer = ({ style }: CompProps) => <View style={style.height || style.width ? style : { flex: 1 }} />;
 
