@@ -1276,7 +1276,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     if let ug = UserDefaults(suiteName: TulmiFlow.appGroup) {
       let before = String((textDocumentProxy.documentContextBeforeInput ?? "").suffix(600))
       ug.set(before.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "tulmi.flow.context")
-      ug.set((kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic",
+      ug.set((kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind(),
              forKey: "tulmi.flow.targetApp")
       ug.removeObject(forKey: "tulmi.flow.failed")
       ug.removeObject(forKey: "tulmi.flow.preRefined")
@@ -1443,7 +1443,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     KeyboardTelemetry.bump(.refineRequested)
     sduiRenderer?.reflectRefining(true)
     if deferred { setStatus(label("refining", "Writing…")) }
-    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // The flag wins when an operator sets it; otherwise describe the field,
+    // which is the only thing iOS can honestly say about where this is going.
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
     let pickedTone = ud?.string(forKey: "tulmi.kb.tone")
     // The shadow engine's reading, relayed by the app when the server ran two
@@ -1746,7 +1748,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     stream = s
     // Backend flags: kb.dictation.targetApp (default "Generic"), kb.dictation.language (default "auto")
-    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // The flag wins when an operator sets it; otherwise describe the field,
+    // which is the only thing iOS can honestly say about where this is going.
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     // Flag override takes precedence (lets backend force a specific language
     // for debugging / A/B tests); otherwise use the user's chosen language
     // from the shared App Group. Empty falls through to "auto" so the STT
@@ -2055,7 +2059,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     setStatus("")  // transient — refined text will land in the field
     let fileURL = url
 
-    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // The flag wins when an operator sets it; otherwise describe the field,
+    // which is the only thing iOS can honestly say about where this is going.
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
@@ -2114,7 +2120,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     KeyboardTelemetry.bump(.refineRequested)
     sduiRenderer?.reflectRefining(true)
 
-    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? "Generic"
+    // The flag wins when an operator sets it; otherwise describe the field,
+    // which is the only thing iOS can honestly say about where this is going.
+    let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     // The tone the user picked on the keyboard's pill (tone ID, App Group) —
     // sent explicitly so refine matches the pill even before the keyboard's
     // fire-and-forget PUT /v1/personality save has landed server-side.
@@ -2388,6 +2396,38 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// The keyboard types Apple exposes for numeric entry. `.numbersAndPunctuation`
   /// is deliberately NOT here: it accepts text too, and swapping a user into a
   /// dialer for a field that takes both takes away more than it gives.
+  /// What KIND of field this is — the honest iOS answer to "where is this
+  /// text going?".
+  ///
+  /// A keyboard extension cannot learn its host app: Apple exposes no public
+  /// API for it, and the tricks that exist are private and a rejection. So
+  /// targetApp has always been the constant "Generic" here, while the Android
+  /// keyboard reads the real package name and sends it. The writer was
+  /// adapting to context on one platform and flying blind on the other.
+  ///
+  /// But the field itself declares a great deal, through traits iOS DOES
+  /// expose and this keyboard already reads. A search field wants a query, not
+  /// a polite sentence. A URL or email field wants no prose at all. A Send
+  /// button means a message to a person. That is most of what the app name was
+  /// being used to infer, available without guessing and without a private API.
+  func hostFieldKind() -> String {
+    let traits = textDocumentProxy as UITextInputTraits
+    switch traits.keyboardType ?? .default {
+    case .emailAddress: return "an email address field"
+    case .URL, .webSearch: return "a URL or web search field"
+    case .numberPad, .phonePad, .decimalPad, .asciiCapableNumberPad: return "a number field"
+    case .twitter: return "a social post"
+    default: break
+    }
+    switch traits.returnKeyType ?? .default {
+    case .search, .google, .yahoo: return "a search field"
+    case .send: return "a message being sent to a person"
+    case .join, .route, .emergencyCall: return "a short form field"
+    case .next, .continue: return "one field of a longer form"
+    default: return "a text field"
+    }
+  }
+
   func hostIsNumericField() -> Bool {
     switch (textDocumentProxy as? UITextInputTraits)?.keyboardType ?? .default {
     case .numberPad, .phonePad, .decimalPad, .asciiCapableNumberPad:
