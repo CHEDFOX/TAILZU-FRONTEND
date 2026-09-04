@@ -42,6 +42,33 @@ object TulmiImageLoader {
     private const val CACHE_DIR = "keyboard-media"
 
     private val memory = ConcurrentHashMap<String, Drawable>()
+
+    /**
+     * Insertion order, so the cap evicts the oldest rather than everything.
+     *
+     * An IME is not under iOS's jetsam ceiling, but it is a long-lived process
+     * the user never restarts, and a decoded bitmap is the biggest thing it
+     * holds. Unbounded, every asset the backend has ever served stays resident
+     * for as long as the keyboard is installed. The disk cache is untouched, so
+     * an evicted image comes back without a network round trip.
+     */
+    private val order = java.util.Collections.synchronizedList(mutableListOf<String>())
+    private const val MEMORY_LIMIT = 12
+
+    private fun remember(url: String, drawable: Drawable) {
+        if (memory.put(url, drawable) == null) order.add(url)
+        while (order.size > MEMORY_LIMIT) {
+            val oldest = synchronized(order) { if (order.isEmpty()) null else order.removeAt(0) }
+                ?: break
+            memory.remove(oldest)
+        }
+    }
+
+    /** Drop every decoded image; the disk cache brings them back. */
+    fun purgeMemory() {
+        memory.clear()
+        order.clear()
+    }
     private val inflight = ConcurrentHashMap.newKeySet<String>()
     private val io = Executors.newFixedThreadPool(2)
     private val main = Handler(Looper.getMainLooper())
@@ -61,7 +88,7 @@ object TulmiImageLoader {
         memory[url]?.let { return it }
         val disk = readDisk(context, url)
         if (disk != null) {
-            memory[url] = disk
+            remember(url, disk)
             return disk
         }
         fetch(context, url, onLoad)
@@ -120,7 +147,7 @@ object TulmiImageLoader {
             inflight.remove(url)
             if (bytes == null) return@execute
             val drawable = decode(context, bytes) ?: return@execute
-            memory[url] = drawable
+            remember(url, drawable)
             writeDisk(context, url, bytes)
             if (onLoad != null) main.post { onLoad(drawable) }
         }
