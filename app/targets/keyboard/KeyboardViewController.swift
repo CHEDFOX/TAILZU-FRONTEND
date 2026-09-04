@@ -184,6 +184,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // count here is the early warning before users start seeing the keyboard
     // vanish mid-sentence.
     KeyboardTelemetry.bump(.memoryWarnings)
+    // Counting it was all this did. The largest thing the extension holds is
+    // decoded image data, and it was held for the life of the process — so the
+    // one moment iOS asks for memory back was the one moment nothing gave any.
+    // The disk cache survives, so every purged image redraws from disk.
+    TulmiImageLoader.purgeMemory()
   }
 
   override func viewDidLoad() {

@@ -20,6 +20,15 @@ import MobileCoreServices
 /// the user opens the keyboard.
 enum TulmiImageLoader {
   private static var memory: [String: UIImage] = [:]
+  /// Insertion order, so the cap can drop the oldest rather than everything.
+  private static var order: [String] = []
+  /// A keyboard extension is killed above roughly 48–60MB, and a decoded image
+  /// is the largest thing this process holds. Unbounded, every distinct asset
+  /// the backend has ever served stayed resident for the life of the extension
+  /// — which is exactly the shape of "the keyboard vanishes mid-sentence".
+  /// The disk cache is untouched by any of this, so an evicted image comes
+  /// back without a network round trip.
+  private static let memoryLimit = 12
   private static var inflight: Set<String> = []
   private static let appGroup = "group.com.tulmi.app"
   private static let cacheDirName = "keyboard-media"
@@ -32,11 +41,28 @@ enum TulmiImageLoader {
   static func cached(_ url: String, onLoad: (() -> Void)? = nil) -> UIImage? {
     if let hit = memory[url] { return hit }
     if let disk = readDisk(url) {
-      memory[url] = disk
+      remember(url, disk)
       return disk
     }
     fetch(url, onLoad: onLoad)
     return nil
+  }
+
+  /// Keep an image, and evict the oldest once the cap is passed.
+  private static func remember(_ url: String, _ image: UIImage) {
+    if memory[url] == nil { order.append(url) }
+    memory[url] = image
+    while order.count > memoryLimit {
+      let oldest = order.removeFirst()
+      memory.removeValue(forKey: oldest)
+    }
+  }
+
+  /// Drop every decoded image. Called on a memory warning: holding pixels we
+  /// can re-read from disk is not worth being killed for.
+  static func purgeMemory() {
+    memory.removeAll(keepingCapacity: false)
+    order.removeAll(keepingCapacity: false)
   }
 
   // MARK: - Fetch + cache
@@ -51,7 +77,7 @@ enum TulmiImageLoader {
       DispatchQueue.main.async {
         inflight.remove(url)
         guard let data = data, let img = decode(data) else { return }
-        memory[url] = img
+        remember(url, img)
         writeDisk(data, url: url)
         onLoad?()
       }

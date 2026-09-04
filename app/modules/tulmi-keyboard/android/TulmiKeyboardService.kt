@@ -1168,6 +1168,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (sduiActive) sduiRenderer?.stateChanged()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // The system asking for memory back is the one moment it is worth
+        // giving up decoded images — they redraw from the disk cache.
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            TulmiImageLoader.purgeMemory()
+        }
+    }
+
     override fun onFinishInput() {
         super.onFinishInput()
         // Leaving a field clears the secure flag. The next onStartInputView
