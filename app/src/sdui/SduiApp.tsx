@@ -746,7 +746,19 @@ export default function SduiApp() {
       },
       back: () => {
         cancelArrivalPrompt();
-        setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+        setStack((s) => {
+          if (s.length > 1) return s.slice(0, -1);
+          // Nothing to pop. Usually right — you cannot go back from home — but
+          // the keyboard's mic handoff REPLACES the stack, so keyboard_record
+          // and flow_arm are the only thing on it and their Cancel button did
+          // nothing at all. Leaving the user on a recording screen with a dead
+          // way out is the worst version of this: the mic is the one place
+          // they most want a way out.
+          const top = s[0]?.screenId;
+          const home = bootRef.current?.initialScreenId;
+          const transient = top === "keyboard_record" || top === "keyboard_primer" || top === "flow_arm";
+          return transient && home ? [{ screenId: home }] : s;
+        });
       },
       switchTab: (id) => {
         cancelArrivalPrompt();

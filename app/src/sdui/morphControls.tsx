@@ -266,6 +266,25 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic]);
 
+  // autoStart — the keyboard's mic handoff.
+  //
+  // The user has already tapped a mic: the one in the keyboard, which cannot
+  // record, so it opens the app instead. Asking them to tap a second mic to
+  // say the thing they had already decided to say is the seam that makes the
+  // handoff feel like a failure rather than a transition. The backend has been
+  // sending `autoStart` on that screen since it was written, and nothing read
+  // it.
+  //
+  // Guarded by a ref, not by the effect's deps: `start` is a useCallback whose
+  // identity changes with the labels, and a second automatic recording is far
+  // worse than none.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (props.autoStart !== true || autoStarted.current) return;
+    autoStarted.current = true;
+    void start();
+  }, [props.autoStart, start]);
+
   const stop = useCallback(async () => {
     setRecording(false);
     store.set("recording", false);
