@@ -107,6 +107,15 @@ export interface BootstrapResponse {
   languages?: LanguageOption[];
   cacheTtlSeconds?: number;
   cacheVersion?: string;
+  /**
+   * Screens to fetch and store on launch, before the user asks for them.
+   *
+   * The client used to warm only the tab destinations, so everything a tap
+   * deeper still waited on the network the first time it was opened — on every
+   * install, and again after every cacheVersion bump. The server knows the
+   * whole reachable set; this is it.
+   */
+  warmScreenIds?: string[];
 }
 
 export type NodeEvent =
