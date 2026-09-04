@@ -2,7 +2,9 @@ package com.tulmi.app.keyboard
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
@@ -211,6 +213,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     private fun autocorrectAtBoundary() {
         if (!autocorrectEnabled) return
+        // Correcting a password is not a cosmetic mistake — it is a login that
+        // fails for a reason the user cannot see.
+        if (kbState.secured) return
         val ic = currentInputConnection ?: return
         val candidate = corrections?.topCandidate ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
@@ -566,9 +571,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             }
             CODE_MIC -> {
                 TulmiTelemetry.bump(TulmiTelemetry.MIC_TAPS)
-                if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."))
+                if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."), actionable = true)
             }
-            CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."))
+            CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."), actionable = true)
             else -> {
                 var ch = primaryCode.toChar()
                 if (caps) ch = Character.toUpperCase(ch)
@@ -596,17 +601,45 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     // --- live (streaming) dictation -----------------------------------------
 
+    /**
+     * Can we record? If not, OPEN THE APP — do not just say so.
+     *
+     * An IME cannot request a runtime permission; only an Activity can. Both
+     * mic paths used to answer a missing RECORD_AUDIO by calling setStatus(),
+     * and setStatus deliberately renders nothing — the keyboard shows no status
+     * text at all. So the whole handling of the one failure a new Android user
+     * is most likely to hit was a line of text that is never drawn: they tapped
+     * the mic and the keyboard did nothing, forever, with no way to find out
+     * why.
+     *
+     * The app's voice-permission screen is the thing that can actually fix it,
+     * and an IME is allowed to start an Activity. So open it.
+     */
+    private fun micPermitted(): Boolean {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) return true
+        setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true)
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("tulmi://screen/onboarding"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (t: Throwable) {
+            // Nothing else to try. The keyboard stays usable for typing, which
+            // is the right failure: a keyboard that cannot dictate is still a
+            // keyboard.
+        }
+        return false
+    }
+
     private fun startStreaming() {
         // Idempotent: a second start (double-tap, or an SDUI StartDictation while
         // already live) would overwrite `stream`/`recorder` and leak the first
         // with the mic left hot. Bail if anything is already capturing.
         if (streaming || recording) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."))
-            return
-        }
+        if (kbState.secured) return
+        if (!micPermitted()) return
         pendingPartial = ""
         dictatedSomething = false
         dictatedText = ""
@@ -628,7 +661,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 // A 401/unauthorized means the shared token expired — tell the
                 // user to reopen the app (which re-shares a fresh one).
                 if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
-                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"))
+                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true)
                 else
                     setStatus(label("voice_not_listening", "444 : Not Listening"))
                 endStreaming()
@@ -758,12 +791,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // Idempotent — see startStreaming. A second start would strand the first
         // MediaRecorder with the mic hot.
         if (recording || streaming) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."))
-            return
-        }
+        if (kbState.secured) return
+        if (!micPermitted()) return
         try {
             val file = File(cacheDir, "tulmi_rec.m4a")
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
@@ -975,12 +1004,18 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     private fun refineField() {
+        // Refine reads the whole field and sends it to our server. In a
+        // password box that is an exfiltration, however well-intentioned.
+        if (kbState.secured) {
+            setStatus(label("refineSecure", "Refine is off in password fields."), actionable = true)
+            return
+        }
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(10000, 0)?.toString() ?: ""
         val after = ic.getTextAfterCursor(10000, 0)?.toString() ?: ""
         val full = (before + after).trim()
         if (full.isEmpty()) {
-            setStatus(label("refineEmpty", "Type something first, then tap Refine"))
+            setStatus(label("refineEmpty", "Type something first, then tap Refine"), actionable = true)
             return
         }
         kbState.refining = true
@@ -1010,7 +1045,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     val nowBefore = conn.getTextBeforeCursor(10000, 0)?.toString() ?: ""
                     val nowAfter = conn.getTextAfterCursor(10000, 0)?.toString() ?: ""
                     if (nowBefore != before || nowAfter != after) {
-                        setStatus(label("refine_stale", "Text changed — refine cancelled"))
+                        setStatus(label("refine_stale", "Text changed — refine cancelled"), actionable = true)
                         return@post
                     }
                     conn.deleteSurroundingText(before.length, after.length)
@@ -1117,22 +1152,29 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
     }
 
-    override fun setStatus(text: String) {
-        // The keyboard shows NO status text. Every status/error string — the
-        // 444/222 codes, "Listening…", "Finishing…", permission/auth prompts —
-        // is suppressed here so nothing chatty renders over the keys. The
-        // mic-button animation is the only feedback the keyboard gives.
-        // (Single choke point so callers don't need to change.)
-        kbState.status = ""
+    override fun setStatus(text: String, actionable: Boolean) {
+        // Chatter stays hidden — the 444/222 codes, "Listening…", "Finishing…"
+        // — because the mic animation is the feedback and text over the keys is
+        // noise. ACTIONABLE guidance shows, because the alternative is what
+        // this used to do: suppress everything, including every message that
+        // told the user how to unblock the thing they just tapped. A mic that
+        // refuses silently is indistinguishable from a mic that is broken.
+        val show = actionable && text.isNotEmpty()
+        kbState.status = if (show) text else ""
         statusView?.let {
-            it.text = ""
-            it.visibility = View.GONE
+            it.text = kbState.status
+            it.visibility = if (show) View.VISIBLE else View.GONE
         }
         if (sduiActive) sduiRenderer?.stateChanged()
     }
 
     override fun onFinishInput() {
         super.onFinishInput()
+        // Leaving a field clears the secure flag. The next onStartInputView
+        // sets it correctly anyway; this makes the SAFE value the resting one,
+        // so no path can leave the keyboard believing a password box is still
+        // focused and quietly refuse to work in the next ordinary field.
+        kbState.secured = false
         // The chips belonged to the field being left. Carrying them into the
         // next one would offer corrections for a word the user never typed there.
         corrections?.clear()
@@ -1265,10 +1307,32 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         //
         // Leaving one restores letters, so the pad can never outlive the field
         // that asked for it.
-        val cls = (info?.inputType ?: 0) and
-            android.text.InputType.TYPE_MASK_CLASS
+        val inputType = info?.inputType ?: 0
+        val cls = inputType and android.text.InputType.TYPE_MASK_CLASS
         val numericField = cls == android.text.InputType.TYPE_CLASS_NUMBER ||
             cls == android.text.InputType.TYPE_CLASS_PHONE
+
+        // IS THIS A PASSWORD BOX?
+        //
+        // iOS hands secure fields to the system keyboard and a third-party one
+        // never sees them. Android does not: an IME is given the password box
+        // exactly like any other field. Everything this keyboard does to a
+        // field is wrong there — autocorrect silently rewrites a password so
+        // the login fails, and Refine and dictation read the field and POST it
+        // to our server. The user typed it into a box with dots in it; they did
+        // not mean to send it anywhere.
+        //
+        // All four password variations, across both classes that have one.
+        val variation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+        kbState.secured = when (cls) {
+            android.text.InputType.TYPE_CLASS_TEXT ->
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            android.text.InputType.TYPE_CLASS_NUMBER ->
+                variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
         if (numericField) {
             kbState.layoutId = "num"
         } else if (kbState.layoutId == "num") {
@@ -1403,7 +1467,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun startDictation() {
         if (kbConfig?.voice == false) {
-            setStatus(label("voiceOff", "Voice is off."))
+            setStatus(label("voiceOff", "Voice is off."), actionable = true)
             return
         }
         if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
@@ -1416,7 +1480,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun runRefine() {
         if (kbConfig?.refine == false) {
-            setStatus(label("refineOff", "Refine is off."))
+            setStatus(label("refineOff", "Refine is off."), actionable = true)
             return
         }
         refineField()

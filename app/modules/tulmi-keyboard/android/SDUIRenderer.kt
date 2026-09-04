@@ -74,6 +74,15 @@ class KBState(
      */
     var hasMultipleKeyboards: Boolean = false,
     /**
+     * The focused field is a password / secure field.
+     *
+     * Android, unlike iOS, hands a third-party keyboard the password box like
+     * any other field, so this has to be known and acted on here. The SDUI tree
+     * gates the mic and Refine on it: neither may read a field the user did not
+     * mean to share, and a key that would be refused is better not drawn.
+     */
+    var secured: Boolean = false,
+    /**
      * "dark" or "light" — the system appearance.
      *
      * The keyboard tree emits TWO tools rows, one gated on each, because the
@@ -109,7 +118,17 @@ interface KBHost {
     fun switchLayout(language: String?)
     fun cycleLayout()
     fun showLanguageMenu()
-    fun setStatus(text: String)
+    /**
+     * Show a status string, or nothing.
+     *
+     * `actionable` is the whole distinction: transient chatter ("Listening…",
+     * "Finishing…") is noise over the keys and stays hidden, but guidance the
+     * user has to act on — a permission to grant, a field we will not read —
+     * has to be visible or the keyboard just looks broken. iOS has drawn this
+     * line since the mic shipped; Android suppressed everything, which is why
+     * every blocked path there was silent.
+     */
+    fun setStatus(text: String, actionable: Boolean = false)
     fun state(): KBState
     fun config(): KBConfig
     /**
@@ -1898,6 +1917,7 @@ class SDUIRenderer(
             "refining" -> s.refining
             "hasFullAccess" -> s.hasFullAccess
             "hasMultipleKeyboards" -> s.hasMultipleKeyboards
+            "secured" -> s.secured
             "appearance" -> s.appearance
             "status" -> s.status
             "micLevel" -> s.micLevel

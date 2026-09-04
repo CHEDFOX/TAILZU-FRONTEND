@@ -1634,8 +1634,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     isHandoffActive = true
     micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
     setStatus(handoff.isAppWarm
-              ? label("mic_handoff_warm", "🎙️ Speak in Tulmi — swipe back when done")
-              : label("mic_handoff_cold", "Opening Tulmi… grant mic once, then swipe back"))
+              ? label("mic_handoff_warm", "Speak in Tailzu — swipe back when done")
+              : label("mic_handoff_cold", "Opening Tailzu — grant mic once, then swipe back"))
     _ = handoff.beginHandoff(hostApp: hostBundle) { [weak self] url in
       return self?.openURLViaResponderChain(url) ?? false
     }
@@ -1728,7 +1728,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingStream = false
         guard granted else {
-          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tulmi settings to allow it."), actionable: true)
+          self.setStatus(self.label("mic_denied", "Microphone denied. Allow it in Tailzu settings."), actionable: true)
           return
         }
         self.beginStreaming()
