@@ -85,6 +85,21 @@ export function buildCapabilities() {
  * are worth retrying; 4xx client errors are not. Kept as a class so
  * `withRetry` can type-check the branch without brittle string parsing.
  */
+/**
+ * The free plan's word cap, refused by the server.
+ *
+ * Its own class because it is the one failure that is not a failure: nothing is
+ * broken, the user has simply used what the free plan includes. Retrying it
+ * cannot help and an error toast is the wrong answer — the right one is the
+ * paywall, which is what the action runner does when it sees this.
+ */
+export class QuotaExceededError extends Error {
+  constructor(message = "quota_exceeded") {
+    super(message);
+    this.name = "QuotaExceededError";
+  }
+}
+
 class RetryableFetchError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message);
@@ -103,6 +118,12 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     // 429 (rate-limit) and 5xx (server) → let `withRetry` back off and try
     // again; other 4xx are permanent (bad screen id, unauthorized) — throw a
     // plain Error and stop.
+    if (res.status === 429) {
+      // The word cap is not transient — backing off and asking again four
+      // times only delays the paywall by two seconds.
+      const text = await res.text().catch(() => "");
+      if (text.includes("quota_exceeded")) throw new QuotaExceededError(text);
+    }
     if (res.status === 429 || res.status >= 500) {
       throw new RetryableFetchError(res.status, `${path} → ${res.status}`);
     }
@@ -158,7 +179,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 // ---------------------------------------------------------------------------
 const BOOT_KEY = (base: string) => `tulmi.cache.boot:${base}`;
 const SCREEN_PREFIX = (base: string, ver: string) => `tulmi.cache.screen:${base}:${ver}:`;
-const PERSIST_MAX_SCREENS = 40;
+const PERSIST_MAX_SCREENS = 80;
 let persistBase = "";
 let persistVersion = "";
 
@@ -219,7 +240,11 @@ function persistScreen(cacheK: string, screen: ScreenResponse): void {
   const key = SCREEN_PREFIX(persistBase, persistVersion) + cacheK;
   AsyncStorage.setItem(key, JSON.stringify(screen))
     .then(async () => {
-      // Bounded: keep the most recent N for this version, drop the rest.
+      // Bounded, not ordered: getAllKeys makes no promise about order, so this
+      // drops SOME entries once over the cap, not the oldest. That is fine —
+      // the cap is a disk guard, and anything dropped is refetched and
+      // re-persisted on the next launch. It is only wrong if the cap is low
+      // enough to thrash, which is why it sits well above the screen count.
       const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SCREEN_PREFIX(persistBase, persistVersion)));
       if (keys.length > PERSIST_MAX_SCREENS) {
         await AsyncStorage.multiRemove(keys.slice(0, keys.length - PERSIST_MAX_SCREENS));
@@ -302,8 +327,50 @@ export function peekScreen(
  */
 export async function prefetchScreens(ids: string[]): Promise<void> {
   for (const id of ids) {
-    if (peekScreen(id)) continue;           // already warm
+    // Skip only what is genuinely FRESH. Skipping anything merely cached made
+    // this a no-op from the second launch onward: hydrateScreenCache loads
+    // every persisted screen as stale, so `peekScreen` answered "already warm"
+    // for all of them and nothing was ever refetched. The user saw yesterday's
+    // numbers until they happened to open the tab.
+    const hit = peekScreen(id);
+    if (hit && !hit.stale) continue;
     try { await fetchScreen(id); } catch { /* silent: nobody is waiting on it */ }
+  }
+}
+
+/** Everything in the cache, as the arguments that fetched it. */
+function cachedTargets(): Array<{ screenId: string; params?: Record<string, any> }> {
+  const out: Array<{ screenId: string; params?: Record<string, any> }> = [];
+  for (const k of Array.from(screenCache.keys())) {
+    const i = k.indexOf("::");
+    if (i < 0) {
+      out.push({ screenId: k });
+      continue;
+    }
+    try {
+      out.push({ screenId: k.slice(0, i), params: JSON.parse(k.slice(i + 2)) });
+    } catch {
+      out.push({ screenId: k.slice(0, i) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Re-fetch every screen the cache holds, and write the results back to disk.
+ *
+ * The warm list covers the screens the server knows about; this covers the
+ * rest — anything reached with params, anything opened last session. Run on
+ * each launch and each foreground, so data that changed on the server (usage,
+ * history, entitlement) is already correct the moment a screen is opened
+ * rather than after the user watches it refresh.
+ *
+ * Sequential and silent: background work must never compete with the screen
+ * being looked at, and must never raise an error for a screen nobody asked for.
+ */
+export async function refreshCachedScreens(): Promise<void> {
+  for (const t of cachedTargets()) {
+    try { await fetchScreen(t.screenId, t.params); } catch { /* silent */ }
   }
 }
 
@@ -395,7 +462,18 @@ export async function callEndpoint(
     headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
     body: body != null && method !== "GET" ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${path} → ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 429) {
+      // Two very different things share this status: the rate limiter, and the
+      // free-plan word cap. Only the body tells them apart, and getting it
+      // wrong is what made "you have used your free words" arrive as
+      // "Something went wrong. Check your connection." — a bug report instead
+      // of an upgrade.
+      const text = await res.text().catch(() => "");
+      if (text.includes("quota_exceeded")) throw new QuotaExceededError(text);
+    }
+    throw new Error(`${path} → ${res.status}`);
+  }
   const ct = res.headers.get("content-type") ?? "";
   return ct.includes("application/json") ? res.json() : res.text();
 }

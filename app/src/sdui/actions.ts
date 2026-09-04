@@ -28,7 +28,7 @@ import * as Tracking from "expo-tracking-transparency";
 import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
-import { callEndpoint, invalidateScreens } from "./client";
+import { callEndpoint, invalidateScreens, QuotaExceededError } from "./client";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
@@ -209,7 +209,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           }
           ctx.nav.refreshLocale();
         }
-      } catch {
+      } catch (err) {
+        // The free-plan cap is not an error to apologise for. Every one of
+        // these calls carries a generic "check your connection" toast, and
+        // that is what a user who had simply run out of free words was told —
+        // so the one thing that would have helped, the paywall, was the one
+        // thing they never saw.
+        if (err instanceof QuotaExceededError) {
+          ctx.nav.push("paywall");
+          break;
+        }
         await runAction(action.onError, ctx);
       }
       break;

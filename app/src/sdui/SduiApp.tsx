@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -440,16 +440,34 @@ export default function SduiApp() {
 
   const current = stack[stack.length - 1];
 
-  // Warm the other tabs once we are up. Runs after the first screen has been
-  // asked for, so it never delays what the user is actually looking at — and
-  // by the time they reach for a tab, it is already in the cache.
+  // Warm and refresh the whole app once we are up.
+  //
+  // Two jobs, in this order, because they answer two different complaints:
+  //
+  //   1. prefetchScreens(warm list) — the FIRST launch. Fetch every screen the
+  //      server says is reachable, not just the tab destinations, so nothing a
+  //      tap deeper ever waits on the network.
+  //   2. refreshCachedScreens() — EVERY launch after that. The disk cache is
+  //      loaded stale, so without this the app showed whatever it last saw
+  //      until the user happened to open that screen. Usage counts, history and
+  //      entitlement all change while the app is closed; this is what makes
+  //      them right before they are looked at.
+  //
+  // Delayed and sequential, so it never competes with the screen on screen.
   useEffect(() => {
     if (phase !== "ready" || !boot) return;
-    const ids = boot.navigation.kind === "tabs"
+    const tabs = boot.navigation.kind === "tabs"
       ? boot.navigation.tabs.map((t) => t.screenId)
       : [];
-    if (!ids.length) return;
-    const t = setTimeout(() => { void prefetchScreens(ids); }, 600);
+    // The server's list wins; tabs are the floor, so an older backend that
+    // sends no list still warms what it always did.
+    const ids = Array.from(new Set([...(boot.warmScreenIds ?? []), ...tabs]));
+    const t = setTimeout(() => {
+      void (async () => {
+        if (ids.length) await prefetchScreens(ids);
+        await refreshCachedScreens();
+      })();
+    }, 600);
     return () => clearTimeout(t);
   }, [phase, boot]);
 
@@ -499,6 +517,20 @@ export default function SduiApp() {
   const bootRef = useRef(boot);
   useEffect(() => { bootRef.current = boot; }, [boot]);
 
+  /**
+   * Has this user spent the free plan's words?
+   *
+   * The server computes it — it counts the words and it knows who has paid —
+   * and sends the answer in the bootstrap, refreshed on every launch and every
+   * foreground. The app only has to route on it. An entitled user is never
+   * over: `quota.exceeded` already folds the entitlement in, so there is no
+   * second condition here to get out of step with the server's.
+   */
+  const overFreeLimit = useCallback(
+    () => bootRef.current?.flags?.["quota.exceeded"] === true,
+    [],
+  );
+
   // Consume whatever the keyboard extension left in the shared App Group (a mic
   // "handoff" record request or a deep-link tombstone) and route / arm from it.
   // Returns "record" (routed to the mic-record screen), "navigated" (routed via
@@ -514,6 +546,14 @@ export default function SduiApp() {
       // Fresh mic handoff. Drain the PAIRED deep-link tombstone too, so it can't
       // re-open the record screen on a later, unrelated foreground.
       consumeKeyboardDeepLink();
+      // Over the free cap, the mic is not what should open. The server will
+      // refuse the dictation anyway, so arming a session and showing a
+      // recording screen only walks the user into a rejection — and lands them
+      // on an error toast instead of the one screen that can fix it.
+      if (overFreeLimit()) {
+        setStack([{ screenId: "paywall" }]);
+        return "navigated";
+      }
       setStack([{
         screenId: "keyboard_record",
         params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
@@ -529,6 +569,12 @@ export default function SduiApp() {
     if (pending.startsWith("screen/")) {
       const screenId = pending.slice("screen/".length);
       if (screenId === "flow_arm") {
+        // Same rule as the mic handoff: no point arming a mic whose every
+        // transcript the server is going to refuse.
+        if (overFreeLimit()) {
+          setStack([{ screenId: "paywall" }]);
+          return "navigated";
+        }
         // Flow Session arming: the keyboard opened us here to turn the background
         // mic on. Arm it deterministically (idle window backend-tunable via
         // kb.flow.idleTimeoutMs) AND route to the backend-authored "swipe back"
@@ -675,6 +721,11 @@ export default function SduiApp() {
             }
             return b;
           });
+          // Every other cached screen too, not just the one in front. A user
+          // who dictates from the keyboard in another app and comes back
+          // should find the stats and history already counting it, without
+          // watching each tab refresh itself as they arrive.
+          void refreshCachedScreens();
         } catch {
           /* offline / transient — user's next interaction retries */
         }
