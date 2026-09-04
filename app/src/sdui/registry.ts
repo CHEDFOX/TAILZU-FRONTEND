@@ -53,6 +53,9 @@ export const CORE_COMPONENTS = [
   // MorphOut — the opening scene drawn into the mic it becomes, so the intro
   // hands over to home as one object rather than two.
   "MorphOut",
+  // WordMeter — the free plan's words, and the ones the user has earned. The
+  // track grows as they are earned, so the reward is the bar itself.
+  "WordMeter",
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
