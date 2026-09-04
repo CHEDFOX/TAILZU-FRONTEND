@@ -57,9 +57,13 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function jsonPost<T>(path: string, body: unknown): Promise<T> {
+  return jsonRequest<T>("POST", path, body);
+}
+
+async function jsonRequest<T>(method: string, path: string, body: unknown): Promise<T> {
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
@@ -192,6 +196,9 @@ export async function getPersonality(): Promise<Personality> {
 }
 
 export async function putPersonality(personality: Personality): Promise<Personality> {
-  const json = await jsonPost<{ personality: Personality }>("/v1/personality", personality);
+  // PUT, because that is what the route is. This was a POST, which the server
+  // answers with a 404 — the call has no caller today, so nothing broke, but
+  // the first thing to reach for it would have.
+  const json = await jsonRequest<{ personality: Personality }>("PUT", "/v1/personality", personality);
   return json.personality ?? {};
 }

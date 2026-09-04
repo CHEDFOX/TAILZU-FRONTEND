@@ -85,7 +85,24 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
   if (node.type === "List") {
     const items: any[] = Array.isArray(props.items) ? props.items : [];
     const template: Node | undefined = props.itemTemplate;
-    children = template ? <ListItems items={items} template={template} ctx={ctx} /> : null;
+    if (items.length === 0 && typeof props.emptyLabel === "string" && props.emptyLabel) {
+      // The catalog has sent `emptyLabel` on the history list since it was
+      // written and this renderer dropped it, so an empty History was a blank
+      // area under a heading — indistinguishable from a screen that failed to
+      // load. The label is already resolved above ("@history.empty" → copy).
+      children = (
+        <RenderNode
+          node={{
+            type: "Paragraph",
+            props: { content: props.emptyLabel },
+            style: { opacity: 0.6, textAlign: "center", marginTop: 24, marginBottom: 24 },
+          }}
+          ctx={ctx}
+        />
+      );
+    } else {
+      children = template ? <ListItems items={items} template={template} ctx={ctx} /> : null;
+    }
   } else {
     children = (node.children ?? []).map((child, i) => <RenderNode key={i} node={child} ctx={ctx} />);
   }
