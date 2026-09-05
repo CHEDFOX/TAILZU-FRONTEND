@@ -378,6 +378,20 @@ final class KeyPlaneView: UIView {
   ///
   /// Off by default and backend-flippable, so it can be turned on against a
   /// real device and off again without a build.
+  /// kb.touch.alwaysRefresh — rebuild key geometry on every layout pass.
+  ///
+  /// ON is the K30 behaviour and the fix. It exists as a flag only so that if
+  /// it ever costs more than it buys, that can be found out by changing a
+  /// backend value rather than by shipping another build — this problem has
+  /// already cost six.
+  var alwaysRefreshGeometry = true
+
+  /// kb.touch.totalResolve — a point the plane claimed always resolves to a
+  /// key. OFF restores the old behaviour, where a claimed point the resolver
+  /// could not place was silently dropped. Same reason: reversible without a
+  /// build.
+  var totalResolve = true
+
   var debugRects = false {
     didSet { if debugRects != oldValue { setNeedsDisplay() } }
   }
@@ -431,7 +445,7 @@ final class KeyPlaneView: UIView {
     // where convert() is cheap because the tree has settled — not on the next
     // touch. Nothing is added to the path between a finger landing and a
     // character appearing.
-    framesDirty = true
+    if alwaysRefreshGeometry { framesDirty = true }
     // Then bring the geometry up to date HERE, while the user is not touching
     // anything, rather than leaving it for the first touch to pay for.
     //
@@ -895,7 +909,7 @@ final class KeyPlaneView: UIView {
       // in the gaps, because the gaps are the only place the two rules can
       // differ. Key centres agree always, which is exactly the shape of the
       // bug as reported — centres perfect, gaps dead.
-      let hit = keyAt(p) ?? nearestKey(to: p)
+      let hit = keyAt(p) ?? (totalResolve ? nearestKey(to: p) : nil)
       let track = Track(hit?.button, hit?.char)
       track.startPoint = p
       // Seed the swipe path with the STARTING key — sweptChars otherwise only
@@ -2609,6 +2623,8 @@ final class SDUIRenderer: NSObject {
         // K11 touch feel — the values most likely to need tuning from real
         // field use, so they're OTA-adjustable rather than baked in.
         plane.fillGaps = flagBool("kb.touch.fillGaps", true)
+        plane.alwaysRefreshGeometry = flagBool("kb.touch.alwaysRefresh", true)
+        plane.totalResolve = flagBool("kb.touch.totalResolve", true)
         plane.debugRects = flagBool("kb.debug.showTouchRects", false)
         // A UIView with no drawRect skips display entirely — which is what we
         // want in production. Only the overlay needs a backing store, so only
