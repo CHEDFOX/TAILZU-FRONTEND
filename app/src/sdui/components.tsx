@@ -93,12 +93,6 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   const s = style;
   const out: Record<string, any> = {};
   if (s.flex != null) out.flex = s.flex;
-  // flexGrow separately from flex: on a ScrollView's contentContainerStyle,
-  // flexGrow:1 is what lets a screen's children fill the viewport (so a
-  // flex spacer can push the last one to the bottom) — flex:1 there caps the
-  // content's height instead and breaks scrolling.
-  if (s.flexGrow != null) out.flexGrow = s.flexGrow;
-  if (s.minHeight != null) out.minHeight = tok(s.minHeight, theme);
   if (s.direction) out.flexDirection = s.direction;
   if (s.align) out.alignItems = ALIGN[s.align];
   if (s.justify) out.justifyContent = JUSTIFY[s.justify];
