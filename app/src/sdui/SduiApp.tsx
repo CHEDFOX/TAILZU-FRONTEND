@@ -158,6 +158,17 @@ export default function SduiApp() {
   // reach "ready" (cold-entry effect below) so the default [home] stack can't
   // clobber it. Mirrors how consumeKeyboardEntry defers keyboard cold-starts.
   const pendingLinkRef = useRef<NavItem | null>(null);
+  /**
+   * What the keyboard left for us, read at BOOT rather than in a later effect.
+   *
+   * Both bridge calls clear as they read, so there is no way to peek — and the
+   * answer is needed before the first screen is chosen, because "intro" and
+   * "the screen the keyboard asked for" are two different first screens and
+   * the intro takes the whole window on a timer. So boot reads it once and
+   * stashes it here; consumeKeyboardEntry drains the stash instead of asking
+   * the bridge a second time (which would return nothing).
+   */
+  const kbEntryRef = useRef<{ rec: ReturnType<typeof consumeKeyboardRecordRequest>; link: string | null } | null>(null);
   // True once phase === "ready": lets the mount-once link listener apply a HOT
   // link immediately, vs. stashing a COLD one for the cold-entry effect.
   const readyRef = useRef(false);
@@ -326,6 +337,13 @@ export default function SduiApp() {
       // gate reads them — otherwise a paying user is hard-locked behind the
       // paywall on cold start (the gate raced the async init). Shared promise,
       // so this is cheap once warm.
+      // Read the keyboard's entry HERE, before anything picks a first screen.
+      // Drained into a ref, because these bridge calls clear as they read.
+      const kbRec = consumeKeyboardRecordRequest();
+      const kbLink = consumeKeyboardDeepLink();
+      kbEntryRef.current = { rec: kbRec, link: kbLink };
+      const kbWantsUs = !!kbRec || (!!kbLink && kbLink !== "openSettings");
+
       const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
       if (paywallEnt) await initBilling();
       const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;
@@ -345,6 +363,23 @@ export default function SduiApp() {
             ? [{ screenId: "paywall" }]
             : [{ screenId: firstScreenId }, { screenId: "paywall" }],
         );
+      } else if (kbWantsUs) {
+        // THE KEYBOARD OPENED US. It did not open us to watch the intro.
+        //
+        // initialScreenId is "intro" for anyone who has not seen it, and the
+        // intro takes the whole window — no header, no tabs — for a few
+        // seconds and then navigates on its own timer. So a keyboard mic tap
+        // landed on a brand animation, and the entry the keyboard left was
+        // read by a later effect that set the right screen underneath it, only
+        // for the intro's timer to fire afterwards and navigate away from it.
+        // Two owners of the stack, and the loser was the thing the user
+        // actually asked for.
+        //
+        // Home is the honest landing: the cold-start effect reads the
+        // keyboard's entry a moment later and routes to flow_arm or
+        // keyboard_record from there. What matters is that the intro never
+        // mounts and never starts a timer that will outlive it.
+        setStack([{ screenId: "home" }]);
       } else {
         setStack([{ screenId: firstScreenId }]);
         // A question the backend wants asked again — presented ON TOP of the
@@ -541,11 +576,15 @@ export default function SduiApp() {
   // "arm" tombstone is never consumed, armFlowSession never runs, the session
   // never arms, and the keyboard mic just re-opens the app forever.
   const consumeKeyboardEntry = useCallback((): "record" | "navigated" | "none" => {
-    const rec = consumeKeyboardRecordRequest();
+    // The stash first: boot already drained the bridge, and asking it again
+    // would answer "nothing" for the very launch this exists to handle.
+    const stash = kbEntryRef.current;
+    kbEntryRef.current = null;
+    const rec = stash ? stash.rec : consumeKeyboardRecordRequest();
     if (rec) {
       // Fresh mic handoff. Drain the PAIRED deep-link tombstone too, so it can't
       // re-open the record screen on a later, unrelated foreground.
-      consumeKeyboardDeepLink();
+      if (!stash) consumeKeyboardDeepLink();
       // Over the free cap, the mic is not what should open. The server will
       // refuse the dictation anyway, so arming a session and showing a
       // recording screen only walks the user into a rejection — and lands them
@@ -560,7 +599,7 @@ export default function SduiApp() {
       }]);
       return "record";
     }
-    const pending = consumeKeyboardDeepLink();
+    const pending = stash ? stash.link : consumeKeyboardDeepLink();
     if (!pending) return "none";
     if (pending === "openSettings") {
       Linking.openSettings().catch(() => {});
