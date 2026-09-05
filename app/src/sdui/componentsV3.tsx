@@ -524,7 +524,7 @@ const ProgressRing = ({ props, style }: CompProps) => {
   return (
     <View style={[{ width: size, height: size, alignItems: "center", justifyContent: "center" }, style]}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke="#333" strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={String(props.trackColor ?? "#333")} strokeWidth={stroke} fill="none" />
         <Circle
           cx={size / 2} cy={size / 2} r={r}
           stroke={String(props.color ?? "#ffffff")} strokeWidth={stroke} fill="none"
@@ -612,7 +612,7 @@ const PieChart = ({ props, style }: CompProps) => {
       <View style={{ width: size, height: size, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
         <Svg width={size} height={size}>
           {total <= 0 ? (
-            <Circle cx={cx} cy={cy} r={r - 1} fill="none" stroke="#2a2a30" strokeWidth={2} />
+            <Circle cx={cx} cy={cy} r={r - 1} fill="none" stroke={String(props.emptyColor ?? "#2a2a30")} strokeWidth={2} />
           ) : slices.length === 1 ? (
             // A single 100% slice can't be drawn as one arc — use a ring/disc.
             <Circle

@@ -19,6 +19,8 @@ import React from "react";
 import { Text, View } from "react-native";
 import { useTheme, type CompProps } from "./components";
 
+/** Fallbacks only. Every one of these is overridable from the backend — see
+ *  the props read below — so the meter can be recoloured without a release. */
 const AMBER = "#E8A23C";
 
 export function WordMeter({ props, style }: CompProps): React.ReactElement {
@@ -35,8 +37,13 @@ export function WordMeter({ props, style }: CompProps): React.ReactElement {
   // with no earned words it sits at the far end and reads as a border.
   const tickPct = earned > 0 ? (base / total) * 100 : -1;
 
-  const label = theme.color.label ?? "#8A857C";
-  const track = theme.color.border ?? "rgba(255,255,255,0.12)";
+  // Backend-overridable, theme next, literal last. The meter is the most
+  // looked-at thing on the stats screen and its colour was the one part of it
+  // a release was needed to change.
+  const fill = String(props.fillColor ?? AMBER);
+  const earnedColor = String(props.earnedColor ?? fill);
+  const label = String(props.labelColor ?? theme.color.label ?? "#8A857C");
+  const track = String(props.trackColor ?? theme.color.border ?? "rgba(255,255,255,0.12)");
 
   return (
     <View style={style}>
@@ -60,7 +67,7 @@ export function WordMeter({ props, style }: CompProps): React.ReactElement {
           flexDirection: "row",
         }}
       >
-        <View style={{ width: `${usedPct}%`, backgroundColor: AMBER }} />
+        <View style={{ width: `${usedPct}%`, backgroundColor: fill }} />
       </View>
 
       {tickPct >= 0 ? (
@@ -76,7 +83,7 @@ export function WordMeter({ props, style }: CompProps): React.ReactElement {
       <View style={{ flexDirection: "row", gap: 14, marginTop: 10 }}>
         <Text style={{ color: label, fontSize: 12 }}>{base.toLocaleString()} free</Text>
         {earned > 0 ? (
-          <Text style={{ color: AMBER, fontSize: 12, fontWeight: "600" }}>
+          <Text style={{ color: earnedColor, fontSize: 12, fontWeight: "600" }}>
             +{earned.toLocaleString()} earned
           </Text>
         ) : null}
