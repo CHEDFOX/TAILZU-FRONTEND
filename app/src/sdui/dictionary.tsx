@@ -67,12 +67,12 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
       fire("onChange", clean);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", "Couldn't save the dictionary");
+      fire("onError", String(props.errorMessage ?? "Couldn't save the dictionary"));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setSaving(false);
     }
-  }, [rows, bindPath, store, fire]);
+  }, [rows, bindPath, store, fire, props.errorMessage]);
 
   const cell = {
     backgroundColor: theme.color.inputBg, color: theme.color.text, borderRadius: 10,
@@ -80,23 +80,30 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, flex: 1,
   } as const;
 
+  const wordLabel = String(props.wordLabel ?? "Word");
+  const replaceLabel = String(props.replaceLabel ?? "Replace With");
+  const wordPlaceholder = String(props.wordPlaceholder ?? "omw");
+  const replacePlaceholder = String(props.replacePlaceholder ?? "On My Way");
+  const saveLabel = String(props.saveLabel ?? "Save");
+  const savingLabel = String(props.savingLabel ?? "…");
+
   return (
     <View>
       <View style={s.headerRow}>
-        <Text style={[s.col, { color: theme.color.label }]}>Word</Text>
-        <Text style={[s.col, { color: theme.color.label }]}>Replace With</Text>
+        <Text style={[s.col, { color: theme.color.label }]}>{wordLabel}</Text>
+        <Text style={[s.col, { color: theme.color.label }]}>{replaceLabel}</Text>
       </View>
       {rows.map((r, i) => (
         <View key={i} style={s.row}>
           <TextInput
             style={cell} value={r.word} onChangeText={(t) => setRow(i, "word", t)}
-            placeholder="omw" placeholderTextColor={theme.color.muted}
+            placeholder={wordPlaceholder} placeholderTextColor={theme.color.muted}
             autoCapitalize="none" autoCorrect={false}
           />
           <View style={{ width: 10 }} />
           <TextInput
             style={cell} value={r.replacement} onChangeText={(t) => setRow(i, "replacement", t)}
-            placeholder="On My Way" placeholderTextColor={theme.color.muted}
+            placeholder={replacePlaceholder} placeholderTextColor={theme.color.muted}
           />
           {full ? (
             <Pressable onPress={() => removeRow(i)} hitSlop={8} style={s.remove}>
@@ -106,8 +113,20 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
         </View>
       ))}
 
-      <Pressable onPress={save} disabled={saving} style={[s.save, { opacity: saving ? 0.5 : 1 }]}>
-        <Text style={s.saveText}>{saving ? "…" : "Save"}</Text>
+      <Pressable
+        onPress={save}
+        disabled={saving}
+        style={[
+          s.save,
+          {
+            backgroundColor: theme.color.primary,
+            opacity: saving ? 0.5 : 1,
+          },
+        ]}
+      >
+        <Text style={[s.saveText, { color: theme.color.primaryText ?? theme.color.bg }]}>
+          {saving ? savingLabel : saveLabel}
+        </Text>
       </Pressable>
     </View>
   );
@@ -141,8 +160,8 @@ const s = StyleSheet.create({
   col: { flex: 1, fontSize: 12, fontWeight: "600", letterSpacing: 0.4 },
   row: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   remove: { width: 26, alignItems: "center", justifyContent: "center" },
-  save: { alignSelf: "center", minWidth: 110, height: 46, borderRadius: 23, paddingHorizontal: 32, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", marginTop: 8 },
-  saveText: { color: "#000", fontSize: 15, fontWeight: "700" },
+  save: { alignSelf: "center", minWidth: 110, height: 46, borderRadius: 23, paddingHorizontal: 32, alignItems: "center", justifyContent: "center", marginTop: 8 },
+  saveText: { fontSize: 15, fontWeight: "700" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
 });

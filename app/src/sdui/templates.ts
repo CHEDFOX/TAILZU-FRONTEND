@@ -40,7 +40,44 @@ const centered: Composer = (_screen, blocks) => ({
   ],
 });
 
-const TEMPLATES: Record<string, Composer> = { scroll, feature, list, centered };
+/**
+ * Detail: title + subtitle + a hairline divider then blocks. For entity pages
+ * (a saved reply, a personality profile, a snippet's variants).
+ */
+const detail: Composer = (screen, blocks) => ({
+  type: "Screen",
+  children: [
+    ...(screen.title ? [{ type: "Heading", props: { content: screen.title } } as Node] : []),
+    { type: "Divider", style: { marginVertical: 12 } } as Node,
+    ...blocks,
+  ],
+});
+
+/**
+ * Grid: renders blocks as a two-column grid. The screen can bump the column
+ * count via `screen.template === "grid"` + `screen.state?.templateColumns`.
+ */
+const grid: Composer = (screen, blocks) => ({
+  type: "Screen",
+  children: [
+    { type: "Grid", props: { columns: screen.state?.templateColumns ?? 2, gap: 12 }, children: blocks },
+  ],
+});
+
+/**
+ * Hero: a big brand mark or image at the top, title/subtitle below, then
+ * blocks. Used for paywall / marketing / welcome screens.
+ */
+const hero: Composer = (screen, blocks) => ({
+  type: "Screen",
+  children: [
+    { type: "Hero", props: { title: screen.title, subtitle: screen.state?.subtitle, image: screen.state?.image } },
+    { type: "Spacer", style: { height: 20 } },
+    ...blocks,
+  ],
+});
+
+const TEMPLATES: Record<string, Composer> = { scroll, feature, list, centered, detail, grid, hero };
 
 /** Build a renderable root from a screen's `template` + `blocks`. */
 export function composeTemplate(screen: ScreenResponse): Node {

@@ -1,0 +1,65 @@
+# Auto build + submit: every push to main (or a manual dispatch) kicks off an
+# EAS production iOS build and, when it finishes, EAS submits it straight to
+# App Store Connect / TestFlight (--auto-submit uses eas.json's
+# submit.production profile, which already carries ascAppId).
+#
+# Requirements (one-time, repo settings → Secrets and variables → Actions):
+#   EXPO_TOKEN — an Expo access token (expo.dev → Account settings → Access
+#                tokens) for the account that owns this EAS project.
+# Apple credentials (distribution cert + ASC API key) must already live in
+# EAS (they do after the first interactive `eas build` / `eas submit`).
+#
+# The gate step makes the workflow a graceful no-op until EXPO_TOKEN is set,
+# so creating main / merging never burns a doomed run.
+name: EAS Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/eas-release.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: eas-release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a store build mid-flight
+
+jobs:
+  build-and-submit:
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - name: Gate on EXPO_TOKEN
+        id: gate
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN secret not set — skipping EAS release (add it in repo settings to enable auto build+submit)."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ok == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        if: steps.gate.outputs.ok == 'true'
+        working-directory: app
+        run: npm ci
+
+      - name: EAS build + auto-submit (iOS, production)
+        if: steps.gate.outputs.ok == 'true'
+        working-directory: app
+        # --no-wait: the workflow queues the build and exits; EAS builds in its
+        # own cloud and auto-submits on success. Build status lives on
+        # expo.dev, not in this job — the job going green means "queued".
+        run: npx eas-cli@latest build --platform ios --profile production --non-interactive --no-wait --auto-submit

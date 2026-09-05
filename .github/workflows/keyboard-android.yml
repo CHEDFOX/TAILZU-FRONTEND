@@ -1,0 +1,65 @@
+name: keyboard-android-compile
+
+# Compile-checks the Android keyboard (Kotlin) WITHOUT an EAS build, so native
+# errors surface in seconds on a free ubuntu runner instead of after a paid,
+# 20-minute EAS build. Runs the full Expo prebuild + a debug native compile,
+# which pulls in the local `tulmi-keyboard` module (Stream.kt, TulmiAudioFx.kt,
+# SDUIRenderer.kt, …).
+#
+# Only runs when native Android / config surface changes — pure-JS commits skip
+# it. Trigger manually from the Actions tab via "Run workflow" too.
+
+on:
+  push:
+    paths:
+      - "app/modules/tulmi-keyboard/android/**"
+      # tulmi-bridge too. It was missing, so the module whose Gradle config
+      # broke the EAS build was never watched by the job meant to catch exactly
+      # that — the fix commit did not even trigger a run.
+      - "app/modules/tulmi-bridge/android/**"
+      - "app/modules/tulmi-stream/android/**"
+      - "app/android/**"
+      - "app/app.config.ts"
+      - "app/package.json"
+      - "app/package-lock.json"
+      - ".github/workflows/keyboard-android.yml"
+  workflow_dispatch: {}
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Expo prebuild (android)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Compile Kotlin — catches keyboard-module errors
+        working-directory: app/android
+        # compileDebugKotlin compiles :app AND its dependency modules' Kotlin
+        # (incl. the tulmi-keyboard module) WITHOUT the heavy C++/NDK builds or
+        # APK packaging — a fast "does the Kotlin compile" gate.
+        #
+        # This used to run with an init script that injected a versionName into
+        # every module, because :tulmi-bridge did not declare one. That made CI
+        # green while a real EAS build failed on the same line — the gate was
+        # testing a configuration nobody ships. The module declares its own
+        # version now; if that ever regresses, this job is supposed to fail.
+        run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace

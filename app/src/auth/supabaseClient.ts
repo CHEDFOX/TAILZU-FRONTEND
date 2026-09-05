@@ -67,14 +67,32 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 export const supabaseAuth = {
+  /**
+   * Email + password. The ONE account that signs in this way.
+   *
+   * App Review and Play Review both need to reach the whole app, and neither
+   * reviewer can receive a code at an address they do not own. The backend
+   * names the address (flags["auth.reviewEmail"]) and the app offers a password
+   * field for that address alone; the password itself lives in Supabase, so
+   * knowing the address grants nothing. Clearing the flag removes the path
+   * without a release.
+   */
+  signInWithPassword: (email: string, password: string) =>
+    supabase.auth.signInWithPassword({ email, password }),
+
   /** Email OTP — sends a 6-digit code (template must use {{ .Token }}). */
   sendEmailCode: (email: string) =>
     supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),
   verifyEmailCode: (email: string, token: string) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
 
-  /** Phone OTP (needs an SMS provider configured in Supabase). */
-  sendPhoneCode: (phone: string) => supabase.auth.signInWithOtp({ phone }),
+  /** Phone OTP — signs UP as readily as it signs in (needs an SMS provider in
+   *  Supabase). `shouldCreateUser` is spelled out rather than left to the
+   *  library default: this is the whole sign-up path for a phone-first user,
+   *  and if it ever defaulted otherwise a new number would get "Signups not
+   *  allowed for otp" instead of an account. */
+  sendPhoneCode: (phone: string) =>
+    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true } }),
   verifyPhoneCode: (phone: string, token: string) =>
     supabase.auth.verifyOtp({ phone, token, type: "sms" }),
 
@@ -82,9 +100,11 @@ export const supabaseAuth = {
   signInWithApple: (identityToken: string, nonce?: string) =>
     supabase.auth.signInWithIdToken({ provider: "apple", token: identityToken, nonce }),
 
-  /** Google (id token from native Google sign-in). */
-  signInWithGoogle: (idToken: string) =>
-    supabase.auth.signInWithIdToken({ provider: "google", token: idToken }),
+  /** Google (id token from native Google sign-in). Pass the auth request's
+   *  nonce when one was used — Supabase rejects id_tokens whose nonce claim
+   *  arrives without the matching raw nonce. */
+  signInWithGoogle: (idToken: string, nonce?: string) =>
+    supabase.auth.signInWithIdToken({ provider: "google", token: idToken, nonce }),
 
   getSession: () => supabase.auth.getSession(),
   getUser: () => supabase.auth.getUser(),

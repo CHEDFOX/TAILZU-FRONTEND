@@ -59,7 +59,22 @@ object Net {
         val voice: Boolean,
         val refine: Boolean,
         val liveVoice: Boolean,
+        /**
+         * Whether dictated words paint the field LIVE as you speak (true) or
+         * only land as one block AFTER you stop (false). Backend-tunable via the
+         * `kb.mic.liveText` flag — flip the dictation "button logic" without a
+         * rebuild. Default true keeps the live-typing feel when the flag is
+         * absent.
+         */
+        val liveText: Boolean = true,
         val labels: Map<String, String>,
+        /**
+         * Per-key accent glyphs for long-press. Keys are lowercase letters
+         * (e.g. "a"); values are the list of accented characters shown in
+         * the popover. Backend sets this in bootstrap flags under
+         * `kb.accents.<char>`; missing = no menu for that key.
+         */
+        val accents: Map<String, List<Char>> = emptyMap(),
     )
 
     fun parseConfig(s: String): KbConfig {
@@ -69,6 +84,19 @@ object Net {
         val l = o.getJSONObject("labels")
         val labels = HashMap<String, String>()
         for (k in l.keys()) labels[k] = l.getString(k)
+
+        // Accent glyphs — backend authors kb.accents.<char> = "áâäàā" as a
+        // string; we split into a Char list. Absent object → empty map.
+        val accents = HashMap<String, List<Char>>()
+        val flags = o.optJSONObject("flags")
+        val accentsObj = flags?.optJSONObject("kb.accents")
+        if (accentsObj != null) {
+            for (k in accentsObj.keys()) {
+                val v = accentsObj.optString(k, "")
+                if (v.isNotEmpty()) accents[k.lowercase()] = v.toList()
+            }
+        }
+
         return KbConfig(
             background = t.optString("background", "#15151b"),
             keyText = t.optString("keyText", "#ffffff"),
@@ -76,7 +104,11 @@ object Net {
             voice = f.optBoolean("voice", true),
             refine = f.optBoolean("refine", true),
             liveVoice = f.optBoolean("liveVoice", false),
+            // Dictation "button logic": show interim words live (default) or
+            // only commit the final after stop. Backend flag, no rebuild needed.
+            liveText = flags?.optBoolean("kb.mic.liveText", true) ?: true,
             labels = labels,
+            accents = accents,
         )
     }
 
@@ -94,14 +126,37 @@ object Net {
         }
     }
 
-    fun refine(text: String, targetApp: String): String {
+    fun refine(
+        text: String,
+        targetApp: String,
+        tone: String = "",
+        /** What is already in the field around the selection. iOS has always
+         *  sent this; Android never did, so the model was asked to write a
+         *  sentence with no sight of the draft it was joining — and produced
+         *  something that read as a paragraph on its own and wrong in place. */
+        context: String = "",
+    ): String {
+        // Route to the backend's per-tone endpoint when a known LLM tone is
+        // selected; "none" → skip-refine endpoint; everything else (Neutral,
+        // empty, or anything unrecognized) → the catch-all /v1/refine that
+        // always exists. This can only ever fall BACK to the safe default —
+        // never a 404 — so an unexpected tone value can't break refine.
+        val toneId = tone.trim().lowercase().replace(' ', '-')
+        val path = when (toneId) {
+            "formal", "casual", "very-casual", "excited" -> "/v1/refine/$toneId"
+            "none" -> "/v1/refine/none"
+            else -> "/v1/refine"
+        }
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
+            // Never pin the recognizer or the writer to a language — the
+            // backend detects it. Same contract as iOS.
             .put("language", "auto")
+            .apply { if (context.isNotBlank()) put("context", context) }
             .toString()
         val req = Request.Builder()
-            .url("$baseUrl/v1/refine")
+            .url("$baseUrl$path")
             .addHeader("Authorization", "Bearer $token")
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
@@ -109,6 +164,33 @@ object Net {
             val s = res.body?.string() ?: ""
             if (!res.isSuccessful) throw RuntimeException("refine ${res.code}: $s")
             return JSONObject(s).optString("refinedText")
+        }
+    }
+
+    /**
+     * Ship a telemetry batch. Counters only — the payload is built by
+     * TulmiTelemetry, which cannot hold anything but integers.
+     *
+     * Throws on failure so the caller keeps the counters for the next window
+     * rather than dropping them; losing a batch to a flaky network would make
+     * quiet periods indistinguishable from failing uploads.
+     */
+    fun postTelemetry(counters: JSONObject, windowMs: Long, build: String) {
+        val json = JSONObject()
+            .put("counters", counters)
+            .put("windowMs", windowMs)
+            .put("build", build)
+            .put("platform", "android")
+            .toString()
+        val req = Request.Builder()
+            .url("$baseUrl/v1/keyboard/telemetry")
+            .addHeader("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) {
+                throw RuntimeException("telemetry ${res.code}: ${res.body?.string() ?: ""}")
+            }
         }
     }
 

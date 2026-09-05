@@ -11,8 +11,35 @@ export interface KeyboardStatus {
 
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
+  setKeyboardLanguage?(code: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
+  consumeKeyboardDeepLink?(): string;
+  // Mic handoff — see TulmiBridgeModule.swift for the flow.
+  writeAppWarmHeartbeat?(): void;
+  consumeKeyboardRecordRequest?(): {
+    sessionId?: string;
+    requestedAtMs?: number;
+    hostApp?: string;
+  } | undefined;
+  completeKeyboardHandoff?(sessionId: string, text: string): void;
+  cancelKeyboardHandoff?(sessionId: string): void;
+  // Flow Session (background-audio mic) — iOS only.
+  armFlowSession?(
+    baseUrl: string,
+    token: string,
+    language: string,
+    idleTimeoutMs: number,
+    oneShot: boolean,
+  ): void;
+  endFlowSession?(): void;
+  isFlowActive?(): boolean;
+}
+
+export interface KeyboardRecordRequest {
+  sessionId: string;
+  requestedAtMs: number;
+  hostApp: string;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -72,7 +99,148 @@ export function setKeyboardDictionary(entries: { word: string; replacement: stri
   }
 }
 
+/**
+ * Push the user's chosen language code into the shared App Group so the
+ * keyboard extension can use it for:
+ *   - STT bias (transcribe hint → better recognition for non-English speech)
+ *   - Refinement language (server prompts the LLM to output in this code)
+ *
+ * Call after the user selects a language on the onboarding screen or in
+ * Settings. Accepts any ISO-639-1 code plus "auto" / "hinglish".
+ */
+export function setKeyboardLanguage(code: string): void {
+  try {
+    native?.setKeyboardLanguage?.(code || "auto");
+  } catch {
+    // best-effort; never block the app
+  }
+}
+
 /** True when the native bridge is available (a dev/prod build, not Expo Go). */
 export function isBridgeAvailable(): boolean {
   return native != null;
+}
+
+/**
+ * Arm the background-audio "Flow Session" so the app holds the mic alive after
+ * the user swipes back to their app, and the keyboard can drive dictation. iOS
+ * only (the keyboard can't record itself); no-op elsewhere. `idleTimeoutMs` is
+ * how long the session stays live with no dictation before it must be re-armed.
+ * `oneShot` buffers each utterance and sends it in one request at stop instead
+ * of streaming it (backend's choice — kb.flow.transport).
+ */
+export function armFlowSession(
+  baseUrl: string,
+  token: string,
+  language: string,
+  idleTimeoutMs: number,
+  oneShot = false,
+): void {
+  try {
+    native?.armFlowSession?.(
+      baseUrl,
+      token,
+      language || "auto",
+      idleTimeoutMs || 300000,
+      oneShot === true,
+    );
+  } catch {
+    /* best-effort; never block the app */
+  }
+}
+
+/** End the Flow Session (mic released, keyboard returns to "open app to arm"). */
+export function endFlowSession(): void {
+  try {
+    native?.endFlowSession?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Whether a Flow Session is currently armed in the app process. */
+export function isFlowActive(): boolean {
+  try {
+    return native?.isFlowActive?.() ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read (and clear) any deep-link path the keyboard extension left for the app
+ * — since keyboard extensions can't call openURL, they drop the target in the
+ * shared App Group and the app picks it up here on foreground.
+ *
+ * Returns null when nothing is pending. Path shapes:
+ *   "screen/<screenId>"  → navigate to that SDUI screen
+ *   "openSettings"       → open the app's system settings page
+ */
+export function consumeKeyboardDeepLink(): string | null {
+  try {
+    const s = native?.consumeKeyboardDeepLink?.();
+    return s && s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bump the "app is warm" timestamp in the shared App Group. The keyboard
+ * extension consults this on every mic tap to decide whether it can hand off
+ * to a suspended main app (fast) or has to open the primer screen (cold).
+ * Called on every foreground transition of the main app.
+ */
+export function writeAppWarmHeartbeat(): void {
+  try {
+    native?.writeAppWarmHeartbeat?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Read (and clear) any pending record request the keyboard left behind. The
+ * main app calls this on foreground; if a request exists, we navigate to the
+ * keyboard_record SDUI screen so recording starts immediately.
+ * Returns null when nothing is pending.
+ */
+export function consumeKeyboardRecordRequest(): KeyboardRecordRequest | null {
+  try {
+    const r = native?.consumeKeyboardRecordRequest?.();
+    if (!r || !r.sessionId) return null;
+    return {
+      sessionId: String(r.sessionId),
+      requestedAtMs: Number(r.requestedAtMs) || 0,
+      hostApp: String(r.hostApp ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finish a mic handoff: write the cleaned text to the App Group and fire a
+ * Darwin notification the keyboard extension is listening on. The keyboard
+ * observes the notification, reads the text, and inserts it at the cursor.
+ * Invoked by the SDUI `completeKeyboardHandoff` action.
+ */
+export function completeKeyboardHandoff(sessionId: string, text: string): void {
+  try {
+    native?.completeKeyboardHandoff?.(sessionId, text);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Abort a handoff (user cancelled the record screen). Fires the same
+ * completion notification with an empty result so the keyboard stops waiting.
+ */
+export function cancelKeyboardHandoff(sessionId: string): void {
+  try {
+    native?.cancelKeyboardHandoff?.(sessionId);
+  } catch {
+    /* best-effort */
+  }
 }

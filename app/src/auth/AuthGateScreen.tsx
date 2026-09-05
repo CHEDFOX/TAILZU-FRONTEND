@@ -7,14 +7,15 @@
  *
  * Phone is OFF by default and turned on FROM THE BACKEND — bootstrap flag
  * auth.enablePhone (needs an SMS provider in Supabase); no app update required.
- * Google is intentionally off for now (the scaffold lives in authConfig); it
- * needs a native iOS URL scheme, so it can't be flipped on via OTA.
+ * Google is live (client IDs in authConfig, reversed-client-id URL scheme in
+ * app.config.ts) — native-build only, it can't be flipped on via OTA.
  *
  * Back from the code step: top-left arrow OR swipe-right-from-the-left-edge
  * (the app-wide edge-swipe capability, src/sdui/gestures) — swipe, haptic, back.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -37,12 +38,18 @@ import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { fetchAuthConfig } from "../sdui/client";
 import { setAuthName } from "../storage";
-import { AUTH_METHODS, COUNTRIES, pickCountry, Country } from "./authConfig";
+import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
+
+// Lets the OAuth popup hand the redirect back to the JS auth-session listener
+// when the browser closes. Safe no-op when there's no pending session.
+WebBrowser.maybeCompleteAuthSession();
 
 const { width: SW, height: SH } = Dimensions.get("window");
 const PILL_W = Math.min(320, SW - 56);
@@ -59,6 +66,9 @@ const CODE_LEN = 6;
 const WHITE = "#FFFFFF";
 const VOID = "#000000";
 const ABYSS = "#050508";
+// RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
+// the pill layers collapse to a zero-height centered hairline. Spell it out.
+const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
 
 interface Field { id: string; type: "email" | "phone" }
 interface ActiveMethod { type: "email" | "phone"; value: string }
@@ -90,6 +100,15 @@ const AppleMark = () => (
     <Path fill={WHITE} d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.46 1.58-1.51 3.14-.9 1.36-1.84 2.71-3.32 2.71-1.48 0-1.86-.88-3.56-.88-1.66 0-2.25.91-3.6.91-1.36 0-2.3-1.27-3.22-2.61-1.87-2.61-3.34-7.53-1.42-10.86.95-1.66 2.65-2.7 4.5-2.73 1.4-.03 2.72.95 3.58.95.85 0 2.45-1.18 4.12-1.01.7.03 2.67.28 3.93 2.13-.1.06-2.35 1.37-2.33 4.07.03 3.22 2.83 4.29 2.86 4.31z" />
   </Svg>
 );
+// Google "G" in its four brand colors (official multicolor mark).
+const GoogleMark = () => (
+  <Svg width={20} height={20} viewBox="0 0 48 48">
+    <Path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <Path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <Path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+    <Path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+  </Svg>
+);
 const Back = () => (
   <Svg width={18} height={18} viewBox="0 0 24 24">
     <Path d="M15 6l-6 6 6 6" stroke="rgba(255,255,255,0.55)" strokeWidth={1.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
@@ -116,7 +135,7 @@ function CountryPickerModal({
         <TouchableOpacity style={s.modalBackdrop} activeOpacity={1} onPress={onClose} />
         <View style={s.modalSheet}>
           <View style={s.modalHandle} />
-          <TextInput
+          <TextInput underlineColorAndroid="transparent"
             style={s.modalSearch}
             value={q}
             onChangeText={setQ}
@@ -154,6 +173,11 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
   const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
   const [country, setCountry] = useState<Country>(() => pickCountry(region));
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Phone: the number box does not open until a country is chosen. The flag
+  // then takes the badge's place and the cursor lands in the box, so one
+  // tap on the pill is the whole first step and the second is just typing.
+  const [countryPicked, setCountryPicked] = useState(false);
+  const inputRef = useRef<TextInput>(null);
 
   const digits = value.replace(/\D/g, "");
   const valid = isPhone ? digits.length >= 6 && digits.length <= 14 : EMAIL_RX.test(value.trim());
@@ -216,26 +240,46 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
 
   return (
     <View style={s.pillWrap}>
-      <BlurView intensity={24} tint="light" style={s.pill} />
+      {/* iOS: frosted-glass pill. Android: expo-blur doesn't blur (and the 6%
+          fill is invisible on OLED dark), so the oval "disappeared" — use a
+          solid translucent fill there so the pill always reads as a pill. */}
+      {Platform.OS === "ios" ? (
+        <BlurView intensity={24} tint="light" style={s.pill} />
+      ) : (
+        <View style={[s.pill, s.pillAndroid]} />
+      )}
       <View style={s.pillBorder} pointerEvents="none" />
 
       <Animated.View style={[s.contentRow, { opacity: inputOpacity }]} pointerEvents="box-none">
-        {isPhone && (
+        {isPhone && !countryPicked && (
+          <TouchableOpacity
+            style={s.pickRow}
+            activeOpacity={0.7}
+            onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+            accessibilityRole="button"
+            accessibilityLabel="Choose your country"
+          >
+            <Text style={s.pickText}>Phone</Text>
+            <Chevron />
+          </TouchableOpacity>
+        )}
+        {isPhone && countryPicked && (
           <TouchableOpacity
             style={s.countryChip}
             activeOpacity={0.7}
             onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Country ${country.name}, change`}
           >
-            <Text style={s.flag}>{country.flag}</Text>
             <Text style={s.dial}>{country.dial}</Text>
-            <Chevron />
           </TouchableOpacity>
         )}
-        <TextInput
+        {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
+          ref={inputRef}
           style={s.input}
           value={value}
           onChangeText={setValue}
-          placeholder={isPhone ? "Phone" : "Email"}
+          placeholder={isPhone ? "Number" : "Email"}
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
           autoCorrect={false}
@@ -243,12 +287,16 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
           textContentType={isPhone ? "telephoneNumber" : "emailAddress"}
           returnKeyType="go"
           onSubmitEditing={() => validRef.current && commit()}
-        />
+        />}
       </Animated.View>
 
-      {/* badge — swipe me (envelope / phone) */}
+      {/* badge — swipe me. Envelope for email; the phone mark until a country
+          is chosen, then that country's flag, so the pill itself says which
+          number it is asking for. */}
       <Animated.View style={[s.envWrap, { transform: [{ translateX: envX }] }]} {...pan.panHandlers}>
-        <View style={s.envCircle}>{isPhone ? <PhoneMark /> : <Envelope />}</View>
+        <View style={s.envCircle}>
+          {!isPhone ? <Envelope /> : countryPicked ? <Text style={s.badgeFlag}>{country.flag}</Text> : <PhoneMark />}
+        </View>
       </Animated.View>
 
       {/* white arrow badge — tap to send (appears when valid) */}
@@ -263,7 +311,14 @@ function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f
           visible={pickerOpen}
           current={country}
           onClose={() => setPickerOpen(false)}
-          onSelect={(c) => { setCountry(c); Haptics.selectionAsync().catch(() => {}); }}
+          onSelect={(c) => {
+            setCountry(c);
+            setCountryPicked(true);
+            Haptics.selectionAsync().catch(() => {});
+            // The modal is still closing; focus once it has let go of the
+            // screen, or the keyboard fights the dismissal.
+            setTimeout(() => inputRef.current?.focus(), 260);
+          }}
         />
       )}
     </View>
@@ -283,11 +338,30 @@ function MicroLoader() {
 }
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
-  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying">("entry");
+  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying" | "password">("entry");
   const [active, setActive] = useState<ActiveMethod | null>(null);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+
+  // Google sign-in. Stays fully hidden until the three client IDs are filled in
+  // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
+  // called unconditionally (rules-of-hooks); with placeholder IDs it just builds
+  // an unused request. Uses id-token flow because Supabase's signInWithIdToken
+  // needs the OIDC id_token, not an access token.
+  //
+  // On native iOS/Android this is really the authorization-CODE flow under the
+  // hood: promptAsync resolves with only the code, and expo-auth-session then
+  // exchanges it for tokens in the background, delivering the id_token through
+  // the hook's RESPONSE object — never through the promptAsync result. So the
+  // sign-in completion lives in the googleResponse effect below, not in the
+  // button handler.
+  const googleEnabled = isGoogleConfigured();
+  const [googleRequest, googleResponse, googlePrompt] = Google.useIdTokenAuthRequest({
+    iosClientId: GOOGLE_OAUTH.iosClientId,
+    androidClientId: GOOGLE_OAUTH.androidClientId,
+    webClientId: GOOGLE_OAUTH.webClientId,
+  });
 
   const arrival = useRef(new Animated.Value(0)).current;
   const entryFade = useRef(new Animated.Value(1)).current;
@@ -300,6 +374,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // flag auth.enablePhone) — no app update needed once an SMS provider is live.
   // The local AUTH_METHODS.enablePhone is just the offline fallback default.
   const [phoneEnabled, setPhoneEnabled] = useState(AUTH_METHODS.enablePhone);
+  // The one address that takes a password instead of a code. Empty unless the
+  // backend is in a submission window, and an empty string never equals a
+  // typed address — so outside that window this path does not exist.
+  const [reviewEmail, setReviewEmail] = useState("");
+  const [reviewPassword, setReviewPassword] = useState("");
   const fields: Field[] = [
     { id: "email", type: "email" },
     ...(phoneEnabled ? [{ id: "phone", type: "phone" as const }] : []),
@@ -310,7 +389,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
     // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
     let alive = true;
-    fetchAuthConfig().then((cfg) => { if (alive && cfg) setPhoneEnabled(cfg.enablePhone); }).catch(() => {});
+    fetchAuthConfig().then((cfg) => {
+      if (!alive || !cfg) return;
+      setPhoneEnabled(cfg.enablePhone);
+      setReviewEmail(cfg.reviewEmail);
+    }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
 
@@ -319,7 +402,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       Animated.parallel([
         Animated.timing(entryFade, { toValue: 0, duration: 220, useNativeDriver: true }),
         Animated.timing(verifyFade, { toValue: 1, duration: 320, delay: 80, useNativeDriver: true }),
-      ]).start(() => codeRef.current?.focus?.());
+        // finished guard: an interrupted fade (user backed out mid-animation)
+        // must not yank the keyboard open over the entry screen.
+      ]).start(({ finished }) => { if (finished) codeRef.current?.focus?.(); });
     } else if (phase === "entry") {
       Animated.parallel([
         Animated.timing(verifyFade, { toValue: 0, duration: 180, useNativeDriver: true }),
@@ -343,17 +428,62 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const send = useCallback(async (type: "email" | "phone", value: string) => {
     Keyboard.dismiss();
+    // The review account asks for a password rather than sending a code.
+    if (type === "email" && reviewEmail && value.trim().toLowerCase() === reviewEmail) {
+      setActive({ type, value });
+      setPhase("password");
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setActive({ type, value });
     const my = ++seq.current;
     setPhase("sending");
     const animMin = new Promise((r) => setTimeout(r, 1600));
     const apiCall = type === "phone" ? supabaseAuth.sendPhoneCode(value) : supabaseAuth.sendEmailCode(value);
-    const [, res]: any = await Promise.all([animMin, apiCall]);
-    if (my !== seq.current) return;
-    if (res?.error) { setPhase("entry"); flashError(); return; }
-    setCode(""); setPhase("verify");
-  }, [flashError]);
+    try {
+      const [, res]: any = await Promise.all([animMin, apiCall]);
+      if (my !== seq.current) return;
+      if (res?.error) {
+        setPhase("entry"); flashError();
+        // SHOW the reason — a silent shake made "email rate limit exceeded" /
+        // "project paused" / network failures all look identical and
+        // undiagnosable in the field.
+        Alert.alert("Couldn't send the code", String(res.error?.message ?? res.error));
+        return;
+      }
+      setCode(""); setPhase("verify");
+    } catch (e: any) {
+      // A thrown error (offline / unexpected) would otherwise reject this
+      // fire-and-forget callback and strand the user on the "sending" spinner
+      // forever. Recover to the entry screen with the error shake.
+      if (my !== seq.current) return;
+      setPhase("entry"); flashError();
+      Alert.alert("Couldn't send the code", String(e?.message ?? e ?? "Network error"));
+    }
+  }, [flashError, reviewEmail]);
+
+  const signInReview = useCallback(async () => {
+    if (!active) return;
+    Keyboard.dismiss();
+    const my = ++seq.current;
+    setPhase("verifying");
+    try {
+      const { error } = await supabaseAuth.signInWithPassword(active.value, reviewPassword);
+      if (my !== seq.current) return;
+      if (error) {
+        setPhase("password"); flashError();
+        Alert.alert("Couldn't sign in", String(error.message));
+        return;
+      }
+      // No onDone() call: the session listener in SduiApp picks this up exactly
+      // as it does every other sign-in, so a reviewer follows the ordinary path
+      // into the app rather than a second one written only for them.
+    } catch (e: any) {
+      if (my !== seq.current) return;
+      setPhase("password"); flashError();
+      Alert.alert("Couldn't sign in", String(e?.message ?? e ?? "Network error"));
+    }
+  }, [active, reviewPassword, flashError]);
 
   const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
 
@@ -362,12 +492,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     Keyboard.dismiss();
     const my = ++seq.current;
     setPhase("verifying");
-    const { error } = active.type === "phone"
-      ? await supabaseAuth.verifyPhoneCode(active.value, token)
-      : await supabaseAuth.verifyEmailCode(active.value, token);
-    if (my !== seq.current) return;
-    if (error) { setPhase("verify"); setCode(""); flashError(); setTimeout(() => codeRef.current?.focus?.(), 60); return; }
-    onAuthed();
+    try {
+      const { error } = active.type === "phone"
+        ? await supabaseAuth.verifyPhoneCode(active.value, token)
+        : await supabaseAuth.verifyEmailCode(active.value, token);
+      if (my !== seq.current) return;
+      if (error) { setPhase("verify"); setCode(""); flashError(); setTimeout(() => codeRef.current?.focus?.(), 60); return; }
+      onAuthed();
+    } catch {
+      // Don't strand on the "verifying" spinner if the call throws — drop back
+      // to the code screen so the user can retry.
+      if (my !== seq.current) return;
+      setPhase("verify"); setCode(""); flashError();
+      setTimeout(() => codeRef.current?.focus?.(), 60);
+    }
   }, [active, flashError, onAuthed]);
 
   useEffect(() => {
@@ -401,7 +539,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       });
       if (!cred.identityToken) throw new Error("no identity token");
       const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw);
-      if (error) { flashError(); return; }
+      if (error) {
+        flashError();
+        Alert.alert("Couldn't sign in with Apple", String(error.message ?? error));
+        return;
+      }
       // Apple gives the name only on first consent — stash it to pre-fill the
       // post-onboarding name card.
       const given = cred.fullName?.givenName ?? "";
@@ -410,18 +552,75 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (full) setAuthName(full).catch(() => {});
       onAuthed();
     } catch (e: any) {
-      if (e?.code !== "ERR_REQUEST_CANCELED") flashError();
+      if (e?.code !== "ERR_REQUEST_CANCELED") {
+        flashError();
+        Alert.alert("Couldn't sign in with Apple", String(e?.message ?? e ?? "Sign-in error"));
+      }
     }
   }, [flashError, onAuthed]);
 
+  const onGoogle = useCallback(async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      // Opens the Google consent sheet. On native the resolved value only
+      // carries the authorization code — the id_token lands in googleResponse
+      // after expo-auth-session's background code exchange, so completion is
+      // handled by the effect below.
+      await googlePrompt();
+    } catch (e: any) {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "OAuth error"));
+    }
+  }, [googlePrompt, flashError]);
+
+  // Completes Google sign-in once the hook delivers the exchanged tokens.
+  // Errors get a visible reason — a silent shake made every failure
+  // (misconfigured Supabase provider, missing id_token, network) look identical.
+  const googleHandled = useRef<unknown>(null);
+  useEffect(() => {
+    if (!googleResponse || googleHandled.current === googleResponse) return;
+    googleHandled.current = googleResponse;
+    if (googleResponse.type === "error") {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", String(googleResponse.error?.message ?? googleResponse.error ?? "OAuth error"));
+      return;
+    }
+    if (googleResponse.type !== "success") return; // cancel / dismiss — silent
+    const idToken = (googleResponse.params as Record<string, string> | undefined)?.id_token
+      || googleResponse.authentication?.idToken;
+    if (!idToken) {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", "Google didn't return an identity token.");
+      return;
+    }
+    (async () => {
+      // The id_token echoes the request's nonce (when one was used) — Supabase
+      // rejects the token unless that same nonce is passed alongside it.
+      const { error } = await supabaseAuth.signInWithGoogle(idToken, googleRequest?.nonce ?? undefined);
+      if (error) {
+        flashError();
+        Alert.alert("Couldn't sign in with Google", String(error.message ?? error));
+        return;
+      }
+      onAuthed();
+    })().catch((e: any) => {
+      flashError();
+      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "Network error"));
+    });
+  }, [googleResponse, googleRequest, flashError, onAuthed]);
+
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
-  const onCode = phase === "verify" || phase === "verifying";
+  const onCode = phase === "verify" || phase === "verifying" || phase === "password";
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
-          {phase === "entry" && (
+          {phase === "entry" && (<>
+            <View style={s.brandWrap} accessibilityRole="header">
+              <Text style={s.brand}>Tailzu</Text>
+              <Text style={s.tag}>You talk. It writes.</Text>
+            </View>
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
                 <View key={f.id} style={{ marginTop: i === 0 ? 0 : 18 }}>
@@ -435,9 +634,14 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                     <AppleMark />
                   </TouchableOpacity>
                 )}
+                {googleEnabled && (
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest} accessibilityRole="button" accessibilityLabel="Sign in with Google">
+                    <GoogleMark />
+                  </TouchableOpacity>
+                )}
               </View>
             </Animated.View>
-          )}
+          </>)}
 
           {phase === "sending" && <EmailSendAnimation />}
 
@@ -450,7 +654,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   </View>
                 ))}
               </Pressable>
-              <TextInput
+              {/* No autoFocus: it fires at MOUNT, while this block is still at
+                  opacity 0 — the number pad shot up over an invisible code row
+                  and the boxes faded in late ("the code box is hiding"). The
+                  fade-completion callback focuses instead: boxes land fully
+                  visible first, THEN the keyboard rises. */}
+              <TextInput underlineColorAndroid="transparent"
                 ref={codeRef}
                 style={s.hiddenInput}
                 value={code}
@@ -458,7 +667,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 keyboardType="number-pad"
                 maxLength={CODE_LEN}
                 textContentType="oneTimeCode"
-                autoFocus
                 editable={phase === "verify"}
               />
               <View style={s.verifyStatus}>{phase === "verifying" ? <MicroLoader /> : null}</View>
@@ -467,6 +675,36 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               <View style={s.verifyActions}>
                 <TouchableOpacity onPress={resend} style={s.social} activeOpacity={0.6}><Resend /></TouchableOpacity>
               </View>
+            </Animated.View>
+          )}
+
+          {/* Review sign-in. Only ever reachable by typing the address the
+              backend named, so no other user can see this screen exists. */}
+          {phase === "password" && (
+            <Animated.View style={[s.block, { opacity: 1 }]}>
+              <Text style={s.tag}>Enter the password for this account.</Text>
+              <TextInput underlineColorAndroid="transparent"
+                style={s.reviewPassword}
+                value={reviewPassword}
+                onChangeText={setReviewPassword}
+                placeholder="Password"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={signInReview}
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={signInReview}
+                style={s.reviewGo}
+                activeOpacity={0.7}
+                disabled={reviewPassword.length === 0}
+              >
+                <Text style={s.reviewGoText}>Sign in</Text>
+              </TouchableOpacity>
             </Animated.View>
           )}
         </Animated.View>
@@ -486,18 +724,45 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 }
 
 const s = StyleSheet.create({
+  // Review sign-in. Plain on purpose: it is seen by two people a year and
+  // dressing it up would be effort spent where no user will ever look.
+  reviewPassword: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    color: "#fff",
+    fontSize: 17,
+    marginTop: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  reviewGo: {
+    alignItems: "center",
+    backgroundColor: "#E8A23C",
+    borderRadius: 14,
+    marginTop: 12,
+    paddingVertical: 14,
+  },
+  reviewGoText: { color: "#000", fontSize: 16, fontWeight: "700" },
   container: { flex: 1, backgroundColor: VOID },
   kav: { flex: 1 },
   backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
   stack: { flex: 1, alignItems: "center", justifyContent: "center" },
   block: { alignItems: "center", width: "100%" },
+  brandWrap: { alignItems: "center", marginBottom: 34 },
+  brand: { fontSize: 40, fontWeight: "700", color: WHITE, letterSpacing: -0.5 },
+  tag: { marginTop: 6, fontSize: 16, fontWeight: "300", color: "rgba(255,255,255,0.72)", letterSpacing: 0.2 },
 
   pillWrap: { width: PILL_W, height: PILL_H, borderRadius: PILL_H / 2, justifyContent: "center" },
-  pill: { ...StyleSheet.absoluteFillObject, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
-  pillBorder: { ...StyleSheet.absoluteFillObject, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
+  pill: { ...FILL, borderRadius: PILL_H / 2, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)" },
+  // Android has no blur behind it — needs a stronger fill to stay visible.
+  pillAndroid: { backgroundColor: "rgba(255,255,255,0.12)" },
+  pillBorder: { ...FILL, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
   countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
   flag: { fontSize: 18, marginRight: 5 },
+  pickRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 4 },
+  pickText: { fontSize: 15, fontWeight: "300", color: "rgba(255,255,255,0.32)", letterSpacing: 0.3 },
+  badgeFlag: { fontSize: 20, lineHeight: 24 },
   dial: { fontSize: 15, fontWeight: "300", color: WHITE, marginRight: 4 },
   input: { flex: 1, fontSize: 15, fontWeight: "300", color: WHITE, letterSpacing: 0.3, padding: 0 },
 
@@ -521,7 +786,7 @@ const s = StyleSheet.create({
   verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center" },
 
   modalRoot: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
+  modalBackdrop: { ...FILL, backgroundColor: "rgba(0,0,0,0.55)" },
   modalSheet: { height: SH * 0.72, backgroundColor: ABYSS, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingHorizontal: 18 },
   modalHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)", marginBottom: 12 },
   modalSearch: { height: 44, borderRadius: 12, paddingHorizontal: 12, backgroundColor: "rgba(255,255,255,0.06)", color: WHITE, fontSize: 15, marginBottom: 8 },
