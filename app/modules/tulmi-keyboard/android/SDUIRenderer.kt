@@ -820,6 +820,9 @@ class SDUIRenderer(
         }
 
         plane.drawnGapPx = (numFromStyle(node.style["gap"]) ?: 0f) * dm.density
+        // Rows can own the band between them: see TulmiKeyPlane.drawnVInsetPx.
+        // Backend-set, 0 by default, so this is inert until it is turned on.
+        plane.drawnVInsetPx = flagFloat("kb.touch.vInsetPx", 0f) * dm.density
         plane.pressedFill = parseHex(kbConfig.theme.keyPressed)
         plane.setDrawnKeys(keys)
         drawnPlanes += plane
