@@ -234,6 +234,10 @@ const config: ExpoConfig = {
       // if a real foreground mic service ships.
       "com.android.vending.BILLING",
     ],
+    // Android masks this into whatever shape the launcher wants — circle,
+    // squircle, teardrop — so only the middle ~66% is guaranteed to survive.
+    // Reusing icon.png works when the mark sits well inside the frame; a mark
+    // drawn to the edges needs its own padded foreground here.
     adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#E8A23C" },
     intentFilters: [
       {
@@ -269,20 +273,24 @@ const config: ExpoConfig = {
     "expo-contacts",
     "expo-calendar",
     "expo-video",
-    // Splash / launch screen. Shows the Tailzu mark centered on the app's
-    // dark ground. `resizeMode: "contain"` keeps the mark crisp on every
-    // device size. Light-mode users see the same treatment — we're a
-    // dark-first app.
+    // Splash / launch screen — the brand art, edge to edge.
     //
-    // Replace assets/splash.png with a 1242×1242 (or higher) PNG when the
-    // real brand splash is ready; until then, tailzu-mark.png works.
+    // `cover` rather than `contain`: this is a full-bleed composition, not a
+    // mark floating on a ground, so letterboxing it would be the wrong
+    // picture. Cover crops a little top and bottom on a tall phone, which is
+    // what the art leaves room for.
+    //
+    // The source is 810×1440 (9:16). A 1290×2796 phone upscales that ~1.9×,
+    // which solid areas absorb and fine type does not — re-export larger if
+    // detail ever creeps into the edges.
+    //
+    // The same image in light and dark: this is a dark-first app and the
+    // launch screen is not where that gets negotiated.
     [
       "expo-splash-screen",
       {
-        // Full-bleed splash — the 750×1333 near-solid-black source scales
-        // cleanly with `cover` because uniform regions don't show upscale
-        // artifacts. `backgroundColor` matches the top-of-image tone so any
-        // aspect-ratio letterboxing blends invisibly.
+        // Black behind it, so any sliver the crop does not reach is the same
+        // black the app opens on and the seam is invisible.
         backgroundColor: "#000000",
         image: "./assets/splash.png",
         resizeMode: "cover",
@@ -307,31 +315,6 @@ const config: ExpoConfig = {
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
-    // Alternate app icons — user can switch between the default icon.png and
-    // any of these variants at runtime via the setAppIcon SDUI action.
-    // Names must be PascalCase (iOS convention). Add more entries here whenever
-    // a new icon file lands under assets/icons/.
-    [
-      "expo-alternate-app-icons",
-      [
-        {
-          name: "IconAlt",
-          ios: "./assets/icons/icon2.png",
-          android: {
-            foregroundImage: "./assets/icons/icon2.png",
-            backgroundColor: "#E8A23C",
-          },
-        },
-        {
-          name: "IconAlt2",
-          ios: "./assets/icons/icon3.png",
-          android: {
-            foregroundImage: "./assets/icons/icon3.png",
-            backgroundColor: "#E8A23C",
-          },
-        },
-      ],
-    ],
   ],
   extra: {
     ...(EAS_PROJECT_ID ? { eas: { projectId: EAS_PROJECT_ID } } : {}),
