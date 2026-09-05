@@ -409,17 +409,29 @@ final class KeyPlaneView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
     if debugRects { setNeedsDisplay() }
-    // Marking dirty here defeats the witness, because layout runs constantly
-    // for reasons that never move a key: the key-popup balloon is added to the
-    // container on every single press, and that lays the container out, and
-    // that lays this view out. Every keypress would therefore force a full
-    // grid rebuild on the next touch — exactly while the user is typing
-    // fastest, which is when they can least afford it.
+    // REBUILD, every layout. Not "only when our own bounds changed".
     //
-    // Only a change to this view's OWN bounds can move the keys without the
-    // witness noticing first, so that is the only case that needs the flag.
-    // Anything else the witness catches for one convert.
-    if !bounds.equalTo(geoBounds) { framesDirty = true }
+    // The old rule rested on the witness catching everything else, and the
+    // witness is one key out of thirty-one, taken from a Dictionary — so which
+    // key it is varies run to run, and it can only speak for the row it sits
+    // in. The rows are separate stacks: one can move while the witness's row
+    // does not, and then every rect in the moved row stays stale with the
+    // grid reporting itself unchanged.
+    //
+    // This is why the debug overlay "fixed" the keyboard, twice, and why that
+    // was never a coincidence. Its draw() calls ensureFrames(), and
+    // layoutSubviews marks it for redraw — so with the overlay on the geometry
+    // was rebuilt on every layout and the witness never got a chance to be
+    // wrong. The overlay does strictly MORE work than this (it paints a
+    // full-keyboard bitmap as well) and the keyboard felt better with it on.
+    // That is the measurement; this is it without the paint.
+    //
+    // The cost objection does not survive contact with where the cost lands.
+    // The rebuild happens HERE, inside layoutSubviews, at a frame boundary
+    // where convert() is cheap because the tree has settled — not on the next
+    // touch. Nothing is added to the path between a finger landing and a
+    // character appearing.
+    framesDirty = true
     // Then bring the geometry up to date HERE, while the user is not touching
     // anything, rather than leaving it for the first touch to pay for.
     //
@@ -468,7 +480,8 @@ final class KeyPlaneView: UIView {
   /// so ONE key's rect answers the question. Checking it costs a single
   /// convert; only when it disagrees does the full rebuild run. Same
   /// guarantee, a thirtieth of the work.
-  private var geoWitness: CGRect = .null
+  /// One key per row, and the rect it had when the grid was last rebuilt.
+  private var witnesses: [(button: UIButton, rect: CGRect)] = []
   private var geoBounds: CGRect = .null
 
   private func ensureFrames() {
@@ -479,18 +492,21 @@ final class KeyPlaneView: UIView {
     }
     if framesDirty || frames.isEmpty { refreshFrames(); return }
     // Cheap check: has anything actually moved since the last rebuild?
-    guard let first = frames.first?.button, first.window != nil else { refreshFrames(); return }
-    let now = convert(first.bounds, from: first)
-    if bounds.equalTo(geoBounds), now.equalTo(geoWitness) { return }
-    refreshFrames()
+    //
+    // One witness PER ROW, because the rows are separate stacks and a single
+    // witness can only answer for its own. Three or four converts instead of
+    // one, still a tenth of a full rebuild, and it cannot report a grid
+    // unchanged while a row it does not sit in has moved.
+    guard !witnesses.isEmpty, bounds.equalTo(geoBounds) else { refreshFrames(); return }
+    for w in witnesses {
+      guard let b = w.button, b.window != nil else { refreshFrames(); return }
+      if !convert(b.bounds, from: b).equalTo(w.rect) { refreshFrames(); return }
+    }
   }
 
   private func refreshFrames() {
     framesDirty = false
-    defer {
-      geoBounds = bounds
-      geoWitness = frames.first.map { f in convert(f.button.bounds, from: f.button) } ?? .null
-    }
+    defer { geoBounds = bounds }
     var raw: [(UIButton, String, CGRect)] = []
     var roles: [(UIButton, Role, CGRect)] = []
     for k in keys {
@@ -560,6 +576,17 @@ final class KeyPlaneView: UIView {
       out.append((b, ch, r, own))
     }
     frames = out
+    // One witness per row, chosen from the keys just measured. Rows are
+    // separate stacks and move independently, so a single witness could report
+    // the grid unchanged while a row it does not belong to had moved — and
+    // every rect in that row would then resolve touches against where it used
+    // to be.
+    var seenRow = Set<Int>()
+    witnesses = []
+    for (n, entry) in raw.enumerated() where !seenRow.contains(rowOf[n]) {
+      seenRow.insert(rowOf[n])
+      witnesses.append((entry.0, entry.2))
+    }
     // The key area. Every point in it belongs to SOME key — see owns() and
     // keyAt's fallback — and nothing outside it (the tools row, the
     // suggestion strip) is ever claimed.
@@ -644,6 +671,23 @@ final class KeyPlaneView: UIView {
     }
     guard let n = nearest else { return nil }
     return (n.button, n.char)
+  }
+
+  /// The nearest key on the plane, with no gate of any kind.
+  ///
+  /// The last resort for a point the plane has already taken ownership of.
+  /// Deliberately unconditional — the band, the ownership boxes and the
+  /// obstacle veto have all had their say by the time this runs, and the one
+  /// answer that is never right here is "nothing".
+  private func nearestKey(to point: CGPoint) -> (button: UIButton, char: String)? {
+    var best: (button: UIButton, char: String, d: CGFloat)?
+    for f in frames where f.rect.intersects(bounds) {
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if best == nil || d < best!.d { best = (f.button, f.char, d) }
+    }
+    return best.map { ($0.button, $0.char) }
   }
 
   /// The shift / layer key whose rect (+ its OWN hit slop) contains the
@@ -841,7 +885,17 @@ final class KeyPlaneView: UIView {
         }
         continue
       }
-      let hit = keyAt(p)
+      // A point the plane CLAIMED must resolve to something.
+      //
+      // hitTest and this line answer two different questions with two
+      // different rules — "is it mine?" is generous, "which key?" is not — and
+      // where they disagree the touch is already the plane's, so it never
+      // falls through to the button underneath. It just stops: the Track holds
+      // no char and commit() returns on its first line. Silent, and only ever
+      // in the gaps, because the gaps are the only place the two rules can
+      // differ. Key centres agree always, which is exactly the shape of the
+      // bug as reported — centres perfect, gaps dead.
+      let hit = keyAt(p) ?? nearestKey(to: p)
       let track = Track(hit?.button, hit?.char)
       track.startPoint = p
       // Seed the swipe path with the STARTING key — sweptChars otherwise only
@@ -2629,7 +2683,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K29"
+  static let buildStamp = "K30"
 
   /// The bundled brand mark.
   ///
