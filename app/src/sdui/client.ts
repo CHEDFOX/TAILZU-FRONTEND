@@ -55,17 +55,56 @@ async function commonHeaders(): Promise<Record<string, string>> {
 }
 
 /**
+ * Ask for an update, out loud.
+ *
+ * expo-updates checks on launch by itself and says nothing either way, so a
+ * build that never applies an update is indistinguishable from one where no
+ * update was ever published — which is exactly the week this cost. This runs
+ * the same check explicitly and reports the answer to the server, where one
+ * grep settles it: whether the app asked, whether anything was offered, and
+ * whether it failed.
+ *
+ * It does not reload. Applying an update mid-session would swap the bundle out
+ * from under whatever the user is doing; expo-updates already applies it on
+ * the next launch, and the next launch is soon enough.
+ */
+export async function reportUpdateCheck(): Promise<void> {
+  let outcome = "unavailable";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Updates = require("expo-updates");
+    if (!Updates.isEnabled) {
+      outcome = "disabled";
+    } else {
+      const res = await Updates.checkForUpdateAsync();
+      if (res?.isAvailable) {
+        await Updates.fetchUpdateAsync();
+        outcome = "fetched";     // applies on the next launch
+      } else {
+        outcome = "current";
+      }
+    }
+  } catch (e) {
+    outcome = `error:${e instanceof Error ? e.message.slice(0, 60) : "?"}`;
+  }
+  // Best-effort and fire-and-forget: this is diagnostics, never a gate.
+  try {
+    await callEndpoint("POST", "/v1/keyboard/telemetry", {
+      buckets: { kind: "updates" },
+      counters: {},
+      windowMs: 0,
+      build: `ota:${outcome}:${runningBundle()}`,
+    });
+  } catch { /* the log line is a bonus, not a requirement */ }
+}
+
+/**
  * Which JS bundle is actually running.
  *
- * Every backend change in this project can be verified with one curl. Every JS
- * change could only be verified by looking at the app and guessing — and a
- * published update that has not been applied yet is indistinguishable from one
- * that was never published, which has now cost several rounds of shipping
- * fixes at a device that was running an older bundle the whole time.
- *
- * The update id rides along on every request, so the server log answers it:
- * "embedded" means the binary's own bundle with no update applied, otherwise
- * the first eight characters of the update the device is running.
+ * "embedded" means the binary's own bundle with no update applied; otherwise
+ * the first eight characters of the update the device is running. It rides
+ * along on every request, so the server log answers a question that previously
+ * could only be guessed at by looking at the screen.
  */
 function runningBundle(): string {
   try {

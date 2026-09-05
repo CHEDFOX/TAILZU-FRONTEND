@@ -58,8 +58,26 @@ const config: ExpoConfig = {
   // work — so older builds stop accepting updates written for the newer one.
   // Any new value works; it only has to differ.
   runtimeVersion: "d6ee7792e54ee5112449c6690444b1445752f2ab",
+  // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
+  // defaults, and the result was a store build that published updates
+  // faithfully and applied none of them — for a week, silently, with the
+  // channel, the branch and the runtime version all correct. Nothing about
+  // that failure is visible from outside the phone, so nothing about it is
+  // left implicit any more.
+  //
+  //   enabled              — on. Not assumed.
+  //   checkAutomatically   — ask on every launch. The default is this, but the
+  //                          default is also what we thought was happening.
+  //   fallbackToCacheTimeout 0 — launch from cache immediately and fetch in the
+  //                          background. The update applies on the NEXT launch,
+  //                          which is why testing an OTA always takes two.
   updates: EAS_PROJECT_ID
-    ? { url: `https://u.expo.dev/${EAS_PROJECT_ID}` }
+    ? {
+        url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+        enabled: true,
+        checkAutomatically: "ON_LOAD",
+        fallbackToCacheTimeout: 0,
+      }
     : {},
   ios: {
     bundleIdentifier: "com.tulmi.app",
