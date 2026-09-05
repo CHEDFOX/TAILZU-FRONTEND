@@ -158,6 +158,10 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     /** Non-empty puts the plane in drawn mode. */
     private var drawnKeys: List<DrawnKey> = emptyList()
+
+    /** Scratch for the painted (inset) rect. Reused because onDraw runs on
+     *  every press and allocating there is how a keyboard starts stuttering. */
+    private val painted = android.graphics.RectF()
     private var pressedKey: DrawnKey? = null
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -166,6 +170,27 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     /** Colour a key flashes on press (theme.keyPressed). */
     var pressedFill: Int = 0
+
+    /**
+     * kb.touch.vInsetPx — paint each key this far inside its row, top and
+     * bottom, while its TOUCH rect keeps the row's full height.
+     *
+     * The gutter between two rows belongs to neither of them: a row is its own
+     * view, Android delivers a touch to the view whose bounds contain it, and
+     * the 9-11pt band between rows is inside no row. That is the same
+     * structural dead zone iOS had, and it cannot be fixed from inside a row
+     * that does not extend into it.
+     *
+     * It CAN be fixed by moving the gap: make the rows flush and taller by the
+     * gap, then inset what is PAINTED by the same amount. The keyboard looks
+     * identical, every point on it belongs to a key, and the change is two
+     * numbers in the backend's keyboard tree — no rebuild to try it, and no
+     * rebuild to undo it.
+     *
+     * Default 0, so this ships doing nothing until those numbers are set.
+     */
+    var drawnVInsetPx: Float = 0f
+        set(v) { field = v; invalidate() }
 
     /** Horizontal gap between keys, in px — the row's `gap` style. */
     var drawnGapPx: Float = 0f
@@ -212,11 +237,20 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         if (drawnKeys.isEmpty()) return
         for (k in drawnKeys) {
             if (k.isSpacer || k.rect.width() <= 0f) continue
+            // PAINT inset, HIT rect untouched. k.rect stays the row's full
+            // height so every point still belongs to a key; only the pixels
+            // move inward, which is what lets the gap between rows be owned by
+            // the rows instead of by nobody.
+            val paintRect = if (drawnVInsetPx > 0f) {
+                painted.set(k.rect.left, k.rect.top + drawnVInsetPx,
+                            k.rect.right, k.rect.bottom - drawnVInsetPx)
+                painted
+            } else k.rect
             fillPaint.color = if (k === pressedKey && pressedFill != 0) pressedFill else k.fill
-            canvas.drawRoundRect(k.rect, k.radiusPx, k.radiusPx, fillPaint)
+            canvas.drawRoundRect(paintRect, k.radiusPx, k.radiusPx, fillPaint)
             val g = k.glyph
             if (g != null) {
-                g(canvas, k.rect, textPaint)
+                g(canvas, paintRect, textPaint)
                 continue
             }
             if (k.label.isEmpty()) continue
@@ -225,8 +259,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             // Centre on the text's own metrics, not on the font's line box —
             // otherwise descenders push every glyph visibly high in the key.
             val fm = textPaint.fontMetrics
-            val baseline = k.rect.centerY() - (fm.ascent + fm.descent) / 2f
-            canvas.drawText(k.label, k.rect.centerX(), baseline, textPaint)
+            val baseline = paintRect.centerY() - (fm.ascent + fm.descent) / 2f
+            canvas.drawText(k.label, paintRect.centerX(), baseline, textPaint)
         }
     }
 

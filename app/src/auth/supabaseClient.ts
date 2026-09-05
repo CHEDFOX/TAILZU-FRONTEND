@@ -67,6 +67,19 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 export const supabaseAuth = {
+  /**
+   * Email + password. The ONE account that signs in this way.
+   *
+   * App Review and Play Review both need to reach the whole app, and neither
+   * reviewer can receive a code at an address they do not own. The backend
+   * names the address (flags["auth.reviewEmail"]) and the app offers a password
+   * field for that address alone; the password itself lives in Supabase, so
+   * knowing the address grants nothing. Clearing the flag removes the path
+   * without a release.
+   */
+  signInWithPassword: (email: string, password: string) =>
+    supabase.auth.signInWithPassword({ email, password }),
+
   /** Email OTP — sends a 6-digit code (template must use {{ .Token }}). */
   sendEmailCode: (email: string) =>
     supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),

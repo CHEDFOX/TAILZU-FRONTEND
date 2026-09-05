@@ -338,7 +338,7 @@ function MicroLoader() {
 }
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
-  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying">("entry");
+  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying" | "password">("entry");
   const [active, setActive] = useState<ActiveMethod | null>(null);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
@@ -374,6 +374,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // flag auth.enablePhone) — no app update needed once an SMS provider is live.
   // The local AUTH_METHODS.enablePhone is just the offline fallback default.
   const [phoneEnabled, setPhoneEnabled] = useState(AUTH_METHODS.enablePhone);
+  // The one address that takes a password instead of a code. Empty unless the
+  // backend is in a submission window, and an empty string never equals a
+  // typed address — so outside that window this path does not exist.
+  const [reviewEmail, setReviewEmail] = useState("");
+  const [reviewPassword, setReviewPassword] = useState("");
   const fields: Field[] = [
     { id: "email", type: "email" },
     ...(phoneEnabled ? [{ id: "phone", type: "phone" as const }] : []),
@@ -384,7 +389,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
     // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
     let alive = true;
-    fetchAuthConfig().then((cfg) => { if (alive && cfg) setPhoneEnabled(cfg.enablePhone); }).catch(() => {});
+    fetchAuthConfig().then((cfg) => {
+      if (!alive || !cfg) return;
+      setPhoneEnabled(cfg.enablePhone);
+      setReviewEmail(cfg.reviewEmail);
+    }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
 
@@ -419,6 +428,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const send = useCallback(async (type: "email" | "phone", value: string) => {
     Keyboard.dismiss();
+    // The review account asks for a password rather than sending a code.
+    if (type === "email" && reviewEmail && value.trim().toLowerCase() === reviewEmail) {
+      setActive({ type, value });
+      setPhase("password");
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setActive({ type, value });
     const my = ++seq.current;
@@ -445,7 +460,30 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhase("entry"); flashError();
       Alert.alert("Couldn't send the code", String(e?.message ?? e ?? "Network error"));
     }
-  }, [flashError]);
+  }, [flashError, reviewEmail]);
+
+  const signInReview = useCallback(async () => {
+    if (!active) return;
+    Keyboard.dismiss();
+    const my = ++seq.current;
+    setPhase("verifying");
+    try {
+      const { error } = await supabaseAuth.signInWithPassword(active.value, reviewPassword);
+      if (my !== seq.current) return;
+      if (error) {
+        setPhase("password"); flashError();
+        Alert.alert("Couldn't sign in", String(error.message));
+        return;
+      }
+      // No onDone() call: the session listener in SduiApp picks this up exactly
+      // as it does every other sign-in, so a reviewer follows the ordinary path
+      // into the app rather than a second one written only for them.
+    } catch (e: any) {
+      if (my !== seq.current) return;
+      setPhase("password"); flashError();
+      Alert.alert("Couldn't sign in", String(e?.message ?? e ?? "Network error"));
+    }
+  }, [active, reviewPassword, flashError]);
 
   const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
 
@@ -572,7 +610,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   }, [googleResponse, googleRequest, flashError, onAuthed]);
 
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
-  const onCode = phase === "verify" || phase === "verifying";
+  const onCode = phase === "verify" || phase === "verifying" || phase === "password";
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
@@ -639,6 +677,36 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               </View>
             </Animated.View>
           )}
+
+          {/* Review sign-in. Only ever reachable by typing the address the
+              backend named, so no other user can see this screen exists. */}
+          {phase === "password" && (
+            <Animated.View style={[s.block, { opacity: 1 }]}>
+              <Text style={s.tag}>Enter the password for this account.</Text>
+              <TextInput underlineColorAndroid="transparent"
+                style={s.reviewPassword}
+                value={reviewPassword}
+                onChangeText={setReviewPassword}
+                placeholder="Password"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={signInReview}
+                autoFocus
+              />
+              <TouchableOpacity
+                onPress={signInReview}
+                style={s.reviewGo}
+                activeOpacity={0.7}
+                disabled={reviewPassword.length === 0}
+              >
+                <Text style={s.reviewGoText}>Sign in</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -656,6 +724,25 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 }
 
 const s = StyleSheet.create({
+  // Review sign-in. Plain on purpose: it is seen by two people a year and
+  // dressing it up would be effort spent where no user will ever look.
+  reviewPassword: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    color: "#fff",
+    fontSize: 17,
+    marginTop: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  reviewGo: {
+    alignItems: "center",
+    backgroundColor: "#E8A23C",
+    borderRadius: 14,
+    marginTop: 12,
+    paddingVertical: 14,
+  },
+  reviewGoText: { color: "#000", fontSize: 16, fontWeight: "700" },
   container: { flex: 1, backgroundColor: VOID },
   kav: { flex: 1 },
   backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },

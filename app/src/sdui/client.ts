@@ -481,12 +481,21 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
  *
  *   flags["auth.enablePhone"] → boolean   (default off)
  */
-export async function fetchAuthConfig(): Promise<{ enablePhone: boolean } | null> {
+export async function fetchAuthConfig(): Promise<
+  { enablePhone: boolean; reviewEmail: string } | null
+> {
   try {
     const b = await bootstrap();
     const f = b.flags ?? {};
     const on = f["auth.enablePhone"];
-    return { enablePhone: on === true || on === "true" };
+    return {
+      enablePhone: on === true || on === "true",
+      // The one address that takes a password instead of a code. Empty
+      // whenever the backend is not in a submission window, and an empty
+      // string can never equal a typed address, so the path simply is not
+      // there the rest of the time.
+      reviewEmail: String(f["auth.reviewEmail"] ?? "").trim().toLowerCase(),
+    };
   } catch {
     return null;
   }
