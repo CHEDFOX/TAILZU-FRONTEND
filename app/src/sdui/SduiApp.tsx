@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
-import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -521,6 +521,9 @@ export default function SduiApp() {
         if (ids.length) await prefetchScreens(ids);
         await refreshCachedScreens();
       })();
+      // And say, out loud, whether an update is available. Silent update
+      // machinery is how a week of published fixes reached nobody.
+      void reportUpdateCheck();
     }, 600);
     return () => clearTimeout(t);
   }, [phase, boot]);
