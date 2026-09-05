@@ -54,6 +54,31 @@ async function commonHeaders(): Promise<Record<string, string>> {
   return h;
 }
 
+/**
+ * Which JS bundle is actually running.
+ *
+ * Every backend change in this project can be verified with one curl. Every JS
+ * change could only be verified by looking at the app and guessing — and a
+ * published update that has not been applied yet is indistinguishable from one
+ * that was never published, which has now cost several rounds of shipping
+ * fixes at a device that was running an older bundle the whole time.
+ *
+ * The update id rides along on every request, so the server log answers it:
+ * "embedded" means the binary's own bundle with no update applied, otherwise
+ * the first eight characters of the update the device is running.
+ */
+function runningBundle(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Updates = require("expo-updates");
+    if (Updates.isEmbeddedLaunch) return "embedded";
+    const id = String(Updates.updateId ?? "");
+    return id ? id.slice(0, 8) : "embedded";
+  } catch {
+    return "unknown";
+  }
+}
+
 export function buildCapabilities() {
   const { width, height } = Dimensions.get("window");
   const colorScheme: "light" | "dark" = Appearance.getColorScheme() === "dark" ? "dark" : "light";
@@ -61,6 +86,7 @@ export function buildCapabilities() {
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
+    bundle: runningBundle(),
     platform: (Platform.OS === "ios" ? "ios" : "android") as "ios" | "android",
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
