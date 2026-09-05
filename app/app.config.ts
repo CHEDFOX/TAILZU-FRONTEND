@@ -235,10 +235,17 @@ const config: ExpoConfig = {
       "com.android.vending.BILLING",
     ],
     // Android masks this into whatever shape the launcher wants — circle,
-    // squircle, teardrop — so only the middle ~66% is guaranteed to survive.
-    // Reusing icon.png works when the mark sits well inside the frame; a mark
-    // drawn to the edges needs its own padded foreground here.
-    adaptiveIcon: { foregroundImage: "./assets/icon.png", backgroundColor: "#E8A23C" },
+    // squircle, teardrop — and only the middle 66% of the canvas is ever
+    // shown. icon.png does not survive that: its mark reaches 427px from a
+    // 1000px centre and the guaranteed circle stops at 333, so the amber dot
+    // that ends the line is the first thing a Pixel cuts off.
+    //
+    // adaptive-icon.png is the same artwork inset to 749px, which puts every
+    // corner of the mark inside that circle while the black ground still
+    // covers the whole mask — no transparent sliver, no ring of the
+    // background colour showing through. backgroundColor matches the art's
+    // own ground so a mask that ever grew would meet the same black.
+    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundColor: "#0A0A0B" },
     intentFilters: [
       {
         action: "VIEW",
