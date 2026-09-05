@@ -168,7 +168,16 @@ export default function SduiApp() {
    * stashes it here; consumeKeyboardEntry drains the stash instead of asking
    * the bridge a second time (which would return nothing).
    */
-  const kbEntryRef = useRef<{ rec: ReturnType<typeof consumeKeyboardRecordRequest>; link: string | null } | null>(null);
+  const kbEntryRef = useRef<{ rec: ReturnType<typeof consumeKeyboardRecordRequest>; link: string | null } | null | undefined>(undefined);
+  /**
+   * Sticky: the keyboard wanted this launch.
+   *
+   * Separate from the entry itself because the entry is drained — once the
+   * cold-start effect has taken it, kbEntryRef is null, and a commitBoot
+   * running after that would otherwise conclude nobody asked for anything and
+   * put the intro back over the screen the keyboard requested.
+   */
+  const kbWantedRef = useRef(false);
   // True once phase === "ready": lets the mount-once link listener apply a HOT
   // link immediately, vs. stashing a COLD one for the cold-entry effect.
   const readyRef = useRef(false);
@@ -337,12 +346,22 @@ export default function SduiApp() {
       // gate reads them — otherwise a paying user is hard-locked behind the
       // paywall on cold start (the gate raced the async init). Shared promise,
       // so this is cheap once warm.
-      // Read the keyboard's entry HERE, before anything picks a first screen.
-      // Drained into a ref, because these bridge calls clear as they read.
-      const kbRec = consumeKeyboardRecordRequest();
-      const kbLink = consumeKeyboardDeepLink();
-      kbEntryRef.current = { rec: kbRec, link: kbLink };
-      const kbWantsUs = !!kbRec || (!!kbLink && kbLink !== "openSettings");
+      // Read the keyboard's entry HERE, before anything picks a first screen —
+      // and EXACTLY ONCE, however many times this function runs.
+      //
+      // It runs twice on a normal launch: once to paint from the disk cache,
+      // once when the fresh bootstrap lands. These bridge calls clear as they
+      // read, so the first pass took the entry and the second pass found
+      // nothing, decided nobody had asked for anything, and set the stack back
+      // to the intro — over the screen the keyboard had opened the app for.
+      // `undefined` means never read; `null` means read and since consumed.
+      if (kbEntryRef.current === undefined) {
+        const rec = consumeKeyboardRecordRequest();
+        const link = consumeKeyboardDeepLink();
+        kbEntryRef.current = { rec, link };
+        kbWantedRef.current = !!rec || (!!link && link !== "openSettings");
+      }
+      const kbWantsUs = kbWantedRef.current;
 
       const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
       if (paywallEnt) await initBilling();
@@ -578,7 +597,7 @@ export default function SduiApp() {
   const consumeKeyboardEntry = useCallback((): "record" | "navigated" | "none" => {
     // The stash first: boot already drained the bridge, and asking it again
     // would answer "nothing" for the very launch this exists to handle.
-    const stash = kbEntryRef.current;
+    const stash = kbEntryRef.current ?? null;
     kbEntryRef.current = null;
     const rec = stash ? stash.rec : consumeKeyboardRecordRequest();
     if (rec) {
