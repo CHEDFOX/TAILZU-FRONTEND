@@ -692,20 +692,43 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           )}
 
           {/* Review sign-in. Only ever reachable by typing the address the
-              backend named, so no other user can see this screen exists. */}
+              backend named, so no other user can see this screen exists.
+
+              A CODE ON SCREEN, A PASSWORD ON THE WIRE.
+
+              Sign-in here is codes, everywhere, for everyone — that is the
+              product, and a reviewer meeting a password field is meeting a
+              different app from the one being reviewed.
+
+              But a code that arrives by email is a code somebody has to read,
+              and no reviewer can open our inbox. Supabase offers fixed test
+              codes for phone numbers and not for email, so the only credential
+              an email address can carry without a mailbox is its password.
+
+              So the field asks for a code, because that is what it is to the
+              person typing it, and the value travels as the account's password
+              because that is the only thing that can carry it. The state keeps
+              the name `reviewPassword` so nothing downstream pretends
+              otherwise.
+
+              Set the account's Supabase password to digits and it is a code in
+              every sense a reviewer can observe. */}
           {phase === "password" && (
             <Animated.View style={[s.block, { opacity: 1 }]}>
-              <Text style={s.tag}>Enter the password for this account.</Text>
+              <Text style={s.tag}>Enter your code.</Text>
               <TextInput underlineColorAndroid="transparent"
                 style={s.reviewPassword}
                 value={reviewPassword}
                 onChangeText={setReviewPassword}
-                placeholder="Password"
+                placeholder="Code"
                 placeholderTextColor="rgba(255,255,255,0.35)"
-                secureTextEntry
+                // Visible, like every other code in this app. Hiding it would
+                // be the one thing that says "password" out loud.
                 autoCapitalize="none"
                 autoCorrect={false}
-                textContentType="password"
+                keyboardType="number-pad"
+                textContentType="oneTimeCode"
+                maxLength={12}
                 returnKeyType="go"
                 onSubmitEditing={signInReview}
                 autoFocus
