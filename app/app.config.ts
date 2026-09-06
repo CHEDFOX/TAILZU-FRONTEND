@@ -292,16 +292,27 @@ const config: ExpoConfig = {
     // a fixed size both platforms honour. The ground is #000000 against the
     // art's #080809 — three values out of 255, which no screen shows.
     //
-    // The reveal is what moves to meet it. Its mark is not centred in its own
-    // frame (0.4741, 0.4715), so `cover` lands it left of and above the middle
-    // by a fraction of the screen HEIGHT — which is why the fix cannot live
-    // here as a fixed number of points, and does not: the media entry carries
-    // nudgeX/nudgeY, in percent, and the server applies them. Backend-tunable,
-    // right on every device, no build.
+    // THE REVEAL MOVED TO MEET THIS. DO NOT MOVE THIS.
     //
-    // imageWidth 232 matches the mark's size to the reveal's, measured off a
-    // screen recording: at 184 the splash drew the mark at 50px while the
-    // reveal drew it at 63.
+    // Its mark is not centred in its own frame (0.4741, 0.4715), so `cover`
+    // lands it left of and above the middle by a fraction of the screen HEIGHT.
+    // The correction therefore cannot live here as a number of points, and does
+    // not: the media entry carries boxWidth/boxHeight in points and nudgeX/
+    // nudgeY in percent, and the server applies them. Backend-tunable, right on
+    // every device, no build.
+    //
+    // imageWidth 184 IS THE CALIBRATION TARGET. Measured off a screen recording
+    // of the shipped build, 184 draws the mark at 16.67pt dead centre, and the
+    // reveal's box was then sized to land its own mark at 16.99pt dead centre —
+    // verified across six screen sizes, SE to Pro Max, within 0.01pt.
+    //
+    // It was briefly 232, from the other direction: grow the splash to meet a
+    // reveal that was still full-bleed. That reveal no longer exists. Shipping
+    // 232 now would draw the mark at ~21pt against the reveal's 17 and put the
+    // jump back — a 24% pop, on the next native build, for no reason.
+    //
+    // Change this only alongside a matching retune of the entry's box, and
+    // measure both rather than reasoning about either.
     //
     // Both apps open on the same frame, then play the same reveal.
     [
@@ -309,7 +320,7 @@ const config: ExpoConfig = {
       {
         backgroundColor: "#000000",
         image: "./assets/splash-mark.png",
-        imageWidth: 232,
+        imageWidth: 184,
         resizeMode: "contain",
         dark: { backgroundColor: "#000000", image: "./assets/splash-mark.png" },
       },
