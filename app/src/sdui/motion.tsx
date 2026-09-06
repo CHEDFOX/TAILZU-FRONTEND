@@ -47,6 +47,19 @@ export type SpringPressableProps = {
   children?: React.ReactNode;
 };
 
+/** Style keys that place a view in its parent, as opposed to painting it.
+ *  These go on the Pressable; everything else stays on the view that scales. */
+const LAYOUT_KEYS = new Set([
+  "position", "top", "right", "bottom", "left", "zIndex",
+  "margin", "marginTop", "marginRight", "marginBottom", "marginLeft",
+  "marginHorizontal", "marginVertical",
+  "flex", "flexGrow", "flexShrink", "flexBasis", "alignSelf",
+]);
+// Sizing deliberately stays on the inner view: it is the surface being
+// painted and scaled, and as a normal-flow child it already stretches to
+// whatever width the Pressable ends up with. Moving width out would leave the
+// background hugging its label inside a correctly sized tap target.
+
 export function SpringPressable(props: SpringPressableProps): React.ReactElement {
   const {
     onPress, onLongPress, disabled, hitSlop, style,
@@ -80,7 +93,24 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
 
   // The flash overlay sits between the surface (the caller's background) and
   // the children (the label), so text stays crisp over the amber.
-  const radius = flashColor ? (StyleSheet.flatten(style) as ViewStyle | undefined)?.borderRadius : undefined;
+  const flat = (StyleSheet.flatten(style) ?? {}) as Record<string, any>;
+  const radius = flashColor ? (flat.borderRadius as number | undefined) : undefined;
+
+  // WHERE a thing sits belongs to the Pressable; what it LOOKS like belongs to
+  // the view that scales.
+  //
+  // Everything used to go on the inner Animated.View, which meant a caller
+  // that said `position: absolute` took the button out of the flow of its own
+  // wrapper. The Pressable, left with nothing laid out inside it, collapsed to
+  // zero — and the insets then resolved against a 0×0 parent. A bar meant to
+  // span the bottom of the screen rendered as its own padding: a small pill,
+  // centred, because a zero-size child is centred by a centring parent. It was
+  // still clickable, which is how it survived as "a dot that does something".
+  const outer: Record<string, any> = {};
+  const inner: Record<string, any> = {};
+  for (const k of Object.keys(flat)) {
+    (LAYOUT_KEYS.has(k) ? outer : inner)[k] = flat[k];
+  }
 
   return (
     <Pressable
@@ -90,8 +120,9 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
       onLongPress={onLongPress}
       disabled={disabled}
       hitSlop={hitSlop}
+      style={outer}
     >
-      <Animated.View style={[{ transform: [{ scale }] }, style]}>
+      <Animated.View style={[{ transform: [{ scale }] }, inner]}>
         {flashColor ? (
           <Animated.View
             pointerEvents="none"
