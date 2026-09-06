@@ -295,8 +295,15 @@ const config: ExpoConfig = {
     // splash.png is a near-black frame with one white dot on it. So the splash
     // is that dot, on the same black, at a fixed size both platforms honour:
     // splash-mark.png is 288 square with the dot at 11.5% of it, and
-    // imageWidth 184 puts it at 21.3pt everywhere — measured against what
-    // the reveal's own first frame comes to on screen. The ground is #000000
+    // Size AND position are matched to the reveal's own first frame, measured
+    // off a screen recording: the splash drew the mark at 50px dead centre
+    // while the gif drew it at 63px, 12pt left and 23pt up. The gap exists
+    // because the mark is not centred in splash.png — it sits at (0.473,
+    // 0.471) — and `cover` on a taller screen carries it further off, while
+    // this asset centres it. imageWidth 232 matches the size; the asset
+    // carries the offset. Both are calibrated to a 375x812 screen and drift
+    // a little on others; centring the mark in the ART would remove the
+    // problem on every device and both platforms at once. The ground is #000000
     // against the art's #080809 — three values out of 255, which no screen
     // shows.
     //
@@ -306,7 +313,7 @@ const config: ExpoConfig = {
       {
         backgroundColor: "#000000",
         image: "./assets/splash-mark.png",
-        imageWidth: 184,
+        imageWidth: 232,
         resizeMode: "contain",
         dark: { backgroundColor: "#000000", image: "./assets/splash-mark.png" },
       },
