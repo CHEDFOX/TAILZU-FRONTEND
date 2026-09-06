@@ -301,10 +301,25 @@ const config: ExpoConfig = {
         backgroundColor: "#000000",
         image: "./assets/splash.png",
         resizeMode: "cover",
-        dark: {
+        // THE reason the splash drew as a small rectangle in the middle of a
+        // black screen: `imageWidth` defaults to 100, and the plugin puts the
+        // image in a box that size. `resizeMode: "cover"` then filled a 100pt
+        // box faithfully — the fit was right, the box was tiny. This flag
+        // swaps that box for a full-screen one, which is the only way to get
+        // an edge-to-edge splash out of this plugin.
+        enableFullScreenImage_legacy: true,
+        // `dark` only takes an image and a background; a resizeMode in here
+        // was silently dropped.
+        dark: { backgroundColor: "#000000", image: "./assets/splash.png" },
+        // Android is not iOS here. From API 31 the system masks the splash
+        // image into a circle, so a full-bleed 9:16 composition arrives as an
+        // unreadable crop of its own middle. It gets the mark instead, on the
+        // same black, which is what the mask is designed to hold.
+        android: {
+          image: "./assets/adaptive-icon.png",
+          imageWidth: 200,
           backgroundColor: "#000000",
-          image: "./assets/splash.png",
-          resizeMode: "cover",
+          dark: { image: "./assets/adaptive-icon.png", backgroundColor: "#000000" },
         },
       },
     ],
