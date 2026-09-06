@@ -681,11 +681,25 @@ const Waveform = ({ node, props, style, store }: CompProps) => {
 // backend stacked beneath it.
 const Video = ({ props, style }: CompProps) => {
   const raw: any = props.source;
-  // Accept a full MediaSpec ({ source, freezeOnPause, … }) or a bare source.
-  const spec = raw && typeof raw === "object" && "source" in raw ? raw : { source: raw };
+  // UNWRAP, don't wrap.
+  //
+  // This built `{ source: raw }` and handed that to MediaPlayer, which calls
+  // resolveMedia on it. resolveMedia knows { url }, { key }, { asset },
+  // { data }, { emoji } and a string — it has never known { source }, so every
+  // Video node resolved to "empty", MediaPlayer returned null, and the clip was
+  // not a broken player or an error: it was nothing at all. `spec as any` is
+  // what let the mismatch through the compiler.
+  //
+  // That is the black intro, and the flow clip that was "just the text", and
+  // every hero that turned out to be an mp4. One line, three screens, months.
+  //
+  // The rich shape ({ source, freezeOnPause, … }) is still accepted — its extra
+  // fields were only ever read as separate props, so taking .source loses
+  // nothing.
+  const spec = raw && typeof raw === "object" && "source" in raw ? raw.source : raw;
   return (
     <MediaPlayer
-      spec={spec as any}
+      spec={spec}
       style={style}
       contentFit={(props.contentFit as any) ?? "cover"}
       autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
