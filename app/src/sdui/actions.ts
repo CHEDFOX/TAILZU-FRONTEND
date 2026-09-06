@@ -5,7 +5,7 @@
  * (Sentry / PostHog / RevenueCat) no-op silently instead of throwing, so the
  * same binary works whether or not you fill env variables.
  */
-import { Linking, Platform, Share, Vibration } from "react-native";
+import { Alert, Linking, Platform, Share, Vibration } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
@@ -30,7 +30,7 @@ import { Store } from "./state";
 import { callEndpoint, invalidateScreens, QuotaExceededError } from "./client";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
-import { showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
+import { buyPackage, showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken } from "../notifications/push";
 import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession, endFlowSession } from "../../modules/tulmi-bridge";
 import { getSupabaseAccessToken } from "../auth/supabaseClient";
@@ -455,8 +455,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // packageId is accepted alongside offeringId so backend can pick a
         // specific package (annual/monthly/etc.) without hardcoding an
         // "auto-first" pick in the app.
-        const ok = await showPaywall(action.offeringId, (action as any).packageId);
-        await runAction(ok ? action.onSuccess : action.onError, ctx);
+        const res = await buyPackage(action.offeringId, (action as any).packageId);
+        // SAY WHY. The backend's onError is one fixed toast, and it cannot know
+        // whether the store refused, the build shipped without a key, or the
+        // user simply tapped Cancel. A cancel carries no reason and stays
+        // quiet; everything else names itself, once, where it can be read.
+        if (!res.ok && res.reason) {
+          console.warn("[iap] purchase failed:", res.reason);
+          Alert.alert("Couldn't start the purchase", res.reason);
+        }
+        await runAction(res.ok ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
     }
