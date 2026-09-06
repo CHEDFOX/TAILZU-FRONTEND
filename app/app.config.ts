@@ -280,62 +280,34 @@ const config: ExpoConfig = {
     "expo-contacts",
     "expo-calendar",
     "expo-video",
-    // Splash / launch screen — the brand art, edge to edge.
+    // Splash / launch screen — ONE asset, both platforms, same size.
     //
-    // `cover` rather than `contain`: this is a full-bleed composition, not a
-    // mark floating on a ground, so letterboxing it would be the wrong
-    // picture. Cover crops a little top and bottom on a tall phone, which is
-    // what the art leaves room for.
+    // It cannot be the full 810×1440 frame. Android's splash from API 31 is
+    // the SYSTEM one: a background colour and an icon the platform masks into
+    // a circle. There is no full-bleed option and no flag that adds one, so a
+    // 9:16 composition arrives there as an unreadable crop of its own middle.
     //
-    // The source is 810×1440 (9:16). A 1290×2796 phone upscales that ~1.9×,
-    // which solid areas absorb and fine type does not — re-export larger if
-    // detail ever creeps into the edges.
+    // And iOS's own full-bleed path made the two drift further apart, not
+    // closer: scaleAspectFill scales with the device, so the dot measured
+    // 17.6pt on an SE and 24.6pt on a Pro Max, while Android's icon is a fixed
+    // dp. Identical on one phone, wrong on the next.
     //
-    // The same image in light and dark: this is a dark-first app and the
-    // launch screen is not where that gets negotiated.
+    // splash.png is a near-black frame with one white dot on it. So the splash
+    // is that dot, on the same black, at a fixed size both platforms honour:
+    // splash-mark.png is 288 square with the dot at 11.5% of it, and
+    // imageWidth 200 puts it at 22.9pt everywhere. The ground is #000000
+    // against the art's #080809 — three values out of 255, which no screen
+    // shows.
+    //
+    // Both apps open on the same frame, then play the same reveal.
     [
       "expo-splash-screen",
       {
-        // Black behind it, so any sliver the crop does not reach is the same
-        // black the app opens on and the seam is invisible.
         backgroundColor: "#000000",
-        image: "./assets/splash.png",
-        resizeMode: "cover",
-        // THE reason the splash drew as a small rectangle in the middle of a
-        // black screen: `imageWidth` defaults to 100, and the plugin puts the
-        // image in a box that size. `resizeMode: "cover"` then filled a 100pt
-        // box faithfully — the fit was right, the box was tiny. This flag
-        // swaps that box for a full-screen one, which is the only way to get
-        // an edge-to-edge splash out of this plugin.
-        enableFullScreenImage_legacy: true,
-        // `dark` only takes an image and a background; a resizeMode in here
-        // was silently dropped.
-        dark: { backgroundColor: "#000000", image: "./assets/splash.png" },
-        // Android is not iOS here, and cannot be.
-        //
-        // From API 31 the splash is the SYSTEM one: a background colour and an
-        // icon the platform masks into a circle. There is no full-bleed option
-        // and no plugin flag that adds one — expo-splash-screen writes
-        // windowSplashScreenBackground + windowSplashScreenAnimatedIcon and
-        // the system owns the rest. A 9:16 composition arrives as an
-        // unreadable crop of its own middle.
-        //
-        // So Android shows the same FIRST FRAME iOS does, and nothing else:
-        // the dot, alone, white on the same black. splash-android.png is that
-        // dot lifted out of splash.png onto transparency, sized so the mask
-        // has nothing to cut. Both platforms open on the dot, both then play
-        // the reveal — one because it is showing the frame, the other because
-        // it is showing the only part of the frame it is allowed to.
-        //
-        // 12% of a 288 canvas at imageWidth 144 lands the dot near 17dp, which
-        // is what 4.7% of the screen width comes to on iOS. Same size, by
-        // arithmetic rather than by eye.
-        android: {
-          image: "./assets/splash-android.png",
-          imageWidth: 144,
-          backgroundColor: "#000000",
-          dark: { image: "./assets/splash-android.png", backgroundColor: "#000000" },
-        },
+        image: "./assets/splash-mark.png",
+        imageWidth: 200,
+        resizeMode: "contain",
+        dark: { backgroundColor: "#000000", image: "./assets/splash-mark.png" },
       },
     ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
