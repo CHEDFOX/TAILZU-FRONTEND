@@ -692,6 +692,10 @@ const Video = ({ props, style }: CompProps) => {
       loop={(props.loop as boolean | undefined) ?? true}
       muted={props.muted !== false}
       playing={typeof props.playing === "boolean" ? props.playing : undefined}
+      // Playback rate. MediaPlayer has always taken this and set
+      // player.playbackRate; the node simply never forwarded it, so the one
+      // speed control in the app was unreachable from the backend.
+      speed={typeof props.speed === "number" ? props.speed : undefined}
     />
   );
 };
