@@ -311,15 +311,30 @@ const config: ExpoConfig = {
         // `dark` only takes an image and a background; a resizeMode in here
         // was silently dropped.
         dark: { backgroundColor: "#000000", image: "./assets/splash.png" },
-        // Android is not iOS here. From API 31 the system masks the splash
-        // image into a circle, so a full-bleed 9:16 composition arrives as an
-        // unreadable crop of its own middle. It gets the mark instead, on the
-        // same black, which is what the mask is designed to hold.
+        // Android is not iOS here, and cannot be.
+        //
+        // From API 31 the splash is the SYSTEM one: a background colour and an
+        // icon the platform masks into a circle. There is no full-bleed option
+        // and no plugin flag that adds one — expo-splash-screen writes
+        // windowSplashScreenBackground + windowSplashScreenAnimatedIcon and
+        // the system owns the rest. A 9:16 composition arrives as an
+        // unreadable crop of its own middle.
+        //
+        // So Android shows the same FIRST FRAME iOS does, and nothing else:
+        // the dot, alone, white on the same black. splash-android.png is that
+        // dot lifted out of splash.png onto transparency, sized so the mask
+        // has nothing to cut. Both platforms open on the dot, both then play
+        // the reveal — one because it is showing the frame, the other because
+        // it is showing the only part of the frame it is allowed to.
+        //
+        // 12% of a 288 canvas at imageWidth 144 lands the dot near 17dp, which
+        // is what 4.7% of the screen width comes to on iOS. Same size, by
+        // arithmetic rather than by eye.
         android: {
-          image: "./assets/adaptive-icon.png",
-          imageWidth: 200,
+          image: "./assets/splash-android.png",
+          imageWidth: 144,
           backgroundColor: "#000000",
-          dark: { image: "./assets/adaptive-icon.png", backgroundColor: "#000000" },
+          dark: { image: "./assets/splash-android.png", backgroundColor: "#000000" },
         },
       },
     ],
