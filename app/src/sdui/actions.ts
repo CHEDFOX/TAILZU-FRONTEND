@@ -24,7 +24,6 @@ import * as Calendar from "expo-calendar";
 import * as Contacts from "expo-contacts";
 import * as Camera from "expo-camera";
 import * as Speech from "expo-speech";
-import * as Tracking from "expo-tracking-transparency";
 import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
@@ -409,7 +408,21 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
           case "contacts": granted = (await Contacts.requestPermissionsAsync()).granted; break;
           case "calendar": granted = (await Calendar.requestCalendarPermissionsAsync()).granted; break;
-          case "tracking": granted = (await Tracking.requestTrackingPermissionsAsync()).status === "granted"; break;
+          case "tracking":
+            // NOT IN THIS BUILD, deliberately. Shipping the ATT prompt means
+            // shipping NSUserTrackingUsageDescription, and App Store Connect
+            // refuses to publish an App Privacy card for a binary that CAN ask
+            // to track until you declare which data does the tracking. None
+            // does. Nothing has ever sent permission:"tracking" either, so the
+            // key bought a blocked submission and no feature.
+            //
+            // Denied rather than silent, so onDenied fires and a caller learns
+            // the answer instead of waiting. Restoring it is the plugin, the
+            // usage string, and a new build — plus a truthful tracking
+            // declaration, which is the part that should give anyone pause.
+            console.warn('[sdui] requestPermission("tracking"): not built in — treating as denied');
+            granted = false;
+            break;
           case "location":
             // expo-location is NOT a dependency in this build. Wiring a real
             // location prompt needs that native module added (a native change),

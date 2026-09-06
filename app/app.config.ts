@@ -126,8 +126,6 @@ const config: ExpoConfig = {
         "Tailzu reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
       NSLocationWhenInUseUsageDescription:
         "Tailzu reads your location only when you dictate a location-tagged note (\"send my location\") so it can attach the correct place to the message.",
-      NSUserTrackingUsageDescription:
-        "This lets Tailzu personalize writing suggestions to your style. Nothing is shared with third-party advertisers.",
       NSMotionUsageDescription:
         "Tailzu uses motion to detect the raise-to-record shortcut when you enable it in Settings.",
       NSBluetoothAlwaysUsageDescription:
@@ -276,7 +274,6 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-local-authentication",
     "expo-notifications",
-    "expo-tracking-transparency",
     "expo-contacts",
     "expo-calendar",
     "expo-video",
