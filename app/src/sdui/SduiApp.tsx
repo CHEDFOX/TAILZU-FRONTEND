@@ -397,18 +397,21 @@ export default function SduiApp() {
         // Two owners of the stack, and the loser was the thing the user
         // actually asked for.
         //
-        // Home is the honest landing: the cold-start effect reads the
-        // keyboard's entry a moment later and routes to flow_arm or
-        // keyboard_record from there. What matters is that the intro never
-        // mounts and never starts a timer that will outlive it.
+        // NOTHING, until the cold-start effect places the real screen.
         //
-        // ONLY until that routing has happened. This function runs twice —
-        // once off the disk cache, once when the fresh bootstrap lands — and
-        // the cold-start effect fires between them. Unguarded, the second pass
-        // set Home over flow_arm, so every keyboard mic tap ended on the
-        // Training tab: the routing worked and was immediately overwritten by
-        // the placeholder it was routing away from.
-        if (!kbRoutedRef.current) setStack([{ screenId: "home" }]);
+        // This used to park on Home. Home is a whole screen — it painted, and
+        // the user saw the Training tab flash before the mic screen replaced
+        // it. An empty stack renders the quiet themed background instead,
+        // which is what the app already shows while the first screen loads.
+        // The point was never Home; it was that the INTRO must not mount,
+        // because its timer would outlive the handoff and navigate away from
+        // whatever the keyboard asked for.
+        //
+        // Guarded because this function runs twice — once off the disk cache,
+        // once when the fresh bootstrap lands — and the cold-start effect
+        // fires between them. Unguarded, the second pass cleared the stack
+        // the effect had just filled.
+        if (!kbRoutedRef.current) setStack([]);
       } else {
         setStack([{ screenId: firstScreenId }]);
         // A question the backend wants asked again — presented ON TOP of the
