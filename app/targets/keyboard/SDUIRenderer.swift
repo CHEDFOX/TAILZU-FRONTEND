@@ -1230,8 +1230,16 @@ final class KeyPlaneView: UIView {
     onDebugHit?()
   }
 
+  /// Guards the flush against itself. commit() fires a button's actions
+  /// SYNCHRONOUSLY, keyTouchDown flushes on any interaction-enabled key going
+  /// down, and an action key in the plane's partition is both — so the flush
+  /// called itself, forever, through UIKit.
+  private var flushing = false
+
   func flushPendingCommits() {
-    guard rolloverCommit else { return }
+    guard rolloverCommit, !flushing else { return }
+    flushing = true
+    defer { flushing = false }
     for (_, track) in tracks
     where !track.committed && !track.trayActive && !track.swipeMode && track.specialRole == nil {
       track.trayTimer?.invalidate()
@@ -1240,8 +1248,19 @@ final class KeyPlaneView: UIView {
         if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
         track.pressed = false
       }
-      commit(track)
+      // MARK BEFORE FIRING.
+      //
+      // commit() on an action key sends .touchDown / .touchUpInside on its
+      // button, right here, on this stack. keyTouchDown answers that by
+      // flushing again — and the track it just committed was still unmarked,
+      // because the mark came after the call. So it committed the same key
+      // again, and again: 740 frames deep, EXC_BAD_ACCESS in the stack guard,
+      // and iOS swapping in the system keyboard mid-sentence.
+      //
+      // The `flushing` guard above closes the same door structurally. This one
+      // is the reason the door was open.
       track.committed = true
+      commit(track)
       track.button = nil
     }
   }
@@ -2708,7 +2727,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K32"
+  static let buildStamp = "K33"
 
   /// The bundled brand mark.
   ///
