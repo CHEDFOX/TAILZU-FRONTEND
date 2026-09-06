@@ -495,7 +495,16 @@ final class KeyPlaneView: UIView {
   /// convert; only when it disagrees does the full rebuild run. Same
   /// guarantee, a thirtieth of the work.
   /// One key per row, and the rect it had when the grid was last rebuilt.
-  private var witnesses: [(button: UIButton, rect: CGRect)] = []
+  ///
+  /// Weak, like `keys`, and for the same reason: a witness that kept a button
+  /// alive would let the cheap check pass on a view that has already left the
+  /// hierarchy — the one state it exists to catch. A tuple cannot hold a weak
+  /// member, so this is a struct.
+  private struct Witness {
+    weak var button: UIButton?
+    let rect: CGRect
+  }
+  private var witnesses: [Witness] = []
   private var geoBounds: CGRect = .null
 
   private func ensureFrames() {
@@ -599,7 +608,7 @@ final class KeyPlaneView: UIView {
     witnesses = []
     for (n, entry) in raw.enumerated() where !seenRow.contains(rowOf[n]) {
       seenRow.insert(rowOf[n])
-      witnesses.append((entry.0, entry.2))
+      witnesses.append(Witness(button: entry.0, rect: entry.2))
     }
     // The key area. Every point in it belongs to SOME key — see owns() and
     // keyAt's fallback — and nothing outside it (the tools row, the
@@ -2699,7 +2708,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K30"
+  static let buildStamp = "K31"
 
   /// The bundled brand mark.
   ///
