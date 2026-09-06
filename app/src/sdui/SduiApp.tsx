@@ -874,6 +874,23 @@ export default function SduiApp() {
   // hot link applies immediately while a cold one stashes) and the action
   // dispatcher (so it uses the current nav + flags, not the initial ones).
   useEffect(() => { readyRef.current = phase === "ready"; }, [phase]);
+
+  // DROP THE SPLASH once there is a screen under it, and not a moment before.
+  //
+  // index.ts holds it at launch. Hiding it on `phase === "ready"` would be too
+  // early — ready means the bootstrap landed, not that a screen has been
+  // fetched and drawn — and the gap between those two is the half-second of
+  // black this exists to remove. `screen` being non-null is the first instant
+  // there is something to look at.
+  const splashHidden = useRef(false);
+  useEffect(() => {
+    if (splashHidden.current || !screen) return;
+    splashHidden.current = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
+    } catch { /* nothing was holding it */ }
+  }, [screen]);
   useEffect(() => {
     runLinkActionRef.current = (kind, params) => {
       // Only known, side-effect-safe kinds may be triggered from a URL; anything
