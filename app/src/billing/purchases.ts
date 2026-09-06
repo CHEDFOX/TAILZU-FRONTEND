@@ -114,17 +114,50 @@ async function pickOffering(offeringId?: string): Promise<PurchasesOffering | nu
  * When omitted, the first available package is used.
  */
 export async function showPaywall(offeringId?: string, packageId?: string): Promise<boolean> {
-  if (!KEY) return false;
+  return (await buyPackage(offeringId, packageId)).ok;
+}
+
+/**
+ * Why a purchase did not happen.
+ *
+ * Every failure here used to return a bare `false`, and the screen turned all
+ * of them into one toast. A missing API key, an offering RevenueCat has not
+ * been told about, a product the store will not sell yet, and a user tapping
+ * Cancel were indistinguishable — from the outside and from a log. "Tapping the
+ * plans does nothing" is what that looks like when the key is empty, because
+ * the first line returns before anything reaches the store at all.
+ *
+ * The same lesson the auth screen already learned: a silent identical failure
+ * is a bug report instead of an answer.
+ */
+export type PurchaseOutcome = { ok: boolean; reason?: string };
+
+export async function buyPackage(offeringId?: string, packageId?: string): Promise<PurchaseOutcome> {
+  // Build-time, from process.env.REVENUECAT_IOS_KEY / _ANDROID_KEY. Empty means
+  // the binary was built without them, and no amount of store configuration
+  // will help until it is rebuilt with them set.
+  if (!KEY) return { ok: false, reason: "No RevenueCat key in this build." };
   const offering = await pickOffering(offeringId);
-  const list = offering?.availablePackages ?? [];
+  if (!offering) {
+    return { ok: false, reason: `No offering "${offeringId ?? "current"}" for this platform.` };
+  }
+  const list = offering.availablePackages ?? [];
   const pkg = packageId ? list.find((p) => p.identifier === packageId) ?? list[0] : list[0];
-  if (!pkg) return false;
+  if (!pkg) {
+    // The offering exists but holds nothing this device can buy — the usual
+    // shape of "products not attached for this store yet".
+    return { ok: false, reason: `Offering "${offering.identifier}" has no package ${packageId ?? ""}.`.trim() };
+  }
   try {
     const res = await Purchases.purchasePackage(pkg);
     await refreshEntitlements();
-    return Object.keys(res.customerInfo.entitlements.active).length > 0;
-  } catch {
-    return false;
+    const active = Object.keys(res.customerInfo.entitlements.active).length > 0;
+    return active ? { ok: true } : { ok: false, reason: "Purchase completed but granted no entitlement." };
+  } catch (e: unknown) {
+    const err = e as { userCancelled?: boolean; message?: string; code?: string | number };
+    // A cancel is not a failure and must not be reported as one.
+    if (err?.userCancelled) return { ok: false, reason: undefined };
+    return { ok: false, reason: err?.message ?? String(e) };
   }
 }
 
