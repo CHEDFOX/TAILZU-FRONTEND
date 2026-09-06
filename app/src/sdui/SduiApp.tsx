@@ -169,6 +169,9 @@ export default function SduiApp() {
    * the bridge a second time (which would return nothing).
    */
   const kbEntryRef = useRef<{ rec: ReturnType<typeof consumeKeyboardRecordRequest>; link: string | null } | null | undefined>(undefined);
+  /** True once the keyboard's entry has actually been routed. commitBoot runs
+   *  twice and must not put the user back on Home after that. */
+  const kbRoutedRef = useRef(false);
   /**
    * Sticky: the keyboard wanted this launch.
    *
@@ -398,7 +401,14 @@ export default function SduiApp() {
         // keyboard's entry a moment later and routes to flow_arm or
         // keyboard_record from there. What matters is that the intro never
         // mounts and never starts a timer that will outlive it.
-        setStack([{ screenId: "home" }]);
+        //
+        // ONLY until that routing has happened. This function runs twice —
+        // once off the disk cache, once when the fresh bootstrap lands — and
+        // the cold-start effect fires between them. Unguarded, the second pass
+        // set Home over flow_arm, so every keyboard mic tap ended on the
+        // Training tab: the routing worked and was immediately overwritten by
+        // the placeholder it was routing away from.
+        if (!kbRoutedRef.current) setStack([{ screenId: "home" }]);
       } else {
         setStack([{ screenId: firstScreenId }]);
         // A question the backend wants asked again — presented ON TOP of the
@@ -612,9 +622,11 @@ export default function SduiApp() {
       // recording screen only walks the user into a rejection — and lands them
       // on an error toast instead of the one screen that can fix it.
       if (overFreeLimit()) {
+        kbRoutedRef.current = true;
         setStack([{ screenId: "paywall" }]);
         return "navigated";
       }
+      kbRoutedRef.current = true;
       setStack([{
         screenId: "keyboard_record",
         params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
@@ -633,6 +645,7 @@ export default function SduiApp() {
         // Same rule as the mic handoff: no point arming a mic whose every
         // transcript the server is going to refuse.
         if (overFreeLimit()) {
+          kbRoutedRef.current = true;
           setStack([{ screenId: "paywall" }]);
           return "navigated";
         }
@@ -648,12 +661,14 @@ export default function SduiApp() {
           const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
           armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
         })();
+        kbRoutedRef.current = true;
         setStack([{ screenId: "flow_arm" }]);
         return "navigated";
       }
       if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
         // keyboard_record / keyboard_primer are mic-tap-only (owned by the
         // record-request path above); a leftover deep-link to them is stale.
+        kbRoutedRef.current = true;
         setStack([{ screenId }]);
         return "navigated";
       }
