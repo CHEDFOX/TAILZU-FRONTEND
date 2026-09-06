@@ -280,57 +280,38 @@ const config: ExpoConfig = {
     "expo-contacts",
     "expo-calendar",
     "expo-video",
-    // Splash / launch screen. splash.png IS the reveal's first frame, so the
-    // splash and the reveal only line up when they are DRAWN the same way.
+    // Splash / launch screen — ONE asset, both platforms, the mark DEAD CENTRE.
     //
-    // They were not. The splash showed a cropped-out copy of the mark, centred;
-    // the reveal shows the whole frame under `cover`. The mark is not centred
-    // in that frame — it sits at (0.4741, 0.4715) — so `cover` carries it off
-    // centre by a fraction of the screen HEIGHT, not a fixed number of points:
+    // It cannot be the full 810×1440 frame. From API 31 Android's splash is the
+    // SYSTEM one: a background colour and an icon the platform masks into a
+    // circle. There is no full-bleed option and no flag that adds one, so a 9:16
+    // composition arrives there as an unreadable crop of its own middle. iOS
+    // alone could show the frame, and then the two platforms would not match.
     //
-    //   dy = -0.0285 x H     dx = -0.01455 x H     mark = 0.0264 x H
+    // So the splash is the MARK: splash-mark.png, on the same black, centred, at
+    // a fixed size both platforms honour. The ground is #000000 against the
+    // art's #080809 — three values out of 255, which no screen shows.
     //
-    // On a 375x812 screen that is -12pt, -23pt and a 21pt mark. Any centred,
-    // fixed-size copy of the mark can only be right on one screen size; it was
-    // calibrated to that one and drifted on every other.
+    // The reveal is what moves to meet it. Its mark is not centred in its own
+    // frame (0.4741, 0.4715), so `cover` lands it left of and above the middle
+    // by a fraction of the screen HEIGHT — which is why the fix cannot live
+    // here as a fixed number of points, and does not: the media entry carries
+    // nudgeX/nudgeY, in percent, and the server applies them. Backend-tunable,
+    // right on every device, no build.
     //
-    // iOS therefore stops copying the mark and shows the FRAME, pinned to all
-    // four edges under scaleAspectFill — which is the same source under the
-    // same fit as expo-video's contentFit:"cover" on the reveal. They cannot
-    // disagree: identical geometry by construction, on every device, with no
-    // calibration to go stale. That is what enableFullScreenImage_legacy does
-    // (top/leading/trailing/bottom to the container, image copied at native
-    // size, no resize).
+    // imageWidth 232 matches the mark's size to the reveal's, measured off a
+    // screen recording: at 184 the splash drew the mark at 50px while the
+    // reveal drew it at 63.
     //
-    // ANDROID CANNOT DO THIS. From API 31 the splash is the SYSTEM one: a
-    // background colour and an icon the platform masks into a circle. There is
-    // no full-bleed option and no flag that adds one, so a 9:16 composition
-    // arrives there as an unreadable crop of its own middle. Android keeps the
-    // extracted mark, carrying the offset above baked into the asset at the
-    // 812-tall calibration — within ~3dp across the Android size range, which
-    // is the best that a fixed-dp icon can do against a height-proportional
-    // target. The ground is #000000 against the art's #080809: three values
-    // out of 255, which no screen shows.
-    //
-    // Both apps open on the same frame, then play the same reveal. iOS is now
-    // exact; Android is as close as its platform allows.
+    // Both apps open on the same frame, then play the same reveal.
     [
       "expo-splash-screen",
       {
         backgroundColor: "#000000",
-        dark: { backgroundColor: "#000000" },
-        ios: {
-          enableFullScreenImage_legacy: true,
-          image: "./assets/splash.png",
-          resizeMode: "cover",
-          dark: { image: "./assets/splash.png" },
-        },
-        android: {
-          image: "./assets/splash-mark.png",
-          imageWidth: 232,
-          resizeMode: "contain",
-          dark: { image: "./assets/splash-mark.png" },
-        },
+        image: "./assets/splash-mark.png",
+        imageWidth: 232,
+        resizeMode: "contain",
+        dark: { backgroundColor: "#000000", image: "./assets/splash-mark.png" },
       },
     ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
