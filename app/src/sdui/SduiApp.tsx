@@ -109,6 +109,47 @@ function inferSystemLanguage(): string | null {
   }
 }
 
+/**
+ * How long the splash may wait for the first screen's picture to arrive.
+ *
+ * A cached file resolves in milliseconds. This is the ceiling for the case
+ * where it does not — a cold install on a bad connection — because a splash
+ * that waits forever is worse than the black it was holding back.
+ */
+const SPLASH_MEDIA_WAIT_MS = 1500;
+
+/**
+ * The first remote picture on a screen, if it has one.
+ *
+ * A screen existing is not a screen you can look at. The opening media is a
+ * file on the server, and it only starts downloading once the node that wants
+ * it has rendered — so dropping the splash the moment a screen exists shows
+ * black until that file lands. This finds what to wait for.
+ *
+ * Only `{ url }` sources count. A `{ key }` source needs the client media
+ * registry, which is populated as the bootstrap lands — the exact race that
+ * made the server resolve urls itself. Falling through on one means hiding
+ * immediately, which is what happened before this existed: no regression, just
+ * no improvement.
+ */
+function firstRemoteImage(node: unknown): string | null {
+  if (!node || typeof node !== "object") return null;
+  const n = node as { type?: string; props?: Record<string, unknown>; children?: unknown[]; fallback?: unknown };
+  if (n.type === "Image" || n.type === "Slideshow") {
+    const src = n.props?.source ?? (n.props?.frames as unknown[] | undefined)?.[0];
+    const url =
+      typeof src === "string" ? src
+      : typeof src === "object" && src !== null ? (src as { url?: string }).url
+      : undefined;
+    if (url && /^https?:\/\//i.test(url)) return url;
+  }
+  for (const c of n.children ?? []) {
+    const hit = firstRemoteImage(c);
+    if (hit) return hit;
+  }
+  return firstRemoteImage(n.fallback);
+}
+
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
   // HOOKS BELONG HERE, above every early return.
@@ -875,21 +916,50 @@ export default function SduiApp() {
   // dispatcher (so it uses the current nav + flags, not the initial ones).
   useEffect(() => { readyRef.current = phase === "ready"; }, [phase]);
 
-  // DROP THE SPLASH once there is a screen under it, and not a moment before.
+  // DROP THE SPLASH once there is a PICTURE under it, and not a moment before.
   //
-  // index.ts holds it at launch. Hiding it on `phase === "ready"` would be too
-  // early — ready means the bootstrap landed, not that a screen has been
-  // fetched and drawn — and the gap between those two is the half-second of
-  // black this exists to remove. `screen` being non-null is the first instant
-  // there is something to look at.
+  // index.ts holds it at launch. Three moments were candidates for letting go,
+  // and only the last one is black-free:
+  //
+  //   phase === "ready"  — the bootstrap landed. No screen yet.
+  //   screen !== null    — the screen landed. Its media has not started.
+  //   the file is here   — this one.
+  //
+  // The opening media is a file on the server. The node that wants it only
+  // begins fetching once it has rendered, so hiding on `screen` uncovers a
+  // download in progress. Prefetching it first puts that download behind the
+  // splash, where a wait is invisible.
+  //
+  // The timeout is the promise this cannot break: whatever the network does,
+  // the splash goes. A splash that waits forever is worse than the black it
+  // was holding back.
   const splashHidden = useRef(false);
   useEffect(() => {
     if (splashHidden.current || !screen) return;
     splashHidden.current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let done = false;
+    const drop = () => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
+      } catch { /* nothing was holding it */ }
+    };
+    const url = firstRemoteImage((screen as ScreenResponse).root);
+    if (!url) { drop(); return; }
+    timer = setTimeout(drop, SPLASH_MEDIA_WAIT_MS);
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
-    } catch { /* nothing was holding it */ }
+      const ExpoImage = require("expo-image")?.Image;
+      // "disk" matches what the Image components render with, so the prefetch
+      // fills the cache they read from rather than a second one beside it.
+      const p = ExpoImage?.prefetch?.(url, "disk");
+      if (p?.then) p.then(drop, drop); else drop();
+    } catch { drop(); }
+    return () => { if (timer) clearTimeout(timer); };
   }, [screen]);
   useEffect(() => {
     runLinkActionRef.current = (kind, params) => {
