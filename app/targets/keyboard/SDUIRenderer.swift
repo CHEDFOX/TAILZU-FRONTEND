@@ -2708,7 +2708,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K31"
+  static let buildStamp = "K32"
 
   /// The bundled brand mark.
   ///
@@ -4483,11 +4483,24 @@ final class SDUIRenderer: NSObject {
       // backend-pushed media. kb.mic.idleIcon is deliberately NOT consulted at
       // idle (it remains only the recording fallback above); an uploaded
       // animation must not replace the mark again.
-      // Idle brand mark, inset so it reads as an icon centered on the circle.
+      // Idle brand mark, filling the circle.
+      //
+      // A UIButton does NOT scale its image up. `.scaleAspectFit` only ever
+      // shrinks; the image view is laid out at the image's INTRINSIC size and
+      // centred. The mark is a 30pt asset and the mic is a 36pt circle, so it
+      // sat 3pt short of the wall on every side — a ring of empty amber that
+      // no inset value could close, because the inset was already 0 and the
+      // gap was never an inset.
+      //
+      // `.fill` on both axes hands the image view the whole content rect, and
+      // aspect-fit then scales the mark UP into it. kb.mic.idleIconInset means
+      // what it says again: 0 fills, larger pulls it in.
       btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
       btn.imageView?.stopAnimating()
       btn.imageView?.contentMode = .scaleAspectFit
-      let inset = flagCGFloat("kb.mic.idleIconInset", 8)
+      btn.contentHorizontalAlignment = .fill
+      btn.contentVerticalAlignment = .fill
+      let inset = flagCGFloat("kb.mic.idleIconInset", 0)
       btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
     } else {
       // Only reachable if the brand mark is missing from the built extension —
