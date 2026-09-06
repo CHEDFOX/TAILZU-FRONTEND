@@ -362,9 +362,27 @@ final class KeyPlaneView: UIView {
     frames = []
     roleFrames = []
     framesDirty = true
-    // The plane is persistent with constant bounds, so its own layout never
-    // runs after a remount and the overlay was only ever drawn once — from
-    // the first frame, with nothing in it. Repaint on every rebind.
+    // ASK FOR A LAYOUT PASS. This is what the debug overlay was really doing.
+    //
+    // The plane is persistent with constant bounds, so nothing invalidates its
+    // layout after a remount — and alwaysRefreshGeometry lives in
+    // layoutSubviews, which therefore never ran. The flag meant to keep the
+    // geometry warm was a no-op in the one situation it was written for, and
+    // the frames stayed empty until the first finger landed and paid for
+    // rebuilding them against a tree that had not settled. That is the dead
+    // gap: not a wrong rect, a missing one.
+    //
+    // The green sheet hid it by accident. `setNeedsDisplay()` made draw() run
+    // at the next display pass, and draw() called ensureFrames() — so the
+    // geometry was always warm before a touch, purely as a side effect of
+    // painting. Turning the paint off turned the warming off with it, which is
+    // why the gaps came back and why they seemed to be about a debug flag.
+    //
+    // setNeedsLayout() schedules layoutSubviews even with bounds unchanged, so
+    // the refresh happens at a frame boundary, after the container has laid its
+    // keys out, before any touch. Same moment the overlay got for free, now on
+    // purpose and with nothing drawn.
+    setNeedsLayout()
     if debugRects { setNeedsDisplay() }
   }
 
@@ -2727,7 +2745,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K33"
+  static let buildStamp = "K34"
 
   /// The bundled brand mark.
   ///
