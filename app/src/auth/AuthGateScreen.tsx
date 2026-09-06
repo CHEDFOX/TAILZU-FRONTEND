@@ -41,6 +41,7 @@ import * as Haptics from "expo-haptics";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
+import { CaptchaHost, solveCaptcha } from "./captcha";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { fetchAuthConfig } from "../sdui/client";
@@ -439,7 +440,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     const my = ++seq.current;
     setPhase("sending");
     const animMin = new Promise((r) => setTimeout(r, 1600));
-    const apiCall = type === "phone" ? supabaseAuth.sendPhoneCode(value) : supabaseAuth.sendEmailCode(value);
+    // Solve the bot challenge inside the 1.6s the send animation runs anyway,
+    // so the protection costs the user no time at all. A resend gets its own:
+    // Turnstile tokens are single use.
+    const captcha = await solveCaptcha();
+    const apiCall = type === "phone"
+      ? supabaseAuth.sendPhoneCode(value, captcha)
+      : supabaseAuth.sendEmailCode(value, captcha);
     try {
       const [, res]: any = await Promise.all([animMin, apiCall]);
       if (my !== seq.current) return;
@@ -468,7 +475,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     const my = ++seq.current;
     setPhase("verifying");
     try {
-      const { error } = await supabaseAuth.signInWithPassword(active.value, reviewPassword);
+      const { error } = await supabaseAuth.signInWithPassword(
+        active.value, reviewPassword, await solveCaptcha(),
+      );
       if (my !== seq.current) return;
       if (error) {
         setPhase("password"); flashError();
@@ -614,6 +623,10 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
+      {/* The bot challenge. Draws nothing, and renders nothing at all until a
+          site key exists — see ./captcha.tsx for why it lives here and not
+          behind the send button. */}
+      <CaptchaHost />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>

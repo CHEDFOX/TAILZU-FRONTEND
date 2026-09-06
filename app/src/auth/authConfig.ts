@@ -32,6 +32,25 @@ export const AUTH_METHODS = {
   enablePhone: false,
 };
 
+/**
+ * Cloudflare Turnstile — the bot challenge in front of the auth endpoints.
+ *
+ * The site key is PUBLIC, like the Supabase anon key beside it. The secret half
+ * goes in Supabase → Authentication → Attack Protection, and never here.
+ *
+ * `origin` is what the hidden WebView reports as its domain. A Turnstile key is
+ * bound to a domain list, and a page built from a string has no domain of its
+ * own, so this value must be one of the domains on the key.
+ *
+ * Empty siteKey = no challenge, and every auth call goes out without a token —
+ * exactly today's behaviour. Fill it in AND turn on Attack Protection, in that
+ * order: enabling Supabase first rejects every sign-in, including yours.
+ */
+export const TURNSTILE = {
+  siteKey: "",
+  origin: "https://tailzu.space",
+};
+
 export interface Country {
   iso: string;
   name: string;

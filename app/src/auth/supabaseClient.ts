@@ -77,12 +77,12 @@ export const supabaseAuth = {
    * knowing the address grants nothing. Clearing the flag removes the path
    * without a release.
    */
-  signInWithPassword: (email: string, password: string) =>
-    supabase.auth.signInWithPassword({ email, password }),
+  signInWithPassword: (email: string, password: string, captchaToken?: string) =>
+    supabase.auth.signInWithPassword({ email, password, options: { captchaToken } }),
 
   /** Email OTP — sends a 6-digit code (template must use {{ .Token }}). */
-  sendEmailCode: (email: string) =>
-    supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } }),
+  sendEmailCode: (email: string, captchaToken?: string) =>
+    supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, captchaToken } }),
   verifyEmailCode: (email: string, token: string) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
 
@@ -90,9 +90,18 @@ export const supabaseAuth = {
    *  Supabase). `shouldCreateUser` is spelled out rather than left to the
    *  library default: this is the whole sign-up path for a phone-first user,
    *  and if it ever defaulted otherwise a new number would get "Signups not
-   *  allowed for otp" instead of an account. */
-  sendPhoneCode: (phone: string) =>
-    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true } }),
+   *  allowed for otp" instead of an account.
+   *
+   *  THE ONE CALL THAT COSTS MONEY. Everything else here spends a request; this
+   *  spends an SMS on our Twilio account, to any number on earth, on nothing but
+   *  the anon key that ships inside the app. `captchaToken` is what stands
+   *  between that and a bot — see ./captcha.tsx. Undefined is accepted so the
+   *  app keeps working before Attack Protection is switched on in Supabase. */
+  sendPhoneCode: (phone: string, captchaToken?: string) =>
+    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true, captchaToken } }),
+  /** No captcha: GoTrue challenges the endpoints that SEND, not /verify, and
+   *  asking a user to solve a second one to type a code they already have is
+   *  friction that buys nothing. */
   verifyPhoneCode: (phone: string, token: string) =>
     supabase.auth.verifyOtp({ phone, token, type: "sms" }),
 
