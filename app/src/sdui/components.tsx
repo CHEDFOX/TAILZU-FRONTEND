@@ -328,7 +328,26 @@ const ImageC = ({ props, style }: CompProps) => {
   // is honored.
   const m = resolveMedia(props.source as any);
   const src = m.kind === "uri" ? { uri: m.uri } : m.kind === "bundled" ? m.source : null;
-  const base = { width: "100%" as const, aspectRatio: props.aspectRatio ?? 1.6, borderRadius: 10 };
+  // Defaults, and ONLY where the caller left a gap.
+  //
+  // These used to be unconditional and merged UNDER the incoming style, which
+  // meant `aspectRatio: 1.6` survived any style that set width and height but
+  // not a ratio — and Yoga, holding a width and a ratio, derives the height
+  // and ignores the one it was given. Every full-bleed image in the app came
+  // out as a rounded 1.6 landscape strip cropped through its own middle: the
+  // opening media, the flow clip, every hero. The style was correct and the
+  // default quietly outranked it.
+  const s = (StyleSheet.flatten(style as any) ?? {}) as Record<string, any>;
+  // Four insets fix both dimensions, so the box is already fully described.
+  const pinned =
+    s.position === "absolute" &&
+    (s.top != null || s.bottom != null) && (s.left != null || s.right != null);
+  const base: Record<string, any> = {};
+  if (s.width == null && !pinned) base.width = "100%";
+  if (s.aspectRatio == null && s.height == null && !pinned) {
+    base.aspectRatio = props.aspectRatio ?? 1.6;
+  }
+  if (s.borderRadius == null) base.borderRadius = 10;
   if (!src) return <View style={[base, style] as any} />;
   return <ExpoImage source={src as any} contentFit={props.contentFit ?? "cover"} style={[base, style] as any} />;
 };
