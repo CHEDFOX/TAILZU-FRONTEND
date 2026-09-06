@@ -44,7 +44,7 @@ import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { useEdgeSwipeBack } from "../sdui/gestures";
-import { fetchAuthConfig } from "../sdui/client";
+import { callEndpoint, fetchAuthConfig } from "../sdui/client";
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 
@@ -339,7 +339,7 @@ function MicroLoader() {
 }
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
-  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying" | "password">("entry");
+  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying">("entry");
   const [active, setActive] = useState<ActiveMethod | null>(null);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
@@ -379,7 +379,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // backend is in a submission window, and an empty string never equals a
   // typed address — so outside that window this path does not exist.
   const [reviewEmail, setReviewEmail] = useState("");
-  const [reviewPassword, setReviewPassword] = useState("");
   const fields: Field[] = [
     { id: "email", type: "email" },
     ...(phoneEnabled ? [{ id: "phone", type: "phone" as const }] : []),
@@ -429,10 +428,16 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const send = useCallback(async (type: "email" | "phone", value: string) => {
     Keyboard.dismiss();
-    // The review account asks for a password rather than sending a code.
+    // THE REVIEW ADDRESS SKIPS THE SEND, NOT THE SCREEN.
+    //
+    // Its code is a fixed pair held on the server, so there is nothing to mail
+    // and nothing to wait for — but the reviewer still lands on the same code
+    // screen every other user sees, because that IS the flow being reviewed.
+    // The pair is checked in verify(), against /v1/auth/review-code.
     if (type === "email" && reviewEmail && value.trim().toLowerCase() === reviewEmail) {
       setActive({ type, value });
-      setPhase("password");
+      setCode("");
+      setPhase("verify");
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -469,30 +474,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
   }, [flashError, reviewEmail]);
 
-  const signInReview = useCallback(async () => {
-    if (!active) return;
-    Keyboard.dismiss();
-    const my = ++seq.current;
-    setPhase("verifying");
-    try {
-      const { error } = await supabaseAuth.signInWithPassword(
-        active.value, reviewPassword, await solveCaptcha(),
-      );
-      if (my !== seq.current) return;
-      if (error) {
-        setPhase("password"); flashError();
-        Alert.alert("Couldn't sign in", String(error.message));
-        return;
-      }
-      // No onDone() call: the session listener in SduiApp picks this up exactly
-      // as it does every other sign-in, so a reviewer follows the ordinary path
-      // into the app rather than a second one written only for them.
-    } catch (e: any) {
-      if (my !== seq.current) return;
-      setPhase("password"); flashError();
-      Alert.alert("Couldn't sign in", String(e?.message ?? e ?? "Network error"));
-    }
-  }, [active, reviewPassword, flashError]);
 
   const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
 
@@ -502,6 +483,35 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     const my = ++seq.current;
     setPhase("verifying");
     try {
+      // THE REVIEW PAIR. Its code was never mailed — it is a fixed value held in
+      // the backend's env — so the server checks the pair and, on a match, mints
+      // a one-time link for that account. The app redeems it exactly as it would
+      // redeem an emailed code, and what comes back is an ordinary session.
+      //
+      // Wrong code here fails the same way a wrong emailed code does: the shake,
+      // the cleared boxes, no explanation. The two paths are not distinguishable
+      // from the outside, which is the point.
+      if (active.type === "email" && reviewEmail && active.value.trim().toLowerCase() === reviewEmail) {
+        const res = await callEndpoint("POST", "/v1/auth/review-code", {
+          email: active.value.trim().toLowerCase(),
+          code: token,
+        }).catch(() => null);
+        const hash = res?.tokenHash;
+        if (!hash) {
+          setPhase("verify"); setCode(""); flashError();
+          setTimeout(() => codeRef.current?.focus?.(), 60);
+          return;
+        }
+        const { error: linkErr } = await supabaseAuth.verifyTokenHash(hash);
+        if (my !== seq.current) return;
+        if (linkErr) {
+          setPhase("verify"); setCode(""); flashError();
+          setTimeout(() => codeRef.current?.focus?.(), 60);
+          return;
+        }
+        onAuthed();
+        return;
+      }
       const { error } = active.type === "phone"
         ? await supabaseAuth.verifyPhoneCode(active.value, token)
         : await supabaseAuth.verifyEmailCode(active.value, token);
@@ -515,7 +525,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhase("verify"); setCode(""); flashError();
       setTimeout(() => codeRef.current?.focus?.(), 60);
     }
-  }, [active, flashError, onAuthed]);
+  }, [active, flashError, onAuthed, reviewEmail]);
 
   useEffect(() => {
     if (phase === "verify" && code.length === CODE_LEN && /^\d+$/.test(code)) verify(code);
@@ -619,7 +629,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   }, [googleResponse, googleRequest, flashError, onAuthed]);
 
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
-  const onCode = phase === "verify" || phase === "verifying" || phase === "password";
+  const onCode = phase === "verify" || phase === "verifying";
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
@@ -691,58 +701,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             </Animated.View>
           )}
 
-          {/* Review sign-in. Only ever reachable by typing the address the
-              backend named, so no other user can see this screen exists.
-
-              A CODE ON SCREEN, A PASSWORD ON THE WIRE.
-
-              Sign-in here is codes, everywhere, for everyone — that is the
-              product, and a reviewer meeting a password field is meeting a
-              different app from the one being reviewed.
-
-              But a code that arrives by email is a code somebody has to read,
-              and no reviewer can open our inbox. Supabase offers fixed test
-              codes for phone numbers and not for email, so the only credential
-              an email address can carry without a mailbox is its password.
-
-              So the field asks for a code, because that is what it is to the
-              person typing it, and the value travels as the account's password
-              because that is the only thing that can carry it. The state keeps
-              the name `reviewPassword` so nothing downstream pretends
-              otherwise.
-
-              Set the account's Supabase password to digits and it is a code in
-              every sense a reviewer can observe. */}
-          {phase === "password" && (
-            <Animated.View style={[s.block, { opacity: 1 }]}>
-              <Text style={s.tag}>Enter your code.</Text>
-              <TextInput underlineColorAndroid="transparent"
-                style={s.reviewPassword}
-                value={reviewPassword}
-                onChangeText={setReviewPassword}
-                placeholder="Code"
-                placeholderTextColor="rgba(255,255,255,0.35)"
-                // Visible, like every other code in this app. Hiding it would
-                // be the one thing that says "password" out loud.
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="number-pad"
-                textContentType="oneTimeCode"
-                maxLength={12}
-                returnKeyType="go"
-                onSubmitEditing={signInReview}
-                autoFocus
-              />
-              <TouchableOpacity
-                onPress={signInReview}
-                style={s.reviewGo}
-                activeOpacity={0.7}
-                disabled={reviewPassword.length === 0}
-              >
-                <Text style={s.reviewGoText}>Sign in</Text>
-              </TouchableOpacity>
-            </Animated.View>
-          )}
         </Animated.View>
       </KeyboardAvoidingView>
 
@@ -760,25 +718,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 }
 
 const s = StyleSheet.create({
-  // Review sign-in. Plain on purpose: it is seen by two people a year and
-  // dressing it up would be effort spent where no user will ever look.
-  reviewPassword: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 14,
-    color: "#fff",
-    fontSize: 17,
-    marginTop: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  reviewGo: {
-    alignItems: "center",
-    backgroundColor: "#E8A23C",
-    borderRadius: 14,
-    marginTop: 12,
-    paddingVertical: 14,
-  },
-  reviewGoText: { color: "#000", fontSize: 16, fontWeight: "700" },
   container: { flex: 1, backgroundColor: VOID },
   kav: { flex: 1 },
   backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },

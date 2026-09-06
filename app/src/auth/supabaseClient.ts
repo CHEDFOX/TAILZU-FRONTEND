@@ -105,6 +105,19 @@ export const supabaseAuth = {
   verifyPhoneCode: (phone: string, token: string) =>
     supabase.auth.verifyOtp({ phone, token, type: "sms" }),
 
+  /**
+   * Redeem a one-time link minted by our own backend.
+   *
+   * The review account's code is a fixed pair held in the backend's env, so
+   * nothing was ever mailed for it. The server checks the pair and returns the
+   * hashed token of a magiclink; this exchanges that for a session, with the
+   * ANON key, exactly as the app would redeem an emailed one. No service-role
+   * credential comes anywhere near the device, and the session that lands is
+   * an ordinary session with nothing special about it afterwards.
+   */
+  verifyTokenHash: (tokenHash: string) =>
+    supabase.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" }),
+
   /** Native Sign in with Apple (identity token + nonce). */
   signInWithApple: (identityToken: string, nonce?: string) =>
     supabase.auth.signInWithIdToken({ provider: "apple", token: identityToken, nonce }),
