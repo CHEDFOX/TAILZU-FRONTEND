@@ -280,7 +280,6 @@ const config: ExpoConfig = {
         category: ["BROWSABLE", "DEFAULT"],
       },
     ],
-    blockedPermissions: [],
   },
   // Config plugins — the packages that ship an `app.plugin.js` and mutate
   // native config (permissions strings, entitlements, manifest entries,
