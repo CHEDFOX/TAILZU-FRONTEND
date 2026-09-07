@@ -232,6 +232,31 @@ const config: ExpoConfig = {
       // if a real foreground mic service ships.
       "com.android.vending.BILLING",
     ],
+    // `permissions` ADDS. It cannot take away what a library merges in.
+    //
+    // The list above deliberately omits READ_MEDIA_IMAGES / READ_MEDIA_VIDEO,
+    // and Play still reported both as undeclared: expo-media-library's own
+    // manifest merges them into the AAB whether we name them or not. The
+    // comment above was true about intent and wrong about effect.
+    //
+    // They trigger the Photo & Video Permissions declaration — a form, a
+    // justification, and a human reviewing whether the app really needs broad
+    // media access. It does not. Nothing in the app reads the photo library:
+    // the backend has never sent permission:"photoLibrary", never rendered an
+    // ImagePickerButton, and never emitted a save-to-library action.
+    //
+    // blockedPermissions writes tools:node="remove" into the merged manifest,
+    // which is the only thing that actually removes them.
+    //
+    // What still works: expo-image-picker uses the system photo picker on
+    // Android 13+, which is permission-free by design — picking an image is
+    // unaffected. What stops working is reading the library wholesale, which
+    // nothing does. Re-add a permission in the SAME release that ships a
+    // feature needing it, and expect to fill in the declaration then.
+    blockedPermissions: [
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.READ_MEDIA_VIDEO",
+    ],
     // Android masks this into whatever shape the launcher wants — circle,
     // squircle, teardrop — and only the middle 66% of the canvas is ever
     // shown. icon.png does not survive that: its mark reaches 427px from a
