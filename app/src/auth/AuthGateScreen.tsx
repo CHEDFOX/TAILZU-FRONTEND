@@ -73,6 +73,8 @@ const DRAG_THRESHOLD = MAX_DRAG * 0.6;
 const EMAIL_RX = /^\S+@\S+\.\S+$/;
 const CODE_LEN = 6;
 const WHITE = "#FFFFFF";
+/** The brand amber. The one colour on this screen that means "go". */
+const ACCENT = "#E8A23C";
 const VOID = "#000000";
 const ABYSS = "#050508";
 // RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
@@ -95,8 +97,10 @@ const PhoneMark = ({ c = WHITE }: { c?: string }) => (
   </Svg>
 );
 const Arrow = ({ c = "#000" }: { c?: string }) => (
-  <Svg width={18} height={18} viewBox="0 0 24 24">
-    <Path d="M5 12h14M13 6l6 6-6 6" stroke={c} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  // Short shaft, big head, thick round caps. A long thin arrow reads as a
+  // hairline inside a 46pt circle; this one has to look pressable at a glance.
+  <Svg width={20} height={20} viewBox="0 0 24 24">
+    <Path d="M6 12h11M12 7l5 5-5 5" stroke={c} strokeWidth={3.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 const Chevron = ({ c = "rgba(255,255,255,0.5)" }: { c?: string }) => (
@@ -264,8 +268,21 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
     }).start();
   }, [focused, kbHeight, lift]);
 
+  // THE SWIPE HINT. Deleted by accident when the lift was rewritten, and it
+  // is the only thing that tells anyone the badge is draggable — without it
+  // the gesture exists and nobody finds it. One nudge out and back, once.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Animated.sequence([
+        Animated.spring(envX, { toValue: 22, friction: 5, tension: 90, useNativeDriver: false }),
+        Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }),
+      ]).start();
+    }, hintDelay);
+    return () => clearTimeout(t);
+  }, [envX, hintDelay]);
+
   const commit = useCallback(() => {
-    Animated.timing(envX, { toValue: MAX_DRAG, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: false })
+    Animated.timing(envX, { toValue: MAX_DRAG, duration: 230, easing: Easing.out(Easing.cubic), useNativeDriver: false })
       .start(() => { onSubmit(field, valRef.current); envX.setValue(0); });
   }, [envX, field, onSubmit]);
 
@@ -361,7 +378,9 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
         </View>
       </Animated.View>
 
-      {/* white arrow badge — tap to send (appears when valid) */}
+      {/* The amber target. Tapping it runs the same commit the swipe does,
+          so the badge travels across to meet it either way — the tap is not a
+          shortcut past the gesture, it IS the gesture, played for you. */}
       <Animated.View style={[s.arrowWrap, { opacity: arrowOpacity }]} pointerEvents={valid ? "auto" : "none"}>
         <TouchableOpacity style={s.arrowCircle} activeOpacity={0.85} onPress={() => validRef.current && commit()}>
           <Arrow />
@@ -808,14 +827,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           rearranged parts of the screen nobody was touching. Each pill lifts
           itself instead; see the lift in MethodPill. */}
       {/* TAP ANYWHERE THAT IS NOT A CONTROL AND THE KEYBOARD GOES.
-          WRAPPING, not a sibling underneath. A sibling never fired: React
-          Native does not pass an unclaimed touch down to a view below in
-          z-order — it simply goes unhandled — so a dismiss layer under the
-          content is a dismiss layer that never sees a finger. Wrapping works
-          and does not swallow the controls, because the responder system
-          offers a touch to the DEEPEST view first and the pills take theirs. */}
+          Underneath the content, with the content set to box-none — which is
+          the piece I had missing both times. Wrapping the content in a
+          Touchable grabs the responder on touch START, and once an ancestor
+          holds it a descendant's onMoveShouldSetPanResponder is never asked:
+          that killed the badge swipe outright. A plain sibling underneath
+          never fired either, because an unclaimed touch is simply unhandled.
+          box-none is the answer to both: the container itself can never become
+          the responder, so empty space falls through to this layer, while the
+          pills inside still take their own touches. */}
       <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
-      <View style={s.kav}>
+        <View style={FILL} />
+      </TouchableWithoutFeedback>
+
+      <View style={s.kav} pointerEvents="box-none">
         {/* THE SERVER'S SCREEN, when there is one and the switch is on.
             Everything outside this block still belongs to the app: the
             backdrop, the captcha host, the back arrow, the edge-swipe zone —
@@ -835,7 +860,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             </Animated.View>
           </ThemeContext.Provider>
         ) : (
-        <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
+        <Animated.View pointerEvents="box-none" style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
@@ -901,7 +926,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         </Animated.View>
         )}
       </View>
-      </TouchableWithoutFeedback>
 
       {/* top-left back arrow (code step) */}
       {onCode && (
@@ -927,6 +951,8 @@ const s = StyleSheet.create({
   // server-composed screen does, so the two paths look alike and it stops
   // mattering which one is drawing.
   stack: { flex: 1, alignItems: "center", justifyContent: "flex-end", paddingBottom: 42, paddingHorizontal: 28 },
+  // box-none on the stack too, so the air between rows reaches the dismiss
+  // layer rather than stopping at a container nobody can see.
   block: { alignItems: "center", width: "100%" },
   brandWrap: { alignItems: "center", marginBottom: 34 },
   brand: { fontSize: 40, fontWeight: "700", color: WHITE, letterSpacing: -0.5 },
@@ -948,7 +974,9 @@ const s = StyleSheet.create({
   envWrap: { position: "absolute", left: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE, zIndex: 5 },
   envCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: "rgba(255,255,255,0.10)", borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
   arrowWrap: { position: "absolute", right: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE },
-  arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: WHITE, alignItems: "center", justifyContent: "center" },
+  // Amber, not white. It is the one thing on the screen that means "go", and
+  // white made it another pale circle beside a pale badge.
+  arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: ACCENT, alignItems: "center", justifyContent: "center" },
 
   // 48/48 was proportioned against a heading that no longer exists. Bottom
   // aligned and titleless, that much air stranded the socials at the foot of
