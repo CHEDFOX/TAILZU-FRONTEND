@@ -26,9 +26,16 @@
  * animated views crossing the bridge would not hold 60fps, and the whole point
  * of the screen is that it feels alive under your finger.
  *
- * The blob is drawn as one path filled with an iridescent gradient, plus a few
- * blurred colour blooms clipped inside it — white core, magenta and cyan
- * fringes — over near-black.
+ * The blob is drawn as one path filled with a gradient, plus blurred colour
+ * blooms clipped inside it and a white-hot core over them. The reference for
+ * this screen was iridescent — magenta and cyan — but the app is amber, and a
+ * second accent on the first screen someone sees would read as a different
+ * product. So the STRUCTURE of the iridescence is kept (many hues blooming
+ * under a bright core, which is what gives it depth) and the hue range is
+ * pulled around the brand: gold highlights, amber body, burnt valleys.
+ *
+ * The palette is a prop. Three are defined below; the screen picks one, so
+ * changing the blob's colour never means editing its physics.
  */
 import React, { useMemo } from "react";
 import {
@@ -97,6 +104,46 @@ function restShape(i: number): number {
       Math.sin(a * 5 + 1.4) * 0.18)
   );
 }
+
+
+// ── palette ──────────────────────────────────────────────────────────────────
+//
+// Four gradient stops from the lit centre out to the shadowed rim, three bloom
+// hues, and the colour of the hot core. Depth comes from the blooms sitting at
+// DIFFERENT hues, so a single-hue "amber" version would read flat however
+// bright it was — these all vary hue while staying inside the brand's range.
+
+export type BlobPalette = {
+  /** Centre → rim. Four stops at 0, 0.36, 0.74, 1. */
+  gradient: [string, string, string, string];
+  /** Three blurred blooms, in draw order. */
+  blooms: [string, string, string];
+  /** The hot core laid over them. */
+  core: string;
+};
+
+export const BLOB_PALETTES: Record<"ember" | "gold" | "molten", BlobPalette> = {
+  // The brand amber, sat in its own light. Warmest and closest to #E8A23C.
+  ember: {
+    gradient: ["#FFF1DC", "#E8A23C", "#6B3608", "#120A03"],
+    blooms: ["#FFB43C", "#FF7A18", "#FFD98A"],
+    core: "#FFF6E8",
+  },
+  // Lighter and more yellow — champagne rather than ember. Reads premium and
+  // calmer, at the cost of sitting slightly off the brand hue.
+  gold: {
+    gradient: ["#FFFBF0", "#FFD166", "#8A6012", "#14100A"],
+    blooms: ["#FFD166", "#FFA92E", "#FFF0C2"],
+    core: "#FFFFFF",
+  },
+  // Hotter: amber pushed toward coral. The most alive of the three and the
+  // most likely to fight the white text sitting under it.
+  molten: {
+    gradient: ["#FFEFE0", "#FF8A3C", "#7A2A06", "#140702"],
+    blooms: ["#FF6B2C", "#E8A23C", "#FF4D1A"],
+    core: "#FFF2E4",
+  },
+};
 
 export type BlobController = {
   /** Radial offset and velocity per rim point, flattened [r0..rN, v0..vN]. */
@@ -175,11 +222,14 @@ export function useBlobController(): BlobController {
 export function AuthBlob({
   controller,
   size,
+  palette = BLOB_PALETTES.ember,
   style,
 }: {
   controller: BlobController;
   /** Box the blob draws into, in points. It never leaves this box. */
   size: number;
+  /** Colour only. Changing it cannot affect how the blob moves. */
+  palette?: BlobPalette;
   style?: object;
 }) {
   const { rim, body, clock, tick, energy } = controller;
@@ -303,21 +353,21 @@ export function AuthBlob({
           <RadialGradient
             c={vec(c, c - base * 0.35)}
             r={base * 1.7}
-            colors={["#F4F6FF", "#8E7BE8", "#2B2450", "#0A0A12"]}
+            colors={palette.gradient}
             positions={[0, 0.36, 0.74, 1]}
           />
         </Path>
-        {/* Iridescence. Three blurred blooms in the hues the reference has —
-            magenta, cyan, a warm green — with a white core over them. */}
+        {/* Three blurred blooms at different hues with a hot core over them.
+            The hue VARIATION is what reads as depth; brightness alone does not. */}
         <Group>
-          <Circle c={b1} r={base * 0.62} color="#FF4FD8" opacity={0.85} />
-          <Circle c={b2} r={base * 0.55} color="#3BE8FF" opacity={0.8} />
-          <Circle c={b3} r={base * 0.44} color="#8CFF6B" opacity={0.6} />
+          <Circle c={b1} r={base * 0.62} color={palette.blooms[0]} opacity={0.85} />
+          <Circle c={b2} r={base * 0.55} color={palette.blooms[1]} opacity={0.8} />
+          <Circle c={b3} r={base * 0.44} color={palette.blooms[2]} opacity={0.6} />
           <Blur blur={base * 0.28} />
         </Group>
         <Group>
-          <Circle c={b1} r={base * 0.26} color="#FFFFFF" opacity={0.95} />
-          <Circle c={b2} r={base * 0.2} color="#FFFFFF" opacity={0.9} />
+          <Circle c={b1} r={base * 0.26} color={palette.core} opacity={0.95} />
+          <Circle c={b2} r={base * 0.2} color={palette.core} opacity={0.9} />
           <Blur blur={base * 0.14} />
         </Group>
       </Group>
