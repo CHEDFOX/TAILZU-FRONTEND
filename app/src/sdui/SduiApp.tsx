@@ -119,6 +119,14 @@ function inferSystemLanguage(): string | null {
 const SPLASH_MEDIA_WAIT_MS = 1500;
 
 /**
+ * How long the whole boot may take before the app stops waiting and offers a
+ * retry instead. Generous: a slow connection on a cold start legitimately takes
+ * seconds, and interrupting a boot that would have worked is its own bug. What
+ * this catches is the boot that was never going to finish.
+ */
+const BOOT_WATCHDOG_MS = 12000;
+
+/**
  * The first remote picture on a screen, if it has one.
  *
  * A screen existing is not a screen you can look at. The opening media is a
@@ -366,9 +374,26 @@ export default function SduiApp() {
         const sys = inferSystemLanguage();
         if (sys) {
           try {
+            // LOCAL first, and awaited: it is a disk write, it cannot hang, and
+            // everything below reads it.
             await setLanguage(sys);
-            await callEndpoint("PUT", "/v1/profile", { language: sys });
             langPicked = true;
+            // The server copy is NOT awaited. This line used to be, and the
+            // comment under it said a default was not worth failing the boot
+            // for — but awaiting it is precisely how it failed the boot. A
+            // request that never resolves (no timeout, a token refresh that
+            // stalls, a captive portal that accepts the socket and answers
+            // nothing) parks commitBoot forever, so setPhase("ready") never
+            // runs and the app sits on its splash colour with no screen, no
+            // error and nothing on screen to retry from. The keyboard follows
+            // it down, because the token it reads is refreshed by a boot that
+            // never finishes.
+            //
+            // Best-effort means best-effort: fire it, let it land whenever it
+            // lands, and if it never does the local value is still correct and
+            // the next boot will try again.
+            void callEndpoint("PUT", "/v1/profile", { language: sys })
+              .catch(() => { /* the local default already did the work */ });
           } catch { /* a default is not worth failing the boot for */ }
         }
       }
@@ -475,6 +500,23 @@ export default function SduiApp() {
       setPhase("ready");
       return true;
     };
+    // A WATCHDOG OVER THE WHOLE BOOT.
+    //
+    // The specific hang this was written for is fixed one screen up, but the
+    // shape of it is what matters: commitBoot awaits several things, at least
+    // one of which still talks to the network (initBilling), and a promise that
+    // never settles leaves phase at "loading" forever. That state renders the
+    // splash colour with no screen, no error and nothing to retry from — the
+    // app looks broken and offers no way out, which is the worst failure the
+    // app has.
+    //
+    // So: if the boot has not finished in BOOT_WATCHDOG_MS, stop waiting and
+    // show the connection screen, which has a retry on it. A wrong-looking
+    // retry card beats a dead splash, and if the boot completes later it simply
+    // wins — commitBoot sets "ready" and the card is replaced.
+    const watchdog = setTimeout(() => {
+      setPhase((p) => (p === "loading" ? "connect" : p));
+    }, BOOT_WATCHDOG_MS);
     let paintedFromDisk = false;
     try {
       const cached = await peekBootstrap();
@@ -498,6 +540,8 @@ export default function SduiApp() {
       await commitBoot(await fresh);
     } catch {
       if (!paintedFromDisk) setPhase("connect");
+    } finally {
+      clearTimeout(watchdog);
     }
   }, []);
 
