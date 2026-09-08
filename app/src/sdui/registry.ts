@@ -82,7 +82,7 @@ export const CORE_ACTIONS = [
   // media pickers
   "pickImage", "pickDocument", "scanQR",
   // permissions
-  "requestPermission",
+  "requestPermission", "checkPermission",
   // auth
   "biometricPrompt", "signOut",
   // app-level chrome — swap the alternate app icon at runtime
