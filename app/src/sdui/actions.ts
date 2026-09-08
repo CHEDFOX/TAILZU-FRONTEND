@@ -244,6 +244,18 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       ctx.store.set(action.path, list);
       break;
     }
+    // Push onto an array at `path`. The primitive a THREAD needs: a screen
+    // whose content grows turn by turn cannot be expressed by setState, which
+    // only ever replaces. `max` drops from the front, so a long conversation
+    // bounds its own memory instead of growing until the screen stutters.
+    case "appendState": {
+      const cur = ctx.store.get(action.path);
+      const list = Array.isArray(cur) ? [...cur] : [];
+      list.push(resolveValue(action.value, ctx));
+      const max = Number(action.max ?? 0);
+      ctx.store.set(action.path, max > 0 && list.length > max ? list.slice(-max) : list);
+      break;
+    }
     case "incrementState": {
       const cur = Number(ctx.store.get(action.path) ?? 0);
       ctx.store.set(action.path, cur + (action.by ?? 1));
