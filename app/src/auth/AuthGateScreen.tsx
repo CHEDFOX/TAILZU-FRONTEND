@@ -22,7 +22,6 @@ import {
   Easing,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -786,8 +785,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   return (
     <AuthFlowProvider value={flow}>
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
-      {/* The backdrop, behind everything and outside the KeyboardAvoidingView
-          so a raised keyboard slides the FIELDS and not the art.
+      {/* The backdrop, behind everything and outside the lifting pills, so a
+          raised keyboard slides the FIELD and not the art.
           The scrim is not decoration: this screen is white text on whatever
           someone uploads, and without a floor under the contrast a bright clip
           makes the labels unreadable. It is painted from the art's own ground
