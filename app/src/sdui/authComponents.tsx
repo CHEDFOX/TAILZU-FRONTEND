@@ -24,7 +24,15 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Platform, Pressable, Text, View } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { MethodPill, type Field } from "../auth/AuthGateScreen";
+// TYPE-ONLY. A value import here would close a cycle:
+//   components → authComponents → AuthGateScreen → authRender → components
+// and Metro resolves a cycle by handing someone a half-initialised module. The
+// symptom is not a warning, it is the app throwing during module init — before
+// the first render, so the splash never leaves, and the keyboard falls back to
+// its built-in layout because the config it reads is written on boot by an app
+// that never booted. Types are erased at build time and cost nothing at
+// runtime; the component itself is fetched lazily below.
+import type { Field } from "../auth/AuthGateScreen";
 import { useAuthFlow } from "../auth/AuthFlowContext";
 import type { CompProps } from "./components";
 
@@ -36,6 +44,17 @@ import type { CompProps } from "./components";
  */
 export const SwipePill = ({ props }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
+  // Resolved at RENDER time, not module-init time. By the time anything
+  // renders, every module has finished initialising, so reaching back into the
+  // auth screen here is safe where a top-level import is not.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { MethodPill } = require("../auth/AuthGateScreen") as {
+    MethodPill: React.ComponentType<{
+      field: Field;
+      onSubmit: (f: Field, value: string) => void;
+      hintDelay: number;
+    }>;
+  };
   const method = props?.method === "phone" ? "phone" : "email";
   if (!flow) return null;
   // A method the backend offers but this build cannot serve draws nothing.
