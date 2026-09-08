@@ -463,6 +463,16 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         console.warn("[Tailzu][auth] server screen needs components this build lacks:", missing.join(", "));
       }
       setSduiTree(missing.length ? null : tree);
+      // Why the server tree did or did not draw, on the next launch's
+      // bootstrap. A console warning is invisible without a cable attached,
+      // and this screen has already cost a day of guessing at exactly that.
+      try {
+        const { setLastBoot } = require("../storage");
+        void setLastBoot(
+          `auth sdui=${cfg.sdui ? 1 : 0} tree=${cfg.screen ? 1 : 0}` +
+          ` theme=${cfg.theme ? 1 : 0} missing=${missing.join("|") || "none"}`,
+        );
+      } catch { /* diagnostics never break a boot */ }
       const su = cfg.suction;
       if (su && typeof su === "object") {
         setSuction({
@@ -790,12 +800,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         ) : (
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>
-            <RiseView cfg={{ delayMs: suction.staggerMs * 3, fromY: suction.fromY }} reduce={reduceMotion}>
-              <View style={s.brandWrap} accessibilityRole="header">
-                <Text style={s.brand}>Tailzu</Text>
-                <Text style={s.tag}>You talk. It writes.</Text>
-              </View>
-            </RiseView>
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
                 <RiseView key={f.id} cfg={{ delayMs: suction.staggerMs * (2 - i), fromY: suction.fromY }} reduce={reduceMotion}>
@@ -879,7 +883,12 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: VOID },
   kav: { flex: 1 },
   backTopLeft: { position: "absolute", top: 56, left: 18, width: 44, height: 44, alignItems: "center", justifyContent: "center", zIndex: 10 },
-  stack: { flex: 1, alignItems: "center", justifyContent: "center" },
+  // BOTTOM-ALIGNED, so background art keeps the top two thirds. This used to
+  // centre the whole block, which put the pills over the middle of the picture
+  // and left the composition with nowhere to breathe. Matches what the
+  // server-composed screen does, so the two paths look alike and it stops
+  // mattering which one is drawing.
+  stack: { flex: 1, alignItems: "center", justifyContent: "flex-end", paddingBottom: 42 },
   block: { alignItems: "center", width: "100%" },
   brandWrap: { alignItems: "center", marginBottom: 34 },
   brand: { fontSize: 40, fontWeight: "700", color: WHITE, letterSpacing: -0.5 },
