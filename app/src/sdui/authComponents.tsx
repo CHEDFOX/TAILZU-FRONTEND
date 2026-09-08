@@ -43,7 +43,7 @@ import type { CompProps } from "./components";
  * props.method  "email" | "phone"
  * props.hintDelayMs  when the badge nudges itself to advertise the gesture
  */
-export const SwipePill = ({ props }: CompProps): React.ReactElement | null => {
+export const SwipePill = ({ props, style }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
   // Resolved at RENDER time, not module-init time. By the time anything
   // renders, every module has finished initialising, so reaching back into the
@@ -54,6 +54,8 @@ export const SwipePill = ({ props }: CompProps): React.ReactElement | null => {
       field: Field;
       onSubmit: (f: Field, value: string) => void;
       hintDelay: number;
+      look?: Record<string, unknown>;
+      style?: object;
     }>;
   };
   const method = props?.method === "phone" ? "phone" : "email";
@@ -62,11 +64,23 @@ export const SwipePill = ({ props }: CompProps): React.ReactElement | null => {
   // Better an absent row than a row that fails when someone taps it.
   if (method === "phone" && !flow.phoneEnabled) return null;
   const field: Field = { id: method, type: method };
+  // Only the keys the server actually sent are forwarded, so MethodPill keeps
+  // its own value for everything else rather than being handed undefined.
+  const look: Record<string, unknown> = {};
+  for (const k of [
+    "height", "radius", "background", "borderColor", "textColor",
+    "placeholderColor", "badgeBackground", "badgeBorderColor",
+    "targetBackground", "targetIconColor", "fontSize", "paddingLeft",
+  ]) {
+    if (props?.[k] !== undefined) look[k] = props[k];
+  }
   return (
     <MethodPill
       field={field}
       onSubmit={(f, value) => flow.submit(f.type, value)}
       hintDelay={Number(props?.hintDelayMs) || 1100}
+      look={look}
+      style={style}
     />
   );
 };

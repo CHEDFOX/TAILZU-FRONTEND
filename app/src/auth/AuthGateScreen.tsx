@@ -205,7 +205,38 @@ function CountryPickerModal({
 }
 
 // ── One method pill (email or phone): swipe the badge → or tap the arrow ──────
-export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f: Field, value: string) => void; hintDelay: number }) {
+export type PillLook = {
+  height?: number; radius?: number;
+  background?: string; borderColor?: string; textColor?: string;
+  placeholderColor?: string; badgeBackground?: string; badgeBorderColor?: string;
+  targetBackground?: string; targetIconColor?: string;
+  fontSize?: number; paddingLeft?: number;
+};
+
+export function MethodPill({ field, onSubmit, hintDelay, look, style }: {
+  field: Field;
+  onSubmit: (f: Field, value: string) => void;
+  hintDelay: number;
+  /** Server overrides. Absent keys keep the shipped value. */
+  look?: PillLook;
+  style?: object;
+}) {
+  // One place the overrides land, so every use below reads the same resolved
+  // value and a missing key can never become `undefined` in a style.
+  const L: Required<PillLook> = {
+    height: look?.height ?? PILL_H,
+    radius: look?.radius ?? (look?.height ?? PILL_H) / 2,
+    background: look?.background ?? "rgba(255,255,255,0.06)",
+    borderColor: look?.borderColor ?? "rgba(255,255,255,0.10)",
+    textColor: look?.textColor ?? WHITE,
+    placeholderColor: look?.placeholderColor ?? "rgba(255,255,255,0.32)",
+    badgeBackground: look?.badgeBackground ?? "rgba(255,255,255,0.10)",
+    badgeBorderColor: look?.badgeBorderColor ?? "rgba(255,255,255,0.18)",
+    targetBackground: look?.targetBackground ?? ACCENT,
+    targetIconColor: look?.targetIconColor ?? "#000000",
+    fontSize: look?.fontSize ?? 15,
+    paddingLeft: look?.paddingLeft ?? PILL_H + 6,
+  };
   const isPhone = field.type === "phone";
   const [value, setValue] = useState("");
   const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
@@ -228,7 +259,7 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   useEffect(() => { valRef.current = submitValue; }, [submitValue]);
 
   const envX = useRef(new Animated.Value(0)).current;
-  const arrowAppear = useRef(new Animated.Value(0.3)).current;
+  const arrowAppear = useRef(new Animated.Value(0)).current;
 
   // ONLY THE PILL BEING TYPED IN MOVES.
   //
@@ -288,6 +319,14 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
 
   const pan = useRef(
     PanResponder.create({
+      // CLAIM ON START, not just on move. A dismiss layer has to be an
+      // ANCESTOR to catch the gaps — a sibling underneath never sees a touch
+      // that landed inside a full-width row, which is most of this screen. But
+      // an ancestor Touchable claims on touch start, and a pan that only
+      // claims on MOVE has already lost by then. Claiming here settles it:
+      // children are offered a touch before parents, so the badge takes its
+      // own and every other tap falls through to the dismiss.
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderGrant: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); crossed.current = false; },
       onPanResponderMove: (_, g) => {
@@ -313,16 +352,16 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   const inputOpacity = envX.interpolate({ inputRange: [0, MAX_DRAG], outputRange: [1, 0.12], extrapolate: "clamp" });
 
   return (
-    <Animated.View style={[s.pillWrap, { transform: [{ translateY: lift }] }]}>
+    <Animated.View style={[s.pillWrap, { height: L.height, borderRadius: L.radius }, style, { transform: [{ translateY: lift }] }]}>
       {/* iOS: frosted-glass pill. Android: expo-blur doesn't blur (and the 6%
           fill is invisible on OLED dark), so the oval "disappeared" — use a
           solid translucent fill there so the pill always reads as a pill. */}
       {Platform.OS === "ios" ? (
         <BlurView intensity={24} tint="light" style={s.pill} />
       ) : (
-        <View style={[s.pill, s.pillAndroid]} />
+        <View style={[s.pill, s.pillAndroid, { backgroundColor: L.background, borderRadius: L.radius }]} />
       )}
-      <View style={s.pillBorder} pointerEvents="none" />
+      <View style={[s.pillBorder, { borderColor: L.borderColor, borderRadius: L.radius }]} pointerEvents="none" />
 
       <Animated.View style={[s.contentRow, { opacity: inputOpacity }]} pointerEvents="box-none">
         {isPhone && !countryPicked && (
@@ -339,13 +378,13 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
         )}
         {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
           ref={inputRef}
-          style={s.input}
+          style={[s.input, { color: L.textColor, fontSize: L.fontSize }]}
+          placeholderTextColor={L.placeholderColor}
           value={value}
           onChangeText={setValue}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={isPhone ? "Number" : "Email"}
-          placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType={isPhone ? "phone-pad" : "email-address"}
@@ -359,7 +398,7 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           is chosen, then that country's flag, so the pill itself says which
           number it is asking for. */}
       <Animated.View style={[s.envWrap, { transform: [{ translateX: envX }] }]} {...pan.panHandlers}>
-        <View style={s.envCircle}>
+        <View style={[s.envCircle, { backgroundColor: L.badgeBackground, borderColor: L.badgeBorderColor }]}>
           {!isPhone ? <Envelope /> : countryPicked ? (
             // The flag lives HERE and only here — it was also being drawn
             // where the dial code used to sit, which put two of them on one
@@ -382,8 +421,8 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           so the badge travels across to meet it either way — the tap is not a
           shortcut past the gesture, it IS the gesture, played for you. */}
       <Animated.View style={[s.arrowWrap, { opacity: arrowOpacity }]} pointerEvents={valid ? "auto" : "none"}>
-        <TouchableOpacity style={s.arrowCircle} activeOpacity={0.85} onPress={() => validRef.current && commit()}>
-          <Arrow />
+        <TouchableOpacity style={[s.arrowCircle, { backgroundColor: L.targetBackground }]} activeOpacity={0.85} onPress={() => validRef.current && commit()}>
+          <Arrow c={L.targetIconColor} />
         </TouchableOpacity>
       </Animated.View>
 
@@ -826,6 +865,10 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           method, the social row, everything — so opening the keyboard
           rearranged parts of the screen nobody was touching. Each pill lifts
           itself instead; see the lift in MethodPill. */}
+      {/* No KeyboardAvoidingView. It lifted the WHOLE stack — the other
+          method, the social row, everything — so opening the keyboard
+          rearranged parts of the screen nobody was touching. Each pill lifts
+          itself instead; see the lift in MethodPill. */}
       {/* TAP ANYWHERE THAT IS NOT A CONTROL AND THE KEYBOARD GOES.
           Underneath the content, with the content set to box-none — which is
           the piece I had missing both times. Wrapping the content in a
@@ -840,7 +883,17 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         <View style={FILL} />
       </TouchableWithoutFeedback>
 
-      <View style={s.kav} pointerEvents="box-none">
+      {/* TAP ANYWHERE THAT IS NOT A CONTROL AND THE KEYBOARD GOES.
+          An ancestor, because it has to be. box-none and a sibling underneath
+          was my second wrong answer: the rows are full width, so the space
+          "beside a pill" is inside a Rise wrapper, that wrapper is the hit
+          target, and an unclaimed touch bubbles up its own ancestors rather
+          than falling through to a sibling. Only something above everything
+          sees those taps. It does not swallow the controls, because React
+          Native offers a touch to the DEEPEST view first — and the badge now
+          claims its own on start rather than waiting for a move. */}
+      <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
+      <View style={s.kav}>
         {/* THE SERVER'S SCREEN, when there is one and the switch is on.
             Everything outside this block still belongs to the app: the
             backdrop, the captcha host, the back arrow, the edge-swipe zone —
@@ -926,6 +979,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         </Animated.View>
         )}
       </View>
+      </TouchableWithoutFeedback>
 
       {/* top-left back arrow (code step) */}
       {onCode && (
