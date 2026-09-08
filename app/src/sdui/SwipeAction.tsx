@@ -27,7 +27,7 @@
  *     "on": { "onComplete": "enter" } }
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Easing, PanResponder, View } from "react-native";
+import { Animated, Easing, PanResponder, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
 
@@ -59,6 +59,17 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const tension = Number(props?.tension) || 80;
   /** How long the disc takes to run home once committed, ms. */
   const commitMs = Number(props?.commitMs) || 230;
+  /**
+   * A tap commits too.
+   *
+   * The drag is the intended gesture and the hint advertises it, but a pill
+   * that looks like a button and does nothing when pressed reads as broken —
+   * and the person who taps it is not told why nothing happened. So a tap runs
+   * the disc across itself: the same commit, the same travel, just triggered
+   * without the finger doing the work. Anyone who taps still SEES the gesture
+   * they were meant to make, which teaches it for next time.
+   */
+  const tapToo = props?.tap !== false;
 
   // The pill's width is whatever the layout gives it, so the run is measured
   // rather than assumed — a fixed guess breaks on the first narrow phone.
@@ -107,6 +118,11 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
     });
   }, [x, fire, commitMs]);
 
+  // Read inside the PanResponder, which is built once and would otherwise
+  // close over the first render's value forever.
+  const tapRef = useRef(tapToo);
+  tapRef.current = tapToo;
+
   const springBack = useCallback(() => {
     Animated.spring(x, { toValue: 0, friction, tension, useNativeDriver: true }).start();
   }, [x, friction, tension]);
@@ -136,6 +152,8 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         const r = runRef.current;
         const v = Math.max(0, Math.min(r, g.dx));
         if (v >= r * threshold) commit();
+        // Barely moved on either axis: that was a tap, not a failed drag.
+        else if (tapRef.current && Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6) commit();
         else springBack();
       },
       onPanResponderTerminate: springBack,
@@ -153,20 +171,8 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
     ? x.interpolate({ inputRange: [0, run * 0.5, run], outputRange: [0.35, 0.7, 1], extrapolate: "clamp" })
     : 0.35;
 
-  return (
-    <View
-      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
-      style={[
-        {
-          height,
-          borderRadius: radius,
-          backgroundColor: background,
-          justifyContent: "center",
-          overflow: "hidden",
-        },
-        style,
-      ]}
-    >
+  const body = (
+    <>
       <Animated.Text
         numberOfLines={1}
         style={{
@@ -200,8 +206,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: targetDot }} />
       </Animated.View>
 
-      {/* The disc. Hit area is the whole pill height, so a thumb that lands
-          slightly high or low still takes the gesture. */}
+      {/* The disc. It claims touches on itself — children are offered a touch
+          before their parents — so the pan below still wins its own gestures
+          even with a Pressable wrapping the whole pill. */}
       <Animated.View
         {...pan.panHandlers}
         style={{
@@ -218,6 +225,35 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       >
         <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: dotColor }} />
       </Animated.View>
-    </View>
+    </>
+  );
+
+  const frame = {
+    height,
+    borderRadius: radius,
+    backgroundColor: background,
+    justifyContent: "center" as const,
+    overflow: "hidden" as const,
+  };
+
+  // Pressable only when a tap is allowed, so a drag-only pill costs a plain
+  // View and cannot be committed by a stray touch.
+  if (!tapToo) {
+    return (
+      <View onLayout={(e) => setWidth(e.nativeEvent.layout.width)} style={[frame, style]}>
+        {body}
+      </View>
+    );
+  }
+  return (
+    <Pressable
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      onPress={() => { if (!done.current) commit(); }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={[frame, style]}
+    >
+      {body}
+    </Pressable>
   );
 };
