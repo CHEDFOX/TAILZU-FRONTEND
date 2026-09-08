@@ -47,8 +47,9 @@ import { CaptchaHost, solveCaptcha } from "./captcha";
 import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
 import { RiseView } from "../sdui/Rise";
 import { RenderNode } from "../sdui/Renderer";
+import { ThemeContext } from "../sdui/components";
 import { useAuthSduiCtx, missingComponents } from "../sdui/authRender";
-import type { Node } from "../sdui/types";
+import type { Node, ThemeTokens } from "../sdui/types";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
@@ -390,6 +391,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // cold start with no network looks the same as a warm one.
   const [suction, setSuction] = useState({ staggerMs: 95, durationMs: 780, fromY: 120 });
   const [reduceMotion, setReduceMotion] = useState(false);
+  // The tokens every SDUI node resolves its colours and sizes against.
+  // RenderNode THROWS without one — the provider lives in SduiApp's ready
+  // path, which the auth gate returns long before reaching — so this screen
+  // has to bring its own.
+  const [authTheme, setAuthTheme] = useState<ThemeTokens | null>(null);
 
   // Google sign-in. Stays fully hidden until the three client IDs are filled in
   // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
@@ -443,6 +449,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhoneEnabled(cfg.enablePhone);
       setReviewEmail(cfg.reviewEmail);
       setBackground(cfg.background);
+      setAuthTheme((cfg.theme as ThemeTokens | null) ?? null);
       setScrim(cfg.scrim);
       // The app has the final say, not the flag. A tree naming a component
       // this binary does not have would draw a sign-in screen with nothing on
@@ -764,10 +771,17 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             provider rather than moved. So this is a change of DRAWING, not of
             behaviour, and turning the flag off returns the original screen
             without a build. */}
-        {sduiTree ? (
-          <Animated.View style={[s.kav, { opacity: arrival, transform: [{ translateY }] }]}>
-            <RenderNode node={sduiTree} ctx={sduiCtx} />
-          </Animated.View>
+        {sduiTree && authTheme ? (
+          // The theme is REQUIRED, not decorative: every node reads its colours
+          // and sizes from it, and RenderNode throws without one rather than
+          // falling back — which on this screen means an error card instead of
+          // a way into the app. So the tree is only drawn once the tokens have
+          // arrived, and the native screen covers the gap.
+          <ThemeContext.Provider value={authTheme}>
+            <Animated.View style={[s.kav, { opacity: arrival, transform: [{ translateY }] }]}>
+              <RenderNode node={sduiTree} ctx={sduiCtx} />
+            </Animated.View>
+          </ThemeContext.Provider>
         ) : (
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>

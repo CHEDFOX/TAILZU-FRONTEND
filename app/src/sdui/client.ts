@@ -507,6 +507,8 @@ export async function fetchAuthConfig(): Promise<
     screen: unknown | null;
     scrim: number;
     suction: unknown | null;
+    /** The theme, needed to draw the server tree at all. See AuthGateScreen. */
+    theme: BootstrapResponse["theme"] | null;
   } | null
 > {
   try {
@@ -533,6 +535,7 @@ export async function fetchAuthConfig(): Promise<
         ? Math.max(0, Math.min(1, f["auth.scrim"] as number))
         : 0.42,
       suction: f["auth.suction"] ?? null,
+      theme: b.theme ?? null,
     };
   } catch {
     return null;
