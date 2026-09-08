@@ -1541,11 +1541,20 @@ function ScreenHost({
 
   // Inject live device signals into screen state so the BACKEND can gate on them
   // declaratively (e.g. only show the "continue" button when the keyboard has
-  // Full Access): $state.keyboardReady / $state.keyboardEnabled. No bridge
-  // (Expo Go) → report ready so nothing is ever blocked in development. Polls
-  // while not-yet-ready and re-checks when the app returns from Settings.
+  // Full Access): $state.keyboardReady / $state.keyboardEnabled / $state.micGranted.
+  // No bridge (Expo Go) → report ready so nothing is ever blocked in development.
+  // Polls while not-yet-ready and re-checks when the app returns from Settings.
+  //
+  // THE RE-CHECK IS THE POINT, and it is why a permission belongs here rather
+  // than in a one-shot action on the screen that cares. Every one of these
+  // answers changes in SETTINGS — somewhere else, while the app is in the
+  // background — so a screen that reads it once on mount is reading it at the
+  // only moment it is guaranteed not to have changed yet. Coming back is when
+  // the answer is new, and coming back is not a mount.
   useEffect(() => {
     let stop = false;
+    let disposed = false;
+    let micGranted = false;
     // `iv` MUST be declared before sync() runs: the first synchronous sync()
     // call below can hit `clearInterval(iv)` (when the keyboard already has
     // Full Access), and a `const iv` declared afterward would be in its
@@ -1557,11 +1566,31 @@ function ScreenHost({
       store.set("keyboardEnabled", s ? s.enabled : true);
       store.set("keyboardReady", s ? s.fullAccess : true);
       if (s && s.fullAccess) { stop = true; if (iv) clearInterval(iv); }
+      // getRecordingPermissions, never request: this runs on a timer and on
+      // every foreground, and a request here would fire the system dialog at
+      // the app unprompted. Undetermined reads as not granted.
+      //
+      // Skipped once granted — a permission cannot be revoked without leaving
+      // for Settings, and coming back from Settings is a foreground, which
+      // calls this again anyway.
+      if (!micGranted) {
+        void (async () => {
+          try {
+            const AudioMod = await import("expo-audio");
+            const p = await (AudioMod as any).AudioModule?.getRecordingPermissionsAsync?.();
+            if (disposed) return;
+            micGranted = !!p?.granted;
+            store.set("micGranted", micGranted);
+          } catch {
+            /* no expo-audio in this bundle — leave the signal alone */
+          }
+        })();
+      }
     };
     sync();
     iv = setInterval(() => { if (!stop) sync(); }, 1500);
     const subAS = AppState.addEventListener("change", (st) => { if (st === "active") sync(); });
-    return () => { if (iv) clearInterval(iv); subAS.remove(); };
+    return () => { disposed = true; if (iv) clearInterval(iv); subAS.remove(); };
   }, [store]);
 
   // A screen is either a full `root` tree, or a named `template` + `blocks`.
