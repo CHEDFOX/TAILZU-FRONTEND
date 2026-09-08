@@ -61,6 +61,10 @@ export const CORE_COMPONENTS = [
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
   "EmptyState", "Countdown", "LottieAnimation",
 
+  // SwipeAction — a pill whose disc is dragged to the far end to commit. The
+  // sign-in pills' gesture, made general.
+  "SwipeAction",
+
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
   "IfElse", "ForEach", "Portal",

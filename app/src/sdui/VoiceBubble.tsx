@@ -33,7 +33,8 @@ import { BlurMask, Canvas, Path, RadialGradient, Skia, vec, type SkPath } from "
 import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
 
-/** How fast the drawn level chases the target. Per-frame, at 60fps. */
+/** How fast the drawn level chases the target, per frame at 60fps. Overridable
+ *  as `chase`: lower is heavier and laggier, higher snaps to every syllable. */
 const CHASE = 0.09;
 
 /**
@@ -133,6 +134,10 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
    * orb drawn at any size is equally soft, rather than crisp when large.
    */
   const softness = props?.softness !== undefined ? Number(props.softness) : size * 0.11;
+  const chase = props?.chase !== undefined ? Number(props.chase) : CHASE;
+  /** What the orb does when nothing is driving it, per state. Merged over the
+   *  defaults, so the server can move one state without restating the rest. */
+  const rest: Record<string, number> = { ...REST, ...(props?.rest ?? {}) };
   /** The halo. 0 removes it. */
   const glow = props?.glow !== undefined ? Number(props.glow) : 0.5;
 
@@ -156,10 +161,11 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
   // goes flat between syllables, and a loud moment still reads as loud.
   const target = useSharedValue(0);
   useEffect(() => {
-    const rest = REST[phase] ?? REST.idle;
+    const restLevel = rest[phase] ?? rest.idle;
     const measured = Number.isFinite(rawLevel) ? Math.max(0, Math.min(1, rawLevel)) : 0;
-    target.value = Math.max(rest, measured);
-  }, [rawLevel, phase, target]);
+    target.value = Math.max(restLevel, measured);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawLevel, phase, target, rest.idle, rest.listening, rest.thinking, rest.speaking]);
 
   const level = useSharedValue(0);
   const clock = useSharedValue(0);
@@ -171,7 +177,7 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
     // delta would otherwise jump the whole animation forward at once.
     const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 1 / 30);
     clock.value += dt;
-    level.value += (target.value - level.value) * CHASE;
+    level.value += (target.value - level.value) * chase;
     tick.value += 1;
   }, true);
 
