@@ -918,6 +918,8 @@ const styles_dots = {
 import { REGISTRY_V3 } from "./componentsV3";
 import { Slideshow } from "./Slideshow";
 import { ParticleMark } from "./ParticleMark";
+import { VoiceBubble } from "./VoiceBubble";
+import { VoiceSession } from "./VoiceSession";
 import { BinaryReveal } from "./BinaryReveal";
 import KeyboardPreview from "./KeyboardPreview";
 import { MorphOut } from "./MorphOut";
@@ -929,6 +931,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
+  VoiceBubble, VoiceSession,
   KeyboardPreview, MorphOut, WordMeter,
   ...REGISTRY_V3,
 };
