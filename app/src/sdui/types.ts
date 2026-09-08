@@ -217,6 +217,7 @@ export type ActionSpec =
    *  that would take the array below that length, so a required multi-select
    *  cannot be emptied. */
   | { kind: "toggleInArray"; path: string; value: unknown; min?: number }
+  | { kind: "appendState"; path: string; value: unknown; max?: number }
   | { kind: "incrementState"; path: string; by?: number }
   | { kind: "clearState"; path: string }
   // feedback
@@ -463,6 +464,7 @@ export type KeyboardActionSpec =
    *  that would take the array below that length, so a required multi-select
    *  cannot be emptied. */
   | { kind: "toggleInArray"; path: string; value: unknown; min?: number }
+  | { kind: "appendState"; path: string; value: unknown; max?: number }
   | { kind: "incrementState"; path: string; by?: number }
   | { kind: "clearState"; path: string }
   // ----- network + analytics + logging -----
