@@ -83,6 +83,15 @@ function readableOn(bg: string): string {
   return lum > 0.6 ? "#000000" : "#ffffff";
 }
 
+/**
+ * SDUI-canonical keys that are RENAMED on the way through, so the passthrough
+ * below must not copy them across under their original names — `direction` is
+ * not a React Native style, and setting it would make Yoga read right-to-left.
+ */
+const RESHAPED = new Set([
+  "direction", "align", "justify", "wrap", "background", "radius", "alignSelf",
+]);
+
 const ALIGN: Record<string, any> = { start: "flex-start", center: "center", end: "flex-end", stretch: "stretch" };
 const JUSTIFY: Record<string, any> = {
   start: "flex-start", center: "center", end: "flex-end", between: "space-between", around: "space-around",
@@ -149,6 +158,22 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   for (const k of ["marginTop", "marginBottom", "marginLeft", "marginRight", "marginHorizontal", "marginVertical",
                    "paddingTop", "paddingBottom", "paddingLeft", "paddingRight", "paddingHorizontal", "paddingVertical"]) {
     if (s[k] != null) out[k] = tok(s[k], theme);
+  }
+  // THE ESCAPE HATCH.
+  //
+  // Everything above is a whitelist, and a whitelist DROPS WHAT IT DOES NOT
+  // KNOW — silently, which is the worst way to fail: a screen sets something,
+  // nothing happens, and there is no error to follow. Every key that reaches
+  // this point has already been given the token treatment it needs, so the
+  // rest pass through untouched.
+  //
+  // `transform` is the one worth naming. It is an ARRAY of operations in React
+  // Native, so it could never have been a whitelist entry alongside the
+  // scalars, and without it no backend-authored node could rotate, scale or
+  // translate at all — which is the whole of the You tab's card deck.
+  for (const k of Object.keys(s)) {
+    if (out[k] !== undefined || RESHAPED.has(k)) continue;
+    out[k] = typeof s[k] === "string" && s[k].startsWith("$") ? tok(s[k], theme) : s[k];
   }
   // Typography, borders and shadows the backend could not reach before.
   //

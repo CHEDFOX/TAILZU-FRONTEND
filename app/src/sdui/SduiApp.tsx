@@ -670,6 +670,33 @@ export default function SduiApp() {
 
   const current = stack[stack.length - 1];
 
+  /**
+   * WHAT TO DRAW RIGHT NOW — resolved during render, not after it.
+   *
+   * `screen` is state, and it is set from an EFFECT. So a tab press used to
+   * take two frames even with a warm cache: the first painted the new tab over
+   * the OLD screen, because the effect that swaps it had not run yet, and only
+   * the second showed the screen the tab belongs to. One frame of the previous
+   * tab under the new highlight is precisely what "not instant" feels like,
+   * and no amount of caching fixes it, because the cache was never the thing
+   * being waited on.
+   *
+   * The cache can answer synchronously, so it is asked here. When the state's
+   * screen is not the one the stack is pointing at and a cached copy exists,
+   * that copy is drawn immediately — the same frame as the tap. The effect
+   * still runs and still revalidates; it just no longer owns the first paint.
+   *
+   * With no cached copy this falls through to the old behaviour deliberately:
+   * the previous screen stays until the fetch lands, rather than blanking. A
+   * flash of nothing is worse than a beat of something.
+   */
+  const shown = useMemo(() => {
+    if (!current || phase !== "ready") return screen;
+    if (screen && screen.screenId === current.screenId) return screen;
+    return peekScreen(current.screenId, current.params)?.screen ?? screen;
+  }, [screen, current, phase]);
+
+
   // Warm and refresh the whole app once we are up.
   //
   // Two jobs, in this order, because they answer two different complaints:
@@ -1350,7 +1377,7 @@ export default function SduiApp() {
   // before the intro plays". Gating on `!screen` keeps the splash bg (no chrome)
   // through that gap so it blends straight into the intro. A screenError still
   // falls through below to the retry card.
-  if (phase === "loading" || !theme || (!screen && !screenError)) {
+  if (phase === "loading" || !theme || (!shown && !screenError)) {
     // Splash colors + label route through boot.theme + boot.labels when they
     // land; the hardcoded values here are the ONLY fallback for the pre-boot
     // moment (bootstrap hasn't returned yet). Backend cannot change these.
@@ -1373,10 +1400,10 @@ export default function SduiApp() {
   // Backend can request full-bleed rendering per-screen (intro slideshow,
   // paywall walkthrough, splash-adjacent). When set, hide header + tabs
   // and let the screen's root fill the whole window.
-  const hideChrome = screen?.hideChrome === true;
+  const hideChrome = shown?.hideChrome === true;
   // Header only. A tab root that wants its art at the top of the window still
   // needs its tabs — see hideHeader in types.
-  const hideHeader = hideChrome || screen?.hideHeader === true;
+  const hideHeader = hideChrome || shown?.hideHeader === true;
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
@@ -1387,9 +1414,9 @@ export default function SduiApp() {
               <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
-            <Text style={[styles.brand, { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{screen?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
+            <Text style={[styles.brand, { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
           )}
-          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{screen?.title ?? ""}</Text>}
+          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{shown?.title ?? ""}</Text>}
           {/* Settings gear — top-right on the tab roots (Home / You). Opens the
               Settings screen (pushed, with a back arrow). Replaces the old dev
               "Connection" entry, and stands in for the removed Settings tab.
@@ -1403,7 +1430,7 @@ export default function SduiApp() {
       )}
 
       <View style={{ flex: 1 }}>
-        {screen ? (
+        {shown ? (
           <ThemeContext.Provider value={theme}>
             {/*
               KEYED BY SCREEN. Without this React keeps the same component
@@ -1422,7 +1449,7 @@ export default function SduiApp() {
             */}
             <ScreenHost
               key={`${current?.screenId ?? ""}:${JSON.stringify(current?.params ?? {})}`}
-              screen={screen} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
+              screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
           </ThemeContext.Provider>
         ) : screenError ? (
           // Never-loaded-once + failure: render a real error card with a
@@ -1452,7 +1479,7 @@ export default function SduiApp() {
         {/* Screen-loaded-but-refresh-failed: keep the stale render visible
             and layer a small tap-to-retry banner at the top so the user
             knows the content is stale. */}
-        {screen && screenError && (
+        {shown && screenError && (
           <Pressable
             onPress={() => setReload((n) => n + 1)}
             style={{
@@ -1652,7 +1679,15 @@ function ScreenHost({
   toast: (m: string, tone?: string) => void;
 }) {
   const store = useMemo(() => new Store(screen.state ?? {}), [screen]);
-  const ctx: Ctx = { store, actions: screen.actions ?? {}, flags, labels, nav, toast };
+  // Memoised, because it is the identity every RenderNode in the tree reads.
+  // Rebuilt each render, it made a single parent re-render — a toast, a
+  // foreground bootstrap, a loading flag — walk and re-render the WHOLE screen,
+  // which on a tree with Skia canvases and video in it is the difference
+  // between a frame and several.
+  const ctx: Ctx = useMemo(
+    () => ({ store, actions: screen.actions ?? {}, flags, labels, nav, toast }),
+    [store, screen.actions, flags, labels, nav, toast],
+  );
 
   // Inject live device signals into screen state so the BACKEND can gate on them
   // declaratively (e.g. only show the "continue" button when the keyboard has
