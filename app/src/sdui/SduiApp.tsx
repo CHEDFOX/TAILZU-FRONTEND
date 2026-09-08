@@ -28,7 +28,7 @@ import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
 import type { ActionSpec, BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone } from "../storage";
+import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
@@ -618,6 +618,14 @@ export default function SduiApp() {
   useEffect(() => {
     let unsub = () => {};
     (async () => {
+      // A REINSTALL IS NOT A LAUNCH. The Keychain survives app deletion, so a
+      // delete-and-reinstall came back holding the previous install's session
+      // and walked straight past sign-in. Cleared BEFORE the session is read,
+      // so the app sees what a new install should see: nobody signed in.
+      // Local scope only — the account and its other devices are untouched.
+      if (await isFreshInstall()) {
+        await supabaseAuth.clearLocalSession().catch(() => {});
+      }
       // Gate on auth first: the app needs a JWT to talk to the backend.
       const { data: { session } } = await supabaseAuth.getSession();
       // Tie RevenueCat purchases/entitlements to the signed-in user so they

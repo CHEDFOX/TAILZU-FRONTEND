@@ -20,6 +20,49 @@ export async function setBaseUrl(url: string): Promise<void> {
   await AsyncStorage.setItem(KEY_BASE_URL, url.trim());
 }
 
+/**
+ * Has this install ever run before?
+ *
+ * DELETING THE APP DOES NOT SIGN THE USER OUT. The Supabase session lives in
+ * SecureStore, which is the iOS Keychain, and the Keychain deliberately
+ * survives app deletion — so a delete-and-reinstall came back already signed
+ * in, skipping the sign-in screen entirely and landing on whatever step the
+ * previous install had reached. That is not what deleting an app means to
+ * anybody.
+ *
+ * AsyncStorage is the opposite: it goes with the app. So its emptiness is the
+ * signal — nothing else the app can read distinguishes a fresh install from a
+ * launch.
+ *
+ * THE SUBTLETY, and the reason this is not a one-line flag: an install that
+ * predates this sentinel has no sentinel either, and would look identical to a
+ * fresh one — which would sign out every existing user exactly once, on the
+ * build that shipped this. So absence of the sentinel is not enough. An app
+ * that has run before has written SOMETHING (a base url, a launch count, a
+ * cached bootstrap); a genuinely fresh install has written nothing at all.
+ * Only the second is treated as new.
+ *
+ * Writes the sentinel as it goes, so this answers true at most once per
+ * install however many times it is called.
+ */
+const KEY_INSTALLED = "tulmi.installed";
+
+export async function isFreshInstall(): Promise<boolean> {
+  try {
+    if ((await AsyncStorage.getItem(KEY_INSTALLED)) === "1") return false;
+    const keys = await AsyncStorage.getAllKeys();
+    const ranBefore = keys.some(
+      (k) => k !== KEY_INSTALLED && (k.startsWith("tulmi.") || k.startsWith("tailzu.")),
+    );
+    await AsyncStorage.setItem(KEY_INSTALLED, "1");
+    return !ranBefore;
+  } catch {
+    // Unreadable storage is not evidence of a new install, and guessing wrong
+    // here signs someone out for no reason.
+    return false;
+  }
+}
+
 // Whether the user has seen onboarding (so we show it only on first run).
 const KEY_ONBOARDED = "tulmi.onboarded";
 
