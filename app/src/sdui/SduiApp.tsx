@@ -119,6 +119,21 @@ function inferSystemLanguage(): string | null {
 const SPLASH_MEDIA_WAIT_MS = 1500;
 
 /**
+ * How long a FIRST run may hold the splash while it fetches what the opening
+ * needs — the intro's animation and the onboarding screen's art.
+ *
+ * Longer than the returning-user budget on purpose. A first launch has an
+ * empty cache and one chance to make the opening look composed; the
+ * alternative is not "faster", it is watching each piece pop in one at a time
+ * across the first three screens. It is still a ceiling, not a promise: when
+ * it expires the app opens regardless.
+ */
+const FIRST_RUN_MEDIA_WAIT_MS = 4500;
+
+/** How often to refresh cached screens while the app is open and in front. */
+const LIVE_REFRESH_MS = 5 * 60_000;
+
+/**
  * How long the whole boot may take before the app stops waiting and offers a
  * retry instead. Generous: a slow connection on a cold start legitimately takes
  * seconds, and interrupting a boot that would have worked is its own bug. What
@@ -140,6 +155,33 @@ const BOOT_WATCHDOG_MS = 12000;
  * immediately, which is what happened before this existed: no regression, just
  * no improvement.
  */
+/**
+ * Every remote asset on a screen — pictures AND clips.
+ *
+ * firstRemoteImage below answers "is there something to wait for"; this
+ * answers "what is all of it", which is what a first run needs. Someone
+ * opening the app for the first time should not watch the intro download, then
+ * the onboarding art download, then the keyboard walkthrough download. They
+ * wait once, on the splash, where waiting is invisible.
+ */
+function allRemoteMedia(node: unknown, out: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const c of node) allRemoteMedia(c, out);
+    return out;
+  }
+  if (!node || typeof node !== "object") return out;
+  const n = node as Record<string, any>;
+  const src = n.props?.source;
+  const url = typeof src === "string" ? src : src?.url;
+  if (typeof url === "string" && /^https?:\/\//i.test(url) && !out.includes(url)) out.push(url);
+  for (const k of Object.keys(n)) {
+    if (k === "props" || k === "style") continue;
+    allRemoteMedia(n[k], out);
+  }
+  if (n.props) allRemoteMedia(n.props, out);
+  return out;
+}
+
 function firstRemoteImage(node: unknown): string | null {
   if (!node || typeof node !== "object") return null;
   const n = node as { type?: string; props?: Record<string, unknown>; children?: unknown[]; fallback?: unknown };
@@ -626,6 +668,46 @@ export default function SduiApp() {
     return () => clearTimeout(t);
   }, [phase, boot]);
 
+  // KEEPING IT FRESH WHILE THEY ARE IN IT.
+  //
+  // The warm pass above runs once, at launch. That was the whole story, so a
+  // session left open for an hour showed hour-old screens — usage counts,
+  // history, entitlement and anything the backend deployed in the meantime.
+  // The disk cache made that worse rather than better: it painted stale
+  // instantly and confidently.
+  //
+  // Two triggers, both cheap because refreshCachedScreens only re-fetches what
+  // is already cached and the responses are small:
+  //
+  //   coming back to the front — the moment most likely to follow a change
+  //     made elsewhere, and the moment a user is about to look
+  //   a slow tick while in front — for the session nobody backgrounds
+  //
+  // Nothing runs while the app is away. A timer that fires in the background
+  // spends battery to refresh screens nobody is looking at.
+  useEffect(() => {
+    if (phase !== "ready") return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const start = () => {
+      if (timer) return;
+      timer = setInterval(() => { void refreshCachedScreens(); }, LIVE_REFRESH_MS);
+    };
+    const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        // Straight away, then resume ticking. Someone returning to the app is
+        // about to read it.
+        void refreshCachedScreens();
+        void reportUpdateCheck();
+        start();
+      } else {
+        stop();
+      }
+    });
+    if (AppState.currentState === "active") start();
+    return () => { stop(); sub.remove(); };
+  }, [phase]);
+
   // Fetch the current screen whenever the top of the stack (or reload) changes.
   // On failure we surface a visible error state with a retry button instead of
   // silently keeping the previous (or empty) screen — the old behavior looked
@@ -1008,6 +1090,20 @@ export default function SduiApp() {
     return () => clearTimeout(t);
   }, [phase, boot, screen, screenError, stack.length]);
 
+  // Whether this device has finished onboarding. Read once at startup, and a
+  // ref rather than state because the splash gate must not re-run when it
+  // resolves — a second pass there would drop the splash early.
+  const onboardedRef = useRef(false);
+  useEffect(() => {
+    void (async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { getOnboarded } = require("../storage");
+        onboardedRef.current = await getOnboarded();
+      } catch { /* treat an unreadable flag as a first run — it only costs a wait */ }
+    })();
+  }, []);
+
   const splashHidden = useRef(false);
   useEffect(() => {
     // THE SPLASH LIFTS WHEN THERE IS ANYTHING TO LOOK AT — not only when an
@@ -1043,17 +1139,47 @@ export default function SduiApp() {
     // The media wait belongs to the SCREEN path only. On every other path
     // there is no opening picture to wait for, and waiting for one that will
     // never come is how this broke in the first place.
-    const url = screen ? firstRemoteImage((screen as ScreenResponse).root) : null;
-    if (!url) { drop(); return; }
-    timer = setTimeout(drop, SPLASH_MEDIA_WAIT_MS);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const ExpoImage = require("expo-image")?.Image;
-      // "disk" matches what the Image components render with, so the prefetch
-      // fills the cache they read from rather than a second one beside it.
-      const p = ExpoImage?.prefetch?.(url, "disk");
-      if (p?.then) p.then(drop, drop); else drop();
-    } catch { drop(); }
+    if (!screen) { drop(); return; }
+
+    // A FIRST RUN WAITS FOR THE WHOLE OPENING, not just its first picture.
+    //
+    // Someone new sees the intro, then onboarding, then the keyboard step, and
+    // fetching each one as they arrive means three separate pops in the first
+    // fifteen seconds. The splash is the one place a wait is invisible, so it
+    // is the place to spend it — once, for all of it.
+    //
+    // A returning user waits for the opening picture and nothing else: their
+    // cache is warm, and the rest is already on disk.
+    const first = !onboardedRef.current;
+    const urls = first
+      ? allRemoteMedia((screen as ScreenResponse).root)
+      : [firstRemoteImage((screen as ScreenResponse).root)].filter(Boolean) as string[];
+
+    if (!urls.length && !first) { drop(); return; }
+    timer = setTimeout(drop, first ? FIRST_RUN_MEDIA_WAIT_MS : SPLASH_MEDIA_WAIT_MS);
+
+    void (async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const ExpoImage = require("expo-image")?.Image;
+        const warm = (u: string) => ExpoImage?.prefetch?.(u, "disk") ?? Promise.resolve();
+
+        if (first) {
+          // The screen AFTER this one, too. On a first run that is the
+          // onboarding step, and it is the next thing they will look at.
+          const nextId = (boot?.flags?.["postLanguageScreenId"] as string | undefined)
+            ?? (boot?.initialScreenId === "intro" ? "onboarding" : null);
+          if (nextId) {
+            const next = await fetchScreen(nextId).catch(() => null);
+            if (next?.root) {
+              for (const u of allRemoteMedia(next.root)) if (!urls.includes(u)) urls.push(u);
+            }
+          }
+        }
+        await Promise.all(urls.map((u) => warm(u).catch(() => {})));
+        drop();
+      } catch { drop(); }
+    })();
     return () => { if (timer) clearTimeout(timer); };
   }, [screen, screenError, phase]);
   useEffect(() => {
