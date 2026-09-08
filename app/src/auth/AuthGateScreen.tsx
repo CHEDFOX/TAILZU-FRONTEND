@@ -803,22 +803,18 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           site key exists — see ./captcha.tsx for why it lives here and not
           behind the send button. */}
       <CaptchaHost />
-      {/* TAP ANYWHERE THAT IS NOT A CONTROL, AND THE KEYBOARD GOES.
-          Behind everything and covering the window, so it catches the gaps —
-          the space beside a pill, the area under the socials, the backdrop.
-          It is a sibling rather than a wrapper on purpose: wrapping the content
-          would put a touch responder above the pills and swallow the first tap
-          on a field, which is a far worse bug than the one this fixes.
-          accessible={false} keeps it out of the screen reader's order; it is a
-          gesture, not a control. */}
-      <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
-        <View style={FILL} />
-      </TouchableWithoutFeedback>
-
       {/* No KeyboardAvoidingView. It lifted the WHOLE stack — the other
           method, the social row, everything — so opening the keyboard
           rearranged parts of the screen nobody was touching. Each pill lifts
           itself instead; see the lift in MethodPill. */}
+      {/* TAP ANYWHERE THAT IS NOT A CONTROL AND THE KEYBOARD GOES.
+          WRAPPING, not a sibling underneath. A sibling never fired: React
+          Native does not pass an unclaimed touch down to a view below in
+          z-order — it simply goes unhandled — so a dismiss layer under the
+          content is a dismiss layer that never sees a finger. Wrapping works
+          and does not swallow the controls, because the responder system
+          offers a touch to the DEEPEST view first and the pills take theirs. */}
+      <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
       <View style={s.kav}>
         {/* THE SERVER'S SCREEN, when there is one and the switch is on.
             Everything outside this block still belongs to the app: the
@@ -905,6 +901,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         </Animated.View>
         )}
       </View>
+      </TouchableWithoutFeedback>
 
       {/* top-left back arrow (code step) */}
       {onCode && (
