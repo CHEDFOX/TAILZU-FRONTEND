@@ -21,8 +21,8 @@
  * that finds no flow draws nothing rather than throwing — an auth node that
  * somehow rendered on another screen must not take that screen down.
  */
-import React, { useEffect, useRef } from "react";
-import { Animated, Easing, Platform, Pressable, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Keyboard, Platform, Pressable, Text, TextInput, View } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Svg, { Path } from "react-native-svg";
 // TYPE-ONLY. A value import here would close a cycle:
@@ -142,32 +142,48 @@ export const GoogleSignIn = ({ props, style, children }: CompProps): React.React
 };
 
 /**
- * CodeEntry — the six-digit code, as ONE pill rather than six circles.
+ * CodeEntry — the code, as ONE pill built like the method pills.
  *
- * The digits sit in a single tracked row and the badge on the right is the
- * resend control. While the code is being typed the badge fades out: it is the
- * only thing on the pill that is not the code, and someone mid-entry is not
- * looking for it. It comes back when the field is empty again.
+ * It OWNS ITS INPUT. The first version borrowed the native screen's hidden
+ * field through the flow's focusCode, and on this path that field is never
+ * rendered — so tapping the pill focused nothing, no keyboard came up, and
+ * the control was simply dead. Anything the server-composed screen needs has
+ * to exist inside the server-composed screen.
  *
- * The whole pill is the tap target for the keyboard — a hidden input holds the
- * caret, exactly as the six-box version did.
+ * Same shape as a method pill, deliberately: digits on the left, one badge on
+ * the right. The badge is resend while the field is empty and an arrow once
+ * the code is complete, so the affordance to continue is where it was on the
+ * screen before — and there is never a moment with no badge and no way on.
+ *
+ * It lifts itself the same way the method pills do, off focus and remembered
+ * keyboard height rather than off the keyboard's arrival, because moving
+ * between fields fires no keyboard event at all.
  */
 export const CodeEntry = ({ props, style }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
-  const fade = useRef(new Animated.Value(1)).current;
+  const input = useRef<TextInput>(null);
+  const [focused, setFocused] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
+  const lift = useRef(new Animated.Value(0)).current;
   const shake = useRef(new Animated.Value(0)).current;
-  const typing = (flow?.code.length ?? 0) > 0;
-  const errored = flow?.codeError ?? false;
 
   useEffect(() => {
-    Animated.timing(fade, {
-      toValue: typing ? 0 : 1,
-      duration: 260,
-      easing: Easing.out(Easing.quad),
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = Keyboard.addListener(showEvt, (e: any) => setKbHeight(e?.endCoordinates?.height ?? 0));
+    const onHide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { onShow.remove(); onHide.remove(); };
+  }, []);
+
+  useEffect(() => {
+    Animated.spring(lift, {
+      toValue: focused && kbHeight > 0 ? -(kbHeight - 34) : 0,
+      damping: 20, stiffness: 190, mass: 0.7,
       useNativeDriver: true,
     }).start();
-  }, [typing, fade]);
+  }, [focused, kbHeight, lift]);
 
+  const errored = flow?.codeError ?? false;
   useEffect(() => {
     if (!errored) return;
     Animated.sequence([
@@ -178,30 +194,37 @@ export const CodeEntry = ({ props, style }: CompProps): React.ReactElement | nul
     ]).start();
   }, [errored, shake]);
 
+  // The caret belongs here the moment the code step opens — this IS the step.
+  useEffect(() => {
+    const t = setTimeout(() => input.current?.focus?.(), 320);
+    return () => clearTimeout(t);
+  }, []);
+
   if (!flow) return null;
 
-  const height = Number(props?.height) || 56;
+  const h = Number(props?.height) || 56;
   const len = flow.codeLength;
+  const complete = flow.code.length === len;
   const shown = flow.code.padEnd(len, "·").split("").join(" ");
 
   return (
-    <Animated.View style={[{ transform: [{ translateX: shake }] }, style]}>
+    <Animated.View style={[{ transform: [{ translateY: lift }, { translateX: shake }] }, style]}>
       <Pressable
-        onPress={flow.focusCode}
+        onPress={() => input.current?.focus?.()}
         accessibilityRole="button"
         accessibilityLabel={String(props?.label ?? "Enter the code we sent you")}
         style={{
-          height,
-          borderRadius: Number(props?.radius ?? height / 2),
-          backgroundColor: String(props?.background ?? "rgba(255,255,255,0.055)"),
+          height: h,
+          borderRadius: Number(props?.radius ?? h / 2),
+          backgroundColor: String(props?.background ?? "rgba(255,255,255,0.06)"),
           borderWidth: 1,
           borderColor: errored
             ? String(props?.errorColor ?? "rgba(255,90,60,0.85)")
-            : String(props?.borderColor ?? "rgba(255,255,255,0.13)"),
+            : String(props?.borderColor ?? "rgba(255,255,255,0.10)"),
           flexDirection: "row",
           alignItems: "center",
-          paddingLeft: Number(props?.paddingLeft) || 22,
-          paddingRight: 6,
+          paddingLeft: Number(props?.paddingLeft) || 20,
+          paddingRight: 5,
         }}
       >
         <Text
@@ -209,32 +232,47 @@ export const CodeEntry = ({ props, style }: CompProps): React.ReactElement | nul
             flex: 1,
             color: "#FFFFFF",
             fontSize: Number(props?.fontSize) || 17,
-            letterSpacing: Number(props?.letterSpacing ?? 8),
+            letterSpacing: Number(props?.letterSpacing ?? 6),
             fontVariant: ["tabular-nums"],
           }}
         >
           {shown}
         </Text>
-        {/* The resend badge. Transparent while typing rather than removed, so
-            the pill does not reflow under the caret mid-entry. */}
-        <Animated.View style={{ opacity: fade }} pointerEvents={typing ? "none" : "auto"}>
-          <Pressable
-            onPress={flow.resend}
-            accessibilityRole="button"
-            accessibilityLabel={String(props?.resendLabel ?? "Send the code again")}
-            hitSlop={10}
-            style={{
-              width: height - 10,
-              height: height - 10,
-              borderRadius: (height - 10) / 2,
-              backgroundColor: String(props?.badgeBackground ?? "rgba(255,255,255,0.1)"),
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Text style={{ color: "#FFFFFF", fontSize: 15 }}>↻</Text>
-          </Pressable>
-        </Animated.View>
+
+        {/* The badge. Resend until there is a full code, then the way on —
+            so the pill always offers exactly one next move. */}
+        <Pressable
+          onPress={() => (complete ? flow.verify(flow.code) : flow.resend())}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={complete ? "Continue" : "Send the code again"}
+          style={{
+            width: h - 10, height: h - 10, borderRadius: (h - 10) / 2,
+            backgroundColor: complete ? "#FFFFFF" : "rgba(255,255,255,0.1)",
+            alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: complete ? "#000000" : "#FFFFFF", fontSize: 16, fontWeight: "600" }}>
+            {complete ? "\u2192" : "\u21bb"}
+          </Text>
+        </Pressable>
+
+        {/* Off-screen, not hidden: a display:none input cannot hold a caret.
+            It carries the real value and the number pad. */}
+        <TextInput
+          ref={input}
+          value={flow.code}
+          onChangeText={flow.setCode}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          autoComplete="one-time-code"
+          maxLength={len}
+          editable={flow.phase === "verify"}
+          underlineColorAndroid="transparent"
+          style={{ position: "absolute", opacity: 0, height: 1, width: 1, left: -9999 }}
+        />
       </Pressable>
     </Animated.View>
   );
