@@ -43,6 +43,9 @@ import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
 import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
+import { RenderNode } from "../sdui/Renderer";
+import { useAuthSduiCtx } from "../sdui/authRender";
+import type { Node } from "../sdui/types";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
@@ -375,6 +378,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // until it arrives and null forever if nothing was uploaded — the screen is
   // laid out to read on plain black either way.
   const [background, setBackground] = useState<AuthBackground | null>(null);
+  // The server-composed screen, and the switch that draws it. Both null/false
+  // until bootstrap answers, so the native tree is what renders on a cold
+  // start and on any backend that cannot be reached.
+  const [sduiTree, setSduiTree] = useState<Node | null>(null);
+  const [scrim, setScrim] = useState(0.42);
 
   // Google sign-in. Stays fully hidden until the three client IDs are filled in
   // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
@@ -425,6 +433,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhoneEnabled(cfg.enablePhone);
       setReviewEmail(cfg.reviewEmail);
       setBackground(cfg.background);
+      setScrim(cfg.scrim);
+      setSduiTree(cfg.sdui ? (cfg.screen as Node) : null);
     }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
@@ -660,6 +670,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     });
   }, [googleResponse, googleRequest, flashError, onAuthed]);
 
+  const sduiCtx = useAuthSduiCtx();
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
 
@@ -698,7 +709,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       {background ? (
         <View style={[FILL, { backgroundColor: background.background }]} pointerEvents="none">
           <AuthBackdrop background={background} />
-          <View style={[FILL, { backgroundColor: "rgba(0,0,0,0.42)" }]} />
+          <View style={[FILL, { backgroundColor: `rgba(0,0,0,${scrim})` }]} />
         </View>
       ) : null}
 
@@ -707,6 +718,18 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           behind the send button. */}
       <CaptchaHost />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
+        {/* THE SERVER'S SCREEN, when there is one and the switch is on.
+            Everything outside this block still belongs to the app: the
+            backdrop, the captcha host, the back arrow, the edge-swipe zone —
+            and, crucially, the whole auth flow, which is published through the
+            provider rather than moved. So this is a change of DRAWING, not of
+            behaviour, and turning the flag off returns the original screen
+            without a build. */}
+        {sduiTree ? (
+          <Animated.View style={[s.kav, { opacity: arrival, transform: [{ translateY }] }]}>
+            <RenderNode node={sduiTree} ctx={sduiCtx} />
+          </Animated.View>
+        ) : (
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>
             <View style={s.brandWrap} accessibilityRole="header">
@@ -771,6 +794,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           )}
 
         </Animated.View>
+        )}
       </KeyboardAvoidingView>
 
       {/* top-left back arrow (code step) */}

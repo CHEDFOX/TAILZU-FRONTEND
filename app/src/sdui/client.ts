@@ -491,7 +491,15 @@ export type AuthBackground = {
 };
 
 export async function fetchAuthConfig(): Promise<
-  { enablePhone: boolean; reviewEmail: string; background: AuthBackground | null } | null
+  {
+    enablePhone: boolean;
+    reviewEmail: string;
+    background: AuthBackground | null;
+    /** The server-composed sign-in screen, and whether to draw it. */
+    sdui: boolean;
+    screen: unknown | null;
+    scrim: number;
+  } | null
 > {
   try {
     const b = await bootstrap();
@@ -508,6 +516,14 @@ export async function fetchAuthConfig(): Promise<
       // screen is designed to read on plain black in exactly that case — an
       // empty slot must never cost anyone a broken first screen.
       background: readBackground(f["auth.background"]),
+      // Both halves must be present. A flag saying yes with no tree behind it
+      // would draw an empty sign-in screen, which is worse than the native one
+      // in every way — so the absence of either falls back.
+      sdui: f["auth.sdui"] === true && !!f["auth.screen"],
+      screen: f["auth.screen"] ?? null,
+      scrim: typeof f["auth.scrim"] === "number"
+        ? Math.max(0, Math.min(1, f["auth.scrim"] as number))
+        : 0.42,
     };
   } catch {
     return null;
