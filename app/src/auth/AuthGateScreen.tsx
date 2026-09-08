@@ -228,7 +228,7 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   useEffect(() => { valRef.current = submitValue; }, [submitValue]);
 
   const envX = useRef(new Animated.Value(0)).current;
-  const arrowAppear = useRef(new Animated.Value(0)).current;
+  const arrowAppear = useRef(new Animated.Value(0.3)).current;
 
   // ONLY THE PILL BEING TYPED IN MOVES.
   //
