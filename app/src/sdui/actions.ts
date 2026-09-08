@@ -137,6 +137,22 @@ async function requestCameraPermission(): Promise<{ granted: boolean; status?: s
   }
 }
 
+/** The read-only twin of the above: what IS the answer, without asking. */
+async function getCameraPermission(): Promise<{ granted: boolean }> {
+  const mod = Camera as any;
+  const get =
+    mod.getCameraPermissionsAsync ??
+    mod.Camera?.getCameraPermissionsAsync ??
+    mod.CameraView?.getCameraPermissionsAsync ??
+    mod.default?.getCameraPermissionsAsync;
+  if (typeof get !== "function") return { granted: false };
+  try {
+    return { granted: !!(await get())?.granted };
+  } catch {
+    return { granted: false };
+  }
+}
+
 export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<void> {
   if (!ref) return;
   const action = spec(ref, ctx);
@@ -446,6 +462,44 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         }
         await runAction(granted ? action.onGranted : action.onDenied, ctx);
       } catch { await runAction(action.onDenied, ctx); }
+      break;
+    }
+
+    // ASK NOTHING, JUST LOOK.
+    //
+    // requestPermission cannot answer "do we already have this?", because on an
+    // undetermined permission the asking IS the prompt. A screen whose whole
+    // job is to explain a permission before requesting it therefore cannot use
+    // it to decide whether it is still needed — checking would fire the dialog
+    // it was written to precede.
+    //
+    // This reads the current status and never prompts. An undetermined
+    // permission reads as denied, which is the honest answer: we do not have it.
+    case "checkPermission": {
+      let granted = false;
+      try {
+        switch (action.permission) {
+          case "microphone": {
+            const AudioMod = await import("expo-audio");
+            const p = await (AudioMod as any).AudioModule?.getRecordingPermissionsAsync?.();
+            granted = !!p?.granted;
+            break;
+          }
+          case "camera": granted = (await getCameraPermission()).granted; break;
+          case "notifications": granted = (await Notifications.getPermissionsAsync()).granted; break;
+          case "photoLibrary": granted = (await MediaLibrary.getPermissionsAsync()).granted; break;
+          case "contacts": granted = (await Contacts.getPermissionsAsync()).granted; break;
+          case "calendar": granted = (await Calendar.getCalendarPermissionsAsync()).granted; break;
+          // Neither is built in — see requestPermission for why. Not granted.
+          case "location":
+          case "tracking": granted = false; break;
+        }
+      } catch {
+        // A module that will not load cannot tell us we have the permission.
+        granted = false;
+      }
+      if (action.assignTo) ctx.store.set(action.assignTo, granted);
+      await runAction(granted ? action.onGranted : action.onDenied, ctx);
       break;
     }
 
