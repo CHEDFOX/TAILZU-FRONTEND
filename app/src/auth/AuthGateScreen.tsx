@@ -44,7 +44,7 @@ import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
 import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
 import { RenderNode } from "../sdui/Renderer";
-import { useAuthSduiCtx } from "../sdui/authRender";
+import { useAuthSduiCtx, missingComponents } from "../sdui/authRender";
 import type { Node } from "../sdui/types";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { MediaPlayer } from "../media/MediaPlayer";
@@ -434,7 +434,16 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setReviewEmail(cfg.reviewEmail);
       setBackground(cfg.background);
       setScrim(cfg.scrim);
-      setSduiTree(cfg.sdui ? (cfg.screen as Node) : null);
+      // The app has the final say, not the flag. A tree naming a component
+      // this binary does not have would draw a sign-in screen with nothing on
+      // it — and someone stuck there cannot update, because the app is what
+      // they would update from. So an unknown type means the native screen.
+      const tree = cfg.sdui ? (cfg.screen as Node) : null;
+      const missing = tree ? missingComponents(tree) : [];
+      if (missing.length) {
+        console.warn("[Tailzu][auth] server screen needs components this build lacks:", missing.join(", "));
+      }
+      setSduiTree(missing.length ? null : tree);
     }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
