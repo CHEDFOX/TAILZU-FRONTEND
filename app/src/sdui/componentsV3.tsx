@@ -77,7 +77,14 @@ const ModalC = ({ node, props, children, fire, store, style }: CompProps) => {
     <RNModal visible={open} transparent animationType="fade" onRequestClose={dismissable ? close : undefined}>
       {/* props.blur → frost the content behind the card instead of just dimming it. */}
       {props.blur ? (
-        <BlurView intensity={Number(props.blurIntensity ?? 45)} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+        <BlurView
+          intensity={Number(props.blurIntensity ?? 45)}
+          // Pinned dark before, which is wrong the moment a screen is light —
+          // the Stats tab's expanded card sits on an amber page.
+          tint={String(props.blurTint ?? "dark") as any}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
       ) : null}
       <Pressable style={props.blur ? styles.modalScrimBlur : styles.modalScrim} onPress={dismissable ? close : undefined}>
         <Pressable onPress={(e) => e.stopPropagation()} style={[styles.modalCard, style]}>
@@ -893,9 +900,31 @@ const SVGC = ({ props, style }: CompProps) => (
 const Gradient = ({ props, children, style }: CompProps) => {
   const colors: string[] = Array.isArray(props.colors) ? props.colors : ["#000", "#333"];
   const direction = String(props.direction ?? "vertical");
-  const start = direction === "horizontal" ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 };
-  const end = direction === "horizontal" ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 };
-  return <LinearGradient colors={colors as any} start={start} end={end} style={style}>{children}</LinearGradient>;
+  /**
+   * WHERE each colour sits, 0..1. Without this the stops are spread evenly,
+   * and an evenly spread scrim is the wrong shape for almost every screen —
+   * a backdrop wants to stay clear for most of its height and then fall away
+   * quickly where the words start. That is a stop at 0.55, not at 0.5, and it
+   * was not expressible.
+   */
+  const locations: number[] | undefined =
+    Array.isArray(props.locations) && props.locations.length === colors.length
+      ? props.locations.map(Number)
+      : undefined;
+  /** Either end, as {x,y} 0..1, for a diagonal the two presets cannot make. */
+  const start = props.start ?? (direction === "horizontal" ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 });
+  const end = props.end ?? (direction === "horizontal" ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 });
+  return (
+    <LinearGradient
+      colors={colors as any}
+      locations={locations as any}
+      start={start as any}
+      end={end as any}
+      style={style}
+    >
+      {children}
+    </LinearGradient>
+  );
 };
 
 const BlurBackground = ({ props, children, style }: CompProps) => (
