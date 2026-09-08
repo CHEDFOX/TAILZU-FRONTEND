@@ -6,6 +6,10 @@ import ExpoModulesCore
 public class TulmiBridgeModule: Module {
   // Must match the App Group declared in the app + keyboard entitlements.
   private static let appGroup = "group.com.tulmi.app"
+  // The keyboard extension's bundle id, as it appears in the system's list of
+  // enabled keyboards. Must match the target's bundle id (see
+  // targets/keyboard/expo-target.config.js — "com.tulmi.app" + ".keyboard").
+  private static let keyboardBundleId = "com.tulmi.app.keyboard"
 
   public func definition() -> ModuleDefinition {
     Name("TulmiBridge")
@@ -39,16 +43,35 @@ public class TulmiBridgeModule: Module {
       defaults?.set(json, forKey: "tulmi.dictionary")
     }
 
-    // Read the keyboard's published state from the shared App Group. The
-    // keyboard writes these whenever it runs (see KeyboardViewController), so a
-    // non-zero lastActive means it's enabled, and fullAccess reflects whether
-    // the user granted "Allow Full Access".
+    // Read the keyboard's published state.
+    //
+    // ADDING A KEYBOARD DOES NOT RUN IT. The App Group values below are
+    // written by KeyboardViewController, which only exists once the extension
+    // has actually been instantiated — that is, once the user has opened the
+    // keyboard in some text field. Someone who adds Tailzu in Settings, grants
+    // Full Access and comes straight back has run nothing, so lastActive is 0
+    // and the app concluded the keyboard was never added. The onboarding step
+    // waiting on that signal waited forever.
+    //
+    // The system's own list is the answer for "is it added": AppleKeyboards is
+    // maintained by iOS and updates the moment the keyboard is turned on,
+    // whether or not it has ever been used. Entries carry a suffix, so this
+    // matches on prefix.
+    //
+    // FULL ACCESS CANNOT BE READ FROM HERE AT ALL. UIInputViewController
+    // .hasFullAccess exists only inside the extension, and there is no
+    // containing-app equivalent — so fullAccess stays the extension's
+    // heartbeat and remains false until the keyboard has run once. Anything
+    // that must know Full Access is granted has to wait for that; anything
+    // that only needs to know the keyboard is set up should use `enabled`.
     Function("getKeyboardStatus") { () -> [String: Any] in
       let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       let fullAccess = d?.bool(forKey: "tulmi.kb.fullAccess") ?? false
       let lastActive = d?.double(forKey: "tulmi.kb.lastActive") ?? 0
+      let listed = (UserDefaults.standard.object(forKey: "AppleKeyboards") as? [String])?
+        .contains { $0.hasPrefix(TulmiBridgeModule.keyboardBundleId) } ?? false
       return [
-        "enabled": lastActive > 0,
+        "enabled": listed || lastActive > 0,
         "fullAccess": fullAccess,
         "lastActiveMs": lastActive,
       ]

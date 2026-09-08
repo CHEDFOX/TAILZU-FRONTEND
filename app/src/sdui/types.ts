@@ -192,7 +192,10 @@ export type HapticStyle =
 
 export type ActionSpec =
   // navigation & flow
-  | { kind: "navigate"; screenId: string; params?: Record<string, any> }
+  /** `replace: true` swaps the top of the stack instead of pushing onto it —
+   *  so there is nothing behind to go back to. What a step in a linear flow
+   *  wants: onboarding must not be walkable backwards. */
+  | { kind: "navigate"; screenId: string; params?: Record<string, any>; replace?: boolean }
   | { kind: "navigateBack" }
   | { kind: "switchTab"; tabId: string }
   | { kind: "openUrl"; url: string; external?: boolean }

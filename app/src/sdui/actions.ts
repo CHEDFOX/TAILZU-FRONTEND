@@ -38,6 +38,8 @@ import { setLanguage, getBaseUrl, getLanguage } from "../storage";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
+  /** Swap the top of the stack, leaving nothing behind to go back to. */
+  replace: (screenId: string, params?: Record<string, any>) => void;
   back: () => void;
   switchTab: (tabId: string) => void;
   reloadCurrent: () => void;
@@ -160,7 +162,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
 
   switch (action.kind) {
     // ------------------------------------------------------------------- nav
-    case "navigate": ctx.nav.push(action.screenId, action.params); break;
+    case "navigate":
+      if (action.replace) ctx.nav.replace(action.screenId, action.params);
+      else ctx.nav.push(action.screenId, action.params);
+      break;
     case "navigateBack":
     case "dismiss": ctx.nav.back(); break;
     case "switchTab": ctx.nav.switchTab(action.tabId); break;
