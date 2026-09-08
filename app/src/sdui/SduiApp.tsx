@@ -237,12 +237,19 @@ export default function SduiApp() {
   // Set the moment the user finishes the card, so a bootstrap refresh that
   // still carries the pre-save answer can't put it back in front of them.
   const profileJustDone = useRef(false);
+  const profileDoneRef = useRef(true);
 
   useEffect(() => {
     if (profileJustDone.current) return;
     const serverSaysComplete = boot?.flags?.["profile.complete"];
-    if (typeof serverSaysComplete === "boolean") { setProfileDoneState(serverSaysComplete); return; }
-    getProfileDone().then((done) => { if (done) setProfileDoneState(true); }).catch(() => {});
+    if (typeof serverSaysComplete === "boolean") {
+      profileDoneRef.current = serverSaysComplete;
+      setProfileDoneState(serverSaysComplete);
+      return;
+    }
+    getProfileDone().then((done) => {
+      if (done) { profileDoneRef.current = true; setProfileDoneState(true); }
+    }).catch(() => {});
   }, [boot]);
 
   // A deep-link / push-notification screen target that arrived DURING cold boot,
@@ -250,6 +257,18 @@ export default function SduiApp() {
   // reach "ready" (cold-entry effect below) so the default [home] stack can't
   // clobber it. Mirrors how consumeKeyboardEntry defers keyboard cold-starts.
   const pendingLinkRef = useRef<NavItem | null>(null);
+
+  /**
+   * What the keyboard asked for, held back because first run is not finished.
+   *
+   * A mic tap can arrive at any moment, including in the gap between adding the
+   * keyboard and answering the name card — the keyboard works from the instant
+   * it is enabled, and nothing about first run makes it wait. Opening the
+   * recording screen then put the user somewhere they could not act, with the
+   * profile card landing on top of it a beat later. The request is not wrong,
+   * it is only early: parked here and replayed the moment the card is done.
+   */
+  const pendingKbRef = useRef<{ screenId: string; params?: Record<string, any>; arm?: boolean } | null>(null);
   /**
    * What the keyboard left for us, read at BOOT rather than in a later effect.
    *
@@ -794,6 +813,44 @@ export default function SduiApp() {
   // "change→active" event never fires — so without a cold-start caller, a Flow
   // "arm" tombstone is never consumed, armFlowSession never runs, the session
   // never arms, and the keyboard mic just re-opens the app forever.
+  /**
+   * Turn the background mic on. Lifted out of the flow_arm branch so a request
+   * held back through first run can still arm when it is finally replayed —
+   * arming and routing have to travel together or the screen appears over a
+   * mic that was never turned on.
+   */
+  const armFlow = useCallback(() => {
+    void (async () => {
+      const [base, tok, lang] = await Promise.all([
+        getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+      ]);
+      const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
+      const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
+      armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+    })();
+  }, []);
+
+  /**
+   * WHAT THE APP STILL OWES, before anything the keyboard asks for may open.
+   *
+   * Two gates, and both must be past. The setup steps are read from the screen
+   * the SERVER picked — it already decides that from the profile and the
+   * device, so asking it is asking the one thing that knows. The name card is
+   * read from the server's own flag where it has one, because a keyboard tap
+   * can arrive before the local copy has been loaded and the local default is
+   * "done", which is the answer that lets this through wrongly.
+   */
+  const firstRunOwed = useCallback((): { screenId: string } | null => {
+    const b = bootRef.current;
+    const first = b?.initialScreenId;
+    if (first === "onboarding" || first === "onboarding_keyboard") return { screenId: first };
+    const server = b?.flags?.["profile.complete"];
+    const done = typeof server === "boolean" ? server : profileDoneRef.current;
+    // The card renders over the You tab, so that is where the user has to be
+    // standing for it to appear at all.
+    return done ? null : { screenId: "personality" };
+  }, []);
+
   const consumeKeyboardEntry = useCallback((): "record" | "navigated" | "none" => {
     // The stash first: boot already drained the bridge, and asking it again
     // would answer "nothing" for the very launch this exists to handle.
@@ -811,6 +868,19 @@ export default function SduiApp() {
       if (overFreeLimit()) {
         kbRoutedRef.current = true;
         setStack([{ screenId: "paywall" }]);
+        return "navigated";
+      }
+      // FIRST RUN COMES FIRST. Same shape as the free-limit check above: the
+      // request is not refused, it is parked — and replayed the moment the
+      // thing that was owed is done.
+      const owed = firstRunOwed();
+      if (owed) {
+        pendingKbRef.current = {
+          screenId: "keyboard_record",
+          params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
+        };
+        kbRoutedRef.current = true;
+        setStack([{ screenId: owed.screenId }]);
         return "navigated";
       }
       kbRoutedRef.current = true;
@@ -836,18 +906,21 @@ export default function SduiApp() {
           setStack([{ screenId: "paywall" }]);
           return "navigated";
         }
+        // First run first — and crucially, DO NOT ARM YET. Turning the mic on
+        // and then showing the name card would leave a live microphone behind
+        // a screen that says nothing about it.
+        const owedFlow = firstRunOwed();
+        if (owedFlow) {
+          pendingKbRef.current = { screenId: "flow_arm", arm: true };
+          kbRoutedRef.current = true;
+          setStack([{ screenId: owedFlow.screenId }]);
+          return "navigated";
+        }
         // Flow Session arming: the keyboard opened us here to turn the background
         // mic on. Arm it deterministically (idle window backend-tunable via
         // kb.flow.idleTimeoutMs) AND route to the backend-authored "swipe back"
         // arming screen (whose onAppear re-arms too — arm() is idempotent).
-        void (async () => {
-          const [base, tok, lang] = await Promise.all([
-            getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-          ]);
-          const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-          const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
-          armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
-        })();
+        armFlow();
         kbRoutedRef.current = true;
         setStack([{ screenId: "flow_arm" }]);
         return "navigated";
@@ -861,7 +934,7 @@ export default function SduiApp() {
       }
     }
     return "none";
-  }, []);
+  }, [firstRunOwed, armFlow, overFreeLimit]);
 
   // Cold-start keyboard entry — runs ONCE, the first time we reach "ready". The
   // AppState listener below only fires on a background→foreground transition, so
@@ -1472,7 +1545,20 @@ export default function SduiApp() {
           back to "home" only for backward-compat with old bootstrap. */}
       {!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags) && (
         <ProfileGate
-          onDone={() => { profileJustDone.current = true; setProfileDoneState(true); }}
+          onDone={() => {
+            profileJustDone.current = true;
+            profileDoneRef.current = true;
+            setProfileDoneState(true);
+            // THE REPLAY. Whatever the keyboard asked for while the card was
+            // still owed happens now, in the order it should have happened in:
+            // arm first, then show the screen that reports it.
+            const next = pendingKbRef.current;
+            pendingKbRef.current = null;
+            if (next) {
+              if (next.arm) armFlow();
+              setStack([{ screenId: next.screenId, params: next.params }]);
+            }
+          }}
           mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
         />
       )}
