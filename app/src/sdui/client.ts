@@ -481,8 +481,17 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
  *
  *   flags["auth.enablePhone"] → boolean   (default off)
  */
+/** The sign-in backdrop, served in the boot flags. See catalog.ts. */
+export type AuthBackground = {
+  url: string;
+  contentType?: string;
+  /** Painted behind the media, so a video's first frame is not a black flash. */
+  background: string;
+  fit: "cover" | "contain";
+};
+
 export async function fetchAuthConfig(): Promise<
-  { enablePhone: boolean; reviewEmail: string } | null
+  { enablePhone: boolean; reviewEmail: string; background: AuthBackground | null } | null
 > {
   try {
     const b = await bootstrap();
@@ -495,10 +504,35 @@ export async function fetchAuthConfig(): Promise<
       // string can never equal a typed address, so the path simply is not
       // there the rest of the time.
       reviewEmail: String(f["auth.reviewEmail"] ?? "").trim().toLowerCase(),
+      // Absent whenever nothing has been uploaded to `hero.auth`, and the
+      // screen is designed to read on plain black in exactly that case — an
+      // empty slot must never cost anyone a broken first screen.
+      background: readBackground(f["auth.background"]),
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Validate the backdrop the server sent. Anything malformed resolves to null
+ * rather than throwing: this runs on the sign-in screen, where a thrown error
+ * is a user who cannot get into the app at all.
+ */
+function readBackground(raw: unknown): AuthBackground | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const url = typeof o.url === "string" ? o.url : "";
+  // https only. This URL is rendered before there is a session, so it is the
+  // one piece of server-controlled content the gate trusts.
+  if (!/^https:\/\//i.test(url)) return null;
+  const fit = o.fit === "contain" ? "contain" : "cover";
+  return {
+    url,
+    contentType: typeof o.contentType === "string" ? o.contentType : undefined,
+    background: typeof o.background === "string" ? o.background : "#000000",
+    fit,
+  };
 }
 
 /**
