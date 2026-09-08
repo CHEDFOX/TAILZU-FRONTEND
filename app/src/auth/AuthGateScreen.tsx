@@ -428,6 +428,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // cold start with no network looks the same as a warm one.
   const [suction, setSuction] = useState({ staggerMs: 95, durationMs: 780, fromY: 120 });
   const [reduceMotion, setReduceMotion] = useState(false);
+  // Has the boot config answered yet? Until it has, neither tree is drawn.
+  // Rendering the native one first and swapping when the server's arrived was
+  // a visible flash on every launch — half a screen, then a different screen —
+  // and the fix is to wait a beat rather than to make the swap prettier.
+  // Bootstrap is cached, so the beat is short; the timeout is only there so a
+  // dead network still gets a sign-in screen.
+  const [cfgSettled, setCfgSettled] = useState(false);
   // The tokens every SDUI node resolves its colours and sizes against.
   // RenderNode THROWS without one — the provider lives in SduiApp's ready
   // path, which the auth gate returns long before reaching — so this screen
@@ -479,6 +486,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     // Someone who has asked the system for less motion gets the layout with no
     // travel, not a slower version of the same flight.
     AccessibilityInfo.isReduceMotionEnabled?.().then(setReduceMotion).catch(() => {});
+    // Whatever the network does, something is on screen shortly.
+    const settle = setTimeout(() => setCfgSettled(true), 900);
     // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
     let alive = true;
     fetchAuthConfig().then((cfg) => {
@@ -487,6 +496,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setReviewEmail(cfg.reviewEmail);
       setBackground(cfg.background);
       setBackgroundCode(cfg.backgroundCode);
+      setCfgSettled(true);
       setAuthTheme((cfg.theme as ThemeTokens | null) ?? null);
       setScrim(cfg.scrim);
       // The app has the final say, not the flag. A tree naming a component
@@ -518,7 +528,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         });
       }
     }).catch(() => {});
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(settle); };
   }, [arrival]);
 
   useEffect(() => {
@@ -826,7 +836,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             provider rather than moved. So this is a change of DRAWING, not of
             behaviour, and turning the flag off returns the original screen
             without a build. */}
-        {sduiTree && authTheme ? (
+        {!cfgSettled ? null : sduiTree && authTheme ? (
           // The theme is REQUIRED, not decorative: every node reads its colours
           // and sizes from it, and RenderNode throws without one rather than
           // falling back — which on this screen means an error card instead of
@@ -928,7 +938,7 @@ const s = StyleSheet.create({
   // and left the composition with nowhere to breathe. Matches what the
   // server-composed screen does, so the two paths look alike and it stops
   // mattering which one is drawing.
-  stack: { flex: 1, alignItems: "center", justifyContent: "flex-end", paddingBottom: 42 },
+  stack: { flex: 1, alignItems: "center", justifyContent: "flex-end", paddingBottom: 42, paddingHorizontal: 28 },
   block: { alignItems: "center", width: "100%" },
   brandWrap: { alignItems: "center", marginBottom: 34 },
   brand: { fontSize: 40, fontWeight: "700", color: WHITE, letterSpacing: -0.5 },
@@ -954,7 +964,10 @@ const s = StyleSheet.create({
   arrowWrap: { position: "absolute", right: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE },
   arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: WHITE, alignItems: "center", justifyContent: "center" },
 
-  divider: { width: PILL_W * 0.66, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 48, marginBottom: 48 },
+  // 48/48 was proportioned against a heading that no longer exists. Bottom
+  // aligned and titleless, that much air stranded the socials at the foot of
+  // the screen away from everything else.
+  divider: { width: PILL_W * 0.66, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 26, marginBottom: 24 },
 
   socialRow: { flexDirection: "row", gap: SOCIAL_GAP },
   social: { width: SOCIAL_SIZE, height: SOCIAL_SIZE, borderRadius: SOCIAL_SIZE / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.03)", alignItems: "center", justifyContent: "center" },
