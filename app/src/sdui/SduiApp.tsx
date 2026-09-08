@@ -1301,10 +1301,13 @@ export default function SduiApp() {
   // paywall walkthrough, splash-adjacent). When set, hide header + tabs
   // and let the screen's root fill the whole window.
   const hideChrome = screen?.hideChrome === true;
+  // Header only. A tab root that wants its art at the top of the window still
+  // needs its tabs — see hideHeader in types.
+  const hideHeader = hideChrome || screen?.hideHeader === true;
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
-      {!hideChrome && (
+      {!hideHeader && (
         <View style={styles.header}>
           {canGoBack ? (
             <Pressable onPress={nav.back} hitSlop={10}>
