@@ -106,6 +106,12 @@ export async function reportUpdateCheck(): Promise<void> {
  * along on every request, so the server log answers a question that previously
  * could only be guessed at by looking at the screen.
  */
+/**
+ * The previous launch's breadcrumb, read once at startup and held here so
+ * buildCapabilities stays synchronous. Diagnostic only.
+ */
+export const LAST_BOOT_NOTE = { value: "unread" };
+
 function runningBundle(): string {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -126,6 +132,7 @@ export function buildCapabilities() {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
     bundle: runningBundle(),
+    lastBoot: LAST_BOOT_NOTE.value,
     platform: (Platform.OS === "ios" ? "ios" : "android") as "ios" | "android",
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
