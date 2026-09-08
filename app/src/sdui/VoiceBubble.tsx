@@ -50,42 +50,80 @@ const REST: Record<string, number> = {
 };
 
 /**
- * The default body: a lit sphere rather than a coloured disc.
+ * THE ORB IS NOT ONE GRADIENT. That is the whole difference between a sphere
+ * that looks solid and one that looks alive.
  *
- * Five stops, not the two a single tint gives you. A one-hue radial fades a
- * colour toward its own transparency, which reads as a flat circle with a soft
- * edge; a sphere reads as a sphere because the hue TRAVELS as it falls off —
- * hot and pale where the light lands, deepening through the brand amber into
- * red, then magenta, then violet in the shadow. That hue shift is the whole
- * illusion, and it is why this cannot be expressed as one colour plus an alpha
- * ramp.
+ * A single radial ramp — however many stops it has — is perfectly symmetrical
+ * about its centre, and the eye reads that instantly as a rendered object: a
+ * flat disc with a soft edge and a hue that only ever changes with distance.
+ * Real light in a real volume does not do that. Colour pools, it collects on
+ * one side, it leaves a cold lobe where nothing is lit.
  *
- * The amber is the second stop, which is where the eye reads the object's
- * colour: the brand sits in the body of the thing rather than on its edge.
+ * So the body is built the way the reference is: several soft colour fields,
+ * each its own hue, overlapping at DIFFERENT centres. Nothing draws an edge —
+ * every lobe fades to nothing on its own — and their union is the ball. Where
+ * two lobes overlap you get a hue neither one contains, which is where the
+ * depth comes from, and no two directions out of the centre look the same.
+ *
+ * And they DRIFT. Each lobe travels its own slow ellipse at its own rate, on
+ * periods that do not divide into each other, so the field never repeats and
+ * never settles. That is the "alive": not the outline moving, which reads as a
+ * pulsing blob, but the colour inside turning over while the silhouette stays
+ * calm.
+ *
+ * `orbit` is how far a lobe wanders as a share of the radius; `speed` is in
+ * turns per second; `phase` offsets it so they do not set off together.
  */
-const BODY = ["#FFE6C2", "#E8A23C", "#F2612C", "#C0388A", "#5E2E9E"];
-const BODY_STOPS = [0, 0.3, 0.52, 0.76, 1];
+/** Hooks are called this many times regardless; extra lobes are ignored. */
+const MAX_LOBES = 6;
+
+export type Lobe = {
+  color: string;
+  /** Resting centre, as a share of the radius from the middle. */
+  x: number;
+  y: number;
+  /** Size, as a share of the radius. */
+  r: number;
+  orbit: number;
+  speed: number;
+  phase: number;
+  opacity: number;
+};
+
+const LOBES: Lobe[] = [
+  // The warm body. Largest, nearly centred, barely moves — it is what the orb
+  // IS, and the others are weather on top of it.
+  { color: "#F2612C", x: 0.02, y: 0.06, r: 0.92, orbit: 0.05, speed: 0.031, phase: 0.0, opacity: 1 },
+  // The brand, where the light lands. Up and left, because a hot spot dead
+  // centre reads as a ring.
+  { color: "#E8A23C", x: -0.26, y: -0.30, r: 0.60, orbit: 0.10, speed: 0.047, phase: 1.7, opacity: 0.95 },
+  // Magenta pooling into the lower right, the first step out of the light.
+  { color: "#C0388A", x: 0.34, y: 0.30, r: 0.68, orbit: 0.12, speed: 0.039, phase: 3.1, opacity: 0.9 },
+  // The cold lobe. Upper left in the reference — the bite of violet that stops
+  // the whole thing reading as a sunset gradient.
+  { color: "#5E2E9E", x: -0.40, y: -0.10, r: 0.44, orbit: 0.14, speed: 0.053, phase: 4.4, opacity: 0.8 },
+  // Deep shadow, bottom right, holding the sphere down.
+  { color: "#3F1E78", x: 0.30, y: 0.44, r: 0.50, orbit: 0.09, speed: 0.029, phase: 5.6, opacity: 0.7 },
+];
 
 export const VoiceBubble = ({ node, props, style, store }: CompProps): React.ReactElement => {
   const size = Number(props?.size) || 190;
   const tint = String(props?.tint ?? "#E8A23C");
   const background = props?.background ? String(props.background) : "transparent";
   const points = Math.max(24, Math.min(180, Number(props?.points) || 72));
-  // Full palette control from the server. `colors` wins; a bare `tint` still
-  // means what it always did — one hue, pale core to transparent rim — so the
-  // screens that pass a tint and nothing else are unchanged; and with neither,
-  // the sphere above.
-  const given: string[] | null =
-    Array.isArray(props?.colors) && props.colors.length >= 2 ? props.colors.map(String) : null;
-  const colors: string[] = given ?? (props?.tint ? ["#FFFFFF", tint, `${tint}0D`] : BODY);
-  const positions: number[] | undefined =
-    Array.isArray(props?.positions) && props.positions.length === colors.length
-      ? props.positions.map(Number)
-      : given
-        ? undefined
-        : props?.tint
-          ? [0, 0.55, 1]
-          : BODY_STOPS;
+  /**
+   * The lobes, whole or in part, from the server.
+   *
+   * A bare `tint` still means what it always did — one hue — but it is now
+   * expressed as a single lobe, so the screens that pass only a tint keep
+   * working and get the softness for free.
+   */
+  const lobes: Lobe[] = Array.isArray(props?.lobes) && props.lobes.length
+    ? (props.lobes as Partial<Lobe>[]).map((l, i) => ({ ...(LOBES[i] ?? LOBES[0]), ...l }) as Lobe)
+    : props?.tint
+      ? [{ color: tint, x: 0, y: 0, r: 0.95, orbit: 0.05, speed: 0.03, phase: 0, opacity: 1 }]
+      : LOBES;
+  const shown = lobes.slice(0, MAX_LOBES);
   /**
    * How soft the edge is, in px of blur.
    *
@@ -168,6 +206,43 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
     return p;
   }
 
+  /**
+   * A lobe's disc for this frame.
+   *
+   * The centre travels an ellipse — different radii on the two axes, and a
+   * speed that is not a round number — so the path never closes on itself
+   * visibly. `lv` swells every lobe together, which is what makes the whole
+   * field bloom when someone speaks rather than just the outline moving.
+   */
+  function lobePath(l: Lobe, t: number, lv: number): SkPath {
+    "worklet";
+    const a = t * l.speed * Math.PI * 2 + l.phase;
+    const cx = c + (l.x + Math.cos(a) * l.orbit) * base;
+    const cy = c + (l.y + Math.sin(a * 1.37) * l.orbit * 0.8) * base;
+    const p = Skia.Path.Make();
+    p.addCircle(cx, cy, base * l.r * (1 + lv * 0.22));
+    return p;
+  }
+
+  // A FIXED number of derived values, always called, however many lobes the
+  // server actually sent. Deriving one per lobe would be a hook inside a loop
+  // whose length is a prop — change the palette on a live screen and the hook
+  // order changes under React, which is a crash rather than a re-render. The
+  // slots past the end resolve to an empty path and are never drawn.
+  const slots = Array.from({ length: MAX_LOBES }, (_, i) => i);
+  const lobePaths = [
+    useLobePath(slots[0]), useLobePath(slots[1]), useLobePath(slots[2]),
+    useLobePath(slots[3]), useLobePath(slots[4]), useLobePath(slots[5]),
+  ];
+  function useLobePath(i: number) {
+    return useDerivedValue<SkPath>(() => {
+      tick.value;
+      const l = lobes[i];
+      if (!l) return Skia.Path.Make();
+      return lobePath(l, clock.value, level.value);
+    }, [base, c, lobes.length]);
+  }
+
   // Reading tick makes each of these rebuild every frame.
   const core = useDerivedValue<SkPath>(() => {
     tick.value;
@@ -188,44 +263,42 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
       pointerEvents="none"
     >
       <Canvas style={{ width: size, height: size }}>
-        {/* The halo. Drawn first and blurred hard, so the orb sits IN the
-            screen rather than on top of it — light spilling past the body is
-            most of what makes the reference read as premium rather than as a
-            sticker. */}
+        {/* The halo. Drawn first and blurred hardest, so light spills past the
+            body and the orb sits IN the screen rather than on top of it. */}
         {glow > 0 ? (
           <Path path={outer} opacity={glow}>
             <RadialGradient
               c={vec(c, c)}
               r={base * 1.9}
-              colors={[colors[Math.min(2, colors.length - 1)], "#00000000"]}
+              colors={[lobes[0].color, "#00000000"]}
               positions={[0, 1]}
             />
-            <BlurMask blur={softness * 2.2} style="normal" />
+            <BlurMask blur={softness * 2.4} style="normal" />
           </Path>
         ) : null}
-        {/* The body. The light source sits up and to the left — off centre on
-            both axes, because a highlight dead centre reads as a flat ring and
-            an off-centre one reads as a lit ball. */}
-        <Path path={core}>
-          <RadialGradient
-            c={vec(c - base * 0.22, c - base * 0.34)}
-            r={base * 1.62}
-            colors={colors}
-            positions={positions}
-          />
-          <BlurMask blur={softness} style="normal" />
-        </Path>
-        {/* The specular — a small, soft, pale highlight where the light lands.
-            One stop of white falling to nothing; it is what tells the eye the
-            surface is glossy rather than matte. */}
-        <Path path={mid} opacity={0.5}>
+
+        {/* THE BODY: the lobes, in order, each fading to nothing on its own.
+            No lobe draws an edge, so the union of them is the sphere and there
+            is no outline anywhere to give the drawing away. Where two overlap
+            the eye gets a hue neither one contains — that is the depth, and it
+            is why this is five soft discs rather than one ramp with five
+            stops. */}
+        {shown.map((l, i) => (
+          <Path key={i} path={lobePaths[i]} color={l.color} opacity={l.opacity}>
+            <BlurMask blur={softness * (1.5 + l.r)} style="normal" />
+          </Path>
+        ))}
+
+        {/* The specular. A pale bloom where the light lands, small and soft —
+            what tells the eye the surface is glossy rather than matte. */}
+        <Path path={mid} opacity={0.42}>
           <RadialGradient
             c={vec(c - base * 0.34, c - base * 0.46)}
-            r={base * 0.62}
-            colors={["#FFFFFFCC", "#FFFFFF00"]}
+            r={base * 0.66}
+            colors={["#FFF3DE", "#FFF3DE00"]}
             positions={[0, 1]}
           />
-          <BlurMask blur={softness * 0.8} style="normal" />
+          <BlurMask blur={softness * 0.9} style="normal" />
         </Path>
       </Canvas>
     </View>
