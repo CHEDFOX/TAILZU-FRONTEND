@@ -875,7 +875,17 @@ const WebViewC = ({ props, style }: CompProps) => (
 const SVGC = ({ props, style }: CompProps) => (
   <View style={style}>
     <Svg viewBox={String(props.viewBox ?? "0 0 100 100")}>
-      <Path d={String(props.d ?? "")} fill={String(props.fill ?? "#fff")} stroke={String(props.stroke ?? "none")} strokeWidth={Number(props.strokeWidth ?? 0)} />
+      <Path
+        d={String(props.d ?? "")}
+        fill={String(props.fill ?? "#fff")}
+        stroke={String(props.stroke ?? "none")}
+        strokeWidth={Number(props.strokeWidth ?? 0)}
+        // Caps and joins, so a stroked glyph can have soft ends. Without them
+        // every backend-drawn icon is cut square — which on a thin ✕ or a
+        // chevron is the difference between a drawn mark and a cropped one.
+        strokeLinecap={(props.strokeLinecap ?? "round") as "butt" | "round" | "square"}
+        strokeLinejoin={(props.strokeLinejoin ?? "round") as "miter" | "round" | "bevel"}
+      />
     </Svg>
   </View>
 );
