@@ -43,8 +43,9 @@ import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
 import EmailSendAnimation from "./EmailSendAnimation";
+import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
-import { callEndpoint, fetchAuthConfig } from "../sdui/client";
+import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 
@@ -120,6 +121,31 @@ const Resend = () => (
     <Path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" stroke="rgba(255,255,255,0.55)" strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
+
+/**
+ * The uploaded backdrop. A still or a clip, whichever was uploaded.
+ *
+ * MediaPlayer rather than a hand-rolled branch: it already decides image vs
+ * video from contentType first and the extension second, which is the check
+ * that kept the intro black for a week when it was done the other way round.
+ * Reusing it means this screen cannot reacquire that bug independently.
+ *
+ * Silent, looping, and never interactive. It fails to NOTHING rather than to an
+ * error box — this is the sign-in screen, so a backdrop that cannot load must
+ * cost someone a plain background, never the ability to get into the app.
+ */
+function AuthBackdrop({ background }: { background: AuthBackground }) {
+  return (
+    <MediaPlayer
+      spec={{ url: background.url, contentType: background.contentType }}
+      contentFit={background.fit}
+      autoplay
+      loop
+      muted
+      style={FILL}
+    />
+  );
+}
 
 // ── Country picker (phone only) ──────────────────────────────────────────────
 function CountryPickerModal({
@@ -344,6 +370,10 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
   const [appleAvailable, setAppleAvailable] = useState(false);
+  // The backdrop, uploaded to `hero.auth` and served in the boot flags. Null
+  // until it arrives and null forever if nothing was uploaded — the screen is
+  // laid out to read on plain black either way.
+  const [background, setBackground] = useState<AuthBackground | null>(null);
 
   // Google sign-in. Stays fully hidden until the three client IDs are filled in
   // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
@@ -393,6 +423,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (!alive || !cfg) return;
       setPhoneEnabled(cfg.enablePhone);
       setReviewEmail(cfg.reviewEmail);
+      setBackground(cfg.background);
     }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
@@ -633,6 +664,19 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   return (
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
+      {/* The backdrop, behind everything and outside the KeyboardAvoidingView
+          so a raised keyboard slides the FIELDS and not the art.
+          The scrim is not decoration: this screen is white text on whatever
+          someone uploads, and without a floor under the contrast a bright clip
+          makes the labels unreadable. It is painted from the art's own ground
+          colour so there is no visible seam at the edges. */}
+      {background ? (
+        <View style={[FILL, { backgroundColor: background.background }]} pointerEvents="none">
+          <AuthBackdrop background={background} />
+          <View style={[FILL, { backgroundColor: "rgba(0,0,0,0.42)" }]} />
+        </View>
+      ) : null}
+
       {/* The bot challenge. Draws nothing, and renders nothing at all until a
           site key exists — see ./captcha.tsx for why it lives here and not
           behind the send button. */}
