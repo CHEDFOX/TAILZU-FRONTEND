@@ -261,6 +261,20 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style }: {
   const envX = useRef(new Animated.Value(0)).current;
   const arrowAppear = useRef(new Animated.Value(0)).current;
 
+  // THE ARROW APPEARS WHEN THERE IS SOMETHING WORTH SENDING.
+  //
+  // This effect was deleted by accident in the lift rewrite, and nothing
+  // caught it: arrowAppear was still declared and still read, so it type-
+  // checked perfectly and simply sat at zero forever. An animated value with
+  // no animation is invisible in every sense — including to the compiler.
+  useEffect(() => {
+    Animated.timing(arrowAppear, {
+      toValue: valid ? 1 : 0,
+      duration: 240,
+      useNativeDriver: false,
+    }).start();
+  }, [valid, arrowAppear]);
+
   // ONLY THE PILL BEING TYPED IN MOVES.
   //
   // A KeyboardAvoidingView around the whole stack lifted everything — the
