@@ -93,3 +93,23 @@ export async function getProfileDone(): Promise<boolean> {
 export async function setProfileDone(): Promise<void> {
   await AsyncStorage.setItem(KEY_PROFILE, "1");
 }
+
+/**
+ * How the LAST boot ended, remembered across launches.
+ *
+ * A boot that hangs cannot report on itself: the code that would send the
+ * report is downstream of whatever is stuck. So the app writes a breadcrumb as
+ * it goes and sends the PREVIOUS launch's crumb on the next bootstrap, which is
+ * the first call a launch makes and therefore always gets through.
+ *
+ * Diagnostic only. Nothing reads it to make a decision.
+ */
+const LAST_BOOT_KEY = "tailzu.lastBoot";
+
+export async function setLastBoot(note: string): Promise<void> {
+  try { await AsyncStorage.setItem(LAST_BOOT_KEY, note.slice(0, 200)); } catch { /* best effort */ }
+}
+
+export async function getLastBoot(): Promise<string | null> {
+  try { return await AsyncStorage.getItem(LAST_BOOT_KEY); } catch { return null; }
+}

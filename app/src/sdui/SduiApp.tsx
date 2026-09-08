@@ -977,6 +977,37 @@ export default function SduiApp() {
   // The timeout is the promise this cannot break: whatever the network does,
   // the splash goes. A splash that waits forever is worse than the black it
   // was holding back.
+  // BREADCRUMBS. A boot that hangs cannot report on itself, so each stage
+  // writes where it got to and the NEXT launch carries that on its bootstrap —
+  // the first call any launch makes, and therefore the one that always gets
+  // through. Diagnostic only; nothing branches on it.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { getLastBoot, setLastBoot } = require("../storage");
+        const { LAST_BOOT_NOTE } = require("./client");
+        LAST_BOOT_NOTE.value = (await getLastBoot()) ?? "none";
+        await setLastBoot("started");
+      } catch { /* diagnostics must never break a boot */ }
+    })();
+  }, []);
+
+  // Where the boot actually ended up, written a few seconds in — long after a
+  // healthy launch has a screen, and while a stuck one is still stuck.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const { setLastBoot } = require("../storage");
+        void setLastBoot(
+          `phase=${phase} boot=${boot ? 1 : 0} screen=${screen ? 1 : 0}` +
+          ` err=${screenError ? 1 : 0} stack=${stack.length}` +
+          ` kbWants=${kbWantedRef.current ? 1 : 0} kbRouted=${kbRoutedRef.current ? 1 : 0}`,
+        );
+      } catch { /* diagnostics must never break a boot */ }
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [phase, boot, screen, screenError, stack.length]);
+
   const splashHidden = useRef(false);
   useEffect(() => {
     if (splashHidden.current || !screen) return;
