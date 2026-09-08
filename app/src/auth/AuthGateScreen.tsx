@@ -227,6 +227,37 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   const envX = useRef(new Animated.Value(0)).current;
   const arrowAppear = useRef(new Animated.Value(0)).current;
 
+  // ONLY THE PILL BEING TYPED IN MOVES.
+  //
+  // A KeyboardAvoidingView around the whole stack lifted everything — the
+  // other method, the social row, the lot — so opening the keyboard rearranged
+  // a screen the user was not interacting with. Each pill now listens for
+  // itself and rises only while it holds the caret; anything else stays put
+  // and simply ends up behind the keyboard, which is where it belongs.
+  const lift = useRef(new Animated.Value(0)).current;
+  const focused = useRef(false);
+  useEffect(() => {
+    const rise = (h: number) => {
+      Animated.spring(lift, {
+        toValue: focused.current ? -h : 0,
+        damping: 20, stiffness: 180, mass: 0.7,
+        useNativeDriver: true,
+      }).start();
+    };
+    // Will-change on iOS so the pill travels WITH the keyboard rather than
+    // after it; Android only reports the did- events.
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = Keyboard.addListener(showEvt, (e: any) => {
+      // Clear the keyboard by a hair, no more. The screen's own bottom padding
+      // is already below the pill, so the full keyboard height would overshoot.
+      const h = Math.max(0, (e?.endCoordinates?.height ?? 0) - 30);
+      rise(h);
+    });
+    const onHide = Keyboard.addListener(hideEvt, () => rise(0));
+    return () => { onShow.remove(); onHide.remove(); };
+  }, [lift]);
+
   useEffect(() => {
     Animated.timing(arrowAppear, { toValue: valid ? 1 : 0, duration: 240, useNativeDriver: false }).start();
   }, [valid, arrowAppear]);
@@ -274,7 +305,7 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   const inputOpacity = envX.interpolate({ inputRange: [0, MAX_DRAG], outputRange: [1, 0.12], extrapolate: "clamp" });
 
   return (
-    <View style={s.pillWrap}>
+    <Animated.View style={[s.pillWrap, { transform: [{ translateY: lift }] }]}>
       {/* iOS: frosted-glass pill. Android: expo-blur doesn't blur (and the 6%
           fill is invisible on OLED dark), so the oval "disappeared" — use a
           solid translucent fill there so the pill always reads as a pill. */}
@@ -306,7 +337,11 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
             accessibilityRole="button"
             accessibilityLabel={`Country ${country.name}, change`}
           >
-            <Text style={s.dial}>{country.dial}</Text>
+            {/* The FLAG alone. The dial code was here too, and it is noise
+                once a country is chosen: the number being typed beside it
+                already implies the code, and two glyphs in a 46pt circle read
+                as a label rather than as a button. */}
+            <Text style={s.flagOnly}>{country.flag}</Text>
           </TouchableOpacity>
         )}
         {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
@@ -314,6 +349,8 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           style={s.input}
           value={value}
           onChangeText={setValue}
+          onFocus={() => { focused.current = true; }}
+          onBlur={() => { focused.current = false; }}
           placeholder={isPhone ? "Number" : "Email"}
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
@@ -356,7 +393,7 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           }}
         />
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -778,7 +815,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         <View style={FILL} />
       </TouchableWithoutFeedback>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
+      {/* No KeyboardAvoidingView. It lifted the WHOLE stack — the other
+          method, the social row, everything — so opening the keyboard
+          rearranged parts of the screen nobody was touching. Each pill lifts
+          itself instead; see the lift in MethodPill. */}
+      <View style={s.kav}>
         {/* THE SERVER'S SCREEN, when there is one and the switch is on.
             Everything outside this block still belongs to the app: the
             backdrop, the captcha host, the back arrow, the edge-swipe zone —
@@ -863,7 +904,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
         </Animated.View>
         )}
-      </KeyboardAvoidingView>
+      </View>
 
       {/* top-left back arrow (code step) */}
       {onCode && (
@@ -900,8 +941,9 @@ const s = StyleSheet.create({
   pillAndroid: { backgroundColor: "rgba(255,255,255,0.12)" },
   pillBorder: { ...FILL, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
-  countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 10, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: "rgba(255,255,255,0.16)" },
+  countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 8 },
   flag: { fontSize: 18, marginRight: 5 },
+  flagOnly: { fontSize: 22 },
   pickRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 4 },
   pickText: { fontSize: 15, fontWeight: "300", color: "rgba(255,255,255,0.32)", letterSpacing: 0.3 },
   badgeFlag: { fontSize: 20, lineHeight: 24 },
