@@ -42,6 +42,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
+import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
 import EmailSendAnimation from "./EmailSendAnimation";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
@@ -72,7 +73,7 @@ const ABYSS = "#050508";
 // the pill layers collapse to a zero-height centered hairline. Spell it out.
 const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
 
-interface Field { id: string; type: "email" | "phone" }
+export interface Field { id: string; type: "email" | "phone" }
 interface ActiveMethod { type: "email" | "phone"; value: string }
 
 // ── Glyphs (Plutto's exact paths) ────────────────────────────────────────────
@@ -194,7 +195,7 @@ function CountryPickerModal({
 }
 
 // ── One method pill (email or phone): swipe the badge → or tap the arrow ──────
-function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f: Field, value: string) => void; hintDelay: number }) {
+export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSubmit: (f: Field, value: string) => void; hintDelay: number }) {
   const isPhone = field.type === "phone";
   const [value, setValue] = useState("");
   const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
@@ -662,7 +663,31 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
 
+  // The flow, published for an SDUI tree to draw. Every field below is the
+  // handler or the state this screen already had — this object creates no
+  // behaviour of its own, which is the property that lets the native path and
+  // the server-composed path be the same flow rather than two of them.
+  const flow: AuthFlow = {
+    phase,
+    active,
+    code,
+    codeLength: CODE_LEN,
+    setCode: (next) => { setCode(next.replace(/\D/g, "").slice(0, CODE_LEN)); if (codeError) setCodeError(false); },
+    codeError,
+    phoneEnabled,
+    appleAvailable,
+    googleEnabled,
+    submit: send,
+    verify,
+    resend,
+    back: goBack,
+    signInApple: onApple,
+    signInGoogle: onGoogle,
+    focusCode: () => codeRef.current?.focus?.(),
+  };
+
   return (
+    <AuthFlowProvider value={flow}>
     <Animated.View style={[s.container, { transform: [{ translateX: shake }] }]}>
       {/* The backdrop, behind everything and outside the KeyboardAvoidingView
           so a raised keyboard slides the FIELDS and not the art.
@@ -758,6 +783,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       {/* edge-swipe-back zone — only on the code step */}
       {onCode ? edgeZone : null}
     </Animated.View>
+    </AuthFlowProvider>
   );
 }
 

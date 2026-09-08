@@ -919,6 +919,7 @@ import { REGISTRY_V3 } from "./componentsV3";
 import { Slideshow } from "./Slideshow";
 import { ParticleMark } from "./ParticleMark";
 import { ChatThread } from "./ChatThread";
+import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "./authComponents";
 import { VoiceBubble } from "./VoiceBubble";
 import { VoiceSession } from "./VoiceSession";
 import { BinaryReveal } from "./BinaryReveal";
@@ -933,6 +934,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
   ChatThread, VoiceBubble, VoiceSession,
+  SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase,
   KeyboardPreview, MorphOut, WordMeter,
   ...REGISTRY_V3,
 };
