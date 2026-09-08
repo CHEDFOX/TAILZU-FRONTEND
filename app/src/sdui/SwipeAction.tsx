@@ -41,7 +41,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const tracking = props?.tracking !== undefined ? Number(props.tracking) : 1.8;
   const disc = Number(props?.disc) || 46;
   const discBackground = String(props?.discBackground ?? "rgba(255,255,255,0.14)");
-  const dot = Number(props?.dot) || 7;
+  /** The mark inside each circle. 0 leaves them plain — which is the default
+   *  look: two clean discs, nothing drawn in them. */
+  const dot = props?.dot !== undefined ? Number(props.dot) : 0;
   const dotColor = String(props?.dotColor ?? "#FFFFFF");
   /** What the disc lands in. The one warm thing on the pill, so the end of the
    *  journey is visible from the start of it. */
@@ -203,7 +205,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
           justifyContent: "center",
         }}
       >
-        <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: targetDot }} />
+        {dot > 0 ? (
+          <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: targetDot }} />
+        ) : null}
       </Animated.View>
 
       {/* The disc. It claims touches on itself — children are offered a touch
@@ -223,7 +227,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
           transform: [{ translateX: x }],
         }}
       >
-        <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: dotColor }} />
+        {dot > 0 ? (
+          <View style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: dotColor }} />
+        ) : null}
       </Animated.View>
     </>
   );
