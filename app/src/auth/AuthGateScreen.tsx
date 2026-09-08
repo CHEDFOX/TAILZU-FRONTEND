@@ -75,6 +75,15 @@ const CODE_LEN = 6;
 const WHITE = "#FFFFFF";
 /** The brand amber. The one colour on this screen that means "go". */
 const ACCENT = "#E8A23C";
+/**
+ * The target circle. A DIMMER amber than the brand's own.
+ *
+ * Full #E8A23C on a dark screen with nothing else coloured on it reads as a
+ * warning rather than an invitation — it is the brightest thing in the window
+ * by a distance. Pulled down, it still says "go" and stops shouting it, and
+ * the black arrow keeps its contrast either way.
+ */
+const ACCENT_DIM = "#C9862B";
 const VOID = "#000000";
 const ABYSS = "#050508";
 // RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
@@ -232,7 +241,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style }: {
     placeholderColor: look?.placeholderColor ?? "rgba(255,255,255,0.32)",
     badgeBackground: look?.badgeBackground ?? "rgba(255,255,255,0.10)",
     badgeBorderColor: look?.badgeBorderColor ?? "rgba(255,255,255,0.18)",
-    targetBackground: look?.targetBackground ?? ACCENT,
+    targetBackground: look?.targetBackground ?? ACCENT_DIM,
     targetIconColor: look?.targetIconColor ?? "#000000",
     fontSize: look?.fontSize ?? 15,
     paddingLeft: look?.paddingLeft ?? PILL_H + 6,
@@ -1044,7 +1053,7 @@ const s = StyleSheet.create({
   arrowWrap: { position: "absolute", right: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE },
   // Amber, not white. It is the one thing on the screen that means "go", and
   // white made it another pale circle beside a pale badge.
-  arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: ACCENT, alignItems: "center", justifyContent: "center" },
+  arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: ACCENT_DIM, alignItems: "center", justifyContent: "center" },
 
   // 48/48 was proportioned against a heading that no longer exists. Bottom
   // aligned and titleless, that much air stranded the socials at the foot of
