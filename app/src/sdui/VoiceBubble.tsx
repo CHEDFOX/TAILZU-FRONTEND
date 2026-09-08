@@ -29,7 +29,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import { Canvas, Path, RadialGradient, Skia, vec, type SkPath } from "@shopify/react-native-skia";
+import { BlurMask, Canvas, Path, RadialGradient, Skia, vec, type SkPath } from "@shopify/react-native-skia";
 import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
 
@@ -49,11 +49,54 @@ const REST: Record<string, number> = {
   speaking: 0.46,
 };
 
+/**
+ * The default body: a lit sphere rather than a coloured disc.
+ *
+ * Five stops, not the two a single tint gives you. A one-hue radial fades a
+ * colour toward its own transparency, which reads as a flat circle with a soft
+ * edge; a sphere reads as a sphere because the hue TRAVELS as it falls off —
+ * hot and pale where the light lands, deepening through the brand amber into
+ * red, then magenta, then violet in the shadow. That hue shift is the whole
+ * illusion, and it is why this cannot be expressed as one colour plus an alpha
+ * ramp.
+ *
+ * The amber is the second stop, which is where the eye reads the object's
+ * colour: the brand sits in the body of the thing rather than on its edge.
+ */
+const BODY = ["#FFE6C2", "#E8A23C", "#F2612C", "#C0388A", "#5E2E9E"];
+const BODY_STOPS = [0, 0.3, 0.52, 0.76, 1];
+
 export const VoiceBubble = ({ node, props, style, store }: CompProps): React.ReactElement => {
   const size = Number(props?.size) || 190;
   const tint = String(props?.tint ?? "#E8A23C");
   const background = props?.background ? String(props.background) : "transparent";
   const points = Math.max(24, Math.min(180, Number(props?.points) || 72));
+  // Full palette control from the server. `colors` wins; a bare `tint` still
+  // means what it always did — one hue, pale core to transparent rim — so the
+  // screens that pass a tint and nothing else are unchanged; and with neither,
+  // the sphere above.
+  const given: string[] | null =
+    Array.isArray(props?.colors) && props.colors.length >= 2 ? props.colors.map(String) : null;
+  const colors: string[] = given ?? (props?.tint ? ["#FFFFFF", tint, `${tint}0D`] : BODY);
+  const positions: number[] | undefined =
+    Array.isArray(props?.positions) && props.positions.length === colors.length
+      ? props.positions.map(Number)
+      : given
+        ? undefined
+        : props?.tint
+          ? [0, 0.55, 1]
+          : BODY_STOPS;
+  /**
+   * How soft the edge is, in px of blur.
+   *
+   * This is what separates the reference from a drawn shape. A hard-edged path
+   * with a gradient in it is a disc; the same path with its edge blurred is a
+   * body of light with no border anyone can point at. Scaled off `size` so an
+   * orb drawn at any size is equally soft, rather than crisp when large.
+   */
+  const softness = props?.softness !== undefined ? Number(props.softness) : size * 0.11;
+  /** The halo. 0 removes it. */
+  const glow = props?.glow !== undefined ? Number(props.glow) : 0.5;
 
   const levelKey = node.bind?.level;
   const stateKey = node.bind?.state;
@@ -145,20 +188,45 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
       pointerEvents="none"
     >
       <Canvas style={{ width: size, height: size }}>
-        {/* The body. Light at the top, tint through the middle, gone at the
-            rim — so it reads as lit rather than as a filled shape. */}
+        {/* The halo. Drawn first and blurred hard, so the orb sits IN the
+            screen rather than on top of it — light spilling past the body is
+            most of what makes the reference read as premium rather than as a
+            sticker. */}
+        {glow > 0 ? (
+          <Path path={outer} opacity={glow}>
+            <RadialGradient
+              c={vec(c, c)}
+              r={base * 1.9}
+              colors={[colors[Math.min(2, colors.length - 1)], "#00000000"]}
+              positions={[0, 1]}
+            />
+            <BlurMask blur={softness * 2.2} style="normal" />
+          </Path>
+        ) : null}
+        {/* The body. The light source sits up and to the left — off centre on
+            both axes, because a highlight dead centre reads as a flat ring and
+            an off-centre one reads as a lit ball. */}
         <Path path={core}>
           <RadialGradient
-            c={vec(c, c - base * 0.3)}
-            r={base * 1.5}
-            colors={["#FFFFFF", tint, `${tint}0D`]}
-            positions={[0, 0.55, 1]}
+            c={vec(c - base * 0.22, c - base * 0.34)}
+            r={base * 1.62}
+            colors={colors}
+            positions={positions}
           />
+          <BlurMask blur={softness} style="normal" />
         </Path>
-        {/* Two echoes, stroked. They sit outside the body and lag its shape,
-            which is what gives the edge its softness. */}
-        <Path path={mid} color={`${tint}33`} style="stroke" strokeWidth={1.1} />
-        <Path path={outer} color={`${tint}1F`} style="stroke" strokeWidth={1.1} />
+        {/* The specular — a small, soft, pale highlight where the light lands.
+            One stop of white falling to nothing; it is what tells the eye the
+            surface is glossy rather than matte. */}
+        <Path path={mid} opacity={0.5}>
+          <RadialGradient
+            c={vec(c - base * 0.34, c - base * 0.46)}
+            r={base * 0.62}
+            colors={["#FFFFFFCC", "#FFFFFF00"]}
+            positions={[0, 1]}
+          />
+          <BlurMask blur={softness * 0.8} style="normal" />
+        </Path>
       </Canvas>
     </View>
   );
