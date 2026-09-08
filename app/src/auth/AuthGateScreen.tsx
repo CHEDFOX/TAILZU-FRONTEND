@@ -328,21 +328,6 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
             <Chevron />
           </TouchableOpacity>
         )}
-        {isPhone && countryPicked && (
-          <TouchableOpacity
-            style={s.countryChip}
-            activeOpacity={0.7}
-            onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
-            accessibilityRole="button"
-            accessibilityLabel={`Country ${country.name}, change`}
-          >
-            {/* The FLAG alone. The dial code was here too, and it is noise
-                once a country is chosen: the number being typed beside it
-                already implies the code, and two glyphs in a 46pt circle read
-                as a label rather than as a button. */}
-            <Text style={s.flagOnly}>{country.flag}</Text>
-          </TouchableOpacity>
-        )}
         {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
           ref={inputRef}
           style={s.input}
@@ -366,7 +351,21 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           number it is asking for. */}
       <Animated.View style={[s.envWrap, { transform: [{ translateX: envX }] }]} {...pan.panHandlers}>
         <View style={s.envCircle}>
-          {!isPhone ? <Envelope /> : countryPicked ? <Text style={s.badgeFlag}>{country.flag}</Text> : <PhoneMark />}
+          {!isPhone ? <Envelope /> : countryPicked ? (
+            // The flag lives HERE and only here — it was also being drawn
+            // where the dial code used to sit, which put two of them on one
+            // pill. Tapping it reopens the picker, so removing the duplicate
+            // costs nothing: the swipe still submits, because PanResponder
+            // only claims a finger that has moved, and a tap has not.
+            <Pressable
+              onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={`Country ${country.name}, change`}
+            >
+              <Text style={s.badgeFlag}>{country.flag}</Text>
+            </Pressable>
+          ) : <PhoneMark />}
         </View>
       </Animated.View>
 
@@ -950,9 +949,7 @@ const s = StyleSheet.create({
   pillAndroid: { backgroundColor: "rgba(255,255,255,0.12)" },
   pillBorder: { ...FILL, borderRadius: PILL_H / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.14)" },
   contentRow: { position: "absolute", left: PILL_PAD + BADGE + 10, right: PILL_PAD + BADGE + 10, top: 0, bottom: 0, flexDirection: "row", alignItems: "center" },
-  countryChip: { flexDirection: "row", alignItems: "center", paddingRight: 10, marginRight: 8 },
   flag: { fontSize: 18, marginRight: 5 },
-  flagOnly: { fontSize: 22 },
   pickRow: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingRight: 4 },
   pickText: { fontSize: 15, fontWeight: "300", color: "rgba(255,255,255,0.32)", letterSpacing: 0.3 },
   badgeFlag: { fontSize: 20, lineHeight: 24 },
