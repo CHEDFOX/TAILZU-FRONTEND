@@ -999,6 +999,15 @@ export default function SduiApp() {
         cancelArrivalPrompt();
         setStack((s) => [...s, { screenId, params }]);
       },
+      // Swap the top rather than stack on it. A linear flow — onboarding — is
+      // a sequence of steps, not a place you browse: pushing left every step
+      // behind the next one, so an edge swipe walked back into a permission
+      // screen that had already been answered. Replacing means each step is
+      // the only thing on the stack and there is nothing to go back to.
+      replace: (screenId, params) => {
+        cancelArrivalPrompt();
+        setStack((s) => (s.length ? [...s.slice(0, -1), { screenId, params }] : [{ screenId, params }]));
+      },
       back: () => {
         cancelArrivalPrompt();
         setStack((s) => {

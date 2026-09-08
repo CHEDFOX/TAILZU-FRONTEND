@@ -268,20 +268,45 @@ let persistBase = "";
 let persistVersion = "";
 
 /** The last bootstrap this install received from the current server, or null. */
+/**
+ * A cached bootstrap is only worth painting while the answers it was computed
+ * from still hold.
+ *
+ * initialScreenId is decided by the server FROM THE DEVICE SIGNALS THE APP
+ * SENT — so the copy on disk carries a routing decision made under whatever
+ * was true last time. Grant the microphone and reopen the app, and the disk
+ * copy still says "show the voice step": it paints, the fresh bootstrap lands
+ * a moment later saying otherwise, and the screen the user had already dealt
+ * with flashes past on the way to the right one.
+ *
+ * Stamping the signals into the cache makes that detectable. They match, the
+ * cached route is still correct and the app paints instantly as before; they
+ * differ, the route is known-stale and the only honest thing to do is wait for
+ * the fresh one — a slightly slower open in exactly the case where the fast
+ * one would have been wrong.
+ */
+function signalStamp(): string {
+  const d = getDeviceSignals();
+  return `${d.micGranted ? 1 : 0}${d.keyboard?.fullAccess ? 1 : 0}${d.keyboard?.enabled ? 1 : 0}`;
+}
+
 export async function peekBootstrap(): Promise<BootstrapResponse | null> {
   try {
     const base = await getBaseUrl();
     const raw = await AsyncStorage.getItem(BOOT_KEY(base));
     if (!raw) return null;
-    const b = JSON.parse(raw) as BootstrapResponse;
-    return b && typeof b === "object" && b.navigation && b.initialScreenId ? b : null;
+    const stored = JSON.parse(raw) as BootstrapResponse & { __signals?: string };
+    if (!stored || typeof stored !== "object" || !stored.navigation || !stored.initialScreenId) return null;
+    // Written before the stamp existed, or written under different answers.
+    if (stored.__signals !== signalStamp()) return null;
+    return stored;
   } catch {
     return null;
   }
 }
 
 function persistBootstrap(base: string, b: BootstrapResponse): void {
-  AsyncStorage.setItem(BOOT_KEY(base), JSON.stringify(b)).catch(() => {});
+  AsyncStorage.setItem(BOOT_KEY(base), JSON.stringify({ ...b, __signals: signalStamp() })).catch(() => {});
 }
 
 /**
