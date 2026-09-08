@@ -182,7 +182,19 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
   }, true);
 
   const c = size / 2;
-  const base = size * 0.31;
+  /**
+   * The orb's radius as a share of its box. 0.31 leaves room for the halo and
+   * the blur to spill without being clipped by the canvas — raise it for a
+   * tighter, fuller orb, lower it for more air around one.
+   */
+  const base = size * (props?.fill !== undefined ? Number(props.fill) : 0.31);
+  /**
+   * How much the outline breathes. The three amplitudes are summed at
+   * unrelated frequencies, which is what stops it reading as a pulsing
+   * circle; `wobble` scales all three together, so 0 gives a perfectly still
+   * sphere and the colour inside still drifts.
+   */
+  const wobble = props?.wobble !== undefined ? Number(props.wobble) : 1;
 
   /**
    * One layer of the outline, built on the UI thread.
@@ -198,10 +210,10 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
     const step = (Math.PI * 2) / points;
     for (let i = 0; i <= points; i++) {
       const a = i * step;
-      const wob =
+      const wob = wobble * (
         Math.sin(a * 3 + t * 2.7 + layer * 1.5) * 0.055 +
         Math.sin(a * 5 - t * 3.5 + layer) * 0.035 +
-        Math.sin(a * 2 + t * 1.9) * 0.045;
+        Math.sin(a * 2 + t * 1.9) * 0.045);
       const r = base * (1 + wob * (0.6 + lv * 2.4) + lv * 0.3 + layer * 0.14);
       const x = c + Math.cos(a) * r;
       const y = c + Math.sin(a) * r;
@@ -253,7 +265,7 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
   const core = useDerivedValue<SkPath>(() => {
     tick.value;
     return ringPath(0, clock.value, level.value);
-  }, [points, base, c]);
+  }, [points, base, c, wobble]);
   const mid = useDerivedValue<SkPath>(() => {
     tick.value;
     return ringPath(1, clock.value, level.value);

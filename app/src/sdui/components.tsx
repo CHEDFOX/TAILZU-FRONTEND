@@ -266,14 +266,19 @@ const Screen = ({ children, style }: CompProps) => {
  * Pressable only when there is something to press, so the thousands of plain
  * Stacks in the tree keep costing exactly one View.
  */
-const Stack = ({ node, children, style, fire }: CompProps) => {
+const Stack = ({ node, props, children, style, fire }: CompProps) => {
   if (!node.on?.onPress && !node.on?.onLongPress) return <View style={style}>{children}</View>;
+  // How far it dims under a finger. A Stack is the app's general-purpose
+  // pressable — the allow pill, the plan rows, the deck cards are all one —
+  // so the one number that says "this was pressed" cannot be fixed in the
+  // binary. 1 disables the dim for anything that shows its press another way.
+  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : 0.6;
   return (
     <Pressable
       onPress={node.on?.onPress ? () => fire("onPress") : undefined}
       onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
       // A row of text is not obviously a button, so the press has to say so.
-      style={({ pressed }) => [style, pressed && { opacity: 0.6 }]}
+      style={({ pressed }) => [style, pressed && { opacity: pressOpacity }]}
       accessibilityRole="button"
     >
       {children}
@@ -392,11 +397,22 @@ const Button = ({ props, style, fire }: CompProps) => {
       onPress={() => fire("onPress")}
       disabled={props.disabled}
       impactOnRelease={!isSecondary && !isGhost}
-      flashColor={BRAND_ACCENT}
+      // The press flash. Amber by default because that is the brand's "we
+      // heard that"; "none" removes it for a button whose own colour change
+      // already says so.
+      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? BRAND_ACCENT)}
       style={[
         // paddingHorizontal matters: a hug-width button without it renders the
         // label touching the pill's edges ("Allow Microphone" overflow bug).
-        { backgroundColor: bg, borderRadius: theme.radius.pill, paddingVertical: 17, paddingHorizontal: 28, alignItems: "center", justifyContent: "center", opacity: props.disabled ? 0.5 : 1 },
+        {
+          backgroundColor: bg,
+          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.pill,
+          paddingVertical: props.paddingVertical !== undefined ? Number(props.paddingVertical) : 17,
+          paddingHorizontal: props.paddingHorizontal !== undefined ? Number(props.paddingHorizontal) : 28,
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: props.disabled ? 0.5 : 1,
+        },
         // Secondary: a quiet hairline outline (the editorial look the auth
         // screen's social circles use) — the old solid gray chip read heavy
         // and cheap next to the white primary.
@@ -404,7 +420,18 @@ const Button = ({ props, style, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: labelColor, fontWeight: isSecondary ? "600" : "700", fontSize: 16, letterSpacing: 0.4 }}>{props.label ?? ""}</Text>
+      {/* The label's own type. It lives inside the component, so without these
+          a backend could restyle the pill and never the words on it. */}
+      <Text
+        style={{
+          color: props.labelColor ? String(props.labelColor) : labelColor,
+          fontWeight: props.fontWeight ? String(props.fontWeight) as any : (isSecondary ? "600" : "700"),
+          fontSize: props.fontSize !== undefined ? Number(props.fontSize) : 16,
+          letterSpacing: props.tracking !== undefined ? Number(props.tracking) : 0.4,
+        }}
+      >
+        {props.label ?? ""}
+      </Text>
     </SpringPressable>
   );
 };
