@@ -223,16 +223,29 @@ export interface CompProps {
 
 const Screen = ({ children, style }: CompProps) => {
   const theme = useTheme();
+  // A SCREEN CAN BE TRANSPARENT.
+  //
+  // The background was pinned to the theme, and a ScrollView's own style is
+  // not the same object as its content container — so a screen laid over a
+  // full-window backdrop painted the theme's black straight over it. The art
+  // was loaded, positioned and completely invisible, which reads as "the
+  // upload failed" rather than "the layer order is wrong".
+  //
+  // backgroundColor is lifted out of the node's style and applied to the
+  // ScrollView; everything else still styles the content container, where
+  // padding belongs. Say nothing and it is the theme's background, as before.
+  const flat = (StyleSheet.flatten(style) ?? {}) as Record<string, any>;
+  const { backgroundColor, ...content } = flat;
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: theme.color.bg }}
+      style={{ flex: 1, backgroundColor: backgroundColor ?? theme.color.bg }}
       contentContainerStyle={[
         {
           paddingHorizontal: theme.space.content ?? theme.space.lg,
           paddingTop: theme.space.contentTop ?? theme.space.lg,
           paddingBottom: 120, // airy scroll buffer (clears the tab bar)
         },
-        style,
+        content,
       ]}
       keyboardShouldPersistTaps="handled"
     >
