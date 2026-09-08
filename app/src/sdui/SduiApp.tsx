@@ -1010,7 +1010,24 @@ export default function SduiApp() {
 
   const splashHidden = useRef(false);
   useEffect(() => {
-    if (splashHidden.current || !screen) return;
+    // THE SPLASH LIFTS WHEN THERE IS ANYTHING TO LOOK AT — not only when an
+    // SDUI screen arrives.
+    //
+    // This used to wait for `screen` alone, and three render paths never
+    // produce one: the auth gate, the language pick and the connection error.
+    // index.ts calls preventAutoHideAsync, so nothing else was ever going to
+    // lift it. A signed-out user therefore got a perfectly good sign-in screen
+    // drawn underneath a splash that never moved — and could not sign in,
+    // which meant no session, which meant the next launch did the same thing.
+    // The keyboard came down with it: the token it reads is refreshed by an
+    // app that gets past its own front door, so it fell back to its built-in
+    // layout and looked like a regression of its own.
+    //
+    // Every one of those symptoms was this one line.
+    const somethingToSee =
+      phase === "auth" || phase === "language" || phase === "connect" ||
+      !!screen || !!screenError;
+    if (splashHidden.current || !somethingToSee) return;
     splashHidden.current = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let done = false;
@@ -1023,7 +1040,10 @@ export default function SduiApp() {
         require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
       } catch { /* nothing was holding it */ }
     };
-    const url = firstRemoteImage((screen as ScreenResponse).root);
+    // The media wait belongs to the SCREEN path only. On every other path
+    // there is no opening picture to wait for, and waiting for one that will
+    // never come is how this broke in the first place.
+    const url = screen ? firstRemoteImage((screen as ScreenResponse).root) : null;
     if (!url) { drop(); return; }
     timer = setTimeout(drop, SPLASH_MEDIA_WAIT_MS);
     try {
@@ -1035,7 +1055,7 @@ export default function SduiApp() {
       if (p?.then) p.then(drop, drop); else drop();
     } catch { drop(); }
     return () => { if (timer) clearTimeout(timer); };
-  }, [screen]);
+  }, [screen, screenError, phase]);
   useEffect(() => {
     runLinkActionRef.current = (kind, params) => {
       // Only known, side-effect-safe kinds may be triggered from a URL; anything
