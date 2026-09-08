@@ -230,47 +230,39 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
   //
   // A KeyboardAvoidingView around the whole stack lifted everything — the
   // other method, the social row, the lot — so opening the keyboard rearranged
-  // a screen the user was not interacting with. Each pill now listens for
-  // itself and rises only while it holds the caret; anything else stays put
-  // and simply ends up behind the keyboard, which is where it belongs.
+  // a screen the user was not interacting with. Each pill lifts itself instead,
+  // and only while it holds the caret.
+  //
+  // Driven by BOTH focus and keyboard height, which is the part I got wrong
+  // first time. Listening to show/hide alone breaks the moment there are two
+  // fields: moving from one to the other while the keyboard is already up
+  // fires NEITHER event on iOS, so the pill being left stayed lifted and the
+  // pill being entered never rose — the written one ended up behind the
+  // keyboard and the empty one hovered above it. Height is remembered, focus
+  // is state, and the lift is recomputed whenever either changes.
   const lift = useRef(new Animated.Value(0)).current;
-  const focused = useRef(false);
+  const [focused, setFocused] = useState(false);
+  const [kbHeight, setKbHeight] = useState(0);
+
   useEffect(() => {
-    const rise = (h: number) => {
-      Animated.spring(lift, {
-        toValue: focused.current ? -h : 0,
-        damping: 20, stiffness: 180, mass: 0.7,
-        useNativeDriver: true,
-      }).start();
-    };
-    // Will-change on iOS so the pill travels WITH the keyboard rather than
-    // after it; Android only reports the did- events.
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const onShow = Keyboard.addListener(showEvt, (e: any) => {
-      // Clear the keyboard by a hair, no more. The screen's own bottom padding
-      // is already below the pill, so the full keyboard height would overshoot.
-      const h = Math.max(0, (e?.endCoordinates?.height ?? 0) - 30);
-      rise(h);
-    });
-    const onHide = Keyboard.addListener(hideEvt, () => rise(0));
+    const onShow = Keyboard.addListener(showEvt, (e: any) =>
+      setKbHeight(e?.endCoordinates?.height ?? 0));
+    const onHide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
     return () => { onShow.remove(); onHide.remove(); };
-  }, [lift]);
+  }, []);
 
   useEffect(() => {
-    Animated.timing(arrowAppear, { toValue: valid ? 1 : 0, duration: 240, useNativeDriver: false }).start();
-  }, [valid, arrowAppear]);
-
-  // gentle "swipe me" hint
-  useEffect(() => {
-    const t = setTimeout(() => {
-      Animated.sequence([
-        Animated.spring(envX, { toValue: 20, friction: 5, tension: 90, useNativeDriver: false }),
-        Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }),
-      ]).start();
-    }, hintDelay);
-    return () => clearTimeout(t);
-  }, [envX, hintDelay]);
+    // Clear the keyboard, plus a little air. The screen's own bottom padding
+    // already sits below the pill, so the full keyboard height overshoots.
+    const to = focused && kbHeight > 0 ? -(kbHeight - 34) : 0;
+    Animated.spring(lift, {
+      toValue: to,
+      damping: 20, stiffness: 190, mass: 0.7,
+      useNativeDriver: true,
+    }).start();
+  }, [focused, kbHeight, lift]);
 
   const commit = useCallback(() => {
     Animated.timing(envX, { toValue: MAX_DRAG, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: false })
@@ -333,8 +325,8 @@ export function MethodPill({ field, onSubmit, hintDelay }: { field: Field; onSub
           style={s.input}
           value={value}
           onChangeText={setValue}
-          onFocus={() => { focused.current = true; }}
-          onBlur={() => { focused.current = false; }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder={isPhone ? "Number" : "Email"}
           placeholderTextColor="rgba(255,255,255,0.32)"
           autoCapitalize="none"
