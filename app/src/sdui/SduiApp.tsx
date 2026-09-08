@@ -30,6 +30,7 @@ import type { Ctx, NavApi } from "./actions";
 import type { ActionSpec, BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
+import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
@@ -357,6 +358,14 @@ export default function SduiApp() {
 
   const loadBoot = useCallback(async () => {
     setPhase("loading");
+    // READ THE DEVICE BEFORE ASKING THE SERVER WHAT TO SHOW.
+    //
+    // The bootstrap carries mic + keyboard state, and the server picks the
+    // first screen from it — so a reading that lands after the request is a
+    // reading that arrives too late, and the setup steps flash past on a phone
+    // that never needed them. Bounded, because boot must not hang on a native
+    // call: the fallback is "nothing granted", which shows the steps.
+    await refreshDeviceSignalsBounded();
     // Everything below `commitBoot` is what a bootstrap turns into on screen.
     // It runs twice on a cold start: once at once from the last bootstrap on
     // disk, so the app paints before the network answers, and again when the
@@ -1554,7 +1563,6 @@ function ScreenHost({
   useEffect(() => {
     let stop = false;
     let disposed = false;
-    let micGranted = false;
     // `iv` MUST be declared before sync() runs: the first synchronous sync()
     // call below can hit `clearInterval(iv)` (when the keyboard already has
     // Full Access), and a `const iv` declared afterward would be in its
@@ -1562,30 +1570,20 @@ function ScreenHost({
     // mount for exactly the users who completed keyboard setup.
     let iv: ReturnType<typeof setInterval> | undefined;
     const sync = () => {
-      const s = getKeyboardStatus();
-      store.set("keyboardEnabled", s ? s.enabled : true);
-      store.set("keyboardReady", s ? s.fullAccess : true);
-      if (s && s.fullAccess) { stop = true; if (iv) clearInterval(iv); }
-      // getRecordingPermissions, never request: this runs on a timer and on
-      // every foreground, and a request here would fire the system dialog at
-      // the app unprompted. Undetermined reads as not granted.
-      //
-      // Skipped once granted — a permission cannot be revoked without leaving
-      // for Settings, and coming back from Settings is a foreground, which
-      // calls this again anyway.
-      if (!micGranted) {
-        void (async () => {
-          try {
-            const AudioMod = await import("expo-audio");
-            const p = await (AudioMod as any).AudioModule?.getRecordingPermissionsAsync?.();
-            if (disposed) return;
-            micGranted = !!p?.granted;
-            store.set("micGranted", micGranted);
-          } catch {
-            /* no expo-audio in this bundle — leave the signal alone */
-          }
-        })();
-      }
+      void (async () => {
+        const d = await refreshDeviceSignals();
+        if (disposed) return;
+        // PERMISSIVE HERE, on purpose. These gate BUTTONS, so a missing native
+        // bridge has to read as ready or development blocks on a module that
+        // is not there. The bootstrap capabilities read the same facts the
+        // other way — see device/signals — because there they decide whether a
+        // setup step is shown at all, and skipping a needed one is the costly
+        // mistake. Same readings, opposite safe defaults, deliberately.
+        store.set("keyboardEnabled", d.keyboard ? d.keyboard.enabled : true);
+        store.set("keyboardReady", d.keyboard ? d.keyboard.fullAccess : true);
+        store.set("micGranted", d.micGranted);
+        if (d.keyboard?.fullAccess) { stop = true; if (iv) clearInterval(iv); }
+      })();
     };
     sync();
     iv = setInterval(() => { if (!stop) sync(); }, 1500);

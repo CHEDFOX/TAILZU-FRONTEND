@@ -13,6 +13,7 @@ import type {
   BootstrapRequest,
   ScreenRequest,
 } from "./types";
+import { getDeviceSignals } from "../device/signals";
 import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
@@ -148,6 +149,17 @@ export function buildCapabilities() {
       // capability builder; the server-side default is "assume off".
       reduceMotion: false,
       rtl: I18nManager.isRTL,
+      // WHAT THIS PHONE ALREADY HAS. The server routes on these: a permission
+      // belongs to the device, not the account, so someone signing in on a
+      // phone that already granted both has no use for the steps that ask.
+      //
+      // A bridge that did not answer reads as NOT ready — the conservative
+      // direction. Showing a setup step that turns out to be unnecessary
+      // costs a tap; skipping one that was necessary leaves the keyboard
+      // never enabled, which is the whole product.
+      micGranted: getDeviceSignals().micGranted,
+      keyboardReady: getDeviceSignals().keyboard?.fullAccess ?? false,
+      keyboardEnabled: getDeviceSignals().keyboard?.enabled ?? false,
     },
   };
 }
