@@ -15,6 +15,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   Alert,
   Animated,
   Dimensions,
@@ -30,6 +31,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -148,6 +150,67 @@ function AuthBackdrop({ background }: { background: AuthBackground }) {
       muted
       style={FILL}
     />
+  );
+}
+
+/**
+ * Rise — one element sucked up from below the screen and settling.
+ *
+ * The whole entry arrives this way: each row starts below the bottom edge and
+ * springs up, LAST ONE FIRST, so the eye is led from the buttons a thumb is
+ * already near up to the thing being asked. A spring rather than a timing curve
+ * because a spring overshoots and settles, which is what makes it read as
+ * something arriving rather than something fading in.
+ *
+ * The numbers are the server's — AUTH_UI.entry.suction, delivered in the boot
+ * flags — so the whole feel of the entrance is tunable from a deploy. They
+ * arrive after the first render, so the defaults here are what a cold start
+ * with no network uses, and they are the same values the backend ships.
+ *
+ * Reduced motion is honoured: it lands in place with no travel.
+ */
+function Rise({
+  index, total, cfg, reduce, children,
+}: {
+  index: number;
+  total: number;
+  cfg: { staggerMs: number; durationMs: number; fromY: number };
+  reduce: boolean;
+  children: React.ReactNode;
+}) {
+  const t = useRef(new Animated.Value(reduce ? 1 : 0)).current;
+  useEffect(() => {
+    if (reduce) { t.setValue(1); return; }
+    // Last child first: the delay counts DOWN the list, so the bottom row
+    // leaves the floor first and the heading is last to settle.
+    const delay = (total - 1 - index) * cfg.staggerMs;
+    const anim = Animated.spring(t, {
+      toValue: 1,
+      delay,
+      // Tuned to land near cfg.durationMs with a small overshoot. A spring is
+      // specified by its shape, not its length, so the duration is a target
+      // rather than a guarantee.
+      damping: 14,
+      stiffness: 110,
+      mass: 0.9,
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [t, index, total, cfg.staggerMs, cfg.durationMs, reduce]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: t.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 1] }),
+        transform: [
+          { translateY: t.interpolate({ inputRange: [0, 1], outputRange: [cfg.fromY, 0] }) },
+          { scale: t.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] }) },
+        ],
+      }}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
@@ -383,6 +446,10 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // start and on any backend that cannot be reached.
   const [sduiTree, setSduiTree] = useState<Node | null>(null);
   const [scrim, setScrim] = useState(0.42);
+  // The entrance, from the server. Defaults match what the backend ships, so a
+  // cold start with no network looks the same as a warm one.
+  const [suction, setSuction] = useState({ staggerMs: 95, durationMs: 780, fromY: 120 });
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   // Google sign-in. Stays fully hidden until the three client IDs are filled in
   // authConfig (isGoogleConfigured) AND the request object is ready. The hook is
@@ -426,6 +493,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   useEffect(() => {
     Animated.timing(arrival, { toValue: 1, duration: 900, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    // Someone who has asked the system for less motion gets the layout with no
+    // travel, not a slower version of the same flight.
+    AccessibilityInfo.isReduceMotionEnabled?.().then(setReduceMotion).catch(() => {});
     // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
     let alive = true;
     fetchAuthConfig().then((cfg) => {
@@ -444,6 +514,14 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         console.warn("[Tailzu][auth] server screen needs components this build lacks:", missing.join(", "));
       }
       setSduiTree(missing.length ? null : tree);
+      const su = cfg.suction;
+      if (su && typeof su === "object") {
+        setSuction({
+          staggerMs: Number((su as any).staggerMs) || 95,
+          durationMs: Number((su as any).durationMs) || 780,
+          fromY: Number((su as any).fromY) || 120,
+        });
+      }
     }).catch(() => {});
     return () => { alive = false; };
   }, [arrival]);
@@ -726,6 +804,18 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           site key exists — see ./captcha.tsx for why it lives here and not
           behind the send button. */}
       <CaptchaHost />
+      {/* TAP ANYWHERE THAT IS NOT A CONTROL, AND THE KEYBOARD GOES.
+          Behind everything and covering the window, so it catches the gaps —
+          the space beside a pill, the area under the socials, the backdrop.
+          It is a sibling rather than a wrapper on purpose: wrapping the content
+          would put a touch responder above the pills and swallow the first tap
+          on a field, which is a far worse bug than the one this fixes.
+          accessible={false} keeps it out of the screen reader's order; it is a
+          gesture, not a control. */}
+      <TouchableWithoutFeedback accessible={false} onPress={() => Keyboard.dismiss()}>
+        <View style={FILL} />
+      </TouchableWithoutFeedback>
+
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.kav}>
         {/* THE SERVER'S SCREEN, when there is one and the switch is on.
             Everything outside this block still belongs to the app: the
@@ -741,16 +831,21 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         ) : (
         <Animated.View style={[s.stack, { opacity: arrival, transform: [{ translateY }] }]}>
           {phase === "entry" && (<>
-            <View style={s.brandWrap} accessibilityRole="header">
-              <Text style={s.brand}>Tailzu</Text>
-              <Text style={s.tag}>You talk. It writes.</Text>
-            </View>
+            <Rise index={-1} total={fields.length + 1} cfg={suction} reduce={reduceMotion}>
+              <View style={s.brandWrap} accessibilityRole="header">
+                <Text style={s.brand}>Tailzu</Text>
+                <Text style={s.tag}>You talk. It writes.</Text>
+              </View>
+            </Rise>
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
-                <View key={f.id} style={{ marginTop: i === 0 ? 0 : 18 }}>
-                  <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} />
-                </View>
+                <Rise key={f.id} index={i} total={fields.length + 1} cfg={suction} reduce={reduceMotion}>
+                  <View style={{ marginTop: i === 0 ? 0 : 18 }}>
+                    <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} />
+                  </View>
+                </Rise>
               ))}
+              <Rise index={fields.length} total={fields.length + 1} cfg={suction} reduce={reduceMotion}>
               <View style={s.divider} />
               <View style={s.socialRow}>
                 {appleAvailable && (
@@ -764,6 +859,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   </TouchableOpacity>
                 )}
               </View>
+              </Rise>
             </Animated.View>
           </>)}
 
