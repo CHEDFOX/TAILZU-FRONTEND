@@ -131,6 +131,17 @@ export const supabaseAuth = {
   getSession: () => supabase.auth.getSession(),
   getUser: () => supabase.auth.getUser(),
   signOut: () => supabase.auth.signOut(),
+  /**
+   * Forget the session on THIS DEVICE only, without calling the server.
+   *
+   * For the fresh-install case: the Keychain outlives the app, so a reinstall
+   * finds a session the new install has no business holding. scope "local"
+   * clears the stored copy and leaves the account alone — the tokens on the
+   * server stay valid, which matters because the same account may well be
+   * signed in on another device that has nothing to do with this reinstall.
+   * A plain signOut() would revoke those too.
+   */
+  clearLocalSession: () => supabase.auth.signOut({ scope: "local" }),
   onAuthStateChange: (cb: (event: string, session: Session | null) => void) =>
     supabase.auth.onAuthStateChange(cb),
 };
