@@ -506,6 +506,7 @@ export async function fetchAuthConfig(): Promise<
     sdui: boolean;
     screen: unknown | null;
     scrim: number;
+    suction: unknown | null;
   } | null
 > {
   try {
@@ -531,6 +532,7 @@ export async function fetchAuthConfig(): Promise<
       scrim: typeof f["auth.scrim"] === "number"
         ? Math.max(0, Math.min(1, f["auth.scrim"] as number))
         : 0.42,
+      suction: f["auth.suction"] ?? null,
     };
   } catch {
     return null;
