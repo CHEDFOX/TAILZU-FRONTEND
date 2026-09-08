@@ -182,6 +182,20 @@ export interface ScreenResponse {
    * paywalls, onboarding videos).
    */
   hideChrome?: boolean;
+  /**
+   * Hide the top bar but KEEP the tab bar.
+   *
+   * hideChrome is all or nothing, and a tab root cannot use it: losing the
+   * tabs on the tab you are standing on leaves no way off it. But a screen
+   * whose art is meant to run to the top of the window cannot have a title bar
+   * sitting in front of it either — the header is in flow, so its 56pt of
+   * status-bar padding is 56pt the art never reaches.
+   *
+   * This is the middle: the screen starts at the top of the window, the tabs
+   * stay. The settings gear goes with the header, so a screen that sets this
+   * should not be the only way to reach Settings.
+   */
+  hideHeader?: boolean;
 }
 
 export type ActionRef = string | ActionSpec;
