@@ -382,6 +382,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // until it arrives and null forever if nothing was uploaded — the screen is
   // laid out to read on plain black either way.
   const [background, setBackground] = useState<AuthBackground | null>(null);
+  const [backgroundCode, setBackgroundCode] = useState<AuthBackground | null>(null);
   // The server-composed screen, and the switch that draws it. Both null/false
   // until bootstrap answers, so the native tree is what renders on a cold
   // start and on any backend that cannot be reached.
@@ -449,6 +450,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhoneEnabled(cfg.enablePhone);
       setReviewEmail(cfg.reviewEmail);
       setBackground(cfg.background);
+      setBackgroundCode(cfg.backgroundCode);
       setAuthTheme((cfg.theme as ThemeTokens | null) ?? null);
       setScrim(cfg.scrim);
       // The app has the final say, not the flag. A tree naming a component
@@ -707,6 +709,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const sduiCtx = useAuthSduiCtx();
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
   const onCode = phase === "verify" || phase === "verifying";
+  // The code step's own art when there is some, the entry's otherwise — so one
+  // upload still dresses the whole flow and a second is an option, not a duty.
+  const shownBackground = onCode ? (backgroundCode ?? background) : background;
 
   // The flow, published for an SDUI tree to draw. Every field below is the
   // handler or the state this screen already had — this object creates no
@@ -740,9 +745,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
           someone uploads, and without a floor under the contrast a bright clip
           makes the labels unreadable. It is painted from the art's own ground
           colour so there is no visible seam at the edges. */}
-      {background ? (
-        <View style={[FILL, { backgroundColor: background.background }]} pointerEvents="none">
-          <AuthBackdrop background={background} />
+      {shownBackground ? (
+        <View style={[FILL, { backgroundColor: shownBackground.background }]} pointerEvents="none">
+          <AuthBackdrop background={shownBackground} key={shownBackground.url} />
           <View style={[FILL, { backgroundColor: `rgba(0,0,0,${scrim})` }]} />
         </View>
       ) : null}
