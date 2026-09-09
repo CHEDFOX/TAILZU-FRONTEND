@@ -299,12 +299,33 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
   // so the one number that says "this was pressed" cannot be fixed in the
   // binary. 1 disables the dim for anything that shows its press another way.
   const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : 0.6;
+  /**
+   * AN EDGE THAT ONLY EXISTS WHILE A FINGER IS ON IT.
+   *
+   * A border is the loudest thing a row can wear, and on a list where every
+   * row is selectable it is loud on all of them at once — which says nothing
+   * about which one you are choosing. Drawn on press instead, it says exactly
+   * that and nothing the rest of the time.
+   *
+   * Only while pressed, not for a moment afterwards: a timed flash is a
+   * decision about how long, made in the binary, and the press already lasts
+   * precisely as long as the user holds it.
+   */
+  const pressBorderColor = props?.pressBorderColor ? String(props.pressBorderColor) : "";
+  const pressBorderWidth = props?.pressBorderWidth !== undefined
+    ? Number(props.pressBorderWidth) : 1;
   return (
     <Pressable
       onPress={node.on?.onPress ? () => fire("onPress") : undefined}
       onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
       // A row of text is not obviously a button, so the press has to say so.
-      style={({ pressed }) => [style, pressed && { opacity: pressOpacity }]}
+      style={({ pressed }) => [
+        style,
+        pressed && { opacity: pressOpacity },
+        pressed && pressBorderColor
+          ? { borderWidth: pressBorderWidth, borderColor: pressBorderColor }
+          : null,
+      ]}
       accessibilityRole="button"
     >
       {children}
