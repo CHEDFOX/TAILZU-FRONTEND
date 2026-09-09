@@ -4,18 +4,19 @@
  * `children`, `fire` from the standard CompProps interface (see components.tsx).
  * Kept in its own file so the v1/v2 primitives stay easy to audit.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator, Animated, Easing, FlatList, Modal as RNModal, Platform,
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import type { GestureResponderEvent } from "react-native";
+import type { GestureResponderEvent, LayoutChangeEvent } from "react-native";
 import Slider from "@react-native-community/slider";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image as ExpoImage } from "expo-image";
 import Svg, { Circle, G, Path, Polyline, Rect } from "react-native-svg";
 import QRCode from "react-native-qrcode-svg";
+import { focusFill } from "../media/focusFill";
 import { WebView } from "react-native-webview";
 
 import type { CompProps } from "./components";
@@ -704,6 +705,28 @@ const Video = ({ props, style }: CompProps) => {
   // fields were only ever read as separate props, so taking .source loses
   // nothing.
   const spec = raw && typeof raw === "object" && "source" in raw ? raw.source : raw;
+  // FOCUS PLACEMENT. When the backend says where the subject is in the art and
+  // where it should land on screen, the clip is sized and slid here instead of
+  // being handed to `cover` and centred — see media/focusFill.
+  const placed = useFocusFill(props);
+  if (placed.on) {
+    return (
+      <View style={[style, { overflow: "hidden" }]} onLayout={placed.onLayout}>
+        {placed.fit ? (
+          <MediaPlayer
+            spec={spec}
+            style={{ position: "absolute", ...placed.fit }}
+            contentFit="cover"
+            autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
+            loop={(props.loop as boolean | undefined) ?? true}
+            muted={props.muted !== false}
+            playing={typeof props.playing === "boolean" ? props.playing : undefined}
+            speed={typeof props.speed === "number" ? props.speed : undefined}
+          />
+        ) : null}
+      </View>
+    );
+  }
   return (
     <MediaPlayer
       spec={spec}
@@ -720,6 +743,30 @@ const Video = ({ props, style }: CompProps) => {
     />
   );
 };
+/**
+ * Shared by Video and Image: measure the box, and place the art in it so its
+ * focal point lands on the anchor. Off unless the backend supplies an aspect —
+ * without the art's shape there is nothing to compute, and guessing it would
+ * move media that is currently correct.
+ */
+function useFocusFill(props: Record<string, any>) {
+  const aspect = Number(props?.aspect);
+  const on = Number.isFinite(aspect) && aspect > 0;
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setBox((b) => (b && b.w === width && b.h === height ? b : { w: width, h: height }));
+  }, []);
+  const fit = on && box
+    ? focusFill(
+        box.w, box.h, aspect,
+        { x: Number(props?.focusX ?? 0.5), y: Number(props?.focusY ?? 0.5) },
+        { x: Number(props?.anchorX ?? 0.5), y: Number(props?.anchorY ?? 0.5) },
+      )
+    : null;
+  return { on, onLayout, fit };
+}
+
 const Audio = ({ props, style }: CompProps) => (
   <View style={[styles.mediaPlaceholder, style]}>
     <Text style={styles.mediaText}>♫ Audio: {String(props.source ?? "")}</Text>
