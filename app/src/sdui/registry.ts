@@ -64,6 +64,9 @@ export const CORE_COMPONENTS = [
   // SwipeAction — a pill whose disc is dragged to the far end to commit. The
   // sign-in pills' gesture, made general.
   "SwipeAction",
+  // Coverflow — a deck of cards turned in depth, dragged and thrown.
+  // Reels — one child per screenful, snapped vertically.
+  "Coverflow", "Reels",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",

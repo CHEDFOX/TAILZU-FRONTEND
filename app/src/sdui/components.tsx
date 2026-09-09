@@ -988,6 +988,8 @@ import { Rise } from "./Rise";
 import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "./authComponents";
 import { VoiceBubble } from "./VoiceBubble";
 import { SwipeAction } from "./SwipeAction";
+import { Coverflow } from "./Coverflow";
+import { Reels } from "./Reels";
 import { VoiceSession } from "./VoiceSession";
 import { BinaryReveal } from "./BinaryReveal";
 import KeyboardPreview from "./KeyboardPreview";
@@ -1000,7 +1002,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
-  ChatThread, VoiceBubble, VoiceSession, SwipeAction,
+  ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter,
   ...REGISTRY_V3,
