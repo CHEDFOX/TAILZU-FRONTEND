@@ -359,6 +359,27 @@ export default function SduiApp() {
       } else if (target.kind === "action") {
         // `tulmi://action?kind=…` — run a bare action (guarded whitelist).
         runLinkActionRef.current(target.actionKind, target.params);
+      } else if (target.kind === "auth" || target.kind === "session") {
+        // A SIGN-IN LINK THAT WAS MAILED INSTEAD OF A CODE.
+        //
+        // The app asks for a code; whether one is sent is decided by a Supabase
+        // email template. This is the safety net for the template being wrong —
+        // before it, a tapped link parsed as `unknown` and did nothing at all.
+        //
+        // Redeeming it lands a session exactly as typing the code would, and
+        // the auth gate is watching for one, so the app simply proceeds.
+        void (async () => {
+          try {
+            const { error } = target.kind === "auth"
+              ? await supabaseAuth.verifyLinkToken(target.tokenHash, target.type)
+              : await supabaseAuth.setSession(target.accessToken, target.refreshToken);
+            // A used or expired link is not worth a dialog: the user is looking
+            // at the code screen, which still works and still has Resend.
+            if (error) console.warn("[auth] mailed link could not be redeemed:", error.message);
+          } catch (e) {
+            console.warn("[auth] mailed link could not be redeemed:", e);
+          }
+        })();
       }
     });
     const notifSub = addNotificationResponseListener((data) => {

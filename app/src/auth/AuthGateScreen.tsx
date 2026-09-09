@@ -49,7 +49,6 @@ import { RenderNode } from "../sdui/Renderer";
 import { ThemeContext } from "../sdui/components";
 import { useAuthSduiCtx, missingComponents } from "../sdui/authRender";
 import type { Node, ThemeTokens } from "../sdui/types";
-import EmailSendAnimation from "./EmailSendAnimation";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
@@ -72,6 +71,26 @@ const MAX_DRAG = PILL_W - PILL_PAD * 2 - BADGE;
 const DRAG_THRESHOLD = MAX_DRAG * 0.6;
 const EMAIL_RX = /^\S+@\S+\.\S+$/;
 const CODE_LEN = 6;
+/**
+ * How hard the app tries to get a code out before it admits it could not.
+ *
+ * FOUR, and the first retry is IMMEDIATE. A send fails for two kinds of
+ * reason: the connection blinked, or the server refused. The first is over by
+ * the time the failure is reported, so waiting before trying again spends the
+ * user's time on nothing; the second will not be fixed by any amount of
+ * waiting, and four attempts is enough to establish that.
+ */
+const SEND_ATTEMPTS = 4;
+/** Waits before attempts 2, 3 and 4, in ms. Zero first: the retry is instant. */
+const SEND_BACKOFF_MS = [0, 900, 2600];
+/**
+ * The same, when the server said RATE LIMIT.
+ *
+ * Retrying instantly against a rate limit is how a slow send becomes a blocked
+ * address — the limiter counts the attempts, so hammering it makes the thing
+ * it is measuring worse. This is the one failure that has to be waited out.
+ */
+const RATE_LIMIT_BACKOFF_MS = [6_000, 15_000, 30_000];
 const WHITE = "#FFFFFF";
 /** The brand amber. The one colour on this screen that means "go". */
 const ACCENT = "#E8A23C";
@@ -481,7 +500,23 @@ function MicroLoader() {
 }
 
 export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
-  const [phase, setPhase] = useState<"entry" | "sending" | "verify" | "verifying">("entry");
+  // No "sending" any more. It was a phase the USER was put into while a
+  // network call ran, and a screen that exists only because something is slow
+  // is the definition of a wait. The send now happens behind the code screen,
+  // so there is no third place to be. (EmailSendAnimation is kept — it is a
+  // drawn asset, not dead weight, and nothing else about it was wrong.)
+  const [phase, setPhase] = useState<"entry" | "verify" | "verifying">("entry");
+  /**
+   * Whether a code is on its way, and whether it gave up.
+   *
+   * Separate from `phase` on purpose. Phase is where the USER is; these are
+   * what the network is doing behind them. Folding the two together is what
+   * produced the old behaviour, where a send that was merely slow moved the
+   * user, and a send that failed moved them back.
+   */
+  const [sending, setSending] = useState(false);
+  const [sendFailed, setSendFailed] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveMethod | null>(null);
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState(false);
@@ -632,7 +667,64 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     ]).start(() => setTimeout(() => setCodeError(false), 400));
   }, [shake]);
 
-  const send = useCallback(async (type: "email" | "phone", value: string) => {
+  /**
+   * DELIVER THE CODE, BEHIND THE SCREEN THE USER IS ALREADY ON.
+   *
+   * Separated from send() because the two answer different questions. send()
+   * decides where the user goes, and the answer is always "the code screen,
+   * now". This decides whether a code actually got sent, which is a thing that
+   * can fail, take a while, and be worth another go — none of which the user
+   * should have to watch.
+   *
+   * It retries ITSELF. A failed send used to throw the user back to the entry
+   * screen behind an alert, so the recovery from a dropped packet was: read a
+   * dialog, dismiss it, retype the address. Now the first retry goes out the
+   * moment the failure lands, and the user, who is already looking at the code
+   * boxes, sees nothing at all unless every attempt fails.
+   *
+   * RATE LIMITS ARE THE ONE THING IT WILL NOT HAMMER. "over_email_send_rate_limit"
+   * is the server saying "too many, too fast", and answering that instantly is
+   * how a slow send becomes a blocked address. Those wait; everything else —
+   * dropped connection, timeout, a 5xx — goes again straight away.
+   */
+  const deliver = useCallback(async (
+    type: "email" | "phone", value: string, my: number, attempt: number,
+  ) => {
+    setSending(true);
+    setSendFailed(false);
+    let msg = "";
+    try {
+      // Turnstile tokens are single use, so every attempt solves its own.
+      const captcha = await solveCaptcha();
+      const res: any = type === "phone"
+        ? await supabaseAuth.sendPhoneCode(value, captcha)
+        : await supabaseAuth.sendEmailCode(value, captcha);
+      if (my !== seq.current) return;
+      if (res?.error) throw new Error(String(res.error?.message ?? res.error));
+      setSending(false);
+      setSendError(null);
+      return;
+    } catch (e: any) {
+      if (my !== seq.current) return;
+      msg = String(e?.message ?? e ?? "Network error");
+    }
+    const next = attempt + 1;
+    if (next < SEND_ATTEMPTS) {
+      const limited = /rate limit|too many|429/i.test(msg);
+      const wait = limited ? RATE_LIMIT_BACKOFF_MS[attempt] ?? 30_000 : SEND_BACKOFF_MS[attempt] ?? 4_000;
+      setTimeout(() => {
+        if (my === seq.current) void deliver(type, value, my, next);
+      }, wait);
+      return;
+    }
+    // Out of attempts. Say so ON THE CODE SCREEN — the user may still have an
+    // older code that works, and the way back is the arrow they can already see.
+    setSending(false);
+    setSendFailed(true);
+    setSendError(msg);
+  }, []);
+
+  const send = useCallback((type: "email" | "phone", value: string) => {
     Keyboard.dismiss();
     // THE REVIEW ADDRESS SKIPS THE SEND, NOT THE SCREEN.
     //
@@ -643,42 +735,27 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     if (type === "email" && reviewEmail && value.trim().toLowerCase() === reviewEmail) {
       setActive({ type, value });
       setCode("");
+      setSending(false); setSendFailed(false); setSendError(null);
       setPhase("verify");
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setActive({ type, value });
+    setCode("");
+    // THE CODE SCREEN OPENS IN THIS FRAME. Nothing is awaited first.
+    //
+    // It used to wait on Promise.all([a 1.6s animation, the send]) before
+    // moving, so tapping continue bought a second and a half of nothing on a
+    // good connection and longer on a bad one. That is the whole of what read
+    // as a dead tap — and it made Resend, which goes through here too, flip to
+    // the sending animation and back for no reason a user could see.
+    //
+    // The code cannot arrive before the screen does, so there is nothing the
+    // waiting protected.
+    setPhase("verify");
     const my = ++seq.current;
-    setPhase("sending");
-    const animMin = new Promise((r) => setTimeout(r, 1600));
-    // Solve the bot challenge inside the 1.6s the send animation runs anyway,
-    // so the protection costs the user no time at all. A resend gets its own:
-    // Turnstile tokens are single use.
-    const captcha = await solveCaptcha();
-    const apiCall = type === "phone"
-      ? supabaseAuth.sendPhoneCode(value, captcha)
-      : supabaseAuth.sendEmailCode(value, captcha);
-    try {
-      const [, res]: any = await Promise.all([animMin, apiCall]);
-      if (my !== seq.current) return;
-      if (res?.error) {
-        setPhase("entry"); flashError();
-        // SHOW the reason — a silent shake made "email rate limit exceeded" /
-        // "project paused" / network failures all look identical and
-        // undiagnosable in the field.
-        Alert.alert("Couldn't send the code", String(res.error?.message ?? res.error));
-        return;
-      }
-      setCode(""); setPhase("verify");
-    } catch (e: any) {
-      // A thrown error (offline / unexpected) would otherwise reject this
-      // fire-and-forget callback and strand the user on the "sending" spinner
-      // forever. Recover to the entry screen with the error shake.
-      if (my !== seq.current) return;
-      setPhase("entry"); flashError();
-      Alert.alert("Couldn't send the code", String(e?.message ?? e ?? "Network error"));
-    }
-  }, [flashError, reviewEmail]);
+    void deliver(type, value, my, 0);
+  }, [deliver, reviewEmail]);
 
 
   const handleMethodSubmit = useCallback((field: Field, value: string) => send(field.type, value), [send]);
@@ -743,8 +820,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     seq.current++;
     verifyFade.setValue(0); entryFade.setValue(1);
     setCode(""); setCodeError(false); setActive(null); setPhase("entry");
+    // Bumping seq above already orphans any retry still in flight — this is
+    // only so the entry screen is not wearing the last attempt's error.
+    setSending(false); setSendFailed(false); setSendError(null);
   }, [entryFade, verifyFade]);
 
+  // Goes straight back through send(), which no longer moves the user — so a
+  // resend is a new delivery under a screen that does not flinch.
   const resend = useCallback(() => { if (active) send(active.type, active.value); }, [active, send]);
 
   // App-wide edge-swipe-back (swipe → haptic → back). No on-screen hint.
@@ -964,7 +1046,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             </Animated.View>
           </>)}
 
-          {phase === "sending" && <EmailSendAnimation />}
 
           {onCode && (
             <Animated.View style={[s.block, { opacity: verifyFade }]}>
@@ -990,11 +1071,32 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 textContentType="oneTimeCode"
                 editable={phase === "verify"}
               />
-              <View style={s.verifyStatus}>{phase === "verifying" ? <MicroLoader /> : null}</View>
+              {/* One slot, three states, so nothing below it ever moves:
+                  checking the code the user typed, still delivering one, or
+                  out of attempts. Delivery only speaks up once it has failed
+                  for the last time — the retries are not the user's problem. */}
+              <View style={s.verifyStatus}>
+                {phase === "verifying"
+                  ? <MicroLoader />
+                  : sendFailed
+                    ? <Text style={s.sendFailed} numberOfLines={1}>
+                        {sendError && /rate limit|too many/i.test(sendError)
+                          ? "Too many requests. Wait a moment, then resend."
+                          : "Couldn't send a code. Tap resend."}
+                      </Text>
+                    : null}
+              </View>
               <View style={s.divider} />
               {/* code step: resend only — back is the top-left arrow / edge-swipe */}
               <View style={s.verifyActions}>
-                <TouchableOpacity onPress={resend} style={s.social} activeOpacity={0.6}><Resend /></TouchableOpacity>
+                <TouchableOpacity
+                  onPress={resend}
+                  // Not while one is already on its way: a second tap would
+                  // orphan the first attempt and start the backoff over.
+                  disabled={sending}
+                  style={[s.social, sending ? s.socialBusy : null]}
+                  activeOpacity={0.6}
+                ><Resend /></TouchableOpacity>
               </View>
             </Animated.View>
           )}
@@ -1070,7 +1172,10 @@ const s = StyleSheet.create({
   codeBoxError: { borderColor: "rgba(255,90,60,0.85)" },
   codeDigit: { fontSize: 17, fontWeight: "300", color: WHITE },
   hiddenInput: { position: "absolute", opacity: 0, width: 1, height: 1 },
-  verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center" },
+  verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
+  /** Quiet, not alarming: the user may still have a working code in hand. */
+  sendFailed: { fontSize: 12, color: "rgba(255,255,255,0.5)", textAlign: "center" },
+  socialBusy: { opacity: 0.4 },
 
   modalRoot: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...FILL, backgroundColor: "rgba(0,0,0,0.55)" },

@@ -80,7 +80,19 @@ export const supabaseAuth = {
   signInWithPassword: (email: string, password: string, captchaToken?: string) =>
     supabase.auth.signInWithPassword({ email, password, options: { captchaToken } }),
 
-  /** Email OTP — sends a 6-digit code (template must use {{ .Token }}). */
+  /**
+   * Email OTP — sends a 6-digit code.
+   *
+   * WHICH OF TWO TEMPLATES SENDS IT DEPENDS ON WHETHER THE ADDRESS IS NEW.
+   * GoTrue routes this call by account state: an address it has never seen gets
+   * "Confirm signup", one it already knows gets "Magic Link". Both default to
+   * {{ .ConfirmationURL }}, and both have to be changed to {{ .Token }} — fix
+   * one and the project mails codes to new users and links to returning ones,
+   * which reads as random. See docs/SUPABASE.md in the backend repo.
+   *
+   * If a link goes out anyway, deeplinks/router.ts redeems it rather than
+   * letting it dead-end.
+   */
   sendEmailCode: (email: string, captchaToken?: string) =>
     supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, captchaToken } }),
   verifyEmailCode: (email: string, token: string) =>
@@ -117,6 +129,21 @@ export const supabaseAuth = {
    */
   verifyTokenHash: (tokenHash: string) =>
     supabase.auth.verifyOtp({ token_hash: tokenHash, type: "magiclink" }),
+
+  /**
+   * Redeem a token hash whose TYPE came off the link, not from us.
+   *
+   * verifyTokenHash above is for the review account, where we mint the link and
+   * therefore know it is a magiclink. A link that arrived by email could be a
+   * signup confirmation instead, and GoTrue rejects a hash presented under the
+   * wrong type — so the type travels with the link and is passed through.
+   */
+  verifyLinkToken: (tokenHash: string, type: string) =>
+    supabase.auth.verifyOtp({ token_hash: tokenHash, type: type as never }),
+
+  /** Adopt a session GoTrue already minted and handed back in a URL. */
+  setSession: (accessToken: string, refreshToken: string) =>
+    supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
 
   /** Native Sign in with Apple (identity token + nonce). */
   signInWithApple: (identityToken: string, nonce?: string) =>
