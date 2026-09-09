@@ -309,41 +309,48 @@ const config: ExpoConfig = {
     // composition arrives there as an unreadable crop of its own middle. iOS
     // alone could show the frame, and then the two platforms would not match.
     //
-    // So the splash is the MARK: splash-mark.png, on the same black, centred, at
-    // a fixed size both platforms honour. The ground is #000000 against the
-    // art's #080809 — three values out of 255, which no screen shows.
+    // So the splash is the MARK: splash-mark.png, on the film's own ground,
+    // centred, at a fixed size both platforms honour.
     //
-    // THE REVEAL MOVED TO MEET THIS. DO NOT MOVE THIS.
+    // THE MARK IS CUT FROM THE FILM'S FIRST FRAME, not drawn separately. It was
+    // drawn separately, and the two drifted apart: the launch screen showed a
+    // single rounded square while the film opened on three of them and a line,
+    // so the handoff was one picture replacing a different picture. Cutting it
+    // from frame 0 makes them the same picture by construction, and re-cutting
+    // it is the only correct way to change it.
     //
-    // Its mark is not centred in its own frame (0.4741, 0.4715), so `cover`
-    // lands it left of and above the middle by a fraction of the screen HEIGHT.
-    // The correction therefore cannot live here as a number of points, and does
-    // not: the media entry carries boxWidth/boxHeight in points and nudgeX/
-    // nudgeY in percent, and the server applies them. Backend-tunable, right on
-    // every device, no build.
+    //   mark in the film   338×250px at (477,1101) of 1290×2796
+    //   mark on this canvas 144×107 of 288 — half the width
     //
-    // imageWidth 184 IS THE CALIBRATION TARGET. Measured off a screen recording
-    // of the shipped build, 184 draws the mark at 16.67pt dead centre, and the
-    // reveal's box was then sized to land its own mark at 16.99pt dead centre —
-    // verified across six screen sizes, SE to Pro Max, within 0.01pt.
+    // HALF, because Android masks this into a circle and only the inner two
+    // thirds is guaranteed. What has to fit is the bounding DIAGONAL, not the
+    // width: 179px against a 192px circle. At 0.55 the corners fall outside it.
     //
-    // It was briefly 232, from the other direction: grow the splash to meet a
-    // reveal that was still full-bleed. That reveal no longer exists. Shipping
-    // 232 now would draw the mark at ~21pt against the reveal's 17 and put the
-    // jump back — a 24% pop, on the next native build, for no reason.
+    // #0B0A0D is the film's own ground, sampled from it. It used to be #000000
+    // against art graded to #080809 — near enough to hide, but this art is
+    // (11,10,13), and on an OLED eleven values is the pixel faintly on against
+    // the pixel off. That edge is visible where the film meets the screen.
     //
-    // Change this only alongside a matching retune of the entry's box, and
-    // measure both rather than reasoning about either.
+    // BOTH SIDES ARE MEASURED, NEVER REASONED ABOUT:
     //
-    // Both apps open on the same frame, then play the same reveal.
+    //   imageWidth 188 × 0.5000 mark fraction  = 94.00pt on the launch screen
+    //   boxWidth   359 × 0.2620 mark fraction  = 94.06pt when the film plays
+    //
+    // The film's box is a media-entry value (boxWidth/boxHeight, with the
+    // aspect and the focal point beside them), so the film side retunes over
+    // the air and only this side needs a build. Change one and you must
+    // re-measure the other — a mark that changes size across the handoff is
+    // the one thing this whole arrangement exists to prevent.
+    //
+    // Both platforms open on that frame, then play the film from it.
     [
       "expo-splash-screen",
       {
-        backgroundColor: "#000000",
+        backgroundColor: "#0B0A0D",
         image: "./assets/splash-mark.png",
-        imageWidth: 184,
+        imageWidth: 188,
         resizeMode: "contain",
-        dark: { backgroundColor: "#000000", image: "./assets/splash-mark.png" },
+        dark: { backgroundColor: "#0B0A0D", image: "./assets/splash-mark.png" },
       },
     ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
