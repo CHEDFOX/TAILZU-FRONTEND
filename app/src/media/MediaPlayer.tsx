@@ -187,7 +187,9 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
   return (
     <ExpoImage
       source={{ uri }}
-      style={style}
+      // View-or-image in, image-only out. The two types disagree on one value
+      // of `overflow`, which expo-image does not read.
+      style={style as StyleProp<ImageStyle>}
       contentFit={contentFit}
       tintColor={tintColor}
       testID={testID}

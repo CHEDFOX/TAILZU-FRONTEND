@@ -80,7 +80,11 @@ export function Media(props: Props): React.ReactElement | null {
   return (
     <ExpoImage
       source={{ uri: resolved.uri }}
-      style={style}
+      // The style reaching here is a view-or-image style, because a caller
+      // placing media in a box writes box properties. expo-image's own type is
+      // image-only and the two disagree on one value of `overflow`, which it
+      // does not read anyway.
+      style={style as StyleProp<ImageStyle>}
       contentFit={contentFit}
       tintColor={tintColor}
       onLoad={onLoad}
