@@ -25,12 +25,16 @@
  *
  *   { "type": "Coverflow",
  *     "props": { "cardWidth": 164, "cardHeight": 118 },
- *     "on": { "onSelect": "openCard" },
+ *     "on": { "onSelect": "openCard", "onChange": "noteCentred" },
  *     "children": [ …one node per card… ] }
  *
- * onSelect fires with the index as `$event`.
+ * onSelect fires with the index as `$event` when a card is CHOSEN — tapped, or
+ * tapped after being brought to the middle. onChange fires with the index
+ * whenever a different card ARRIVES in the middle, however it got there. They
+ * are separate because the deck's backdrop follows the middle card and must
+ * change while the finger is still moving, whereas opening a screen must not.
  */
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, PanResponder, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
@@ -69,11 +73,24 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
 
   // The one place `pos` is read back into JS: the deck has to know where it is
   // to decide what a tap meant, and to report the centred card.
-  useMemo(() => {
+  //
+  // An effect, not a memo. A memo's return value is a value, never a teardown —
+  // the listener it registered was never removed, and it registered during
+  // render, so a double-invoked render left two of them writing the same refs.
+  const fireRef = useRef(fire);
+  fireRef.current = fire;
+  useEffect(() => {
+    let last = Math.round(posNow.current);
     const id = pos.addListener(({ value }) => {
       posNow.current = value;
       const near = Math.max(0, Math.min(n - 1, Math.round(value)));
-      setIndex((cur) => (cur === near ? cur : near));
+      if (near === last) return;
+      last = near;
+      setIndex(near);
+      // Announced as it happens, not when the deck stops: whatever is drawn
+      // behind the middle card has to arrive with the card, and a backdrop
+      // that changes a beat after the deck settles reads as a glitch.
+      fireRef.current("onChange", near);
     });
     return () => pos.removeListener(id);
   }, [pos, n]);

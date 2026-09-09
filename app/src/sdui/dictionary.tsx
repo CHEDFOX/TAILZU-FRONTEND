@@ -74,11 +74,37 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
     }
   }, [rows, bindPath, store, fire, props.errorMessage]);
 
+  /**
+   * The look, as values. Every default below is what this component drew
+   * before they existed, so nothing changes until a screen asks it to.
+   *
+   * They exist because a dictionary row is two fields and a save, and the
+   * shape of those three is the whole of how the screen reads — pills on a
+   * black ground on one screen, boxed inputs on a card on another. That is not
+   * something a style on the node can reach: these are inputs INSIDE a
+   * component, and a node style lands on the box around them.
+   */
+  const num = (v: unknown, d: number) => (v === undefined ? d : Number(v));
+  const str = (v: unknown, d: string) => (v === undefined ? d : String(v));
+
   const cell = {
-    backgroundColor: theme.color.inputBg, color: theme.color.text, borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: theme.color.border,
-    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, flex: 1,
+    backgroundColor: str(props.cellBackground, theme.color.inputBg),
+    color: str(props.cellColor, theme.color.text),
+    borderRadius: num(props.cellRadius, 10),
+    borderWidth: num(props.cellBorderWidth, StyleSheet.hairlineWidth),
+    borderColor: str(props.cellBorderColor, theme.color.border),
+    paddingHorizontal: num(props.cellPaddingHorizontal, 12),
+    paddingVertical: num(props.cellPaddingVertical, 10),
+    fontSize: num(props.cellFontSize, 14),
+    flex: 1,
   } as const;
+  const placeholderColor = str(props.placeholderColor, theme.color.muted);
+  /** Between the two fields of one pair, and between one pair and the next. */
+  const cellGap = num(props.gap, 10);
+  const rowGap = num(props.rowGap, 10);
+  const removeColor = str(props.removeColor, theme.color.muted);
+  /** Column headings. Two words over two fields that already say what they are. */
+  const showLabels = props.showLabels !== false;
 
   const wordLabel = String(props.wordLabel ?? "Word");
   const replaceLabel = String(props.replaceLabel ?? "Replace With");
@@ -89,25 +115,27 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
 
   return (
     <View>
-      <View style={s.headerRow}>
-        <Text style={[s.col, { color: theme.color.label }]}>{wordLabel}</Text>
-        <Text style={[s.col, { color: theme.color.label }]}>{replaceLabel}</Text>
-      </View>
+      {showLabels ? (
+        <View style={s.headerRow}>
+          <Text style={[s.col, { color: theme.color.label }]}>{wordLabel}</Text>
+          <Text style={[s.col, { color: theme.color.label }]}>{replaceLabel}</Text>
+        </View>
+      ) : null}
       {rows.map((r, i) => (
-        <View key={i} style={s.row}>
+        <View key={i} style={[s.row, { marginBottom: rowGap }]}>
           <TextInput
             style={cell} value={r.word} onChangeText={(t) => setRow(i, "word", t)}
-            placeholder={wordPlaceholder} placeholderTextColor={theme.color.muted}
+            placeholder={wordPlaceholder} placeholderTextColor={placeholderColor}
             autoCapitalize="none" autoCorrect={false}
           />
-          <View style={{ width: 10 }} />
+          <View style={{ width: cellGap }} />
           <TextInput
             style={cell} value={r.replacement} onChangeText={(t) => setRow(i, "replacement", t)}
-            placeholder={replacePlaceholder} placeholderTextColor={theme.color.muted}
+            placeholder={replacePlaceholder} placeholderTextColor={placeholderColor}
           />
           {full ? (
             <Pressable onPress={() => removeRow(i)} hitSlop={8} style={s.remove}>
-              <Text style={{ color: theme.color.muted, fontSize: 20 }}>×</Text>
+              <Text style={{ color: removeColor, fontSize: 20 }}>×</Text>
             </Pressable>
           ) : null}
         </View>
@@ -119,12 +147,27 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
         style={[
           s.save,
           {
-            backgroundColor: theme.color.primary,
+            backgroundColor: str(props.saveBackground, theme.color.primary),
+            borderRadius: num(props.saveRadius, 23),
+            height: num(props.saveHeight, 46),
+            // A save that spans the column reads as the end of the form; one
+            // centred in it reads as a button that happens to be there. Which
+            // is right depends on the screen, so the screen says.
+            alignSelf: props.saveFullWidth ? "stretch" : "center",
             opacity: saving ? 0.5 : 1,
           },
         ]}
       >
-        <Text style={[s.saveText, { color: theme.color.primaryText ?? theme.color.bg }]}>
+        <Text
+          style={[
+            s.saveText,
+            {
+              color: str(props.saveColor, theme.color.primaryText ?? theme.color.bg),
+              fontSize: num(props.saveFontSize, 15),
+              letterSpacing: num(props.saveTracking, 0),
+            },
+          ]}
+        >
           {saving ? savingLabel : saveLabel}
         </Text>
       </Pressable>
@@ -158,7 +201,7 @@ export const WordChips = ({ node, props, store, fire }: CompProps) => {
 const s = StyleSheet.create({
   headerRow: { flexDirection: "row", marginBottom: 8 },
   col: { flex: 1, fontSize: 12, fontWeight: "600", letterSpacing: 0.4 },
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+  row: { flexDirection: "row", alignItems: "center" },
   remove: { width: 26, alignItems: "center", justifyContent: "center" },
   save: { alignSelf: "center", minWidth: 110, height: 46, borderRadius: 23, paddingHorizontal: 32, alignItems: "center", justifyContent: "center", marginTop: 8 },
   saveText: { fontSize: 15, fontWeight: "700" },
