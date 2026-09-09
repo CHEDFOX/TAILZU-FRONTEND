@@ -39,6 +39,9 @@ import { Animated, PanResponder, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
 
+/** Last centred card, per deck name. See `memory` below. */
+const DECK_MEMORY = new Map<string, number>();
+
 export const Coverflow = ({ props, style, children, fire }: CompProps): React.ReactElement => {
   const cards = React.Children.toArray(children);
   const n = cards.length;
@@ -65,9 +68,26 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
   /** How far a flick is projected when choosing where to land, in cards. */
   const throwFactor = props?.throwFactor !== undefined ? Number(props.throwFactor) : 0.9;
 
-  const pos = useRef(new Animated.Value(0)).current;
-  const posNow = useRef(0);
-  const [index, setIndex] = useState(0);
+  /**
+   * WHERE THE DECK WAS LEFT.
+   *
+   * Opening a card unmounts this screen, so coming back rebuilt the deck at
+   * card one — and the card you were just looking at was two throws away. That
+   * is a deck that forgets, and a user who has to find their place again every
+   * time they glance at something.
+   *
+   * Keyed by a name the backend supplies, so remembering is a decision rather
+   * than something every deck does whether it suits it or not. Module-level on
+   * purpose: it should outlive the screen and not the app, since a deck that
+   * remembers across a cold start is presenting yesterday's position as
+   * today's.
+   */
+  const memory = props?.memory ? String(props.memory) : "";
+  const startAt = memory ? Math.max(0, Math.min(n - 1, DECK_MEMORY.get(memory) ?? 0)) : 0;
+
+  const pos = useRef(new Animated.Value(startAt)).current;
+  const posNow = useRef(startAt);
+  const [index, setIndex] = useState(startAt);
   const width = useRef(0);
   const moved = useRef(0);
 
@@ -81,12 +101,16 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
   fireRef.current = fire;
   useEffect(() => {
     let last = Math.round(posNow.current);
+    // Restored, not started: say so once, or whatever is drawn behind the
+    // middle card is still showing the first one.
+    if (startAt !== 0) fireRef.current("onChange", startAt);
     const id = pos.addListener(({ value }) => {
       posNow.current = value;
       const near = Math.max(0, Math.min(n - 1, Math.round(value)));
       if (near === last) return;
       last = near;
       setIndex(near);
+      if (memory) DECK_MEMORY.set(memory, near);
       // Announced as it happens, not when the deck stops: whatever is drawn
       // behind the middle card has to arrive with the card, and a backdrop
       // that changes a beat after the deck settles reads as a glitch.
@@ -104,15 +128,16 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
     }).start();
   }, [pos, n, stiffness, damping, mass]);
 
-  const start = useRef(0);
+  /** Where `pos` was when the current drag began. */
+  const dragFrom = useRef(0);
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderGrant: () => { start.current = posNow.current; moved.current = 0; },
+      onPanResponderGrant: () => { dragFrom.current = posNow.current; moved.current = 0; },
       onPanResponderMove: (_, g) => {
         moved.current = Math.max(moved.current, Math.abs(g.dx));
-        let next = start.current - g.dx / step;
+        let next = dragFrom.current - g.dx / step;
         // Rubber band past the ends — the deck resists rather than stopping
         // dead, which is the difference between a limit and a fault.
         if (next < 0) next *= 0.35;
