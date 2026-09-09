@@ -7,7 +7,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 
 export const THREAD_ACTIVE = "#E8A23C";
 
@@ -65,88 +65,114 @@ function Frame({ active, nonce, size, children }: {
  * at a different angle so the eye never finds a shared seam.
  */
 /**
- * ONE GRID, ONE WEIGHT, THREE SILHOUETTES THAT CANNOT BE CONFUSED.
+ * ONE VOCABULARY: the brand's rounded node, and the thread.
  *
- * These replace a set drawn as "thread art" — a wound brain, a fingerprint,
- * a climb over pins. The craft was real and the idea was good; the icons were
- * not legible, which in a tab bar is the only thing that counts. Rendered at
- * their actual 26pt the brain read as a LEAF (a lobed outline with a centre
- * vein, diagonal veins and a stem — every cue points to leaf) and the
- * fingerprint read as WIFI, which its own source comment had already worried
- * about. A tab bar is scanned in well under a second and never studied, so an
- * icon that needs explaining has failed before the explanation arrives.
+ * The app icon is rounded squares joined by a thread. That is the only shape
+ * language this product has, and until now none of it reached the tab bar —
+ * which had a wound brain that rendered as a leaf, a fingerprint that rendered
+ * as wifi, and then, briefly, a stock speech bubble and a stock line chart.
+ * The first pair failed on legibility. The second pair was legible and could
+ * have belonged to any app on the phone, which is the same failure wearing
+ * better clothes.
  *
- * What replaced them is deliberately ordinary. Novelty costs recognition, and
- * recognition is the entire job here: a speech bubble, a rising line, a
- * figure. Nobody has to learn them.
+ * So all three are built from the mark's own parts, and each is a different
+ * thing that vocabulary can do:
  *
- * The three differ by SILHOUETTE, not by detail — a closed round shape with a
- * tail, an open diagonal, a figure with a gap in the middle. Detail is the
- * first thing lost at small sizes and in peripheral vision, which is where a
- * tab bar is usually read from.
+ *   TRAIN  the thread, loud, resolving into a ruled line
+ *   STATS  the node, three of them, rising off a baseline
+ *   YOU    the mark's constellation, with one node solid
  *
- * Shared: a 32 grid, 1.9 stroke, round caps and joins, and roughly equal ink.
- * Equal ink matters more than equal bounding boxes — the bubble is wider than
- * the figure and they still weigh the same, which is what stops one tab
- * looking selected when it is not.
+ * They still differ by SILHOUETTE — a horizontal wave, aligned verticals, a
+ * triangle — because detail is the first thing lost at 26pt and in the
+ * peripheral vision a tab bar is usually read from. Sharing a hand is what
+ * makes them a set; differing in outline is what makes them findable.
+ *
+ * Shared: a 32 grid, ~1.9 stroke, round caps and joins, equal ink. Equal ink
+ * rather than equal boxes — the wave is wider than the bars and weighs the
+ * same, which is what stops one tab looking selected when it is not.
  */
 
-/** TRAIN — a conversation. Not a microphone: the mic already means "record"
- *  in the keyboard and on this screen, and a tab is a place, not an action. */
+/**
+ * TRAIN — the product itself, in one stroke.
+ *
+ * A single unbroken thread that starts as speech and ends as a ruled line.
+ * That IS what the app does: you talk, and what comes out is finished writing
+ * in your voice. Nothing else in the tab bar could mean this, and no other app
+ * would draw it, which is the point — the previous version was a speech bubble
+ * and could have been anyone's.
+ *
+ * The swings decay rather than stopping: sound settling into order, not sound
+ * cut off. Two of them, not four — at 26pt more oscillation is a smudge.
+ */
 export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path
-        d="M12 7.5 H20 A5 5 0 0 1 25 12.5 V16.5 A5 5 0 0 1 20 21.5 H16.4 L11.9 25.5
-           L12 21.5 A5 5 0 0 1 7 16.5 V12.5 A5 5 0 0 1 12 7.5 Z"
-        stroke={c} strokeWidth={1.9} strokeLinejoin="round" strokeLinecap="round" fill="none"
-      />
+      <Path d="M5 16 C6.6 5 10.4 27 12 16 C13.5 6.5 17 25.5 18.5 16 L27 16"
+        stroke={c} strokeWidth={2.2} strokeLinecap="round" fill="none" />
     </Frame>
   );
 }
 
-/** STATS — a climb. The one icon kept from the old set, because it was the one
- *  that read: unmistakable at any size, and it says what the tab holds without
- *  a chart's furniture. Trimmed to four points and stripped of its dashed
- *  ground and drop lines, which at 26pt were mush. */
+/**
+ * STATS — the node, three times, rising.
+ *
+ * A bar chart drawn with the mark's own rounded square instead of plain
+ * rectangles, so it reads as this product's chart rather than a chart. The
+ * corner radius is the tell and it costs nothing at any size.
+ *
+ * Bars, not the climbing line this replaced: a polyline with dots is what
+ * every analytics screen uses, and the line's slope was doing the work that
+ * three different heights do more plainly.
+ */
 export function ThreadStats({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
-  // Uneven on purpose: a monotonic climb reads as a logo, and real numbers dip.
-  const pins: Array<[number, number]> = [[7, 21.5], [13.5, 16.6], [19, 18.6], [25, 9.6]];
-  const line = pins.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
+  /** x, top y. All three share a baseline at 25.6 — a chart whose bars do not
+   *  stand on one line is not a chart. */
+  const bars: Array<[number, number]> = [[4.7, 19.4], [12.7, 13.6], [20.7, 7.2]];
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d={line} stroke={c} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      {pins.map(([x, y], i) => (
-        // The last point is larger: the eye needs somewhere to land, and where
-        // the line has GOT to is the only part of a trend anyone acts on.
-        <Circle key={i} cx={x} cy={y} r={i === pins.length - 1 ? 2.3 : 1.45} fill={c} />
+      {bars.map(([x, top], i) => (
+        <Path key={i}
+          d={`M${x + 1.9} ${top} H${x + 4.7} A1.9 1.9 0 0 1 ${x + 6.6} ${top + 1.9}
+              V23.7 A1.9 1.9 0 0 1 ${x + 4.7} 25.6 H${x + 1.9} A1.9 1.9 0 0 1 ${x} 23.7
+              V${top + 1.9} A1.9 1.9 0 0 1 ${x + 1.9} ${top} Z`}
+          stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
       ))}
     </Frame>
   );
 }
 
-/** YOU — a figure, with the head as the brand's own rounded square. That is
- *  the one place the identity gets to show through: the app icon is rounded
- *  squares joined by a thread, so a rounded square reads as this product's
- *  person rather than any person. */
+/**
+ * YOU — the mark's constellation, with one node solid.
+ *
+ * Three nodes joined by threads is the app icon; filling one of them makes it
+ * about a choice rather than about the brand. Which is exactly what the tab
+ * holds: four things that are yours — voices, words, keys, languages — and you
+ * are picking between them.
+ *
+ * The solid node sits at the bottom, nearest the thumb, and it is the only
+ * filled shape in the whole bar. That is deliberate: fill is the loudest
+ * device available at this size, so it is spent once, on the tab that is about
+ * the person using the app.
+ */
 export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      {/* Square, 7.6 on both sides. Drawn wider than tall it stopped being a
-          head and became a screen on a stand. */}
-      <Path
-        d="M14.8 7.4 H17.2 A2.6 2.6 0 0 1 19.8 10 V12.4 A2.6 2.6 0 0 1 17.2 15
-           H14.8 A2.6 2.6 0 0 1 12.2 12.4 V10 A2.6 2.6 0 0 1 14.8 7.4 Z"
-        stroke={c} strokeWidth={1.9} strokeLinejoin="round" fill="none"
-      />
-      {/* Shoulders. The control point is chosen, not eyeballed: for a symmetric
-          cubic the apex is 0.25*end + 0.75*control, so 15.7 puts it at 18 —
-          three below the head, which is the gap that reads as a neck. */}
-      <Path d="M9 25 C9 15.7 23 15.7 23 25"
-        stroke={c} strokeWidth={1.9} strokeLinecap="round" fill="none" />
+      <Path d="M7.6 8.5 H11.4 A2.2 2.2 0 0 1 13.6 10.7 V13.3 A2.2 2.2 0 0 1 11.4 15.5
+               H7.6 A2.2 2.2 0 0 1 5.4 13.3 V10.7 A2.2 2.2 0 0 1 7.6 8.5 Z"
+        stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
+      <Path d="M20.6 8.5 H24.4 A2.2 2.2 0 0 1 26.6 10.7 V13.3 A2.2 2.2 0 0 1 24.4 15.5
+               H20.6 A2.2 2.2 0 0 1 18.4 13.3 V10.7 A2.2 2.2 0 0 1 20.6 8.5 Z"
+        stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
+      {/* The chosen one. Slightly larger than the other two, because a filled
+          shape reads smaller than an outlined one of the same size. */}
+      <Path d="M13.9 19.4 H18.1 A2.4 2.4 0 0 1 20.5 21.8 V24.2 A2.4 2.4 0 0 1 18.1 26.6
+               H13.9 A2.4 2.4 0 0 1 11.5 24.2 V21.8 A2.4 2.4 0 0 1 13.9 19.4 Z"
+        fill={c} />
+      <Path d="M11.9 15.1 L14.6 19.2 M20.1 15.1 L17.4 19.2"
+        stroke={c} strokeWidth={1.5} strokeLinecap="round" fill="none" opacity={0.8} />
     </Frame>
   );
 }
