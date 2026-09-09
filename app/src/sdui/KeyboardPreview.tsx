@@ -48,10 +48,37 @@ type Preview = {
   /** Row height in points. The real keyboard uses 44. */
   keyHeight?: number;
   accent?: string;
+  /** The look, all of it. Every default lives beside the type below. */
+  gap?: number;
+  radius?: number;
+  keyFill?: string;
+  fnFill?: string;
+  litLabel?: string;
+  keyLabel?: string;
+  fnLabel?: string;
+  pressOpacity?: number;
+  fontSize?: number;
+  longFontSize?: number;
 };
 
+/**
+ * Defaults only. EVERY ONE OF THESE IS A PROP.
+ *
+ * They were constants, which meant the haptics screen's entire look — the two
+ * key fills, both label colours, the gaps, the corner — could only change with
+ * a build, on a screen whose whole job is showing what the keyboard looks like.
+ * A keyboard that cannot be restyled from the catalog is a keyboard that will
+ * disagree with the real one the first time the real one changes.
+ */
 const GAP = 6;
 const RADIUS = 5;
+/** Unlit ordinary key, and unlit function key — the two fills a keyboard has. */
+const KEY_FILL = "#FFFFFF8C";
+const FN_FILL = "#FFFFFF26";
+/** Label on a lit key, on an ordinary key, on a function key. */
+const LIT_LABEL = "#000000";
+const KEY_LABEL = "#111114";
+const FN_LABEL = "#FFFFFF";
 
 export default function KeyboardPreview({ props: raw, style, fire }: CompProps) {
   const props = (raw ?? {}) as Preview;
@@ -92,11 +119,22 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
   const all = props?.all === true;
   const h = Number(props?.keyHeight) > 0 ? Number(props.keyHeight) : 44;
   const accent = String(props?.accent ?? "#E8A23C");
+  const gap = Number(props?.gap) >= 0 ? Number(props.gap) : GAP;
+  const radius = Number(props?.radius) >= 0 ? Number(props.radius) : RADIUS;
+  const keyFill = String(props?.keyFill ?? KEY_FILL);
+  const fnFill = String(props?.fnFill ?? FN_FILL);
+  const litLabel = String(props?.litLabel ?? LIT_LABEL);
+  const keyLabel = String(props?.keyLabel ?? KEY_LABEL);
+  const fnLabel = String(props?.fnLabel ?? FN_LABEL);
+  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : 0.6;
+  /** Long labels ("return", "space") step down so they are not clipped. */
+  const fontSize = Number(props?.fontSize) || 17;
+  const longFontSize = Number(props?.longFontSize) || 13;
 
   return (
-    <View style={[{ gap: GAP }, style]}>
+    <View style={[{ gap }, style]}>
       {rows.map((row, r) => (
-        <View key={r} style={{ flexDirection: "row", gap: GAP, height: h }}>
+        <View key={r} style={{ flexDirection: "row", gap, height: h }}>
           {(row ?? []).map((k, i) => {
             if (k?.spacer) {
               return <View key={i} style={{ flex: k.flex ?? 1 }} />;
@@ -122,13 +160,13 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
                   sizing,
                   {
                     height: h,
-                    borderRadius: RADIUS,
+                    borderRadius: radius,
                     alignItems: "center",
                     justifyContent: "center",
                     // The two fills the keyboard uses, so a glance here maps
                     // onto the thing being configured.
-                    backgroundColor: lit ? accent : (k.fn ? "#FFFFFF26" : "#FFFFFF8C"),
-                    opacity: pressed ? 0.6 : 1,
+                    backgroundColor: lit ? accent : (k.fn ? fnFill : keyFill),
+                    opacity: pressed ? pressOpacity : 1,
                   },
                 ]}
               >
@@ -140,8 +178,8 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
                   adjustsFontSizeToFit
                   minimumFontScale={0.7}
                   style={{
-                    color: lit ? "#000000" : (k.fn ? "#FFFFFF" : "#111114"),
-                    fontSize: k.label.length > 2 ? 13 : 17,
+                    color: lit ? litLabel : (k.fn ? fnLabel : keyLabel),
+                    fontSize: k.label.length > 2 ? longFontSize : fontSize,
                     fontWeight: "500",
                     paddingHorizontal: 2,
                   }}
