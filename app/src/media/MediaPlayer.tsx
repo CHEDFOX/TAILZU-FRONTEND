@@ -286,13 +286,37 @@ function VideoPlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, mut
     // attached to the tree.
   });
 
+  /** Whether a frame has ever been decoded into this player's surface. */
+  const primed = useRef(false);
+
   useEffect(() => {
     if (!player) return;
     player.loop = loop;
     player.muted = muted;
     player.playbackRate = speed;
-    if (shouldPlay) player.play?.();
-    else player.pause?.();
+    if (shouldPlay) { primed.current = true; player.play?.(); return; }
+
+    // PAUSED BEFORE IT HAS EVER PLAYED DRAWS NOTHING.
+    //
+    // expo-video has no poster: a player that has been created and then paused
+    // has decoded no frames, so its surface is empty — not the first frame,
+    // nothing. That is why "hold the still, then move" shipped once and had to
+    // be pulled; a clip told to wait a second and a half showed a second and a
+    // half of black, which looked exactly like a missing file.
+    //
+    // So prime it: start playback, then stop it on the next tick and rewind to
+    // the top. One frame gets decoded and held, which is the still the whole
+    // feature is about. Only on the FIRST pause — after that the player has a
+    // frame and pausing behaves the way anyone would expect.
+    if (!primed.current) {
+      primed.current = true;
+      player.play?.();
+      const t = setTimeout(() => {
+        try { player.pause?.(); player.currentTime = 0; } catch { /* torn down */ }
+      }, 0);
+      return () => clearTimeout(t);
+    }
+    player.pause?.();
   }, [player, loop, muted, speed, shouldPlay]);
 
   useEffect(() => {
