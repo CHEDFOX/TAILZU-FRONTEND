@@ -27,6 +27,9 @@
  * on hardware nobody tested on.
  */
 
+import { useCallback, useState } from "react";
+import type { LayoutChangeEvent } from "react-native";
+
 export type Focus = { x: number; y: number };
 
 export type FocusFit = {
@@ -74,4 +77,37 @@ export function focusFill(
   const top = Math.min(0, Math.max(-overflowY, ay * boxH - fy * height));
 
   return { width, height, left, top };
+}
+
+/**
+ * Measure the box, then place the art in it so its focal point lands on the
+ * anchor. The hook half of the maths above, shared by every node that draws
+ * backend media — Video and Image alike, because whether a subject gets cut
+ * off the side of the screen has nothing to do with whether it moves.
+ *
+ * OFF UNLESS THE BACKEND SUPPLIES AN ASPECT. Without the art's shape there is
+ * nothing to compute, and guessing it would move media that is currently
+ * correct — so an upload that says nothing keeps the centred `cover` it has
+ * always had.
+ */
+export function useFocusFill(props: Record<string, any>): {
+  on: boolean;
+  onLayout: (e: LayoutChangeEvent) => void;
+  fit: FocusFit | null;
+} {
+  const aspect = Number(props?.aspect);
+  const on = Number.isFinite(aspect) && aspect > 0;
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setBox((b) => (b && b.w === width && b.h === height ? b : { w: width, h: height }));
+  }, []);
+  const fit = on && box
+    ? focusFill(
+        box.w, box.h, aspect,
+        { x: Number(props?.focusX ?? 0.5), y: Number(props?.focusY ?? 0.5) },
+        { x: Number(props?.anchorX ?? 0.5), y: Number(props?.anchorY ?? 0.5) },
+      )
+    : null;
+  return { on, onLayout, fit };
 }

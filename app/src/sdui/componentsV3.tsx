@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Image as ExpoImage } from "expo-image";
 import Svg, { Circle, G, Path, Polyline, Rect } from "react-native-svg";
 import QRCode from "react-native-qrcode-svg";
-import { focusFill } from "../media/focusFill";
+import { useFocusFill } from "../media/focusFill";
 import { WebView } from "react-native-webview";
 
 import type { CompProps } from "./components";
@@ -743,30 +743,6 @@ const Video = ({ props, style }: CompProps) => {
     />
   );
 };
-/**
- * Shared by Video and Image: measure the box, and place the art in it so its
- * focal point lands on the anchor. Off unless the backend supplies an aspect —
- * without the art's shape there is nothing to compute, and guessing it would
- * move media that is currently correct.
- */
-function useFocusFill(props: Record<string, any>) {
-  const aspect = Number(props?.aspect);
-  const on = Number.isFinite(aspect) && aspect > 0;
-  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
-  const onLayout = useCallback((e: LayoutChangeEvent) => {
-    const { width, height } = e.nativeEvent.layout;
-    setBox((b) => (b && b.w === width && b.h === height ? b : { w: width, h: height }));
-  }, []);
-  const fit = on && box
-    ? focusFill(
-        box.w, box.h, aspect,
-        { x: Number(props?.focusX ?? 0.5), y: Number(props?.focusY ?? 0.5) },
-        { x: Number(props?.anchorX ?? 0.5), y: Number(props?.anchorY ?? 0.5) },
-      )
-    : null;
-  return { on, onLayout, fit };
-}
-
 const Audio = ({ props, style }: CompProps) => (
   <View style={[styles.mediaPlaceholder, style]}>
     <Text style={styles.mediaText}>♫ Audio: {String(props.source ?? "")}</Text>

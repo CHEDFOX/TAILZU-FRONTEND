@@ -33,6 +33,7 @@ import { SpringPressable } from "./motion";
 import { DictionaryEditor, WordChips } from "./dictionary";
 import { Image as ExpoImage } from "expo-image";
 import { resolveMedia } from "../media/resolveMedia";
+import { useFocusFill } from "../media/focusFill";
 
 /**
  * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
@@ -371,6 +372,9 @@ const ImageC = ({ props, style }: CompProps) => {
   // is honored.
   const m = resolveMedia(props.source as any);
   const src = m.kind === "uri" ? { uri: m.uri } : m.kind === "bundled" ? m.source : null;
+  // Called unconditionally — it is a hook, and the early return for a missing
+  // source is below it for that reason.
+  const placed = useFocusFill(props);
   // Defaults, and ONLY where the caller left a gap.
   //
   // These used to be unconditional and merged UNDER the incoming style, which
@@ -392,6 +396,25 @@ const ImageC = ({ props, style }: CompProps) => {
   }
   if (s.borderRadius == null) base.borderRadius = 10;
   if (!src) return <View style={[base, style] as any} />;
+  // FOCUS PLACEMENT, the same as Video. When the backend says where the
+  // subject sits in the art and where it should land, the still is sized and
+  // slid here rather than handed to `cover` and centred. Whether a subject
+  // gets cut off the side of the screen has nothing to do with whether it
+  // moves, so a still needs this exactly as much as a clip does — it was only
+  // ever wired to Video because the first case that needed it was a film.
+  if (placed.on) {
+    return (
+      <View style={[base, style, { overflow: "hidden" }] as any} onLayout={placed.onLayout}>
+        {placed.fit ? (
+          <ExpoImage
+            source={src as any}
+            contentFit="cover"
+            style={{ position: "absolute", ...placed.fit }}
+          />
+        ) : null}
+      </View>
+    );
+  }
   return <ExpoImage source={src as any} contentFit={props.contentFit ?? "cover"} style={[base, style] as any} />;
 };
 
