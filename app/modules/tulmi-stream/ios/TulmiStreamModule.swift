@@ -20,8 +20,12 @@ public class TulmiStreamModule: Module {
       let token = options["token"] as? String ?? "dev"
       let targetApp = options["targetApp"] as? String ?? "Generic"
       let language = options["language"] as? String ?? "auto"
+      // The caller says whether this session also has to PLAY. Dictation does
+      // not and keeps the narrower .record category; the spoken conversation
+      // does, and a .record session cannot answer.
+      let duplex = options["duplex"] as? Bool ?? false
       self.streamer?.cancel()
-      let s = Streamer { [weak self] name, payload in
+      let s = Streamer(duplex: duplex) { [weak self] name, payload in
         self?.sendEvent(name, payload)
       }
       self.streamer = s
@@ -34,6 +38,10 @@ public class TulmiStreamModule: Module {
 
     Function("cancel") {
       self.streamer?.cancel()
+      // A duplex streamer holds the audio session between turns, so leaving the
+      // screen has to hand it back explicitly — otherwise the app keeps the
+      // route to itself and whatever the user was playing stays silenced.
+      self.streamer?.releaseSession()
       self.streamer = nil
     }
 
@@ -48,6 +56,8 @@ public class TulmiStreamModule: Module {
 /// but reports through an event closure instead of an enum callback.
 private final class Streamer: NSObject {
   private let emit: (String, [String: Any]) -> Void
+  /// True when this session also plays — see activateSession().
+  private let duplex: Bool
   private let session = URLSession(configuration: .default)
   private var task: URLSessionWebSocketTask?
 
@@ -69,7 +79,8 @@ private final class Streamer: NSObject {
   private func setTask(_ t: URLSessionWebSocketTask?) { avLock.lock(); task = t; avLock.unlock() }
   private func setConverter(_ c: AVAudioConverter?) { avLock.lock(); converter = c; avLock.unlock() }
 
-  init(emit: @escaping (String, [String: Any]) -> Void) {
+  init(duplex: Bool, emit: @escaping (String, [String: Any]) -> Void) {
+    self.duplex = duplex
     self.emit = emit
     super.init()
   }
@@ -125,14 +136,7 @@ private final class Streamer: NSObject {
   }
 
   private func startCapture() {
-    let audio = AVAudioSession.sharedInstance()
-    do {
-      try audio.setCategory(.record, mode: .default)
-      try audio.setActive(true)
-    } catch {
-      emit("onError", ["message": "Audio session: \(error.localizedDescription)"])
-      return
-    }
+    if !activateSession() { return }
     let input = engine.inputNode
     let inputFormat = input.outputFormat(forBus: 0)
     setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
@@ -150,13 +154,72 @@ private final class Streamer: NSObject {
     }
   }
 
+  /// Take the audio session, and say what for.
+  ///
+  /// `.record` IS THE WRONG CATEGORY WHEN THE APP ALSO TALKS. A recording
+  /// session cannot play, so on the spoken-conversation screen — which listens,
+  /// then answers through the synthesiser, then listens again — the two fight
+  /// over the same session every turn. The synthesiser holds it to speak, the
+  /// next `setActive(true)` arrives while it is still letting go, and iOS
+  /// answers "session activation failed". Which is what the screen showed.
+  ///
+  /// `.playAndRecord` is one session that serves both, so there is nothing to
+  /// hand back and forth. `.defaultToSpeaker` because that category otherwise
+  /// routes playback to the earpiece, and an assistant that can only be heard
+  /// by holding the phone to your head is not one anybody would use.
+  ///
+  /// Dictation keeps `.record`: it is the narrower permission, it never plays
+  /// anything, and changing the category under it would change the input path
+  /// for the feature that matters most.
+  private func activateSession() -> Bool {
+    let audio = AVAudioSession.sharedInstance()
+    let category: AVAudioSession.Category = duplex ? .playAndRecord : .record
+    let options: AVAudioSession.CategoryOptions =
+      duplex ? [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP] : []
+    do {
+      try audio.setCategory(category, mode: .default, options: options)
+      try audio.setActive(true)
+      return true
+    } catch {
+      // ONE RETRY, because the usual cause is a race rather than a refusal:
+      // whatever held the session a moment ago is still releasing it, and by
+      // the time a person could read an error it would have worked. Failing
+      // twice is a real failure and is reported as one.
+      Thread.sleep(forTimeInterval: 0.12)
+      do {
+        try audio.setCategory(category, mode: .default, options: options)
+        try audio.setActive(true)
+        return true
+      } catch {
+        emit("onError", ["message": "Audio session: \(error.localizedDescription)"])
+        return false
+      }
+    }
+  }
+
   private func stopCapture() {
     if tapInstalled {
       engine.inputNode.removeTap(onBus: 0)
       tapInstalled = false
     }
     if engine.isRunning { engine.stop() }
-    try? AVAudioSession.sharedInstance().setActive(false)
+    // HOLD THE SESSION IN DUPLEX. The conversation stops the mic between every
+    // turn so it does not transcribe its own reply, and dropping the session
+    // there means the synthesiser has to take it and give it back on each one —
+    // which is the handover that fails. Keeping it means the turn is just a tap
+    // being removed.
+    //
+    // Dictation still releases it, and does so politely: without
+    // notifyOthersOnDeactivation whatever was playing before is left paused.
+    if !duplex {
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+  }
+
+  /// Release the session for good. Only the conversation needs this, because
+  /// only the conversation holds on between turns.
+  func releaseSession() {
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
   }
 
   private func sendBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {

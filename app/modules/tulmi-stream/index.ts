@@ -18,6 +18,18 @@ export interface StreamOptions {
   token: string;
   targetApp?: string;
   language?: string;
+  /**
+   * This session also PLAYS.
+   *
+   * Dictation only records, and takes the narrower `.record` audio category.
+   * The spoken conversation listens, answers through the synthesiser and
+   * listens again — and a `.record` session cannot play, so the two end up
+   * handing the session back and forth every turn and iOS eventually refuses
+   * one of the handovers ("session activation failed"). Set this and the
+   * native side takes one `.playAndRecord` session that serves both, and holds
+   * it between turns instead of releasing it.
+   */
+  duplex?: boolean;
 }
 
 export interface StreamHandlers {
