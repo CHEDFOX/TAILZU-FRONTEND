@@ -1018,6 +1018,7 @@ import { BinaryReveal } from "./BinaryReveal";
 import KeyboardPreview from "./KeyboardPreview";
 import { MorphOut } from "./MorphOut";
 import { WordMeter } from "./WordMeter";
+import { AuroraOrb } from "./AuroraOrb";
 
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
@@ -1025,7 +1026,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
   LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
-  ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels,
+  ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter,
   ...REGISTRY_V3,
