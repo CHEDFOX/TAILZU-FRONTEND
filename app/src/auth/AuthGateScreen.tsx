@@ -241,10 +241,21 @@ export type PillLook = {
   fontSize?: number; paddingLeft?: number;
 };
 
-export function MethodPill({ field, onSubmit, hintDelay, look, style }: {
+export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
   field: Field;
   onSubmit: (f: Field, value: string) => void;
   hintDelay: number;
+  /**
+   * Bump this to send the disc back to the left.
+   *
+   * NOT after a commit — see commit() below. The disc belongs at the right end
+   * once it has been thrown there, and the only moment it should be at the
+   * start again is when someone comes BACK to this screen to type a different
+   * address. A number rather than a remount, because remounting would take the
+   * typed value with it, and returning here to correct one character should not
+   * clear the field.
+   */
+  resetAt?: number;
   /** Server overrides. Absent keys keep the shipped value. */
   look?: PillLook;
   style?: object;
@@ -354,10 +365,31 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style }: {
     return () => clearTimeout(t);
   }, [envX, hintDelay]);
 
+  /**
+   * Throw the disc to the far end, and LEAVE IT THERE.
+   *
+   * It used to snap back to zero the instant the animation finished. That was
+   * invisible while a send animation covered the screen for a second and a
+   * half; now that the code screen opens in the frame you tap, the snap happens
+   * in full view — the disc arrives at the right and is instantly at the left
+   * again, which reads as the gesture being refused rather than accepted.
+   *
+   * A control that has done its job should look like it has done its job. The
+   * disc goes back to the start when the screen is returned to, and not before.
+   */
   const commit = useCallback(() => {
     Animated.timing(envX, { toValue: MAX_DRAG, duration: 230, easing: Easing.out(Easing.cubic), useNativeDriver: false })
-      .start(() => { onSubmit(field, valRef.current); envX.setValue(0); });
+      .start(() => onSubmit(field, valRef.current));
   }, [envX, field, onSubmit]);
+
+  // Back on this screen: put the disc at the start so the gesture reads as
+  // available again. Skipped on first mount — it is already there.
+  const firstReset = useRef(true);
+  useEffect(() => {
+    if (firstReset.current) { firstReset.current = false; return; }
+    envX.setValue(0);
+    crossed.current = false;
+  }, [resetAt, envX]);
 
   const pan = useRef(
     PanResponder.create({
@@ -514,6 +546,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
    * produced the old behaviour, where a send that was merely slow moved the
    * user, and a send that failed moved them back.
    */
+  /**
+   * Bumped when the entry screen is returned to, so the committed pills put
+   * their discs back at the start. Not on commit — a disc that has been thrown
+   * belongs at the end it was thrown to.
+   */
+  const [pillReset, setPillReset] = useState(0);
   const [sending, setSending] = useState(false);
   const [sendFailed, setSendFailed] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -823,6 +861,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     // Bumping seq above already orphans any retry still in flight — this is
     // only so the entry screen is not wearing the last attempt's error.
     setSending(false); setSendFailed(false); setSendError(null);
+    // The pills are about to be looked at again, so the discs go home.
+    setPillReset((n) => n + 1);
   }, [entryFade, verifyFade]);
 
   // Goes straight back through send(), which no longer moves the user — so a
@@ -1024,7 +1064,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               {fields.map((f, i) => (
                 <RiseView key={f.id} cfg={{ delayMs: suction.staggerMs * (2 - i), fromY: suction.fromY }} reduce={reduceMotion}>
                   <View style={{ marginTop: i === 0 ? 0 : 18 }}>
-                    <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} />
+                    <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} resetAt={pillReset} />
                   </View>
                 </RiseView>
               ))}

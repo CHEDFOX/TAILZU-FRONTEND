@@ -62,6 +62,12 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   /** How long the disc takes to run home once committed, ms. */
   const commitMs = Number(props?.commitMs) || 230;
   /**
+   * Put the disc back at the start this long after committing. 0 leaves it at
+   * the end, which is the default and right whenever the commit navigates —
+   * see commit() below.
+   */
+  const resetAfterMs = Number(props?.resetAfterMs) || 0;
+  /**
    * A tap commits too.
    *
    * The drag is the intended gesture and the hint advertises it, but a pill
@@ -114,11 +120,24 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
     }).start(() => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       fire("onComplete");
-      // Reset behind the navigation, so coming back finds the pill as it was
-      // rather than mid-gesture.
-      setTimeout(() => { x.setValue(0); done.current = false; }, 420);
+      // THE DISC STAYS WHERE IT WAS THROWN, unless the screen asks otherwise.
+      //
+      // It used to snap home 420ms later, on the assumption that the commit
+      // navigates and the reset happens behind the new screen. That is true of
+      // every use today — and when it is true the reset is also unnecessary,
+      // because navigating unmounts this node and a remount starts at zero
+      // anyway. When it is NOT true the timer is simply visible: the disc
+      // arrives at the end and walks back, which reads as the gesture being
+      // refused a beat after it was accepted.
+      //
+      // So: 0 means stay, and a screen whose commit does not navigate — one
+      // that fires an endpoint and stands still — sets resetAfterMs to make the
+      // control usable a second time.
+      if (resetAfterMs > 0) {
+        setTimeout(() => { x.setValue(0); done.current = false; }, resetAfterMs);
+      }
     });
-  }, [x, fire, commitMs]);
+  }, [x, fire, commitMs, resetAfterMs]);
 
   // Read inside the PanResponder, which is built once and would otherwise
   // close over the first render's value forever.
