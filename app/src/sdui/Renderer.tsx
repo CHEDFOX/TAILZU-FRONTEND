@@ -83,7 +83,19 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
 
   // Resolve props: literal props + bound props (bind: { prop -> statePath }).
   const props: Record<string, any> = { ...(node.props ?? {}) };
-  if (node.bind) for (const k of Object.keys(node.bind)) props[k] = ctx.store.get(node.bind[k]);
+  // A bind to a key the screen never declared resolves to undefined, and
+  // undefined is not "unbound" — it lands on the prop and erases the literal
+  // underneath it. That is how a clip bound to a play flag the screen forgot
+  // to seed became a video with `playing: undefined`, which falls through to
+  // `autoplay: false` and never starts. Keep the literal when the store has
+  // nothing to say; a screen that does declare the key still wins, including
+  // when it declares it false.
+  if (node.bind) {
+    for (const k of Object.keys(node.bind)) {
+      const v = ctx.store.get(node.bind[k]);
+      if (v !== undefined) props[k] = v;
+    }
+  }
   // Resolve "@label.key" string props against the catalog's central copy.
   for (const k of Object.keys(props)) {
     const v = props[k];
