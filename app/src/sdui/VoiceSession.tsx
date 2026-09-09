@@ -158,7 +158,10 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         const { url, token } = await api.streamConfig();
         if (!r.alive) return;
         r.session = startStream(
-          { url, token, language },
+          // duplex: this screen answers out loud between turns, so the mic and
+          // the synthesiser have to share one audio session rather than take
+          // it from each other. See the module's activateSession().
+          { url, token, language, duplex: true },
           {
             onPartial: (t) => { r.partial = t; heard(); },
             onFinal: (t) => {

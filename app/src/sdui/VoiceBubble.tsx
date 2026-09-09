@@ -133,7 +133,7 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
    * body of light with no border anyone can point at. Scaled off `size` so an
    * orb drawn at any size is equally soft, rather than crisp when large.
    */
-  const softness = props?.softness !== undefined ? Number(props.softness) : size * 0.11;
+  const softness = props?.softness !== undefined ? Number(props.softness) : size * 0.055;
   const chase = props?.chase !== undefined ? Number(props.chase) : CHASE;
   /** What the orb does when nothing is driving it, per state. Merged over the
    *  defaults, so the server can move one state without restating the rest. */
