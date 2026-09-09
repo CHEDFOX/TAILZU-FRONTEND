@@ -31,6 +31,18 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
   /** A tick as each reel arrives. The pages look alike, so the change wants
    *  confirming by touch as well as by sight. */
   const haptic = props?.haptic !== false;
+  /**
+   * PAGING, as a choice rather than a fact of the component.
+   *
+   * Paging is right for the haptics editor — a keyboard resting half off the
+   * bottom has a bottom row nobody can tap — and wrong for a reel of text,
+   * where snapping fights the reader. It was neither: it was compiled in.
+   */
+  const paging = props?.paging !== false;
+  const decel = props?.decelerationRate === "normal" ? "normal" : "fast";
+  /** Where each reel sits in its page. "center" unless a screen says otherwise. */
+  const align = String(props?.align ?? "center");
+  const showsIndicator = props?.showsIndicator === true;
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -49,11 +61,11 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
   return (
     <View style={[{ flex: 1 }, style]} onLayout={onLayout}>
       <ScrollView
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
+        pagingEnabled={paging}
+        showsVerticalScrollIndicator={showsIndicator}
         // decelerationRate "fast" alone still lets a page drift; pagingEnabled
         // is what guarantees a reel comes to rest filling the window.
-        decelerationRate="fast"
+        decelerationRate={decel}
         onMomentumScrollEnd={onMomentumEnd}
         // Nothing renders until the height is known — a reel laid out at zero
         // and then re-laid out is a visible jump on the first frame.
@@ -61,7 +73,7 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
       >
         {height > 0
           ? reels.map((reel, i) => (
-              <View key={i} style={{ height, justifyContent: "center" }}>
+              <View key={i} style={{ height, justifyContent: align as "center" | "flex-start" | "flex-end" }}>
                 {reel}
               </View>
             ))
