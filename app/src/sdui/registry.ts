@@ -67,6 +67,9 @@ export const CORE_COMPONENTS = [
   // Coverflow — a deck of cards turned in depth, dragged and thrown.
   // Reels — one child per screenful, snapped vertically.
   "Coverflow", "Reels",
+  // AuroraOrb — the spoken screen's sphere, drawn as one Skia fragment shader.
+  // Supersedes VoiceBubble, which stays registered as its fallback.
+  "AuroraOrb",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
