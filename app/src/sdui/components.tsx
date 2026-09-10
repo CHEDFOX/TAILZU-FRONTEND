@@ -1017,6 +1017,25 @@ const FlipText = ({ props, style }: CompProps) => {
   const intervalMs = Number(props.intervalMs) > 0 ? Number(props.intervalMs) : 2600;
   const flipMs = Number(props.flipMs) > 0 ? Number(props.flipMs) : 620;
 
+  /**
+   * HOW ONE WORD BECOMES THE NEXT — and it is the backend's call, because it
+   * is a performance decision as much as a visual one.
+   *
+   * "turn" is the 3D flip. It is the better effect and it is expensive: a
+   * rotateX with a perspective forces its parent to composite in 3D, and on
+   * Android every blurred view beneath it re-renders when that happens. On a
+   * screen carrying five BlurViews — which the You tab does, one full-screen
+   * backdrop and one per card — that shows up as the whole screen flickering
+   * each time the word changes, including things nowhere near the greeting.
+   *
+   * "fade" is a crossfade. Opacity alone, no transform, no offscreen pass,
+   * and nothing else on the screen is disturbed.
+   *
+   * Defaults to fade: it is the one that is safe everywhere, and a caption
+   * that quietly changes language does not need the more expensive gesture.
+   */
+  const flip = String(props.flip ?? "fade").toLowerCase();
+
   const [i, setI] = useState(0);
   const [flat, setFlat] = useState(false);
   // -1 = edge-on, arriving. 0 = facing. 1 = edge-on, leaving.
@@ -1025,6 +1044,9 @@ const FlipText = ({ props, style }: CompProps) => {
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled?.().then(setFlat).catch(() => {});
   }, []);
+  // Reduced motion and "fade" arrive at the same place by different roads:
+  // one is the reader's setting, the other the backend's.
+  const crossfade = flat || flip !== "turn";
 
   useEffect(() => {
     if (words.length < 2) return;
@@ -1063,7 +1085,7 @@ const FlipText = ({ props, style }: CompProps) => {
       style={[
         typeRole(theme, String(props.variant ?? "body"), legacyVariant(props.variant, theme)),
         style,
-        flat ? { opacity } : { opacity, transform: [{ perspective: 400 }, { rotateX }] },
+        crossfade ? { opacity } : { opacity, transform: [{ perspective: 400 }, { rotateX }] },
       ]}
       // The word is decorative motion around one piece of information; a
       // screen reader should hear the greeting once, not on every turn.

@@ -261,12 +261,16 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
               width: cardWidth,
               height: cardHeight,
               opacity,
-              // Kept alongside the paint order above, not instead of it.
-              // Both platforms honour zIndex for hit-testing and for the rare
-              // case where a parent re-orders; the sort is what guarantees the
-              // pixels. `elevation` is the Android half of the same statement.
+              // Kept alongside the paint order above, not instead of it. The
+              // sort guarantees the pixels; this governs hit-testing and the
+              // rare case where a parent re-orders.
+              //
+              // NO `elevation` HERE. It was added with the sort and had to come
+              // back out: on Android elevation does not only raise a view, it
+              // draws a shadow under it — so every side card gained a dark
+              // edge, cast toward the middle, which is exactly the artefact
+              // the sort was added to remove.
               zIndex: 100 - Math.abs(index - i),
-              elevation: 100 - Math.abs(index - i),
               transform: [
                 { perspective },
                 { translateX },
