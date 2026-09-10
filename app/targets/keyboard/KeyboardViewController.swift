@@ -1162,7 +1162,53 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   // MARK: - Mic / dictation
 
+  /// Whether the free words are gone — `kb.quota.exhausted` from the config.
+  ///
+  /// The 429 on the transcribe route is the authority and stays the backstop;
+  /// a config is cached and can be minutes stale. This exists because being
+  /// refused AFTER saying a sentence is a worse way to learn it than being
+  /// told when you reach for the button. Absent flag → false, so an anonymous
+  /// or old config behaves exactly as it always did.
+  private var wordsExhausted: Bool {
+    (kbConfig?.flags["kb.quota.exhausted"] as? Bool) ?? false
+  }
+
+  /// Send them to the screen that explains it, instead of opening the mic.
+  ///
+  /// The destination is named by the config (`kb.quota.screenId`), so it can
+  /// move without a keyboard build — same tombstone-plus-responder-chain path
+  /// the Flow arm uses, because it is the only way a keyboard opens its app.
+  private func openAppForWords() {
+    let screen = (kbConfig?.flags["kb.quota.screenId"] as? String) ?? "words_out"
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set("screen/\(screen)", forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
+    resetMicButtonAppearance()
+    guard hasFullAccess else {
+      // Without Full Access the keyboard cannot open its app, so the only
+      // honest thing left is to say what happened where they can read it.
+      setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
+                actionable: true)
+      return
+    }
+    setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
+              actionable: true)
+    attemptOpenApp(URL(string: "tulmi://s/\(screen)")) { [weak self] _, _ in
+      self?.resetMicButtonAppearance()
+    }
+  }
+
   @objc private func micTapped() {
+    // OUT OF WORDS — before anything else, and before the microphone opens.
+    //
+    // Every mic mode below ends in a request that would be refused, so the
+    // only question is whether the user finds out before or after speaking.
+    // A live session already running is left alone: stopping one mid-sentence
+    // to sell something is worse than letting the words already spoken land.
+    if wordsExhausted && !isStreaming && !isRecording && !flowRecording {
+      openAppForWords()
+      return
+    }
     // iOS blocks the microphone inside a keyboard extension, so the ONLY
     // reliable path is Flow (the background-audio session held by the main
     // app). An ABSENT or UNKNOWN kb.mic.mode must therefore resolve to "flow";

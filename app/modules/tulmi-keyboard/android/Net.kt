@@ -75,6 +75,19 @@ object Net {
          * `kb.accents.<char>`; missing = no menu for that key.
          */
         val accents: Map<String, List<Char>> = emptyMap(),
+        /**
+         * Whether the free words are gone — `kb.quota.exhausted`.
+         *
+         * The 429 on the transcribe route is the authority and stays the
+         * backstop; a config is cached and can be minutes stale. This is here
+         * because being refused AFTER saying a sentence is a worse way to
+         * learn it than being told when you reach for the button. Absent flag
+         * → false, so an anonymous or old config behaves as it always did.
+         */
+        val wordsExhausted: Boolean = false,
+        /** Where to send them when it is gone. Named by the backend so the
+         *  destination can move without a keyboard build. */
+        val quotaScreenId: String = "words_out",
     )
 
     fun parseConfig(s: String): KbConfig {
@@ -109,6 +122,9 @@ object Net {
             liveText = flags?.optBoolean("kb.mic.liveText", true) ?: true,
             labels = labels,
             accents = accents,
+            wordsExhausted = flags?.optBoolean("kb.quota.exhausted", false) ?: false,
+            quotaScreenId = flags?.optString("kb.quota.screenId", "words_out")
+                ?.ifEmpty { "words_out" } ?: "words_out",
         )
     }
 
