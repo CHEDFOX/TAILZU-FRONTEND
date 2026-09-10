@@ -30,11 +30,19 @@ import { Canvas, Fill, Shader, Skia } from "@shopify/react-native-skia";
 import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
 
-/** The palette. Two colours under lighting is the whole object; the third is
- *  the pale top of the shimmer ramp. */
+/**
+ * The palette, as a FALLBACK ONLY — the backend sends all three, and these are
+ * what draws if a bootstrap predates them.
+ *
+ * Two colours under lighting is the whole object; the third is the top of the
+ * shimmer ramp. That third one is a light amber rather than a cream: the
+ * shimmer washes over the bands and is the brightest part of the orb, so a
+ * peach there is what the eye names the colour by, and the object stops
+ * reading as one material lit and starts reading as amber with a cream sheen.
+ */
 const AMBER = "#E8A23C";
 const DEEP = "#4A1D08";
-const GOLD = "#FFDCA0";
+const GOLD = "#F8C879";
 
 /**
  * Resting level per state — what the orb does when nothing is driving it.
@@ -159,7 +167,7 @@ export const AuroraOrb = ({ node, props, store, style }: CompProps): React.React
 
   const c1 = useMemo(() => hexToVec(props?.tint ?? AMBER, [0.91, 0.64, 0.24]), [props?.tint]);
   const c2 = useMemo(() => hexToVec(props?.deep ?? DEEP, [0.29, 0.11, 0.03]), [props?.deep]);
-  const c3 = useMemo(() => hexToVec(props?.gold ?? GOLD, [1.0, 0.86, 0.63]), [props?.gold]);
+  const c3 = useMemo(() => hexToVec(props?.gold ?? GOLD, [0.97, 0.78, 0.47]), [props?.gold]);
 
   const levelKey = node.bind?.level;
   const stateKey = node.bind?.state;
