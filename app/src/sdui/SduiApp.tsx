@@ -3,7 +3,7 @@
  * server's navigation + screens, and runs the server's actions. The only
  * client-local screen is Connection (you need it to reach the server at all).
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -29,7 +29,8 @@ import { Store } from "./state";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
-import type { ActionSpec, BootstrapResponse, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
+import type { ActionSpec, BootstrapResponse, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
+import { hasSeenCard, markCardSeen } from "./launchCard";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
@@ -230,6 +231,10 @@ export default function SduiApp() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [showConnection, setShowConnection] = useState(false);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  // The launch card, once we know this install hasn't already seen it.
+  // Null until then, so a card never flashes and then vanishes on someone who
+  // dismissed it yesterday.
+  const [launchCard, setLaunchCard] = useState<LaunchCard | null>(null);
   // Whether the post-onboarding name + gender card is done. Default true so it
   // never flashes before we know.
   //
@@ -1209,6 +1214,26 @@ export default function SduiApp() {
   // dispatcher (so it uses the current nav + flags, not the initial ones).
   useEffect(() => { readyRef.current = phase === "ready"; }, [phase]);
 
+  // Decide about the launch card once the bootstrap has landed.
+  //
+  // Asked once per card id, not once per render: `repeat: "everyLaunch"` means
+  // every cold open, and this component mounts once per open, so the effect
+  // firing is the launch. A card is marked seen when it is PUT UP rather than
+  // when it is dismissed — a card that crashes or is killed mid-read has still
+  // been shown, and showing it again forever is worse than missing it once.
+  useEffect(() => {
+    const card = boot?.launchCard;
+    if (phase !== "ready" || !card?.id || !card.root) { setLaunchCard(null); return; }
+    let alive = true;
+    void (async () => {
+      if (card.repeat !== "everyLaunch" && (await hasSeenCard(card.id))) return;
+      if (!alive) return;
+      setLaunchCard(card);
+      void markCardSeen(card.id);
+    })();
+    return () => { alive = false; };
+  }, [phase, boot?.launchCard]);
+
   // DROP THE SPLASH once there is a PICTURE under it, and not a moment before.
   //
   // index.ts holds it at launch. Three moments were candidates for letting go,
@@ -1647,6 +1672,90 @@ export default function SduiApp() {
           theme={theme}
         />
       )}
+
+      {/* The card the app opens with, LAST in the list and last in the queue.
+          Everything above it is something the user must deal with — signing
+          in, an update, the name they still owe us — and an announcement that
+          talks over any of those is an announcement nobody reads. */}
+      {launchCard && !updateForced && !updateOptional
+        && !(!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags)) && (
+        <LaunchCardOverlay
+          card={launchCard}
+          nav={nav}
+          flags={boot?.flags ?? {}}
+          labels={boot?.labels ?? {}}
+          toast={showToast}
+          onClose={() => setLaunchCard(null)}
+        />
+      )}
+    </View>
+  );
+}
+
+/**
+ * The card the app opens with — whatever the backend put in `launchCard`.
+ *
+ * This is the entire app-side of the feature, and it is deliberately thin: a
+ * sheet, a scrim, and the ordinary renderer pointed at a node tree the server
+ * wrote. Every card after this one is a backend change and nothing else.
+ *
+ * THE NAV IS THE TRICK. A card's button carries an ordinary `navigate` — the
+ * same action any button anywhere carries — so nothing in the tree has to
+ * know it is inside a card. The nav handed to it closes the card first and
+ * then does the real thing, which is what stops a card being left hanging
+ * over the screen it just sent you to. `dismiss` maps to nav.back, so inside
+ * a card that is simply "close", with no separate action kind to learn.
+ */
+function LaunchCardOverlay({
+  card,
+  nav,
+  flags,
+  labels,
+  toast,
+  onClose,
+}: {
+  card: LaunchCard;
+  nav: NavApi;
+  flags: Record<string, any>;
+  labels: Record<string, string>;
+  toast: (m: string, tone?: string) => void;
+  onClose: () => void;
+}) {
+  const theme = useContext(ThemeContext)!;
+  const store = useMemo(() => new Store({}), [card.id]);
+  const cardNav: NavApi = useMemo(() => ({
+    push: (s, p) => { onClose(); nav.push(s, p); },
+    replace: (s, p) => { onClose(); nav.replace(s, p); },
+    // Inside a card, "back" is "close the card".
+    back: onClose,
+    switchTab: (t) => { onClose(); nav.switchTab(t); },
+    reloadCurrent: nav.reloadCurrent,
+    refreshLocale: nav.refreshLocale,
+  }), [nav, onClose]);
+  const ctx: Ctx = useMemo(
+    () => ({ store, actions: {}, flags, labels, nav: cardNav, toast }),
+    [store, flags, labels, cardNav, toast],
+  );
+
+  return (
+    <View style={[StyleSheet.absoluteFill, {
+      alignItems: "center", justifyContent: "center", padding: 24,
+    }]}>
+      <Pressable
+        style={[StyleSheet.absoluteFill, { backgroundColor: card.backdrop ?? "rgba(4,4,6,0.72)" }]}
+        onPress={card.dismissOnBackdrop === false ? undefined : onClose}
+        accessibilityRole="button"
+        accessibilityLabel={labels["action.dismiss"] ?? "Dismiss"}
+      />
+      <View style={[
+        {
+          backgroundColor: theme.color.card, borderRadius: theme.radius.card,
+          padding: 24, width: "100%", maxWidth: 360,
+        },
+        card.sheet as any,
+      ]}>
+        <RenderNode node={card.root} ctx={ctx} />
+      </View>
     </View>
   );
 }
