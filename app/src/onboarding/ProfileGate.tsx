@@ -26,6 +26,8 @@ import Svg, { Circle, Line, Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { getAuthName, setProfileDone } from "../storage";
 import { callEndpoint } from "../sdui/client";
+import { typeRole } from "../sdui/components";
+import type { ThemeTokens } from "../sdui/types";
 
 const WHITE = "#FFFFFF";
 const MUTED = "rgba(255,255,255,0.42)";
@@ -66,7 +68,12 @@ function GenderGlyph({ type, color, size = 28 }: { type: Gender; color: string; 
   );
 }
 
-export default function ProfileGate({ onDone, mediaUri }: { onDone: () => void; mediaUri?: string }) {
+export default function ProfileGate({ onDone, mediaUri, theme }: {
+  onDone: () => void;
+  mediaUri?: string;
+  /** Bootstrap theme — the card's type comes from its scale. */
+  theme?: ThemeTokens | null;
+}) {
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender | null>(null);
   const [saving, setSaving] = useState(false);
@@ -125,10 +132,10 @@ export default function ProfileGate({ onDone, mediaUri }: { onDone: () => void; 
             </>
           ) : null}
 
-          <Text style={styles.hello}>Hello,</Text>
+          <Text style={[theme ? typeRole(theme, "profileHello", styles.hello) : styles.hello, { color: ORANGE }]}>Hello,</Text>
 
           <TextInput
-            style={styles.nameInput}
+            style={[styles.nameBox, theme ? typeRole(theme, "profileName", styles.nameInput) : styles.nameInput, { color: WHITE }]}
             value={name}
             onChangeText={setName}
             placeholder="Your Name"
@@ -148,7 +155,7 @@ export default function ProfileGate({ onDone, mediaUri }: { onDone: () => void; 
                   <View style={[styles.genderCircle, selected && styles.genderCircleOn]}>
                     <GenderGlyph type={g.key} color={selected ? "#000" : MUTED} />
                   </View>
-                  <Text style={[styles.genderLabel, selected && { color: WHITE }]}>{g.label}</Text>
+                  <Text style={[theme ? typeRole(theme, "profileLabel", styles.genderLabel) : styles.genderLabel, { color: selected ? WHITE : MUTED }]}>{g.label}</Text>
                 </Pressable>
               );
             })}
@@ -159,7 +166,7 @@ export default function ProfileGate({ onDone, mediaUri }: { onDone: () => void; 
             disabled={!canContinue || saving}
             style={[styles.cta, { opacity: canContinue && !saving ? 1 : 0.4 }]}
           >
-            <Text style={styles.ctaText}>{saving ? "…" : "Go"}</Text>
+            <Text style={[theme ? typeRole(theme, "profileAction", styles.ctaText) : styles.ctaText, { color: "#000" }]}>{saving ? "…" : "Go"}</Text>
           </Pressable>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -174,8 +181,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(14,14,18,0.92)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.14)",
     alignItems: "center", overflow: "hidden",
   },
-  hello: { color: ORANGE, fontSize: 32, fontWeight: "700", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "serif" }), marginBottom: 18 },
-  nameInput: { width: "100%", textAlign: "center", color: WHITE, fontSize: 22, fontWeight: "300", paddingVertical: 6 },
+  // Pre-bootstrap copies of the roles. The theme's scale replaces them the
+  // moment it has landed — which, for this card, is always.
+  hello: { fontSize: 32, fontWeight: "700", fontFamily: Platform.select({ ios: "Georgia", android: "serif", default: "serif" }), marginBottom: 18 },
+  nameBox: { width: "100%", paddingVertical: 6 },
+  nameInput: { textAlign: "center", fontSize: 22, fontWeight: "300" },
   nameUnderline: { width: 160, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(255,255,255,0.25)", marginTop: 2, marginBottom: 34 },
   genderRow: { flexDirection: "row", justifyContent: "center", gap: 26, marginBottom: 38 },
   genderItem: { alignItems: "center", gap: 8 },
@@ -184,7 +194,7 @@ const styles = StyleSheet.create({
     borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.03)",
   },
   genderCircleOn: { backgroundColor: WHITE, borderColor: WHITE },
-  genderLabel: { color: MUTED, fontSize: 12, fontWeight: "400" },
+  genderLabel: { fontSize: 12, fontWeight: "400" },
   cta: { alignSelf: "center", minWidth: 110, height: 50, borderRadius: 25, paddingHorizontal: 36, backgroundColor: WHITE, alignItems: "center", justifyContent: "center" },
-  ctaText: { color: "#000", fontSize: 16, fontWeight: "700" },
+  ctaText: { fontSize: 16, fontWeight: "700" },
 });

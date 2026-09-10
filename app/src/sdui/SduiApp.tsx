@@ -24,7 +24,7 @@ import {
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
-import { ThemeContext } from "./components";
+import { ThemeContext, typeRole } from "./components";
 import { Store } from "./state";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
@@ -1396,6 +1396,7 @@ export default function SduiApp() {
         bg={boot?.theme?.color?.bg}
         text={boot?.theme?.color?.text}
         borderColor={boot?.theme?.color?.border}
+        theme={boot?.theme}
       />
     );
   }
@@ -1452,12 +1453,12 @@ export default function SduiApp() {
         <View style={styles.header}>
           {canGoBack ? (
             <Pressable onPress={nav.back} hitSlop={10}>
-              <Text style={[styles.headerIcon, { color: theme.color.text }]}>‹</Text>
+              <Text style={[typeRole(theme, "headerIcon", styles.headerIcon), { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
-            <Text style={[styles.brand, { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
+            <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
           )}
-          {canGoBack && <Text style={[styles.brand, { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{shown?.title ?? ""}</Text>}
+          {canGoBack && <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{shown?.title ?? ""}</Text>}
           {/* Settings gear — top-right on the tab roots (Home / You). Opens the
               Settings screen (pushed, with a back arrow). Replaces the old dev
               "Connection" entry, and stands in for the removed Settings tab.
@@ -1497,17 +1498,17 @@ export default function SduiApp() {
           // Retry button. The old behavior showed a spinner or nothing at
           // all, which read as "the app is broken."
           <View style={[styles.center, { paddingHorizontal: 24 }]}>
-            <Text style={{ color: theme.color.text, fontSize: 18, fontWeight: "700", marginBottom: 8 }}>
+            <Text style={typeRole(theme, "errorTitle", { color: theme.color.text, fontSize: 18, fontWeight: "700", marginBottom: 8 })}>
               {boot?.labels?.["error.screenTitle"] ?? "Couldn't load this screen"}
             </Text>
-            <Text style={{ color: theme.color.muted, textAlign: "center", marginBottom: 20 }}>
+            <Text style={typeRole(theme, "errorBody", { color: theme.color.muted, textAlign: "center", marginBottom: 20 })}>
               {screenError}
             </Text>
             <Pressable
               onPress={() => setReload((n) => n + 1)}
               style={{ backgroundColor: theme.color.primary, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 28 }}
             >
-              <Text style={{ color: theme.color.bg, fontWeight: "700" }}>
+              <Text style={[typeRole(theme, "errorAction", { fontWeight: "700" }), { color: theme.color.bg }]}>
                 {boot?.labels?.["action.retry"] ?? "Retry"}
               </Text>
             </Pressable>
@@ -1529,7 +1530,7 @@ export default function SduiApp() {
               paddingVertical: 10, alignItems: "center",
             }}
           >
-            <Text style={{ color: theme.color.errorBannerText ?? "#fff", fontWeight: "600" }}>
+            <Text style={[typeRole(theme, "banner", { fontWeight: "600" }), { color: theme.color.errorBannerText ?? "#fff" }]}>
               {boot?.labels?.["error.refreshBanner"] ?? "Couldn't refresh — tap to retry"}
             </Text>
           </Pressable>
@@ -1604,7 +1605,7 @@ export default function SduiApp() {
           : toast.tone === "success" ? (theme.color.toastSuccess ?? "#13301a")
           :                            (theme.color.toastInfo    ?? "#1c1c25"),
         }]}>
-          <Text style={{ color: theme.color.toastText ?? "#fff" }}>{toast.message}</Text>
+          <Text style={[typeRole(theme, "toast"), { color: theme.color.toastText ?? "#fff" }]}>{toast.message}</Text>
         </View>
       )}
 
@@ -1643,6 +1644,7 @@ export default function SduiApp() {
             }
           }}
           mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
+          theme={theme}
         />
       )}
     </View>
@@ -1695,23 +1697,23 @@ function UpdateGateOverlay({
       backgroundColor: theme.color.updateOverlay ?? "rgba(8,8,12,0.96)",
       alignItems: "center", justifyContent: "center", padding: 28,
     }]}>
-      <Text style={{ color: theme.color.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 10 }}>
+      <Text style={typeRole(theme, "updateTitle", { color: theme.color.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 10 })}>
         {info.title ?? labels["updateGate.title"] ?? "Update available"}
       </Text>
-      <Text style={{ color: theme.color.muted, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 22 }}>
+      <Text style={typeRole(theme, "updateBody", { color: theme.color.muted, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 22 })}>
         {info.message ?? labels["updateGate.message"] ?? "A new version is available."}
       </Text>
       <Pressable
         onPress={() => storeUrl && Linking.openURL(storeUrl)}
         style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: 200, alignItems: "center" }}
       >
-        <Text style={{ color: theme.color.primaryText ?? "#fff", fontWeight: "700", fontSize: 15 }}>
+        <Text style={[typeRole(theme, "updateAction", { fontWeight: "700", fontSize: 15 }), { color: theme.color.primaryText ?? "#fff" }]}>
           {info.cta ?? labels["updateGate.cta"] ?? "Update now"}
         </Text>
       </Pressable>
       {!forced && (
         <Pressable onPress={onDismiss} style={{ marginTop: 14 }}>
-          <Text style={{ color: theme.color.muted }}>
+          <Text style={typeRole(theme, "updateLater", { color: theme.color.muted })}>
             {labels["updateGate.dismiss"] ?? "Not now"}
           </Text>
         </Pressable>
