@@ -18,7 +18,14 @@ export interface ThemeTokens {
 }
 
 export type NavigationShell =
-  | { kind: "tabs"; tabs: Array<{ id: string; title: string; icon?: string; screenId: string }> }
+  | {
+      kind: "tabs";
+      tabs: Array<{ id: string; title: string; icon?: string; screenId: string }>;
+      /** Which tab to open on. Absent means the first, which is what this did
+       *  before the field existed. Decided server-side because it depends on
+       *  whether this person has ever reached the tabs before. */
+      initialTabId?: string;
+    }
   | { kind: "stack"; rootScreenId: string };
 
 export interface UpdateGate {
