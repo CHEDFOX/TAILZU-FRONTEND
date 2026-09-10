@@ -1191,6 +1191,7 @@ import KeyboardPreview from "./KeyboardPreview";
 import { MorphOut } from "./MorphOut";
 import { WordMeter } from "./WordMeter";
 import { AuroraOrb } from "./AuroraOrb";
+import { PieChart } from "./PieChart";
 
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
@@ -1200,6 +1201,6 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
-  KeyboardPreview, MorphOut, WordMeter,
+  KeyboardPreview, MorphOut, WordMeter, PieChart,
   ...REGISTRY_V3,
 };
