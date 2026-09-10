@@ -28,11 +28,18 @@
  *     "on": { "onSelect": "openCard", "onChange": "noteCentred" },
  *     "children": [ …one node per card… ] }
  *
- * onSelect fires with the index as `$event` when a card is CHOSEN — tapped, or
- * tapped after being brought to the middle. onChange fires with the index
- * whenever a different card ARRIVES in the middle, however it got there. They
- * are separate because the deck's backdrop follows the middle card and must
- * change while the finger is still moving, whereas opening a screen must not.
+ * ONE TAP TO LOOK, ONE TO ENTER. A tap on a side card brings it to the middle
+ * and stops there; only a tap on the card already in the middle chooses it. A
+ * side card is turned away, shrunk and half-covered by its neighbours, so what
+ * your thumb lands on is not what you were looking at — and a tap that opens
+ * that is a tap you have to undo. Set `tapToCentre` false to go back to any
+ * tap opening.
+ *
+ * onSelect fires with the index as `$event` when a card is CHOSEN. onChange
+ * fires with the index whenever a different card ARRIVES in the middle,
+ * however it got there. They are separate because the deck's backdrop follows
+ * the middle card and must change while the finger is still moving, whereas
+ * opening a screen must not.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, PanResponder, View } from "react-native";
@@ -67,6 +74,21 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
   const mass = Number(props?.mass) || 0.9;
   /** How far a flick is projected when choosing where to land, in cards. */
   const throwFactor = props?.throwFactor !== undefined ? Number(props.throwFactor) : 0.9;
+  /**
+   * A TAP ON A SIDE CARD BRINGS IT IN; IT DOES NOT OPEN IT.
+   *
+   * Side cards are turned away, shrunk and half-covered by their neighbours, so
+   * the thing you tap is not the thing you were looking at — and a tap that
+   * opens whatever your thumb happened to land on is a tap you have to undo.
+   * Centring first makes the card face you before it becomes a decision: one
+   * tap to look, one to enter, and the second tap is on a card that is now
+   * fully visible.
+   *
+   * Backend-controlled, because "does a tap commit" is a feel question and
+   * the answer should be changeable without a release. false restores the old
+   * behaviour, where any tap opens.
+   */
+  const tapToCentre = props?.tapToCentre !== undefined ? !!props.tapToCentre : true;
 
   /**
    * WHERE THE DECK WAS LEFT.
@@ -149,8 +171,21 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
         if (moved.current <= 6) {
           const fromCentre = (g.x0 - width.current / 2) / step;
           const i = Math.max(0, Math.min(n - 1, Math.round(posNow.current + fromCentre)));
+          // Which card is centred RIGHT NOW. Rounded off the live position
+          // rather than a stored index, so a tap during a settle is judged
+          // against where the deck is actually going to stop.
+          const centred = Math.max(0, Math.min(n - 1, Math.round(posNow.current)));
           settle(i);
-          Haptics.selectionAsync().catch(() => {});
+          if (tapToCentre && i !== centred) {
+            // Bringing a card in is a move, not a choice. Selection feedback,
+            // and onChange will fire from the settle as it arrives.
+            Haptics.selectionAsync().catch(() => {});
+            return;
+          }
+          // Committing. A firmer tick than the centring one, so the two taps
+          // do not feel identical — that difference is what teaches the
+          // gesture without a hint on screen.
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
           fire("onSelect", i);
           return;
         }
