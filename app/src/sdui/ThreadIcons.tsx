@@ -80,6 +80,9 @@ const STROKE_WAVE_IDLE = 3.1;
 const STROKE_WAVE_ON = 4.1;
 const STROKE_OUTLINE = 1.7;
 const STROKE_THREAD = 1.8;
+/** Thinner than the thread it replaces: three ticks at thread weight close the
+ *  gaps between them and the coil becomes a bar. */
+const STROKE_COIL = 1.4;
 
 /**
  * TRAIN — the product itself, in one stroke.
@@ -154,7 +157,24 @@ const YOU_NODES = [
   "M23.6 14.9 H27.62 A1.38 1.38 0 0 1 29 16.28 V20.3 A1.38 1.38 0 0 1 27.62 21.68 H23.6 A1.38 1.38 0 0 1 22.22 20.3 V16.28 A1.38 1.38 0 0 1 23.6 14.9 Z",
   "M4.38 20.88 H8.4 A1.38 1.38 0 0 1 9.78 22.26 V26.28 A1.38 1.38 0 0 1 8.4 27.66 H4.38 A1.38 1.38 0 0 1 3 26.28 V22.26 A1.38 1.38 0 0 1 4.38 20.88 Z",
 ];
-const YOU_THREADS = "M9.78 22.64 L11.25 11.12 M16.4 9.36 L23.17 16.39";
+const YOU_THREAD = "M9.78 22.64 L11.25 11.12";
+
+/**
+ * THE COIL, on the one thread that carries it in the app icon.
+ *
+ * The mark stitches the run between its top node and its right node and leaves
+ * the other thread plain. No tab icon had ever carried that, so the icon was
+ * the mark's arrangement without the mark's most particular detail.
+ *
+ * Three ticks, and three is not a style choice. A whole tab set was drawn in
+ * this coil — the wave stitched, the bars stitched — and rendered at 26pt it
+ * came back as blocks: a coil needs air between its ticks to read as a coil,
+ * and at that size there is room for air OR for enough ticks, never both. This
+ * diagonal is the longest uninterrupted run in the set, which is the only
+ * reason three fit here with light between them.
+ */
+const YOU_COIL =
+  "M19.62 9.17 L16.1 12.43 M21.55 11.24 L18.02 14.5 M23.47 13.32 L19.95 16.58";
 
 /** The one that stays solid. */
 const YOU_LIT = 1;
@@ -163,7 +183,8 @@ export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { non
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d={YOU_THREADS} stroke={c} strokeWidth={STROKE_THREAD} strokeLinecap="round" fill="none" />
+      <Path d={YOU_THREAD} stroke={c} strokeWidth={STROKE_THREAD} strokeLinecap="round" fill="none" />
+      <Path d={YOU_COIL} stroke={c} strokeWidth={STROKE_COIL} strokeLinecap="round" fill="none" />
       {YOU_NODES.map((d, i) => {
         const filled = active || i === YOU_LIT;
         return (
