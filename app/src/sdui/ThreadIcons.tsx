@@ -1,23 +1,28 @@
 /**
  * Tab icons.
  *
- * Three previous sets failed, each for a different reason worth keeping:
- * a wound brain and a fingerprint that rendered as a leaf and a wifi glyph;
- * a speech bubble and a line chart, legible but interchangeable with any app
- * on the phone; and then a set drawn in the right spirit but by eye, with
- * capsule corners the brand does not use.
+ * FIVE sets were drawn and rejected before this one, and the reasons are the
+ * design:
  *
- * This set is measured off the app icon rather than guessed at. The numbers
- * below came from reading assets/icon.png directly, and they are the whole
- * argument for why these shapes look like they belong to this product:
+ *   a wound brain and a fingerprint       rendered as a leaf and a wifi glyph
+ *   a speech bubble and a line chart      legible, and any app's
+ *   bars with the brand's corner radius   still a bar chart wearing a hat
+ *   the whole set drawn in the coil       blocks at 26pt; a coil needs air
+ *   knots, spools, spirals, rulers        combs, batteries, and twice a person
  *
- *   node side          4.3 of a 32 grid
- *   corner radius      0.204 of the side   (the earlier set used 0.68 — capsules)
- *   node positions     (9.9, 8.6) (17.9, 15.3) (5.7, 19.1)
+ * Two rules came out of that and they hold everything below together. At tab
+ * size a closed round form becomes a face, and a row of repeated ticks becomes
+ * a comb — so neither appears here. And an icon set is a system or it is three
+ * pictures: these are three things you can do to ONE material.
  *
- * The mark is nodes threaded on a line, arranged asymmetrically. That is the
- * only shape language this product has, so all three icons are built from it,
- * and each is a different thing that vocabulary can do.
+ *   TRAIN  the thread passes THROUGH the node       your voice going in
+ *   STATS  one thread FOLDED until it is cloth      how much you have made
+ *   YOU    the label                                whose it is
+ *
+ * The silhouettes deliberately differ in axis — diagonal, horizontal, a solid
+ * shape — because a tab bar is read peripherally and outline is all that
+ * survives. The node keeps the mark's measured 0.204 corner radius, taken off
+ * assets/icon.png, so the vocabulary is still the app icon's.
  */
 import React, { useEffect, useId, useMemo, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
@@ -62,139 +67,103 @@ function Frame({ active, nonce, size, children }: {
 }
 
 /**
- * WEIGHT.
- *
- * Each icon was rasterised at 256px and its ink counted as a share of the box,
- * because a stroke and a filled shape do not read as equal at equal numbers and
- * squinting will not tell you by how much. The first pass had the wave at half
- * the bars' coverage, which is exactly why it looked thin next to them.
- *
- *   idle      train 10.1%   stats 13.0%   you 12.8%
- *   selected  train 17.0%   stats 17.3%   you 16.5%
- *
- * Selected differs in KIND, because the shapes do: an open stroke cannot be
- * filled, so the wave thickens; closed shapes fill. The wave's stroke stops at
- * 4.1 — past that its own swings start to merge, and the icon becomes a smear.
+ * Selected differs in KIND, because the shapes do: an open stroke thickens, a
+ * closed shape fills. Only two closed shapes exist here — the node and the tag
+ * — so only two things ever fill, and the bar never lights up all at once.
  */
-const STROKE_WAVE_IDLE = 3.1;
-const STROKE_WAVE_ON = 4.1;
-const STROKE_OUTLINE = 1.7;
-const STROKE_THREAD = 1.8;
-/** Thinner than the thread it replaces: three ticks at thread weight close the
- *  gaps between them and the coil becomes a bar. */
-const STROKE_COIL = 1.4;
+const STROKE_NODE = 2.0;
+const STROKE_TAG = 1.7;
 
 /**
- * TRAIN — the product itself, in one stroke.
+ * TRAIN — the thread passes through the node.
  *
- * A single unbroken thread that starts as speech and ends as a ruled line.
- * That IS what the app does: you talk, and what comes out is finished writing.
+ * Not a waveform. Every voice app has a waveform, and the one that shipped here
+ * was the fourth version of the same generic idea. This is the needle's actual
+ * job: something goes in one side and comes out the other changed, which is
+ * also the only sentence this product needs.
  *
- * One cubic per half-period, control points at 4/3 of the amplitude, because a
- * cubic sits at 3/4 of its control offset at the midpoint — so the crest lands
- * exactly on 7.6 and 4.4 rather than wherever a hand-placed curve wandered to.
- * Two swings, not four: the half-period has to stay wider than twice the stroke
- * or the curve collides with itself, and at 26pt the collision is the only
- * thing you see.
+ * The thread breaks at the node rather than crossing it, so the node reads as
+ * something the thread went THROUGH and not as a bead sitting on top of it.
  */
-const TRAIN_WAVE =
-  "M3.2 16 C5.87 5.87 8.53 5.87 11.2 16 C13.87 21.87 16.53 21.87 19.2 16 L28.4 16";
+const TRAIN_NODE =
+  "M13.16 11.2 H18.84 A1.96 1.96 0 0 1 20.8 13.16 V18.84 A1.96 1.96 0 0 1 18.84 20.8 " +
+  "H13.16 A1.96 1.96 0 0 1 11.2 18.84 V13.16 A1.96 1.96 0 0 1 13.16 11.2 Z";
+const TRAIN_THREAD = "M3.2 25.8 L11.6 18.0 M20.4 14.0 L28.8 6.2";
 
 export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d={TRAIN_WAVE} stroke={c} fill="none" strokeLinecap="round"
-        strokeWidth={active ? STROKE_WAVE_ON : STROKE_WAVE_IDLE} />
+      <Path d={TRAIN_THREAD} fill="none" stroke={c} strokeLinecap="round"
+        strokeWidth={active ? 2.7 : 2.2} />
+      <Path d={TRAIN_NODE}
+        fill={active ? c : "none"}
+        stroke={active ? undefined : c}
+        strokeWidth={active ? undefined : STROKE_NODE}
+        strokeLinejoin="round" />
     </Frame>
   );
 }
 
 /**
- * STATS — the node, three times, rising off one baseline.
+ * STATS — one thread, folded until it is cloth.
  *
- * A chart drawn with the mark's own rounded square instead of plain rectangles,
- * so it reads as this product's chart rather than a chart. The radius is the
- * tell and it costs nothing at any size. All three stand on 25.4, because a
- * chart whose bars do not share a baseline is not a chart.
+ * A serpentine, not stacked bars: it is a single unbroken line that turns at
+ * alternating ends, the way folded fabric actually lies. That is what the
+ * screen counts — how much you have made — without borrowing the bar chart
+ * every other app ships.
+ *
+ * FOUR rows, not three. With three the line has two turns and reads as the
+ * numeral 2; the fourth turn is what makes it material instead of a glyph.
  */
-const STATS_BARS = [
-  "M6.05 19.2 H8.95 A1 1 0 0 1 9.95 20.2 V24.4 A1 1 0 0 1 8.95 25.4 H6.05 A1 1 0 0 1 5.05 24.4 V20.2 A1 1 0 0 1 6.05 19.2 Z",
-  "M14.55 13.3 H17.45 A1 1 0 0 1 18.45 14.3 V24.4 A1 1 0 0 1 17.45 25.4 H14.55 A1 1 0 0 1 13.55 24.4 V14.3 A1 1 0 0 1 14.55 13.3 Z",
-  "M23.05 6.8 H25.95 A1 1 0 0 1 26.95 7.8 V24.4 A1 1 0 0 1 25.95 25.4 H23.05 A1 1 0 0 1 22.05 24.4 V7.8 A1 1 0 0 1 23.05 6.8 Z",
-];
+const STATS_FOLD =
+  "M4.6 7.6 H23 A2.8 2.8 0 0 1 23 13.2 H9 A2.8 2.8 0 0 0 9 18.8 " +
+  "H24 A2.8 2.8 0 0 1 24 24.4 H5.6";
 
 export function ThreadStats({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      {STATS_BARS.map((d, i) => (
-        <Path key={i} d={d}
-          fill={active ? c : "none"}
-          stroke={active ? undefined : c}
-          strokeWidth={active ? undefined : STROKE_OUTLINE}
-          strokeLinejoin="round" />
-      ))}
+      <Path d={STATS_FOLD} fill="none" stroke={c} strokeLinecap="round"
+        strokeWidth={active ? 2.5 : 2.0} />
     </Frame>
   );
 }
 
 /**
- * YOU — the mark itself, with one node lit.
+ * YOU — the label.
  *
- * Not a triangle of nodes, which is what the last version drew and which read
- * as a git branch. These are the app icon's own three positions and its own
- * angles, scaled up to fill the box: a steep thread from the low node to the
- * high one, then a long diagonal down to the third. That asymmetry is the whole
- * silhouette, and nothing else on the phone has it.
+ * A tailor's label is the thing inside a garment that says whose it is, which
+ * is exactly what this tab holds: your voices, your words, your keys, your
+ * languages. It is also the only solid shape in the set, which is what makes
+ * it findable at the far right of the bar without reading anything.
  *
- * The middle node is solid in both states. Which node is lit is the icon's
- * identity, not its state — the tab holds four things that are yours, and you
- * are picking between them. Selecting the tab lights the other two.
+ * Earlier attempts at "yours" were a knot and a wound loop. Both came back as
+ * a person — a head over two legs — because at this size any closed round form
+ * on a stem does. A tag has a corner cut off it and cannot.
  */
-const YOU_NODES = [
-  "M11 4.34 H15.02 A1.38 1.38 0 0 1 16.4 5.72 V9.74 A1.38 1.38 0 0 1 15.02 11.12 H11 A1.38 1.38 0 0 1 9.62 9.74 V5.72 A1.38 1.38 0 0 1 11 4.34 Z",
-  "M23.6 14.9 H27.62 A1.38 1.38 0 0 1 29 16.28 V20.3 A1.38 1.38 0 0 1 27.62 21.68 H23.6 A1.38 1.38 0 0 1 22.22 20.3 V16.28 A1.38 1.38 0 0 1 23.6 14.9 Z",
-  "M4.38 20.88 H8.4 A1.38 1.38 0 0 1 9.78 22.26 V26.28 A1.38 1.38 0 0 1 8.4 27.66 H4.38 A1.38 1.38 0 0 1 3 26.28 V22.26 A1.38 1.38 0 0 1 4.38 20.88 Z",
-];
-const YOU_THREAD = "M9.78 22.64 L11.25 11.12";
+const YOU_TAG =
+  "M13.4 5.2 H24.6 A2.4 2.4 0 0 1 27 7.6 V18.8 A2.4 2.4 0 0 1 26.3 20.5 " +
+  "L20.5 26.3 A2.4 2.4 0 0 1 18.8 27 H7.6 A2.4 2.4 0 0 1 5.2 24.6 " +
+  "V13.4 A2.4 2.4 0 0 1 5.9 11.7 L11.7 5.9 A2.4 2.4 0 0 1 13.4 5.2 Z";
+const YOU_HOLE = "M19.3 10.5 A2.15 2.15 0 1 1 23.6 10.5 A2.15 2.15 0 1 1 19.3 10.5 Z";
 
-/**
- * THE COIL, on the one thread that carries it in the app icon.
- *
- * The mark stitches the run between its top node and its right node and leaves
- * the other thread plain. No tab icon had ever carried that, so the icon was
- * the mark's arrangement without the mark's most particular detail.
- *
- * Three ticks, and three is not a style choice. A whole tab set was drawn in
- * this coil — the wave stitched, the bars stitched — and rendered at 26pt it
- * came back as blocks: a coil needs air between its ticks to read as a coil,
- * and at that size there is room for air OR for enough ticks, never both. This
- * diagonal is the longest uninterrupted run in the set, which is the only
- * reason three fit here with light between them.
- */
-const YOU_COIL =
-  "M19.62 9.17 L16.1 12.43 M21.55 11.24 L18.02 14.5 M23.47 13.32 L19.95 16.58";
-
-/** The one that stays solid. */
-const YOU_LIT = 1;
-
-export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
+export function ThreadYou({ active, color, size = 26, nonce = 0, holeColor = "#000000" }:
+  Props & { nonce?: number; holeColor?: string }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d={YOU_THREAD} stroke={c} strokeWidth={STROKE_THREAD} strokeLinecap="round" fill="none" />
-      <Path d={YOU_COIL} stroke={c} strokeWidth={STROKE_COIL} strokeLinecap="round" fill="none" />
-      {YOU_NODES.map((d, i) => {
-        const filled = active || i === YOU_LIT;
-        return (
-          <Path key={i} d={d}
-            fill={filled ? c : "none"}
-            stroke={filled ? undefined : c}
-            strokeWidth={filled ? undefined : STROKE_OUTLINE}
-            strokeLinejoin="round" />
-        );
-      })}
+      <Path d={YOU_TAG}
+        fill={active ? c : "none"}
+        stroke={active ? undefined : c}
+        strokeWidth={active ? undefined : STROKE_TAG}
+        strokeLinejoin="round" />
+      {/* Punched, not drawn: when the tag is solid the hole has to be the bar
+          behind it, or it stops being a hole and becomes a dot. */}
+      <Path d={YOU_HOLE}
+        fill={active ? holeColor : "none"}
+        stroke={active ? undefined : c}
+        strokeWidth={active ? undefined : STROKE_TAG} />
     </Frame>
   );
 }
@@ -203,14 +172,16 @@ export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { non
  * Pick an icon for a tab. Matched on the tab id the backend sends, with the
  * title as a fallback, so renaming a tab's label never blanks its icon.
  */
-export function TabThreadIcon({ id, title, active, color, nonce }: {
+export function TabThreadIcon({ id, title, active, color, nonce, surface }: {
   id: string; title?: string; active: boolean; color: string; nonce: number;
+  /** The bar's own background. The tag's hole is punched in it, so it has to be
+   *  the real surface colour and not a guess at black. */
+  surface?: string;
 }) {
   const k = `${id} ${title ?? ""}`.toLowerCase();
   if (k.includes("train")) return <ThreadTrain active={active} color={color} nonce={nonce} />;
   if (k.includes("stat")) return <ThreadStats active={active} color={color} nonce={nonce} />;
-  if (k.includes("you") || k.includes("home")) return <ThreadYou active={active} color={color} nonce={nonce} />;
-  return <ThreadYou active={active} color={color} nonce={nonce} />;
+  return <ThreadYou active={active} color={color} nonce={nonce} holeColor={surface} />;
 }
 
 /**

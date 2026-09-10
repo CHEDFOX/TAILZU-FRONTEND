@@ -1572,6 +1572,7 @@ export default function SduiApp() {
                   active={active}
                   color={theme.color.muted}
                   nonce={tabPluck}
+                  surface={theme.color.surface}
                 />
               </Pressable>
             );
