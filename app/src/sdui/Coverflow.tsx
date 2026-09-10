@@ -203,7 +203,28 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
       onLayout={(e) => { width.current = e.nativeEvent.layout.width; }}
       style={[{ alignItems: "center", justifyContent: "center" }, style]}
     >
-      {cards.map((card, i) => {
+      {cards
+        // FARTHEST FIRST, THE MIDDLE CARD LAST.
+        //
+        // zIndex was already set and was not enough. These cards are 3D
+        // transformed — a perspective, a Y rotation and a translateZ each —
+        // and once a view is transformed in 3D its near edge can project in
+        // front of a sibling that sits behind it in z. The side cards are
+        // turned TOWARD the viewer, so the edge nearest the middle is their
+        // closest point, and it was landing on top of the card it is meant to
+        // sit behind.
+        //
+        // Paint order is the thing neither platform argues with: later
+        // siblings draw over earlier ones, full stop. Sorting by distance from
+        // the centre means the middle card is always drawn last and can never
+        // be overlapped, whatever the transforms do.
+        //
+        // `map` first so `sort` mutates a copy, and `key` stays the ORIGINAL
+        // index, so React keeps each card's identity as the order changes and
+        // nothing inside them remounts on every throw.
+        .map((card, i) => ({ card, i }))
+        .sort((a, b) => Math.abs(index - b.i) - Math.abs(index - a.i))
+        .map(({ card, i }) => {
         // Linear in `pos`, so one interpolation is exact at every distance
         // rather than only near the middle.
         const translateX = pos.interpolate({
@@ -240,8 +261,12 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
               width: cardWidth,
               height: cardHeight,
               opacity,
-              // The middle card is nearest, so it must draw last.
+              // Kept alongside the paint order above, not instead of it.
+              // Both platforms honour zIndex for hit-testing and for the rare
+              // case where a parent re-orders; the sort is what guarantees the
+              // pixels. `elevation` is the Android half of the same statement.
               zIndex: 100 - Math.abs(index - i),
+              elevation: 100 - Math.abs(index - i),
               transform: [
                 { perspective },
                 { translateX },
