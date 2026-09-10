@@ -18,7 +18,9 @@ import {
 } from "react-native";
 import * as Updates from "expo-updates";
 import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
-import { TabThreadIcon, SettingsLines, THREAD_ACTIVE } from "./ThreadIcons";
+import {
+  TabThreadIcon, SettingsLines, ThreadRail, THREAD_ACTIVE, THREAD_RAIL_HEIGHT,
+} from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
@@ -214,6 +216,10 @@ export default function SduiApp() {
   /** Bumped on every tab tap so the thread plucks again even when the tab
    *  does not change. */
   const [tabPluck, setTabPluck] = useState(0);
+  /** Measured, not assumed: the rail spans the row, and the row is whatever the
+   *  device is wide minus its insets. 0 until the first layout, which is the
+   *  one frame the rail declines to draw. */
+  const [tabsWidth, setTabsWidth] = useState(0);
   const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth" | "language">("loading");
   const [tabId, setTabId] = useState("");
   const [stack, setStack] = useState<NavItem[]>([]);
@@ -1531,7 +1537,18 @@ export default function SduiApp() {
           // near the bottom of a tab went to the OS, not to us. The floor keeps
           // a comfortable strip on hardware with no inset to report.
           paddingBottom: Math.max(insets.bottom, 12) + 6,
-        }]}>
+        }]}
+        onLayout={(e) => setTabsWidth(e.nativeEvent.layout.width)}>
+          {/* The thread that makes the row one object rather than three icons.
+              Behind them, and untouchable — it reports where you are, it is
+              never something to press. */}
+          <ThreadRail
+            width={tabsWidth}
+            count={tabs.length}
+            index={Math.max(0, tabs.findIndex((t) => t.id === tabId))}
+            color={theme.color.muted}
+            top={TAB_RAIL_TOP}
+          />
           {tabs.map((t) => {
             const active = t.id === tabId;
             return (
@@ -1863,14 +1880,25 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   );
 }
 
+/**
+ * The tab row's own spacing, named because the rail has to line up with the
+ * icons and a rail that floats above or below them looks like a bug rather
+ * than like a thread. Derived, not typed twice: the rail sits where the icon
+ * centreline sits.
+ */
+const TAB_PAD_TOP = 12;
+const TAB_PAD_V = 6;
+const TAB_ICON = 26;
+const TAB_RAIL_TOP = TAB_PAD_TOP + TAB_PAD_V + (TAB_ICON - THREAD_RAIL_HEIGHT) / 2;
+
 const styles = StyleSheet.create({
   app: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingTop: 56, paddingBottom: 12, paddingHorizontal: 16 },
   brand: { fontSize: 22, fontWeight: "800" },
   headerIcon: { fontSize: 24, fontWeight: "700" },
-  tabs: { flexDirection: "row", borderTopWidth: 1, paddingTop: 12 },
-  tab: { flex: 1, paddingVertical: 6, alignItems: "center", justifyContent: "center" },
+  tabs: { flexDirection: "row", borderTopWidth: 1, paddingTop: TAB_PAD_TOP },
+  tab: { flex: 1, paddingVertical: TAB_PAD_V, alignItems: "center", justifyContent: "center" },
   tabUnderline: { height: 2, width: 28, borderRadius: 2, marginTop: 6 },
   loadingOverlay: { position: "absolute", top: 8, right: 16 },
   toast: { position: "absolute", left: 16, right: 16, bottom: 76, padding: 14, borderRadius: 10 },
