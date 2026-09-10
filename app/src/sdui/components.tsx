@@ -5,8 +5,10 @@
  */
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Animated,
+  Easing,
   Image,
   Platform,
   Pressable,
@@ -983,6 +985,96 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
 };
 
 /**
+ * FlipText — one word at a time, each turning over into the next.
+ *
+ * The You tab greets you with "Hello" and then says it again in another
+ * language, and again. This is the part of that the app is allowed to know:
+ * HOW a word becomes the next one. Which words, in what order, how long each
+ * is held and how it is set all arrive as props — the backend decides them,
+ * and a change to any of them is a cache bump, not a build.
+ *
+ *   { type:"FlipText", props:{ words:[…], intervalMs, flipMs, variant } }
+ *
+ * THE FLIP IS ONE MOVEMENT IN TWO HALVES, around the X axis: the word on
+ * screen tips away from you until it is edge-on and gone, the next one is put
+ * in place while nothing is visible, and it tips up from the other side. The
+ * swap happens at the invisible moment, so there is never a frame with two
+ * words in it or a word half-changed.
+ *
+ * `perspective` is what makes it a turn rather than a squash — without it a
+ * rotateX is just a vertical scale, and the word looks like it is being sat
+ * on. Opacity rides along so the edge-on frame is clean on a device whose
+ * anti-aliasing would otherwise leave a bright line.
+ *
+ * Reduced motion replaces the turn with a crossfade. The greeting still
+ * changes language; it just stops moving in space.
+ */
+const FlipText = ({ props, style }: CompProps) => {
+  const theme = useTheme();
+  const words: string[] = Array.isArray(props.words)
+    ? props.words.map((w: unknown) => String(w ?? "")).filter(Boolean)
+    : [];
+  const intervalMs = Number(props.intervalMs) > 0 ? Number(props.intervalMs) : 2600;
+  const flipMs = Number(props.flipMs) > 0 ? Number(props.flipMs) : 620;
+
+  const [i, setI] = useState(0);
+  const [flat, setFlat] = useState(false);
+  // -1 = edge-on, arriving. 0 = facing. 1 = edge-on, leaving.
+  const turn = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled?.().then(setFlat).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (words.length < 2) return;
+    const half = Math.max(80, flipMs / 2);
+    const id = setInterval(() => {
+      Animated.timing(turn, {
+        toValue: 1,
+        duration: half,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        // An interrupted animation must not also swap the word, or the
+        // greeting changes language with no turn to explain it.
+        if (!finished) return;
+        setI((p) => (p + 1) % words.length);
+        turn.setValue(-1);
+        Animated.timing(turn, {
+          toValue: 0,
+          duration: half,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start();
+      });
+    }, Math.max(intervalMs, flipMs + 200));
+    return () => clearInterval(id);
+  }, [words.length, intervalMs, flipMs, turn]);
+
+  const opacity = turn.interpolate({ inputRange: [-1, 0, 1], outputRange: [0, 1, 0] });
+  const rotateX = turn.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ["90deg", "0deg", "-90deg"],
+  });
+
+  return (
+    <Animated.Text
+      style={[
+        typeRole(theme, String(props.variant ?? "body"), legacyVariant(props.variant, theme)),
+        style,
+        flat ? { opacity } : { opacity, transform: [{ perspective: 400 }, { rotateX }] },
+      ]}
+      // The word is decorative motion around one piece of information; a
+      // screen reader should hear the greeting once, not on every turn.
+      accessibilityLiveRegion="none"
+    >
+      {words[i] ?? ""}
+    </Animated.Text>
+  );
+};
+
+/**
  * Row — a tappable settings/list row: label on the left, an optional value +
  * chevron on the right, separated by a hairline. `danger` tints the label (e.g.
  * Delete account). Fires onPress, and onLongPress when the backend binds one.
@@ -1104,7 +1196,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
-  LanguageGreetingGrid, VoiceToggle, RefineButton, DraftButton, Pager, Row,
+  LanguageGreetingGrid, FlipText, VoiceToggle, RefineButton, DraftButton, Pager, Row,
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
