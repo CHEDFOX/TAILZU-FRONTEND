@@ -1522,7 +1522,39 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             setStatus(label("voiceOff", "Voice is off."), actionable = true)
             return
         }
+        // OUT OF WORDS — before the microphone opens, not after.
+        //
+        // Both paths below end in a request that would be refused, so the only
+        // question is whether the user finds out before or after speaking. A
+        // capture already running is left alone: stopping one mid-sentence to
+        // sell something is worse than letting the words already said land.
+        if (kbConfig?.wordsExhausted == true && !streaming && !recording) {
+            openAppForWords()
+            return
+        }
         if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
+    }
+
+    /**
+     * Send them to the screen that explains it, instead of opening the mic.
+     *
+     * An IME is allowed to start an Activity, so unlike iOS this is a direct
+     * hop rather than a tombstone the app picks up later. The destination is
+     * named by the config, so it can move without a keyboard build.
+     */
+    private fun openAppForWords() {
+        val screen = kbConfig?.quotaScreenId ?: "words_out"
+        setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."), actionable = true)
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse("tulmi://screen/$screen"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (t: Throwable) {
+            // Nothing else to try, and the status line above already says what
+            // happened. The keyboard stays usable for typing, which is the
+            // right failure: a keyboard that cannot dictate is still a keyboard.
+        }
     }
 
     override fun stopDictation() {
