@@ -651,10 +651,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val target = targetAppName()
         stream = Stream(
             onReady = { main.post { setStatus(label("listening", "Listening…")) } },
-            // Only paint interim words live when the backend's kb.mic.liveText is
-            // on; otherwise wait for the final so text lands in one block after
-            // stop. The final always commits either way.
-            onPartial = { t -> if (kbConfig?.liveText != false) main.post { replacePartial(t) } },
+            // kb.mic.liveText decides whether ANY raw transcript reaches the
+            // field. Off — the shipped default — neither the interim words nor
+            // the committed segments are painted: they accumulate, and the
+            // refined sentence lands once. Silencing only the partials, which
+            // is what this used to do, left the user watching raw finals arrive
+            // and then be deleted and rewritten, which reads as the product
+            // correcting its own mistakes.
+            onPartial = { t -> if (liveText) main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
             onError = { m -> main.post {
                 val lower = m.lowercase()
@@ -707,28 +711,51 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         return fillerPatterns.any { it.containsMatchIn(t) }
     }
 
-    /** Commit a finalized segment (keep it) and reset the interim tracker. */
+    /**
+     * Commit a finalized segment (keep it) and reset the interim tracker.
+     *
+     * WHEN kb.mic.liveText IS FALSE, NOTHING IS WRITTEN HERE. The flag already
+     * silenced partials, but finals still landed — so the user watched raw
+     * transcript segments arrive and then be deleted and replaced by the
+     * refined sentence a moment later. That is the product correcting itself
+     * in public, and it reads as a mistake even when the final text is right.
+     * iOS has deferred since build 39 (kb.mic.deferUntilStop); this is Android
+     * catching up to the same flag.
+     *
+     * The segments are still ACCUMULATED, because refine needs the whole
+     * utterance. They just wait until there is one finished sentence to show.
+     */
     private fun commitFinal(text: String) {
         // Never insert a bare space for an empty final — that dropped a stray
         // trailing space at the cursor. Empty finals carry no words.
         if (text.isBlank()) return
-        val ic = currentInputConnection ?: return
         TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
-        // Never commit a conversational refusal to the field — drop it and wipe
-        // the provisional partial it was replacing.
+        // A refusal is dropped whether or not it would have been shown.
         if (looksLikeFiller(text)) {
-            if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
-            pendingPartial = ""
+            clearPartial()
             return
         }
-        if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         val inserted = if (text.endsWith(" ")) text else "$text "
-        ic.commitText(inserted, 1)
-        pendingPartial = ""
         dictatedSomething = true
         // Accumulate the exact span this dictation owns, so refine can rewrite
         // that and nothing else. Several finals can arrive in one utterance.
         dictatedText += inserted
+        if (!liveText) return          // deferred: it lands once, written properly
+        val ic = currentInputConnection ?: return
+        clearPartial()
+        ic.commitText(inserted, 1)
+    }
+
+    /** True when the field should show the raw transcript as it arrives.
+     *  Backend-controlled (kb.mic.liveText); false is the shipped default. */
+    private val liveText: Boolean
+        get() = kbConfig?.liveText != false
+
+    /** Remove whatever interim text is on screen, if any. */
+    private fun clearPartial() {
+        if (pendingPartial.isEmpty()) return
+        currentInputConnection?.deleteSurroundingText(pendingPartial.length, 0)
+        pendingPartial = ""
     }
 
     private fun stopStreaming() {
@@ -768,8 +795,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // "final" (socket closed right after the last partial). It's real
         // dictated text already at the cursor — treat it as committed so the
         // tail isn't dropped and refine still runs over it.
-        if (pendingPartial.isNotEmpty()) {
+        //
+        // In deferred mode no partial was ever painted, so there is nothing at
+        // the cursor to rescue and nothing to add to the span refine rewrites.
+        if (pendingPartial.isNotEmpty() && liveText) {
             dictatedSomething = true
+            pendingPartial = ""
+        } else {
             pendingPartial = ""
         }
         endStreaming()
@@ -985,7 +1017,18 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     setStatus("")
                     val conn = currentInputConnection ?: return@post
                     if (refined.isBlank() || looksLikeFiller(refined)) return@post
-                    // Replace the dictated tail only if it is still the tail.
+                    // DEFERRED: nothing of this utterance is at the cursor, so
+                    // there is no tail to find and none to protect — the
+                    // finished sentence is simply inserted. Guarding on the
+                    // tail here would refuse to insert anything at all.
+                    if (!liveText) {
+                        conn.commitText(refined, 1)
+                        flashKeysForText(refined)
+                        return@post
+                    }
+                    // LIVE: the raw transcript is already in the field. Replace
+                    // that exact span, and only if it is still the tail — the
+                    // user may have typed or moved the cursor mid-refine.
                     val before = conn.getTextBeforeCursor(spoken.length + 8, 0)?.toString() ?: ""
                     if (!before.endsWith(spoken)) return@post
                     conn.deleteSurroundingText(spoken.length, 0)
