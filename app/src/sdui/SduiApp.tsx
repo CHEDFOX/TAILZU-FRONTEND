@@ -3,7 +3,7 @@
  * server's navigation + screens, and runs the server's actions. The only
  * client-local screen is Connection (you need it to reach the server at all).
  */
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -1681,6 +1681,7 @@ export default function SduiApp() {
         && !(!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags)) && (
         <LaunchCardOverlay
           card={launchCard}
+          theme={theme}
           nav={nav}
           flags={boot?.flags ?? {}}
           labels={boot?.labels ?? {}}
@@ -1708,6 +1709,7 @@ export default function SduiApp() {
  */
 function LaunchCardOverlay({
   card,
+  theme,
   nav,
   flags,
   labels,
@@ -1715,13 +1717,13 @@ function LaunchCardOverlay({
   onClose,
 }: {
   card: LaunchCard;
+  theme: ThemeTokens;
   nav: NavApi;
   flags: Record<string, any>;
   labels: Record<string, string>;
   toast: (m: string, tone?: string) => void;
   onClose: () => void;
 }) {
-  const theme = useContext(ThemeContext)!;
   const store = useMemo(() => new Store({}), [card.id]);
   const cardNav: NavApi = useMemo(() => ({
     push: (s, p) => { onClose(); nav.push(s, p); },
@@ -1737,26 +1739,33 @@ function LaunchCardOverlay({
     [store, flags, labels, cardNav, toast],
   );
 
+  // ITS OWN PROVIDER. This overlay sits outside the one wrapped around the
+  // screen — it has to, or it would unmount with every navigation — and every
+  // node inside it reads the theme from context. Without this the first card
+  // anyone published would throw "ThemeContext missing" on open, on every
+  // install, and the feature would look like it had never worked.
   return (
-    <View style={[StyleSheet.absoluteFill, {
-      alignItems: "center", justifyContent: "center", padding: 24,
-    }]}>
-      <Pressable
-        style={[StyleSheet.absoluteFill, { backgroundColor: card.backdrop ?? "rgba(4,4,6,0.72)" }]}
-        onPress={card.dismissOnBackdrop === false ? undefined : onClose}
-        accessibilityRole="button"
-        accessibilityLabel={labels["action.dismiss"] ?? "Dismiss"}
-      />
-      <View style={[
-        {
-          backgroundColor: theme.color.card, borderRadius: theme.radius.card,
-          padding: 24, width: "100%", maxWidth: 360,
-        },
-        card.sheet as any,
-      ]}>
-        <RenderNode node={card.root} ctx={ctx} />
+    <ThemeContext.Provider value={theme}>
+      <View style={[StyleSheet.absoluteFill, {
+        alignItems: "center", justifyContent: "center", padding: 24,
+      }]}>
+        <Pressable
+          style={[StyleSheet.absoluteFill, { backgroundColor: card.backdrop ?? "rgba(4,4,6,0.72)" }]}
+          onPress={card.dismissOnBackdrop === false ? undefined : onClose}
+          accessibilityRole="button"
+          accessibilityLabel={labels["action.dismiss"] ?? "Dismiss"}
+        />
+        <View style={[
+          {
+            backgroundColor: theme.color.card, borderRadius: theme.radius.card,
+            padding: 24, width: "100%", maxWidth: 360,
+          },
+          card.sheet as any,
+        ]}>
+          <RenderNode node={card.root} ctx={ctx} />
+        </View>
       </View>
-    </View>
+    </ThemeContext.Provider>
   );
 }
 
