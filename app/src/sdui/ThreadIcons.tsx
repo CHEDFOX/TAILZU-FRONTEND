@@ -1,9 +1,23 @@
 /**
  * Tab icons.
  *
- * Active state: the icon takes the brand amber and shakes — a short, damped
- * wobble, as if it were plucked. Not a loop; a plucked string settles. Kept
- * from the set these replaced, because the motion was never the problem.
+ * Three previous sets failed, each for a different reason worth keeping:
+ * a wound brain and a fingerprint that rendered as a leaf and a wifi glyph;
+ * a speech bubble and a line chart, legible but interchangeable with any app
+ * on the phone; and then a set drawn in the right spirit but by eye, with
+ * capsule corners the brand does not use.
+ *
+ * This set is measured off the app icon rather than guessed at. The numbers
+ * below came from reading assets/icon.png directly, and they are the whole
+ * argument for why these shapes look like they belong to this product:
+ *
+ *   node side          4.3 of a 32 grid
+ *   corner radius      0.204 of the side   (the earlier set used 0.68 — capsules)
+ *   node positions     (9.9, 8.6) (17.9, 15.3) (5.7, 19.1)
+ *
+ * The mark is nodes threaded on a line, arranged asymmetrically. That is the
+ * only shape language this product has, so all three icons are built from it,
+ * and each is a different thing that vocabulary can do.
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
@@ -48,131 +62,118 @@ function Frame({ active, nonce, size, children }: {
 }
 
 /**
- * YOU — a fingerprint, wound.
+ * WEIGHT.
  *
- * This was a zig-zag: seven straight segments, next to a brain built from
- * chords and a circle built from a chord envelope. It read as the icon nobody
- * had thought about, because it was.
+ * Each icon was rasterised at 256px and its ink counted as a share of the box,
+ * because a stroke and a filled shape do not read as equal at equal numbers and
+ * squinting will not tell you by how much. The first pass had the wave at half
+ * the bars' coverage, which is exactly why it looked thin next to them.
  *
- * A fingerprint is the right answer and not an arbitrary one. It is the mark
- * that means a specific person and no other, and it is already made of what
- * this set is made of — continuous open lines that never quite close. Nothing
- * else in the bar could be mistaken for it.
+ *   idle      train 10.1%   stats 13.0%   you 12.8%
+ *   selected  train 17.0%   stats 17.3%   you 16.5%
  *
- * Drawn as four open whorls that do not nest evenly, plus two ridge endings —
- * the short stubs where a real ridge stops between its neighbours, which is
- * the detail that makes a print look printed rather than drawn. Each arc opens
- * at a different angle so the eye never finds a shared seam.
+ * Selected differs in KIND, because the shapes do: an open stroke cannot be
+ * filled, so the wave thickens; closed shapes fill. The wave's stroke stops at
+ * 4.1 — past that its own swings start to merge, and the icon becomes a smear.
  */
-/**
- * ONE VOCABULARY: the brand's rounded node, and the thread.
- *
- * The app icon is rounded squares joined by a thread. That is the only shape
- * language this product has, and until now none of it reached the tab bar —
- * which had a wound brain that rendered as a leaf, a fingerprint that rendered
- * as wifi, and then, briefly, a stock speech bubble and a stock line chart.
- * The first pair failed on legibility. The second pair was legible and could
- * have belonged to any app on the phone, which is the same failure wearing
- * better clothes.
- *
- * So all three are built from the mark's own parts, and each is a different
- * thing that vocabulary can do:
- *
- *   TRAIN  the thread, loud, resolving into a ruled line
- *   STATS  the node, three of them, rising off a baseline
- *   YOU    the mark's constellation, with one node solid
- *
- * They still differ by SILHOUETTE — a horizontal wave, aligned verticals, a
- * triangle — because detail is the first thing lost at 26pt and in the
- * peripheral vision a tab bar is usually read from. Sharing a hand is what
- * makes them a set; differing in outline is what makes them findable.
- *
- * Shared: a 32 grid, ~1.9 stroke, round caps and joins, equal ink. Equal ink
- * rather than equal boxes — the wave is wider than the bars and weighs the
- * same, which is what stops one tab looking selected when it is not.
- */
+const STROKE_WAVE_IDLE = 3.1;
+const STROKE_WAVE_ON = 4.1;
+const STROKE_OUTLINE = 1.7;
+const STROKE_THREAD = 1.8;
 
 /**
  * TRAIN — the product itself, in one stroke.
  *
  * A single unbroken thread that starts as speech and ends as a ruled line.
- * That IS what the app does: you talk, and what comes out is finished writing
- * in your voice. Nothing else in the tab bar could mean this, and no other app
- * would draw it, which is the point — the previous version was a speech bubble
- * and could have been anyone's.
+ * That IS what the app does: you talk, and what comes out is finished writing.
  *
- * The swings decay rather than stopping: sound settling into order, not sound
- * cut off. Two of them, not four — at 26pt more oscillation is a smudge.
+ * One cubic per half-period, control points at 4/3 of the amplitude, because a
+ * cubic sits at 3/4 of its control offset at the midpoint — so the crest lands
+ * exactly on 7.6 and 4.4 rather than wherever a hand-placed curve wandered to.
+ * Two swings, not four: the half-period has to stay wider than twice the stroke
+ * or the curve collides with itself, and at 26pt the collision is the only
+ * thing you see.
  */
+const TRAIN_WAVE =
+  "M3.2 16 C5.87 5.87 8.53 5.87 11.2 16 C13.87 21.87 16.53 21.87 19.2 16 L28.4 16";
+
 export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d="M5 16 C6.6 5 10.4 27 12 16 C13.5 6.5 17 25.5 18.5 16 L27 16"
-        stroke={c} strokeWidth={2.2} strokeLinecap="round" fill="none" />
+      <Path d={TRAIN_WAVE} stroke={c} fill="none" strokeLinecap="round"
+        strokeWidth={active ? STROKE_WAVE_ON : STROKE_WAVE_IDLE} />
     </Frame>
   );
 }
 
 /**
- * STATS — the node, three times, rising.
+ * STATS — the node, three times, rising off one baseline.
  *
- * A bar chart drawn with the mark's own rounded square instead of plain
- * rectangles, so it reads as this product's chart rather than a chart. The
- * corner radius is the tell and it costs nothing at any size.
- *
- * Bars, not the climbing line this replaced: a polyline with dots is what
- * every analytics screen uses, and the line's slope was doing the work that
- * three different heights do more plainly.
+ * A chart drawn with the mark's own rounded square instead of plain rectangles,
+ * so it reads as this product's chart rather than a chart. The radius is the
+ * tell and it costs nothing at any size. All three stand on 25.4, because a
+ * chart whose bars do not share a baseline is not a chart.
  */
+const STATS_BARS = [
+  "M6.05 19.2 H8.95 A1 1 0 0 1 9.95 20.2 V24.4 A1 1 0 0 1 8.95 25.4 H6.05 A1 1 0 0 1 5.05 24.4 V20.2 A1 1 0 0 1 6.05 19.2 Z",
+  "M14.55 13.3 H17.45 A1 1 0 0 1 18.45 14.3 V24.4 A1 1 0 0 1 17.45 25.4 H14.55 A1 1 0 0 1 13.55 24.4 V14.3 A1 1 0 0 1 14.55 13.3 Z",
+  "M23.05 6.8 H25.95 A1 1 0 0 1 26.95 7.8 V24.4 A1 1 0 0 1 25.95 25.4 H23.05 A1 1 0 0 1 22.05 24.4 V7.8 A1 1 0 0 1 23.05 6.8 Z",
+];
+
 export function ThreadStats({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
-  /** x, top y. All three share a baseline at 25.6 — a chart whose bars do not
-   *  stand on one line is not a chart. */
-  const bars: Array<[number, number]> = [[4.7, 19.4], [12.7, 13.6], [20.7, 7.2]];
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      {bars.map(([x, top], i) => (
-        <Path key={i}
-          d={`M${x + 1.9} ${top} H${x + 4.7} A1.9 1.9 0 0 1 ${x + 6.6} ${top + 1.9}
-              V23.7 A1.9 1.9 0 0 1 ${x + 4.7} 25.6 H${x + 1.9} A1.9 1.9 0 0 1 ${x} 23.7
-              V${top + 1.9} A1.9 1.9 0 0 1 ${x + 1.9} ${top} Z`}
-          stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
+      {STATS_BARS.map((d, i) => (
+        <Path key={i} d={d}
+          fill={active ? c : "none"}
+          stroke={active ? undefined : c}
+          strokeWidth={active ? undefined : STROKE_OUTLINE}
+          strokeLinejoin="round" />
       ))}
     </Frame>
   );
 }
 
 /**
- * YOU — the mark's constellation, with one node solid.
+ * YOU — the mark itself, with one node lit.
  *
- * Three nodes joined by threads is the app icon; filling one of them makes it
- * about a choice rather than about the brand. Which is exactly what the tab
- * holds: four things that are yours — voices, words, keys, languages — and you
- * are picking between them.
+ * Not a triangle of nodes, which is what the last version drew and which read
+ * as a git branch. These are the app icon's own three positions and its own
+ * angles, scaled up to fill the box: a steep thread from the low node to the
+ * high one, then a long diagonal down to the third. That asymmetry is the whole
+ * silhouette, and nothing else on the phone has it.
  *
- * The solid node sits at the bottom, nearest the thumb, and it is the only
- * filled shape in the whole bar. That is deliberate: fill is the loudest
- * device available at this size, so it is spent once, on the tab that is about
- * the person using the app.
+ * The middle node is solid in both states. Which node is lit is the icon's
+ * identity, not its state — the tab holds four things that are yours, and you
+ * are picking between them. Selecting the tab lights the other two.
  */
+const YOU_NODES = [
+  "M11 4.34 H15.02 A1.38 1.38 0 0 1 16.4 5.72 V9.74 A1.38 1.38 0 0 1 15.02 11.12 H11 A1.38 1.38 0 0 1 9.62 9.74 V5.72 A1.38 1.38 0 0 1 11 4.34 Z",
+  "M23.6 14.9 H27.62 A1.38 1.38 0 0 1 29 16.28 V20.3 A1.38 1.38 0 0 1 27.62 21.68 H23.6 A1.38 1.38 0 0 1 22.22 20.3 V16.28 A1.38 1.38 0 0 1 23.6 14.9 Z",
+  "M4.38 20.88 H8.4 A1.38 1.38 0 0 1 9.78 22.26 V26.28 A1.38 1.38 0 0 1 8.4 27.66 H4.38 A1.38 1.38 0 0 1 3 26.28 V22.26 A1.38 1.38 0 0 1 4.38 20.88 Z",
+];
+const YOU_THREADS = "M9.78 22.64 L11.25 11.12 M16.4 9.36 L23.17 16.39";
+
+/** The one that stays solid. */
+const YOU_LIT = 1;
+
 export function ThreadYou({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? THREAD_ACTIVE : color;
   return (
     <Frame active={active} nonce={nonce} size={size}>
-      <Path d="M7.6 8.5 H11.4 A2.2 2.2 0 0 1 13.6 10.7 V13.3 A2.2 2.2 0 0 1 11.4 15.5
-               H7.6 A2.2 2.2 0 0 1 5.4 13.3 V10.7 A2.2 2.2 0 0 1 7.6 8.5 Z"
-        stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
-      <Path d="M20.6 8.5 H24.4 A2.2 2.2 0 0 1 26.6 10.7 V13.3 A2.2 2.2 0 0 1 24.4 15.5
-               H20.6 A2.2 2.2 0 0 1 18.4 13.3 V10.7 A2.2 2.2 0 0 1 20.6 8.5 Z"
-        stroke={c} strokeWidth={1.8} strokeLinejoin="round" fill="none" />
-      {/* The chosen one. Slightly larger than the other two, because a filled
-          shape reads smaller than an outlined one of the same size. */}
-      <Path d="M13.9 19.4 H18.1 A2.4 2.4 0 0 1 20.5 21.8 V24.2 A2.4 2.4 0 0 1 18.1 26.6
-               H13.9 A2.4 2.4 0 0 1 11.5 24.2 V21.8 A2.4 2.4 0 0 1 13.9 19.4 Z"
-        fill={c} />
-      <Path d="M11.9 15.1 L14.6 19.2 M20.1 15.1 L17.4 19.2"
-        stroke={c} strokeWidth={1.5} strokeLinecap="round" fill="none" opacity={0.8} />
+      <Path d={YOU_THREADS} stroke={c} strokeWidth={STROKE_THREAD} strokeLinecap="round" fill="none" />
+      {YOU_NODES.map((d, i) => {
+        const filled = active || i === YOU_LIT;
+        return (
+          <Path key={i} d={d}
+            fill={filled ? c : "none"}
+            stroke={filled ? undefined : c}
+            strokeWidth={filled ? undefined : STROKE_OUTLINE}
+            strokeLinejoin="round" />
+        );
+      })}
     </Frame>
   );
 }
