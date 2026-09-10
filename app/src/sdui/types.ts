@@ -86,6 +86,22 @@ export type NavigationShell =
     }
   | { kind: "stack"; rootScreenId: string };
 
+/**
+ * A card the app puts up when it opens: something to say, and a way to act on
+ * it. `root` is an ordinary node tree, so there is no fixed card shape — its
+ * buttons carry ordinary actions, and `navigate` is what sends someone to the
+ * screen the card is about. Inside a card, `navigate` and `dismiss` both close
+ * it first. Shown once per `id`; change the id to say something new.
+ */
+export interface LaunchCard {
+  id: string;
+  root: Node;
+  repeat?: "once" | "everyLaunch";
+  dismissOnBackdrop?: boolean;
+  backdrop?: string;
+  sheet?: Record<string, unknown>;
+}
+
 export interface UpdateGate {
   minVersion?: string;
   latestVersion?: string;
@@ -169,6 +185,8 @@ export interface BootstrapResponse {
    * uploads have happened yet. */
   media?: Record<string, MediaEntry>;
   update?: UpdateGate;
+  /** A card shown over the app on open — an announcement, a nudge, an offer. */
+  launchCard?: LaunchCard;
   languages?: LanguageOption[];
   cacheTtlSeconds?: number;
   cacheVersion?: string;
