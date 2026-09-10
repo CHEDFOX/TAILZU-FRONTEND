@@ -2,7 +2,7 @@
  * The renderer — walks a Node tree and draws it via the component registry,
  * resolving data bindings, visibility, events, and entry motion.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { Animated } from "react-native";
 import type { Node, NodeEvent } from "./types";
 import { Store, useStoreVersion } from "./state";
@@ -74,6 +74,36 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
+  /**
+   * ONE `fire` PER NODE, FOR THE LIFE OF THE NODE.
+   *
+   * It used to be a fresh arrow on every render, and every node re-renders on
+   * every store write (useStoreVersion above subscribes to the whole store).
+   * For anything that draws, a new function per render costs nothing. For a
+   * component that puts `fire` in a dependency array it is fatal, and the
+   * spoken screen is exactly that: VoiceSession's effect owns the microphone,
+   * the socket and the synthesiser, and its cleanup closes all three.
+   *
+   * So the train screen ate itself. Mounting wrote the empty transcript, which
+   * bumped the store, which re-rendered the node, which handed VoiceSession a
+   * new `fire`, which tore the session down and started another — and the new
+   * one's first act was to write "listening" and a level, which did it again.
+   * The mic was asked for and dropped several times a second, no turn ever
+   * finished, and the orb sat still: not an orb that fails to respond, an orb
+   * that was never allowed to start.
+   *
+   * Refs rather than deps because the identity is the whole point: the latest
+   * node and ctx are read at call time, so behaviour is unchanged and the
+   * function outlives every render.
+   */
+  const nodeRef = useRef(node);
+  nodeRef.current = node;
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  const fire = useCallback((event: NodeEvent, value?: any) => {
+    void runAction(nodeRef.current.on?.[event], { ...ctxRef.current, event: value });
+  }, []);
+
   if (!visible) return null;
 
   const Comp = REGISTRY[node.type];
@@ -103,9 +133,6 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
   }
 
   const style = resolveStyle(resolveStyleConditionals(node.style, ctx), theme);
-  const fire = (event: NodeEvent, value?: any) => {
-    void runAction(node.on?.[event], { ...ctx, event: value });
-  };
 
   // List needs per-item scope (see ListItems — stable per-row stores).
   let children: React.ReactNode;

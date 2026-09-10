@@ -319,12 +319,23 @@ const config: ExpoConfig = {
     // from frame 0 makes them the same picture by construction, and re-cutting
     // it is the only correct way to change it.
     //
-    //   mark in the film   338×250px at (477,1101) of 1290×2796
-    //   mark on this canvas 144×107 of 288 — half the width
+    // MEASURED OFF FRAME 0, not read off the storyboard:
     //
-    // HALF, because Android masks this into a circle and only the inner two
-    // thirds is guaranteed. What has to fit is the bounding DIAGONAL, not the
-    // width: 179px against a 192px circle. At 0.55 the corners fall outside it.
+    //   mark in the film    344×258px centred at (648.5,1222.0) of 1290×2796
+    //   mark on this canvas 288×216 of 576, its centre ON the canvas centre
+    //
+    // Both figures here were wrong before, in the two ways this arrangement
+    // exists to prevent. The mark was recorded as 338×250, so the film's box
+    // was tuned to a mark 2% narrower than the one that actually plays. And
+    // the canvas was 288 square, shown at 188pt — 564 device pixels on a 3x
+    // screen, drawn from 288 — so the launch mark was upscaled 1.96× while the
+    // film's is not. A soft mark replaced by a sharp one is a visible handoff
+    // even when both are exactly the right size.
+    //
+    // HALF THE CANVAS, because Android masks this into a circle and only the
+    // inner two thirds is guaranteed. What has to fit is the bounding DIAGONAL,
+    // not the width: 360px against a 384px circle. At 0.55 the corners fall
+    // outside it.
     //
     // #0B0A0D is the film's own ground, sampled from it. It used to be #000000
     // against art graded to #080809 — near enough to hide, but this art is
@@ -333,8 +344,14 @@ const config: ExpoConfig = {
     //
     // BOTH SIDES ARE MEASURED, NEVER REASONED ABOUT:
     //
-    //   imageWidth 188 × 0.5000 mark fraction  = 94.00pt on the launch screen
-    //   boxWidth   359 × 0.2620 mark fraction  = 94.06pt when the film plays
+    //   imageWidth 188   × 0.5000 mark fraction = 94.00pt on the launch screen
+    //   boxWidth   352.5 × 0.2667 mark fraction = 94.00pt when the film plays
+    //
+    // And the film's mark is not at the centre of its own frame — it sits
+    // 0.0271 of the width right of it and 0.0629 of the height above it — so
+    // the box carries nudgeX -0.2713 and nudgeY 6.2947 to put it back. Those
+    // are the mark's own offsets, measured, not a number tuned by eye on one
+    // phone: as percentages of a box fixed in points they hold on every screen.
     //
     // The film's box is a media-entry value (boxWidth/boxHeight, with the
     // aspect and the focal point beside them), so the film side retunes over
