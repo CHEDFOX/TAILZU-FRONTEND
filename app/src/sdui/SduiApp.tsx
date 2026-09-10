@@ -1556,13 +1556,15 @@ export default function SduiApp() {
           {/* The thread that makes the row one object rather than three icons.
               Behind them, and untouchable — it reports where you are, it is
               never something to press. */}
-          <ThreadRail
-            width={tabsWidth}
-            count={tabs.length}
-            index={Math.max(0, tabs.findIndex((t) => t.id === tabId))}
-            color={theme.color.muted}
-            top={TAB_RAIL_TOP}
-          />
+          {(boot?.navigation.kind !== "tabs" || boot.navigation.rail !== false) && (
+            <ThreadRail
+              width={tabsWidth}
+              count={tabs.length}
+              index={Math.max(0, tabs.findIndex((t) => t.id === tabId))}
+              color={theme.color.muted}
+              top={TAB_RAIL_TOP}
+            />
+          )}
           {tabs.map((t) => {
             const active = t.id === tabId;
             return (
@@ -1587,6 +1589,7 @@ export default function SduiApp() {
                   color={theme.color.muted}
                   nonce={tabPluck}
                   surface={theme.color.surface}
+                  glyph={t.glyph}
                 />
               </Pressable>
             );
