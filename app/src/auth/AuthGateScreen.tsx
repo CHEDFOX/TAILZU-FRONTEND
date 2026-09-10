@@ -46,7 +46,7 @@ import { CaptchaHost, solveCaptcha } from "./captcha";
 import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
 import { RiseView } from "../sdui/Rise";
 import { RenderNode } from "../sdui/Renderer";
-import { ThemeContext } from "../sdui/components";
+import { ThemeContext, typeRole } from "../sdui/components";
 import { useAuthSduiCtx, missingComponents } from "../sdui/authRender";
 import type { Node, ThemeTokens } from "../sdui/types";
 import { MediaPlayer } from "../media/MediaPlayer";
@@ -108,6 +108,18 @@ const ABYSS = "#050508";
 // RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
 // the pill layers collapse to a zero-height centered hairline. Spell it out.
 const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
+
+/**
+ * The type scale, for this screen's chrome.
+ *
+ * Held at module scope rather than passed down, because the type belongs to
+ * rows nested several components deep (the pill's field, the code boxes, the
+ * country sheet) and none of them has any other reason to know about a theme.
+ * It is filled the moment the auth config lands — which is before any of
+ * those rows can be reached — and until then each site draws its own copy.
+ */
+let scale: ThemeTokens | null = null;
+const at = (role: string, fallback: any) => (scale ? typeRole(scale, role, fallback) : fallback);
 
 export interface Field { id: string; type: "email" | "phone" }
 interface ActiveMethod { type: "email" | "phone"; value: string }
@@ -202,7 +214,7 @@ function CountryPickerModal({
         <View style={s.modalSheet}>
           <View style={s.modalHandle} />
           <TextInput underlineColorAndroid="transparent"
-            style={s.modalSearch}
+            style={[s.modalSearch, at("authSearch", null)]}
             value={q}
             onChangeText={setQ}
             placeholder="Search"
@@ -220,8 +232,8 @@ function CountryPickerModal({
               return (
                 <TouchableOpacity style={s.cRow} activeOpacity={0.6} onPress={() => { onSelect(item); onClose(); }}>
                   <Text style={s.cFlag}>{item.flag}</Text>
-                  <Text style={[s.cName, sel ? { color: "#FFFFFF", fontWeight: "600" } : null]} numberOfLines={1}>{item.name}</Text>
-                  <Text style={s.cDial}>{item.dial}</Text>
+                  <Text style={[s.cName, at("authPickName", null), sel ? { color: "#FFFFFF", fontWeight: "600" } : null]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={[s.cDial, at("authPickDial", null)]}>{item.dial}</Text>
                 </TouchableOpacity>
               );
             }}
@@ -446,13 +458,13 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
             accessibilityRole="button"
             accessibilityLabel="Choose your country"
           >
-            <Text style={s.pickText}>Phone</Text>
+            <Text style={[s.pickText, at("authPrompt", null)]}>Phone</Text>
             <Chevron />
           </TouchableOpacity>
         )}
         {(!isPhone || countryPicked) && <TextInput underlineColorAndroid="transparent"
           ref={inputRef}
-          style={[s.input, { color: L.textColor, fontSize: L.fontSize }]}
+          style={[s.input, at("authField", null), { color: L.textColor, fontSize: L.fontSize }]}
           placeholderTextColor={L.placeholderColor}
           value={value}
           onChangeText={setValue}
@@ -643,6 +655,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setBackgroundCode(cfg.backgroundCode);
       setCfgSettled(true);
       setAuthTheme((cfg.theme as ThemeTokens | null) ?? null);
+      scale = (cfg.theme as ThemeTokens | null) ?? null;
       setScrim(cfg.scrim);
       // The app has the final say, not the flag. A tree naming a component
       // this binary does not have would draw a sign-in screen with nothing on
@@ -1092,7 +1105,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               <Pressable style={s.codeRow} onPress={() => codeRef.current?.focus?.()}>
                 {Array.from({ length: CODE_LEN }).map((_, i) => (
                   <View key={i} style={[s.codeBox, code[i] ? s.codeBoxFilled : null, codeError ? s.codeBoxError : null]}>
-                    {code[i] ? <Text style={s.codeDigit}>{code[i]}</Text> : null}
+                    {code[i] ? <Text style={[s.codeDigit, at("authCode", null)]}>{code[i]}</Text> : null}
                   </View>
                 ))}
               </Pressable>
@@ -1119,7 +1132,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                 {phase === "verifying"
                   ? <MicroLoader />
                   : sendFailed
-                    ? <Text style={s.sendFailed} numberOfLines={1}>
+                    ? <Text style={[s.sendFailed, at("authNote", null)]} numberOfLines={1}>
                         {sendError && /rate limit|too many/i.test(sendError)
                           ? "Too many requests. Wait a moment, then resend."
                           : "Couldn't send a code. Tap resend."}

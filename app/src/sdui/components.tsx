@@ -23,6 +23,7 @@ import {
   RecordingPresets,
   setAudioModeAsync,
 } from "expo-audio";
+import type { TextStyle } from "react-native";
 import type { Node, NodeEvent, ThemeTokens } from "./types";
 import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
@@ -36,11 +37,50 @@ import { resolveMedia } from "../media/resolveMedia";
 import { useFocusFill } from "../media/focusFill";
 
 /**
- * Display serif for headings (Plutto uses PlayfairDisplay). We use the platform
- * serif so it works with no bundled font; swap for @expo-google-fonts/playfair
- * later to match exactly. The backend can also override via theme.font.family.
+ * The platform serif — what the "display" slot draws in until the backend
+ * names a face (theme.font.display, or theme.font.family for the whole app).
  */
 const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
+
+/**
+ * Resolve a role's family SLOT to a face. "body" is the running face, which
+ * is the system font until the theme names one; "display" is the heading
+ * face, which is `display`, else `family`, else the platform serif. Anything
+ * else is taken as a face name.
+ */
+export function fontSlot(theme: ThemeTokens, slot: string | undefined): string | undefined {
+  if (!slot || slot === "body") return theme.font?.family;
+  if (slot === "display") return theme.font?.display ?? theme.font?.family ?? SERIF;
+  return slot;
+}
+
+/**
+ * A role from the backend's type scale, as a React Native text style.
+ *
+ * The backend writes the scale; this only translates it. The one thing the
+ * device adds is the resolution of slots and colour keys, which cannot be
+ * done anywhere else. `fallback` is the renderer's own copy of the role, used
+ * only when the theme does not carry it — a bootstrap cached before the scale
+ * existed — so nothing goes unsized.
+ */
+export function typeRole(theme: ThemeTokens, role: string, fallback?: TextStyle): TextStyle {
+  const r = theme.font?.roles?.[role];
+  if (!r) return fallback ?? {};
+  const out: TextStyle = { fontSize: r.size };
+  const fam = fontSlot(theme, r.family);
+  if (fam) out.fontFamily = fam;
+  if (r.weight) out.fontWeight = r.weight as TextStyle["fontWeight"];
+  if (r.lineHeight != null) out.lineHeight = r.lineHeight;
+  if (r.letterSpacing != null) out.letterSpacing = r.letterSpacing;
+  if (r.italic) out.fontStyle = "italic";
+  if (r.transform) out.textTransform = r.transform;
+  if (r.align) out.textAlign = r.align;
+  if (r.color) out.color = theme.color[r.color] ?? r.color;
+  if (r.marginTop != null) out.marginTop = r.marginTop;
+  if (r.marginBottom != null) out.marginBottom = r.marginBottom;
+  if (r.marginVertical != null) out.marginVertical = r.marginVertical;
+  return out;
+}
 
 // --- Theme context ----------------------------------------------------------
 
@@ -208,9 +248,14 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   return out;
 }
 
-function textVariant(variant: string | undefined, theme: ThemeTokens): any {
+/**
+ * The renderer's own copy of the Text variants — the fallback typeRole()
+ * uses when a theme predates the backend's scale. Not a second source of
+ * truth: when the theme carries the role, none of this is read.
+ */
+function legacyVariant(variant: string | undefined, theme: ThemeTokens): TextStyle {
   const f = theme.font.sizes;
-  const fam = theme.font.family ?? SERIF;
+  const fam = fontSlot(theme, "display");
   switch (variant) {
     case "brand":
       return { fontFamily: fam, color: theme.color.text, fontSize: f.brand, lineHeight: 38, letterSpacing: 0.2 };
@@ -229,6 +274,10 @@ function textVariant(variant: string | undefined, theme: ThemeTokens): any {
     default: // body
       return { color: theme.color.body ?? theme.color.text, fontSize: f.body, lineHeight: 26, fontWeight: "300" };
   }
+}
+
+function textVariant(variant: string | undefined, theme: ThemeTokens): TextStyle {
+  return typeRole(theme, variant ?? "body", legacyVariant(variant, theme));
 }
 
 // --- Component props bag ----------------------------------------------------
@@ -441,7 +490,7 @@ const ImageC = ({ props, style }: CompProps) => {
 
 const Icon = ({ props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[{ fontSize: 20, color: theme.color.text }, style]}>{props.name}</Text>;
+  return <Text style={[typeRole(theme, "icon", { fontSize: 20, color: theme.color.text }), style]}>{props.name}</Text>;
 };
 
 // The brand accent — the warm amber the keyboard flashes on every key press.
@@ -489,15 +538,19 @@ const Button = ({ props, style, fire }: CompProps) => {
         style,
       ]}
     >
-      {/* The label's own type. It lives inside the component, so without these
-          a backend could restyle the pill and never the words on it. */}
+      {/* The label's type comes from the scale (button / buttonSecondary);
+          a node can still override any of it per button. */}
       <Text
-        style={{
-          color: props.labelColor ? String(props.labelColor) : labelColor,
-          fontWeight: props.fontWeight ? String(props.fontWeight) as any : (isSecondary ? "600" : "700"),
-          fontSize: props.fontSize !== undefined ? Number(props.fontSize) : 16,
-          letterSpacing: props.tracking !== undefined ? Number(props.tracking) : 0.4,
-        }}
+        style={[
+          typeRole(theme, isSecondary ? "buttonSecondary" : "button",
+            { fontWeight: isSecondary ? "600" : "700", fontSize: 16, letterSpacing: 0.4 }),
+          {
+            color: props.labelColor ? String(props.labelColor) : labelColor,
+            ...(props.fontWeight ? { fontWeight: String(props.fontWeight) as any } : null),
+            ...(props.fontSize !== undefined ? { fontSize: Number(props.fontSize) } : null),
+            ...(props.tracking !== undefined ? { letterSpacing: Number(props.tracking) } : null),
+          },
+        ]}
       >
         {props.label ?? ""}
       </Text>
@@ -553,7 +606,10 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: selected ? readableOn(theme.color.primary) : theme.color.muted, fontWeight: selected ? "700" : "400" }}>{props.label ?? ""}</Text>
+      <Text style={[
+        typeRole(theme, selected ? "chipSelected" : "chip", { fontWeight: selected ? "700" : "400" }),
+        { color: selected ? readableOn(theme.color.primary) : theme.color.muted },
+      ]}>{props.label ?? ""}</Text>
     </SpringPressable>
   );
 };
@@ -599,27 +655,28 @@ const ListPlaceholder = ({ children }: CompProps) => <View>{children}</View>;
 
 // --- SDUI v2 content blocks -------------------------------------------------
 
+// The content blocks: a Text variant with its rhythm attached. Each reads its
+// own role from the scale, so the air under a heading is the backend's too.
+
 // Tiny uppercase kicker above a heading (the Plutto "overline").
 const Overline = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[{ color: theme.color.label, fontSize: theme.font.sizes.overline, letterSpacing: 3, fontWeight: "500", textTransform: "uppercase", marginBottom: 10 }, style]}>{staticText(node, props.content ?? "")}</Text>;
+  return <Text style={[typeRole(theme, "overline", legacyVariant("overline", theme)), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
 const Heading = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  const fam = theme.font.family ?? SERIF;
-  return <Text style={[{ fontFamily: fam, color: theme.color.text, fontSize: theme.font.sizes.h1, lineHeight: 34, letterSpacing: 0.3, marginBottom: 24 }, style]}>{staticText(node, props.content ?? "")}</Text>;
+  return <Text style={[typeRole(theme, "heading", { ...legacyVariant("h1", theme), marginBottom: 24 }), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
 const Paragraph = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
-  return <Text style={[{ color: theme.color.body ?? theme.color.text, fontSize: theme.font.sizes.body, lineHeight: 26, fontWeight: "300", marginBottom: 18 }, style]}>{staticText(node, props.content ?? "")}</Text>;
+  return <Text style={[typeRole(theme, "paragraph", { ...legacyVariant("body", theme), marginBottom: 18 }), style]}>{staticText(node, props.content ?? "")}</Text>;
 };
 
 const Quote = ({ props, style }: CompProps) => {
   const theme = useTheme();
-  const fam = theme.font.family ?? SERIF;
-  return <Text style={[{ fontFamily: fam, color: theme.color.muted, fontSize: theme.font.sizes.lg, lineHeight: 28, fontStyle: "italic", textAlign: "center", marginVertical: 16 }, style]}>{props.content ?? ""}</Text>;
+  return <Text style={[typeRole(theme, "quoteBlock", { ...legacyVariant("quote", theme), textAlign: "center", marginVertical: 16 }), style]}>{props.content ?? ""}</Text>;
 };
 
 const Badge = ({ props, style }: CompProps) => {
@@ -630,7 +687,7 @@ const Badge = ({ props, style }: CompProps) => {
   const content = props.label ?? props.text ?? "";
   return (
     <View style={[{ alignSelf: "flex-start", paddingHorizontal: 11, paddingVertical: 5, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: tone, marginBottom: 24 }, style]}>
-      <Text style={{ color: tone, fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }}>{content}</Text>
+      <Text style={[typeRole(theme, "badge", { fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }), { color: tone }]}>{content}</Text>
     </View>
   );
 };
@@ -639,8 +696,8 @@ const KeyValue = ({ props, style }: CompProps) => {
   const theme = useTheme();
   return (
     <View style={[{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.color.border }, style]}>
-      <Text style={{ color: theme.color.muted, fontSize: theme.font.sizes.body }}>{props.label ?? ""}</Text>
-      <Text style={{ color: theme.color.text, fontSize: theme.font.sizes.body, fontWeight: "600" }}>{props.value ?? ""}</Text>
+      <Text style={typeRole(theme, "keyValueLabel", { color: theme.color.muted, fontSize: theme.font.sizes.body })}>{props.label ?? ""}</Text>
+      <Text style={typeRole(theme, "keyValueValue", { color: theme.color.text, fontSize: theme.font.sizes.body, fontWeight: "600" })}>{props.value ?? ""}</Text>
     </View>
   );
 };
@@ -653,8 +710,8 @@ const Hero = ({ props, style }: CompProps) => {
         <Image source={{ uri: props.image }} style={{ width: "100%", height: 140 }} />
       ) : null}
       <View style={{ padding: 16 }}>
-        {props.title ? <Text style={{ color: theme.color.text, fontSize: theme.font.sizes.h1, fontWeight: "800" }}>{props.title}</Text> : null}
-        {props.subtitle ? <Text style={{ color: theme.color.muted, fontSize: theme.font.sizes.body, marginTop: 4 }}>{props.subtitle}</Text> : null}
+        {props.title ? <Text style={typeRole(theme, "heroTitle", { color: theme.color.text, fontSize: theme.font.sizes.h1, fontWeight: "800" })}>{props.title}</Text> : null}
+        {props.subtitle ? <Text style={typeRole(theme, "heroSubtitle", { color: theme.color.muted, fontSize: theme.font.sizes.body, marginTop: 4 })}>{props.subtitle}</Text> : null}
       </View>
     </View>
   );
@@ -831,7 +888,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ color: recording ? "#fff" : readableOn(theme.color.primary), fontWeight: "700", fontSize: 15 }}>{label}</Text>
+      <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? "#fff" : readableOn(theme.color.primary) }]}>{label}</Text>
     </Pressable>
   );
 };
@@ -892,15 +949,17 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
 
   const white = theme.color.text ?? "rgba(255,255,255,0.96)";
   const hair = theme.color.hairline ?? "rgba(255,255,255,0.12)";
-  const fam = theme.font?.family ?? SERIF;
 
   return (
     <View style={{ alignItems: "center", paddingVertical: 28 }}>
       <Animated.Text
-        style={{
-          fontFamily: fam, fontSize: 46, fontWeight: "300", color: white,
-          textAlign: "center", letterSpacing: 0.2, marginBottom: 40, opacity: fade,
-        }}
+        style={[
+          typeRole(theme, "greeting", {
+            fontFamily: fontSlot(theme, "display"), fontSize: 46, fontWeight: "300",
+            textAlign: "center", letterSpacing: 0.2, marginBottom: 40,
+          }),
+          { color: white, opacity: fade },
+        ]}
       >
         {greetings.length ? greetings[gi % greetings.length] : "Hello"}
       </Animated.Text>
@@ -915,7 +974,7 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
               opacity: pressed ? 0.55 : 1,
             })}
           >
-            <Text style={{ color: white, fontSize: 15, fontWeight: "300", letterSpacing: 0.5 }}>{l.label}</Text>
+            <Text style={[typeRole(theme, "greetingPill", { fontSize: 15, fontWeight: "300", letterSpacing: 0.5 }), { color: white }]}>{l.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -955,11 +1014,11 @@ const Row = ({ props, style, node, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={{ flex: 1, color: danger ? theme.color.danger : theme.color.text, fontSize: 16, fontWeight: "400" }}>
+      <Text style={[typeRole(theme, "row", { color: theme.color.text, fontSize: 16, fontWeight: "400" }), { flex: 1 }, danger ? { color: theme.color.danger } : null]}>
         {props.label}
       </Text>
-      {props.value ? <Text style={{ color: theme.color.muted, fontSize: 15, marginRight: showChevron ? 8 : 0 }}>{props.value}</Text> : null}
-      {showChevron ? <Text style={{ color: theme.color.muted, fontSize: 20, marginTop: -2 }}>›</Text> : null}
+      {props.value ? <Text style={[typeRole(theme, "rowValue", { color: theme.color.muted, fontSize: 15 }), { marginRight: showChevron ? 8 : 0 }]}>{props.value}</Text> : null}
+      {showChevron ? <Text style={[typeRole(theme, "rowChevron", { color: theme.color.muted, fontSize: 20 }), { marginTop: -2 }]}>›</Text> : null}
     </Pressable>
   );
 };

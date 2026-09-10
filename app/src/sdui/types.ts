@@ -10,11 +10,40 @@
  * component registry.
  */
 
+/**
+ * One role in the backend's type scale — everything needed to set a run of
+ * text. `family` is a slot ("display" / "body") filled by `font.display` /
+ * `font.family`; `color` is a key in `ThemeTokens.color`. See typeRole().
+ */
+export interface TypeRole {
+  size: number;
+  weight?: string;
+  lineHeight?: number;
+  letterSpacing?: number;
+  family?: "display" | "body" | string;
+  italic?: boolean;
+  transform?: "uppercase" | "lowercase" | "capitalize" | "none";
+  align?: "left" | "center" | "right";
+  color?: string;
+  marginTop?: number;
+  marginBottom?: number;
+  marginVertical?: number;
+}
+
 export interface ThemeTokens {
   color: Record<string, string>;
   space: Record<string, number>;
   radius: Record<string, number>;
-  font: { family?: string; sizes: Record<string, number>; weights: Record<string, string> };
+  font: {
+    /** Running face for the whole app. Unset = the system font. */
+    family?: string;
+    /** Heading face. Unset = `family`, else the platform serif. */
+    display?: string;
+    sizes: Record<string, number>;
+    weights: Record<string, string>;
+    /** The type scale, by role. Missing roles use the renderer's built-in copy. */
+    roles?: Record<string, TypeRole>;
+  };
 }
 
 /**
