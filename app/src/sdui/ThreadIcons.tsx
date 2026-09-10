@@ -27,6 +27,7 @@
 import React, { useEffect, useId, useMemo, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
 import Svg, { ClipPath, Defs, G, Path, Rect } from "react-native-svg";
+import type { TabGlyph } from "./types";
 
 export const THREAD_ACTIVE = "#E8A23C";
 
@@ -55,13 +56,13 @@ function usePluck(active: boolean, nonce: number) {
   return spin.interpolate({ inputRange: [-1, 1], outputRange: ["-9deg", "9deg"] });
 }
 
-function Frame({ active, nonce, size, children }: {
-  active: boolean; nonce: number; size: number; children: React.ReactNode;
+function Frame({ active, nonce, size, children, viewBox = "0 0 32 32" }: {
+  active: boolean; nonce: number; size: number; children: React.ReactNode; viewBox?: string;
 }) {
   const rotate = usePluck(active, nonce);
   return (
     <Animated.View style={{ width: size, height: size, transform: [{ rotate }] }}>
-      <Svg width={size} height={size} viewBox="0 0 32 32">{children}</Svg>
+      <Svg width={size} height={size} viewBox={viewBox}>{children}</Svg>
     </Animated.View>
   );
 }
@@ -169,15 +170,59 @@ export function ThreadYou({ active, color, size = 26, nonce = 0, holeColor = "#0
 }
 
 /**
- * Pick an icon for a tab. Matched on the tab id the backend sends, with the
- * title as a fallback, so renaming a tab's label never blanks its icon.
+ * An icon the backend drew.
+ *
+ * The backend is the creator and this is a renderer, and icons were the one
+ * place that was quietly untrue — the tab id was matched against shapes this
+ * file carried, and the `icon` slot on the tab was never read. This draws
+ * whatever geometry comes down the wire, so a redrawn set ships with a cache
+ * bump and not a release. The built-in set below stays only as the fallback
+ * for a server that sends nothing.
  */
-export function TabThreadIcon({ id, title, active, color, nonce, surface }: {
+function GlyphIcon({ glyph, active, color, nonce, surface, size = 26 }: {
+  glyph: TabGlyph; active: boolean; color: string; nonce: number; surface?: string; size?: number;
+}) {
+  const c = active ? THREAD_ACTIVE : color;
+  return (
+    <Frame active={active} nonce={nonce} size={size} viewBox={glyph.viewBox}>
+      {glyph.layers.map((l, i) => {
+        // A punch is a hole: an outline when idle (the shape beneath is an
+        // outline too), the bar's own surface once that shape has gone solid.
+        if (l.punch) {
+          return active
+            ? <Path key={i} d={l.d} fill={surface ?? "#000000"} />
+            : <Path key={i} d={l.d} fill="none" stroke={c} strokeWidth={l.stroke ?? 1.7} />;
+        }
+        const filled = active ? !!l.activeFill : !!l.fill;
+        const width = active ? (l.activeStroke ?? l.stroke) : l.stroke;
+        return (
+          <Path key={i} d={l.d}
+            fill={filled ? c : "none"}
+            stroke={filled ? undefined : c}
+            strokeWidth={filled ? undefined : width}
+            strokeLinecap="round" strokeLinejoin="round"
+            opacity={l.opacity} />
+        );
+      })}
+    </Frame>
+  );
+}
+
+/**
+ * Pick an icon for a tab. The backend's glyph when it sent one; otherwise the
+ * built-in set, matched on the tab id with the title as a fallback so renaming
+ * a label never blanks its icon.
+ */
+export function TabThreadIcon({ id, title, active, color, nonce, surface, glyph }: {
   id: string; title?: string; active: boolean; color: string; nonce: number;
   /** The bar's own background. The tag's hole is punched in it, so it has to be
    *  the real surface colour and not a guess at black. */
   surface?: string;
+  glyph?: TabGlyph;
 }) {
+  if (glyph?.layers?.length) {
+    return <GlyphIcon glyph={glyph} active={active} color={color} nonce={nonce} surface={surface} />;
+  }
   const k = `${id} ${title ?? ""}`.toLowerCase();
   if (k.includes("train")) return <ThreadTrain active={active} color={color} nonce={nonce} />;
   if (k.includes("stat")) return <ThreadStats active={active} color={color} nonce={nonce} />;

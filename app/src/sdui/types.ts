@@ -17,10 +17,39 @@ export interface ThemeTokens {
   font: { family?: string; sizes: Record<string, number>; weights: Record<string, string> };
 }
 
+/**
+ * One tab icon, as paths on a 32-unit grid, sent by the backend. Two states,
+ * one geometry: a layer is stroked at `stroke` idle and `activeStroke` open,
+ * or filled when `fill` / `activeFill`. `punch` is a hole — drawn in the bar's
+ * surface colour when active so a solid shape keeps its cut-out. Colour is
+ * never in here; it belongs to the theme.
+ */
+export interface TabGlyph {
+  viewBox?: string;
+  layers: Array<{
+    d: string;
+    stroke?: number;
+    activeStroke?: number;
+    fill?: boolean;
+    activeFill?: boolean;
+    punch?: boolean;
+    opacity?: number;
+  }>;
+}
+
 export type NavigationShell =
   | {
       kind: "tabs";
-      tabs: Array<{ id: string; title: string; icon?: string; screenId: string }>;
+      tabs: Array<{
+        id: string;
+        title: string;
+        icon?: string;
+        screenId: string;
+        /** The icon, as paths. Absent → the set this build shipped with. */
+        glyph?: TabGlyph;
+      }>;
+      /** Draw the thread across the bar behind the icons. Absent means yes. */
+      rail?: boolean;
       /** Which tab to open on. Absent means the first, which is what this did
        *  before the field existed. Decided server-side because it depends on
        *  whether this person has ever reached the tabs before. */
