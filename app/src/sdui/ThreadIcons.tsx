@@ -19,9 +19,9 @@
  * only shape language this product has, so all three icons are built from it,
  * and each is a different thing that vocabulary can do.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useId, useMemo, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import Svg, { ClipPath, Defs, G, Path, Rect } from "react-native-svg";
 
 export const THREAD_ACTIVE = "#E8A23C";
 
@@ -211,6 +211,119 @@ export function TabThreadIcon({ id, title, active, color, nonce }: {
   if (k.includes("stat")) return <ThreadStats active={active} color={color} nonce={nonce} />;
   if (k.includes("you") || k.includes("home")) return <ThreadYou active={active} color={color} nonce={nonce} />;
   return <ThreadYou active={active} color={color} nonce={nonce} />;
+}
+
+/**
+ * THE RAIL — the tab bar as ONE object instead of three pictures in three boxes.
+ *
+ * Every version before this drew each icon inside its own 32-square and hoped
+ * they looked related. But the app icon is not three marks; it is nodes on ONE
+ * thread, and a tab bar is three positions on one line. So the thread is drawn
+ * across the whole bar and the icons sit on it, which is the mark at the size
+ * the bar actually is.
+ *
+ * It also rescues the coil. Stitching failed inside a 26pt icon because a coil
+ * needs air between its ticks and there is no room for both at that size. Here
+ * the run between two tabs is over a hundred points wide, so the ticks get all
+ * the air they want and finally read as cloth.
+ *
+ * What the thread SAYS: before the open tab it is a wave, after it, stitched.
+ * The open tab is where speech turns into writing, and the boundary springs
+ * across the bar when you switch — the product's whole claim, restated by
+ * every tap, in the furniture rather than in a sentence.
+ */
+export const THREAD_RAIL_HEIGHT = 30;
+const RAIL_H = THREAD_RAIL_HEIGHT;
+/** Half the gap the thread leaves around each icon. Wider and the bar breaks
+ *  into pieces; narrower and the thread collides with the glyphs. */
+const RAIL_GAP = 17;
+const RAIL_EDGE = 10;
+
+function railWave(x0: number, x1: number, y: number): string {
+  if (x1 - x0 < 10) return "";
+  // Long and shallow. At an 11 wavelength this read as a zigzag and fought the
+  // icons for attention; the thread is meant to be noticed second.
+  const amp = 3.0, lam = 19.0, steps = Math.max(8, Math.round((x1 - x0) / 2));
+  const pts: string[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, x = x0 + (x1 - x0) * t;
+    pts.push(`${x.toFixed(2)} ${(y - amp * Math.sin(((x - x0) / lam) * Math.PI * 2)).toFixed(2)}`);
+  }
+  return `M${pts.join(" L")}`;
+}
+
+function railCoil(x0: number, x1: number, y: number): string {
+  const span = x1 - x0;
+  if (span < 8) return "";
+  // Spacing first, count second. A tick count that ignores the run length is
+  // how the earlier attempts turned into blocks on short segments.
+  const n = Math.max(2, Math.round(span / 8.5));
+  const amp = 3.0, lean = 1.25;
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = x0 + (span * (i + 0.5)) / n;
+    out.push(`M${(x - lean).toFixed(2)} ${(y - amp).toFixed(2)} L${(x + lean).toFixed(2)} ${(y + amp).toFixed(2)}`);
+  }
+  return out.join(" ");
+}
+
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+
+export function ThreadRail({ width, count, index, color, top = 0 }: {
+  width: number; count: number; index: number; color: string; top?: number;
+}) {
+  const y = RAIL_H / 2;
+  // Clip ids live in one document-wide namespace on react-native-svg, so two
+  // rails on screen would silently share one clip. Cheap to make unique.
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
+  const centres = useMemo(
+    () => Array.from({ length: count }, (_, i) => ((i + 0.5) * width) / count),
+    [width, count],
+  );
+  // The thread is one line with holes punched where the icons stand. The holes
+  // never move, so the path is built once and only the clip animates.
+  const { wave, coil } = useMemo(() => {
+    const segs: Array<[number, number]> = [];
+    let x = RAIL_EDGE;
+    for (const c of centres) { segs.push([x, c - RAIL_GAP]); x = c + RAIL_GAP; }
+    segs.push([x, width - RAIL_EDGE]);
+    return {
+      wave: segs.map(([a, b]) => railWave(a, b, y)).filter(Boolean).join(" "),
+      coil: segs.map(([a, b]) => railCoil(a, b, y)).filter(Boolean).join(" "),
+    };
+  }, [centres, width, y]);
+
+  const edge = useRef(new Animated.Value(centres[index] ?? 0)).current;
+  useEffect(() => {
+    Animated.spring(edge, {
+      toValue: centres[index] ?? 0,
+      // Not bouncy: the boundary is reporting where you are, and a tab bar that
+      // wobbles after every tap reads as unfinished rather than as alive.
+      stiffness: 190, damping: 26, mass: 1,
+      useNativeDriver: false,
+    }).start();
+  }, [centres, index, edge]);
+
+  if (width <= 0) return null;
+  return (
+    <Svg width={width} height={RAIL_H} style={{ position: "absolute", top, left: 0 }}
+      pointerEvents="none">
+      <Defs>
+        <ClipPath id={`speech${uid}`}>
+          <AnimatedRect x={0} y={0} width={edge} height={RAIL_H} />
+        </ClipPath>
+        <ClipPath id={`cloth${uid}`}>
+          <AnimatedRect x={edge} y={0} width={width} height={RAIL_H} />
+        </ClipPath>
+      </Defs>
+      <G clipPath={`url(#speech${uid})`}>
+        <Path d={wave} fill="none" stroke={color} strokeWidth={1.4} strokeLinecap="round" opacity={0.5} />
+      </G>
+      <G clipPath={`url(#cloth${uid})`}>
+        <Path d={coil} fill="none" stroke={color} strokeWidth={1.2} strokeLinecap="round" opacity={0.42} />
+      </G>
+    </Svg>
+  );
 }
 
 /**
