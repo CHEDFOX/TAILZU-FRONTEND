@@ -438,8 +438,22 @@ export default function SduiApp() {
       // nothing and removes the race entirely.
       setMediaRegistry(pickMediaRegistry(b));
       setBoot(b);
-      const firstTab = b.navigation.kind === "tabs" ? b.navigation.tabs[0]?.id ?? "" : "";
-      setTabId(firstTab);
+      // WHICH TAB THE APP OPENS ON is the server's call, because it turns on
+      // something only the server knows: whether this person has ever reached
+      // the tabs before. A first-timer who just finished onboarding lands on
+      // You; everyone after that lands on Stats.
+      //
+      // Falls back to the first tab, which is what this did before the field
+      // existed — so a build that predates it keeps working, and a server that
+      // stops sending it does not strand anyone on a blank id.
+      const nav = b.navigation;
+      const landing =
+        nav.kind === "tabs"
+          ? (nav.initialTabId && nav.tabs.some((t) => t.id === nav.initialTabId)
+              ? nav.initialTabId
+              : nav.tabs[0]?.id ?? "")
+          : "";
+      setTabId(landing);
       setShowConnection(false);
       // Hand the keyboard the live backend URL + user token.
       void syncKeyboardCredentials();
