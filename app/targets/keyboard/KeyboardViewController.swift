@@ -1382,8 +1382,20 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     micButton.imageView?.stopAnimating()
     micButton.setImage(UIImage(systemName: flowGlyph("kb.flow.startGlyph", "bolt.fill")), for: .normal)
     micButton.tintColor = .black
-    NSLog("[Tailzu][kb] flow: session was dead (app force-quit) — re-arming.")
-    openAppToArmFlow()
+    NSLog("[Tailzu][kb] flow: session was dead (app force-quit) — waiting for a tap.")
+    // DO NOT OPEN THE APP HERE.
+    //
+    // This runs when a dictation is found to be talking to a session that is
+    // gone, which happens while the user is mid-sentence in someone else's
+    // app. Re-arming means bringing Tailzu to the front, and doing that on the
+    // keyboard's own initiative throws the user out of what they were writing
+    // to fix a problem they did not know they had.
+    //
+    // The app only ever comes forward because a finger asked for it. The mic
+    // is back to idle and says so; the next tap takes the ordinary path, which
+    // sees no live session and opens the app exactly as it always has. One
+    // tap lost, no app switch nobody asked for.
+    setStatus(label("flow_dead", "Voice turned off. Tap the mic to turn it back on."), actionable: true)
   }
 
   private func stopFlowDictation() {
