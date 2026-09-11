@@ -1138,6 +1138,20 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // the user switches focus between fields too, so it's the right hook for
     // "return key label changed from Go → Send". Cheap (no-op if unchanged).
     sduiRenderer?.reflectFieldContext()
+    // UNDER SDUI, EVERYTHING BELOW IS PAID FOR AND THROWN AWAY.
+    //
+    // The renderer runs its own updateAutoCap on every insert, and the state
+    // this function maintains — shiftState, updateShiftUI — drives only the
+    // hand-built keyboard's `letterButtons` and `shiftButton`, which do not
+    // exist when the plane is mounted. So the work landed nowhere.
+    //
+    // It was not free work. iOS calls textDidChange after EVERY document
+    // change, including the ones this keyboard just caused, so each letter
+    // paid a documentContextBeforeInput — a synchronous round trip into the
+    // host app, whose cost rises with the length of the text already there —
+    // and then reversed that whole string twice looking for a sentence end.
+    // One keystroke, two cross-process calls instead of one.
+    if sduiRenderer != nil { return }
     if isStreaming || isRecording { return }
     if shiftState == .locked { return } // caps-lock overrides auto-cap
     let before = textDocumentProxy.documentContextBeforeInput ?? ""

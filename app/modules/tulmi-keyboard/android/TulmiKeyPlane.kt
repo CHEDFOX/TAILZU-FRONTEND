@@ -570,9 +570,44 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         v.visibility == VISIBLE && v.isClickable && v !is android.view.ViewGroup &&
             v.tag != RAW_TOUCH
 
+    /**
+     * The rest colour of each key view, captured the first time it is pressed.
+     * Weak, because a remount replaces every key and nothing here should be the
+     * reason the old ones stay alive.
+     */
+    private val restFill = java.util.WeakHashMap<View, Int>()
+
     private fun setPressed(o: Any, pressed: Boolean) {
         when (o) {
-            is View -> o.isPressed = pressed
+            is View -> {
+                o.isPressed = pressed
+                // isPressed ON ITS OWN CHANGED NOTHING, ON EVERY KEY.
+                //
+                // It sets the state and asks the background to redraw for it,
+                // and the background is a plain GradientDrawable: one colour,
+                // no state list. isStateful() is false, setState() returns
+                // false, no invalidate is scheduled. So the press was registered
+                // — the plane claimed the pointer and the character was on its
+                // way — and the screen said nothing about it.
+                //
+                // That is the whole of the feel. A key that does not light up
+                // is indistinguishable from a key that was missed, so every
+                // press had to be confirmed by watching the text field instead,
+                // which is the one place the character has not arrived yet.
+                //
+                // Tinting the drawable rather than building a state list keeps
+                // this out of the way of the radius pass in addChildWithStyle,
+                // which reads the background back as a GradientDrawable and
+                // would throw away anything else.
+                val gd = o.background as? android.graphics.drawable.GradientDrawable ?: return
+                if (pressed) {
+                    if (pressedFill == 0) return
+                    if (!restFill.containsKey(o)) restFill[o] = gd.color?.defaultColor ?: return
+                    gd.setColor(pressedFill)
+                } else {
+                    restFill[o]?.let { gd.setColor(it) }
+                }
+            }
             is DrawnKey -> {
                 // One repaint of one view, versus a Button re-running its
                 // background state list and invalidating its own layer.
