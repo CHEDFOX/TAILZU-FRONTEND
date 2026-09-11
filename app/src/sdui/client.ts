@@ -633,10 +633,28 @@ export async function callEndpoint(
 ): Promise<any> {
   assertBackendPath(path);
   const base = await getBaseUrl();
+  // NO BODY, NO CONTENT-TYPE.
+  //
+  // The header went on everything and the body only went on some of it, and
+  // that pair is not a small inconsistency: a server told "this is JSON" and
+  // handed nothing is entitled to refuse the request, and Fastify's default
+  // parser does, with a 400 raised before the route is ever entered.
+  //
+  // Delete account is the one that made it visible. The request left the
+  // phone, reached the server and was turned away at the door, so the button
+  // could not have worked on any build that has ever shipped. Every body-less
+  // call had the same hole.
+  //
+  // The server now reads an empty body as {}, which is what it means, and this
+  // stops describing a body that is not there.
+  const payload = body != null && method !== "GET" ? JSON.stringify(body) : undefined;
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", ...(await commonHeaders()) },
-    body: body != null && method !== "GET" ? JSON.stringify(body) : undefined,
+    headers: {
+      ...(payload !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(await commonHeaders()),
+    },
+    body: payload,
   });
   if (!res.ok) {
     if (res.status === 429) {
