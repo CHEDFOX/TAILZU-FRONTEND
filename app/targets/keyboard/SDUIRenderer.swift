@@ -148,6 +148,28 @@ final class KeyPlaneView: UIView {
   /// the first key was released after the second was pressed ("teh" for "the"),
   /// which is exactly how fast typists overlap. Matches the system keyboard.
   var rolloverCommit = true
+  /// kb.keyPlane.commitOnDown — a plain letter is inserted when the finger
+  /// LANDS, not when it lifts.
+  ///
+  /// This is the whole of "the keyboard feels slow". The highlight, the click
+  /// and the haptic all fire in touchesBegan; the character waited for
+  /// touchesEnded. A tap holds the key for 60 to 120 ms, so every letter
+  /// arrived three to seven frames after the key that typed it lit up, and no
+  /// amount of speed anywhere else could close a gap made of the user's own
+  /// finger. The system keyboard commits on down; this is that.
+  ///
+  /// It reuses the state rollover already relies on. A track marked `committed`
+  /// is skipped by touchesMoved, by the tray timer and by the lift path, so
+  /// "already typed, still held" is not a new condition — it is the one two
+  /// overlapping thumbs have always produced.
+  ///
+  /// Keys WITH an accent tray are excluded, because there the press and the
+  /// character are genuinely different events: the letter must not be typed
+  /// until the hold has been ruled out.
+  ///
+  /// Default OFF so the flag decides, and so it can be taken back over the air
+  /// without another build.
+  var commitOnDown = false
   /// kb.keyPlane.accentTrays — long-press accent trays routed through the plane.
   var accentTraysEnabled = true
   /// kb.accentTray.longPressMs — hold threshold before the tray opens.
@@ -238,6 +260,25 @@ final class KeyPlaneView: UIView {
         r = r.inset(by: UIEdgeInsets(
           top: -k.hitSlop.top, left: -k.hitSlop.left,
           bottom: -k.hitSlop.bottom, right: -k.hitSlop.right))
+        // CLIP THE HALO TO WHERE IT CAN ACTUALLY BE TOUCHED.
+        //
+        // Hit slop widens what the button ACCEPTS, not what reaches it. UIKit
+        // only descends into a subview when the point is already inside the
+        // parent, so the part of the slop that falls outside the button's own
+        // row can never be delivered to anything. It was still vetoed, and a
+        // veto is checked before the plane resolves — so those points went to
+        // the button that could not have them and to nothing else.
+        //
+        // It is not a sliver. The mic and the tone pill are 10pt-slopped keys
+        // painted 12pt down a 44pt tools row, so their halo hung 6pt into the
+        // gap above q..p, across more than a third of the keyboard's width.
+        // The globe key's halo covered the entire gap between the z..m row and
+        // the space row, directly under z and x. Those are the two places a
+        // thumb overshoots, which is why the keyboard felt like it had holes
+        // exactly where it did.
+        if let sup = k.superview {
+          r = r.intersection(convert(sup.bounds, from: sup))
+        }
       }
       // A plane-owned key vetoes only what it draws — see the same clamp in
       // refreshFrames. Without this a stretched space or return button
@@ -945,6 +986,17 @@ final class KeyPlaneView: UIView {
       if let ch = hit?.char { track.sweptChars = [ch] }
       tracks[ObjectIdentifier(t)] = track
       if let b = hit?.button { renderer?.planeDown(b); track.pressed = true }
+      // THE LETTER, NOW, WHILE THE FINGER IS STILL ON IT.
+      //
+      // Only a plain character, and only one with no accent tray behind it —
+      // on those the hold has to be ruled out before anything can be typed.
+      // Action keys are excluded too: backspace's repeat and space's cursor
+      // slide are gestures that begin, not events that happen.
+      if commitOnDown, let ch = hit?.char, !ch.isEmpty, !track.committed,
+         !(accentTraysEnabled && renderer?.planeHasAccents(ch) == true) {
+        track.committed = true
+        commit(track)
+      }
       // Arm the accent-tray hold for this finger. Fires only if the finger is
       // still down, hasn't rolled/committed, and the key actually has accents
       // (the renderer decides that when presenting). Timer goes to .common —
@@ -2652,6 +2704,7 @@ final class SDUIRenderer: NSObject {
         container.layoutIfNeeded()
         let plane = keyPlane ?? KeyPlaneView(renderer: self)
         plane.rolloverCommit = flagBool("kb.keyPlane.rolloverCommit", true)
+        plane.commitOnDown = flagBool("kb.keyPlane.commitOnDown", false)
         plane.accentTraysEnabled = flagBool("kb.keyPlane.accentTrays", true)
         plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
         plane.lmBiasPt = flagBool("kb.touch.lmBias.enabled", false)
@@ -3833,6 +3886,15 @@ final class SDUIRenderer: NSObject {
   /// Present the tray for a held key. Returns false when the key has no
   /// accents (or the feature is off) so the plane leaves the touch as a
   /// normal press.
+  /// Does this character have a tray waiting behind it? The plane asks before
+  /// committing on touch-down, because a key that can open a tray owes the
+  /// finger the chance to hold.
+  fileprivate func planeHasAccents(_ char: String) -> Bool {
+    guard flagBool("kb.keyPlane.accentTrays", true) else { return false }
+    guard let accents = accentMap[char.lowercased()] else { return false }
+    return !accents.isEmpty
+  }
+
   fileprivate func planeTryPresentAccentTray(for button: UIButton?, char: String?) -> Bool {
     // One tray at a time: a second finger's hold must not dismiss-and-replace
     // the first finger's tray (the first finger would then commit against a
