@@ -350,6 +350,9 @@ export type ActionSpec =
         | "contacts" | "calendar" | "location" | "tracking";
       onGranted?: ActionRef;
       onDenied?: ActionRef;
+      /** The system will not ask again — the answer is already on record and
+       *  only Settings can change it. Falls back to onDenied when unset. */
+      onBlocked?: ActionRef;
     }
   // Read a permission WITHOUT asking for it. Same shape as requestPermission,
   // but it never shows a system dialog — so a screen can react to a permission

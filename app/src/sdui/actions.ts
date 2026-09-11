@@ -429,11 +429,27 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "requestPermission": {
       try {
         let granted = false;
+        // DENIED ONCE IS NOT THE SAME AS DENIED FOREVER, AND THE SCREEN HAS TO
+        // KNOW WHICH.
+        //
+        // iOS shows a permission dialog once per install. After that — the
+        // user tapped Don't Allow, or turned the switch off in Settings —
+        // requesting returns denied instantly and draws nothing. The Allow
+        // button on the onboarding screen then does visibly nothing, which
+        // reads as a broken button rather than as a decision already on
+        // record, and there is nowhere left to go except Settings.
+        //
+        // `canAskAgain` is the only thing that separates the two, and it was
+        // being thrown away. When it is false the backend gets `onBlocked`, so
+        // it can offer Settings instead of asking again for something the
+        // system will not ask for.
+        let blocked = false;
         switch (action.permission) {
           case "microphone": {
             const AudioMod = await import("expo-audio");
             const p = await (AudioMod as any).AudioModule?.requestRecordingPermissionsAsync?.();
             granted = !!p?.granted;
+            blocked = !granted && p?.canAskAgain === false;
             break;
           }
           case "camera": granted = (await requestCameraPermission()).granted; break;
@@ -465,7 +481,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             granted = false;
             break;
         }
-        await runAction(granted ? action.onGranted : action.onDenied, ctx);
+        // onBlocked falls back to onDenied, so a screen that has not been
+        // taught the difference behaves exactly as it does today.
+        const next = granted
+          ? action.onGranted
+          : (blocked ? ((action as { onBlocked?: unknown }).onBlocked ?? action.onDenied) : action.onDenied);
+        await runAction(next as any, ctx);
       } catch { await runAction(action.onDenied, ctx); }
       break;
     }
