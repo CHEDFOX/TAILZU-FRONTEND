@@ -401,7 +401,21 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
     if (firstReset.current) { firstReset.current = false; return; }
     envX.setValue(0);
     crossed.current = false;
+    parked.current = false;
   }, [resetAt, envX]);
+
+  /** Parked at the far end on an invalid value, waiting for an edit. */
+  const parked = useRef(false);
+
+  // Editing is the answer to a pill parked on a value it could not send, so
+  // the disc comes back and the gesture is available again. Only then: a disc
+  // that returns for any other reason is the gesture being withdrawn.
+  useEffect(() => {
+    if (!parked.current) return;
+    parked.current = false;
+    crossed.current = false;
+    Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }).start();
+  }, [value, envX]);
 
   const pan = useRef(
     PanResponder.create({
@@ -423,11 +437,28 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
       },
       onPanResponderRelease: (_, g) => {
         const x = Math.max(0, Math.min(MAX_DRAG, g.dx));
-        if (x >= DRAG_THRESHOLD && validRef.current) commit();
-        else {
-          if (x >= DRAG_THRESHOLD) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-          Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }).start();
+        // CROSSED IS CROSSED. Once the disc is past the threshold it finishes
+        // its travel and stays at the far end, whatever happens next.
+        //
+        // It used to spring home when the field was not yet valid, which is
+        // the gesture being taken back in front of the person who made it —
+        // and the only thing distinguishing that from a refused drag was a
+        // haptic they may not have felt. The disc now lands where it was sent
+        // and the pill says what is wrong, which is the difference between
+        // "that did not work" and "that did not happen".
+        //
+        // It comes back when the input changes, because editing is what makes
+        // the gesture worth offering again.
+        if (x >= DRAG_THRESHOLD) {
+          if (validRef.current) { commit(); return; }
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+          parked.current = true;
+          Animated.timing(envX, {
+            toValue: MAX_DRAG, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false,
+          }).start();
+          return;
         }
+        Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }).start();
       },
       onPanResponderTerminate: () => Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }).start(),
     }),
