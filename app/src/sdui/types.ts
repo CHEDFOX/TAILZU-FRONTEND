@@ -87,6 +87,25 @@ export type NavigationShell =
        *  before the field existed. Decided server-side because it depends on
        *  whether this person has ever reached the tabs before. */
       initialTabId?: string;
+      /**
+       * The tabs as a centred cluster of squares, each on its own ground,
+       * rather than a row spread across the width. Absent → the row, which is
+       * what every build drew before this existed.
+       */
+      dock?: {
+        /** The square each icon sits on. */
+        size: number;
+        /** Its corner. Half the size would make discs; less keeps squares. */
+        radius: number;
+        /** Between one square and the next. */
+        gap: number;
+        /** The ground under an icon you are not on. */
+        background: string;
+        /** And under the one you are. Absent → the same. */
+        activeBackground?: string;
+        /** Extra lift above the device's safe inset. */
+        lift?: number;
+      };
     }
   | { kind: "stack"; rootScreenId: string };
 

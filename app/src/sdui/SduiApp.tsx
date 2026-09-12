@@ -1517,6 +1517,9 @@ export default function SduiApp() {
 
   const canGoBack = stack.length > 1;
   const tabs = boot?.navigation.kind === "tabs" ? boot.navigation.tabs : [];
+  // Present → the tabs are a centred cluster of squares, each on its own
+  // ground. Absent → the full-width row, which is what this always drew.
+  const dock = boot?.navigation.kind === "tabs" ? boot.navigation.dock : undefined;
 
   // Version gate: backend can force or suggest an app update.
   const update = boot?.update;
@@ -1677,13 +1680,19 @@ export default function SduiApp() {
           // home indicator on iPhone and the gesture bar on Android — a tap
           // near the bottom of a tab went to the OS, not to us. The floor keeps
           // a comfortable strip on hardware with no inset to report.
-          paddingBottom: Math.max(insets.bottom, 12) + 6,
+          paddingBottom: Math.max(insets.bottom, 12) + (dock?.lift ?? 6),
+          // A DOCK IS CENTRED; A BAR IS SPREAD. The tabs themselves carry no
+          // flex when docked, so the row has to be the thing that gathers them.
+          ...(dock ? { justifyContent: "center" as const, paddingTop: 10 } : null),
         }]}
         onLayout={(e) => setTabsWidth(e.nativeEvent.layout.width)}>
           {/* The thread that makes the row one object rather than three icons.
               Behind them, and untouchable — it reports where you are, it is
               never something to press. */}
-          {(boot?.navigation.kind !== "tabs" || boot.navigation.rail !== false) && (
+          {/* Never under a dock: the rail exists to tie a spread-out row into
+              one object, and squares sitting together already are one. A
+              thread running between them would be drawing the join twice. */}
+          {!dock && (boot?.navigation.kind !== "tabs" || boot.navigation.rail !== false) && (
             <ThreadRail
               width={tabsWidth}
               count={tabs.length}
@@ -1697,7 +1706,19 @@ export default function SduiApp() {
             return (
               <Pressable
                 key={t.id}
-                style={styles.tab}
+                // Docked, a tab is a square of a stated size on its own ground;
+                // undocked it is a share of the row, which is what every build
+                // before the dock existed drew. The server decides which by
+                // sending the block or not.
+                style={dock ? [styles.chip, {
+                  width: dock.size,
+                  height: dock.size,
+                  borderRadius: dock.radius,
+                  backgroundColor: active
+                    ? (dock.activeBackground ?? dock.background)
+                    : dock.background,
+                  marginHorizontal: dock.gap / 2,
+                }] : styles.tab}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
                 accessibilityLabel={t.title}
@@ -2145,6 +2166,9 @@ const styles = StyleSheet.create({
   headerIcon: { fontSize: 24, fontWeight: "700" },
   tabs: { flexDirection: "row", borderTopWidth: 1, paddingTop: TAB_PAD_TOP },
   tab: { flex: 1, paddingVertical: TAB_PAD_V, alignItems: "center", justifyContent: "center" },
+  // A docked tab. No flex — its size is stated, and the row centres what it
+  // is given. Everything that varies comes off navigation.dock.
+  chip: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
   tabUnderline: { height: 2, width: 28, borderRadius: 2, marginTop: 6 },
   loadingOverlay: { position: "absolute", top: 8, right: 16 },
   toast: { position: "absolute", left: 16, right: 16, bottom: 76, padding: 14, borderRadius: 10 },
