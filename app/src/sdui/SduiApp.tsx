@@ -769,6 +769,39 @@ export default function SduiApp() {
     return peekScreen(current.screenId, current.params)?.screen ?? screen;
   }, [screen, current, phase]);
 
+  /**
+   * THE IDENTITY OF WHAT IS ON SCREEN — which is not always what the stack
+   * points at, and that difference was a bug for as long as it existed.
+   *
+   * The host below is keyed so that arriving at a screen remounts it; see
+   * there for why. It was keyed from the STACK, and the stack moves the
+   * instant a navigation starts, while `shown` above deliberately keeps
+   * drawing the previous screen until the new one's fetch lands. Between those
+   * two moments the key said "training_chat" and the body was still Home — so
+   * React threw the Home tree away and built a second, identical Home, which
+   * then sat there until the real screen arrived.
+   *
+   * Nothing about that is visible as a flash, because the rebuilt screen looks
+   * exactly like the one it replaced. What it destroys is everything those
+   * components were holding: a pill dragged to its far end went back to the
+   * start, an animation restarted, a half-typed field emptied — always at the
+   * one moment the user had just committed to something, and always blamed on
+   * the control rather than on the screen being silently rebuilt underneath
+   * it.
+   *
+   * So the key follows what is DRAWN. The params come from the topmost stack
+   * entry that is actually for this screen, so pushing the same screen with
+   * different arguments still counts as arriving.
+   */
+  const shownKey = useMemo(() => {
+    const id = shown?.screenId ?? "";
+    if (!id) return "";
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i].screenId === id) return `${id}:${JSON.stringify(stack[i].params ?? {})}`;
+    }
+    return `${id}:{}`;
+  }, [shown, stack]);
+
 
   // Warm and refresh the whole app once we are up.
   //
@@ -1550,9 +1583,14 @@ export default function SduiApp() {
               The key is the screen's identity, not its content, so a
               revalidation of the SAME screen still updates in place and does
               not restart its animations or re-fire its actions.
+
+              It is the identity of the screen BEING DRAWN, not the one the
+              stack points at — see shownKey above. Those two disagree for the
+              length of a fetch, and keying from the stack rebuilt the old
+              screen from scratch during it.
             */}
             <ScreenHost
-              key={`${current?.screenId ?? ""}:${JSON.stringify(current?.params ?? {})}`}
+              key={shownKey}
               screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
           </ThemeContext.Provider>
         ) : screenError ? (
