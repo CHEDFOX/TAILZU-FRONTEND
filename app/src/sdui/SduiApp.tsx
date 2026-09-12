@@ -1537,16 +1537,30 @@ export default function SduiApp() {
       {!hideHeader && (
         <View style={styles.header}>
           {canGoBack ? (
-            // A "‹" is a glyph a few points wide with the rest of its box
-            // empty, so the target was the narrow part of a character. The
-            // slop takes it out to a thumb, and further to the left and top
-            // than the other sides — that is the corner the hand comes from,
-            // and there is nothing over there to take the touch instead.
+            /**
+             * A REAL TARGET, not a character with slop around it.
+             *
+             * The Pressable wrapped the "‹" and nothing else, so its frame was
+             * the frame of a glyph — a few points of ink about ten wide. Slop
+             * was the first answer and it is the weaker one: it is honoured
+             * only where the touch still lands inside the ancestors' bounds,
+             * it is invisible to anyone reading the layout, and it leaves the
+             * thing itself the wrong size.
+             *
+             * The button is now 44 by 44 — the smallest target a thumb hits
+             * reliably — with the chevron centred in it. Negative margins pull
+             * that box back over the header's padding so the arrow stays where
+             * it was drawn and the row keeps its height: the target grew, the
+             * design did not move.
+             */
             <Pressable
               onPress={nav.back}
               accessibilityRole="button"
               accessibilityLabel="Back"
-              hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
+              style={styles.back}
+              // What is left over goes up and left — the corner a hand comes
+              // from, and the one place nothing else is waiting to take it.
+              hitSlop={{ top: 12, bottom: 8, left: 8, right: 0 }}
             >
               <Text style={[typeRole(theme, "headerIcon", styles.headerIcon), { color: theme.color.text }]}>‹</Text>
             </Pressable>
@@ -2121,6 +2135,13 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingTop: 56, paddingBottom: 12, paddingHorizontal: 16 },
   brand: { fontSize: 22, fontWeight: "800" },
+  // 44 square is the target; the negative margins are what keep the chevron
+  // where it was and stop the taller box growing the header row.
+  back: {
+    width: 44, height: 44,
+    alignItems: "center", justifyContent: "center",
+    marginLeft: -14, marginRight: -10, marginVertical: -8,
+  },
   headerIcon: { fontSize: 24, fontWeight: "700" },
   tabs: { flexDirection: "row", borderTopWidth: 1, paddingTop: TAB_PAD_TOP },
   tab: { flex: 1, paddingVertical: TAB_PAD_V, alignItems: "center", justifyContent: "center" },
