@@ -10,6 +10,9 @@
  */
 import { getBaseUrl, getLanguage } from "./storage";
 import { getSupabaseAccessToken as getAccessToken } from "./auth/supabaseClient";
+// SDK 56 moved the classic file-system functions to the /legacy entry — same
+// namespace actions.ts uses. We need uploadAsync from here (see transcribeClean).
+import * as FileSystem from "expo-file-system/legacy";
 
 export type LanguageHint = "auto" | "hi" | "en" | "hinglish" | string;
 export type TargetApp = string;
@@ -54,9 +57,13 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function jsonPost<T>(path: string, body: unknown): Promise<T> {
+  return jsonRequest<T>("POST", path, body);
+}
+
+async function jsonRequest<T>(method: string, path: string, body: unknown): Promise<T> {
   const base = await getBaseUrl();
   const res = await fetch(`${base}${path}`, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
@@ -83,8 +90,23 @@ export async function health(): Promise<{ status: string; service: string; versi
 
 // --- Typing: refine typed text ---------------------------------------------
 
-export async function refine(text: string, opts: Options = {}): Promise<{ refinedText: string; usage: Usage }> {
-  return jsonPost("/v1/refine", { text, ...opts });
+const LLM_TONES = new Set(["formal", "casual", "very-casual", "excited"]);
+
+export async function refine(
+  text: string,
+  opts: Options & { tone?: string } = {},
+): Promise<{ refinedText: string; usage: Usage }> {
+  const { tone, ...rest } = opts;
+  // Route to the per-tone endpoint like the keyboard does, so the refine runs in
+  // the selected tone. "none" → the basic/skip-refine endpoint; a known LLM tone
+  // → its dedicated route; anything else → the catch-all /v1/refine.
+  const toneId = String(tone ?? "").trim().toLowerCase().replace(/\s+/g, "-");
+  const path = LLM_TONES.has(toneId)
+    ? `/v1/refine/${toneId}`
+    : toneId === "none"
+      ? "/v1/refine/none"
+      : "/v1/refine";
+  return jsonPost(path, { text, ...rest });
 }
 
 // --- Voice: transcribe + clean an audio clip (REST, one-shot) ---------------
@@ -94,24 +116,47 @@ export async function transcribeClean(
   opts: Options = {},
 ): Promise<{ cleanedText: string; transcript: string; usage: Usage }> {
   const base = await getBaseUrl();
-  const form = new FormData();
-  // React Native FormData file shape:
-  form.append("audio", {
-    uri: audioUri,
-    name: "audio.m4a",
-    type: "audio/m4a",
-  } as unknown as Blob);
-  if (opts.targetApp) form.append("targetApp", opts.targetApp);
-  if (opts.language) form.append("language", String(opts.language));
-  if (opts.personality) form.append("personality", JSON.stringify(opts.personality));
 
-  const res = await fetch(`${base}/v1/transcribe-clean`, {
-    method: "POST",
-    headers: { ...(await authHeaders()) }, // let fetch set multipart boundary
-    body: form,
+  // Upload via expo-file-system's NATIVE multipart uploader — NOT fetch + a
+  // React-Native `{ uri, name, type }` FormData part. Under Expo SDK 54+'s
+  // WinterCG fetch, that legacy part shape is rejected with
+  // "Unsupported FormDataPart implementation" (the exact error users saw on
+  // the app mic). uploadAsync streams the file from disk natively and never
+  // touches FormData/fetch part serialization, so it works on every runtime.
+  const parameters: Record<string, string> = {};
+  if (opts.targetApp) parameters.targetApp = opts.targetApp;
+  if (opts.language) parameters.language = String(opts.language);
+  if (opts.personality) parameters.personality = JSON.stringify(opts.personality);
+
+  const res = await FileSystem.uploadAsync(`${base}/v1/transcribe-clean`, audioUri, {
+    httpMethod: "POST",
+    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+    fieldName: "audio", // backend reads the "audio" part; format falls back to m4a
+    mimeType: "audio/m4a",
+    parameters,
+    headers: { ...(await authHeaders()) },
   });
-  if (!res.ok) throw new Error(`transcribe failed: ${res.status} ${await safeText(res)}`);
-  return res.json();
+  if (res.status < 200 || res.status >= 300) {
+    throw new Error(`transcribe failed: ${res.status} ${res.body ?? ""}`);
+  }
+  // A 2xx with a body that is not JSON means something between us and the
+  // backend answered instead of the backend — a proxy landing page, a captive
+  // portal, a misrouted domain. JSON.parse surfaces that as
+  // "Unexpected token <", which tells the user nothing and sends the next hour
+  // to the wrong place. Say what actually happened.
+  try {
+    return JSON.parse(res.body) as {
+      cleanedText: string;
+      transcript: string;
+      usage: Usage;
+    };
+  } catch {
+    throw new Error(
+      `transcribe: the server returned ${res.status} but not JSON — check the ` +
+      `backend URL is reaching Tailzu and not a proxy or parked domain. ` +
+      `First bytes: ${String(res.body ?? "").slice(0, 80)}`,
+    );
+  }
 }
 
 // --- Voice: live (streaming) dictation --------------------------------------
@@ -151,6 +196,9 @@ export async function getPersonality(): Promise<Personality> {
 }
 
 export async function putPersonality(personality: Personality): Promise<Personality> {
-  const json = await jsonPost<{ personality: Personality }>("/v1/personality", personality);
+  // PUT, because that is what the route is. This was a POST, which the server
+  // answers with a 404 — the call has no caller today, so nothing broke, but
+  // the first thing to reach for it would have.
+  const json = await jsonRequest<{ personality: Personality }>("PUT", "/v1/personality", personality);
   return json.personality ?? {};
 }

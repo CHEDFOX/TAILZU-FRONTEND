@@ -1,0 +1,351 @@
+/**
+ * ParticleMark — the brand mark bursting into particles and re-forming, on a
+ * loop.
+ *
+ * This is the keyboard's recording visual (MicParticleView, SDUIRenderer.swift)
+ * ported to the app. That one is Swift inside the keyboard extension and cannot
+ * be reached from React Native, so the motion existed in exactly one place and
+ * nowhere else in the product could use it.
+ *
+ * Same flow, same seeding, same way home — one thing deliberately dropped.
+ *
+ *   disperse   the mark comes apart and drifts outward in VACUUM: no drag, no
+ *              collisions, no bouncing. Each dot keeps the velocity it was
+ *              given until the rim stops it.
+ *   hold       held apart, untouched.
+ *   assemble   a damped spring back onto the mark's own pixels — this half is
+ *              the keyboard's, unchanged.
+ *   hold       the crisp artwork, then round again.
+ *
+ * What is NOT here is the keyboard's wander — the elastic wall, the pairwise
+ * collisions, the speed floor that keeps the swarm zipping. That exists because
+ * the keyboard has to read as ACTIVE for however long a recording runs. This is
+ * a single unhurried breath on a screen nobody is talking to, so the same
+ * busy-ness would fight it.
+ *
+ * Skia, not react-native-svg: this draws every dot into ONE path on the UI
+ * thread each frame. The same work as N animated SVG circles crossing the
+ * bridge would not hold 60fps.
+ *
+ * Props (all backend-authored):
+ *   size          px, square (default 128)
+ *   count         dots (default 90)
+ *   dotRadius     px (default 1.6)
+ *   color         hex (default the brand amber)
+ *   speed         multiplier on the whole cycle (default 1; >1 = faster)
+ *   circular      clip to a circle (default true)
+ *   background    fill behind the dots (default transparent)
+ *   holdMark      show the CRISP mark during the hold beat instead of the dots
+ *                 sitting in its shape (default true). This is what the
+ *                 keyboard does — the dots reassemble and then hand off to the
+ *                 real artwork — and it is the difference between "the mark"
+ *                 and "a dotted approximation of the mark".
+ */
+import React, { useEffect, useMemo, useState } from "react";
+import { View } from "react-native";
+import {
+  Canvas,
+  Image as SkiaImage,
+  Path,
+  Skia,
+  useImage,
+  type SkImage,
+  type SkPath,
+} from "@shopify/react-native-skia";
+import { runOnJS, useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
+import type { CompProps } from "./components";
+
+const MARK = require("../../assets/tailzu-mark.png");
+
+// Cycle timings at speed 1, in seconds — burst, wander, spring home, a beat on
+// the formed mark, repeat. Leave `speed` at 1 to match the keyboard exactly;
+// anything faster stops being the same animation.
+const T_DISPERSE = 1.7;      // slow drift outward
+const T_SCATTER_HOLD = 0.55; // held apart
+const T_ASSEMBLE = 0.7;      // spring home
+const T_HOLD = 1.1;          // held as the mark
+
+// The drift out. Slow and narrow-banded: a wide spread would have some dots at
+// the rim while others had barely left the mark, which reads as a fizzle rather
+// than as one thing coming apart.
+const DRIFT_MIN = 16;
+const DRIFT_MAX = 26;
+
+// The way home. Straight from MicParticleView — this half IS the keyboard's.
+const STIFFNESS = 26;
+const DAMPING = 0.8;
+
+/**
+ * Sample up to `want` points from the mark's opaque area, mapped into a
+ * `size`-square box. Straight port of the Swift markPoints(): a 44×44 grid is
+ * plenty to trace the shape and keeps this to one small readPixels at mount.
+ */
+function markPoints(image: SkImage, want: number, size: number): number[] {
+  const W = 44;
+  const INSET = 6;
+  const surface = Skia.Surface.MakeOffscreen(W, W);
+  if (!surface) return [];
+  const canvas = surface.getCanvas();
+  const box = W - INSET * 2;
+  const scale = Math.min(box / image.width(), box / image.height());
+  const dw = image.width() * scale;
+  const dh = image.height() * scale;
+  canvas.drawImageRect(
+    image,
+    Skia.XYWHRect(0, 0, image.width(), image.height()),
+    Skia.XYWHRect((W - dw) / 2, (W - dh) / 2, dw, dh),
+    Skia.Paint(),
+  );
+  const px = surface.makeImageSnapshot().readPixels() as Uint8Array | null;
+  if (!px) return [];
+
+  const hits: number[] = [];
+  for (let y = 0; y < W; y++) {
+    for (let x = 0; x < W; x++) {
+      // Alpha over the same threshold the keyboard uses → part of the mark.
+      if (px[(y * W + x) * 4 + 3] > 90) {
+        hits.push(((x + 0.5) / W) * size, ((y + 0.5) / W) * size);
+      }
+    }
+  }
+  const total = hits.length / 2;
+  if (total <= want) return hits;
+  // Even stride, so a thinned sample still traces the whole shape rather than
+  // clustering in whichever corner got scanned first.
+  const out: number[] = [];
+  const step = total / want;
+  for (let i = 0; out.length / 2 < want && Math.floor(i) < total; i += step) {
+    const k = Math.floor(i) * 2;
+    out.push(hits[k], hits[k + 1]);
+  }
+  return out;
+}
+
+export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | null => {
+  const size = Number(props?.size) || 128;
+  const count = Math.max(2, Number(props?.count) || 90);
+  const dotRadius = Number(props?.dotRadius) || 1.6;
+  const color = String(props?.color ?? "#E8A23C");
+  const speed = Number(props?.speed) > 0 ? Number(props.speed) : 1;
+  const circular = props?.circular !== false;
+  const holdMark = props?.holdMark !== false;
+  const background = props?.background ? String(props.background) : "transparent";
+
+  const image = useImage(MARK);
+  const [home, setHome] = useState<number[] | null>(null);
+
+  useEffect(() => {
+    if (!image) return;
+    const pts = markPoints(image, count, size);
+    setHome(pts.length >= 2 ? pts : []);
+  }, [image, count, size]);
+
+  // Flat [x, y, vx, vy] per dot. One array mutated in place on the UI thread —
+  // allocating per frame is what makes particle fields stutter.
+  const dots = useSharedValue<number[]>([]);
+  const phase = useSharedValue(0);   // 0 disperse · 3 hold apart · 1 assemble · 2 hold mark
+  // Mirrored to React state: the crisp mark is a Skia <Image>, which only the
+  // render tree can swap in, so the worklet has to hand the phase across.
+  const [holding, setHolding] = useState(false);
+  const clock = useSharedValue(0);
+  const tick = useSharedValue(0);
+  const targets = useSharedValue<number[]>([]);
+
+  const seeded = useMemo(() => {
+    if (home == null) return null;
+    const c = size / 2;
+    const r = Math.max(1, size / 2 - dotRadius);
+    const arr: number[] = [];
+    for (let i = 0; i < count; i++) {
+      let x: number;
+      let y: number;
+      if (i * 2 + 1 < home.length) {
+        x = home[i * 2];
+        y = home[i * 2 + 1];
+      } else {
+        // No mark to sample (or fewer points than dots) — uniform in the disc.
+        const a = Math.random() * Math.PI * 2;
+        const rad = r * Math.sqrt(Math.random());
+        x = c + Math.cos(a) * rad;
+        y = c + Math.sin(a) * rad;
+      }
+      arr.push(x, y, 0, 0);
+    }
+    return arr;
+  }, [home, count, size, dotRadius]);
+
+  useEffect(() => {
+    if (!seeded) return;
+    dots.value = seeded.slice();
+    targets.value = seeded.slice();
+    phase.value = 0;
+    clock.value = 0;
+    // Push them apart immediately so the very first frame is already moving.
+    drift(dots.value, size);
+    tick.value = tick.value + 1;
+  }, [seeded, size, dotRadius, dots, targets, phase, clock, tick]);
+
+  useFrameCallback((frame) => {
+    "worklet";
+    const d = dots.value;
+    if (d.length === 0) return;
+    // Clamp long frames the way the keyboard does — a backgrounded tab
+    // returning with a 2s delta would fling every dot through the wall.
+    const dt = Math.min((frame.timeSincePreviousFrame ?? 16) / 1000, 1 / 30) * speed;
+    clock.value += dt;
+
+    const c = size / 2;
+    const wall = Math.max(0, size / 2 - dotRadius);
+
+    if (phase.value === 0) {
+      // DISPERSE — vacuum. No drag, no collisions, no bouncing: each dot holds
+      // the velocity it was given and drifts straight out, the way matter comes
+      // apart with nothing to push back on it. The keyboard's version deliberately
+      // does the opposite (elastic wall, pairwise collisions, a speed floor) because
+      // it has to read as ACTIVE for as long as a recording lasts. This one is a
+      // single unhurried breath, so the busy-ness would only fight it.
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] += d[i + 2] * dt;
+        d[i + 1] += d[i + 3] * dt;
+        const dx = d[i] - c;
+        const dy = d[i + 1] - c;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        // The wall stops them rather than reflecting them — they settle thin
+        // against the rim instead of pinging back through the middle.
+        if (dist > wall && dist > 0) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          d[i] = c + nx * wall;
+          d[i + 1] = c + ny * wall;
+          d[i + 2] = 0;
+          d[i + 3] = 0;
+        }
+      }
+      if (clock.value >= T_DISPERSE) {
+        phase.value = 3;
+        clock.value = 0;
+      }
+    } else if (phase.value === 3) {
+      // HOLD, scattered. Whatever is still drifting keeps drifting; nothing is
+      // nudged. The pause is what makes the assemble land.
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] += d[i + 2] * dt;
+        d[i + 1] += d[i + 3] * dt;
+      }
+      if (clock.value >= T_SCATTER_HOLD) {
+        phase.value = 1;
+        clock.value = 0;
+      }
+    } else if (phase.value === 1) {
+      const t = targets.value;
+      let maxDist = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const tx = t[i % t.length];
+        const ty = t[(i % t.length) + 1];
+        const toX = tx - d[i];
+        const toY = ty - d[i + 1];
+        d[i + 2] = (d[i + 2] + toX * STIFFNESS * dt) * DAMPING;
+        d[i + 3] = (d[i + 3] + toY * STIFFNESS * dt) * DAMPING;
+        d[i] += d[i + 2] * dt;
+        d[i + 1] += d[i + 3] * dt;
+        const dist = Math.sqrt(toX * toX + toY * toY);
+        if (dist > maxDist) maxDist = dist;
+      }
+      if (maxDist < 0.8 || clock.value >= T_ASSEMBLE) {
+        // Snap home, so the held frame is exactly the mark and not a near-miss.
+        for (let i = 0; i < d.length; i += 4) {
+          d[i] = t[i % t.length];
+          d[i + 1] = t[(i % t.length) + 1];
+          d[i + 2] = 0;
+          d[i + 3] = 0;
+        }
+        phase.value = 2;
+        clock.value = 0;
+        if (holdMark) runOnJS(setHolding)(true);
+      }
+    } else if (clock.value >= T_HOLD) {
+      drift(d, size);
+      phase.value = 0;
+      clock.value = 0;
+      if (holdMark) runOnJS(setHolding)(false);
+    }
+
+    tick.value += 1;
+  }, true);
+
+  // Reading tick makes this rebuild every frame; one path means one draw call
+  // however many dots there are.
+  const path = useDerivedValue<SkPath>(() => {
+    tick.value;
+    const p = Skia.Path.Make();
+    const d = dots.value;
+    for (let i = 0; i < d.length; i += 4) p.addCircle(d[i], d[i + 1], dotRadius);
+    return p;
+  }, [dotRadius]);
+
+  // The mark is sampled inset by 6/44 of the box (see markPoints), so the
+  // crisp artwork has to land on exactly that rect or it would jump on handoff.
+  const inset = (6 / 44) * size;
+  const inner = size - inset * 2;
+
+  if (home == null) {
+    // Hold the space while the mark decodes, so the layout doesn't jump.
+    return <View style={[{ width: size, height: size }, style]} />;
+  }
+
+  return (
+    <View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: circular ? size / 2 : 0,
+          backgroundColor: background,
+          overflow: "hidden",
+        },
+        style,
+      ]}
+      pointerEvents="none"
+    >
+      <Canvas style={{ width: size, height: size }}>
+        {holding && image ? (
+          // The reassembled frame IS the mark, so show the real artwork rather
+          // than a ring of dots tracing it. Same handoff the keyboard makes.
+          <SkiaImage image={image} x={inset} y={inset} width={inner} height={inner} fit="contain" />
+        ) : (
+          <Path path={path} color={color} />
+        )}
+      </Canvas>
+    </View>
+  );
+};
+
+/**
+ * Set every dot drifting outward from the centre through its own position, so
+ * the mark comes apart along its own shape rather than dissolving in place. The
+ * angular jitter stops dots at the same radius moving in lockstep, which would
+ * read as an expanding ring instead of a scatter.
+ */
+function drift(d: number[], size: number): void {
+  "worklet";
+  const c = size / 2;
+  for (let i = 0; i < d.length; i += 4) {
+    let dx = d[i] - c;
+    let dy = d[i + 1] - c;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0.5) {
+      dx /= len;
+      dy /= len;
+    } else {
+      const a = Math.random() * Math.PI * 2;
+      dx = Math.cos(a);
+      dy = Math.sin(a);
+    }
+    const j = Math.random() - 0.5;
+    const rx = dx * Math.cos(j) - dy * Math.sin(j);
+    const ry = dx * Math.sin(j) + dy * Math.cos(j);
+    const b = DRIFT_MIN + Math.random() * (DRIFT_MAX - DRIFT_MIN);
+    d[i + 2] = rx * b;
+    d[i + 3] = ry * b;
+  }
+}

@@ -36,7 +36,7 @@ class TulmiBridgeModule : Module() {
     // enabled is the permission the onboarding gate waits for.
     Function("getKeyboardStatus") {
       val ctx = appContext.reactContext
-        ?: return@Function mapOf("enabled" to false, "fullAccess" to false, "lastActiveMs" to 0.0)
+        ?: return@Function mapOf("enabled" to false, "fullAccess" to false, "selected" to false, "lastActiveMs" to 0.0)
       val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE)
         as android.view.inputmethod.InputMethodManager
       val pkg = ctx.packageName
