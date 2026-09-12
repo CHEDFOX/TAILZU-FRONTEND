@@ -56,10 +56,57 @@ function usePluck(active: boolean, nonce: number) {
   return spin.interpolate({ inputRange: [-1, 1], outputRange: ["-9deg", "9deg"] });
 }
 
-function Frame({ active, nonce, size, children, viewBox = "0 0 32 32" }: {
-  active: boolean; nonce: number; size: number; children: React.ReactNode; viewBox?: string;
+/**
+ * The same pluck, in degrees, for a group INSIDE the drawing.
+ *
+ * Two hooks rather than one because the two live on opposite sides of the
+ * bridge. A View's transform can be handed to the native driver and run off
+ * the JS thread; an SVG group's `rotation` is a prop on a component that
+ * updates itself, and the native driver cannot write it. So this one is driven
+ * from JS and outputs a number, and the built-in icons keep the cheaper one.
+ */
+/** How far the pluck throws, either side of rest. */
+const PLUCK_DEGREES = 9;
+
+function usePluckDegrees(active: boolean, nonce: number) {
+  const spin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!active) return;
+    spin.setValue(0);
+    Animated.sequence([
+      Animated.timing(spin, { toValue: 1, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+      Animated.timing(spin, { toValue: -0.72, duration: 80, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+      Animated.timing(spin, { toValue: 0.4, duration: 90, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+      Animated.timing(spin, { toValue: 0, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+    ]).start();
+  }, [active, nonce, spin]);
+  return spin.interpolate({ inputRange: [-1, 1], outputRange: [-PLUCK_DEGREES, PLUCK_DEGREES] });
+}
+
+/** A group that can be turned. The one animated thing inside the drawing. */
+const AnimatedG = Animated.createAnimatedComponent(G);
+
+/** The middle of a viewBox — what the pluck turns about. */
+function centreOf(viewBox: string): { x: number; y: number } {
+  const n = viewBox.trim().split(/[\s,]+/).map(Number);
+  if (n.length !== 4 || n.some((v) => !Number.isFinite(v))) return { x: 16, y: 16 };
+  return { x: n[0] + n[2] / 2, y: n[1] + n[3] / 2 };
+}
+
+function Frame({ active, nonce, size, children, viewBox = "0 0 32 32", pluck = true }: {
+  active: boolean; nonce: number; size: number; children: React.ReactNode;
+  viewBox?: string;
+  /** False when the drawing plucks something inside itself instead. */
+  pluck?: boolean;
 }) {
   const rotate = usePluck(active, nonce);
+  if (!pluck) {
+    return (
+      <View style={{ width: size, height: size }}>
+        <Svg width={size} height={size} viewBox={viewBox}>{children}</Svg>
+      </View>
+    );
+  }
   return (
     <Animated.View style={{ width: size, height: size, transform: [{ rotate }] }}>
       <Svg width={size} height={size} viewBox={viewBox}>{children}</Svg>
@@ -183,31 +230,73 @@ function GlyphIcon({ glyph, active, color, nonce, surface, size = 26 }: {
   glyph: TabGlyph; active: boolean; color: string; nonce: number; surface?: string; size?: number;
 }) {
   const c = active ? THREAD_ACTIVE : color;
+  const viewBox = glyph.viewBox ?? "0 0 32 32";
+  const spin = usePluckDegrees(active, nonce);
+  const centre = centreOf(viewBox);
+
+  const draw = (l: TabGlyph["layers"][number], i: number) => {
+    // A punch is a hole: an outline when idle (the shape beneath is an
+    // outline too), the bar's own surface once that shape has gone solid.
+    if (l.punch) {
+      return active
+        ? <Path key={i} d={l.d} fill={surface ?? "#000000"} />
+        : <Path key={i} d={l.d} fill="none" stroke={c} strokeWidth={l.stroke ?? 1.7} />;
+    }
+    const filled = active ? !!l.activeFill : !!l.fill;
+    const width = active ? (l.activeStroke ?? l.stroke) : l.stroke;
+    // A layer may carry its own colour. Two real tones are what let the
+    // shape be one material and the event be the accent; one colour at
+    // half opacity is the same colour saying less.
+    const lc = (active ? (l.activeColor ?? l.color) : l.color) ?? c;
+    return (
+      <Path key={i} d={l.d}
+        fill={filled ? lc : "none"}
+        stroke={filled ? undefined : lc}
+        strokeWidth={filled ? undefined : width}
+        strokeLinecap="round" strokeLinejoin="round"
+        opacity={l.opacity} />
+    );
+  };
+
+  /**
+   * ONLY THE LIT PART MOVES.
+   *
+   * The pluck used to turn the whole drawing, which on a duotone icon is the
+   * wrong half of it: the shape is the material — it is the same object before
+   * and after — and the accent is the event. Shaking the material says the
+   * icon was jostled; turning the accent inside a shape that holds still says
+   * something happened to THIS, which is what a tab change is.
+   *
+   * The lit layers are the ones carrying an `activeColor`: the backend already
+   * says which part is the event by colouring it, so there is no second field
+   * to keep in agreement and no way for the two to disagree.
+   *
+   * Grouped in RUNS rather than sorted into lit and still, because a layer's
+   * place in the list is its place in the stack — a plate is behind the plate
+   * drawn after it — and collecting all the lit ones to the end would reorder
+   * the drawing. Runs keep every layer exactly where it was.
+   */
+  const runs: Array<{ lit: boolean; items: React.ReactNode[] }> = [];
+  glyph.layers.forEach((l, i) => {
+    const lit = active && l.activeColor !== undefined;
+    const tail = runs[runs.length - 1];
+    if (tail && tail.lit === lit) tail.items.push(draw(l, i));
+    else runs.push({ lit, items: [draw(l, i)] });
+  });
+
   return (
-    <Frame active={active} nonce={nonce} size={size} viewBox={glyph.viewBox}>
-      {glyph.layers.map((l, i) => {
-        // A punch is a hole: an outline when idle (the shape beneath is an
-        // outline too), the bar's own surface once that shape has gone solid.
-        if (l.punch) {
-          return active
-            ? <Path key={i} d={l.d} fill={surface ?? "#000000"} />
-            : <Path key={i} d={l.d} fill="none" stroke={c} strokeWidth={l.stroke ?? 1.7} />;
-        }
-        const filled = active ? !!l.activeFill : !!l.fill;
-        const width = active ? (l.activeStroke ?? l.stroke) : l.stroke;
-        // A layer may carry its own colour. Two real tones are what let the
-        // shape be one material and the event be the accent; one colour at
-        // half opacity is the same colour saying less.
-        const lc = (active ? (l.activeColor ?? l.color) : l.color) ?? c;
-        return (
-          <Path key={i} d={l.d}
-            fill={filled ? lc : "none"}
-            stroke={filled ? undefined : lc}
-            strokeWidth={filled ? undefined : width}
-            strokeLinecap="round" strokeLinejoin="round"
-            opacity={l.opacity} />
-        );
-      })}
+    // The frame holds still; see above. Nothing is plucked at all when no
+    // layer is lit — an icon with one tone has no "this" to point at, so it
+    // keeps the whole-drawing pluck it always had.
+    <Frame
+      active={active} nonce={nonce} size={size} viewBox={viewBox}
+      pluck={!runs.some((r) => r.lit)}
+    >
+      {runs.map((r, i) =>
+        r.lit
+          ? <AnimatedG key={i} rotation={spin} originX={centre.x} originY={centre.y}>{r.items}</AnimatedG>
+          : <G key={i}>{r.items}</G>,
+      )}
     </Frame>
   );
 }
