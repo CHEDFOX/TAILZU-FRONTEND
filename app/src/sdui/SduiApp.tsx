@@ -50,7 +50,7 @@ import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics } from "../telemetry/analytics";
 import { initSentry } from "../telemetry/sentry";
-import { initBilling, identifyBilling, restorePurchases, isBillingEnabled, hasEntitlement } from "../billing/purchases";
+import { initBilling, identifyBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
 
@@ -548,6 +548,14 @@ export default function SduiApp() {
       }
       const kbWantsUs = kbWantedRef.current;
 
+      // The SDK key, from the server, BEFORE anything tries to configure with
+      // it. It is the public one — it ships in the binary and sits in the
+      // update manifest in plain text — and taking it from here means an
+      // `eas update` published without the build variables set can no longer
+      // replace a working key with an empty string.
+      setBillingKey(b.flags?.[
+        Platform.OS === "ios" ? "billing.revenueCatKey.ios" : "billing.revenueCatKey.android"
+      ] as string | undefined);
       const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
       if (paywallEnt) await initBilling();
       const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;

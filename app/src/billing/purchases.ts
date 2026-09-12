@@ -18,9 +18,40 @@ import Purchases, { LOG_LEVEL, PurchasesOffering } from "react-native-purchases"
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const IOS_KEY = extra.revenueCatIosKey ?? "";
 const ANDROID_KEY = extra.revenueCatAndroidKey ?? "";
-const KEY = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
 
+/**
+ * A BUILD-TIME KEY IN THE MANIFEST IS NOT A BUILD-TIME KEY.
+ *
+ * `Constants.expoConfig` is the config of the UPDATE that is running, not of
+ * the binary it is running inside. app.config.ts bakes these two values from
+ * the environment at the moment the config is evaluated — and that happens
+ * again on every `eas update`. Publish one from a machine that does not have
+ * the variables set and the new manifest carries two empty strings, which
+ * then replace perfectly good keys in an app that was built correctly.
+ *
+ * The symptom is the worst kind: purchases worked, nobody changed anything
+ * about billing, and then they stopped, with a message saying the build has
+ * no key — about a build that does.
+ *
+ * So the manifest is the FALLBACK now, and the server's answer wins. These are
+ * the public SDK keys: they ship inside the binary and sit in the manifest in
+ * plain text already, so serving them is not a disclosure. What it buys is a
+ * key that cannot be lost by publishing, and one that can be corrected without
+ * a release.
+ */
 let initPromise: Promise<void> | null = null;
+
+let KEY = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
+
+export function setBillingKey(key?: string | null): void {
+  const next = String(key ?? "").trim();
+  if (!next || next === KEY) return;
+  KEY = next;
+  // A billing layer that gave up because there was no key must be allowed to
+  // try again now that there is one.
+  initPromise = null;
+}
+
 let activeEntitlements: Set<string> = new Set();
 
 // Entitlement-change fan-out so the UI can re-gate after a purchase / restore /
