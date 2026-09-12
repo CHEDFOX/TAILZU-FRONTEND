@@ -91,6 +91,29 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   runRef.current = run;
 
   /**
+   * WHERE THE DISC ACTUALLY IS, and where this drag started from.
+   *
+   * The disc used to be placed at the gesture's dx outright, which quietly
+   * assumes it was at zero when the finger landed. It very often is not: the
+   * hint nudges it out and springs it back, a previous drag may still be
+   * settling, and either way the first move frame teleports the disc to the
+   * finger instead of moving with it. The circle jumps, and after that the
+   * whole drag is offset by however far it jumped — so the far end arrives
+   * early or never arrives at all.
+   *
+   * A drag is a relative gesture. It starts from wherever the thing is.
+   */
+  const at = useRef(0);
+  const from = useRef(0);
+  useEffect(() => {
+    const id = x.addListener(({ value }) => { at.current = value; });
+    return () => x.removeListener(id);
+  }, [x]);
+
+  /** True while a finger is down, so the hint cannot animate over the drag. */
+  const held = useRef(false);
+
+  /**
    * THE HINT. One nudge out and back, once, a beat after arrival.
    *
    * Without it the gesture exists and nobody finds it — this is the whole way
@@ -101,7 +124,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   useEffect(() => {
     if (!hintDelayMs || !run) return;
     const t = setTimeout(() => {
-      if (done.current) return;
+      // Never over a finger. The hint exists for someone who has not touched
+      // the pill; animating it while they are dragging takes the disc off them.
+      if (done.current || held.current) return;
       Animated.sequence([
         Animated.spring(x, { toValue: hintDistance, friction: friction - 1, tension: tension + 10, useNativeDriver: true }),
         Animated.spring(x, { toValue: 0, friction, tension, useNativeDriver: true }),
@@ -158,26 +183,34 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       onPanResponderGrant: () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         crossed.current = false;
+        held.current = true;
+        // Take the disc off whatever was moving it and start from there. A
+        // spring left running under the finger drags the disc one way while
+        // the hand pulls it the other, which is most of what "the circle does
+        // not follow" looks like.
+        x.stopAnimation();
+        from.current = at.current;
       },
       onPanResponderMove: (_, g) => {
         const r = runRef.current;
-        const v = Math.max(0, Math.min(r, g.dx));
+        const v = Math.max(0, Math.min(r, from.current + g.dx));
         x.setValue(v);
         // A tick at the point of no return, so the commit is felt before it is
         // seen and nobody lets go one pixel short wondering if it took.
-        const at = r * threshold;
-        if (!crossed.current && v >= at) { crossed.current = true; Haptics.selectionAsync().catch(() => {}); }
-        else if (crossed.current && v < at) crossed.current = false;
+        const mark = r * threshold;
+        if (!crossed.current && v >= mark) { crossed.current = true; Haptics.selectionAsync().catch(() => {}); }
+        else if (crossed.current && v < mark) crossed.current = false;
       },
       onPanResponderRelease: (_, g) => {
+        held.current = false;
         const r = runRef.current;
-        const v = Math.max(0, Math.min(r, g.dx));
+        const v = Math.max(0, Math.min(r, from.current + g.dx));
         if (v >= r * threshold) commit();
         // Barely moved on either axis: that was a tap, not a failed drag.
         else if (tapRef.current && Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6) commit();
         else springBack();
       },
-      onPanResponderTerminate: springBack,
+      onPanResponderTerminate: () => { held.current = false; springBack(); },
     }),
   ).current;
 
@@ -234,6 +267,10 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
           even with a Pressable wrapping the whole pill. */}
       <Animated.View
         {...pan.panHandlers}
+        // A 46pt disc is a 46pt target and a thumb is wider than that. The slop
+        // costs nothing — everything around it is the pill, whose only other
+        // gesture is a tap that does the same thing.
+        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
         style={{
           position: "absolute",
           left: pad,
