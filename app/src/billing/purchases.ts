@@ -13,7 +13,7 @@
  */
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import Purchases, { LOG_LEVEL, PurchasesOffering } from "react-native-purchases";
+import Purchases, { LOG_LEVEL, PRORATION_MODE, PurchasesOffering } from "react-native-purchases";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const IOS_KEY = extra.revenueCatIosKey ?? "";
@@ -180,7 +180,36 @@ export async function buyPackage(offeringId?: string, packageId?: string): Promi
     return { ok: false, reason: `Offering "${offering.identifier}" has no package ${packageId ?? ""}.`.trim() };
   }
   try {
-    const res = await Purchases.purchasePackage(pkg);
+    // CHANGING PLAN IS NOT THE SAME AS BUYING ONE, AND ANDROID HAS TO BE TOLD.
+    //
+    // Apple does this for us: two products in one subscription group are a
+    // switch, and the store applies its own rules to it. Google does not. A
+    // purchase that does not name the subscription it replaces is a purchase
+    // of a SECOND subscription — Play either refuses it, because one in that
+    // group is already owned, or sells it, and then somebody is paying twice
+    // for the same entitlement and we told them nothing.
+    //
+    // So: if this device already holds a different active subscription, the
+    // purchase names it. IMMEDIATE_WITH_TIME_PRORATION is the honest one for a
+    // change of term — the new plan starts now and the unused days of the old
+    // one are credited to it, which is what Apple does for the same move.
+    let change: { oldProductIdentifier: string; prorationMode: PRORATION_MODE } | null = null;
+    if (Platform.OS === "android") {
+      try {
+        const info = await Purchases.getCustomerInfo();
+        const wanted = pkg.product.identifier;
+        const current = (info.activeSubscriptions ?? []).find(
+          (id) => id !== wanted && id.split(":")[0] !== wanted.split(":")[0],
+        );
+        if (current) {
+          change = {
+            oldProductIdentifier: current,
+            prorationMode: PRORATION_MODE.IMMEDIATE_WITH_TIME_PRORATION,
+          };
+        }
+      } catch { /* no customer info is the same as no current subscription */ }
+    }
+    const res = await Purchases.purchasePackage(pkg, null, change);
     await refreshEntitlements();
     const active = Object.keys(res.customerInfo.entitlements.active).length > 0;
     return active ? { ok: true } : { ok: false, reason: "Purchase completed but granted no entitlement." };
