@@ -365,10 +365,22 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
   const pressBorderColor = props?.pressBorderColor ? String(props.pressBorderColor) : "";
   const pressBorderWidth = props?.pressBorderWidth !== undefined
     ? Number(props.pressBorderWidth) : 1;
+  /**
+   * HOW FAR PAST ITS OWN EDGE IT STILL ANSWERS.
+   *
+   * A target the size of the thing drawn is a target the size of the thing
+   * drawn, and a small round control — a close arrow, a chevron in a corner —
+   * is routinely smaller than the finger reaching for it. The slop is the
+   * difference, taken outward, so the control can stay the size it looks best
+   * at and still be hit. The backend sets it because the backend decided how
+   * big to draw it.
+   */
+  const hitSlop = props?.hitSlop !== undefined ? Number(props.hitSlop) : undefined;
   return (
     <Pressable
       onPress={node.on?.onPress ? () => fire("onPress") : undefined}
       onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
+      hitSlop={Number.isFinite(hitSlop) && (hitSlop as number) > 0 ? hitSlop : undefined}
       // A row of text is not obviously a button, so the press has to say so.
       style={({ pressed }) => [
         style,

@@ -1504,7 +1504,17 @@ export default function SduiApp() {
       {!hideHeader && (
         <View style={styles.header}>
           {canGoBack ? (
-            <Pressable onPress={nav.back} hitSlop={10}>
+            // A "‹" is a glyph a few points wide with the rest of its box
+            // empty, so the target was the narrow part of a character. The
+            // slop takes it out to a thumb, and further to the left and top
+            // than the other sides — that is the corner the hand comes from,
+            // and there is nothing over there to take the touch instead.
+            <Pressable
+              onPress={nav.back}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+              hitSlop={{ top: 16, bottom: 16, left: 20, right: 20 }}
+            >
               <Text style={[typeRole(theme, "headerIcon", styles.headerIcon), { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
