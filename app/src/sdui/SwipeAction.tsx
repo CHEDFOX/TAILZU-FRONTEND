@@ -114,6 +114,16 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const held = useRef(false);
 
   /**
+   * Arrived, and parked there by hand rather than by the animation.
+   *
+   * State, not a ref, because it has to cause the render that pins the disc —
+   * see commit(). Everything else about this control is a ref precisely to
+   * avoid re-rendering during a gesture; this one moment is the exception,
+   * and it happens once, after the gesture is over.
+   */
+  const [landed, setLanded] = useState(false);
+
+  /**
    * THE HINT. One nudge out and back, once, a beat after arrival.
    *
    * Without it the gesture exists and nobody finds it — this is the whole way
@@ -137,12 +147,33 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
 
   const commit = useCallback(() => {
     done.current = true;
+    setLanded(false);
     Animated.timing(x, {
       toValue: runRef.current,
       duration: commitMs,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
+      /**
+       * PIN IT BEFORE ANYTHING ELSE HAPPENS — and this is the whole bug.
+       *
+       * A native-driven animation runs on the other side of the bridge and
+       * does not write its result back: when this callback runs, the native
+       * node has the disc at the far end and the JS value is still whatever it
+       * was when the animation started, which for a tap is zero. Nothing is
+       * wrong until something re-renders — and the very next line re-renders,
+       * because firing the action navigates. React re-commits `translateX` from
+       * the stale JS value and the disc jumps home, a frame or two before the
+       * new screen paints over it. The disc ran right, snapped left, and then
+       * the screen changed: three separate events where there should be one.
+       *
+       * `landed` takes the disc off the animated value entirely and puts it at
+       * the end as a plain number, so a re-render has nothing left to get
+       * wrong; setValue brings the JS side back in step for whatever comes
+       * after. Both, in that order, and before the action fires.
+       */
+      setLanded(true);
+      x.setValue(runRef.current);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       fire("onComplete");
       // THE DISC STAYS WHERE IT WAS THROWN, unless the screen asks otherwise.
@@ -159,7 +190,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       // that fires an endpoint and stands still — sets resetAfterMs to make the
       // control usable a second time.
       if (resetAfterMs > 0) {
-        setTimeout(() => { x.setValue(0); done.current = false; }, resetAfterMs);
+        setTimeout(() => { setLanded(false); x.setValue(0); done.current = false; }, resetAfterMs);
       }
     });
   }, [x, fire, commitMs, resetAfterMs]);
@@ -169,7 +200,11 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const tapRef = useRef(tapToo);
   tapRef.current = tapToo;
 
+  // Nothing sends a committed disc home. A spring that arrives after the
+  // commit reads as the gesture being taken back, and it is the same picture
+  // as the stale-value jump whatever started it.
   const springBack = useCallback(() => {
+    if (done.current) return;
     Animated.spring(x, { toValue: 0, friction, tension, useNativeDriver: true }).start();
   }, [x, friction, tension]);
 
@@ -181,6 +216,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderGrant: () => {
+        // A second gesture on a pill that has already fired is a touch on the
+        // way out of the screen, not a new drag.
+        if (done.current) return;
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         crossed.current = false;
         held.current = true;
@@ -192,6 +230,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         from.current = at.current;
       },
       onPanResponderMove: (_, g) => {
+        if (done.current) return;
         const r = runRef.current;
         const v = Math.max(0, Math.min(r, from.current + g.dx));
         x.setValue(v);
@@ -203,6 +242,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       },
       onPanResponderRelease: (_, g) => {
         held.current = false;
+        if (done.current) return;
         const r = runRef.current;
         const v = Math.max(0, Math.min(r, from.current + g.dx));
         if (v >= r * threshold) commit();
@@ -280,7 +320,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
           backgroundColor: discBackground,
           alignItems: "center",
           justifyContent: "center",
-          transform: [{ translateX: x }],
+          // A plain number once it has arrived — see commit(). While it is
+          // moving the animated value owns it; once it is parked, nothing does.
+          transform: [{ translateX: landed ? run : x }],
         }}
       >
         {dot > 0 ? (
