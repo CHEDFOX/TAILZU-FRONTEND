@@ -596,6 +596,25 @@ export default function SduiApp() {
         if (!kbRoutedRef.current) setStack([]);
       } else {
         setStack([{ screenId: firstScreenId }]);
+        // THE BAR FOLLOWS THE SCREEN, ALWAYS.
+        //
+        // The lit tab was set from navigation.initialTabId and the screen from
+        // initialScreenId, two fields that the server works hard to keep in
+        // agreement — and any moment they are not, the bar lights one tab
+        // while another tab's screen is showing. There are several ways for
+        // that to happen and no way to see it from either side: a bootstrap
+        // painted from the disk cache is one version behind, a build predating
+        // a server change is another, and the fix on the server cannot reach
+        // either of them.
+        //
+        // So the client stops trusting the pair. Whatever screen it has just
+        // put on the stack, if that screen is a tab's root then that tab is
+        // the one that lights. A tab bar is not a label, it is a claim about
+        // where you are, and it is now derived from where you actually are.
+        if (b.navigation.kind === "tabs") {
+          const owner = b.navigation.tabs.find((t) => (t.screenId ?? t.id) === firstScreenId);
+          if (owner) setTabId(owner.id);
+        }
         // A question the backend wants asked again — presented ON TOP of the
         // app rather than in front of it, and only once the user has stopped.
         //
@@ -1569,8 +1588,20 @@ export default function SduiApp() {
 
       {!hideChrome && tabs.length > 0 && (
         <View style={[styles.tabs, {
-          backgroundColor: theme.color.surface,
-          borderTopColor: theme.color.border,
+          // NO PLATE UNDER THE TABS.
+          //
+          // The bar had its own surface colour and a hairline above it, which
+          // is what a tab bar needs when it is a strip of labels sitting on
+          // scrolling content. It is not what these need: three marks that
+          // appear and disappear read as objects on the app's own ground, and
+          // a panel behind them puts a box around the quietest thing on the
+          // screen.
+          //
+          // The colours still come from the theme, so a future ground that
+          // needs the separation can have it back by sending one.
+          backgroundColor: theme.color.tabBar ?? "transparent",
+          borderTopColor: theme.color.tabBarBorder ?? "transparent",
+          borderTopWidth: theme.color.tabBarBorder ? StyleSheet.hairlineWidth : 0,
           // Lift the row clear of the system gesture area on BOTH platforms.
           // There was no inset at all, so the tabs sat directly against the
           // home indicator on iPhone and the gesture bar on Android — a tap
