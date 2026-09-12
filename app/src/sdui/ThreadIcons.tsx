@@ -195,10 +195,14 @@ function GlyphIcon({ glyph, active, color, nonce, surface, size = 26 }: {
         }
         const filled = active ? !!l.activeFill : !!l.fill;
         const width = active ? (l.activeStroke ?? l.stroke) : l.stroke;
+        // A layer may carry its own colour. Two real tones are what let the
+        // shape be one material and the event be the accent; one colour at
+        // half opacity is the same colour saying less.
+        const lc = (active ? (l.activeColor ?? l.color) : l.color) ?? c;
         return (
           <Path key={i} d={l.d}
-            fill={filled ? c : "none"}
-            stroke={filled ? undefined : c}
+            fill={filled ? lc : "none"}
+            stroke={filled ? undefined : lc}
             strokeWidth={filled ? undefined : width}
             strokeLinecap="round" strokeLinejoin="round"
             opacity={l.opacity} />

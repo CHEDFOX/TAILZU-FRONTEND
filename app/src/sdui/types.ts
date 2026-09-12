@@ -50,8 +50,8 @@ export interface ThemeTokens {
  * One tab icon, as paths on a 32-unit grid, sent by the backend. Two states,
  * one geometry: a layer is stroked at `stroke` idle and `activeStroke` open,
  * or filled when `fill` / `activeFill`. `punch` is a hole — drawn in the bar's
- * surface colour when active so a solid shape keeps its cut-out. Colour is
- * never in here; it belongs to the theme.
+ * surface colour when active so a solid shape keeps its cut-out. A layer may
+ * also carry its own `color` / `activeColor`; without one it takes the bar's.
  */
 export interface TabGlyph {
   viewBox?: string;
@@ -63,6 +63,10 @@ export interface TabGlyph {
     activeFill?: boolean;
     punch?: boolean;
     opacity?: number;
+    /** This layer's own colour instead of the bar's. Absent, the bar's. */
+    color?: string;
+    /** The same for the selected state; falls back to `color`, then the bar. */
+    activeColor?: string;
   }>;
 }
 
