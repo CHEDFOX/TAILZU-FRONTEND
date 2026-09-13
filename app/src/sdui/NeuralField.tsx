@@ -18,7 +18,11 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Platform, View } from "react-native";
 import { WebView } from "react-native-webview";
 import type { CompProps } from "./components";
-import { neuralFieldHtml } from "./neuralField.html";
+// Named without a ".html" anywhere in it, deliberately: Metro reads an
+// import specifier that ENDS in a known asset extension as an asset request,
+// so "./neuralField.html" was resolved as a file to bundle rather than as a
+// module to import, and the build failed with "none of these files exist".
+import { neuralFieldHtml } from "./neuralFieldPage";
 
 /** What the field looks like when the server says nothing. */
 const FALLBACK_REGIONS = [
