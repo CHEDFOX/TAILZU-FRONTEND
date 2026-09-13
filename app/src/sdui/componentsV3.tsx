@@ -635,8 +635,16 @@ const PieChart = ({ props, style }: CompProps) => {
         </Svg>
         {isDonut && (props.centerLabel != null || props.centerValue != null) && (
           <View style={styles.pieCenter} pointerEvents="none">
-            {props.centerValue != null && <Text style={styles.pieCenterValue}>{String(props.centerValue)}</Text>}
-            {props.centerLabel != null && <Text style={styles.pieCenterLabel}>{String(props.centerLabel)}</Text>}
+            {props.centerValue != null && (
+              <Text style={[styles.pieCenterValue, props.centerColor ? { color: String(props.centerColor) } : null]}>
+                {String(props.centerValue)}
+              </Text>
+            )}
+            {props.centerLabel != null && (
+              <Text style={[styles.pieCenterLabel, props.centerLabelColor ? { color: String(props.centerLabelColor) } : null]}>
+                {String(props.centerLabel)}
+              </Text>
+            )}
           </View>
         )}
       </View>
@@ -648,8 +656,19 @@ const PieChart = ({ props, style }: CompProps) => {
           {slices.map((s) => (
             <View key={s.i} style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: s.color }]} />
-              <Text style={styles.legendLabel} numberOfLines={1}>{String(s.d.label ?? "")}</Text>
-              <Text style={styles.legendValue}>{Math.round(s.frac * 100)}%</Text>
+              {/* The ink is the SCREEN's, not the component's. A chart drawn in
+                  its own white on a warm ground is the one element that did not
+                  get the memo — and legendColor was already being sent and
+                  silently dropped. */}
+              <Text
+                style={[styles.legendLabel, props.legendColor ? { color: String(props.legendColor) } : null]}
+                numberOfLines={1}
+              >
+                {String(s.d.label ?? "")}
+              </Text>
+              <Text style={[styles.legendValue, props.legendValueColor ? { color: String(props.legendValueColor) } : null]}>
+                {Math.round(s.frac * 100)}%
+              </Text>
             </View>
           ))}
         </View>

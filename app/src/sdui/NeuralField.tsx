@@ -15,7 +15,7 @@
  * sit over it own every gesture on the screen.
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { Platform, View } from "react-native";
+import { Animated, Platform, View } from "react-native";
 import { WebView } from "react-native-webview";
 import type { CompProps } from "./components";
 // Named without a ".html" anywhere in it, deliberately: Metro reads an
@@ -37,6 +37,23 @@ const FALLBACK_REGIONS = [
 
 export const NeuralField = ({ props, style }: CompProps): React.ReactElement => {
   const ref = useRef<WebView>(null);
+  /**
+   * THE BLINK.
+   *
+   * A WebView paints its own background before its content exists, and on a
+   * screen that is otherwise black that first frame is a white flash — a blink
+   * every time this screen is pushed. So the view is held at zero and faded up
+   * once the page says it has drawn a real frame. The ground under it is black,
+   * which is what the field looks like before it lights anyway, so there is
+   * nothing to see during the wait.
+   */
+  const fade = useRef(new Animated.Value(0)).current;
+  const lit = useRef(false);
+  const light = () => {
+    if (lit.current) return;
+    lit.current = true;
+    Animated.timing(fade, { toValue: 1, duration: 420, useNativeDriver: true }).start();
+  };
 
   // The page is built ONCE. Rebuilding it would throw away the baked plates
   // and re-lay the whole field, which is the one expensive thing here — so
@@ -71,9 +88,14 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
   }, [state, level, training]);
 
   return (
-    <View style={[{ overflow: "hidden" }, style]} pointerEvents="none">
+    <View style={[{ overflow: "hidden", backgroundColor: "#000000" }, style]} pointerEvents="none">
+      <Animated.View style={{ flex: 1, opacity: fade }}>
       <WebView
         ref={ref}
+        // The page posts this on its first composited frame; onLoadEnd is the
+        // floor under it, for a page that somehow never gets that far.
+        onMessage={light}
+        onLoadEnd={() => setTimeout(light, 600)}
         source={{ html }}
         originWhitelist={["*"]}
         style={{ flex: 1, backgroundColor: "transparent" }}
@@ -100,6 +122,7 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
         renderError={() => <View />}
         onShouldStartLoadWithRequest={() => true}
       />
+      </Animated.View>
     </View>
   );
 };

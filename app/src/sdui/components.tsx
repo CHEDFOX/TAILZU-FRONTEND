@@ -344,7 +344,20 @@ const Screen = ({ children, style }: CompProps) => {
  * Stacks in the tree keep costing exactly one View.
  */
 const Stack = ({ node, props, children, style, fire }: CompProps) => {
-  if (!node.on?.onPress && !node.on?.onLongPress) return <View style={style}>{children}</View>;
+  /**
+   * ONE WINDOW TALL, WHATEVER THE WINDOW IS.
+   *
+   * A screen that scrolls cannot lay its first pane out with flex — a
+   * ScrollView's content is sized by its content, so `flex: 1` inside one
+   * collapses to nothing and the pane's spacers vanish. The device is the only
+   * thing that knows how tall a window is, so it is the device that answers:
+   * the backend says "this pane is the opening view", and the height follows
+   * the phone rather than a number guessed on a server.
+   */
+  const fill = props?.fillViewport === true;
+  const win = useWindowDimensions();
+  const sized = fill ? [style, { minHeight: win.height }] : style;
+  if (!node.on?.onPress && !node.on?.onLongPress) return <View style={sized}>{children}</View>;
   // How far it dims under a finger. A Stack is the app's general-purpose
   // pressable — the allow pill, the plan rows, the deck cards are all one —
   // so the one number that says "this was pressed" cannot be fixed in the
@@ -383,7 +396,7 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
       hitSlop={Number.isFinite(hitSlop) && (hitSlop as number) > 0 ? hitSlop : undefined}
       // A row of text is not obviously a button, so the press has to say so.
       style={({ pressed }) => [
-        style,
+        sized,
         pressed && { opacity: pressOpacity },
         pressed && pressBorderColor
           ? { borderWidth: pressBorderWidth, borderColor: pressBorderColor }
