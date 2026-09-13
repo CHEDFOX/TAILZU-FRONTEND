@@ -38,7 +38,15 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const background = String(props?.background ?? "#0B0B0D");
   const color = String(props?.color ?? "#FFFFFF");
   const fontSize = Number(props?.fontSize) || 12;
+  /** The label's weight. A tracked line at 12pt in regular reads as a caption
+   *  on the pill; this is the way into the product and it should read as an
+   *  instruction. */
+  const weight = String(props?.weight ?? "700") as "400" | "500" | "600" | "700" | "800";
   const tracking = props?.tracking !== undefined ? Number(props.tracking) : 1.8;
+  /** A hairline, for a pill that sits on ART rather than on a flat ground —
+   *  without an edge, a translucent pill on a moving field has no shape. */
+  const borderWidth = props?.borderWidth !== undefined ? Number(props.borderWidth) : 0;
+  const borderColor = String(props?.borderColor ?? "transparent");
   const disc = Number(props?.disc) || 46;
   const discBackground = String(props?.discBackground ?? "rgba(255,255,255,0.14)");
   /** The mark inside each circle. 0 leaves them plain — which is the default
@@ -59,7 +67,15 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   /** The spring the disc rides back on when a drag falls short. */
   const friction = Number(props?.friction) || 6;
   const tension = Number(props?.tension) || 80;
-  /** How long the disc takes to run home once committed, ms. */
+  /**
+   * How long the disc takes to cross the WHOLE pill once committed, ms.
+   *
+   * The distance left is not the same on every commit — a drag hands over at
+   * two thirds, a tap at nothing at all — and one fixed duration for both
+   * means the tap, which has the furthest to go, is also the fastest. That is
+   * exactly backwards, and it is what "it jumps when you tap it" is. The time
+   * is per distance now, so both end at the same speed.
+   */
   const commitMs = Number(props?.commitMs) || 230;
   /**
    * Put the disc back at the start this long after committing. 0 leaves it at
@@ -148,10 +164,17 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   const commit = useCallback(() => {
     done.current = true;
     setLanded(false);
+    const r = runRef.current;
+    const left = r > 0 ? Math.max(0, Math.min(1, (r - at.current) / r)) : 1;
     Animated.timing(x, {
-      toValue: runRef.current,
-      duration: commitMs,
-      easing: Easing.out(Easing.cubic),
+      toValue: r,
+      // Proportional to what is left, with a floor so a commit from just short
+      // of the end still reads as a movement rather than a jump.
+      duration: Math.max(140, Math.round(commitMs * left)),
+      // A long, soft landing rather than a cubic stop. The disc is carrying the
+      // screen change with it, so the last third of its travel is where the
+      // transition begins — it should settle, not arrive.
+      easing: Easing.bezier(0.22, 1, 0.3, 1),
       useNativeDriver: true,
     }).start(() => {
       /**
@@ -272,6 +295,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         style={{
           textAlign: "center",
           fontSize,
+          fontWeight: weight,
           letterSpacing: tracking,
           color,
           opacity: labelOpacity,
@@ -336,6 +360,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
     height,
     borderRadius: radius,
     backgroundColor: background,
+    ...(borderWidth > 0 ? { borderWidth, borderColor } : {}),
     justifyContent: "center" as const,
     overflow: "hidden" as const,
   };
@@ -355,7 +380,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       onPress={() => { if (!done.current) commit(); }}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={[frame, style]}
+      // The pill answers the finger before the disc has gone anywhere. Without
+      // it a tap is a quarter-second of nothing followed by a screen change.
+      style={({ pressed }) => [frame, style, pressed && !landed ? { opacity: 0.92 } : null]}
     >
       {body}
     </Pressable>
