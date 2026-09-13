@@ -15,7 +15,7 @@
  * sit over it own every gesture on the screen.
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { Animated, Platform, View } from "react-native";
+import { Animated, AppState, Platform, View } from "react-native";
 import { WebView } from "react-native-webview";
 import type { CompProps } from "./components";
 // Named without a ".html" anywhere in it, deliberately: Metro reads an
@@ -81,11 +81,35 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
   // a flood of bridge messages into a trickle.
   const level = Math.round(Math.min(1, Math.max(0, Number(props?.level ?? 0))) * 20) / 20;
 
+  const send = (msg: Record<string, unknown>) => {
+    ref.current?.injectJavaScript(`window.tz && window.tz(${JSON.stringify(msg)}); true;`);
+  };
+
   useEffect(() => {
-    ref.current?.injectJavaScript(
-      `window.tz && window.tz(${JSON.stringify({ state, level, training })}); true;`,
-    );
+    send({ state, level, training });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, level, training]);
+
+  /**
+   * IT ONLY RUNS WHEN SOMEONE IS LOOKING AT IT.
+   *
+   * A canvas at sixty frames a second is the most expensive thing in the app,
+   * and for most of its life nobody is watching: the phone is in a pocket, or
+   * the user is on another tab. Leaving the tab is already free — the app
+   * draws one screen at a time, so this component unmounts and the WebView
+   * goes with it. Backgrounding is not: the view stays mounted, the page
+   * still believes it is visible, and the loop would keep drawing into
+   * nothing until the battery noticed.
+   *
+   * So the app's own lifecycle is the switch. The page stops its loop
+   * outright and resumes from where it was — the field is a simulation of
+   * state, not a timeline, so a pause costs it nothing.
+   */
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => send({ run: s === "active" }));
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <View style={[{ overflow: "hidden", backgroundColor: "#000000" }, style]} pointerEvents="none">
@@ -95,7 +119,11 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
         // The page posts this on its first composited frame; onLoadEnd is the
         // floor under it, for a page that somehow never gets that far.
         onMessage={light}
-        onLoadEnd={() => setTimeout(light, 600)}
+        // The mount's own message is dropped — injectJavaScript before the
+        // page exists goes nowhere — so the state is stated again once there
+        // is something to hear it. Without this a session that starts on the
+        // same frame as the screen opens in idle and stays there.
+        onLoadEnd={() => { send({ state, level, training, run: true }); setTimeout(light, 600); }}
         source={{ html }}
         originWhitelist={["*"]}
         style={{ flex: 1, backgroundColor: "transparent" }}
