@@ -303,6 +303,7 @@ window.tz=function(msg){
     if(d.training!=null){var t=!!d.training;
       if(t&&!training){var i;for(i=0;i<5;i++)sproutFibre()}
       training=t;if(!t)setMode("idle")}
+    if(d.run!=null)setRun(!!d.run);
   }catch(e){}};
 document.addEventListener("message",function(e){window.tz(e.data)});
 window.addEventListener("message",function(e){window.tz(e.data)});
@@ -376,9 +377,41 @@ function render(){
    view invisible until then, so a mount is a fade from black rather than the
    white flash a WebView shows while it is still laying itself out. */
 var painted=false;
-function step(now){var dt=Math.min(0.05,(now-last)/1000);last=now;update(dt);render();
-  if(!painted){painted=true;try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage("painted")}catch(e){}}
-  requestAnimationFrame(step)}
+
+/* ---- when it is allowed to run ----------------------------------------
+   A canvas animating at sixty frames a second is the most expensive thing
+   this app does, and for most of its life nobody is looking at it: the app
+   is in someone's pocket, or they are on another tab. So the host owns the
+   switch — it says run when this screen is in front and the app is awake —
+   and the loop genuinely STOPS, rather than drawing into a hidden view.
+
+   Nothing is lost by stopping. The field is a simulation of state, not a
+   timeline: it picks up from where it was, and dt is reset on resume so a
+   ten-minute pause does not arrive as one enormous step that fires every
+   hub at once.
+
+   While it is scenery — the entry screen, nobody training — it also runs at
+   half rate. Thirty frames is indistinguishable for drifting fibres and a
+   slow pulse, and it is half the battery. A live session gets every frame,
+   because that is the one moment the motion is the point. */
+var running=true,raf=0,MIN_DT_IDLE=1/32;
+function setRun(on){
+  if(on===running)return;
+  running=on;
+  if(on){last=performance.now();raf=requestAnimationFrame(step)}
+  else if(raf){cancelAnimationFrame(raf);raf=0}}
+document.addEventListener("visibilitychange",function(){setRun(!document.hidden)});
+
+function step(now){
+  raf=requestAnimationFrame(step);
+  var dt=(now-last)/1000;
+  /* Half rate while it is only scenery: return WITHOUT consuming the time,
+     so the next frame carries the whole interval and the motion runs at the
+     same speed it always did — just drawn half as often. */
+  if(!training&&dt<MIN_DT_IDLE)return;
+  last=now;
+  update(Math.min(0.05,dt));render();
+  if(!painted){painted=true;try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage("painted")}catch(e){}}}
 
 function layout(){
   var w=cv.clientWidth,h=cv.clientHeight;
@@ -390,7 +423,7 @@ function layout(){
   if(!grainPat)grainPat=ctx.createPattern(grain,"repeat");
   if(changed){build();bake()}}
 window.addEventListener("resize",layout);
-layout();requestAnimationFrame(step);
+layout();raf=requestAnimationFrame(step);
 })();
 </script></body></html>`;
 }
