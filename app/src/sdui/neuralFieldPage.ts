@@ -372,7 +372,13 @@ function render(){
     ctx.translate((t0*37)%160|0,(t0*53)%160|0);
     ctx.fillStyle=grainPat;ctx.fillRect(-160,-160,W+320,H+320);ctx.restore()}}
 
-function step(now){var dt=Math.min(0.05,(now-last)/1000);last=now;update(dt);render();requestAnimationFrame(step)}
+/* Told once, after the first real frame is on the canvas. The host holds the
+   view invisible until then, so a mount is a fade from black rather than the
+   white flash a WebView shows while it is still laying itself out. */
+var painted=false;
+function step(now){var dt=Math.min(0.05,(now-last)/1000);last=now;update(dt);render();
+  if(!painted){painted=true;try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage("painted")}catch(e){}}
+  requestAnimationFrame(step)}
 
 function layout(){
   var w=cv.clientWidth,h=cv.clientHeight;
