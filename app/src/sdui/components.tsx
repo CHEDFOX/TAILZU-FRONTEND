@@ -1224,6 +1224,7 @@ import { BinaryReveal } from "./BinaryReveal";
 import KeyboardPreview from "./KeyboardPreview";
 import { MorphOut } from "./MorphOut";
 import { WordMeter } from "./WordMeter";
+import { NeuralField } from "./NeuralField";
 import { AuroraOrb } from "./AuroraOrb";
 import { PieChart } from "./PieChart";
 
@@ -1235,6 +1236,6 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   DictionaryEditor, WordChips, Slideshow, ParticleMark, BinaryReveal,
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
-  KeyboardPreview, MorphOut, WordMeter, PieChart,
+  KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
   ...REGISTRY_V3,
 };
