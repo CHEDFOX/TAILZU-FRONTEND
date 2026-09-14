@@ -80,6 +80,29 @@ export function isBillingEnabled(): boolean {
  * entitlement set → a paying user got hard-locked behind the paywall on cold
  * start. On failure the promise is cleared so a later call can retry.
  */
+/**
+ * HOW LONG ANYTHING IS ALLOWED TO WAIT ON THE STORE.
+ *
+ * configure() and getCustomerInfo() go through the platform's billing
+ * service, and on Android that means a Play Billing connection that can be
+ * absent, broken or slow — an emulator, a device with no Play account, a
+ * review farm, a region where the service is blocked. The SDK retries rather
+ * than failing, which is right for a purchase and wrong for a launch.
+ *
+ * Nothing downstream needs this to succeed: an entitlement set that has not
+ * loaded reads as empty, which is exactly what it reads as for a user who has
+ * not bought anything. So the deadline is not an error path — it is the
+ * answer we have by the time the app has to show something.
+ */
+const STORE_DEADLINE_MS = 6000;
+
+function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    p,
+    new Promise<undefined>((res) => setTimeout(() => res(undefined), ms)),
+  ]);
+}
+
 export function initBilling(userId?: string): Promise<void> {
   if (!KEY) return Promise.resolve();
   if (!initPromise) {
@@ -87,7 +110,16 @@ export function initBilling(userId?: string): Promise<void> {
       try {
         Purchases.setLogLevel(LOG_LEVEL.WARN);
         await Purchases.configure({ apiKey: KEY, appUserID: userId });
-        await refreshEntitlements();
+        // BOUNDED, because this is on the launch path. An unbounded wait here
+        // parks whoever awaited it — and the thing that awaits it is the boot.
+        // The app has already frozen once on exactly this shape of mistake:
+        // a best-effort call that the boot awaited, on a network that accepts
+        // the socket and answers nothing.
+        await within(refreshEntitlements(), STORE_DEADLINE_MS);
+        // The listener is what makes the deadline safe: when the store does
+        // answer, late, the entitlements land and everything that reads them
+        // re-renders. Nothing is lost by not waiting — it just arrives after
+        // the app is on screen instead of before it.
         Purchases.addCustomerInfoUpdateListener(() => { void refreshEntitlements(); });
       } catch {
         // Transient config failure must not permanently disable billing —
