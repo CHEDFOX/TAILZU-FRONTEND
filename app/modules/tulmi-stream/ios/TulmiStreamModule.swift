@@ -36,17 +36,6 @@ public class TulmiStreamModule: Module {
       self.streamer?.finish()
     }
 
-    /// Called from JS immediately before the reply is spoken.
-    ///
-    /// The route observer catches every change iOS announces, and the
-    /// synthesiser taking the session to speak is not reliably one of them —
-    /// it can simply play into a route that is already the receiver. So the
-    /// one moment that matters says so out loud. No-op unless we are actually
-    /// parked on the receiver; see preferSpeaker().
-    Function("routeToSpeaker") {
-      self.streamer?.preferSpeaker()
-    }
-
     Function("cancel") {
       self.streamer?.cancel()
       // A duplex streamer holds the audio session between turns, so leaving the
@@ -94,39 +83,6 @@ private final class Streamer: NSObject {
     self.duplex = duplex
     self.emit = emit
     super.init()
-    // The route can change under us at any time — a headset going in, the
-    // engine stopping between turns, the synthesiser taking the session to
-    // speak. Each of those is a chance to land back on the receiver, so the
-    // answer is re-applied whenever iOS says the route moved, not once at
-    // activation.
-    if duplex {
-      NotificationCenter.default.addObserver(
-        self, selector: #selector(routeChanged),
-        name: AVAudioSession.routeChangeNotification, object: nil)
-    }
-  }
-
-  deinit { NotificationCenter.default.removeObserver(self) }
-
-  @objc private func routeChanged(_ note: Notification) { preferSpeaker() }
-
-  /// PLAY OUT LOUD, unless the person has chosen somewhere else to listen.
-  ///
-  /// `.defaultToSpeaker` is a default, not a decision: it says where to go
-  /// when nothing else has claimed the output, and on `.playAndRecord` plenty
-  /// does. AVSpeechSynthesizer is the worst of them — it takes the session to
-  /// speak and leaves playback on the receiver — so an assistant that answers
-  /// out loud could only be heard with the phone against your ear.
-  ///
-  /// Only when we are actually ON the receiver. Headphones, CarPlay and a
-  /// Bluetooth speaker are routes somebody chose, and forcing the phone's own
-  /// speaker over one of those is a worse bug than the one being fixed.
-  func preferSpeaker() {
-    guard duplex else { return }
-    let audio = AVAudioSession.sharedInstance()
-    let onReceiver = audio.currentRoute.outputs.contains { $0.portType == .builtInReceiver }
-    guard onReceiver else { return }
-    try? audio.overrideOutputAudioPort(.speaker)
   }
 
   func start(urlString: String, token: String, targetApp: String, language: String) {
@@ -223,7 +179,6 @@ private final class Streamer: NSObject {
     do {
       try audio.setCategory(category, mode: .default, options: options)
       try audio.setActive(true)
-      preferSpeaker()
       return true
     } catch {
       // ONE RETRY, because the usual cause is a race rather than a refusal:
@@ -234,7 +189,6 @@ private final class Streamer: NSObject {
       do {
         try audio.setCategory(category, mode: .default, options: options)
         try audio.setActive(true)
-        preferSpeaker()
         return true
       } catch {
         emit("onError", ["message": "Audio session: \(error.localizedDescription)"])

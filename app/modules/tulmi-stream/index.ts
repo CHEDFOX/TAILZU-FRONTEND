@@ -51,8 +51,6 @@ interface TulmiStreamNative {
   start(options: StreamOptions): void;
   stop(): void;
   cancel(): void;
-  /** Optional: a build older than the routing fix does not have it. */
-  routeToSpeaker?: () => void;
   addListener(eventName: string, listener: (event: any) => void): EventSubscription;
 }
 
@@ -66,21 +64,6 @@ try {
 /** True when the native streaming module is available (a dev/prod build). */
 export function isStreamAvailable(): boolean {
   return native != null;
-}
-
-/**
- * Play out loud rather than into the ear, if we are about to do the opposite.
- *
- * A duplex session runs on `.playAndRecord`, whose default output is the
- * receiver — the earpiece — and `.defaultToSpeaker` is only a default: the
- * synthesiser taking the session to speak is enough to land back on it. Call
- * this immediately before speaking.
- *
- * Does nothing when the current route is a headset, CarPlay or a Bluetooth
- * speaker: that is a route somebody chose.
- */
-export function routeToSpeaker(): void {
-  try { native?.routeToSpeaker?.(); } catch { /* older build, or not duplex */ }
 }
 
 /**
