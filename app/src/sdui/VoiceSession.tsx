@@ -36,7 +36,7 @@
 import { useEffect, useRef } from "react";
 import * as Speech from "expo-speech";
 import { routeToSpeaker } from "../../modules/tulmi-stream";
-import { AudioModule } from "expo-audio";
+import { AudioModule, setAudioModeAsync } from "expo-audio";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import * as api from "../api";
 import { callEndpoint } from "./client";
@@ -195,10 +195,25 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         say("assistant", reply);
         setState("speaking");
         setLevel(0.5);
-        // OUT LOUD, not into the ear. This session runs on .playAndRecord,
-        // whose default output is the receiver, and the synthesiser is enough
-        // to land back on it — so the one moment that matters says so. A
-        // headset or a Bluetooth speaker is left alone; see routeToSpeaker().
+        // OUT LOUD, not into the ear.
+        //
+        // This session runs on .playAndRecord — one session serving the mic and
+        // the synthesiser — and that category's default output is the receiver.
+        // The synthesiser is enough to land back on it between turns, so the
+        // route is stated again at the one moment it matters.
+        //
+        // Two ways of saying it, and they reach different builds. Re-asserting
+        // the audio mode is plain JS: it re-sets the category with
+        // .defaultToSpeaker, which resets the route, and it ships over the air.
+        // The native override is the stronger form — an override DECIDES where
+        // a default only suggests — and it arrives with the next build. Both
+        // leave a headset or a Bluetooth speaker alone: that is a route
+        // somebody chose.
+        void setAudioModeAsync({
+          allowsRecording: true,
+          playsInSilentMode: true,
+          shouldRouteThroughEarpiece: false,
+        }).catch(() => { /* the native override still applies */ });
         routeToSpeaker();
         Speech.speak(reply, {
           language,
