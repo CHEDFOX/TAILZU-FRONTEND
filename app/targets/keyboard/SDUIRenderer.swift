@@ -251,6 +251,8 @@ final class KeyPlaneView: UIView {
     var out: [CGRect] = []
     for w in obstacles {
       guard let v = w.v, v.window != nil, !v.isHidden, v.alpha > 0.01 else { continue }
+      // A key the plane fully owns cannot also refuse it. See planeSilentIds.
+      if planeSilentIds.contains(ObjectIdentifier(v)) { continue }
       var r = convert(v.bounds, from: v)
       // Veto the control's EXPANDED touch target, not just its painted rect —
       // special keys are KeyHitButtons with hit slop (y=8/x=2), and a tap in
@@ -309,6 +311,29 @@ final class KeyPlaneView: UIView {
   /// Identities, not references — `keys` holds its buttons weakly on purpose
   /// and a strong second list here would defeat that.
   private var planeOwnedIds: Set<ObjectIdentifier> = []
+
+  /// Buttons the plane resolves AND takes over completely, so they must not
+  /// veto it at all.
+  ///
+  /// THIS IS WHAT THE PARTITION WAS MISSING. Every letter is a KeyHitButton,
+  /// every KeyHitButton not in `planeOwnedIds` had its rect grown by its own
+  /// hit slop and added to the veto list, and a veto is checked before
+  /// anything else — so a touch anywhere on a letter, or within eight points
+  /// above or below one, was refused by the plane and left to the button.
+  ///
+  /// Which means the partition never applied to the letters. Not to the keys
+  /// and not to the gaps between them: two neighbours' halos meet in the
+  /// middle of the space between their columns, and clipped to the row they
+  /// cover the whole of it vertically. Every fix for the dead gaps — filling
+  /// them, resolving every claimed point, warming the geometry — was written
+  /// for a plane that was handed a few slivers of the keyboard.
+  ///
+  /// Only the action keys veto now, and only their painted rect: backspace's
+  /// hold-to-repeat and space's cursor slide are real gestures on the button
+  /// that the plane cannot reproduce. Shift and the layer switch do not veto
+  /// either — the plane implements their hold itself, and their old gesture
+  /// recognizers are dead under it.
+  private var planeSilentIds: Set<ObjectIdentifier> = []
 
   /// Per-active-touch state: the key currently under that finger.
   private final class Track {
@@ -396,9 +421,10 @@ final class KeyPlaneView: UIView {
   /// geometry on the next move (this is what layer-peek rides on).
   func rebind(keys: [Key]) {
     self.keys = keys
-    planeOwnedIds = Set(keys.compactMap { k -> ObjectIdentifier? in
-      guard case .action = k.role, let b = k.button else { return nil }
-      return ObjectIdentifier(b)
+    planeOwnedIds = Set(keys.compactMap { $0.button.map(ObjectIdentifier.init) })
+    planeSilentIds = Set(keys.compactMap { k -> ObjectIdentifier? in
+      if case .action = k.role { return nil }
+      return k.button.map(ObjectIdentifier.init)
     })
     frames = []
     roleFrames = []
