@@ -298,7 +298,7 @@ export interface CompProps {
 
 // --- Components -------------------------------------------------------------
 
-const Screen = ({ children, style }: CompProps) => {
+const Screen = ({ props, children, style }: CompProps) => {
   const theme = useTheme();
   // A SCREEN CAN BE TRANSPARENT.
   //
@@ -313,9 +313,27 @@ const Screen = ({ children, style }: CompProps) => {
   // padding belongs. Say nothing and it is the theme's background, as before.
   const flat = (StyleSheet.flatten(style) ?? {}) as Record<string, any>;
   const { backgroundColor, ...content } = flat;
+  /**
+   * A SCROLL THAT DOES NOT TAKE THE TOUCH OFF ITS OWN CONTROLS.
+   *
+   * A scroll view cancels the touches inside it the moment its pan recognizer
+   * engages — which is correct for a list of rows and wrong for a screen whose
+   * content includes something you DRAG. The training tab's way in is a disc
+   * pulled across a pill: nobody draws that arc perfectly level, so the first
+   * few points of vertical drift handed the gesture to the scroll, the disc
+   * sprang home, and the slide did nothing at all. It only appeared when that
+   * screen started scrolling, because a scroll view with nothing to scroll
+   * never cancels anything.
+   *
+   * Asked for by the backend, per screen, because it is a real trade: a screen
+   * that holds its touches cannot be scrolled by dragging from ON a control.
+   */
+  const hold = props?.holdTouches === true;
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: backgroundColor ?? theme.color.bg }}
+      canCancelContentTouches={!hold}
+      directionalLockEnabled={hold}
       contentContainerStyle={[
         {
           paddingHorizontal: theme.space.content ?? theme.space.lg,

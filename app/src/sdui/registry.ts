@@ -64,6 +64,14 @@ export const CORE_COMPONENTS = [
   // SwipeAction — a pill whose disc is dragged to the far end to commit. The
   // sign-in pills' gesture, made general.
   "SwipeAction",
+  /**
+   * NOT A COMPONENT — a declaration that this bundle's Screen honours
+   * `holdTouches`, i.e. that it can carry a draggable control without the
+   * scroll stealing the gesture. The backend withholds any screen that needs
+   * it from a bundle that does not say this, rather than shipping one whose
+   * way in does nothing.
+   */
+  "ScreenHoldTouches",
   // Coverflow — a deck of cards turned in depth, dragged and thrown.
   // Reels — one child per screenful, snapped vertically.
   "Coverflow", "Reels",
