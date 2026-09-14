@@ -35,6 +35,7 @@
  */
 import { useEffect, useRef } from "react";
 import * as Speech from "expo-speech";
+import { routeToSpeaker } from "../../modules/tulmi-stream";
 import { AudioModule } from "expo-audio";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import * as api from "../api";
@@ -194,6 +195,11 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         say("assistant", reply);
         setState("speaking");
         setLevel(0.5);
+        // OUT LOUD, not into the ear. This session runs on .playAndRecord,
+        // whose default output is the receiver, and the synthesiser is enough
+        // to land back on it — so the one moment that matters says so. A
+        // headset or a Bluetooth speaker is left alone; see routeToSpeaker().
+        routeToSpeaker();
         Speech.speak(reply, {
           language,
           onDone: () => { if (r.alive) void listen(); },
