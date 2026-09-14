@@ -67,6 +67,10 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
       bloom: Number(props?.bloom ?? 0.44),
       focal: Number(props?.focal ?? 0.35),
       maxPulses: Number(props?.maxPulses ?? 700),
+      // How much of the network has been earned, 0..1 — see the page's build().
+      // Baked into the geometry, so it is read once with everything else and a
+      // change to it arrives with the next mount, as a denser field.
+      growth: Number(props?.growth ?? 1),
       signal: props?.signal ?? [232, 162, 60],
       head: props?.head ?? [255, 241, 214],
     }),
