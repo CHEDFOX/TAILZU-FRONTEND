@@ -169,8 +169,17 @@ function build(){
           [[W*1.2,-H*0.2],[W*0.5,H*0.2],[W*0.6,H*0.7],[-W*0.2,H*1.2]]];
   HW.forEach(function(c){var pl=bezPts(c[0],c[1],c[2],c[3],160);
     pl.step=Math.hypot(pl[2]-pl[0],pl[3]-pl[1]);highways.push(pl)});
+  /* HOW MUCH OF THIS NETWORK HAS BEEN EARNED, 0..1.
+     The hubs are always all there — the shape has to be recognisable on the
+     day someone installs the app — but the CONNECTIONS are what training
+     buys. A new account gets a sparse skeleton with thin tracts; a portrait
+     with months in it gets a dense, bright, many-times-crossed field. That is
+     the whole promise of the screen, and it is a number from the server, not
+     an animation. */
+  var G=CFG.growth==null?1:clamp(Number(CFG.growth),0,1);
   var regions=(CFG.regions||[]).map(function(R){return {
-      seat:[W*R.x,H*R.y],hue:R.hue,n:R.n,z:R.z,sc:R.sc}}),
+      seat:[W*R.x,H*R.y],hue:R.hue,
+      n:Math.max(2,Math.round(R.n*lerp(0.55,1,G))),z:R.z,sc:R.sc}}),
       placed=[],i,j,k;
   regions.forEach(function(R){
     var mine=[];
@@ -185,15 +194,17 @@ function build(){
     for(i=0;i<mine.length;i++)for(j=i+1;j<mine.length;j++)makeTract(mine[i].core,mine[j].core,0.5);
     R.systems=mine});
   for(i=0;i<regions.length;i++)for(j=i+1;j<regions.length;j++){
-    var n2=1+(Math.random()<0.5?1:0);
+    var n2=(Math.random()<lerp(0.35,1,G)?1:0)+(Math.random()<0.5*G?1:0);
     for(k=0;k<n2;k++)makeTract(pick(regions[i].systems).core,pick(regions[j].systems).core,0.7,true)}
   for(i=0;i<cores.length;i++)for(j=i+1;j<cores.length;j++){
     var A=cores[i].sys.majors,B=cores[j].sys.majors,p1,p2;
     for(p1=0;p1<A.length;p1++)for(p2=0;p2<B.length;p2++)
-      if(Math.hypot(A[p1].x-B[p2].x,A[p1].y-B[p2].y)<W*0.12&&Math.random()<0.4)
+      if(Math.hypot(A[p1].x-B[p2].x,A[p1].y-B[p2].y)<W*0.12&&Math.random()<0.4*lerp(0.3,1,G))
         makeTract(A[p1],B[p2],0.28)}
   tracts.forEach(function(t){
-    var n=Math.round(t.viaHighway?rnd(34,60):lerp(3,24,t.weight))+((Math.random()*3)|0),i2;
+    /* The thickness of a tract IS how well travelled it is. */
+    var n=Math.round((t.viaHighway?rnd(34,60):lerp(3,24,t.weight))*lerp(0.34,1,G))
+          +((Math.random()*3)|0),i2;
     for(i2=0;i2<n;i2++)fibres.push(makeFibre(t))});
   peri=hubs.filter(function(h){return h.level>=3});
   dirty=true}
