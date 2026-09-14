@@ -557,9 +557,28 @@ export default function SduiApp() {
         Platform.OS === "ios" ? "billing.revenueCatKey.ios" : "billing.revenueCatKey.android"
       ] as string | undefined);
       const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
-      if (paywallEnt) await initBilling();
       const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;
       const paywallAfterOnboarding = b.flags?.["paywall.showAfterOnboarding"] === true;
+      /**
+       * THE STORE DOES NOT GET TO DECIDE WHETHER THE APP OPENS.
+       *
+       * This awaited RevenueCat on every launch, because an entitlement name
+       * is configured — even with both gates switched off, which they are.
+       * So a boot that had nothing to gate still waited on a Play Billing
+       * connection that can be absent, broken or slow: an emulator, a device
+       * with no Play account, a review farm, a blocked region. The SDK retries
+       * rather than failing, and the app sat on its splash with no screen and
+       * nothing to retry from — which is what "isn't responding" is.
+       *
+       * It is the same mistake this boot has already made once, with the
+       * profile PUT: a best-effort call the boot awaited.
+       *
+       * So it is awaited ONLY when a gate is actually on and the answer
+       * therefore changes what is drawn — and even then the SDK's own
+       * deadline applies. Otherwise it is started and left to land.
+       */
+      if (paywallEnt && (paywallBlock || paywallAfterOnboarding)) await initBilling();
+      else if (paywallEnt) void initBilling();
       const lacksEntitlement =
         !!paywallEnt && isBillingEnabled() && !hasEntitlement(paywallEnt);
       const shouldShowPaywall =
@@ -1357,6 +1376,34 @@ export default function SduiApp() {
   }, []);
 
   const splashHidden = useRef(false);
+
+  /**
+   * NOTHING HOLDS THE SPLASH FOREVER.
+   *
+   * index.ts calls preventAutoHideAsync, so the splash stays up until this app
+   * decides to lift it — and every condition below is downstream of a boot
+   * that has to finish. Each time one of those has hung, the result has been
+   * the same picture: the launch image, no screen, no error, nothing to retry
+   * from, and an app that from outside is not responding.
+   *
+   * This is the floor under all of it. It does not fix a hang and is not meant
+   * to: it makes one visible. The app underneath is live — it takes touches,
+   * it can show the connection banner, it reports the stall on the next launch
+   * — and a dark screen you can act on is a different thing from a frozen
+   * launch image.
+   */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (splashHidden.current) return;
+      splashHidden.current = true;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
+      } catch { /* nothing was holding it */ }
+    }, 7000);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     // THE SPLASH LIFTS WHEN THERE IS ANYTHING TO LOOK AT — not only when an
     // SDUI screen arrives.
