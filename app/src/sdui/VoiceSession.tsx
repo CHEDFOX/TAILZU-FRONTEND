@@ -35,7 +35,6 @@
  */
 import { useEffect, useRef } from "react";
 import * as Speech from "expo-speech";
-import { routeToSpeaker } from "../../modules/tulmi-stream";
 import { AudioModule, setAudioModeAsync } from "expo-audio";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import * as api from "../api";
@@ -129,6 +128,24 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       }, silenceMs);
     };
 
+    /**
+     * PLAY-ONLY, WHICH IS THE ONE CATEGORY WITH NO EARPIECE IN IT.
+     *
+     * Held for as long as the reply is being spoken, and given back the moment
+     * the mic is needed again.
+     */
+    const speakerOnly = () =>
+      setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })
+        .catch(() => { /* nothing to do but speak anyway */ });
+
+    /** Back to the category that can hear, before anything tries to. */
+    const micReady = () =>
+      setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldRouteThroughEarpiece: false,
+      }).catch(() => { /* the stream module sets it too, on every turn */ });
+
     /** Speech arrived: push the bubble up and restart the clock. */
     const heard = () => {
       setLevel(LEVEL_ON_SPEECH);
@@ -146,6 +163,11 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       r.partial = "";
       setState("listening");
       setLevel(LEVEL_FLOOR);
+      // The reply was spoken under a play-only category. The mic needs the
+      // recording one back, and it needs it before the stream opens — not
+      // after, which would be a session change under a live capture.
+      await micReady();
+      if (!r.alive) return;
 
       // The level has no real amplitude behind it — the streamer hands over
       // text, not PCM. So it is driven by the arrival of words and decays
@@ -195,26 +217,25 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         say("assistant", reply);
         setState("speaking");
         setLevel(0.5);
-        // OUT LOUD, not into the ear.
+        // OUT LOUD, AND THE CATEGORY IS THE ONLY THING THAT DECIDES IT.
         //
-        // This session runs on .playAndRecord — one session serving the mic and
-        // the synthesiser — and that category's default output is the receiver.
-        // The synthesiser is enough to land back on it between turns, so the
-        // route is stated again at the one moment it matters.
+        // Listening runs on .playAndRecord, because one session has to serve
+        // the mic and the synthesiser. That category's default output is the
+        // RECEIVER — the earpiece — and .defaultToSpeaker does not fix it:
+        // it is a default, weighed when the session activates, and this
+        // session is already active and stays active between turns. Re-setting
+        // the category with that option changes nothing about a route that has
+        // already been chosen. That was the first attempt and it did not work.
         //
-        // Two ways of saying it, and they reach different builds. Re-asserting
-        // the audio mode is plain JS: it re-sets the category with
-        // .defaultToSpeaker, which resets the route, and it ships over the air.
-        // The native override is the stronger form — an override DECIDES where
-        // a default only suggests — and it arrives with the next build. Both
-        // leave a headset or a Bluetooth speaker alone: that is a route
-        // somebody chose.
-        void setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-          shouldRouteThroughEarpiece: false,
-        }).catch(() => { /* the native override still applies */ });
-        routeToSpeaker();
+        // .playback has no receiver to fall back to. It is the play-only
+        // category, its output is the speaker, and there is no default to
+        // overrule — so the reply is spoken under .playback and nothing has to
+        // be persuaded.
+        //
+        // Safe because the mic is already closed: closeMic() runs before
+        // respond(), so nothing is capturing while the category is play-only.
+        // Listening puts .playAndRecord back before it opens the mic again.
+        await speakerOnly();
         Speech.speak(reply, {
           language,
           onDone: () => { if (r.alive) void listen(); },
