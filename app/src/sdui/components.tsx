@@ -298,7 +298,23 @@ export interface CompProps {
 
 // --- Components -------------------------------------------------------------
 
+/**
+ * HOW TALL ONE SCREENFUL ACTUALLY IS.
+ *
+ * The window is not the answer. A scroll view sits under whatever chrome the
+ * shell is showing — a header, a tab bar, the home indicator's inset — so a
+ * pane sized to the WINDOW is taller than the space it is scrolling inside,
+ * and whatever sits at the bottom of it starts below the fold. The training
+ * tab's way in is at the bottom of its opening pane, which is exactly how a
+ * button that used to be on screen ended up under it.
+ *
+ * Only the scroll view knows its own height, so it is the scroll view that
+ * says. The window remains the fallback for a pane that is not inside one.
+ */
+const ScreenViewport = createContext<number>(0);
+
 const Screen = ({ props, children, style }: CompProps) => {
+  const [vh, setVh] = useState(0);
   const theme = useTheme();
   // A SCREEN CAN BE TRANSPARENT.
   //
@@ -330,7 +346,12 @@ const Screen = ({ props, children, style }: CompProps) => {
    */
   const hold = props?.holdTouches === true;
   return (
+    <ScreenViewport.Provider value={vh}>
     <ScrollView
+      onLayout={(e) => {
+        const h = Math.round(e.nativeEvent.layout.height);
+        if (h > 0 && h !== vh) setVh(h);
+      }}
       style={{ flex: 1, backgroundColor: backgroundColor ?? theme.color.bg }}
       canCancelContentTouches={!hold}
       directionalLockEnabled={hold}
@@ -346,6 +367,7 @@ const Screen = ({ props, children, style }: CompProps) => {
     >
       {children}
     </ScrollView>
+    </ScreenViewport.Provider>
   );
 };
 
@@ -374,7 +396,12 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
    */
   const fill = props?.fillViewport === true;
   const win = useWindowDimensions();
-  const sized = fill ? [style, { minHeight: win.height }] : style;
+  // The scroll view's own height when this pane is inside one, the window when
+  // it is not. See ScreenViewport: the window is taller than the space the
+  // pane actually scrolls in, by exactly the chrome around it, and that
+  // difference is a control pushed under the fold.
+  const screenH = useContext(ScreenViewport);
+  const sized = fill ? [style, { minHeight: screenH || win.height }] : style;
   if (!node.on?.onPress && !node.on?.onLongPress) return <View style={sized}>{children}</View>;
   // How far it dims under a finger. A Stack is the app's general-purpose
   // pressable — the allow pill, the plan rows, the deck cards are all one —
