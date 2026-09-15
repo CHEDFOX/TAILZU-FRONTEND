@@ -20,9 +20,9 @@
  * complete — until then the button stays hidden (isGoogleConfigured === false).
  */
 export const GOOGLE_OAUTH = {
-  webClientId: "PASTE_WEB_CLIENT_ID.apps.googleusercontent.com",
-  iosClientId: "PASTE_IOS_CLIENT_ID.apps.googleusercontent.com",
-  androidClientId: "PASTE_ANDROID_CLIENT_ID.apps.googleusercontent.com",
+  webClientId: "276376169707-t4e6u8pd27o9cdm1ffm0619m6e0on8up.apps.googleusercontent.com",
+  iosClientId: "276376169707-29fkjccf3kp8t46nlnnfpvml6i4um9h7.apps.googleusercontent.com",
+  androidClientId: "276376169707-9u6js1ir1ti74ac1pee4ld434ju598s2.apps.googleusercontent.com",
 };
 
 export const isGoogleConfigured = () => !GOOGLE_OAUTH.webClientId.startsWith("PASTE_");
@@ -30,6 +30,25 @@ export const isGoogleConfigured = () => !GOOGLE_OAUTH.webClientId.startsWith("PA
 /** Toggle phone sign-in on once an SMS provider is configured in Supabase. */
 export const AUTH_METHODS = {
   enablePhone: false,
+};
+
+/**
+ * Cloudflare Turnstile — the bot challenge in front of the auth endpoints.
+ *
+ * The site key is PUBLIC, like the Supabase anon key beside it. The secret half
+ * goes in Supabase → Authentication → Attack Protection, and never here.
+ *
+ * `origin` is what the hidden WebView reports as its domain. A Turnstile key is
+ * bound to a domain list, and a page built from a string has no domain of its
+ * own, so this value must be one of the domains on the key.
+ *
+ * Empty siteKey = no challenge, and every auth call goes out without a token —
+ * exactly today's behaviour. Fill it in AND turn on Attack Protection, in that
+ * order: enabling Supabase first rejects every sign-in, including yours.
+ */
+export const TURNSTILE = {
+  siteKey: "",
+  origin: "https://tailzu.space",
 };
 
 export interface Country {

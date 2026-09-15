@@ -20,6 +20,8 @@ import {
 } from "react-native";
 import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
+import { typeRole } from "../sdui/components";
+import type { ThemeTokens } from "../sdui/types";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 
@@ -101,9 +103,18 @@ function orderLanguages(list: Language[], deviceLang: string, deviceRegion: stri
 export default function LanguageSelectScreen({
   onSelect,
   languages,
+  bg,
+  text,
+  borderColor,
+  theme,
 }: {
   onSelect: (code: string) => void;
   languages?: Language[];
+  bg?: string;
+  text?: string;
+  borderColor?: string;
+  /** Bootstrap theme, when it has landed — the type comes from its scale. */
+  theme?: ThemeTokens | null;
 }) {
   const [arrivalDone, setArrivalDone] = useState(false);
   const [index, setIndex] = useState(0);
@@ -152,15 +163,21 @@ export default function LanguageSelectScreen({
     onSelect(code);
   }, [onSelect]);
 
-  if (!langs.length) return <View style={s.container} />;
+  if (!langs.length) return <View style={[s.container, { backgroundColor: bg ?? VOID }]} />;
 
   const greetingTranslateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [0, GREETING_TOP_Y - GREETING_CENTER_Y] });
   const listOpacity = arrival.interpolate({ inputRange: [0, 0.55, 1], outputRange: [0, 0, 1] });
+  const textColor = text ?? WHITE;
+  const boxBorder = borderColor ?? "rgba(255,255,255,0.12)";
+  // This screen can draw before bootstrap returns, so the StyleSheet keeps a
+  // copy of each role; when the theme is here, the theme wins.
+  const greetingType = theme ? typeRole(theme, "langGreeting", s.greeting) : s.greeting;
+  const pillType = theme ? typeRole(theme, "langPill", s.langText) : s.langText;
 
   return (
-    <View style={s.container}>
+    <View style={[s.container, { backgroundColor: bg ?? VOID }]}>
       <Animated.Text
-        style={[s.greeting, { top: GREETING_CENTER_Y, opacity: greetingFade, transform: [{ translateY: greetingTranslateY }] }]}
+        style={[s.greetingBox, greetingType, { color: textColor, top: GREETING_CENTER_Y, opacity: greetingFade, transform: [{ translateY: greetingTranslateY }] }]}
         numberOfLines={1}
         adjustsFontSizeToFit
       >
@@ -170,8 +187,8 @@ export default function LanguageSelectScreen({
       <Animated.View style={[s.listContainer, { opacity: listOpacity }]} pointerEvents={arrivalDone ? "auto" : "none"}>
         <ScrollView contentContainerStyle={s.listGrid} showsVerticalScrollIndicator={false}>
           {langs.map((l) => (
-            <TouchableOpacity key={l.code} style={s.langBox} activeOpacity={0.7} onPress={() => select(l.code)}>
-              <Text style={s.langText} numberOfLines={1}>{l.name}</Text>
+            <TouchableOpacity key={l.code} style={[s.langBox, { borderColor: boxBorder }]} activeOpacity={0.7} onPress={() => select(l.code)}>
+              <Text style={[pillType, { color: textColor }]} numberOfLines={1}>{l.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -181,18 +198,16 @@ export default function LanguageSelectScreen({
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: VOID },
-  greeting: {
-    position: "absolute", left: 0, right: 0,
-    fontSize: 52, fontWeight: "300", color: WHITE, textAlign: "center", letterSpacing: 0,
-    paddingHorizontal: 24,
-  },
+  container: { flex: 1 },
+  // Placement is the screen's; the type on top of it is the backend's.
+  greetingBox: { position: "absolute", left: 0, right: 0, paddingHorizontal: 24 },
+  greeting: { fontSize: 52, fontWeight: "300", textAlign: "center", letterSpacing: 0 },
   listContainer: { position: "absolute", top: LIST_TOP, bottom: LIST_BOTTOM, left: LIST_INSET, right: LIST_INSET },
   listGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: GRID_GAP, paddingBottom: 18 },
   langBox: {
     width: BOX_W, height: 54, borderRadius: 27,
-    borderWidth: 0.5, borderColor: "rgba(255,255,255,0.12)",
+    borderWidth: 0.5,
     justifyContent: "center", alignItems: "center",
   },
-  langText: { fontSize: 15, fontWeight: "300", color: WHITE, letterSpacing: 0.5 },
+  langText: { fontSize: 15, fontWeight: "300", letterSpacing: 0.5 },
 });
