@@ -2798,6 +2798,27 @@ final class SDUIRenderer: NSObject {
     // state delta, exhausted deferral) rebuilds letters at alpha 1 and a fresh
     // plane with interaction ON — this restores the blanked/disabled state.
     applyTrackpadVisual(active: state.trackpadActive)
+    // THE DICTATION OVERLAY GOES BACK ON TOP, and this is the whole bug.
+    //
+    // The overlay is a sibling of mountedRoot, so a remount does not destroy
+    // it — it BURIES it. The fresh tree is added last, the key plane is then
+    // brought to the front, and the overlay ends up underneath both. Tapping
+    // the mic changes state.dictating, which schedules exactly such a remount,
+    // so this happened on every single recording.
+    //
+    // Underneath, it is the worst of both: the keys sit above it, so they take
+    // touches and are not blurred — and the overlay, now with nothing in front
+    // of it to blur, renders as a flat sheet of material showing through a
+    // deliberately transparent keyboard. A grey sheet, live keys, no blur, all
+    // from one line that was never written.
+    //
+    // Raised after everything else, above the plane and below the build stamp.
+    if state.dictating, let dim = recordingDimView {
+      container.bringSubviewToFront(dim)
+      // The tools row goes above it again: the mic that STOPS the recording
+      // has to stay reachable, and it is the only thing that does.
+      if let mic = currentMicButton?.superview { container.bringSubviewToFront(mic) }
+    }
     // Build stamp — added LAST so it sits on top of the tree + plane. A small
     // corner marker that proves whether THIS binary is the one running: if iOS
     // is serving a cached old keyboard extension (the usual reason "updates do
@@ -2824,7 +2845,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K34"
+  static let buildStamp = "K35"
 
   /// The bundled brand mark.
   ///
@@ -3373,7 +3394,19 @@ final class SDUIRenderer: NSObject {
       .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.08))
     let dim: UIView
     if flagBool("kb.dictation.dim.blur", true) {
-      let style: UIBlurEffect.Style = light ? .systemThinMaterialLight : .systemThinMaterialDark
+      // THE MATERIAL IS NAMED BY THE SERVER, because the choice between them is
+      // the whole difference between frosted keys and a grey slab. Every system
+      // material carries its own fill as well as its blur, and thin carries
+      // enough of one to read as a sheet laid over the keyboard rather than the
+      // keyboard seen through something. Ultra-thin is nearly all blur.
+      let name = flagString("kb.dictation.dim.material", "ultraThin")
+      let style: UIBlurEffect.Style
+      switch name {
+      case "thin":    style = light ? .systemThinMaterialLight : .systemThinMaterialDark
+      case "regular": style = light ? .systemMaterialLight : .systemMaterialDark
+      case "chrome":  style = light ? .systemChromeMaterialLight : .systemChromeMaterialDark
+      default:        style = light ? .systemUltraThinMaterialLight : .systemUltraThinMaterialDark
+      }
       let v = UIVisualEffectView(effect: UIBlurEffect(style: style))
       v.contentView.backgroundColor = tint
       dim = v
