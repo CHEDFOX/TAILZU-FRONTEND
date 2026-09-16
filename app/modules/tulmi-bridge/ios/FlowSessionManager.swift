@@ -294,6 +294,74 @@ final class FlowSessionManager: NSObject {
       let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
       DispatchQueue.main.async { this.endDictation() }
     }, FlowSessionManager.nStop as CFString, nil, .deliverImmediately)
+
+    // THE SESSION HAS TO SURVIVE BEING INTERRUPTED, because it will be.
+    //
+    // A call, Siri, a timer going off, another app taking the microphone: iOS
+    // deactivates our audio session and STOPS the engine. Nothing here listened
+    // for that, so the engine stayed stopped and the heartbeat — which is
+    // guarded on `engine.isRunning` — stopped with it. Two and a half seconds
+    // later the keyboard reads a stale heartbeat, concludes the session is
+    // dead, and re-opens the app to arm one. The app was alive the whole time;
+    // only its microphone had been taken away and never given back.
+    //
+    // That is the loop: come back from the arm screen, tap the mic, nothing
+    // happens, and you are on the arm screen again. Re-arming by hand is the
+    // only thing that has ever fixed it, and it fixes it by accident.
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(audioInterrupted(_:)),
+      name: AVAudioSession.interruptionNotification, object: nil)
+    // The media server can restart under a live session. Everything built
+    // against the old one is invalid — the engine included — so the only
+    // recovery is to build it again.
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(mediaServicesReset(_:)),
+      name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+  }
+
+  @objc private func audioInterrupted(_ note: Notification) {
+    guard armed,
+          let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+    switch type {
+    case .began:
+      // Nothing to do but notice. iOS has already stopped the engine, and the
+      // heartbeat is already going stale — which is correct while the
+      // microphone genuinely is not ours.
+      break
+    case .ended:
+      // Resume only when iOS says we may. A .shouldResume option absent means
+      // something else is still holding the microphone, and taking it back
+      // would be wrong even if it worked.
+      let opts = AVAudioSession.InterruptionOptions(
+        rawValue: note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0)
+      guard opts.contains(.shouldResume) else { return }
+      resumeAfterInterruption()
+    @unknown default:
+      break
+    }
+  }
+
+  @objc private func mediaServicesReset(_ note: Notification) {
+    guard armed else { return }
+    resumeAfterInterruption()
+  }
+
+  /// Put the microphone back, from whatever state the interruption left.
+  ///
+  /// Tears the engine down before rebuilding rather than restarting it: after
+  /// an interruption the input node's format can have changed under us — a
+  /// headset went in, the route moved — and starting an engine whose tap was
+  /// installed against the old format fails silently, which is the same dead
+  /// session by a different road.
+  private func resumeAfterInterruption() {
+    stopCapture()
+    activateAudioSession()
+    startCapture()
+    // Stamp immediately rather than waiting up to a second for the timer: the
+    // keyboard may be asking right now, and a session that is back has no
+    // business reading as dead for another beat.
+    publishHeartbeat()
   }
 
   // MARK: - Dictation lifecycle (one utterance)
