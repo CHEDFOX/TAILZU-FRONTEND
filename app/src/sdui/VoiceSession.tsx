@@ -272,6 +272,21 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       Speech.stop();
       setState("idle");
       setLevel(0);
+      // AND PUT THE AUDIO SESSION BACK.
+      //
+      // Speaking switches the whole process to .playback — it is the one
+      // category with no earpiece in it, which is why the reply comes out of
+      // the speaker. But the category is SHARED, and the app may be holding a
+      // Flow session on .playAndRecord for the keyboard: switching it stops
+      // that engine, the liveness heartbeat stops with it, and two and a half
+      // seconds later the keyboard decides the session is dead and re-opens
+      // the app to arm one.
+      //
+      // Only listen() restored it, so leaving this screen between turns left
+      // the entire app in .playback until it was relaunched — and every mic
+      // tap on the keyboard bounced back here. That is the regression, and it
+      // shipped with the earpiece fix.
+      void micReady();
     };
   }, [
     endpoint, silenceMs, maxTurns, language,
