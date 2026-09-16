@@ -65,6 +65,24 @@ final class FlowSessionManager: NSObject {
   private var oneShot = false
   private var pcm = Data()
   private let pcmLock = NSLock()
+
+  /// WHAT YOU SAID BEFORE THE SOCKET WAS READY.
+  ///
+  /// openStream() runs after `dictating` is set, and until the task exists
+  /// every converted buffer was dropped — so the first words of an utterance
+  /// were not late, they were DISCARDED. On mobile, DNS plus TLS plus the
+  /// upgrade is comfortably a few hundred milliseconds, and people start
+  /// talking the instant they tap. That is the missing start of a sentence.
+  ///
+  /// So audio is kept from the moment the dictation begins and flushed in
+  /// order the moment the socket opens. Capped, because a socket that never
+  /// opens must not grow this without end — past the cap the OLDEST audio is
+  /// dropped, since if anything has to be lost it should be the part furthest
+  /// from what the person is saying now.
+  private var preroll = Data()
+  /// Three seconds at 16 kHz mono int16. Long enough to cover a slow connect,
+  /// short enough that a dead socket costs 96 KB and not a recording.
+  private static let prerollCap = 16_000 * 2 * 3
   /// ~2 minutes of 16 kHz mono int16. Far beyond any real dictation, and a hard
   /// ceiling matters here: this buffer lives in a background app whose memory
   /// iOS is happy to reclaim.
@@ -370,6 +388,7 @@ final class FlowSessionManager: NSObject {
     guard armed, !dictating else { return }
     resetIdleTimer()
     dictating = true
+    pcmLock.lock(); preroll = Data(); pcmLock.unlock()
     if !capturing { startCapture() }   // safety net — the engine should already be live
     if oneShot {
       pcmLock.lock(); pcm = Data(); pcmLock.unlock()
@@ -454,6 +473,14 @@ final class FlowSessionManager: NSObject {
        let str = String(data: data, encoding: .utf8) {
       t.send(.string(str)) { _ in }
     }
+    // Everything said while this socket was being opened, in order, before any
+    // live audio reaches it. Sent after `start` because the server needs the
+    // format before it can make sense of a byte.
+    pcmLock.lock()
+    let held = preroll
+    preroll = Data()
+    pcmLock.unlock()
+    if !held.isEmpty { t.send(.data(held)) { _ in } }
   }
 
   private func receiveLoop() {
@@ -565,7 +592,10 @@ final class FlowSessionManager: NSObject {
     // In one-shot there is no socket — the converter alone is enough.
     let (snapConv, snapTask) = captureAV()
     guard let converter = snapConv else { return }
-    guard oneShot || snapTask != nil else { return }
+    // No socket yet? Keep the audio rather than dropping it — see `preroll`.
+    // The conversion still has to happen here, on this thread, because the
+    // input format is only available with the buffer.
+    let holdForSocket = !oneShot && snapTask == nil
     let ratio = targetFormat.sampleRate / inputFormat.sampleRate
     let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio + 1024)
     guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
@@ -577,6 +607,17 @@ final class FlowSessionManager: NSObject {
     }
     guard status != .error, out.frameLength > 0, let ch = out.int16ChannelData else { return }
     let data = Data(bytes: ch[0], count: Int(out.frameLength) * MemoryLayout<Int16>.size)
+    if holdForSocket {
+      // Realtime audio thread: a lock around an append is the cheapest safe
+      // option, and anything heavier here glitches the capture.
+      pcmLock.lock()
+      preroll.append(data)
+      if preroll.count > FlowSessionManager.prerollCap {
+        preroll.removeFirst(preroll.count - FlowSessionManager.prerollCap)
+      }
+      pcmLock.unlock()
+      return
+    }
     if oneShot {
       // Runs on the realtime audio thread — a lock around an append is the
       // cheapest safe option; anything heavier here glitches the capture.
