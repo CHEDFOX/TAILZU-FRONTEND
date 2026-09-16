@@ -1123,14 +1123,33 @@ export default function SduiApp() {
   // this whenever the flags land is safe and self-healing.
   useEffect(() => {
     if (bootRef.current?.flags?.["kb.flow.armOnForeground"] !== true) return;
-    if (AppState.currentState !== "active") return;
+    // NOT GATED ON AppState.currentState.
+    //
+    // iOS reports "inactive" for the first moments of a cold launch. This
+    // returned on that, and its only dependency is `boot` — so a bootstrap
+    // landing inside that window meant the session was never armed at all, and
+    // the foreground listener below never fired either, because the app was
+    // already coming up and there was no transition to hear. The first mic tap
+    // then re-opened the app to arm a session this effect had silently
+    // declined to arm. arm() is idempotent and cheap; running it a moment
+    // early costs nothing, and declining to run it costs the whole feature.
     void (async () => {
+      // MEASURED, because "the mic is not warming instantly" has two possible
+      // causes and I have guessed wrong on this keyboard enough times. t0 is
+      // the moment we could have armed; the two marks say which half of the
+      // wait is the bootstrap and which is the token refresh
+      // (supabase.auth.getSession() goes to the network when the JWT has
+      // expired, which is once an hour and invisible the rest of the time).
+      const t0 = Date.now();
       const [base, tok, lang] = await Promise.all([
         getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
       ]);
+      const creds = Date.now() - t0;
       const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
       const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
       armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+      // eslint-disable-next-line no-console
+      console.log(`[flow] armed — creds ${creds}ms, token ${tok ? "live" : "none"}`);
     })();
   }, [boot]);
 
