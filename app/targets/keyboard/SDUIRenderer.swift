@@ -3238,7 +3238,10 @@ final class SDUIRenderer: NSObject {
     // "Hello"). run(.insertKey) applies the live state.shift/capsLock case at
     // tap time instead, so title and inserted text always agree.
     let payload = node.props?["char"]?.asString ?? ch
-    bindTap(btn, node: node, defaultAction: .insertKey(char: payload))
+    // On contact, unless this letter holds an accent tray — see bindTap.
+    let hasTray = !(accentMap[ch.lowercased()] ?? []).isEmpty
+    bindTap(btn, node: node, defaultAction: .insertKey(char: payload),
+            onDown: flagBool("kb.key.commitOnDown", true) && !hasTray)
 
     // Attach an accent popover if this letter has one in the map.
     if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
@@ -5781,7 +5784,23 @@ final class SDUIRenderer: NSObject {
 
   /// Attach the primary tap handler for a component. Priority: an explicit
   /// `on.onPress` action wins; otherwise fall back to the component's default.
-  private func bindTap(_ btn: UIButton, node: KBNode, defaultAction: KBActionSpec?) {
+  /// Wire a key to its action.
+  ///
+  /// `onDown` types the letter THE MOMENT THE SCREEN IS TOUCHED, which is what
+  /// the system keyboard does and what this one has never done: every key here
+  /// has always fired on .touchUpInside, so the character waited for the finger
+  /// to come back up. That is the lag — not layout, not geometry, not the
+  /// plane. A quarter of a second of nothing on every letter, and it reads as a
+  /// slow keyboard because it is one.
+  ///
+  /// Only ever passed for a plain character insert. A key with an accent tray
+  /// keeps its lift, because there the press and the character are genuinely
+  /// different events and the hold has to be ruled out first; a layer key keeps
+  /// its own peek handling; anything with a side effect that cannot be taken
+  /// back keeps the gesture that lets a finger slide off and cancel.
+  private func bindTap(_ btn: UIButton, node: KBNode, defaultAction: KBActionSpec?,
+                       onDown: Bool = false) {
+    let event: UIControl.Event = onDown ? .touchDown : .touchUpInside
     if let ref = node.on?["onPress"] {
       let action = UIAction { [weak self] _ in self?.run(ref) }
       btn.addAction(action, for: .touchUpInside)
@@ -5795,7 +5814,7 @@ final class SDUIRenderer: NSObject {
       }
     } else if let def = defaultAction {
       let action = UIAction { [weak self] _ in self?.run(.inline(def)) }
-      btn.addAction(action, for: .touchUpInside)
+      btn.addAction(action, for: event)
     }
   }
 
