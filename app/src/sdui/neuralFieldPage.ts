@@ -30,6 +30,25 @@ export function neuralFieldHtml(cfg: Record<string, unknown>): string {
 (function(){
 "use strict";
 var CFG = ${JSON.stringify(cfg)};
+/* THE TWO VALUES THAT ARE ABOUT THIS SCREEN AND THIS PERSON.
+ *
+ * Everything else in CFG is geometry — the regions, the colours, the bloom —
+ * and it is the same on every screen the field appears on. Only alpha (how far
+ * back it sits behind the copy) and growth (how much of the network has been
+ * earned) change, and they change per screen and per user.
+ *
+ * The phones bake them in: the app builds this page from props on mount, so
+ * there is nothing to read. The desktop ships ONE generated file and loads it
+ * in an iframe, so it has no way to bake anything — which is why the window
+ * drew a field at full growth for everyone, on day one and month six alike,
+ * and the claim the screen makes about getting bigger was false in the one
+ * place it was visible. A query string is how that file says which screen it
+ * is on. Absent, nothing changes, so the phones are untouched. */
+try{
+  var Q=new URLSearchParams(location.search);
+  if(Q.has("alpha"))CFG.alpha=Number(Q.get("alpha"));
+  if(Q.has("growth"))CFG.growth=Number(Q.get("growth"));
+}catch(e){}
 var rnd=function(a,b){return a+Math.random()*(b-a)},
     pick=function(a){return a[(Math.random()*a.length)|0]},
     lerp=function(a,b,t){return a+(b-a)*t},
