@@ -74,6 +74,8 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
     decay: null as ReturnType<typeof setInterval> | null,
     level: 0,
     turns: [] as Turn[],
+    /** Stream credentials, fetched while the greeting is being spoken. */
+    warm: null as Promise<{ url: string; token: string } | null> | null,
   });
 
   useEffect(() => {
@@ -178,7 +180,13 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       }, LEVEL_TICK_MS);
 
       try {
-        const { url, token } = await api.streamConfig();
+        // Taken from the warm-up when it is there — it was started at mount
+        // and has been resolving behind the greeting, so the first turn does
+        // not pay for it. Cleared after use: credentials are short-lived, and
+        // a later turn asking again is correct rather than wasteful.
+        const warmed = r.warm ? await r.warm : null;
+        r.warm = null;
+        const { url, token } = warmed ?? (await api.streamConfig());
         if (!r.alive) return;
         r.session = startStream(
           // duplex: this screen answers out loud between turns, so the mic and
@@ -254,14 +262,73 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         fail("Live voice needs the latest app version.");
         return;
       }
-      const perm = await AudioModule.requestRecordingPermissionsAsync();
+
+      /**
+       * THE WARM-UP HAPPENS BEHIND THE GREETING, NOT BEFORE IT.
+       *
+       * Opening a session costs a permission check and a fetch for the stream
+       * credentials, and both used to run in silence with the screen already
+       * up. Then it listened. So the first thing the app ever said arrived
+       * only after the user had spoken into that silence and waited out a full
+       * round trip — which reads as broken, not as thinking.
+       *
+       * The greeting is already written when the screen arrives — the server
+       * composed it from the name and what it has actually learned — so it can
+       * be said at once, and the warm-up moves underneath it. Both of these
+       * are started WITHOUT awaiting, so they run while the sentence is being
+       * spoken; by the time it ends the credentials are in hand and listen()
+       * has only the microphone left to open.
+       *
+       * The mic itself is deliberately NOT opened early. Speaking holds the
+       * audio session on .playback, and a capture opened under it would be
+       * fighting the category the reply needs — see speakerOnly() above.
+       */
+      const permission = AudioModule.requestRecordingPermissionsAsync();
+      r.warm = api.streamConfig().catch(() => null);
+
+      // THE SEEDED TRANSCRIPT IS NOT MINE TO THROW AWAY.
+      //
+      // This used to clear it. The screen seeds `turns` with the greeting so
+      // the model's first reply answers something rather than starting in
+      // mid-air, and clearing it here deleted that a frame after it arrived.
+      // Whatever the screen put there is adopted instead.
+      const seeded = store.get(turnsPath);
+      r.turns = Array.isArray(seeded) ? (seeded as Turn[]) : [];
+
+      const greeting = String(props?.greeting ?? "").trim();
+      if (greeting) {
+        setState("speaking");
+        setLevel(0.5);
+        store.set(linePath, greeting);
+        // Already in `turns` from the seed; saying it again would double it.
+        if (!r.turns.some((t) => t.text === greeting)) say("assistant", greeting);
+        await speakerOnly();
+        if (!r.alive) return;
+        Speech.speak(greeting, {
+          language,
+          onDone: () => { void afterGreeting(permission); },
+          onStopped: () => { void afterGreeting(permission); },
+          onError: () => { void afterGreeting(permission); },
+        });
+        return;
+      }
+
+      await afterGreeting(permission);
+    })();
+
+    /** The permission is only WAITED for here, once there is nothing left to
+     *  hide the wait behind. A denial has to be said out loud rather than
+     *  leaving the orb moving with no microphone behind it. */
+    async function afterGreeting(permission: Promise<{ granted: boolean }>) {
+      if (!r.alive) return;
+      const perm = await permission.catch(() => ({ granted: false }));
+      if (!r.alive) return;
       if (!perm.granted) {
         fail("Microphone permission denied");
         return;
       }
-      store.set(turnsPath, []);
       await listen();
-    })();
+    }
 
     return () => {
       // Leaving the screen must take the mic and the voice with it. Without
