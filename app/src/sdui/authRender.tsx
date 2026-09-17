@@ -58,6 +58,25 @@ export function useAuthSduiCtx(): Ctx {
       flags: {},
       labels: {},
       nav: { push: noop, back: noop, switchTab: noop, replace: noop },
+      /**
+       * THE ESCAPE HATCH THAT WAS MISSING ONE.
+       *
+       * The rule above is that every hatch is a no-op rather than a throw, and
+       * `toast` was not in the list — so it was `undefined` on this ctx while
+       * several actions call it on their failure path. `openUrl` is the one
+       * that matters now that the consent line opens the Terms:
+       * `Linking.openURL(...).catch(() => ctx.toast(...))`. A device with no
+       * browser to hand the link to would have turned a dead tap into a crash,
+       * on the one screen a user cannot go around.
+       *
+       * Silent, because there is nowhere on this screen to put a toast and
+       * nothing useful to say: the link did not open, and the same words are
+       * reachable from Settings once they are in.
+       */
+      toast: noop,
+      haptic: noop,
+      refresh: noop,
+      reloadScreen: noop,
     } as unknown as Ctx;
   }, []);
 }
