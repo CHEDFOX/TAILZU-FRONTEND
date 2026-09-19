@@ -54,6 +54,7 @@ import { useEdgeSwipeBack } from "../sdui/gestures";
 import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
+import { parseLink } from "../deeplinks/router";
 
 // Lets the OAuth popup hand the redirect back to the JS auth-session listener
 // when the browser closes. Safe no-op when there's no pending session.
@@ -641,7 +642,19 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // the hook's RESPONSE object — never through the promptAsync result. So the
   // sign-in completion lives in the googleResponse effect below, not in the
   // button handler.
-  const googleEnabled = isGoogleConfigured();
+  /**
+   * GOOGLE ON ANDROID GOES THROUGH SUPABASE'S PAGE, WHEN THE BACKEND SAYS SO.
+   *
+   * The native client returns to `com.tulmi.app:/oauthredirect`, and a build
+   * that never claimed that scheme strands the user on Google after consent
+   * — the manifest fix for that needs a new binary. This path needs none:
+   * Supabase finishes Google itself and lands on a backend page, which hands
+   * the session to tulmi://, a scheme every build has always claimed. The
+   * backend owns the switch and the page; this only reads them.
+   */
+  const [googleWeb, setGoogleWeb] = useState<{ callback: string; resume: string } | null>(null);
+  const googleViaWeb = Platform.OS === "android" && !!googleWeb;
+  const googleEnabled = isGoogleConfigured() || googleViaWeb;
   const [googleRequest, googleResponse, googlePrompt] = Google.useIdTokenAuthRequest({
     iosClientId: GOOGLE_OAUTH.iosClientId,
     androidClientId: GOOGLE_OAUTH.androidClientId,
@@ -682,6 +695,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (!alive || !cfg) return;
       setPhoneEnabled(cfg.enablePhone);
       setReviewEmail(cfg.reviewEmail);
+      setGoogleWeb(cfg.googleWeb);
       setBackground(cfg.background);
       setBackgroundCode(cfg.backgroundCode);
       setCfgSettled(true);
@@ -953,6 +967,29 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const onGoogle = useCallback(async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      if (googleViaWeb && googleWeb) {
+        // Supabase's page, in an auth session so the browser hands the result
+        // back. The result URL is the backend page's bounce — tulmi://auth/
+        // callback with the session in the fragment — and the router already
+        // reads exactly that shape. The link listener in SduiApp receives the
+        // same URL and adopts the same session; setting it twice is harmless
+        // and means neither path has to know the other exists.
+        const { data, error } = await supabaseAuth.signInWithGoogleWeb(googleWeb.callback);
+        if (error || !data?.url) throw new Error(String(error?.message ?? "Could not start Google sign-in."));
+        const res = await WebBrowser.openAuthSessionAsync(data.url, googleWeb.resume);
+        if (res.type !== "success") return;                 // closed it — silent
+        const target = parseLink(res.url);
+        if (target.kind === "session") {
+          const { error: sErr } = await supabaseAuth.setSession(target.accessToken, target.refreshToken);
+          if (sErr) throw new Error(String(sErr.message ?? sErr));
+          onAuthed();
+          return;
+        }
+        // Supabase reports a refused sign-in in the query, and the page
+        // forwards the query as-is. Say what it said.
+        const q = new URL(res.url.replace(/^tulmi:\/\//, "https://x/")).searchParams;
+        throw new Error(q.get("error_description") || q.get("error") || "Google didn't return a session.");
+      }
       // Opens the Google consent sheet. On native the resolved value only
       // carries the authorization code — the id_token lands in googleResponse
       // after expo-auth-session's background code exchange, so completion is
@@ -962,7 +999,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       flashError();
       Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "OAuth error"));
     }
-  }, [googlePrompt, flashError]);
+  }, [googlePrompt, flashError, googleViaWeb, googleWeb, onAuthed]);
 
   // Completes Google sign-in once the hook delivers the exchanged tokens.
   // Errors get a visible reason — a silent shake made every failure
@@ -1121,7 +1158,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   </TouchableOpacity>
                 )}
                 {googleEnabled && (
-                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest} accessibilityRole="button" accessibilityLabel="Sign in with Google">
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest && !googleViaWeb} accessibilityRole="button" accessibilityLabel="Sign in with Google">
                     <GoogleMark />
                   </TouchableOpacity>
                 )}

@@ -25,6 +25,13 @@
  * dropped on google.com. Claiming a scheme is a manifest change, so it needs
  * a new build, not an OTA.
  *
+ * THE WAY BACK WITHOUT A BUILD. The backend can switch Android onto Supabase's
+ * own OAuth page instead (AUTH_GOOGLE_WEB, served as flags["auth.googleWeb"]):
+ * Supabase finishes Google with the web client secret it already holds, lands
+ * on a backend page, and that page hands the session to tulmi://auth/callback
+ * — which every build has always claimed. That path is JavaScript only, so it
+ * ships as an OTA. See onGoogle in AuthGateScreen.
+ *
  * The Android client in Google Cloud is bound to the package name AND the
  * SHA-1 of the SIGNING certificate. A Play build is signed by Play App Signing,
  * whose certificate is not the upload key's — its SHA-1 is under Play Console →
