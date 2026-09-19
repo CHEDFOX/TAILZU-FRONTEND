@@ -155,6 +155,24 @@ export const supabaseAuth = {
   signInWithGoogle: (idToken: string, nonce?: string) =>
     supabase.auth.signInWithIdToken({ provider: "google", token: idToken, nonce }),
 
+  /**
+   * Google by way of Supabase's OWN OAuth page — the Android path when the
+   * backend has switched it on.
+   *
+   * Returns the URL to open, and opens nothing itself (skipBrowserRedirect):
+   * the caller puts it in an auth session so the browser can hand the result
+   * back. Supabase holds the web client secret and finishes Google, then
+   * redirects to `redirectTo` with the session in the fragment — which the
+   * backend page forwards to tulmi://, and the router adopts. `select_account`
+   * so a phone with two Google accounts is asked which, every time, rather
+   * than silently reusing whichever was last.
+   */
+  signInWithGoogleWeb: (redirectTo: string) =>
+    supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo, skipBrowserRedirect: true, queryParams: { prompt: "select_account" } },
+    }),
+
   getSession: () => supabase.auth.getSession(),
   getUser: () => supabase.auth.getUser(),
   signOut: () => supabase.auth.signOut(),

@@ -534,10 +534,25 @@ export type AuthBackground = {
   fit: "cover" | "contain";
 };
 
+function readGoogleWeb(v: unknown): { callback: string; resume: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const callback = String((v as any).callback ?? "");
+  const resume = String((v as any).resume ?? "");
+  if (!/^https:\/\//.test(callback) || !/^tulmi:\/\//.test(resume)) return null;
+  return { callback, resume };
+}
+
 export async function fetchAuthConfig(): Promise<
   {
     enablePhone: boolean;
     reviewEmail: string;
+    /**
+     * Google on Android by way of Supabase's OAuth page. `callback` is the
+     * backend page Supabase lands on; `resume` is the app scheme that page
+     * hands the session to. Null when the backend has not switched it on,
+     * and the native Google client is used instead.
+     */
+    googleWeb: { callback: string; resume: string } | null;
     background: AuthBackground | null;
     /** The code step's own backdrop, when one was uploaded. */
     backgroundCode: AuthBackground | null;
@@ -561,6 +576,11 @@ export async function fetchAuthConfig(): Promise<
       // string can never equal a typed address, so the path simply is not
       // there the rest of the time.
       reviewEmail: String(f["auth.reviewEmail"] ?? "").trim().toLowerCase(),
+      // Both halves or neither. The page has to be https and the resume has
+      // to be a scheme this build claims — anything else would send the user
+      // somewhere the app cannot come back from, which is the bug this exists
+      // to fix.
+      googleWeb: readGoogleWeb(f["auth.googleWeb"]),
       // Absent whenever nothing has been uploaded to `hero.auth`, and the
       // screen is designed to read on plain black in exactly that case — an
       // empty slot must never cost anyone a broken first screen.
