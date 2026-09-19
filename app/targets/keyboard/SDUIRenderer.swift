@@ -450,7 +450,7 @@ final class KeyPlaneView: UIView {
     // keys out, before any touch. Same moment the overlay got for free, now on
     // purpose and with nothing drawn.
     setNeedsLayout()
-    if debugRects { setNeedsDisplay() }
+    if debugRects || sheet { setNeedsDisplay() }
   }
 
   /// kb.debug.showTouchRects — paint what the plane actually owns.
@@ -481,10 +481,36 @@ final class KeyPlaneView: UIView {
     didSet { if debugRects != oldValue { setNeedsDisplay() } }
   }
 
+  /// kb.keyPlane.sheet — everything the debug sheet does at runtime, and none
+  /// of what it paints.
+  ///
+  /// The measurement, from the hand and not from the source: with
+  /// kb.debug.showTouchRects on, the keyboard has worked every time it was
+  /// tried. With it off, some spots stay dead. K34 read that as geometry
+  /// warming and moved the warming into rebind() and layoutSubviews(); the
+  /// difference survived that, so the reading was wrong or not the whole of
+  /// it. Every explanation of this keyboard produced by reading the source has
+  /// been wrong at least once, and this one was too.
+  ///
+  /// So this keeps the sheet's side effects wholesale and stops choosing among
+  /// them. The sheet asks for a display pass after every hit test, every
+  /// layout and every rebind, and runs ensureFrames() at that pass, when the
+  /// tree has settled and no finger is being resolved; the backing store is
+  /// re-committed with it. All of that still happens. The fills do not. One
+  /// more display pass after every commit as well, because the build stamp
+  /// refreshed there and it was on whenever the sheet was.
+  ///
+  /// Off restores the K34 path exactly, over the air, so if the sheet's cure
+  /// turns out to have been coincidence that costs a flag and not a build.
+  var sheet = true
+
   override func draw(_ rect: CGRect) {
     super.draw(rect)
-    guard debugRects, let ctx = UIGraphicsGetCurrentContext() else { return }
+    guard sheet || debugRects else { return }
+    // At the display pass, after layout has settled and before the next
+    // finger — the moment the sheet always got for free.
     ensureFrames()
+    guard debugRects, let ctx = UIGraphicsGetCurrentContext() else { return }
     // Ownership boxes — overlapping fills, so a well-covered gap reads DARKER
     // than a thinly covered one and a dead one reads as bare.
     ctx.setFillColor(UIColor.systemGreen.withAlphaComponent(0.16).cgColor)
@@ -507,7 +533,7 @@ final class KeyPlaneView: UIView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
-    if debugRects { setNeedsDisplay() }
+    if debugRects || sheet { setNeedsDisplay() }
     // REBUILD, every layout. Not "only when our own bounds changed".
     //
     // The old rule rested on the witness catching everything else, and the
@@ -847,8 +873,9 @@ final class KeyPlaneView: UIView {
     if debugRects || onDebugHit != nil {
       lastHit = (point, owned)
       onDebugHit?()
-      if debugRects { setNeedsDisplay() }
     }
+    // A display pass after every hit test — the sheet's, kept. See `sheet`.
+    if debugRects || sheet { setNeedsDisplay() }
     return owned ? self : nil
   }
 
@@ -1324,6 +1351,7 @@ final class KeyPlaneView: UIView {
       renderer?.planeCommit(char: ch)
     }
     onDebugHit?()
+    if sheet { setNeedsDisplay() }
   }
 
   /// Guards the flush against itself. commit() fires a button's actions
@@ -2751,13 +2779,13 @@ final class SDUIRenderer: NSObject {
         plane.alwaysRefreshGeometry = flagBool("kb.touch.alwaysRefresh", true)
         plane.totalResolve = flagBool("kb.touch.totalResolve", true)
         plane.debugRects = flagBool("kb.debug.showTouchRects", false)
-        // A UIView with no drawRect skips display entirely — which is what we
-        // want in production. Only the overlay needs a backing store, so only
-        // the overlay asks for one; leaving .redraw on shipped every user a
-        // full-keyboard bitmap to composite for nothing.
+        // The sheet without its paint — see KeyPlaneView.sheet. It keeps the
+        // display passes the overlay asked for, and .redraw with them, because
+        // the keyboard has only ever worked reliably with those in place.
+        plane.sheet = flagBool("kb.keyPlane.sheet", true)
         plane.backgroundColor = .clear
         plane.isOpaque = false
-        plane.contentMode = plane.debugRects ? .redraw : .scaleToFill
+        plane.contentMode = (plane.debugRects || plane.sheet) ? .redraw : .scaleToFill
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
@@ -2845,7 +2873,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K35"
+  static let buildStamp = "K36"
 
   /// The bundled brand mark.
   ///
