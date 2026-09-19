@@ -1,0 +1,132 @@
+# Tailzu Desktop
+
+Voice dictation for the desktop — press a hotkey (or hold a key), talk, and the
+cleaned-up text is pasted wherever your cursor is. Same product as the mobile
+app, but on desktop **none of the iOS keyboard walls exist**: we record the mic
+directly and paste into any app. No extension sandbox, no App Store, no build
+limits.
+
+It reuses the existing Tailzu backend — `/v1/transcribe-clean` for one-shot
+dictations, `/v1/transcribe-stream` + the per-tone `/v1/refine/*` routes for
+live mode.
+
+## How it works
+
+```
+hotkey / hold-key → record mic ─┬─ batch: POST /v1/transcribe-clean
+                                └─ live:  WS /v1/transcribe-stream (+ overlay captions)
+        → cleaned text → clipboard → paste keystroke into the focused app
+```
+
+- **main.js** — tray app, global hotkey, hold-to-talk hook, tone menu,
+  caption overlay, clipboard + paste, config.
+- **recorder.html** — hidden window: batch (MediaRecorder→webm) and live
+  (WebAudio→16 kHz PCM→WebSocket) capture paths.
+- **overlay.html** — the floating live-caption strip.
+- **preload.js** — the tiny IPC bridge.
+
+## Run it (dev)
+
+```
+cd desktop
+npm install
+npm run icon          # generate tray + app icons (one-time)
+cp config.example.json config.json   # then edit config.json
+npm start
+```
+
+## config.json
+
+| key | meaning |
+| --- | --- |
+| `baseUrl` | your backend, e.g. `https://api.tailzu.space` |
+| `token` | development only — a static token from the backend's `STATIC_BEARER_TOKENS`. It cannot be used to dictate: recording requires a signed-in account. |
+| `language` | `auto` or a code like `en` / `hi` / `es` |
+| `hotkey` | toggle accelerator, default `CommandOrControl+Shift+Space` |
+| `tone` | `none` / `formal` / `casual` / `very-casual` / `excited` (also in the tray menu) |
+| `live` | `true` → live captions while dictating (streaming) |
+| `hold` | `true` → hold-to-talk on `holdKey` (needs uiohook-napi to load) |
+| `holdKey` | key name for hold-to-talk, e.g. `F9`, `F10` |
+| `autoStart` | launch at login (installed app; also in the tray menu) |
+
+For the **installed** app, config lives in the per-user data dir (Windows:
+`%APPDATA%\tailzu-desktop\config.json`) — use the tray's "Edit config…" to open
+it. The dev `desktop/config.json` is git-ignored and never packaged, so tokens
+can't leak into an installer.
+
+## Use it
+
+Dictation needs an account, the same as on the phones — open the window from
+the tray and sign in. The hotkey answers a signed-out machine by opening that
+window rather than recording into a history no account owns.
+
+- **Toggle**: press the hotkey → speak → press again.
+- **Hold-to-talk** (`hold: true`): hold `holdKey` while speaking, release to finish.
+- **Live captions** (`live: true`): a caption strip shows your words as you
+  talk; the final polished text pastes when you stop. Captions are display-only —
+  partial text is never typed into your target app.
+- **Tone**: pick in the tray menu; applied to every dictation.
+
+## What comes from the backend
+
+Everything the window draws, and now everything around it. Screens are the same
+catalog JSON the phones render. The theme, the typography and the sign-in art
+come from the same keys the phones read. The gate's copy, the rail, the tray
+menu and every notification come from `flags["desktop.shell"]`, sent only to a
+client that reports `device.formFactor: "desktop"`.
+
+The neural field is the one drawing that ships as a file rather than as JSON:
+it is ~400 lines of canvas the phones build at runtime and this window loads in
+an iframe. `npm run field` regenerates it from the app's own source, so the two
+cannot drift silently. The per-screen values it needs — how far back it sits
+(`alpha`) and how much of the network has been earned (`growth`) — travel in
+the iframe's query string, because those are the only two that are not the same
+on every screen.
+
+So a wording change is a backend deploy and a cache bump — no installer. This
+matters more here than on the phones: there is no OTA channel on desktop, and a
+release is a download the user has to notice, accept past SmartScreen, and run.
+
+The app keeps a default for every one of those strings and caches the last
+answer in `shell.json` beside `config.json`, because the tray is built before
+any network call can have returned. Server wins when it lands; the defaults
+carry a first run with no connection.
+
+## Permissions (one-time)
+
+- **Microphone** — granted on first record. The app holds it for its own page,
+  so the only gate left is the OS one: Windows **Settings → Privacy & security
+  → Microphone**, macOS its own prompt. A blocked mic names the panel to open.
+- **macOS auto-paste** — enable Tailzu under **System Settings → Privacy &
+  Security → Accessibility** (without it, text is still on the clipboard).
+- **macOS hold-to-talk** — the key hook also needs **Input Monitoring**.
+- **Linux (X11)** — auto-paste needs `xdotool`.
+
+## Build installers (PC build)
+
+```
+cd desktop
+npm install
+npm run icon
+npm run dist:win      # Windows: dist/Tailzu Setup 0.1.0.exe (NSIS, one-click)
+npm run dist:mac      # macOS:  dist/Tailzu-0.1.0.dmg (needs a Mac)
+npm run dist          # current OS
+```
+
+Output lands in `desktop/dist/`. Windows builds are local + free — no cloud
+service, no store review. Notes:
+
+- The installer is **unsigned**, so Windows SmartScreen shows "Windows protected
+  your PC" — click **More info → Run anyway**. Code-signing certificates remove
+  that later.
+- The installed app starts **signed out** — open the tray → "Open Tailzu" and
+  sign in with the same account as the phone. Only `baseUrl` needs to be in
+  config.json, and a packaged build already carries the right one.
+- macOS `.dmg` must be built on a Mac (electron-builder can't cross-build mac
+  from Windows). Notarization is a later step for public distribution.
+
+## Roadmap (not in this MVP)
+
+- Settings UI + Supabase sign-in (replacing config.json)
+- Auto-update (electron-updater)
+- Word-replay / history browser backed by /v1/history

@@ -15,9 +15,27 @@ enum TulmiBackend {
     return (v?.isEmpty == false) ? v! : "https://api.tailzu.space"
   }
 
+  /// Bearer token, read from the shared Keychain (encrypted at rest, out of
+  /// UserDefaults dumps). Falls back to the App-Group UserDefaults key so
+  /// older installs that haven't seen the new bridge module still keep
+  /// working — the next foreground of the main app migrates it to Keychain.
   private static var token: String {
-    let v = shared?.string(forKey: "tulmi.token")
-    return (v?.isEmpty == false) ? v! : "dev"
+    if let v = TulmiKeychain.string(forKey: "tulmi.token"), !v.isEmpty {
+      return v
+    }
+    if let legacy = shared?.string(forKey: "tulmi.token"), !legacy.isEmpty {
+      return legacy
+    }
+    return "dev"
+  }
+
+  /// User-selected language code (hi / es / fr / hinglish / auto / …).
+  /// Written by the main app via the tulmi-bridge module when the user picks
+  /// a language on the onboarding language screen or in Settings. Empty →
+  /// "auto" (server-side model detects language + code-switching).
+  static var language: String {
+    let v = shared?.string(forKey: "tulmi.language")
+    return (v?.isEmpty == false) ? v! : "auto"
   }
 
   /// The user token, exposed for the live streaming client (TulmiStream).
@@ -62,6 +80,10 @@ enum TulmiBackend {
     let refine: Bool
     let liveVoice: Bool
     let labels: [String: String]
+    /// The full flags dict as parsed from the response, opaque to the legacy
+    /// path but consumed by KeyboardViewController for the tunable audio-recorder
+    /// settings and dictation params. SDUI-side uses its own KBConfig for flags.
+    let flags: [String: Any]
   }
 
   /// Fetch the raw config JSON (the caller both applies and caches it).
@@ -74,8 +96,18 @@ enum TulmiBackend {
     req.httpMethod = "GET"
     req.timeoutInterval = 30
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    URLSession.shared.dataTask(with: req) { data, _, error in
+    URLSession.shared.dataTask(with: req) { data, response, error in
       if let error = error { completion(.failure(error)); return }
+      // Reject non-2xx BEFORE the caller caches the body. Previously the status
+      // was ignored, so an auth-expired 401 (or a 5xx error page) was returned as
+      // ".success(errorBody)" and cached AS the config — parseConfig then failed
+      // and the keyboard fell back to stale/defaults. A failure here leaves the
+      // last-known-good cached config untouched.
+      if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        completion(.failure(BackendError.http(http.statusCode, body)))
+        return
+      }
       guard let data = data else { completion(.failure(BackendError.badResponse)); return }
       completion(.success(data))
     }.resume()
@@ -99,13 +131,86 @@ enum TulmiBackend {
       voice: features["voice"] as? Bool ?? true,
       refine: features["refine"] as? Bool ?? true,
       liveVoice: features["liveVoice"] as? Bool ?? false,
-      labels: labels
+      labels: labels,
+      flags: (json["flags"] as? [String: Any]) ?? [:]
     )
+  }
+
+  /// Small PUT to /v1/personality — used by the personality chip row to
+  /// switch preset + tone without pulling the whole profile down. Backend
+  /// does a partial merge so an { activePresetId, activeTone } body doesn't
+  /// disturb the rest of the profile (vocabulary, sign-off, etc.).
+  /// Upload keyboard diagnostic COUNTERS. Fire-and-forget: telemetry must
+  /// never surface to a user who is mid-sentence, so failures are silent and
+  /// the counters simply stay pending for the next attempt (the caller only
+  /// clears them on success).
+  static func postTelemetry(
+    counters: [String: Int],
+    windowMs: Int,
+    build: String,
+    completion: @escaping (Bool) -> Void,
+  ) {
+    guard let url = URL(string: "\(baseUrl)/v1/keyboard/telemetry"), !token.isEmpty else {
+      completion(false)
+      return
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "POST"
+    req.timeoutInterval = 15
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+      "counters": counters,
+      "windowMs": windowMs,
+      "build": build,
+      "appVersion": appVersion,
+      "platform": "ios",
+    ])
+    URLSession.shared.dataTask(with: req) { _, response, error in
+      let ok = error == nil
+        && (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } == true
+      completion(ok)
+    }.resume()
+  }
+
+  static func putPersonalityQuick(
+    body: [String: Any],
+    completion: @escaping (Result<Void, Error>) -> Void,
+  ) {
+    guard let url = URL(string: "\(baseUrl)/v1/personality") else {
+      completion(.failure(BackendError.badResponse))
+      return
+    }
+    var req = URLRequest(url: url)
+    req.httpMethod = "PUT"
+    req.timeoutInterval = 15
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+    URLSession.shared.dataTask(with: req) { _, response, error in
+      if let error = error { completion(.failure(error)); return }
+      if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+        completion(.failure(BackendError.http(http.statusCode, "")))
+        return
+      }
+      completion(.success(()))
+    }.resume()
   }
 
   static func refine(
     text: String,
     targetApp: String,
+    tone: String? = nil,
+    /// Text already in the field BEFORE this dictation. Sent as context so the
+    /// model can fit the new sentence to an existing draft without rewriting
+    /// it — refining the whole field would edit words the user never dictated.
+    context: String? = nil,
+    /// A SECOND speech engine's reading of the same audio, when the server ran
+    /// two and they disagreed. The endpoint reconciles the pair rather than
+    /// picking one — each engine fails in different places, so together they
+    /// can reconstruct a sentence neither got fully right.
+    alternative: String? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = URL(string: "\(baseUrl)/v1/refine") else {
@@ -117,11 +222,21 @@ enum TulmiBackend {
     req.timeoutInterval = 60
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+    // Use the user's chosen language (falls back to "auto" when unset). The
+    // backend's cleanup pipeline prompts the LLM to output in this language,
+    // so refinement lands in the user's tongue instead of always English.
+    // `tone` (a tone ID picked on the keyboard's pill) overrides the server's
+    // saved activeTone for this call — the server falls back to the profile
+    // when it's absent (body.tone ?? personality.activeTone).
+    var payload: [String: Any] = [
       "text": text,
       "targetApp": targetApp,
-      "language": "auto",
-    ])
+      "language": language,
+    ]
+    if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
+    if let context = context, !context.isEmpty { payload["context"] = context }
+    if let alternative = alternative, !alternative.isEmpty { payload["alternative"] = alternative }
+    req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
 
     URLSession.shared.dataTask(with: req) { data, response, error in
       if let error = error {
@@ -170,7 +285,9 @@ enum TulmiBackend {
     append("Content-Type: audio/m4a\r\n\r\n")
     body.append(audio)
     append("\r\n")
-    for (key, value) in ["targetApp": targetApp, "language": "auto"] {
+    // Same language plumbing as refine() — the STT provider uses this as a
+    // hint (empty/"auto" = model detects; explicit code = biases decoding).
+    for (key, value) in ["targetApp": targetApp, "language": language] {
       append("--\(boundary)\r\n")
       append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
       append("\(value)\r\n")

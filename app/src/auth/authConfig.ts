@@ -15,14 +15,37 @@
  * GOOGLE: three OAuth 2.0 client IDs from Google Cloud (one project), via
  * expo-auth-session (NOT the native google-signin pod). The WEB client id +
  * secret go in Supabase → Providers → Google; the iOS + Android client ids are
- * added to that provider's "Authorized Client IDs". iOS also needs the reversed
- * iOS client id registered as a URL scheme in app.config.ts before it can
- * complete — until then the button stays hidden (isGoogleConfigured === false).
+ * added to that provider's "Authorized Client IDs".
+ *
+ * THE WAY BACK. On a native build the provider redirects Google to
+ * `com.tulmi.app:/oauthredirect` — the application id as a custom scheme — on
+ * BOTH platforms, and the app has to claim that scheme (app.config.ts: the
+ * top-level `scheme` array for Android, CFBundleURLTypes for iOS) or the
+ * browser has nowhere to go after consent. On Android that looked like being
+ * dropped on google.com. Claiming a scheme is a manifest change, so it needs
+ * a new build, not an OTA.
+ *
+ * THE WAY BACK WITHOUT A BUILD. The backend can switch Android onto Supabase's
+ * own OAuth page instead (AUTH_GOOGLE_WEB, served as flags["auth.googleWeb"]):
+ * Supabase finishes Google with the web client secret it already holds, lands
+ * on a backend page, and that page hands the session to tulmi://auth/callback
+ * — which every build has always claimed. That path is JavaScript only, so it
+ * ships as an OTA. See onGoogle in AuthGateScreen. A build that claims the
+ * scheme (1.0.1 and later) ignores the bridge and goes native — decided from
+ * the binary's own config, not from the backend — because native is the flow
+ * that shows "Tailzu" on Google's consent screen rather than a domain.
+ *
+ * The Android client in Google Cloud is bound to the package name AND the
+ * SHA-1 of the SIGNING certificate. A Play build is signed by Play App Signing,
+ * whose certificate is not the upload key's — its SHA-1 is under Play Console →
+ * Setup → App signing. If sign-in still fails after the scheme is claimed, that
+ * fingerprint is the next thing to check, and Google says so with a visible
+ * error page rather than a silent bounce.
  */
 export const GOOGLE_OAUTH = {
-  webClientId: "PASTE_WEB_CLIENT_ID.apps.googleusercontent.com",
-  iosClientId: "PASTE_IOS_CLIENT_ID.apps.googleusercontent.com",
-  androidClientId: "PASTE_ANDROID_CLIENT_ID.apps.googleusercontent.com",
+  webClientId: "276376169707-t4e6u8pd27o9cdm1ffm0619m6e0on8up.apps.googleusercontent.com",
+  iosClientId: "276376169707-29fkjccf3kp8t46nlnnfpvml6i4um9h7.apps.googleusercontent.com",
+  androidClientId: "276376169707-9u6js1ir1ti74ac1pee4ld434ju598s2.apps.googleusercontent.com",
 };
 
 export const isGoogleConfigured = () => !GOOGLE_OAUTH.webClientId.startsWith("PASTE_");
@@ -30,6 +53,25 @@ export const isGoogleConfigured = () => !GOOGLE_OAUTH.webClientId.startsWith("PA
 /** Toggle phone sign-in on once an SMS provider is configured in Supabase. */
 export const AUTH_METHODS = {
   enablePhone: false,
+};
+
+/**
+ * Cloudflare Turnstile — the bot challenge in front of the auth endpoints.
+ *
+ * The site key is PUBLIC, like the Supabase anon key beside it. The secret half
+ * goes in Supabase → Authentication → Attack Protection, and never here.
+ *
+ * `origin` is what the hidden WebView reports as its domain. A Turnstile key is
+ * bound to a domain list, and a page built from a string has no domain of its
+ * own, so this value must be one of the domains on the key.
+ *
+ * Empty siteKey = no challenge, and every auth call goes out without a token —
+ * exactly today's behaviour. Fill it in AND turn on Attack Protection, in that
+ * order: enabling Supabase first rejects every sign-in, including yours.
+ */
+export const TURNSTILE = {
+  siteKey: "",
+  origin: "https://tailzu.space",
 };
 
 export interface Country {

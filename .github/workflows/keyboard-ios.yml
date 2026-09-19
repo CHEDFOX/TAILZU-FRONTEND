@@ -1,0 +1,103 @@
+name: keyboard-ios-compile
+
+# Type-checks the iOS keyboard extension (Swift) WITHOUT an EAS build, a full
+# Expo prebuild, or CocoaPods.
+#
+# The keyboard extension target is completely self-contained: every file under
+# app/targets/keyboard/ imports ONLY system frameworks (UIKit, AVFoundation,
+# Foundation, ImageIO, MobileCoreServices, Security) — no Expo, no React
+# Native, no pods. So we can hand the whole target to `swiftc -typecheck`
+# against the iOS Simulator SDK and get a real, full semantic compile check
+# (type errors, bad signatures, missing members, protocol conformance) in ~1
+# minute — instead of a 10-minute full-app build that drags in dozens of pods
+# and dies on unrelated Expo build-script phases (e.g. the ExpoModulesJSI
+# xcframework script) long before the keyboard target is ever reached.
+#
+# Only runs when the keyboard target (or this workflow) changes. Trigger
+# manually from the Actions tab via "Run workflow" too.
+
+on:
+  push:
+    paths:
+      - "app/targets/keyboard/**"
+      - "app/modules/tulmi-bridge/ios/**"
+      - ".github/workflows/keyboard-ios.yml"
+  workflow_dispatch: {}
+
+jobs:
+  typecheck:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          echo "Selecting $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+          xcodebuild -version
+
+      - name: Type-check the keyboard extension (swiftc, Simulator SDK)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          echo "Simulator SDK: $SDK"
+          # Compile every Swift file in the keyboard target together as one
+          # module so cross-file type references resolve. -typecheck does full
+          # semantic analysis without codegen/linking — the right depth for a
+          # "does the keyboard compile" gate.
+          #
+          # -application-extension is CRITICAL: it enforces the same
+          # extension-API rules the real EAS app-extension build uses, so an
+          # NS_EXTENSION_UNAVAILABLE call (e.g. a direct
+          # UIApplication.open(_:options:completionHandler:)) fails HERE in CI
+          # instead of passing the plain typecheck and then burning a full EAS
+          # build. That exact near-miss happened once; this flag closes the gap
+          # between "CI green" and "EAS build succeeds".
+          FILES=$(ls app/targets/keyboard/*.swift)
+          echo "Type-checking:"; echo "$FILES"
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TailzuKeyboard \
+            -application-extension \
+            -typecheck \
+            $FILES
+          echo "✅ Keyboard extension type-checks cleanly (extension-API rules enforced)."
+
+  # The keyboard is only half the dictation path. The other half —
+  # FlowSessionManager, which holds the mic, buffers or streams the audio, and
+  # relays the text back — lives in the app-side bridge module, and nothing was
+  # checking it. A break there fails exactly the same way a keyboard break does:
+  # at EAS build time, ten minutes in.
+  #
+  # Only the files that import system frameworks alone are checkable this way.
+  # TulmiBridgeModule.swift needs ExpoModulesCore (a pod), so it stays out; it is
+  # thin glue, and the logic worth gating is in the files below.
+  flow-session:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+
+      - name: Type-check the Flow session (swiftc, Simulator SDK)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          FILES="app/modules/tulmi-bridge/ios/FlowSessionManager.swift app/modules/tulmi-bridge/ios/TulmiKeychain.swift"
+          echo "Type-checking:"; echo "$FILES"
+          # No -application-extension here: this code runs in the MAIN APP, which
+          # is allowed the full API surface the keyboard is denied.
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TulmiBridgeCore \
+            -typecheck \
+            $FILES
+          echo "✅ Flow session type-checks cleanly."
