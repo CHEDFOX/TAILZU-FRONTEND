@@ -27,7 +27,19 @@ const config: ExpoConfig = {
   slug: "tulmi",
   version: "1.0.0",
   orientation: "portrait",
-  scheme: "tulmi",
+  // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
+  //
+  // expo-auth-session's Google provider sends the OAuth redirect to
+  // `${applicationId}:/oauthredirect` on a native build — com.tulmi.app:/…
+  // on both platforms. That scheme has to be CLAIMED by the app or the
+  // browser tab has nowhere to go after consent: on Android the Custom Tab
+  // simply stayed on Google, which is what "sign in takes me to google.com"
+  // was. Google accepts the package name as a custom scheme for an Android
+  // client and the bundle id for an iOS one, so this is the right scheme to
+  // claim rather than a workaround. Expo turns each entry into an intent
+  // filter on Android and a CFBundleURLTypes entry on iOS — but see the iOS
+  // block below, which sets that key explicitly and must list it too.
+  scheme: ["tulmi", "com.tulmi.app"],
   userInterfaceStyle: "dark",
   icon: "./assets/icon.png",
   // EAS account that owns the build/project (must match the projectId below and
@@ -165,12 +177,19 @@ const config: ExpoConfig = {
         "kakaotalk",
       ],
       ITSAppUsesNonExemptEncryption: false,
-      // Google sign-in redirect. expo-auth-session completes the native iOS
-      // OAuth round-trip on the app's REVERSED iOS client id scheme
-      // (com.googleusercontent.apps.<iosClientId-without-domain>). This is why
-      // Google needs a native build, not an OTA. Env var overrides the literal
-      // if you ever rotate the iOS client. (Android uses the app's "tulmi"
-      // scheme + the android client id's package/SHA — no plist entry needed.)
+      // Google sign-in redirect. expo-auth-session (SDK 56) completes the native
+      // OAuth round-trip on the BUNDLE ID scheme — com.tulmi.app:/oauthredirect —
+      // so that scheme is listed in the first entry below alongside "tulmi".
+      // The reversed iOS client id scheme is kept as a second entry: older
+      // provider versions redirected there, and Google's iOS client accepts
+      // either. This is why Google needs a native build, not an OTA. Env var
+      // overrides the literal if you ever rotate the iOS client.
+      //
+      // Android does NOT get a scheme from here. It gets it from the top-level
+      // `scheme` array, which is where com.tulmi.app was missing — the earlier
+      // note that "Android uses the tulmi scheme, no entry needed" was wrong,
+      // and it was the whole reason Google sign-in stranded Android users on
+      // google.com after consent.
       // ROOT CAUSE of the "keyboard mic never opens the app" saga (July 21 →
       // Aug 13): CFBundleURLTypes is the app's ENTIRE URL-scheme registration
       // table, and ios.infoPlist values REPLACE what prebuild generated — so
@@ -179,9 +198,10 @@ const config: ExpoConfig = {
       // registered for tulmi:// (Safari: "address is invalid"), so every open
       // attempt from the keyboard — any mechanism — was refused as
       // "no such destination". The "tulmi" entry below MUST stay first in
-      // this list; never assign this key without it.
+      // this list; never assign this key without it. And com.tulmi.app must
+      // stay beside it, or Google sign-in loses its way back on iOS.
       CFBundleURLTypes: [
-        { CFBundleURLSchemes: ["tulmi"] },
+        { CFBundleURLSchemes: ["tulmi", "com.tulmi.app"] },
         {
           CFBundleURLSchemes: [
             process.env.GOOGLE_IOS_URL_SCHEME ??
