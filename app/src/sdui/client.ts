@@ -135,6 +135,13 @@ export function buildCapabilities() {
     bundle: runningBundle(),
     lastBoot: LAST_BOOT_NOTE.value,
     platform: (Platform.OS === "ios" ? "ios" : "android") as "ios" | "android",
+    // THIS BUNDLE CAN COME BACK FROM GOOGLE. It carries the web path — Google
+    // by way of Supabase's page, returning on tulmi:// — so the server may
+    // draw the Google button for it. The store binary's own bundle does not
+    // say this, and the server leaves the button out of the screen it is
+    // handed, because on Android that bundle cannot come back at all. Not a
+    // flag to flip: a constant, true of every bundle that has this line.
+    googleWeb: true,
     components: CORE_COMPONENTS,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
