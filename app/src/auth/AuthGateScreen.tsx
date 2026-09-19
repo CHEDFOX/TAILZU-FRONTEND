@@ -55,6 +55,7 @@ import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/clie
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";
+import Constants from "expo-constants";
 
 // Lets the OAuth popup hand the redirect back to the JS auth-session listener
 // when the browser closes. Safe no-op when there's no pending session.
@@ -653,7 +654,23 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
    * backend owns the switch and the page; this only reads them.
    */
   const [googleWeb, setGoogleWeb] = useState<{ callback: string; resume: string } | null>(null);
-  const googleViaWeb = Platform.OS === "android" && !!googleWeb;
+  /**
+   * CAN THIS BINARY COME BACK FROM GOOGLE ON ITS OWN?
+   *
+   * The native client returns on `${applicationId}:/oauthredirect`, and a
+   * build only receives that if it CLAIMED the scheme — which is baked into
+   * the binary, so the JavaScript can read it off its own config. A build
+   * that claims it goes native, which is the flow that says "Tailzu" on the
+   * consent screen; a build that does not takes the web bridge, whatever the
+   * backend has switched on. Decided here rather than by a backend flag,
+   * because the fact is per-binary and the same JavaScript runs on both.
+   */
+  const nativeReturns = (() => {
+    const cfg = Constants.expoConfig as { scheme?: string | string[]; android?: { package?: string } } | null;
+    const schemes = ([] as string[]).concat(cfg?.scheme ?? []);
+    return schemes.includes(cfg?.android?.package ?? "com.tulmi.app");
+  })();
+  const googleViaWeb = Platform.OS === "android" && !!googleWeb && !nativeReturns;
   const googleEnabled = isGoogleConfigured() || googleViaWeb;
   const [googleRequest, googleResponse, googlePrompt] = Google.useIdTokenAuthRequest({
     iosClientId: GOOGLE_OAUTH.iosClientId,

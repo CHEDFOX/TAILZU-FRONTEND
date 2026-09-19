@@ -25,7 +25,7 @@ const config: ExpoConfig = {
   // break the shared bearer token between app + keyboard.
   name: "Tailzu",
   slug: "tulmi",
-  version: "1.0.0",
+  version: "1.0.1",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
@@ -69,6 +69,13 @@ const config: ExpoConfig = {
   // release adds native capability — a module, a permission, keyboard-extension
   // work — so older builds stop accepting updates written for the newer one.
   // Any new value works; it only has to differ.
+  //
+  // NOT bumped for 1.0.1, on purpose. That release adds a URL scheme, which
+  // is native — but the JavaScript CHECKS for the scheme rather than assuming
+  // it (AuthGateScreen, nativeReturns), so an update written for 1.0.1 is safe
+  // on the build before it. And that older build needs this very update: it
+  // is the one that cannot come back from Google without the web bridge the
+  // update carries. Bumping here would have cut it off from its own fix.
   runtimeVersion: "d6ee7792e54ee5112449c6690444b1445752f2ab",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
