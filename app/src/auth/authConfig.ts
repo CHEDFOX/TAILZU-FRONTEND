@@ -15,9 +15,22 @@
  * GOOGLE: three OAuth 2.0 client IDs from Google Cloud (one project), via
  * expo-auth-session (NOT the native google-signin pod). The WEB client id +
  * secret go in Supabase → Providers → Google; the iOS + Android client ids are
- * added to that provider's "Authorized Client IDs". iOS also needs the reversed
- * iOS client id registered as a URL scheme in app.config.ts before it can
- * complete — until then the button stays hidden (isGoogleConfigured === false).
+ * added to that provider's "Authorized Client IDs".
+ *
+ * THE WAY BACK. On a native build the provider redirects Google to
+ * `com.tulmi.app:/oauthredirect` — the application id as a custom scheme — on
+ * BOTH platforms, and the app has to claim that scheme (app.config.ts: the
+ * top-level `scheme` array for Android, CFBundleURLTypes for iOS) or the
+ * browser has nowhere to go after consent. On Android that looked like being
+ * dropped on google.com. Claiming a scheme is a manifest change, so it needs
+ * a new build, not an OTA.
+ *
+ * The Android client in Google Cloud is bound to the package name AND the
+ * SHA-1 of the SIGNING certificate. A Play build is signed by Play App Signing,
+ * whose certificate is not the upload key's — its SHA-1 is under Play Console →
+ * Setup → App signing. If sign-in still fails after the scheme is claimed, that
+ * fingerprint is the next thing to check, and Google says so with a visible
+ * error page rather than a silent bounce.
  */
 export const GOOGLE_OAUTH = {
   webClientId: "276376169707-t4e6u8pd27o9cdm1ffm0619m6e0on8up.apps.googleusercontent.com",
