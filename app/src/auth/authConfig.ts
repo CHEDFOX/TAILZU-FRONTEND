@@ -30,7 +30,10 @@
  * Supabase finishes Google with the web client secret it already holds, lands
  * on a backend page, and that page hands the session to tulmi://auth/callback
  * — which every build has always claimed. That path is JavaScript only, so it
- * ships as an OTA. See onGoogle in AuthGateScreen.
+ * ships as an OTA. See onGoogle in AuthGateScreen. A build that claims the
+ * scheme (1.0.1 and later) ignores the bridge and goes native — decided from
+ * the binary's own config, not from the backend — because native is the flow
+ * that shows "Tailzu" on Google's consent screen rather than a domain.
  *
  * The Android client in Google Cloud is bound to the package name AND the
  * SHA-1 of the SIGNING certificate. A Play build is signed by Play App Signing,
