@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "check-deps": "expo install --check",
-    "fix-deps": "expo install --fix"
+    "fix-deps": "expo install --fix",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@bacons/apple-targets": "^4.0.7",
