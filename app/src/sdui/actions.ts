@@ -85,9 +85,15 @@ export function resolveValue(value: any, ctx: Ctx): any {
  * Returns true when it handled the tap.
  */
 function elsewhere(ctx: Ctx): boolean {
-  const msg = manageElsewhere(ctx.flags, Platform.OS);
-  if (!msg) return false;
-  Alert.alert("You already subscribe", msg);
+  const e = manageElsewhere(ctx.flags, Platform.OS);
+  if (!e) return false;
+  Alert.alert(
+    "You already subscribe",
+    e.message,
+    e.action
+      ? [{ text: "Not now", style: "cancel" }, { text: e.action.label, onPress: () => void Linking.openURL(e.action!.url) }]
+      : undefined,
+  );
   return true;
 }
 
