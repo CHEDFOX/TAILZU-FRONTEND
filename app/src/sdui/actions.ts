@@ -6,6 +6,7 @@
  * same binary works whether or not you fill env variables.
  */
 import { Alert, Linking, Platform, Share, Vibration } from "react-native";
+import { manageElsewhere } from "../billing/elsewhere";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
@@ -72,6 +73,22 @@ export function resolveValue(value: any, ctx: Ctx): any {
     return out;
   }
   return value;
+}
+
+/**
+ * Refuse a purchase that belongs to another store, and say where it lives.
+ *
+ * The rule itself is in billing/elsewhere.ts, free of react-native so it can
+ * be tested on its own — it is a decision about somebody's money made from
+ * three booleans, and the alert around it is the easy half.
+ *
+ * Returns true when it handled the tap.
+ */
+function elsewhere(ctx: Ctx): boolean {
+  const msg = manageElsewhere(ctx.flags, Platform.OS);
+  if (!msg) return false;
+  Alert.alert("You already subscribe", msg);
+  return true;
 }
 
 export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
@@ -543,6 +560,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
 
     // ----------------------------------------------------------------- IAP
     case "iap.showPaywall": {
+      if (elsewhere(ctx)) break;
       try {
         // packageId is accepted alongside offeringId so backend can pick a
         // specific package (annual/monthly/etc.) without hardcoding an
@@ -561,6 +579,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     }
     case "iap.subscribe": {
+      if (elsewhere(ctx)) break;
       try {
         const ok = await subscribeToProduct(action.productId);
         await runAction(ok ? action.onSuccess : action.onError, ctx);
