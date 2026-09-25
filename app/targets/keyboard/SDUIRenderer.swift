@@ -1510,37 +1510,35 @@ final class TulmiMarkView: UIView {
   /// Holds every shape, under the view's own layer, which carries the breath.
   private let root = CALayer()
 
-  // MARK: The physics — the structure as a thing inside the key
+  // MARK: The dance — one choreography while the microphone is open
   //
-  // While the microphone is open the squares and the dot are masses, each
-  // line a rod between the two nearest (a distance constraint solved by
-  // position, rigid or rubbery by `stiff`), the key's rim a round wall, and
-  // the masses collide. Forces come from the scene — a tether to home,
-  // gravity, a current, a pull to the middle, ambient jitter — and from the
-  // voice, which throws a kick in on every rise and feeds the wind and the
-  // jitter. Squares turn with their rods and stretch along their own
-  // velocity, cartoon style. The server sends a series of scenes; they run
-  // in turn and blend by lerping every number, so nothing ever jumps. Stop
-  // blends to a stiff, critically damped tether with the wall gone, the
-  // mark lands exactly, and the layers are rebuilt crisp for the idle motion.
-  struct Scene { let name: String; let length: Double; let p: [Double]; let pin: [String]; let launch: Double; let toss: Double }
-  struct Physics { let force, wall, blend, settle: Double; let scenes: [Scene] }
-  private static let pKeys = ["hold", "stiff", "drag", "gravity", "spin", "wind", "swirl", "centre", "bounce", "kick", "jitter", "squash", "pinHold"]
-  private static let pHome: [Double] = [160, 0.6, 25.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  private struct Mass {
-    let layer: Int; let id: String?; let h: CGPoint; let r: Double; let m: Double
+  // The squares and the dot are the dancers, in chain order left to right
+  // and by depth from the top. The server sends a score: movements, each a
+  // figure of time that says where every dancer is and how it is turned at
+  // second τ of the movement, always at rest at τ = 0 and τ = `for`.
+  // Movements overlap by `blend` seconds, weighted by a raised cosine, so
+  // one flows into the next, and the score loops. The pose is chased on
+  // critically damped springs, which gives it the lag and weight of a real
+  // thing, and each square stretches along its own speed. The voice sets
+  // the tempo and the reach, a little, and a rise in it is an accent — one
+  // breath of the whole. Stop chases home, lands exactly, and rebuilds the
+  // layers crisp for the idle motion.
+  struct Move { let name: String; let length: Double; let beat: Double; let n: [String: Double] }
+  struct Dance { let tempo, reach, blend, voice, settle: Double; let score: [Move] }
+  private struct Dancer {
+    let layer: Int; let h: CGPoint
+    var k = 0, depth = 0                     // place in the chain: left to right, and from the top
     var x: Double, y: Double
-    var vx = 0.0, vy = 0.0, px = 0.0, py = 0.0, ang = 0.0, pin = 0.0, pinT = 0.0, jx = 0.0, jy = 0.0, jt = 0.0
-    var rods: [Int] = []
+    var a = 0.0, vx = 0.0, vy = 0.0, va = 0.0        // where it is, its turn, their speeds
+    var tx: Double, ty: Double
+    var ta = 0.0, px = 0.0, py = 0.0, pa = 0.0        // the pose it chases; a figure's scratch
   }
-  private struct Rod { let i: Int; let j: Int; let rest: Double; let ang: Double }
-  private struct Tie { let mass: Int; let d: CGPoint }
-  let physicsSpec: Physics?
-  private var masses: [Mass] = [], rods: [Rod] = [], tieLines: [Int] = [], ties: [[Tie]] = []
-  private var P = TulmiMarkView.pHome, T = TulmiMarkView.pHome
+  private struct Tie { let dancer: Int; let d: CGPoint }
+  let danceSpec: Dance?
+  private var dancers: [Dancer] = [], tieLines: [Int] = [], ties: [[Tie]] = [], starts: [Double] = []
+  private var total = 0.0, chainN = (x: 0.0, y: 0.0), top = 0, current = -1
   private var playing = false, settling = false
-  private var clock = 0.0, sceneT = 0.0, sceneI = -1, gAng = Double.pi / 2, lastKick = -9.0, lastToss = 0.0, lastLevel = 0.0, settleAt = 0.0
-  private var seed: UInt64 = 7
+  private var clock = 0.0, lastAccent = -9.0, lastLevel = 0.0, settleAt = 0.0, accS = 0.0, accV = 0.0
   private var lastTick: CFTimeInterval = 0
   private var display: CADisplayLink?
   private var onSettled: (() -> Void)?
@@ -1555,91 +1553,89 @@ final class TulmiMarkView: UIView {
     circle = TulmiMarkView.isCircle(spec)
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
-    physicsSpec = TulmiMarkView.physics(from: motion)
+    danceSpec = TulmiMarkView.dance(from: motion)
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isOpaque = false
     backgroundColor = .clear
     layer.addSublayer(root)
-    if physicsSpec != nil { tie() }
+    if danceSpec != nil { tie() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
-  /// What the key does while the microphone is open: "physics", "particles"
-  /// or "none". A backend before the physics sent a name; now it sends the
-  /// scenes under `kind`. Absent, the particles — what older builds do.
+  /// What the key does while the microphone is open: "dance", "particles" or
+  /// "none". A backend before the dance sent a name; now it sends the score
+  /// under `kind`. Absent, the particles — what older builds do.
   static func recordingKind(_ motion: [String: KBJSON]?) -> String {
     let r = motion?["recording"]
     return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
   }
-  static func physics(from motion: [String: KBJSON]?) -> Physics? {
-    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "physics" else { return nil }
-    let scenes = (r["scenes"]?.asArray ?? []).compactMap { item -> Scene? in
-      guard let sc = item.asObject else { return nil }
-      let pin = sc["pin"]?.asArray?.compactMap { $0.asString } ?? []
-      var p = pKeys.map { key -> Double in
-        sc[key]?.asDouble ?? (key == "stiff" ? 0.9 : key == "bounce" ? 0.5 : key == "drag" ? 1 : 0)
-      }
-      p[12] = pin.isEmpty ? 0 : 400
-      return Scene(name: sc["name"]?.asString ?? "", length: max(1, sc["for"]?.asDouble ?? 8), p: p, pin: pin,
-                   launch: sc["launch"]?.asDouble ?? 0, toss: sc["toss"]?.asDouble ?? 0)
+  static func dance(from motion: [String: KBJSON]?) -> Dance? {
+    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "dance" else { return nil }
+    let score = (r["score"]?.asArray ?? []).compactMap { item -> Move? in
+      guard let mv = item.asObject, let name = mv["move"]?.asString else { return nil }
+      var n: [String: Double] = [:]
+      for (key, v) in mv { if let d = v.asDouble { n[key] = d } }
+      return Move(name: name, length: max(1, mv["for"]?.asDouble ?? 6), beat: max(0.2, mv["beat"]?.asDouble ?? 2), n: n)
     }
-    guard !scenes.isEmpty else { return nil }
-    return Physics(force: r["force"]?.asDouble ?? 1, wall: min(1, max(0.5, r["wall"]?.asDouble ?? 0.96)),
-                   blend: max(0.05, r["blend"]?.asDouble ?? 1.2), settle: max(0.1, r["settle"]?.asDouble ?? 1), scenes: scenes)
+    guard !score.isEmpty else { return nil }
+    return Dance(tempo: max(0.1, r["tempo"]?.asDouble ?? 1), reach: r["reach"]?.asDouble ?? 1,
+                 blend: max(0.05, r["blend"]?.asDouble ?? 1.5), voice: min(1, max(0, r["voice"]?.asDouble ?? 0.35)),
+                 settle: max(0.1, r["settle"]?.asDouble ?? 0.9), score: score)
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil { stopDisplay(); return }
     // Under a new key (the tree remounts on every state change) the layers
-    // come without their animations, so they are rebuilt; the physics' state
-    // lives in `masses` and carries straight on.
+    // come without their animations, so they are rebuilt; the dance's state
+    // lives in `dancers` and carries straight on.
     if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
     if isPlaying { startDisplay() }
   }
 
-  /// The same run on every platform: a plain multiplicative generator.
-  private func rnd() -> Double { seed = (seed * 16807) % 2147483647; return Double(seed) / 2147483647 }
   private var center: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
   private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
 
-  /// Masses, rods and the lines' ties, once, from the geometry.
+  /// Dancers, the chain, the lines' ties, and the score's timeline, once.
   private func tie() {
-    masses = []; rods = []; tieLines = []; ties = []
+    dancers = []; tieLines = []; ties = []
     for (i, sh) in shapes.enumerated() {
-      if sh.kind == "rect" {
-        let h = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
-        masses.append(Mass(layer: i, id: sh.id, h: h, r: Double(sh.n["w"] ?? 0) * 0.45, m: 1, x: Double(h.x), y: Double(h.y)))
-      } else if sh.kind == "circle" {
-        let h = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
-        masses.append(Mass(layer: i, id: sh.id, h: h, r: max(Double(sh.n["r"] ?? 0) * 1.5, unit * 0.03), m: 0.35, x: Double(h.x), y: Double(h.y)))
-      }
+      var h: CGPoint
+      if sh.kind == "rect" { h = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2) }
+      else if sh.kind == "circle" { h = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0) }
+      else { continue }
+      dancers.append(Dancer(layer: i, h: h, x: Double(h.x), y: Double(h.y), tx: Double(h.x), ty: Double(h.y)))
     }
-    guard !masses.isEmpty else { return }
+    guard !dancers.isEmpty else { return }
     for (i, sh) in shapes.enumerated() where sh.kind == "line" {
       tieLines.append(i)
       let ends = [CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)].map { p -> Tie in
-        let best = masses.indices.min { hypot(masses[$0].h.x - p.x, masses[$0].h.y - p.y) < hypot(masses[$1].h.x - p.x, masses[$1].h.y - p.y) }!
-        return Tie(mass: best, d: CGPoint(x: p.x - masses[best].h.x, y: p.y - masses[best].h.y))
+        let best = dancers.indices.min { hypot(dancers[$0].h.x - p.x, dancers[$0].h.y - p.y) < hypot(dancers[$1].h.x - p.x, dancers[$1].h.y - p.y) }!
+        return Tie(dancer: best, d: CGPoint(x: p.x - dancers[best].h.x, y: p.y - dancers[best].h.y))
       }
       ties.append(ends)
-      if ends[0].mass != ends[1].mass {
-        let a = masses[ends[0].mass], b = masses[ends[1].mass]
-        rods.append(Rod(i: ends[0].mass, j: ends[1].mass, rest: Double(hypot(b.h.x - a.h.x, b.h.y - a.h.y)),
-                        ang: atan2(Double(b.h.y - a.h.y), Double(b.h.x - a.h.x))))
-        masses[ends[0].mass].rods.append(rods.count - 1)
-        masses[ends[1].mass].rods.append(rods.count - 1)
-      }
+    }
+    // The chain: order left to right, depth from the top, and its normal.
+    let byX = dancers.indices.sorted { dancers[$0].h.x < dancers[$1].h.x }
+    let byY = dancers.indices.sorted { dancers[$0].h.y < dancers[$1].h.y }
+    for (order, i) in byX.enumerated() { dancers[i].k = order }
+    for (order, i) in byY.enumerated() { dancers[i].depth = order }
+    top = byY[0]
+    let f = dancers[byX[0]].h, l = dancers[byX[byX.count - 1]].h
+    let dx = Double(l.x - f.x), dy = Double(l.y - f.y), len = max(1e-6, hypot(dx, dy))
+    chainN = (-dy / len, dx / len)
+    starts = []; total = 0
+    if let sp = danceSpec {
+      for (i, mv) in sp.score.enumerated() { starts.append(total); total += mv.length - (i < sp.score.count - 1 ? sp.blend : 0) }
     }
   }
 
-  /// The microphone opened: the next scene begins. A no-op without physics
-  /// from the server, so a still or particle mark is unaffected.
+  /// The microphone opened: the dance begins from the top. A no-op without a
+  /// score from the server, so a still or particle mark is unaffected.
   func beginPlay() {
-    guard let sp = physicsSpec, !masses.isEmpty else { return }
-    playing = true; settling = false; onSettled = nil; settleAt = 0
-    enter((sceneI + 1) % sp.scenes.count)
+    guard danceSpec != nil, !dancers.isEmpty, total > 0 else { return }
+    playing = true; settling = false; onSettled = nil; settleAt = 0; clock = 0; current = -1
     restSignal()
     startDisplay()
   }
@@ -1647,8 +1643,6 @@ final class TulmiMarkView: UIView {
   func settle(_ onDone: @escaping () -> Void) {
     guard playing else { onDone(); return }
     playing = false; settling = true; settleAt = 0; onSettled = onDone
-    T = TulmiMarkView.pHome
-    for k in masses.indices { masses[k].pinT = 0 }
     startDisplay()
   }
   private func startDisplay() {
@@ -1666,154 +1660,118 @@ final class TulmiMarkView: UIView {
   }
   private func home() {
     stopDisplay()
-    settling = false; playing = false
-    for k in masses.indices {
-      masses[k].x = Double(masses[k].h.x); masses[k].y = Double(masses[k].h.y)
-      masses[k].vx = 0; masses[k].vy = 0; masses[k].ang = 0; masses[k].pin = 0
+    settling = false; playing = false; current = -1
+    for i in dancers.indices {
+      dancers[i].x = Double(dancers[i].h.x); dancers[i].y = Double(dancers[i].h.y)
+      dancers[i].a = 0; dancers[i].vx = 0; dancers[i].vy = 0; dancers[i].va = 0
     }
     root.transform = CATransform3DIdentity
     laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
     let done = onSettled; onSettled = nil; done?()
   }
 
-  private func enter(_ i: Int) {
-    guard let sp = physicsSpec else { return }
-    let sc = sp.scenes[i]
-    sceneI = i; sceneT = 0; T = sc.p
-    for k in masses.indices { masses[k].pinT = masses[k].id.map { sc.pin.contains($0) } == true ? 1 : 0 }
-    // A turn on entry: every mass gets the velocity of a body spinning about the middle.
-    if sc.launch != 0 {
-      let C = center
-      for k in masses.indices {
-        masses[k].vx += -(masses[k].y - C.y) * sc.launch
-        masses[k].vy += (masses[k].x - C.x) * sc.launch
-      }
-    }
-    lastToss = clock
+  // MARK: The figures. Each sets px, py, pa for every dancer at τ into the
+  // movement: the position and the turn, at rest at both ends.
+  private func env(_ tau: Double, _ mv: Move) -> Double { let e = sin(.pi * tau / mv.length); return e * e }
+  private func ramp(_ tau: Double, _ mv: Move) -> Double { tau / mv.length - sin(2 * .pi * tau / mv.length) / (2 * .pi) }   // 0→1 with no speed at the ends
+  private func about(_ i: Int, _ cx: Double, _ cy: Double, _ ang: Double, _ scale: Double) {
+    let c = cos(ang), s = sin(ang), dx = (Double(dancers[i].h.x) - cx) * scale, dy = (Double(dancers[i].h.y) - cy) * scale
+    dancers[i].px = cx + dx * c - dy * s; dancers[i].py = cy + dx * s + dy * c
   }
-  /// One mass thrown, `strength` key-widths a second, against gravity if there is any.
-  private func kick(_ strength: Double, against g: (x: Double, y: Double)?) {
-    guard !masses.isEmpty else { return }
-    let k = min(masses.count - 1, Int(rnd() * Double(masses.count))), a = rnd() * 2 * .pi
-    var dx = cos(a), dy = sin(a)
-    if let g = g { dx = dx * 0.6 - g.x; dy = dy * 0.6 - g.y; let l = max(1e-6, hypot(dx, dy)); dx /= l; dy /= l }
-    masses[k].vx += dx * strength * unit; masses[k].vy += dy * strength * unit
+  private func figure(_ mv: Move, _ tau: Double, _ reach: Double) -> Bool {
+    let U = unit, C = center, e = env(tau, mv), w = 2 * .pi * tau / mv.beat, deg = Double.pi / 180
+    func v(_ key: String, _ d: Double) -> Double { mv.n[key] ?? d }
+    switch mv.name {
+    case "sway":
+      let ang = v("turn", 12) * deg * reach * e * sin(w), sc = 1 + v("breathe", 0.06) * reach * e * sin(2 * w)
+      for i in dancers.indices { about(i, C.x, C.y, ang, sc); dancers[i].pa = -ang * 0.5 }
+    case "wave":
+      let lift = v("lift", 0.16) * U * reach * e, lag = v("lag", 1.1), tilt = v("tilt", 26) * deg * reach * e
+      for i in dancers.indices {
+        let ph = w - lag * Double(dancers[i].k), h = sin(ph)
+        dancers[i].px = Double(dancers[i].h.x) + chainN.x * lift * h; dancers[i].py = Double(dancers[i].h.y) + chainN.y * lift * h
+        dancers[i].pa = tilt * cos(ph)
+      }
+    case "carousel":
+      let ang = 2 * .pi * v("turns", 1) * ramp(tau, mv), epi = v("epicycle", 0.06) * U * reach * e
+      for i in dancers.indices {
+        about(i, C.x, C.y, ang, 1)
+        let ph = w + Double(dancers[i].k) * .pi / 2
+        dancers[i].px += epi * cos(ph); dancers[i].py += epi * sin(ph); dancers[i].pa = ang
+      }
+    case "fold":
+      let r = 1 - v("depth", 0.42) * reach * e, turn = v("turn", 40) * deg * reach * e
+      for i in dancers.indices { about(i, C.x, C.y, 0, r); dancers[i].pa = (dancers[i].k % 2 == 1 ? -1 : 1) * turn }
+    case "pendulum":
+      let swing = v("swing", 24) * deg * reach * e, lag = v("lag", 0.55), pivot = dancers[top].h
+      for i in dancers.indices {
+        let th = swing * sin(w - lag * Double(dancers[i].depth))
+        about(i, Double(pivot.x), Double(pivot.y), th, 1); dancers[i].pa = th
+      }
+    case "eight":
+      let size = v("size", 0.14) * U * reach * e, lag = v("lag", 0.9), tilt = v("tilt", 20) * deg * reach * e
+      for i in dancers.indices {
+        let ph = w + lag * Double(dancers[i].k)
+        dancers[i].px = Double(dancers[i].h.x) + size * sin(ph); dancers[i].py = Double(dancers[i].h.y) + size * 0.5 * sin(2 * ph)
+        dancers[i].pa = tilt * sin(ph)
+      }
+    case "spiral":
+      let ang = 2 * .pi * v("turns", 1) * ramp(tau, mv), sc = 1 + v("breathe", 0.08) * reach * sin(2 * .pi * tau / mv.length) * e * 2
+      for i in dancers.indices { about(i, C.x, C.y, ang, sc); dancers[i].pa = ang + (sc - 1) * 1.5 }
+    default:
+      return false                          // a figure this build does not know: skipped
+    }
+    return true
+  }
+
+  /// The pose at second `t` of the loop: every movement under way, weighted.
+  private func pose(_ t: Double) {
+    guard let sp = danceSpec else { return }
+    var ax = [Double](repeating: 0, count: dancers.count), ay = ax, aa = ax, sum = 0.0
+    let reach = sp.reach * (1 + accS)
+    for (i, mv) in sp.score.enumerated() {
+      let tau = t - starts[i]
+      if tau < 0 || tau > mv.length { continue }
+      var w = tau < sp.blend ? 0.5 - 0.5 * cos(.pi * tau / sp.blend)
+            : tau > mv.length - sp.blend ? 0.5 - 0.5 * cos(.pi * (mv.length - tau) / sp.blend) : 1
+      if i == 0, tau < sp.blend { w = 1 }                                   // the first opens plainly
+      if i == sp.score.count - 1, tau > mv.length - sp.blend { w = 1 }      // and the last closes plainly
+      if w <= 0 || !figure(mv, tau, reach) { continue }
+      for j in dancers.indices { ax[j] += dancers[j].px * w; ay[j] += dancers[j].py * w; aa[j] += dancers[j].pa * w }
+      sum += w
+      if w >= 0.5 { current = i }
+    }
+    for j in dancers.indices {
+      if sum > 0 { dancers[j].tx = ax[j] / sum; dancers[j].ty = ay[j] / sum; dancers[j].ta = aa[j] / sum }
+      else { dancers[j].tx = Double(dancers[j].h.x); dancers[j].ty = Double(dancers[j].h.y); dancers[j].ta = 0 }
+    }
   }
 
   @objc private func tick(_ l: CADisplayLink) {
     let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
-    guard let sp = physicsSpec, !masses.isEmpty, sceneI >= 0 else { return }
-    let lv = Double(max(0, min(1, level()))), U = unit, C = center, force = sp.force, energy = 0.25 + lv
-    clock += dt
+    guard let sp = danceSpec, !dancers.isEmpty, total > 0 else { return }
+    let lv = Double(max(0, min(1, level()))), U = unit
     if playing {
-      sceneT += dt
-      if sceneT >= sp.scenes[sceneI].length { enter((sceneI + 1) % sp.scenes.count) }
-    }
-    // Everything blends: the scene's numbers, and each mass's pin.
-    let rate = min(1, dt * (settling ? 4 : 1 / sp.blend))
-    for i in P.indices { P[i] += (T[i] - P[i]) * rate }
-    for k in masses.indices { masses[k].pin += ((playing ? masses[k].pinT : 0) - masses[k].pin) * rate }
-    let hold = P[0], stiff = P[1], drag = P[2], gravity = P[3], spin = P[4], wind = P[5], swirl = P[6]
-    let centre = P[7], bounce = P[8], kickS = P[9], jitter = P[10], pinHold = P[12]
-    // Gravity's direction: turning at `spin`, or settling to straight down.
-    if spin > 0.5 { gAng += spin * .pi / 180 * dt }
-    else { let dA = atan2(sin(.pi / 2 - gAng), cos(.pi / 2 - gAng)); gAng += dA * min(1, dt * 2) }
-    let gx = cos(gAng) * gravity * U, gy = sin(gAng) * gravity * U
-    let gu: (x: Double, y: Double)? = gravity > 0.5 ? (cos(gAng), sin(gAng)) : nil
-    if playing {
-      // THE VOICE IS THE FORCE. A rise throws a kick into one mass, against
-      // gravity when there is any; quiet, the toy gets thrown up now and then.
-      if lv - lastLevel > 0.12, clock - lastKick > 0.25 { kick(kickS * force * (0.6 + 0.8 * lv), against: gu); lastKick = clock }
-      let sc = sp.scenes[sceneI]
-      if sc.toss > 0, let g = gu, lv < 0.15, clock - lastToss > sc.toss {
-        for k in masses.indices {
-          masses[k].vx += (-g.x + (rnd() - 0.5) * 0.5) * kickS * force * 0.9 * U
-          masses[k].vy += (-g.y + (rnd() - 0.5) * 0.3) * kickS * force * 0.9 * U
-        }
-        lastToss = clock
-      }
+      // The clock runs at the tempo, a little faster for speech; a rise is an accent.
+      clock = (clock + dt * sp.tempo * (1 - sp.voice * 0.3 + sp.voice * lv)).truncatingRemainder(dividingBy: total)
+      if lv - lastLevel > 0.15, clock - lastAccent > 0.4 { accV += 1.4 * sp.voice; lastAccent = clock }
+      pose(clock)
+    } else {
+      for i in dancers.indices { dancers[i].tx = Double(dancers[i].h.x); dancers[i].ty = Double(dancers[i].h.y); dancers[i].ta = 0 }
     }
     lastLevel = lv
-    let R = Double(hypot(viewBox.width, viewBox.height)) / 2 * sp.wall, sub = 4, h = dt / Double(sub)
-    for _ in 0..<sub {
-      for k in masses.indices {
-        var n = masses[k]
-        // Ambient shake: a smooth random push, renewed every so often, fed by the voice.
-        if jitter > 0.001 {
-          n.jt -= h
-          if n.jt <= 0 { let ja = rnd() * 2 * .pi; n.jx = cos(ja); n.jy = sin(ja); n.jt = 0.1 + rnd() * 0.15 }
-        }
-        let tether = hold + pinHold * n.pin, nx = (n.x - C.x) / U, ny = (n.y - C.y) / U
-        var ax = tether * (Double(n.h.x) - n.x) + centre * (C.x - n.x) + gx - drag * n.vx
-        var ay = tether * (Double(n.h.y) - n.y) + centre * (C.y - n.y) + gy - drag * n.vy
-        if wind > 0.001 {
-          // A current: a slow field of eddies plus a swirl about the middle.
-          let wg = wind * force * (0.4 + 0.6 * lv) * U * 1.6
-          ax += wg * (sin(2.1 * ny + 0.9 * clock) + 0.6 * cos(1.7 * nx - 1.3 * clock))
-          ay += wg * (cos(1.9 * nx + 1.1 * clock) - 0.6 * sin(2.3 * ny + 0.7 * clock))
-          let rl = max(1e-6, hypot(nx, ny)), sg = swirl * force * (0.4 + 0.6 * lv) * U * 1.2
-          ax += -ny / rl * sg; ay += nx / rl * sg
-        }
-        if jitter > 0.001 { ax += n.jx * jitter * force * energy * U * 14; ay += n.jy * jitter * force * energy * U * 14 }
-        n.vx += ax * h; n.vy += ay * h
-        n.px = n.x; n.py = n.y; n.x += n.vx * h; n.y += n.vy * h
-        masses[k] = n
-      }
-      // The rods, by position: rigid at 1, rubbery below. Pinned masses do not move.
-      for _ in 0..<4 {
-        for rod in rods {
-          let a = masses[rod.i], b = masses[rod.j]
-          let dx = b.x - a.x, dy = b.y - a.y, len = max(1e-6, hypot(dx, dy))
-          let wa = a.pin > 0.5 ? 0 : 1 / a.m, wb = b.pin > 0.5 ? 0 : 1 / b.m, ws = max(1e-6, wa + wb)
-          let c = (len - rod.rest) * stiff / len
-          masses[rod.i].x += dx * c * wa / ws; masses[rod.i].y += dy * c * wa / ws
-          masses[rod.j].x -= dx * c * wb / ws; masses[rod.j].y -= dy * c * wb / ws
-        }
-      }
-      for k in masses.indices { masses[k].vx = (masses[k].x - masses[k].px) / h; masses[k].vy = (masses[k].y - masses[k].py) / h }
-      if !settling {
-        // The wall, and the masses against each other.
-        for k in masses.indices {
-          var n = masses[k]
-          let ox = n.x - C.x, oy = n.y - C.y, d = hypot(ox, oy), lim = R - n.r
-          if d > lim, d > 0 {
-            let ux = ox / d, uy = oy / d, vn = n.vx * ux + n.vy * uy
-            n.x = C.x + ux * lim; n.y = C.y + uy * lim
-            if vn > 0 { n.vx -= (1 + bounce) * vn * ux; n.vy -= (1 + bounce) * vn * uy }
-          }
-          masses[k] = n
-        }
-        for i in masses.indices {
-          for j in masses.indices where j > i {
-            let a = masses[i], b = masses[j]
-            let ddx = b.x - a.x, ddy = b.y - a.y, dd = hypot(ddx, ddy), minD = a.r + b.r
-            if dd >= minD || dd == 0 { continue }
-            let ux = ddx / dd, uy = ddy / dd, push = minD - dd, wa = 1 / a.m, wb = 1 / b.m, ws = wa + wb
-            masses[i].x -= ux * push * wa / ws; masses[i].y -= uy * push * wa / ws
-            masses[j].x += ux * push * wb / ws; masses[j].y += uy * push * wb / ws
-            let rvn = (b.vx - a.vx) * ux + (b.vy - a.vy) * uy
-            if rvn < 0 {
-              let jn = -(1 + bounce) * rvn / ws
-              masses[i].vx -= jn * wa * ux; masses[i].vy -= jn * wa * uy
-              masses[j].vx += jn * wb * ux; masses[j].vy += jn * wb * uy
-            }
-          }
-        }
-      }
-    }
-    // Each square turns with its rods: the mean of how far each has swung from rest.
+    accV += (0 - accS) * 40 * dt - 2 * (40.0).squareRoot() * accV * dt; accS += accV * dt
+    let w0 = 14.0, c0 = 2 * w0             // critically damped: the lag and weight of a real thing
     var far = 0.0, fast = 0.0
-    for k in masses.indices {
-      var sum = 0.0
-      for ri in masses[k].rods {
-        let rod = rods[ri], a = masses[rod.i], b = masses[rod.j]
-        let d = atan2(b.y - a.y, b.x - a.x) - rod.ang
-        sum += atan2(sin(d), cos(d))
-      }
-      masses[k].ang = masses[k].rods.isEmpty ? 0 : sum / Double(masses[k].rods.count)
-      far = max(far, abs(masses[k].x - Double(masses[k].h.x)), abs(masses[k].y - Double(masses[k].h.y)), abs(masses[k].ang) * U / 3)
-      fast = max(fast, abs(masses[k].vx), abs(masses[k].vy))
+    for i in dancers.indices {
+      var n = dancers[i]
+      n.vx += (n.tx - n.x) * w0 * w0 * dt - c0 * n.vx * dt; n.x += n.vx * dt
+      n.vy += (n.ty - n.y) * w0 * w0 * dt - c0 * n.vy * dt; n.y += n.vy * dt
+      n.va += (n.ta - n.a) * w0 * w0 * dt - c0 * n.va * dt; n.a += n.va * dt
+      far = max(far, abs(n.x - Double(n.h.x)), abs(n.y - Double(n.h.y)), abs(n.a) * U / 3)
+      fast = max(fast, abs(n.vx), abs(n.vy))
+      dancers[i] = n
     }
     draw()
     if settling {
@@ -1822,19 +1780,19 @@ final class TulmiMarkView: UIView {
     }
   }
 
-  /// The layers as the physics has them: each mass where it is, stretched
-  /// along its velocity and squashed across it, turned with its rods; the
-  /// lines re-tied end to end, their ends turning with their mass.
+  /// The layers as the dance has them: each dancer where it is, stretched
+  /// along its speed and squashed across it, turned; the lines re-tied end
+  /// to end, their ends turning with their dancer.
   private func draw() {
     guard layers.count == shapes.count else { return }
     let (s, o) = fitted
-    let U = unit, squash = P[11]
+    let U = unit
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    for n in masses {
+    for n in dancers {
       let l = layers[n.layer]
       l.position = CGPoint(x: o.x + CGFloat(n.x) * s, y: o.y + CGFloat(n.y) * s)
-      let sp = hypot(n.vx, n.vy), st = CGFloat(1 + squash * 0.45 * min(1, sp / (1.2 * U))), va = sp > 1 ? CGFloat(atan2(n.vy, n.vx)) : 0
-      let m = CGAffineTransform(rotationAngle: CGFloat(n.ang))
+      let sp = hypot(n.vx, n.vy), st = CGFloat(1 + 0.3 * min(1, sp / (1.4 * U))), va = sp > 1 ? CGFloat(atan2(n.vy, n.vx)) : 0
+      let m = CGAffineTransform(rotationAngle: CGFloat(n.a))
         .concatenating(CGAffineTransform(rotationAngle: -va))
         .concatenating(CGAffineTransform(scaleX: st, y: 1 / st))
         .concatenating(CGAffineTransform(rotationAngle: va))
@@ -1843,7 +1801,7 @@ final class TulmiMarkView: UIView {
     for (j, li) in tieLines.enumerated() {
       let l = layers[li]
       let ends = ties[j].map { t -> CGPoint in
-        let n = masses[t.mass], c = cos(n.ang), sn = sin(n.ang)
+        let n = dancers[t.dancer], c = cos(n.a), sn = sin(n.a)
         return CGPoint(x: o.x + CGFloat(n.x + Double(t.d.x) * c - Double(t.d.y) * sn) * s - l.position.x,
                        y: o.y + CGFloat(n.y + Double(t.d.x) * sn + Double(t.d.y) * c) * s - l.position.y)
       }
@@ -1936,7 +1894,7 @@ final class TulmiMarkView: UIView {
     // Motion on the whole mark: the view's own layer, about its centre.
     layer.removeAllAnimations()
     if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
-    // Mid-physics (a remount, a resize): the new layers take up where the old left off.
+    // Mid-dance (a remount, a resize): the new layers take up where the old left off.
     if isPlaying { restSignal(); draw() }
   }
 
@@ -3962,8 +3920,8 @@ final class SDUIRenderer: NSObject {
   private var currentMicParticles: MicParticleView?
   private var micReassembling = false
   // The mark view that lives across remounts when the server's recording
-  // motion is the physics, so record → stop → home is one unbroken motion.
-  // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
+  // motion is the dance, so record → stop → home is one unbroken motion. A
+  // new spec, motion or ink (a deploy, a theme flip) makes a new one.
   private var currentMicMark: TulmiMarkView?
   private var currentMicMarkKey = ""
 
@@ -5224,10 +5182,10 @@ final class SDUIRenderer: NSObject {
     // is the same picture standing still.
     let markSpec = node.props?["mark"]?.asObject
     let markMotion = node.props?["motion"]?.asObject
-    // What the server wants while the microphone is open: the physics (the
-    // structure itself, a thing inside the key, below), the particles, or nothing.
+    // What the server wants while the microphone is open: the dance (the
+    // structure itself, choreographed, below), the particles, or nothing.
     let recKind = TulmiMarkView.recordingKind(markMotion)
-    let plays = recKind == "physics" && markSpec != nil
+    let plays = recKind == "dance" && markSpec != nil
     if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
@@ -5284,7 +5242,7 @@ final class SDUIRenderer: NSObject {
       // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
       // recoloured or set moving by a deploy. Only geometry reaches this
       // branch, so pushed media still cannot stand where the mark stands.
-      // With the physics it is the same view at idle and while recording: the
+      // With the dance it is the same view at idle and while recording: the
       // structure moves in place and comes home, so nothing is swapped.
       btn.setImage(nil, for: .normal)
       btn.imageView?.stopAnimating()
@@ -8027,7 +7985,7 @@ final class SDUIRenderer: NSObject {
       // Re-entering recording (possibly mid-reassembly): scatter the dots again.
       micReassembling = false
       currentMicParticles?.beginRecording()
-      // Or, with the physics, the structure comes alive in place.
+      // Or, with the dance, the structure begins its score in place.
       currentMicMark?.beginPlay()
     } else {
       hideRecordingVisuals()
@@ -8044,7 +8002,7 @@ final class SDUIRenderer: NSObject {
           self.stateChanged()          // final remount → static brand mark
         }
       }
-      // The physics comes home on its own and rebuilds itself crisp; the same
+      // The dance comes home on its own and rebuilds itself crisp; the same
       // view stays mounted throughout, so there is nothing to swap in.
       currentMicMark?.settle {}
     }
