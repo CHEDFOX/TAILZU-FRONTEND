@@ -1517,8 +1517,8 @@ final class TulmiMarkView: UIView {
   // turn, a beat after the last, along an arc — out past the rim, shrinking
   // and fading as it crosses it, turning as it goes. Once they are away the
   // kept shape, the dashed link between the blocks, glides to the middle and
-  // grows: the wave, its dashes bars that rise and fall with the voice while
-  // the bright cluster keeps running along it. Stop reverses all of it: the
+  // grows: the wave, doing what it does in the splash — the dashes stay put
+  // and the bright cluster runs along them, over and over. Stop reverses it: the
   // wave settles back into the link, and the parts glide in on the same arcs
   // in cascade and land exactly where they began; then the layers are
   // rebuilt crisp so the idle signal resumes. Every part follows one
@@ -1527,7 +1527,7 @@ final class TulmiMarkView: UIView {
   // numbers are the server's, from motion.recording.
   struct Disperse {
     let keep: String
-    let out, spin, arc, shrink, gather, stagger, settle, lift, rise, run, width, wait: Double
+    let out, spin, arc, shrink, gather, stagger, settle, lift, run, gap, width, wait: Double
     let centre: Bool
   }
   private struct Part {
@@ -1545,7 +1545,7 @@ final class TulmiMarkView: UIView {
   private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's dashes, one layer each
   private var barLit: CGColor = UIColor.white.cgColor          // what a lit bar wears: the signal's colour
   private var playing = false, settling = false
-  private var clock = 0.0, startAt = 0.0, stopAt = 0.0, smooth = 0.0, settleAt = 0.0
+  private var clock = 0.0, startAt = 0.0, stopAt = 0.0, settleAt = 0.0
   private var lastTick: CFTimeInterval = 0
   private var display: CADisplayLink?
   private var onSettled: (() -> Void)?
@@ -1581,12 +1581,13 @@ final class TulmiMarkView: UIView {
     guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "disperse" else { return nil }
     let w = r["wave"]?.asObject
     return Disperse(keep: r["keep"]?.asString ?? "link",
-                    out: max(1, r["out"]?.asDouble ?? 1.6), spin: r["spin"]?.asDouble ?? 40,
+                    out: max(1, r["out"]?.asDouble ?? 1.9), spin: r["spin"]?.asDouble ?? 40,
                     arc: max(0, r["arc"]?.asDouble ?? 0.22), shrink: min(0.95, max(0, r["shrink"]?.asDouble ?? 0.45)),
                     gather: max(0, r["gather"]?.asDouble ?? 0.05), stagger: max(0, r["stagger"]?.asDouble ?? 0.07),
                     settle: max(0.1, r["settle"]?.asDouble ?? 1.2),
-                    lift: max(0.5, w?["lift"]?.asDouble ?? 2), rise: max(0, w?["rise"]?.asDouble ?? 0.9),
-                    run: max(0.2, w?["run"]?.asDouble ?? 1), width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)),
+                    lift: max(0.5, w?["lift"]?.asDouble ?? 2),
+                    run: max(0.2, w?["run"]?.asDouble ?? 0.95), gap: max(0, w?["gap"]?.asDouble ?? 0.25),
+                    width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)),
                     wait: max(0, w?["wait"]?.asDouble ?? 0.25), centre: w?["centre"]?.asBool ?? true)
   }
 
@@ -1694,12 +1695,6 @@ final class TulmiMarkView: UIView {
     let done = onSettled; onSettled = nil; done?()
   }
 
-  private static func mix(_ a: CGColor, _ b: CGColor, _ k: CGFloat) -> CGColor {
-    let ua = UIColor(cgColor: a), ub = UIColor(cgColor: b)
-    var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0, r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
-    ua.getRed(&r1, green: &g1, blue: &b1, alpha: &a1); ub.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
-    return UIColor(red: r1 + (r2 - r1) * k, green: g1 + (g2 - g1) * k, blue: b1 + (b2 - b1) * k, alpha: a1 + (a2 - a1) * k).cgColor
-  }
   private static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
     let t = min(1, max(0, (x - a) / (b - a)))
     return t * t * (3 - 2 * t)
@@ -1709,10 +1704,8 @@ final class TulmiMarkView: UIView {
     let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
     guard let sp = disperseSpec, wave != nil else { return }
-    let lv = Double(max(0, min(1, level()))), U = unit
+    let U = unit
     clock += dt
-    // The voice, followed quickly up and slowly down, is what the bars rise to.
-    smooth += (lv - smooth) * min(1, dt * (lv > smooth ? 18 : 6))
     let out = sp.out * rim, n = parts.count, tau = clock - startAt, sigma = clock - stopAt
     var far = 0.0, fast = 0.0
     let w0 = playing ? 6.5 : 7.5, c0 = 2 * w0     // critically damped; a shade quicker home
@@ -1759,31 +1752,28 @@ final class TulmiMarkView: UIView {
       l.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot), 0, 0, 1))
       l.opacity = Float(op)
     }
-    // THE WAVE. Each dash is a bar over the dash it came from: a slow ripple
-    // down the line and a little grain, both scaled by the voice, set its
-    // height, and the bright cluster runs along, a touch faster the louder
-    // it gets. At home a bar is exactly its dash, so the wave grows out of
-    // the link and settles back into it with no seam.
+    // THE WAVE, as the splash runs it: the dashes stay exactly as they are,
+    // and the bright cluster — `width` of the line, fully lit at its core and
+    // soft at its edges — travels from end to end in `run` seconds, rests for
+    // `gap`, and goes again. The same dash layers the idle signal lights, on
+    // the same cue, only looped and driven here.
     let link = layers[w.layer]
     let q = min(1, max(0, w.q)), k = 1 + (sp.lift - 1) * w.q
     let pos = CGPoint(x: o.x + (w.mid.x + CGFloat((sp.centre ? C.x - Double(w.mid.x) : 0) * w.q)) * s,
                       y: o.y + (w.mid.y + CGFloat((sp.centre ? C.y - Double(w.mid.y) : 0) * w.q)) * s)
     link.position = pos
     link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
-    let run = sp.run * (1 - 0.35 * smooth), half = sp.width / 2
-    let u = clock.truncatingRemainder(dividingBy: run) / run, centre = u * (1 + sp.width) - half, amp = 0.25 + 0.75 * smooth
-    let ink = link.strokeColor ?? UIColor.black.cgColor
-    for (i, bar) in bars.enumerated() {
-      let ripple = 0.5 + 0.5 * sin(2 * .pi * clock / 0.9 - 0.8 * Double(i))
-      let grain = 0.5 + 0.5 * sin(clock * 7.3 + Double(i) * 1.7) * sin(clock * 3.1 + Double(i) * 0.9)
-      let h = 1 + q * ((0.4 + 0.6 * (ripple * 0.6 + grain * 0.4) * amp) * (1 + sp.rise * smooth) - 1)
-      let qq = abs(bar.f - centre) / half, lit = q * (qq >= 1 ? 0 : qq < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (qq - 0.5) / 0.5))
+    let half = sp.width / 2
+    let u = clock.truncatingRemainder(dividingBy: sp.run + sp.gap) / sp.run, centre = u * (1 + sp.width) - half
+    for bar in bars {
+      let qq = abs(bar.f - centre) / half
+      let lit = (u > 1 || qq >= 1) ? 0 : qq < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (qq - 0.5) / 0.5)
       bar.layer.isHidden = false
       bar.layer.position = pos
       bar.layer.transform = link.transform
-      bar.layer.lineWidth = w.width * s * CGFloat(h)
-      bar.layer.strokeColor = TulmiMarkView.mix(ink, barLit, CGFloat(lit))
-      bar.layer.opacity = 1
+      bar.layer.lineWidth = w.width * s
+      bar.layer.strokeColor = barLit
+      bar.layer.opacity = Float(lit * q)
     }
     CATransaction.commit()
   }
