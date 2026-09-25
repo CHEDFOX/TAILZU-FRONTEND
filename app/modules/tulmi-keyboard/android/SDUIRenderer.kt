@@ -1073,6 +1073,7 @@ class SDUIRenderer(
         // stands in, which is the same picture standing still.
         val markSpec = node.props["mark"] as? JSONObject
         val markMotion = node.props["motion"] as? JSONObject
+        val markProgram = node.props["program"] as? JSONObject
         val fg = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(kbConfig.theme.keyText)
         val tinted = markSpec?.optBoolean("tint", true) ?: true
         // The dots burst from whichever mark the key is drawing.
@@ -1081,7 +1082,7 @@ class SDUIRenderer(
         // What the server wants while the microphone is open: the dispersal
         // (the parts fly out and only the wave stays, in the mark branch), the
         // particles, or nothing.
-        val recKind = TulmiMarkView.recordingKind(markMotion)
+        val recKind = if (markProgram != null && markProgram.optDouble("version", 0.0) >= 1) "program" else TulmiMarkView.recordingKind(markMotion)
 
         val view: View = if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
             val frame = FrameLayout(host.context()).apply { background = keyBackground(node) }
@@ -1116,8 +1117,8 @@ class SDUIRenderer(
                 setPadding(pad, pad, pad, pad)
                 val ink = if (tinted) fg else null
                 addView(
-                    if (recKind == "disperse") persistedMark(markSpec, markMotion, ink)
-                    else TulmiMarkView(host.context(), markSpec, markMotion, ink),
+                    if (recKind == "disperse" || recKind == "program") persistedMark(markSpec, markMotion, markProgram, ink)
+                    else TulmiMarkView(host.context(), markSpec, markMotion, ink, markProgram),
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1155,10 +1156,10 @@ class SDUIRenderer(
     /** The one mark view for the dispersal, reused across redraws while the spec,
      *  motion and ink are the same objects; a new tree or a theme flip makes
      *  a new one. Built mid-recording (a deploy landed), it starts at once. */
-    private fun persistedMark(spec: JSONObject, motion: JSONObject?, tint: Int?): TulmiMarkView {
-        val key = "${System.identityHashCode(spec)}|${System.identityHashCode(motion)}|$tint"
+    private fun persistedMark(spec: JSONObject, motion: JSONObject?, program: JSONObject?, tint: Int?): TulmiMarkView {
+        val key = "${System.identityHashCode(spec)}|${System.identityHashCode(motion)}|${System.identityHashCode(program)}|$tint"
         currentMicMark?.let { if (currentMicMarkKey == key) { (it.parent as? ViewGroup)?.removeView(it); return it } }
-        return TulmiMarkView(host.context(), spec, motion, tint).also {
+        return TulmiMarkView(host.context(), spec, motion, tint, program).also {
             it.level = { host.state().micLevel }
             currentMicMark = it
             currentMicMarkKey = key
@@ -2064,7 +2065,11 @@ class SDUIRenderer(
         spec: JSONObject,
         motion: JSONObject?,
         private val tint: Int?,
+        programSpec: JSONObject? = null,
     ) : View(ctx) {
+        /** THE PROGRAM. Present, it is what the key does, idle and recording
+         *  alike: the legacy `motion` and dispersal are ignored. */
+        val program: MotionProgram? = programSpec?.let { MotionProgram.compile(it) }
         class Shape(val id: String?, val kind: String, val o: JSONObject, val color: Int?)
         private val shapes: List<Shape>
         private val vb: FloatArray
@@ -2116,7 +2121,12 @@ class SDUIRenderer(
         private var onSettled: (() -> Unit)? = null
         /** The live microphone level, 0..1. The renderer points this at its state. */
         var level: () -> Float = { 0f }
-        val isPlaying: Boolean get() = playing || settling
+        val isPlaying: Boolean get() = playing || settling || progRec == 1f || progSettling
+
+        // The program's runtime state.
+        private var progT = 0f; private var progRec = 0f; private var progFlipped = 0f; private var progSettling = false
+        private val progSprings = HashMap<String, FloatArray>()      // v, vel, prev
+        private var progCtx: Pair<MotionCtx, List<MotionCtx>>? = null
 
         init {
             val parsed = parse(spec)
@@ -2130,7 +2140,37 @@ class SDUIRenderer(
         }
 
         override fun onAttachedToWindow() { super.onAttachedToWindow(); start(); if (isPlaying) postInvalidateOnAnimation() }
-        override fun onDetachedFromWindow() { animators.forEach { it.cancel() }; animators.clear(); super.onDetachedFromWindow() }
+        override fun onDetachedFromWindow() { animators.forEach { it.cancel() }; animators.clear(); removeCallbacks(nextFrame); super.onDetachedFromWindow() }
+        private val nextFrame = Runnable { invalidate() }
+
+        /** The idle motion the legacy `motion` describes, as animators; with a
+         *  program there are none — the program draws every frame itself. */
+        private fun start() {
+            if (program != null) { if (animatorsEnabled(context)) { lastNanos = 0L; invalidate() }; return }
+            if (animators.isNotEmpty() || !animatorsEnabled(context)) return
+            for (m in idle) {
+                val period = (m.optDouble("period", 2.6).coerceAtLeast(0.2) * 1000).toLong()
+                val a = ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = period; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
+                }
+                val known = when (m.optString("kind")) {
+                    "hatch" -> { a.addUpdateListener { phase = it.animatedValue as Float; invalidate() }; true }
+                    "signal" -> { a.addUpdateListener { signal = it.animatedValue as Float; invalidate() }; true }
+                    "breathe" -> {
+                        a.addUpdateListener {
+                            breath = ((1 - Math.cos((it.animatedValue as Float) * 2 * Math.PI)) / 2).toFloat(); invalidate()
+                        }
+                        true
+                    }
+                    else -> false          // a kind this build does not know
+                }
+                if (!known) continue
+                animators += a
+                a.start()
+            }
+        }
+
+        private val circle = spec.optString("fit", "circle") != "box"
 
         private val unit: Float get() = minOf(vb[2], vb[3])
         private val cX: Float get() = vb[0] + vb[2] / 2
@@ -2162,6 +2202,12 @@ class SDUIRenderer(
         /** The microphone opened: the parts leave, the wave stays. A no-op
          *  without a dispersal from the server, so a still or particle mark is unaffected. */
         fun beginPlay() {
+            if (program != null) {
+                if (progRec == 1f) return
+                progRec = 1f; progFlipped = progT; progSettling = false; onSettled = null
+                removeCallbacks(nextFrame); invalidate()
+                return
+            }
             if (disperse == null || wave == null) return
             playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L; startAt = clock
             postInvalidateOnAnimation()
@@ -2169,6 +2215,12 @@ class SDUIRenderer(
 
         /** The microphone closed: everything comes home, then `onDone`. */
         fun settle(onDone: () -> Unit) {
+            if (program != null) {
+                if (progRec != 1f) { onDone(); return }
+                progRec = 0f; progFlipped = progT; progSettling = true; onSettled = onDone
+                if (!animatorsEnabled(context)) { progSettling = false; onSettled = null; onDone() }
+                return
+            }
             if (!playing) { onDone(); return }
             playing = false; settling = true; settleAt = 0f; onSettled = onDone; stopAt = clock
             postInvalidateOnAnimation()
@@ -2215,6 +2267,150 @@ class SDUIRenderer(
                 settleAt += dt
                 if ((far < u * 0.002f && fast < u * 0.02f) || settleAt > sp.settle) home()
             }
+        }
+
+
+        // THE PROGRAM'S RUNTIME — the mark performs what the server wrote.
+        //
+        // Each frame: the clock, then the global springs, then for every shape
+        // its springs and its expressions — offset, turn, scale, opacity,
+        // colour mix, and for bars each bar's rise and lean — then what the
+        // program draws around the shapes, all as this frame's shapes for the
+        // painter. Nothing about the recording state is known here beyond
+        // `rec`, the seconds `since` it flipped, and the voice `level`.
+        private class Frame(val shapes: List<Shape>, val mark: FloatArray?)
+
+        private fun programContexts(pg: MotionProgram): Pair<MotionCtx, List<MotionCtx>> {
+            val g = MotionCtx()
+            for ((k, v) in pg.vars) g.v[k] = v
+            g.v["pi"] = Math.PI.toFloat(); g.v["tau"] = 2f * Math.PI.toFloat(); g.v["e"] = Math.E.toFloat()
+            g.v["cx"] = cX; g.v["cy"] = cY; g.v["U"] = unit; g.v["R"] = rim; g.v["vbw"] = vb[2]; g.v["vbh"] = vb[3]
+            val list = shapes.map { sh ->
+                val c = MotionCtx(g); val o = sh.o
+                var hx = 0f; var hy = 0f
+                when (sh.kind) {
+                    "rect" -> { hx = (o.optDouble("x") + o.optDouble("w") / 2).toFloat(); hy = (o.optDouble("y") + o.optDouble("h") / 2).toFloat(); c.v["w"] = o.optDouble("w").toFloat(); c.v["h"] = o.optDouble("h").toFloat() }
+                    "circle" -> { hx = o.optDouble("cx").toFloat(); hy = o.optDouble("cy").toFloat(); c.v["r"] = o.optDouble("r").toFloat() }
+                    else -> {
+                        val x1 = o.optDouble("x1").toFloat(); val y1 = o.optDouble("y1").toFloat(); val x2 = o.optDouble("x2").toFloat(); val y2 = o.optDouble("y2").toFloat()
+                        hx = (x1 + x2) / 2; hy = (y1 + y2) / 2
+                        val dx = x2 - x1; val dy = y2 - y1; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
+                        c.v["x1"] = x1; c.v["y1"] = y1; c.v["x2"] = x2; c.v["y2"] = y2; c.v["L"] = len
+                        c.v["lx"] = dx / len; c.v["ly"] = dy / len; c.v["nx"] = -dy / len; c.v["ny"] = dx / len
+                        val bx = dy / len * 0.85f - dx / len * 0.35f; val by = -dx / len * 0.85f - dy / len * 0.35f; val bl = maxOf(1e-6f, Math.hypot(bx.toDouble(), by.toDouble()).toFloat())
+                        c.v["bx"] = bx / bl; c.v["by"] = by / bl
+                        c.v["width"] = o.optDouble("width", 1.0).toFloat()
+                        if (sh.kind == "bars") {
+                            val hs = o.optJSONArray("heights"); val n = hs?.length() ?: 0
+                            c.v["thick"] = o.optDouble("thick", 6.0).toFloat(); c.v["cols"] = n.toFloat()
+                            val sw = o.optJSONObject("swell"); c.v["swh"] = (sw?.optDouble("height", 1.9) ?: 1.9).toFloat(); c.v["swt"] = (sw?.optDouble("thick", 1.3) ?: 1.3).toFloat()
+                            c.fn["height"] = { a -> if (n == 0) 0f else hs!!.optDouble(Math.round(if (a.isNotEmpty()) a[0] else 0f).coerceIn(0, n - 1), 0.0).toFloat() }
+                        }
+                    }
+                }
+                c.v["home.x"] = hx; c.v["home.y"] = hy
+                val ddx = hx - cX; val ddy = hy - cY; val dl = maxOf(1e-6f, Math.hypot(ddx.toDouble(), ddy.toDouble()).toFloat())
+                c.v["dir.x"] = ddx / dl; c.v["dir.y"] = ddy / dl
+                sh.id?.let { id -> pg.shapes[id]?.vars?.forEach { (k, v) -> c.v[k] = v } }
+                c
+            }
+            return Pair(g, list)
+        }
+
+        private fun runProgram(pg: MotionProgram, dt: Float): Frame {
+            val ctx = progCtx ?: programContexts(pg).also { progCtx = it }
+            val g = ctx.first
+            progT += dt
+            g.v["t"] = progT; g.v["rec"] = progRec; g.v["since"] = progT - progFlipped; g.v["level"] = level().coerceIn(0f, 1f)
+            var quiet = true
+            fun step(name: String, sp: MotionProgram.Spring, key: String, c: MotionCtx) {
+                val st = progSprings.getOrPut(key) { floatArrayOf(sp.rest, 0f, sp.rest) }
+                c.v["prev"] = st[2]
+                val target = MotionLang.eval(sp.target, c, pg.funcs); val w = maxOf(0.1f, MotionLang.eval(sp.rate, c, pg.funcs)); val z = maxOf(0f, MotionLang.eval(sp.damp, c, pg.funcs))
+                st[2] = target
+                st[1] += (target - st[0]) * w * w * dt - 2f * z * w * st[1] * dt; st[0] += st[1] * dt
+                c.v[name] = st[0]
+                if (Math.abs(st[0] - target) > pg.eps || Math.abs(st[1]) > pg.eps * 10f) quiet = false
+            }
+            for ((name, sp) in pg.springs) if (!sp.shapeScoped) step(name, sp, name, g)
+            val mark = floatArrayOf(pg.mark["scale"]?.let { MotionLang.eval(it, g, pg.funcs) } ?: 1f, pg.mark["rot"]?.let { MotionLang.eval(it, g, pg.funcs) } ?: 0f,
+                pg.mark["opacity"]?.let { MotionLang.eval(it, g, pg.funcs).coerceIn(0f, 1f) } ?: 1f)
+            val out = ArrayList<Shape>(shapes.size + 64)
+            shapes.forEachIndexed { i, sh ->
+                val c = ctx.second[i]
+                for ((name, sp) in pg.springs) if (sp.shapeScoped) step(name, sp, "$name@$i", c)
+                val prog = sh.id?.let { pg.shapes[it] }
+                val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
+                if (prog == null) { out += Shape(sh.id, sh.kind, o, sh.color); return@forEachIndexed }
+                val pr = prog.props
+                val dx = pr["dx"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 0f; val dy = pr["dy"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 0f
+                val rot = pr["rot"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 0f; val sc = pr["scale"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 1f
+                val op = (pr["opacity"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 1f).coerceIn(0f, 1f)
+                when (sh.kind) {
+                    "rect" -> { o.put("x", sh.o.optDouble("x") + dx); o.put("y", sh.o.optDouble("y") + dy) }
+                    "circle" -> { o.put("cx", sh.o.optDouble("cx") + dx); o.put("cy", sh.o.optDouble("cy") + dy) }
+                    else -> { o.put("x1", sh.o.optDouble("x1") + dx); o.put("y1", sh.o.optDouble("y1") + dy); o.put("x2", sh.o.optDouble("x2") + dx); o.put("y2", sh.o.optDouble("y2") + dy) }
+                }
+                o.put("_turn", rot.toDouble()); o.put("_scale", sc.toDouble()); o.put("_alpha", op.toDouble())
+                pr["mix"]?.let { mx -> o.put("_color", mix(tint ?: sh.color ?: Color.BLACK, pg.signal, MotionLang.eval(mx, c, pg.funcs))) }
+                if (sh.kind == "bars" && (pr.containsKey("rise") || pr.containsKey("lean"))) {
+                    val hs = sh.o.optJSONArray("heights"); val n = hs?.length() ?: 0
+                    val rises = org.json.JSONArray(); val leans = org.json.JSONArray()
+                    for (j in 0 until n) {
+                        val bc = MotionCtx(c); bc.v["i"] = j.toFloat(); bc.v["f"] = (j + 0.5f) / n; bc.v["hgt"] = hs!!.optDouble(j, 0.0).toFloat()
+                        val rise = (pr["rise"]?.let { MotionLang.eval(it, bc, pg.funcs) } ?: 0f).coerceIn(0f, 1f); bc.v["rise"] = rise
+                        val lean = pr["lean"]?.let { MotionLang.eval(it, bc, pg.funcs) } ?: 0f
+                        rises.put(rise.toDouble()); leans.put(lean.toDouble())
+                    }
+                    o.put("_rise", rises); o.put("_lean", leans)
+                }
+                // What the program draws around this shape, behind it: moved and turned with it.
+                val hx = c.v["home.x"] ?: 0f; val hy = c.v["home.y"] ?: 0f
+                for (e in pg.emit) {
+                    if (e.attach != sh.id) continue
+                    val counts = e.repeats.map { MotionLang.eval(it, c, pg.funcs).toInt().coerceIn(0, 64) }
+                    val n0 = if (counts.isNotEmpty()) counts[0] else 1; val n1 = if (counts.size > 1) counts[1] else 1
+                    val color = if (e.signal) pg.signal else (tint ?: sh.color ?: Color.BLACK)
+                    for (a in 0 until n0) for (b in 0 until n1) {
+                        val ec = MotionCtx(c)
+                        if (e.names.isNotEmpty()) ec.v[e.names[0]] = a.toFloat()
+                        if (e.names.size > 1) ec.v[e.names[1]] = b.toFloat()
+                        val eo = JSONObject()
+                        val alpha = MotionLang.eval(e.opacity, ec, pg.funcs).coerceIn(0f, 1f) * op
+                        eo.put("_color", color); eo.put("_alpha", alpha.toDouble()); eo.put("_turn", rot.toDouble()); eo.put("_scale", sc.toDouble())
+                        eo.put("_about_x", (hx + dx).toDouble()); eo.put("_about_y", (hy + dy).toDouble())
+                        fun ev(ast: MotionAst?): Float = ast?.let { MotionLang.eval(it, ec, pg.funcs) } ?: 0f
+                        when (e.kind) {
+                            "line" -> {
+                                eo.put("x1", (ev(e.fields["x1"]) + dx).toDouble()); eo.put("y1", (ev(e.fields["y1"]) + dy).toDouble())
+                                eo.put("x2", (ev(e.fields["x2"]) + dx).toDouble()); eo.put("y2", (ev(e.fields["y2"]) + dy).toDouble())
+                                eo.put("width", ev(e.width).toDouble())
+                                out += Shape(null, "line", eo, null)
+                            }
+                            "circle" -> {
+                                eo.put("cx", (ev(e.fields["cx"]) + dx).toDouble()); eo.put("cy", (ev(e.fields["cy"]) + dy).toDouble())
+                                eo.put("r", maxOf(0f, e.fields["r"]?.let { MotionLang.eval(it, ec, pg.funcs) } ?: 1f).toDouble())
+                                out += Shape(null, "circle", eo, null)
+                            }
+                            else -> {
+                                val pts = org.json.JSONArray()
+                                if (e.points != null) for ((xa, ya) in e.points) { pts.put((ev(xa) + dx).toDouble()); pts.put((ev(ya) + dy).toDouble()) }
+                                else if (e.genCount != null) { val cnt = ev(e.genCount).toInt().coerceIn(0, 64); for (j in 0 until cnt) { ec.v[e.genName] = j.toFloat(); pts.put((ev(e.genX) + dx).toDouble()); pts.put((ev(e.genY) + dy).toDouble()) } }
+                                eo.put("pts", pts); eo.put("width", ev(e.width).toDouble())
+                                out += Shape(null, if (e.kind == "polygon") "_poly" else "_pline", eo, null)
+                            }
+                        }
+                    }
+                }
+                out += Shape(sh.id, sh.kind, o, sh.color)
+            }
+            // Home: the recording is over and every spring is at rest, or its time is up.
+            if (progSettling && (quiet || progT - progFlipped > pg.timeout)) {
+                for (st in progSprings.values) st[1] = 0f
+                progSettling = false
+                val d = onSettled; onSettled = null; d?.invoke()
+            }
+            return Frame(out, mark)
         }
 
         /** The shapes as the dispersal has them: each part along its arc,
@@ -2362,6 +2558,16 @@ class SDUIRenderer(
         }
 
         override fun onDraw(c: Canvas) {
+            if (program != null) {
+                val pg = program
+                val now = System.nanoTime()
+                val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 20f)
+                lastNanos = now
+                val frame = runProgram(pg, dt)
+                paintShapes(c, frame.shapes, vb, width.toFloat(), height.toFloat(), tint, emptyList(), 0f, 0f, circle, 0f, frame.mark)
+                if (animatorsEnabled(context)) postDelayed(nextFrame, (1000 / (if (progRec == 1f) pg.fpsRec else pg.fpsIdle)).toLong())
+                return
+            }
             if (isPlaying) {
                 stepDisperse()
                 val sig = idle.firstOrNull { it.optString("kind") == "signal" }?.let { parseHex(it.optString("color", if (tint != null) "#F4F1EA" else "#E8A23C")) }
@@ -2462,6 +2668,7 @@ class SDUIRenderer(
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
                 tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true, signal: Float = 0f,
+                mark: FloatArray? = null,
             ) {
                 val s = if (circle) minOf(w, h) / Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat()
                         else minOf(w / vb[2], h / vb[3])
@@ -2479,6 +2686,11 @@ class SDUIRenderer(
                 val t = signal * (sig?.optDouble("period", 3.6)?.toFloat()?.coerceAtLeast(0.2f) ?: 1f)   // seconds into the period
                 var markAlpha = 1f
                 c.save()
+                if (mark != null) {
+                    // The program's transform of the whole: scale and turn about the centre, and its opacity.
+                    c.scale(mark[0], mark[0], w / 2, h / 2); c.rotate(mark[1], w / 2, h / 2)
+                    if (mark.size > 2) markAlpha *= mark[2]
+                }
                 if (markBreath != null) {
                     val msc = 1f + (markBreath.optDouble("scale", 1.06).toFloat() - 1f) * breath
                     c.scale(msc, msc, w / 2, h / 2)
@@ -2536,6 +2748,7 @@ class SDUIRenderer(
                             // never sent by the server (parse() refuses these kinds).
                             val pts = o.optJSONArray("pts")
                             if (pts != null && pts.length() >= 4) {
+                                if (o.has("_about_x")) motionOf(c, o, ox + o.optDouble("_about_x").toFloat() * s, oy + o.optDouble("_about_y").toFloat() * s)
                                 val path = android.graphics.Path()
                                 var j = 0
                                 while (j + 1 < pts.length()) {
@@ -2568,16 +2781,17 @@ class SDUIRenderer(
                             val width = step?.optDouble("width", 0.3)?.toFloat()?.coerceIn(0.05f, 0.9f) ?: 0.3f; val half = width / 2
                             val u = if (runs) (t - at) / run else -1f
                             val centre = u * (1 + width) - half
-                            val rises = o.optJSONArray("_rise")
+                            val rises = o.optJSONArray("_rise"); val leans = o.optJSONArray("_lean")
                             for (i in 0 until n) {
                                 val f = (i + 0.5f) / n
-                                // How far up this bar is: under the crest of the run, or as the wave says.
+                                // How far up this bar is: under the crest of the run, or as the program says; and its top's lean.
                                 var k = if (rises != null) rises.optDouble(i, 0.0).toFloat() else 0f
                                 if (runs && u in 0f..1f) { val q = Math.abs(f - centre) / half; if (q < 1f) k = maxOf(k, 0.5f + 0.5f * cs(Math.PI.toFloat() * q)) }
+                                val lean = leans?.optDouble(i, 0.0)?.toFloat() ?: 0f
                                 val h = hs.optDouble(i, 0.0).toFloat() * s * (1f + (swH - 1f) * k)
                                 val cx = x1 + dx * f; val cy = y1 + dy * f
                                 paint.strokeWidth = thick * (1f + (swT - 1f) * k)
-                                c.drawLine(cx - nx * h / 2, cy - ny * h / 2, cx + nx * h / 2, cy + ny * h / 2, paint)
+                                c.drawLine(cx - nx * h / 2, cy - ny * h / 2, cx + nx * h / 2 + dx / len * lean * h, cy + ny * h / 2 + dy / len * lean * h, paint)
                             }
                         }
                         else -> {
@@ -3201,3 +3415,220 @@ class SDUIRenderer(
 
 /** File-scope alias so callers don't need to spell out the companion. */
 fun parseHex(hex: String): Int = SDUIRenderer.parseHex(hex)
+
+// =============================================================================
+// THE MOTION LANGUAGE
+//
+// The mic key's program is written in a small language of numbers: arithmetic,
+// comparisons, && || !, ?:, built-in functions, the program's own functions,
+// and names looked up in a context. The same evaluator runs on iOS and in the
+// backend's tests. Anything unknown or non-finite is 0: a bad program is a
+// still mark, never a crash.
+// =============================================================================
+sealed class MotionAst {
+    class Num(val v: Float) : MotionAst()
+    class Name(val k: String) : MotionAst()
+    class Call(val name: String, val args: List<MotionAst>) : MotionAst()
+    class Neg(val x: MotionAst) : MotionAst()
+    class Not(val x: MotionAst) : MotionAst()
+    class Tern(val c: MotionAst, val a: MotionAst, val b: MotionAst) : MotionAst()
+    class Bin(val op: String, val l: MotionAst, val r: MotionAst) : MotionAst()
+}
+
+/** A context: names to numbers, a few lent functions, and a parent to fall back on. */
+class MotionCtx(private val parent: MotionCtx? = null) {
+    val v = HashMap<String, Float>()
+    val fn = HashMap<String, (FloatArray) -> Float>()
+    fun get(k: String): Float? = v[k] ?: parent?.get(k)
+    fun lent(k: String): ((FloatArray) -> Float)? = fn[k] ?: parent?.lent(k)
+}
+
+class MotionFunc(val args: List<String>, val ast: MotionAst)
+
+object MotionLang {
+    private sealed class Tok { class Num(val v: Float) : Tok(); class Id(val v: String) : Tok(); class Op(val v: String) : Tok() }
+
+    private fun tokenize(src: String): List<Tok> {
+        val out = ArrayList<Tok>(); var i = 0; val n = src.length
+        val two = setOf("||", "&&", "==", "!=", "<=", ">="); val one = "-+*/%^<>!?:(),"
+        while (i < n) {
+            val c = src[i]
+            if (c.isWhitespace()) { i++; continue }
+            if (c.isDigit() || (c == '.' && i + 1 < n && src[i + 1].isDigit())) {
+                var j = i
+                while (j < n && (src[j].isDigit() || src[j] == '.')) j++
+                if (j < n && (src[j] == 'e' || src[j] == 'E')) {
+                    var k = j + 1
+                    if (k < n && (src[k] == '+' || src[k] == '-')) k++
+                    if (k < n && src[k].isDigit()) { j = k; while (j < n && src[j].isDigit()) j++ }
+                }
+                out += Tok.Num(src.substring(i, j).toFloatOrNull() ?: 0f); i = j; continue
+            }
+            if (c.isLetter() || c == '_') {
+                var j = i
+                while (j < n && (src[j].isLetterOrDigit() || src[j] == '_' || src[j] == '.')) j++
+                out += Tok.Id(src.substring(i, j)); i = j; continue
+            }
+            if (i + 1 < n && src.substring(i, i + 2) in two) { out += Tok.Op(src.substring(i, i + 2)); i += 2; continue }
+            if (c in one) { out += Tok.Op(c.toString()); i++; continue }
+            throw IllegalArgumentException("bad character $c")
+        }
+        return out
+    }
+
+    private class Parser(val toks: List<Tok>) {
+        var pos = 0
+        fun isOp(v: String) = pos < toks.size && (toks[pos] as? Tok.Op)?.v == v
+        fun take(v: String) { if (!isOp(v)) throw IllegalArgumentException("expected $v"); pos++ }
+        fun opValue(): String { val v = (toks[pos] as Tok.Op).v; pos++; return v }
+        fun ternary(): MotionAst { val c = or(); if (isOp("?")) { pos++; val a = ternary(); take(":"); val b = ternary(); return MotionAst.Tern(c, a, b) }; return c }
+        fun or(): MotionAst { var l = and(); while (isOp("||")) { pos++; l = MotionAst.Bin("||", l, and()) }; return l }
+        fun and(): MotionAst { var l = eq(); while (isOp("&&")) { pos++; l = MotionAst.Bin("&&", l, eq()) }; return l }
+        fun eq(): MotionAst { var l = rel(); while (isOp("==") || isOp("!=")) { val o = opValue(); l = MotionAst.Bin(o, l, rel()) }; return l }
+        fun rel(): MotionAst { var l = add(); while (isOp("<") || isOp("<=") || isOp(">") || isOp(">=")) { val o = opValue(); l = MotionAst.Bin(o, l, add()) }; return l }
+        fun add(): MotionAst { var l = mul(); while (isOp("+") || isOp("-")) { val o = opValue(); l = MotionAst.Bin(o, l, mul()) }; return l }
+        fun mul(): MotionAst { var l = unary(); while (isOp("*") || isOp("/") || isOp("%")) { val o = opValue(); l = MotionAst.Bin(o, l, unary()) }; return l }
+        fun unary(): MotionAst { if (isOp("-")) { pos++; return MotionAst.Neg(unary()) }; if (isOp("!")) { pos++; return MotionAst.Not(unary()) }; return power() }
+        fun power(): MotionAst { val b = primary(); if (isOp("^")) { pos++; return MotionAst.Bin("^", b, unary()) }; return b }
+        fun primary(): MotionAst {
+            if (pos >= toks.size) throw IllegalArgumentException("unexpected end")
+            when (val t = toks[pos]) {
+                is Tok.Num -> { pos++; return MotionAst.Num(t.v) }
+                is Tok.Id -> {
+                    pos++
+                    if (isOp("(")) {
+                        pos++; val args = ArrayList<MotionAst>()
+                        if (!isOp(")")) { args += ternary(); while (isOp(",")) { pos++; args += ternary() } }
+                        take(")"); return MotionAst.Call(t.v, args)
+                    }
+                    return MotionAst.Name(t.v)
+                }
+                is Tok.Op -> {
+                    if (t.v == "(") { pos++; val e = ternary(); take(")"); return e }
+                    throw IllegalArgumentException("unexpected ${t.v}")
+                }
+            }
+        }
+    }
+
+    fun parse(src: String): MotionAst {
+        val p = Parser(tokenize(src)); val ast = p.ternary()
+        if (p.pos != p.toks.size) throw IllegalArgumentException("trailing input")
+        return ast
+    }
+
+    private fun fin(x: Float) = if (x.isFinite()) x else 0f
+    private fun a(v: FloatArray, i: Int) = if (i < v.size) v[i] else 0f
+    private fun d(x: Float) = x.toDouble()
+    val builtins: Map<String, (FloatArray) -> Float> = mapOf(
+        "sin" to { v -> Math.sin(d(a(v, 0))).toFloat() }, "cos" to { v -> Math.cos(d(a(v, 0))).toFloat() }, "tan" to { v -> Math.tan(d(a(v, 0))).toFloat() },
+        "abs" to { v -> Math.abs(a(v, 0)) }, "sqrt" to { v -> if (a(v, 0) < 0f) 0f else Math.sqrt(d(a(v, 0))).toFloat() },
+        "floor" to { v -> Math.floor(d(a(v, 0))).toFloat() }, "ceil" to { v -> Math.ceil(d(a(v, 0))).toFloat() }, "round" to { v -> Math.round(a(v, 0)).toFloat() },
+        "exp" to { v -> Math.exp(d(a(v, 0))).toFloat() }, "log" to { v -> if (a(v, 0) > 0f) Math.log(d(a(v, 0))).toFloat() else 0f },
+        "atan2" to { v -> Math.atan2(d(a(v, 0)), d(a(v, 1))).toFloat() },
+        "min" to { v -> v.minOrNull() ?: 0f }, "max" to { v -> v.maxOrNull() ?: 0f },
+        "pow" to { v -> if (a(v, 0) < 0f && a(v, 1) != Math.floor(d(a(v, 1))).toFloat()) 0f else Math.pow(d(a(v, 0)), d(a(v, 1))).toFloat() },
+        "hypot" to { v -> Math.hypot(d(a(v, 0)), d(a(v, 1))).toFloat() },
+        "clamp" to { v -> a(v, 0).coerceIn(minOf(a(v, 1), a(v, 2)), maxOf(a(v, 1), a(v, 2))) },
+        "smooth" to { v -> val lo = a(v, 0); val hi = a(v, 1); val x = a(v, 2); val u = if (hi == lo) (if (x >= hi) 1f else 0f) else ((x - lo) / (hi - lo)).coerceIn(0f, 1f); u * u * (3f - 2f * u) },
+        "lerp" to { v -> a(v, 0) + (a(v, 1) - a(v, 0)) * a(v, 2) },
+        "crest" to { v -> val s = Math.sin(d(a(v, 0))).toFloat(); if (s > 0f) Math.pow(d(s), 1.6).toFloat() else 0f },
+        "ramp" to { v -> val x = a(v, 0); val at = a(v, 1); val len = a(v, 2); val e = if (v.size > 3 && a(v, 3) > 0f) a(v, 3) else 0.06f
+            if (x < at) 0f else if (x < at + e) (x - at) / e else if (x < at + len) 1f else if (x < at + len + e) 1f - (x - at - len) / e else 0f },
+        "run" to { v -> val f = a(v, 0); val x = a(v, 1); val at = a(v, 2); val dur = a(v, 3); val width = a(v, 4); val u = if (dur == 0f) -1f else (x - at) / dur
+            if (u < 0f || u > 1f) 0f else { val half = width / 2; if (half <= 0f) 0f else { val c = u * (1 + width) - half; val q = Math.abs(f - c) / half; if (q >= 1f) 0f else 0.5f + 0.5f * Math.cos(Math.PI * q).toFloat() } } },
+        "noise" to { v -> (Math.sin(d(a(v, 0)) * 1.7) * Math.sin(d(a(v, 0)) * 0.61 + 2.1)).toFloat() },
+    )
+
+    fun eval(n: MotionAst, ctx: MotionCtx, funcs: Map<String, MotionFunc>, depth: Int = 0): Float {
+        return when (n) {
+            is MotionAst.Num -> n.v
+            is MotionAst.Name -> ctx.get(n.k) ?: 0f
+            is MotionAst.Neg -> -eval(n.x, ctx, funcs, depth)
+            is MotionAst.Not -> if (eval(n.x, ctx, funcs, depth) != 0f) 0f else 1f
+            is MotionAst.Tern -> if (eval(n.c, ctx, funcs, depth) != 0f) eval(n.a, ctx, funcs, depth) else eval(n.b, ctx, funcs, depth)
+            is MotionAst.Call -> {
+                val f = funcs[n.name]
+                if (f != null) {
+                    if (depth > 8) return 0f
+                    val c2 = MotionCtx(ctx)
+                    f.args.forEachIndexed { i, an -> c2.v[an] = if (i < n.args.size) eval(n.args[i], ctx, funcs, depth) else 0f }
+                    return fin(eval(f.ast, c2, funcs, depth + 1))
+                }
+                val vals = FloatArray(n.args.size) { eval(n.args[it], ctx, funcs, depth) }
+                val b = builtins[n.name]; if (b != null) return fin(b(vals))
+                val l = ctx.lent(n.name); if (l != null) return fin(l(vals))
+                0f
+            }
+            is MotionAst.Bin -> {
+                if (n.op == "||") return if (eval(n.l, ctx, funcs, depth) != 0f || eval(n.r, ctx, funcs, depth) != 0f) 1f else 0f
+                if (n.op == "&&") return if (eval(n.l, ctx, funcs, depth) != 0f && eval(n.r, ctx, funcs, depth) != 0f) 1f else 0f
+                val x = eval(n.l, ctx, funcs, depth); val y = eval(n.r, ctx, funcs, depth)
+                when (n.op) {
+                    "+" -> x + y; "-" -> x - y; "*" -> x * y
+                    "/" -> if (y == 0f) 0f else x / y
+                    "%" -> if (y == 0f) 0f else x - Math.floor(d(x / y)).toFloat() * y
+                    "^" -> fin(Math.pow(d(x), d(y)).toFloat())
+                    "<" -> if (x < y) 1f else 0f; "<=" -> if (x <= y) 1f else 0f; ">" -> if (x > y) 1f else 0f; ">=" -> if (x >= y) 1f else 0f
+                    "==" -> if (x == y) 1f else 0f; "!=" -> if (x != y) 1f else 0f
+                    else -> 0f
+                }
+            }
+        }
+    }
+}
+
+/** A program, compiled: every expression parsed once. What fails to parse is 0. */
+class MotionProgram private constructor(
+    val vars: Map<String, Float>, val funcs: Map<String, MotionFunc>, val springs: Map<String, Spring>,
+    val mark: Map<String, MotionAst>, val shapes: Map<String, ShapeProg>, val emit: List<Emit>,
+    val fpsIdle: Int, val fpsRec: Int, val signal: Int, val eps: Float, val timeout: Float,
+) {
+    class Spring(val shapeScoped: Boolean, val rest: Float, val target: MotionAst, val rate: MotionAst, val damp: MotionAst)
+    class ShapeProg(val vars: Map<String, Float>, val props: Map<String, MotionAst>)
+    class Emit(
+        val attach: String, val kind: String, val repeats: List<MotionAst>, val names: List<String>, val signal: Boolean,
+        val opacity: MotionAst, val width: MotionAst, val points: List<Pair<MotionAst, MotionAst>>?,
+        val genCount: MotionAst?, val genName: String, val genX: MotionAst?, val genY: MotionAst?, val fields: Map<String, MotionAst>,
+    )
+    companion object {
+        private fun x(v: Any?, fallback: String): MotionAst = try { MotionLang.parse(v?.toString() ?: fallback) } catch (_: Throwable) { MotionAst.Num(0f) }
+        fun compile(spec: JSONObject): MotionProgram? {
+            if (spec.optDouble("version", 0.0) < 1) return null
+            val vars = HashMap<String, Float>()
+            spec.optJSONObject("vars")?.let { o -> for (k in o.keys()) { val n = o.opt(k); if (n is Number) vars[k] = n.toFloat() } }
+            val funcs = HashMap<String, MotionFunc>()
+            spec.optJSONObject("funcs")?.let { o -> for (k in o.keys()) { val f = o.optJSONObject(k) ?: continue
+                val args = f.optJSONArray("args"); funcs[k] = MotionFunc((0 until (args?.length() ?: 0)).map { args!!.optString(it) }, x(f.opt("expr"), "0")) } }
+            val springs = HashMap<String, Spring>()
+            spec.optJSONObject("springs")?.let { o -> for (k in o.keys()) { val so = o.optJSONObject(k) ?: continue
+                springs[k] = Spring(so.optString("scope") == "shape", so.optDouble("rest", 0.0).toFloat(), x(so.opt("target"), "0"), x(so.opt("rate"), "8"), x(so.opt("damp"), "1")) } }
+            val mark = HashMap<String, MotionAst>()
+            spec.optJSONObject("mark")?.let { o -> for (k in o.keys()) mark[k] = x(o.opt(k), "0") }
+            val shapes = HashMap<String, ShapeProg>()
+            spec.optJSONObject("shapes")?.let { o -> for (id in o.keys()) { val so = o.optJSONObject(id) ?: continue
+                val sv = HashMap<String, Float>(); val props = HashMap<String, MotionAst>()
+                for (k in so.keys()) { if (k == "vars") { val vo = so.optJSONObject(k); if (vo != null) for (vk in vo.keys()) { val n = vo.opt(vk); if (n is Number) sv[vk] = n.toFloat() } } else props[k] = x(so.opt(k), "0") }
+                shapes[id] = ShapeProg(sv, props) } }
+            val emit = ArrayList<Emit>()
+            spec.optJSONArray("emit")?.let { arr -> for (i in 0 until arr.length()) { val e = arr.optJSONObject(i) ?: continue
+                val attach = e.optString("attach", ""); if (attach.isEmpty()) continue
+                var points: List<Pair<MotionAst, MotionAst>>? = null; var genCount: MotionAst? = null; var genName = "i"; var genX: MotionAst? = null; var genY: MotionAst? = null
+                val pa = e.optJSONArray("points"); val po = e.optJSONObject("points")
+                if (pa != null) points = (0 until pa.length()).mapNotNull { j -> pa.optJSONArray(j)?.let { p -> if (p.length() >= 2) Pair(x(p.opt(0), "0"), x(p.opt(1), "0")) else null } }
+                else if (po != null) { genCount = x(po.opt("count"), "0"); genName = po.optString("as", "i"); genX = x(po.opt("x"), "0"); genY = x(po.opt("y"), "0") }
+                val fields = HashMap<String, MotionAst>()
+                for (k in listOf("x1", "y1", "x2", "y2", "cx", "cy", "r")) if (e.has(k)) fields[k] = x(e.opt(k), "0")
+                val rep = e.optJSONArray("repeat"); val names = e.optJSONArray("as")
+                emit += Emit(attach, e.optString("kind", "polyline"), (0 until (rep?.length() ?: 0)).map { x(rep!!.opt(it), "1") },
+                    (0 until (names?.length() ?: 0)).map { names!!.optString(it) }, e.optString("color") == "signal",
+                    x(e.opt("opacity"), "1"), x(e.opt("width"), "1"), points, genCount, genName, genX, genY, fields) } }
+            val fps = spec.optJSONObject("fps"); val settle = spec.optJSONObject("settle")
+            return MotionProgram(vars, funcs, springs, mark, shapes, emit,
+                (fps?.optInt("idle", 24) ?: 24).coerceIn(1, 60), (fps?.optInt("rec", 60) ?: 60).coerceIn(1, 120),
+                parseHex(spec.optJSONObject("colors")?.optString("signal", "#F4F1EA") ?: "#F4F1EA"),
+                (settle?.optDouble("eps", 0.002) ?: 0.002).toFloat().coerceAtLeast(1e-5f), (settle?.optDouble("timeout", 1.4) ?: 1.4).toFloat().coerceAtLeast(0.1f))
+        }
+    }
+}
+
