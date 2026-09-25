@@ -2040,7 +2040,7 @@ class SDUIRenderer(
         private val idle: List<JSONObject>
         private var phase = 0f              // 0..1 of one dash pattern
         private var breath = 0f             // 0..1, sine-shaped
-        private var signal = 0f             // 0..1 of one pulse period
+        private var signal = 0f             // 0..1 of one signal period
         private val animators = ArrayList<ValueAnimator>()
 
         init {
@@ -2063,7 +2063,7 @@ class SDUIRenderer(
                 }
                 val known = when (m.optString("kind")) {
                     "hatch" -> { a.addUpdateListener { phase = it.animatedValue as Float; invalidate() }; true }
-                    "pulse" -> { a.addUpdateListener { signal = it.animatedValue as Float; invalidate() }; true }
+                    "signal" -> { a.addUpdateListener { signal = it.animatedValue as Float; invalidate() }; true }
                     "breathe" -> {
                         a.addUpdateListener {
                             breath = ((1 - Math.cos((it.animatedValue as Float) * 2 * Math.PI)) / 2).toFloat(); invalidate()
@@ -2103,6 +2103,14 @@ class SDUIRenderer(
                 return if (out.isEmpty()) null else Pair(out, vb)
             }
 
+            /** `a` moved `k` of the way to `b`, channel by channel. */
+            fun mix(a: Int, b: Int, k: Float): Int {
+                val j = k.coerceIn(0f, 1f)
+                fun ch(x: Int, y: Int) = (x + (y - x) * j).toInt().coerceIn(0, 255)
+                return Color.argb(ch(Color.alpha(a), Color.alpha(b)), ch(Color.red(a), Color.red(b)),
+                                  ch(Color.green(a), Color.green(b)), ch(Color.blue(a), Color.blue(b)))
+            }
+
             fun animatorsEnabled(ctx: Context): Boolean =
                 if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
                 else Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
@@ -2120,15 +2128,14 @@ class SDUIRenderer(
                 val oy = (h - vb[3] * s) / 2 - vb[1] * s
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG)
                 // Motion on the whole mark: a breath about the centre, and the
-                // signal that runs through the shapes in order.
+                // splash's signal — a timeline of steps, each naming a shape and
+                // the second it lights. A square wears the signal colour for
+                // `hold`; a dashed line has a run of light travel it for `run`.
                 val markBreath = idle.firstOrNull { it.optString("on") == "mark" && it.optString("kind") == "breathe" }
-                val pulse = idle.firstOrNull { it.optString("on") == "mark" && it.optString("kind") == "pulse" && it.optJSONArray("order") != null }
-                val order = pulse?.optJSONArray("order")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
-                val low = pulse?.optDouble("low", 0.55)?.toFloat() ?: 1f
-                val slot = if (order.isEmpty()) 0f else (1f - pulse!!.optDouble("rest", 0.35).toFloat().coerceIn(0f, 0.9f)) / order.size
-                // A wave, not a row of blinks: each brightening lasts `spread`
-                // slots as a raised cosine, so neighbours overlap and the light travels.
-                val width = if (order.isEmpty()) 0f else minOf(0.98f, maxOf(slot, pulse!!.optDouble("spread", 2.0).toFloat() * slot))
+                val sig = idle.firstOrNull { it.optString("on") == "mark" && it.optString("kind") == "signal" && it.optJSONArray("steps") != null }
+                val steps = sig?.optJSONArray("steps")?.let { arr -> (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } } ?: emptyList()
+                val sigColor = sig?.let { parseHex(it.optString("color", if (tint != null) "#F4F1EA" else "#E8A23C")) } ?: 0
+                val t = signal * (sig?.optDouble("period", 3.6)?.toFloat()?.coerceAtLeast(0.2f) ?: 1f)   // seconds into the period
                 var markAlpha = 1f
                 c.save()
                 if (markBreath != null) {
@@ -2146,12 +2153,21 @@ class SDUIRenderer(
                     val br = sh.id?.let { id -> idle.firstOrNull { it.optString("on") == id && it.optString("kind") == "breathe" } }
                     val sc = if (br != null) 1f + (br.optDouble("scale", 1.45).toFloat() - 1f) * breath else 1f
                     if (br != null) alpha *= 1f - (1f - br.optDouble("opacity", 0.72).toFloat()) * breath
-                    // Its turn in the signal: one brief brightening, then `low`.
-                    val turn = sh.id?.let { order.indexOf(it) } ?: -1
-                    if (turn >= 0) {
-                        var pos = signal - turn * slot; while (pos < 0f) pos += 1f
-                        val bump = if (pos < width) (0.5 - 0.5 * Math.cos(2 * Math.PI * pos / width)).toFloat() else 0f
-                        alpha *= low + (1f - low) * bump
+                    // Its step in the signal. A run along a dashed line is drawn
+                    // over the line below; anything else swaps colour for `hold`,
+                    // on in sixty milliseconds and off in sixty.
+                    val step = sh.id?.let { id -> steps.firstOrNull { it.optString("on") == id } }
+                    val runs = step != null && sh.kind == "line" && step.has("run") && o.optJSONArray("dash") != null
+                    if (step != null && !runs) {
+                        val at = step.optDouble("at", 0.0).toFloat(); val hold = step.optDouble("hold", 0.4).toFloat().coerceAtLeast(0.05f)
+                        val k = when {
+                            t < at -> 0f
+                            t < at + 0.06f -> (t - at) / 0.06f
+                            t < at + hold -> 1f
+                            t < at + hold + 0.06f -> 1f - (t - at - hold) / 0.06f
+                            else -> 0f
+                        }
+                        if (k > 0f) paint.color = mix(paint.color, sigColor, k)
                     }
                     paint.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
                     c.save()
@@ -2180,14 +2196,37 @@ class SDUIRenderer(
                             paint.strokeWidth = o.optDouble("width", 1.0).toFloat() * s
                             paint.strokeCap = if (o.optString("cap") == "round") Paint.Cap.ROUND else Paint.Cap.BUTT
                             val dash = o.optJSONArray("dash")
+                            var basePhase = 0f
+                            var iv: FloatArray? = null
                             if (dash != null && dash.length() >= 2) {
-                                val iv = FloatArray(dash.length()) { dash.optDouble(it, 0.0).toFloat() * s }
-                                val len = iv.sum()
+                                iv = FloatArray(dash.length()) { dash.optDouble(it, 0.0).toFloat() * s }
                                 // The dashes travel along the line when its motion says `hatch`.
-                                val runs = sh.id?.let { id -> idle.any { it.optString("on") == id && it.optString("kind") == "hatch" } } ?: false
-                                paint.pathEffect = DashPathEffect(iv, if (runs) -phase * len else 0f)
+                                val hatched = sh.id?.let { id -> idle.any { it.optString("on") == id && it.optString("kind") == "hatch" } } ?: false
+                                basePhase = if (hatched) -phase * iv.sum() else 0f
+                                paint.pathEffect = DashPathEffect(iv, basePhase)
                             }
                             c.drawLine(x1, y1, x2, y2, paint)
+                            if (runs && iv != null) {
+                                // The run of light: the same dashes again, in the signal
+                                // colour, through a window a fifth of the line wide that
+                                // slides from end to end in `run`. Its dash phase is the
+                                // base's advanced by the window's start, so lit dashes sit
+                                // exactly on the dashes beneath them.
+                                val at = step!!.optDouble("at", 0.0).toFloat()
+                                val run = step.optDouble("run", 1.0).toFloat().coerceAtLeast(0.05f)
+                                val u = (t - at) / run; val win = 0.22f
+                                if (u in 0f..1f) {
+                                    val mid = u * (1 + win) - win / 2
+                                    val s0 = (mid - win / 2).coerceIn(0f, 1f); val s1 = (mid + win / 2).coerceIn(0f, 1f)
+                                    if (s1 > s0) {
+                                        val len = Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()).toFloat()
+                                        paint.color = sigColor
+                                        paint.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
+                                        paint.pathEffect = DashPathEffect(iv, basePhase + s0 * len)
+                                        c.drawLine(x1 + (x2 - x1) * s0, y1 + (y2 - y1) * s0, x1 + (x2 - x1) * s1, y1 + (y2 - y1) * s1, paint)
+                                    }
+                                }
+                            }
                         }
                     }
                     c.restore()

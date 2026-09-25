@@ -110,8 +110,14 @@ mark stands, on either platform.
     },
     "motion": {
       "idle": [
-        { "on": "link", "kind": "hatch", "period": 2.6 },
-        { "on": "dot", "kind": "breathe", "period": 3.8, "scale": 1.45, "opacity": 0.72 }
+        { "on": "mark", "kind": "signal", "period": 3.6, "color": "#F4F1EA", "steps": [
+          { "on": "c", "at": 0.33, "hold": 0.42 },
+          { "on": "a", "at": 0.92, "hold": 0.42 },
+          { "on": "link", "at": 1.33, "run": 0.95 },
+          { "on": "b", "at": 2.33, "hold": 0.42 }
+        ] },
+        { "on": "mark", "kind": "breathe", "period": 4.2, "scale": 1.06, "opacity": 1 },
+        { "on": "link", "kind": "hatch", "period": 2.6 }
       ],
       "recording": "particles"
     }
@@ -122,6 +128,6 @@ mark stands, on either platform.
 - `shapes`: `rect` (x, y, w, h, rx), `line` (x1, y1, x2, y2, width, cap, dash), `circle` (cx, cy, r). Coordinates are the artboard's; `viewBox` is the part shown, aspect-fit into the key.
 - `fit: "circle"` (default) scales the artboard so its diagonal spans the key, which keeps every corner inside a round key; `"box"` fits the sides.
 - `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
-- `motion.idle`: `pulse` (on `"mark"`) runs a signal through the shapes named in `order`: each brightens in turn for `spread` shapes' worth of time (2 by default, so neighbours overlap and the light travels rather than hops), sits at `low` opacity otherwise, and `rest` of the period is dark; `breathe` swells a shape (or `"mark"`, the whole) to `scale` and fades it to `opacity` and back; `hatch` runs a dashed line's dashes along it. All on `period` seconds; all honour the system's reduce-motion setting. On a 36pt key only the pulse and the breath are visible; the hatch is for the sizes where dashes resolve.
+- `motion.idle`: `signal` (on `"mark"`) is the splash's sequence on a loop, a timeline of `steps` over `period` seconds. Each step names a shape and the second it lights (`at`): a square or plain line wears the signal `color` for `hold` seconds (on in 60ms, off in 60ms); a dashed line has a run of light travel its length for `run` seconds, dash by dash, in step with its hatch. `color` defaults to pale on a tinted mark and amber otherwise. `breathe` swells a shape (or `"mark"`, the whole) to `scale` and fades it to `opacity` and back; `hatch` runs a dashed line's dashes along it. All on `period` seconds; all honour the system's reduce-motion setting. On a 36pt key the signal and the breath are what shows; the hatch is for the sizes where dashes resolve.
 - `motion.recording`: `"particles"` — the mark bursts into the dot sim while the microphone is open — or `"none"`.
 - A shape kind or motion kind a build does not know is skipped. A build older than this ignores both props and draws its bundled mark; a backend older than this sends neither and the keyboard does the same.
