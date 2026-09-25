@@ -1500,6 +1500,7 @@ final class TulmiMarkView: UIView {
   }
   private let shapes: [Shape]
   private let viewBox: CGRect
+  private let circle: Bool
   private let tint: UIColor?
   private let motion: [[String: KBJSON]]
   private var layers: [CAShapeLayer] = []
@@ -1509,6 +1510,7 @@ final class TulmiMarkView: UIView {
     guard let parsed = TulmiMarkView.parse(spec) else { return nil }
     shapes = parsed.shapes
     viewBox = parsed.viewBox
+    circle = TulmiMarkView.isCircle(spec)
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
     super.init(frame: .zero)
@@ -1536,12 +1538,17 @@ final class TulmiMarkView: UIView {
     return out.isEmpty ? nil : (out, CGRect(x: vb[0], y: vb[1], width: vb[2], height: vb[3]))
   }
 
-  /// Where the artboard lands in `size`: aspect-fit, centred.
-  private static func fit(_ viewBox: CGRect, in size: CGSize) -> (scale: CGFloat, origin: CGPoint) {
-    let s = min(size.width / viewBox.width, size.height / viewBox.height)
+  /// Where the artboard lands in `size`, centred. A round key fits the
+  /// artboard by its DIAGONAL, so its corners touch the circle and no square
+  /// is cut off at the rim; `fit: "box"` fits the sides instead.
+  private static func fit(_ viewBox: CGRect, in size: CGSize, circle: Bool) -> (scale: CGFloat, origin: CGPoint) {
+    let s = circle
+      ? min(size.width, size.height) / hypot(viewBox.width, viewBox.height)
+      : min(size.width / viewBox.width, size.height / viewBox.height)
     return (s, CGPoint(x: (size.width - viewBox.width * s) / 2 - viewBox.minX * s,
                        y: (size.height - viewBox.height * s) / 2 - viewBox.minY * s))
   }
+  private static func isCircle(_ spec: [String: KBJSON]) -> Bool { (spec["fit"]?.asString ?? "circle") != "box" }
 
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -1549,7 +1556,7 @@ final class TulmiMarkView: UIView {
     laidOut = bounds.size
     layers.forEach { $0.removeFromSuperlayer() }
     layers = []
-    let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size)
+    let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size, circle: circle)
     let reduce = UIAccessibility.isReduceMotionEnabled
     for sh in shapes {
       let l = CAShapeLayer()
@@ -1621,7 +1628,7 @@ final class TulmiMarkView: UIView {
   /// samples opaque pixels, so the colour is beside the point.
   static func image(spec: [String: KBJSON], tint: UIColor, size: CGSize) -> UIImage? {
     guard let parsed = parse(spec) else { return nil }
-    let (s, o) = fit(parsed.viewBox, in: size)
+    let (s, o) = fit(parsed.viewBox, in: size, circle: isCircle(spec))
     return UIGraphicsImageRenderer(size: size).image { ctx in
       let c = ctx.cgContext
       c.setFillColor(tint.cgColor)

@@ -2076,8 +2076,10 @@ class SDUIRenderer(
             }
         }
 
+        private val circle = spec.optString("fit", "circle") != "box"
+
         override fun onDraw(c: Canvas) {
-            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath)
+            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle)
         }
 
         companion object {
@@ -2103,12 +2105,15 @@ class SDUIRenderer(
                 if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
                 else Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
 
-            /** The artboard aspect-fit and centred in w × h, then every shape. */
+            /** The artboard centred in w × h, then every shape. A round key fits
+             *  the artboard by its DIAGONAL, so its corners touch the circle and
+             *  no square is cut off at the rim; `fit: "box"` fits the sides. */
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
-                tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float,
+                tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true,
             ) {
-                val s = minOf(w / vb[2], h / vb[3])
+                val s = if (circle) minOf(w, h) / Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat()
+                        else minOf(w / vb[2], h / vb[3])
                 val ox = (w - vb[2] * s) / 2 - vb[0] * s
                 val oy = (h - vb[3] * s) / 2 - vb[1] * s
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -2167,7 +2172,8 @@ class SDUIRenderer(
                 val parsed = parse(spec) ?: return null
                 val size = px.coerceAtLeast(8)
                 val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-                paintShapes(Canvas(bmp), parsed.first, parsed.second, size.toFloat(), size.toFloat(), tint, emptyList(), 0f, 0f)
+                paintShapes(Canvas(bmp), parsed.first, parsed.second, size.toFloat(), size.toFloat(), tint, emptyList(), 0f, 0f,
+                    spec.optString("fit", "circle") != "box")
                 return bmp
             }
         }
