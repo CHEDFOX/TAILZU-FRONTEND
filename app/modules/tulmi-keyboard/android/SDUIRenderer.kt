@@ -2081,9 +2081,9 @@ class SDUIRenderer(
         // part leaves in turn, a beat after the last, along an arc — out past
         // the rim, shrinking and fading as it crosses it, turning as it goes.
         // Once they are away the kept shape, the dashed link between the
-        // blocks, glides to the middle and grows: the wave, its dashes bars
-        // that rise and fall with the voice while the bright cluster keeps
-        // running along it. Stop reverses all of it: the wave settles back
+        // blocks, glides to the middle and grows: the wave, doing what it
+        // does in the splash — the dashes stay put and the bright cluster
+        // runs along them, over and over. Stop reverses it: the wave settles back
         // into the link, and the parts glide in on the same arcs in cascade
         // and land exactly where they began; then the idle signal resumes.
         // Every part follows one number, its progress from home to away, on
@@ -2091,7 +2091,7 @@ class SDUIRenderer(
         // around: nothing ever jumps. The numbers are the server's.
         class Disperse(
             val keep: String, val out: Float, val spin: Float, val arc: Float, val shrink: Float, val gather: Float, val stagger: Float,
-            val settle: Float, val lift: Float, val rise: Float, val run: Float, val width: Float, val wait: Float, val centre: Boolean,
+            val settle: Float, val lift: Float, val run: Float, val gap: Float, val width: Float, val wait: Float, val centre: Boolean,
         )
         private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
             var k = 0                                   // its turn: nearest the wave leaves first, comes back last
@@ -2109,7 +2109,6 @@ class SDUIRenderer(
         private var clock = 0f
         private var startAt = 0f
         private var stopAt = 0f
-        private var smooth = 0f
         private var settleAt = 0f
         private var lastNanos = 0L
         private var onSettled: (() -> Unit)? = null
@@ -2190,10 +2189,8 @@ class SDUIRenderer(
             val now = System.nanoTime()
             val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 30f)
             lastNanos = now
-            val lv = level().coerceIn(0f, 1f); val u = unit
+            val u = unit
             clock += dt
-            // The voice, followed quickly up and slowly down, is what the bars rise to.
-            smooth += (lv - smooth) * minOf(1f, dt * (if (lv > smooth) 18f else 6f))
             val out = sp.out * rim; val n = parts.size; val tau = clock - startAt; val sigma = clock - stopAt
             var far = 0f; var fast = 0f
             val w0 = if (playing) 6.5f else 7.5f; val c0 = 2f * w0     // critically damped; a shade quicker home
@@ -2218,9 +2215,9 @@ class SDUIRenderer(
 
         /** The shapes as the dispersal has them: each part along its arc,
          *  turned, shrunk and faded by its progress; the link glided and grown
-         *  by the wave's, with its bars over its dashes — one plain line per
-         *  dash, its height from the voice and its colour from the running
-         *  cluster. Copies for one frame; the spec itself stays as sent. */
+         *  by the wave's, with the bright cluster's lit dashes over it — one
+         *  plain line per lit dash, in the signal colour, as the splash runs
+         *  it. Copies for one frame; the spec itself stays as sent. */
         private fun moved(tint: Int?, sigColor: Int): List<Shape> {
             val sp = disperse ?: return shapes
             val w = wave ?: return shapes
@@ -2257,26 +2254,26 @@ class SDUIRenderer(
                         val scaled = org.json.JSONArray(); for (j in 0 until dash.length()) scaled.put(dash.optDouble(j, 0.0) * k)
                         o.put("dash", scaled)
                         out += Shape(sh.id, sh.kind, o, sh.color)
+                        // The cluster: `width` of the line, fully lit at its core and soft at
+                        // its edges, from end to end in `run` seconds, a rest of `gap`, again.
                         val len = Math.hypot((bx - ax).toDouble(), (by - ay).toDouble()).toFloat()
                         val on = dash.optDouble(0, 0.0).toFloat() * k; val off = (if (dash.length() > 1) dash.optDouble(1, 0.0) else dash.optDouble(0, 0.0)).toFloat() * k
-                        val run = sp.run * (1f - 0.35f * smooth); val half = sp.width / 2
-                        val uu = (clock % run) / run; val centre = uu * (1f + sp.width) - half; val amp = 0.25f + 0.75f * smooth
-                        val ink = tint ?: sh.color ?: Color.BLACK
-                        var pos = 0f; var j = 0
+                        val half = sp.width / 2
+                        val uu = (clock % (sp.run + sp.gap)) / sp.run; val centre = uu * (1f + sp.width) - half
+                        var pos = 0f
                         while (pos < len && on > 0f) {
                             val f0 = pos / len; val f1 = minOf(len, pos + on) / len; val f = (f0 + f1) / 2
-                            val ripple = 0.5f + 0.5f * sn(2f * Math.PI.toFloat() * clock / 0.9f - 0.8f * j)
-                            val grain = 0.5f + 0.5f * sn(clock * 7.3f + j * 1.7f) * sn(clock * 3.1f + j * 0.9f)
-                            val h = 1f + q * ((0.4f + 0.6f * (ripple * 0.6f + grain * 0.4f) * amp) * (1f + sp.rise * smooth) - 1f)
                             val qq = Math.abs(f - centre) / half
-                            val lit = q * (if (qq >= 1f) 0f else if (qq < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (qq - 0.5f) / 0.5f))
-                            val bar = JSONObject()
-                            bar.put("x1", (ax + (bx - ax) * f0).toDouble()); bar.put("y1", (ay + (by - ay) * f0).toDouble())
-                            bar.put("x2", (ax + (bx - ax) * f1).toDouble()); bar.put("y2", (ay + (by - ay) * f1).toDouble())
-                            bar.put("width", (width * h).toDouble())
-                            bar.put("_color", mix(ink, sigColor, lit))
-                            out += Shape(null, "line", bar, null)
-                            pos += on + off; j++
+                            val lit = q * (if (uu > 1f || qq >= 1f) 0f else if (qq < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (qq - 0.5f) / 0.5f))
+                            if (lit > 0.002f) {
+                                val bar = JSONObject()
+                                bar.put("x1", (ax + (bx - ax) * f0).toDouble()); bar.put("y1", (ay + (by - ay) * f0).toDouble())
+                                bar.put("x2", (ax + (bx - ax) * f1).toDouble()); bar.put("y2", (ay + (by - ay) * f1).toDouble())
+                                bar.put("width", width.toDouble())
+                                bar.put("_color", sigColor); bar.put("_alpha", lit.toDouble())
+                                out += Shape(null, "line", bar, null)
+                            }
+                            pos += on + off
                         }
                     } else out += Shape(sh.id, sh.kind, o, sh.color)
                 } else out += Shape(sh.id, sh.kind, o, sh.color)
@@ -2315,12 +2312,13 @@ class SDUIRenderer(
                 val w = r.optJSONObject("wave")
                 return Disperse(
                     r.optString("keep", "link").ifEmpty { "link" },
-                    r.optDouble("out", 1.6).toFloat().coerceAtLeast(1f), r.optDouble("spin", 40.0).toFloat(),
+                    r.optDouble("out", 1.9).toFloat().coerceAtLeast(1f), r.optDouble("spin", 40.0).toFloat(),
                     r.optDouble("arc", 0.22).toFloat().coerceAtLeast(0f), r.optDouble("shrink", 0.45).toFloat().coerceIn(0f, 0.95f),
                     r.optDouble("gather", 0.05).toFloat().coerceAtLeast(0f), r.optDouble("stagger", 0.07).toFloat().coerceAtLeast(0f),
                     r.optDouble("settle", 1.2).toFloat().coerceAtLeast(0.1f),
-                    (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f), (w?.optDouble("rise", 0.9) ?: 0.9).toFloat().coerceAtLeast(0f),
-                    (w?.optDouble("run", 1.0) ?: 1.0).toFloat().coerceAtLeast(0.2f), (w?.optDouble("width", 0.3) ?: 0.3).toFloat().coerceIn(0.05f, 0.9f),
+                    (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f),
+                    (w?.optDouble("run", 0.95) ?: 0.95).toFloat().coerceAtLeast(0.2f), (w?.optDouble("gap", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f),
+                    (w?.optDouble("width", 0.3) ?: 0.3).toFloat().coerceIn(0.05f, 0.9f),
                     (w?.optDouble("wait", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f), w?.optBoolean("centre", true) ?: true,
                 )
             }
