@@ -1535,7 +1535,7 @@ final class TulmiMarkView: UIView {
   // numbers are the server's, from motion.recording.
   struct Disperse {
     let keep: String
-    let out, spin, arc, shrink, gather, stagger, settle, lift, run, gap, width, wait: Double
+    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise: Double
     let centre: Bool
   }
   private struct Part {
@@ -1593,10 +1593,11 @@ final class TulmiMarkView: UIView {
                     arc: max(0, r["arc"]?.asDouble ?? 0.22), shrink: min(0.95, max(0, r["shrink"]?.asDouble ?? 0.45)),
                     gather: max(0, r["gather"]?.asDouble ?? 0.05), stagger: max(0, r["stagger"]?.asDouble ?? 0.07),
                     settle: max(0.1, r["settle"]?.asDouble ?? 1.2),
-                    lift: max(0.5, w?["lift"]?.asDouble ?? 2),
-                    run: max(0.2, w?["run"]?.asDouble ?? 0.95), gap: max(0, w?["gap"]?.asDouble ?? 0.25),
-                    width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)),
-                    wait: max(0, w?["wait"]?.asDouble ?? 0.25), centre: w?["centre"]?.asBool ?? true)
+                    lift: max(0.5, w?["lift"]?.asDouble ?? 2), wait: max(0, w?["wait"]?.asDouble ?? 0.25),
+                    tidePeriod: max(0.2, w?["tide"]?.asObject?["period"]?.asDouble ?? 1.2),
+                    tideLength: max(0.1, w?["tide"]?.asObject?["length"]?.asDouble ?? 0.6),
+                    tideRise: min(1, max(0, w?["tide"]?.asObject?["rise"]?.asDouble ?? 1)),
+                    centre: w?["centre"]?.asBool ?? true)
   }
 
   override func didMoveToWindow() {
@@ -1638,30 +1639,40 @@ final class TulmiMarkView: UIView {
     for (k, i) in order.enumerated() { parts[i].k = k }
   }
 
-  /// One layer per bar of a row of bars — its swollen twin, thicker and a
-  /// touch taller — or per dash of a dashed line, in the signal colour and
-  /// hidden, each with its place along the line. The run lights them on
+  /// One layer per bar of a row of bars — drawn over its bar at rest, in the
+  /// same ink, so it shows only as it rises; it carries its rest and peak
+  /// path and width — or per dash of a dashed line, in the signal colour and
+  /// hidden. Each knows its place along the line. The run drives them on
   /// their cue; while the microphone is open they are the wave's.
   private func dashLayers(for li: Int, color: CGColor, scale s: CGFloat, origin o: CGPoint) -> [(CAShapeLayer, Double)] {
     let sh = shapes[li], sub = layers[li]
     var out: [(CAShapeLayer, Double)] = []
     barLit = color
-    func add(_ a: CGPoint, _ b: CGPoint, width: CGFloat, at f: Double) {
-      let d = CAShapeLayer(), p = UIBezierPath()
+    func path(_ a: CGPoint, _ b: CGPoint) -> CGPath {
+      let p = UIBezierPath()
       p.move(to: CGPoint(x: o.x + a.x * s - sub.position.x, y: o.y + a.y * s - sub.position.y))
       p.addLine(to: CGPoint(x: o.x + b.x * s - sub.position.x, y: o.y + b.y * s - sub.position.y))
-      d.path = p.cgPath; d.position = sub.position
+      return p.cgPath
+    }
+    func add(_ a: CGPoint, _ b: CGPoint, width: CGFloat, at f: Double) -> CAShapeLayer {
+      let d = CAShapeLayer()
+      d.path = path(a, b); d.position = sub.position
       d.fillColor = nil; d.strokeColor = color; d.lineWidth = width; d.lineCap = .butt
       d.opacity = 0
       root.insertSublayer(d, above: sub)
       extras.append(d)
       out.append((d, f))
+      return d
     }
     if sh.kind == "bars" {
+      let thick = (sh.n["thick"] ?? 6) * s
       for (i, h) in sh.heights.enumerated() {
         let t = (CGFloat(i) + 0.5) / CGFloat(sh.heights.count)
-        let (a, b) = sh.bar(at: t, height: h * sh.swellHeight)
-        add(a, b, width: (sh.n["thick"] ?? 6) * sh.swellThick * s, at: Double(t))
+        let (a, b) = sh.bar(at: t, height: h), (pa, pb) = sh.bar(at: t, height: h * sh.swellHeight)
+        let d = add(a, b, width: thick, at: Double(t))
+        d.setValue([d.path!, thick], forKey: "rest")
+        d.setValue([path(pa, pb), thick * sh.swellThick], forKey: "peak")
+        d.setValue([a.x, a.y, b.x, b.y, pa.x, pa.y, pb.x, pb.y], forKey: "ends")
       }
       return out
     }
@@ -1772,27 +1783,39 @@ final class TulmiMarkView: UIView {
       l.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot), 0, 0, 1))
       l.opacity = Float(op)
     }
-    // THE WAVE, as the splash runs it: the dashes stay exactly as they are,
-    // and the bright cluster — `width` of the line, fully lit at its core and
-    // soft at its edges — travels from end to end in `run` seconds, rests for
-    // `gap`, and goes again. The same dash layers the idle signal lights, on
-    // the same cue, only looped and driven here.
+    // THE WAVE IS WATER. Two crests travel the bars, a long slow one and a
+    // shorter quicker one riding it; where they add, a tide forms — each bar
+    // rising under the crest and collapsing behind it — and where they
+    // cancel, it goes flat. Crests are peaked and troughs are flat, the way
+    // water is. All in the mark's own ink; nothing lights. A dashed line,
+    // kept instead, lights its dashes under the crests.
     let link = layers[w.layer]
     let q = min(1, max(0, w.q)), k = 1 + (sp.lift - 1) * w.q
     let pos = CGPoint(x: o.x + (w.mid.x + CGFloat((sp.centre ? C.x - Double(w.mid.x) : 0) * w.q)) * s,
                       y: o.y + (w.mid.y + CGFloat((sp.centre ? C.y - Double(w.mid.y) : 0) * w.q)) * s)
     link.position = pos
     link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
-    let half = sp.width / 2
-    let u = clock.truncatingRemainder(dividingBy: sp.run + sp.gap) / sp.run, centre = u * (1 + sp.width) - half
     for bar in bars {
-      let qq = abs(bar.f - centre) / half
-      let lit = (u > 1 || qq >= 1) ? 0 : qq < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (qq - 0.5) / 0.5)
+      let a = max(0, sin(2 * .pi * (bar.f / sp.tideLength - clock / sp.tidePeriod)))
+      let b = max(0, sin(2 * .pi * (bar.f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3)))
+      let k = min(1, (pow(a, 1.6) + 0.45 * pow(b, 1.6)) * sp.tideRise) * q
       bar.layer.isHidden = false
       bar.layer.position = pos
       bar.layer.transform = link.transform
       bar.layer.strokeColor = barLit
-      bar.layer.opacity = Float(lit * q)
+      if let e = bar.layer.value(forKey: "ends") as? [CGFloat], e.count == 8, let rest = bar.layer.value(forKey: "rest") as? [Any], let peak = bar.layer.value(forKey: "peak") as? [Any] {
+        // A bar, k of the way up: its ends between rest and peak, its width
+        // too. The path is about the link's home, as built; the layer's
+        // position and scale carry the glide and the growth.
+        let kk = CGFloat(k), p = UIBezierPath(), home = CGPoint(x: o.x + w.mid.x * s, y: o.y + w.mid.y * s)
+        p.move(to: CGPoint(x: o.x + (e[0] + (e[4] - e[0]) * kk) * s - home.x, y: o.y + (e[1] + (e[5] - e[1]) * kk) * s - home.y))
+        p.addLine(to: CGPoint(x: o.x + (e[2] + (e[6] - e[2]) * kk) * s - home.x, y: o.y + (e[3] + (e[7] - e[3]) * kk) * s - home.y))
+        bar.layer.path = p.cgPath
+        bar.layer.lineWidth = (rest[1] as? CGFloat ?? 1) + ((peak[1] as? CGFloat ?? 1) - (rest[1] as? CGFloat ?? 1)) * kk
+        bar.layer.opacity = 1
+      } else {
+        bar.layer.opacity = Float(k)      // a dash: lit under the crest
+      }
     }
     CATransaction.commit()
   }
@@ -1923,25 +1946,38 @@ final class TulmiMarkView: UIView {
           let sub = layers[i], sh = shapes[i]
           let at = min(period, max(0, st["at"]?.asDouble ?? 0))
           if (sh.kind == "line" && !sh.dash.isEmpty) || sh.kind == "bars", let run = st["run"]?.asDouble, run > 0 {
-            // THE RUN BETWEEN THE BLOCKS, as the splash has it: the bars (or
-            // dashes) stay where they are, and a bright cluster — `width` of
-            // the line, fully lit at its core and soft at its edges, each bar
-            // under it swollen — travels from end to end in `run` seconds.
-            // One layer per bar, lit on its cue.
+            // THE RUN BETWEEN THE BLOCKS. The bars or dashes stay where they
+            // are and a crest — `width` of the line, full at its core and soft
+            // at its edges — travels from end to end in `run` seconds. A bar
+            // rises under it and collapses behind it, in its own ink; a dash
+            // lights in the signal colour. One layer per bar, on its own cue.
             let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
             let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
-            let dashes = dashLayers(for: i, color: sig, scale: s, origin: o)
+            let dashes = dashLayers(for: i, color: sh.kind == "bars" ? (tint ?? sh.color ?? UIColor.black).cgColor : sig, scale: s, origin: o)
             if sh.id == disperseSpec?.keep { bars = dashes }
             for (d, f) in dashes {
-              // Its cue: the cluster's centre passes at `tf`; fully lit for the
-              // core half of the cluster about that, fading over the rest.
-              let tf = at + run * (f + half) / (1 + width), edge = run * half / (1 + width), core = edge * 0.5
-              let an = CAKeyframeAnimation(keyPath: "opacity")
-              an.values = [0, 0, 1, 1, 0, 0]
-              an.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf - core, tf + core, tf + edge, period], period)
-              an.timingFunctions = [linear, ease, linear, ease, linear]
-              an.duration = period; an.repeatCount = .infinity
-              d.add(an, forKey: "signal")
+              // Its cue: the crest's centre passes at `tf`, the whole crest in `2 * edge`.
+              let tf = at + run * (f + half) / (1 + width), edge = run * half / (1 + width)
+              if sh.kind == "bars", let rest = d.value(forKey: "rest") as? [Any], let peak = d.value(forKey: "peak") as? [Any] {
+                let up = CAKeyframeAnimation(keyPath: "path")
+                up.values = [rest[0], rest[0], peak[0], rest[0], rest[0]]
+                up.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf, tf + edge, period], period)
+                up.timingFunctions = [linear, ease, ease, linear]
+                let wide = CAKeyframeAnimation(keyPath: "lineWidth")
+                wide.values = [rest[1], rest[1], peak[1], rest[1], rest[1]]
+                wide.keyTimes = up.keyTimes; wide.timingFunctions = up.timingFunctions
+                let g = CAAnimationGroup(); g.animations = [up, wide]; g.duration = period; g.repeatCount = .infinity
+                d.opacity = 1
+                d.add(g, forKey: "signal")
+              } else {
+                let core = edge * 0.5
+                let an = CAKeyframeAnimation(keyPath: "opacity")
+                an.values = [0, 0, 1, 1, 0, 0]
+                an.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf - core, tf + core, tf + edge, period], period)
+                an.timingFunctions = [linear, ease, linear, ease, linear]
+                an.duration = period; an.repeatCount = .infinity
+                d.add(an, forKey: "signal")
+              }
             }
           } else {
             // On in sixty milliseconds, off in sixty: a swap, not a flicker.

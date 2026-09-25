@@ -2091,7 +2091,7 @@ class SDUIRenderer(
         // around: nothing ever jumps. The numbers are the server's.
         class Disperse(
             val keep: String, val out: Float, val spin: Float, val arc: Float, val shrink: Float, val gather: Float, val stagger: Float,
-            val settle: Float, val lift: Float, val run: Float, val gap: Float, val width: Float, val wait: Float, val centre: Boolean,
+            val settle: Float, val lift: Float, val wait: Float, val tidePeriod: Float, val tideLength: Float, val tideRise: Float, val centre: Boolean,
         )
         private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
             var k = 0                                   // its turn: nearest the wave leaves first, comes back last
@@ -2241,37 +2241,27 @@ class SDUIRenderer(
                     o.put("_turn", (rot * 180f / Math.PI.toFloat()).toDouble()); o.put("_scale", sc.toDouble()); o.put("_alpha", op.toDouble())
                     out += Shape(sh.id, sh.kind, o, sh.color)
                 } else if (i == w.index && sh.kind == "bars") {
-                    // The wave: the bars glided and grown about their middle, and under
-                    // the swell — from end to end in `run` seconds, a rest of `gap`,
-                    // again — each bar's swollen twin in the signal colour.
+                    // THE WAVE IS WATER. Two crests travel the bars, a long slow one and
+                    // a shorter quicker one riding it; where they add a tide forms — each
+                    // bar rising under the crest and collapsing behind it — and where they
+                    // cancel it goes flat. The bars glide and grow with the wave; each
+                    // carries its own rise for the painter. All in the mark's own ink.
                     val q = w.q.coerceIn(0f, 1f); val k = 1f + (sp.lift - 1f) * w.q
                     val x1 = sh.o.optDouble("x1").toFloat(); val y1 = sh.o.optDouble("y1").toFloat(); val x2 = sh.o.optDouble("x2").toFloat(); val y2 = sh.o.optDouble("y2").toFloat()
                     val mx = w.mx + (if (sp.centre) cX - w.mx else 0f) * w.q; val my = w.my + (if (sp.centre) cY - w.my else 0f) * w.q
                     val ax = mx + (x1 - w.mx) * k; val ay = my + (y1 - w.my) * k; val bx = mx + (x2 - w.mx) * k; val by = my + (y2 - w.my) * k
                     val hs = sh.o.optJSONArray("heights")!!; val n = hs.length()
-                    val grown = org.json.JSONArray(); for (j in 0 until n) grown.put(hs.optDouble(j, 0.0) * k)
-                    o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble())
-                    o.put("thick", sh.o.optDouble("thick", 6.0) * k); o.put("heights", grown)
-                    out += Shape(sh.id, sh.kind, o, sh.color)
-                    val dx = bx - ax; val dy = by - ay; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
-                    val nx = -dy / len; val ny = dx / len
-                    val swell = sh.o.optJSONObject("swell"); val swT = swell?.optDouble("thick", 1.5)?.toFloat() ?: 1.5f; val swH = swell?.optDouble("height", 1.07)?.toFloat() ?: 1.07f
-                    val thick = sh.o.optDouble("thick", 6.0).toFloat() * k
-                    val half = sp.width / 2
-                    val uu = (clock % (sp.run + sp.gap)) / sp.run; val centre = uu * (1f + sp.width) - half
+                    val grown = org.json.JSONArray(); val rises = org.json.JSONArray()
                     for (j in 0 until n) {
-                        val f = (j + 0.5f) / n; val qq = Math.abs(f - centre) / half
-                        val lit = q * (if (uu > 1f || qq >= 1f) 0f else if (qq < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (qq - 0.5f) / 0.5f))
-                        if (lit > 0.002f) {
-                            val h = hs.optDouble(j, 0.0).toFloat() * k * swH; val cx = ax + dx * f; val cy = ay + dy * f
-                            val bar = JSONObject()
-                            bar.put("x1", (cx - nx * h / 2).toDouble()); bar.put("y1", (cy - ny * h / 2).toDouble())
-                            bar.put("x2", (cx + nx * h / 2).toDouble()); bar.put("y2", (cy + ny * h / 2).toDouble())
-                            bar.put("width", (thick * swT).toDouble())
-                            bar.put("_color", sigColor); bar.put("_alpha", lit.toDouble())
-                            out += Shape(null, "line", bar, null)
-                        }
+                        val f = (j + 0.5f) / n
+                        val a = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / sp.tideLength - clock / sp.tidePeriod)))
+                        val b = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / (sp.tideLength * 0.55f) - clock / (sp.tidePeriod * 0.7f) + 0.3f)))
+                        val rise = minOf(1f, (Math.pow(a.toDouble(), 1.6).toFloat() + 0.45f * Math.pow(b.toDouble(), 1.6).toFloat()) * sp.tideRise) * q
+                        grown.put(hs.optDouble(j, 0.0) * k); rises.put(rise.toDouble())
                     }
+                    o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble())
+                    o.put("thick", sh.o.optDouble("thick", 6.0) * k); o.put("heights", grown); o.put("_rise", rises)
+                    out += Shape(sh.id, sh.kind, o, sh.color)
                 } else if (i == w.index) {
                     // The wave as a dashed line: its ends glided and grown about its middle, and the cluster's lit dashes over it.
                     val q = w.q.coerceIn(0f, 1f); val k = 1f + (sp.lift - 1f) * w.q
@@ -2290,13 +2280,11 @@ class SDUIRenderer(
                         // its edges, from end to end in `run` seconds, a rest of `gap`, again.
                         val len = Math.hypot((bx - ax).toDouble(), (by - ay).toDouble()).toFloat()
                         val on = dash.optDouble(0, 0.0).toFloat() * k; val off = (if (dash.length() > 1) dash.optDouble(1, 0.0) else dash.optDouble(0, 0.0)).toFloat() * k
-                        val half = sp.width / 2
-                        val uu = (clock % (sp.run + sp.gap)) / sp.run; val centre = uu * (1f + sp.width) - half
                         var pos = 0f
                         while (pos < len && on > 0f) {
                             val f0 = pos / len; val f1 = minOf(len, pos + on) / len; val f = (f0 + f1) / 2
-                            val qq = Math.abs(f - centre) / half
-                            val lit = q * (if (uu > 1f || qq >= 1f) 0f else if (qq < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (qq - 0.5f) / 0.5f))
+                            val ta = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / sp.tideLength - clock / sp.tidePeriod)))
+                            val lit = q * minOf(1f, Math.pow(ta.toDouble(), 1.6).toFloat() * sp.tideRise)
                             if (lit > 0.002f) {
                                 val bar = JSONObject()
                                 bar.put("x1", (ax + (bx - ax) * f0).toDouble()); bar.put("y1", (ay + (by - ay) * f0).toDouble())
@@ -2348,10 +2336,11 @@ class SDUIRenderer(
                     r.optDouble("arc", 0.22).toFloat().coerceAtLeast(0f), r.optDouble("shrink", 0.45).toFloat().coerceIn(0f, 0.95f),
                     r.optDouble("gather", 0.05).toFloat().coerceAtLeast(0f), r.optDouble("stagger", 0.07).toFloat().coerceAtLeast(0f),
                     r.optDouble("settle", 1.2).toFloat().coerceAtLeast(0.1f),
-                    (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f),
-                    (w?.optDouble("run", 0.95) ?: 0.95).toFloat().coerceAtLeast(0.2f), (w?.optDouble("gap", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f),
-                    (w?.optDouble("width", 0.3) ?: 0.3).toFloat().coerceIn(0.05f, 0.9f),
-                    (w?.optDouble("wait", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f), w?.optBoolean("centre", true) ?: true,
+                    (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f), (w?.optDouble("wait", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f),
+                    (w?.optJSONObject("tide")?.optDouble("period", 1.2) ?: 1.2).toFloat().coerceAtLeast(0.2f),
+                    (w?.optJSONObject("tide")?.optDouble("length", 0.6) ?: 0.6).toFloat().coerceAtLeast(0.1f),
+                    (w?.optJSONObject("tide")?.optDouble("rise", 1.0) ?: 1.0).toFloat().coerceIn(0f, 1f),
+                    w?.optBoolean("centre", true) ?: true,
                 )
             }
 
@@ -2474,16 +2463,17 @@ class SDUIRenderer(
                         }
                         "bars" -> {
                             // THE WAVE OF THE ICON: thin bars of uneven height across the
-                            // line, as the splash draws it. Under the signal's bright
-                            // cluster a bar swells: thicker by `swell.thick`, taller by
-                            // `swell.height`, in the signal colour.
+                            // line, as the splash draws it, in the mark's own ink. Under
+                            // the signal's crest a bar rises — `swell.height` times taller,
+                            // `swell.thick` times thicker — and collapses behind it. A copy
+                            // made by the wave carries each bar's own rise in `_rise`.
                             val x1 = ox + o.optDouble("x1").toFloat() * s; val y1 = oy + o.optDouble("y1").toFloat() * s
                             val x2 = ox + o.optDouble("x2").toFloat() * s; val y2 = oy + o.optDouble("y2").toFloat() * s
                             val hs = o.optJSONArray("heights")!!; val n = hs.length()
                             val dx = x2 - x1; val dy = y2 - y1; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
                             val nx = -dy / len; val ny = dx / len
                             val thick = o.optDouble("thick", 6.0).toFloat() * s
-                            val swell = o.optJSONObject("swell"); val swT = swell?.optDouble("thick", 1.5)?.toFloat() ?: 1.5f; val swH = swell?.optDouble("height", 1.07)?.toFloat() ?: 1.07f
+                            val swell = o.optJSONObject("swell"); val swT = swell?.optDouble("thick", 1.3)?.toFloat() ?: 1.3f; val swH = swell?.optDouble("height", 1.9)?.toFloat() ?: 1.9f
                             motionOf(c, o, (x1 + x2) / 2, (y1 + y2) / 2)
                             paint.style = Paint.Style.STROKE; paint.strokeCap = Paint.Cap.BUTT
                             val at = step?.optDouble("at", 0.0)?.toFloat() ?: 0f
@@ -2491,21 +2481,16 @@ class SDUIRenderer(
                             val width = step?.optDouble("width", 0.3)?.toFloat()?.coerceIn(0.05f, 0.9f) ?: 0.3f; val half = width / 2
                             val u = if (runs) (t - at) / run else -1f
                             val centre = u * (1 + width) - half
-                            val ink = paint.color; val inkAlpha = paint.alpha
+                            val rises = o.optJSONArray("_rise")
                             for (i in 0 until n) {
-                                val f = (i + 0.5f) / n; val h = hs.optDouble(i, 0.0).toFloat() * s
+                                val f = (i + 0.5f) / n
+                                // How far up this bar is: under the crest of the run, or as the wave says.
+                                var k = if (rises != null) rises.optDouble(i, 0.0).toFloat() else 0f
+                                if (runs && u in 0f..1f) { val q = Math.abs(f - centre) / half; if (q < 1f) k = maxOf(k, 0.5f + 0.5f * cs(Math.PI.toFloat() * q)) }
+                                val h = hs.optDouble(i, 0.0).toFloat() * s * (1f + (swH - 1f) * k)
                                 val cx = x1 + dx * f; val cy = y1 + dy * f
-                                paint.color = ink; paint.alpha = inkAlpha; paint.strokeWidth = thick
+                                paint.strokeWidth = thick * (1f + (swT - 1f) * k)
                                 c.drawLine(cx - nx * h / 2, cy - ny * h / 2, cx + nx * h / 2, cy + ny * h / 2, paint)
-                                if (runs && u in 0f..1f) {
-                                    val q = Math.abs(f - centre) / half
-                                    val lit = if (q >= 1f) 0f else if (q < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (q - 0.5f) / 0.5f)
-                                    if (lit > 0.002f) {
-                                        val th = h * swH
-                                        paint.color = sigColor; paint.alpha = (inkAlpha * lit).toInt(); paint.strokeWidth = thick * swT
-                                        c.drawLine(cx - nx * th / 2, cy - ny * th / 2, cx + nx * th / 2, cy + ny * th / 2, paint)
-                                    }
-                                }
                             }
                         }
                         else -> {
