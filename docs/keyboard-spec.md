@@ -120,6 +120,7 @@ mark stands, on either platform.
 ```
 
 - `shapes`: `rect` (x, y, w, h, rx), `line` (x1, y1, x2, y2, width, cap, dash), `circle` (cx, cy, r). Coordinates are the artboard's; `viewBox` is the part shown, aspect-fit into the key.
+- `fit: "circle"` (default) scales the artboard so its diagonal spans the key, which keeps every corner inside a round key; `"box"` fits the sides.
 - `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
 - `motion.idle`: `hatch` runs a dashed line's dashes along it once per `period` seconds; `breathe` swells a shape to `scale` and fades it to `opacity` and back. Both honour the system's reduce-motion setting.
 - `motion.recording`: `"particles"` — the mark bursts into the dot sim while the microphone is open — or `"none"`.
