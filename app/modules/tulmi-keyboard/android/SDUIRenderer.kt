@@ -2489,23 +2489,29 @@ class SDUIRenderer(
                             }
                             c.drawLine(x1, y1, x2, y2, paint)
                             if (runs && iv != null) {
-                                // The run of light: the same dashes again, in the signal
-                                // colour, through a window a fifth of the line wide that
-                                // slides from end to end in `run`. Its dash phase is the
-                                // base's advanced by the window's start, so lit dashes sit
-                                // exactly on the dashes beneath them.
+                                // THE RUN BETWEEN THE BLOCKS, as the splash has it: the dashes
+                                // stay where they are, and a bright cluster of them — `width` of
+                                // the line, fully lit at its core and soft at its edges — travels
+                                // from end to end in `run` seconds. Each dash lit on its own cue.
                                 val at = step!!.optDouble("at", 0.0).toFloat()
                                 val run = step.optDouble("run", 1.0).toFloat().coerceAtLeast(0.05f)
-                                val u = (t - at) / run; val win = 0.22f
+                                val width = step.optDouble("width", 0.3).toFloat().coerceIn(0.05f, 0.9f); val half = width / 2
+                                val u = (t - at) / run
                                 if (u in 0f..1f) {
-                                    val mid = u * (1 + win) - win / 2
-                                    val s0 = (mid - win / 2).coerceIn(0f, 1f); val s1 = (mid + win / 2).coerceIn(0f, 1f)
-                                    if (s1 > s0) {
-                                        val len = Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()).toFloat()
-                                        paint.color = sigColor
-                                        paint.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
-                                        paint.pathEffect = DashPathEffect(iv, basePhase + s0 * len)
-                                        c.drawLine(x1 + (x2 - x1) * s0, y1 + (y2 - y1) * s0, x1 + (x2 - x1) * s1, y1 + (y2 - y1) * s1, paint)
+                                    val centre = u * (1 + width) - half
+                                    val len = Math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble()).toFloat()
+                                    val on = iv[0]; val off = if (iv.size > 1) iv[1] else iv[0]
+                                    paint.pathEffect = null; paint.color = sigColor
+                                    var pos = 0f
+                                    while (pos < len && on > 0f) {
+                                        val f0 = pos / len; val f1 = minOf(len, pos + on) / len
+                                        val q = Math.abs((f0 + f1) / 2 - centre) / half
+                                        if (q < 1f) {
+                                            val lit = if (q < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (q - 0.5f) / 0.5f)
+                                            paint.alpha = (255 * alpha.coerceIn(0f, 1f) * lit).toInt()
+                                            c.drawLine(x1 + (x2 - x1) * f0, y1 + (y2 - y1) * f0, x1 + (x2 - x1) * f1, y1 + (y2 - y1) * f1, paint)
+                                        }
+                                        pos += on + off
                                     }
                                 }
                             }
