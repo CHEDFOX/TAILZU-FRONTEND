@@ -1483,6 +1483,225 @@ final class KeyCalloutView: UIView {
 // adds/removes it with the rest of the tree — no manual start/stop, no leaked
 // CADisplayLink (which would otherwise retain the view and keep ticking).
 // =============================================================================
+
+// =============================================================================
+// MARK: - The motion language
+//
+// The mic key's program is written in a small language of numbers: arithmetic,
+// comparisons, && || !, ?:, built-in functions, the program's own functions,
+// and names looked up in a context. The same evaluator runs on Android and in
+// the backend's tests. Anything unknown or non-finite is 0: a bad program is
+// a still mark, never a crash.
+// =============================================================================
+indirect enum MotionAST {
+  case num(Double), name(String), call(String, [MotionAST]), neg(MotionAST), not(MotionAST)
+  case tern(MotionAST, MotionAST, MotionAST), bin(String, MotionAST, MotionAST)
+}
+
+/// A context: names to numbers, a few lent functions, and a parent to fall back on.
+final class MotionCtx {
+  var v: [String: Double] = [:]
+  var fn: [String: ([Double]) -> Double] = [:]
+  let parent: MotionCtx?
+  init(_ parent: MotionCtx? = nil) { self.parent = parent }
+  func get(_ k: String) -> Double? { if let x = v[k] { return x }; return parent?.get(k) }
+  func lent(_ k: String) -> (([Double]) -> Double)? { if let f = fn[k] { return f }; return parent?.lent(k) }
+}
+
+struct MotionFunc { let args: [String]; let ast: MotionAST }
+
+enum MotionLang {
+  private enum Tok: Equatable { case num(Double), id(String), op(String) }
+
+  private static func tokenize(_ src: String) throws -> [Tok] {
+    var out: [Tok] = [], chars = Array(src), i = 0
+    let two = ["||", "&&", "==", "!=", "<=", ">="], one = Set("-+*/%^<>!?:(),")
+    while i < chars.count {
+      let c = chars[i]
+      if c.isWhitespace { i += 1; continue }
+      if c.isNumber || (c == "." && i + 1 < chars.count && chars[i + 1].isNumber) {
+        var j = i
+        while j < chars.count, chars[j].isNumber || chars[j] == "." { j += 1 }
+        if j < chars.count, chars[j] == "e" || chars[j] == "E" {
+          var k = j + 1
+          if k < chars.count, chars[k] == "+" || chars[k] == "-" { k += 1 }
+          if k < chars.count, chars[k].isNumber { j = k; while j < chars.count, chars[j].isNumber { j += 1 } }
+        }
+        out.append(.num(Double(String(chars[i..<j])) ?? 0)); i = j; continue
+      }
+      if c.isLetter || c == "_" {
+        var j = i
+        while j < chars.count, chars[j].isLetter || chars[j].isNumber || chars[j] == "_" || chars[j] == "." { j += 1 }
+        out.append(.id(String(chars[i..<j]))); i = j; continue
+      }
+      if i + 1 < chars.count, two.contains(String(chars[i...i + 1])) { out.append(.op(String(chars[i...i + 1]))); i += 2; continue }
+      if one.contains(c) { out.append(.op(String(c))); i += 1; continue }
+      throw NSError(domain: "motion", code: 1, userInfo: [NSLocalizedDescriptionKey: "bad character \(c)"])
+    }
+    return out
+  }
+
+  private final class Parser {
+    let toks: [Tok]; var pos = 0
+    init(_ t: [Tok]) { toks = t }
+    func isOp(_ v: String) -> Bool { pos < toks.count && toks[pos] == .op(v) }
+    func take(_ v: String) throws { guard isOp(v) else { throw NSError(domain: "motion", code: 2, userInfo: [NSLocalizedDescriptionKey: "expected \(v)"]) }; pos += 1 }
+    func opValue() -> String { if case .op(let v) = toks[pos] { pos += 1; return v }; return "" }
+    func ternary() throws -> MotionAST { let c = try or(); if isOp("?") { pos += 1; let a = try ternary(); try take(":"); let b = try ternary(); return .tern(c, a, b) }; return c }
+    func or() throws -> MotionAST { var l = try and(); while isOp("||") { pos += 1; l = .bin("||", l, try and()) }; return l }
+    func and() throws -> MotionAST { var l = try eq(); while isOp("&&") { pos += 1; l = .bin("&&", l, try eq()) }; return l }
+    func eq() throws -> MotionAST { var l = try rel(); while isOp("==") || isOp("!=") { let o = opValue(); l = .bin(o, l, try rel()) }; return l }
+    func rel() throws -> MotionAST { var l = try add(); while isOp("<") || isOp("<=") || isOp(">") || isOp(">=") { let o = opValue(); l = .bin(o, l, try add()) }; return l }
+    func add() throws -> MotionAST { var l = try mul(); while isOp("+") || isOp("-") { let o = opValue(); l = .bin(o, l, try mul()) }; return l }
+    func mul() throws -> MotionAST { var l = try unary(); while isOp("*") || isOp("/") || isOp("%") { let o = opValue(); l = .bin(o, l, try unary()) }; return l }
+    func unary() throws -> MotionAST { if isOp("-") { pos += 1; return .neg(try unary()) }; if isOp("!") { pos += 1; return .not(try unary()) }; return try power() }
+    func power() throws -> MotionAST { let b = try primary(); if isOp("^") { pos += 1; return .bin("^", b, try unary()) }; return b }
+    func primary() throws -> MotionAST {
+      guard pos < toks.count else { throw NSError(domain: "motion", code: 3, userInfo: [NSLocalizedDescriptionKey: "unexpected end"]) }
+      switch toks[pos] {
+      case .num(let v): pos += 1; return .num(v)
+      case .id(let name):
+        pos += 1
+        if isOp("(") {
+          pos += 1; var args: [MotionAST] = []
+          if !isOp(")") { args.append(try ternary()); while isOp(",") { pos += 1; args.append(try ternary()) } }
+          try take(")"); return .call(name, args)
+        }
+        return .name(name)
+      case .op(let v):
+        if v == "(" { pos += 1; let e = try ternary(); try take(")"); return e }
+        throw NSError(domain: "motion", code: 4, userInfo: [NSLocalizedDescriptionKey: "unexpected \(v)"])
+      }
+    }
+  }
+
+  static func parse(_ src: String) throws -> MotionAST {
+    let p = Parser(try tokenize(src)); let ast = try p.ternary()
+    guard p.pos == p.toks.count else { throw NSError(domain: "motion", code: 5, userInfo: [NSLocalizedDescriptionKey: "trailing input"]) }
+    return ast
+  }
+
+  private static func fin(_ x: Double) -> Double { x.isFinite ? x : 0 }
+  private static func a(_ v: [Double], _ i: Int) -> Double { i < v.count ? v[i] : 0 }
+  static let builtins: [String: ([Double]) -> Double] = [
+    "sin": { sin(a($0, 0)) }, "cos": { cos(a($0, 0)) }, "tan": { tan(a($0, 0)) }, "abs": { abs(a($0, 0)) },
+    "sqrt": { a($0, 0) < 0 ? 0 : sqrt(a($0, 0)) }, "floor": { floor(a($0, 0)) }, "ceil": { ceil(a($0, 0)) }, "round": { (a($0, 0)).rounded() },
+    "exp": { exp(a($0, 0)) }, "log": { a($0, 0) > 0 ? log(a($0, 0)) : 0 }, "atan2": { atan2(a($0, 0), a($0, 1)) },
+    "min": { $0.min() ?? 0 }, "max": { $0.max() ?? 0 },
+    "pow": { a($0, 0) < 0 && a($0, 1) != floor(a($0, 1)) ? 0 : pow(a($0, 0), a($0, 1)) }, "hypot": { hypot(a($0, 0), a($0, 1)) },
+    "clamp": { min(max(a($0, 0), a($0, 1)), a($0, 2)) },
+    "smooth": { let lo = a($0, 0), hi = a($0, 1), x = a($0, 2); let u = hi == lo ? (x >= hi ? 1.0 : 0.0) : min(1, max(0, (x - lo) / (hi - lo))); return u * u * (3 - 2 * u) },
+    "lerp": { a($0, 0) + (a($0, 1) - a($0, 0)) * a($0, 2) },
+    "crest": { let s = sin(a($0, 0)); return s > 0 ? pow(s, 1.6) : 0 },
+    "ramp": { let x = a($0, 0), at = a($0, 1), len = a($0, 2); let e = $0.count > 3 && a($0, 3) > 0 ? a($0, 3) : 0.06
+      return x < at ? 0 : x < at + e ? (x - at) / e : x < at + len ? 1 : x < at + len + e ? 1 - (x - at - len) / e : 0 },
+    "run": { let f = a($0, 0), x = a($0, 1), at = a($0, 2), dur = a($0, 3), width = a($0, 4); let u = dur == 0 ? -1 : (x - at) / dur
+      if u < 0 || u > 1 { return 0 }; let half = width / 2; if half <= 0 { return 0 }; let c = u * (1 + width) - half, q = abs(f - c) / half
+      return q >= 1 ? 0 : 0.5 + 0.5 * cos(.pi * q) },
+    "noise": { sin(a($0, 0) * 1.7) * sin(a($0, 0) * 0.61 + 2.1) },
+  ]
+
+  static func eval(_ n: MotionAST, _ ctx: MotionCtx, _ funcs: [String: MotionFunc], _ depth: Int = 0) -> Double {
+    switch n {
+    case .num(let v): return v
+    case .name(let k): return ctx.get(k) ?? 0
+    case .neg(let x): return -eval(x, ctx, funcs, depth)
+    case .not(let x): return eval(x, ctx, funcs, depth) != 0 ? 0 : 1
+    case .tern(let c, let x, let y): return eval(c, ctx, funcs, depth) != 0 ? eval(x, ctx, funcs, depth) : eval(y, ctx, funcs, depth)
+    case .call(let name, let args):
+      if let f = funcs[name] {
+        if depth > 8 { return 0 }
+        let c2 = MotionCtx(ctx)
+        for (i, an) in f.args.enumerated() { c2.v[an] = i < args.count ? eval(args[i], ctx, funcs, depth) : 0 }
+        return fin(eval(f.ast, c2, funcs, depth + 1))
+      }
+      let vals = args.map { eval($0, ctx, funcs, depth) }
+      if let b = builtins[name] { return fin(b(vals)) }
+      if let l = ctx.lent(name) { return fin(l(vals)) }
+      return 0
+    case .bin(let op, let l, let r):
+      if op == "||" { return (eval(l, ctx, funcs, depth) != 0 || eval(r, ctx, funcs, depth) != 0) ? 1 : 0 }
+      if op == "&&" { return (eval(l, ctx, funcs, depth) != 0 && eval(r, ctx, funcs, depth) != 0) ? 1 : 0 }
+      let x = eval(l, ctx, funcs, depth), y = eval(r, ctx, funcs, depth)
+      switch op {
+      case "+": return x + y
+      case "-": return x - y
+      case "*": return x * y
+      case "/": return y == 0 ? 0 : x / y
+      case "%": return y == 0 ? 0 : x - floor(x / y) * y
+      case "^": return fin(pow(x, y))
+      case "<": return x < y ? 1 : 0
+      case "<=": return x <= y ? 1 : 0
+      case ">": return x > y ? 1 : 0
+      case ">=": return x >= y ? 1 : 0
+      case "==": return x == y ? 1 : 0
+      case "!=": return x != y ? 1 : 0
+      default: return 0
+      }
+    }
+  }
+}
+
+/// A program, compiled: every expression parsed once. What fails to parse is 0.
+struct MotionProgram {
+  struct Spring { let shapeScoped: Bool; let rest: Double; let target: MotionAST; let rate: MotionAST; let damp: MotionAST }
+  struct ShapeProg { let vars: [String: Double]; let props: [String: MotionAST] }
+  struct Emit {
+    let attach: String; let kind: String; let repeats: [MotionAST]; let names: [String]; let signal: Bool
+    let opacity: MotionAST; let width: MotionAST
+    let points: [(MotionAST, MotionAST)]?
+    let gen: (count: MotionAST, name: String, x: MotionAST, y: MotionAST)?
+    let fields: [String: MotionAST]
+  }
+  let vars: [String: Double]; let funcs: [String: MotionFunc]; let springs: [String: Spring]
+  let mark: [String: MotionAST]; let shapes: [String: ShapeProg]; let emit: [Emit]
+  let fpsIdle: Int; let fpsRec: Int; let signal: UIColor; let eps: Double; let timeout: Double
+
+  static func compile(_ spec: [String: KBJSON]) -> MotionProgram? {
+    guard spec["version"]?.asDouble ?? 0 >= 1 else { return nil }
+    func X(_ v: KBJSON?, _ fallback: String) -> MotionAST { (try? MotionLang.parse(v?.asString ?? fallback)) ?? .num(0) }
+    var vars: [String: Double] = [:]
+    for (k, v) in spec["vars"]?.asObject ?? [:] { if let d = v.asDouble { vars[k] = d } }
+    var funcs: [String: MotionFunc] = [:]
+    for (k, f) in spec["funcs"]?.asObject ?? [:] {
+      guard let fo = f.asObject else { continue }
+      funcs[k] = MotionFunc(args: fo["args"]?.asArray?.compactMap { $0.asString } ?? [], ast: X(fo["expr"], "0"))
+    }
+    var springs: [String: Spring] = [:]
+    for (k, sv) in spec["springs"]?.asObject ?? [:] {
+      guard let so = sv.asObject else { continue }
+      springs[k] = Spring(shapeScoped: so["scope"]?.asString == "shape", rest: so["rest"]?.asDouble ?? 0,
+                          target: X(so["target"], "0"), rate: X(so["rate"], "8"), damp: X(so["damp"], "1"))
+    }
+    var mark: [String: MotionAST] = [:]
+    for (k, v) in spec["mark"]?.asObject ?? [:] { mark[k] = X(v, "0") }
+    var shapes: [String: ShapeProg] = [:]
+    for (id, sv) in spec["shapes"]?.asObject ?? [:] {
+      guard let so = sv.asObject else { continue }
+      var sh: [String: Double] = [:], props: [String: MotionAST] = [:]
+      for (k, v) in so { if k == "vars" { for (vk, vv) in v.asObject ?? [:] { if let d = vv.asDouble { sh[vk] = d } } } else { props[k] = X(v, "0") } }
+      shapes[id] = ShapeProg(vars: sh, props: props)
+    }
+    var emit: [Emit] = []
+    for ev in spec["emit"]?.asArray ?? [] {
+      guard let e = ev.asObject, let attach = e["attach"]?.asString else { continue }
+      var points: [(MotionAST, MotionAST)]? = nil, gen: (count: MotionAST, name: String, x: MotionAST, y: MotionAST)? = nil
+      if let arr = e["points"]?.asArray { points = arr.compactMap { p in p.asArray.flatMap { $0.count >= 2 ? (X($0[0], "0"), X($0[1], "0")) : nil } } }
+      else if let g = e["points"]?.asObject { gen = (X(g["count"], "0"), g["as"]?.asString ?? "i", X(g["x"], "0"), X(g["y"], "0")) }
+      var fields: [String: MotionAST] = [:]
+      for k in ["x1", "y1", "x2", "y2", "cx", "cy", "r"] { if let v = e[k] { fields[k] = X(v, "0") } }
+      emit.append(Emit(attach: attach, kind: e["kind"]?.asString ?? "polyline", repeats: e["repeat"]?.asArray?.map { X($0, "1") } ?? [],
+                       names: e["as"]?.asArray?.compactMap { $0.asString } ?? [], signal: e["color"]?.asString == "signal",
+                       opacity: X(e["opacity"], "1"), width: X(e["width"], "1"), points: points, gen: gen, fields: fields))
+    }
+    let fps = spec["fps"]?.asObject, settle = spec["settle"]?.asObject
+    return MotionProgram(vars: vars, funcs: funcs, springs: springs, mark: mark, shapes: shapes, emit: emit,
+                         fpsIdle: max(1, min(60, Int(fps?["idle"]?.asDouble ?? 24))), fpsRec: max(1, min(120, Int(fps?["rec"]?.asDouble ?? 60))),
+                         signal: UIColor(tulmiHex: spec["colors"]?.asObject?["signal"]?.asString ?? "#F4F1EA"),
+                         eps: max(1e-5, settle?["eps"]?.asDouble ?? 0.002), timeout: max(0.1, settle?["timeout"]?.asDouble ?? 1.4))
+  }
+}
+
 // MARK: - The mark, drawn from the server's geometry
 
 /// THE MARK ON THE MIC KEY, REDRAWN FROM THE BACKEND.
@@ -1550,6 +1769,10 @@ final class TulmiMarkView: UIView {
     var q = 0.0, v = 0.0, t = 0.0               // progress from the link (0) to the wave (1)
   }
   let disperseSpec: Disperse?
+  /// THE PROGRAM. Present, it is what the key does, idle and recording alike:
+  /// the legacy `motion` and dispersal below are ignored. See the runtime at
+  /// the end of this class.
+  let program: MotionProgram?
   private var parts: [Part] = []
   private var wave: Wave?
   private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's bars or dashes, one layer each
@@ -1562,9 +1785,17 @@ final class TulmiMarkView: UIView {
   private var onSettled: (() -> Void)?
   /// The live microphone level, 0…1. The renderer points this at its state.
   var level: () -> CGFloat = { 0 }
-  var isPlaying: Bool { playing || settling }
+  var isPlaying: Bool { playing || settling || progRec == 1 || progSettling }
 
-  init?(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) {
+  // MARK: The program's runtime state
+  private var progT = 0.0, progRec = 0.0, progFlipped = 0.0
+  private var progSettling = false
+  private var progSprings: [String: (v: Double, vel: Double, prev: Double)] = [:]
+  private var progCtx: (global: MotionCtx, shapes: [MotionCtx])?
+  private var progBars: [Int: [(layer: CAShapeLayer, f: Double)]] = [:]
+  private var progEmitPools: [[CAShapeLayer]] = []
+
+  init?(spec: [String: KBJSON], motion: [String: KBJSON]?, program: [String: KBJSON]? = nil, tint: UIColor) {
     guard let parsed = TulmiMarkView.parse(spec) else { return nil }
     shapes = parsed.shapes
     viewBox = parsed.viewBox
@@ -1572,6 +1803,7 @@ final class TulmiMarkView: UIView {
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
     disperseSpec = TulmiMarkView.disperse(from: motion)
+    self.program = program.flatMap { MotionProgram.compile($0) }
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isOpaque = false
@@ -1584,7 +1816,8 @@ final class TulmiMarkView: UIView {
   /// What the key does while the microphone is open: "disperse", "particles"
   /// or "none". A backend before the dispersal sent a name; now it sends the
   /// numbers under `kind`. Absent, the particles — what older builds do.
-  static func recordingKind(_ motion: [String: KBJSON]?) -> String {
+  static func recordingKind(_ motion: [String: KBJSON]?, program: [String: KBJSON]? = nil) -> String {
+    if let p = program, (p["version"]?.asDouble ?? 0) >= 1 { return "program" }
     let r = motion?["recording"]
     return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
   }
@@ -1618,9 +1851,10 @@ final class TulmiMarkView: UIView {
     if window == nil { stopDisplay(); return }
     // Under a new key (the tree remounts on every state change) the layers
     // come without their animations, so they are rebuilt; the dispersal's
-    // state lives in `parts` and `wave` and carries straight on.
+    // state lives in `parts` and `wave` — and the program's in its springs
+    // and clock — and carries straight on.
     if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
-    if isPlaying { startDisplay() }
+    if isPlaying || (program != nil && !UIAccessibility.isReduceMotionEnabled) { startDisplay() }
   }
 
   private var center: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
@@ -1701,9 +1935,17 @@ final class TulmiMarkView: UIView {
     return out
   }
 
-  /// The microphone opened: the parts leave, the wave stays. A no-op without
-  /// a dispersal from the server, so a still or particle mark is unaffected.
+  /// The microphone opened: the parts leave, the wave stays — or, with a
+  /// program, `rec` flips to 1 and the program does what it says. A no-op
+  /// without either from the server, so a still or particle mark is unaffected.
   func beginPlay() {
+    if let pg = program {
+      guard progRec == 0 else { return }
+      progRec = 1; progFlipped = progT; progSettling = false; onSettled = nil
+      display?.preferredFramesPerSecond = pg.fpsRec
+      startDisplay()
+      return
+    }
     guard disperseSpec != nil, wave != nil else { return }
     playing = true; settling = false; onSettled = nil; settleAt = 0; startAt = clock
     restSignal()
@@ -1711,6 +1953,13 @@ final class TulmiMarkView: UIView {
   }
   /// The microphone closed: everything comes home, then `onDone`.
   func settle(_ onDone: @escaping () -> Void) {
+    if let pg = program {
+      guard progRec == 1 else { onDone(); return }
+      progRec = 0; progFlipped = progT; progSettling = true; onSettled = onDone
+      display?.preferredFramesPerSecond = pg.fpsIdle
+      if UIAccessibility.isReduceMotionEnabled { progSettling = false; onSettled = nil; onDone() }
+      return
+    }
     guard playing else { onDone(); return }
     playing = false; settling = true; settleAt = 0; onSettled = onDone; stopAt = clock
     startDisplay()
@@ -1719,6 +1968,7 @@ final class TulmiMarkView: UIView {
     guard display == nil, window != nil else { return }
     lastTick = 0
     let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+    if let pg = program { l.preferredFramesPerSecond = progRec == 1 ? pg.fpsRec : pg.fpsIdle }
     l.add(to: .main, forMode: .common)
     display = l
   }
@@ -1745,8 +1995,9 @@ final class TulmiMarkView: UIView {
   }
 
   @objc private func tick(_ l: CADisplayLink) {
-    let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
+    let dt = min(1.0 / 20, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
+    if program != nil { runProgram(dt: dt); return }
     guard let sp = disperseSpec, wave != nil else { return }
     let U = unit
     clock += dt
@@ -1911,6 +2162,180 @@ final class TulmiMarkView: UIView {
     CATransaction.commit()
   }
 
+
+  // MARK: The program's runtime — the mark performs what the server wrote
+  //
+  // Each frame: the clock, then the global springs, then for every shape its
+  // springs and its expressions — offset, turn, scale, opacity, colour mix,
+  // and for bars each bar's rise and lean — then what the program draws
+  // around the shapes. Nothing about the recording state is known here
+  // beyond `rec`, the seconds `since` it flipped, and the voice `level`.
+
+  /// The contexts, built once per layout: geometry and the shapes' own numbers.
+  private func programContexts(_ pg: MotionProgram) -> (global: MotionCtx, shapes: [MotionCtx]) {
+    let G = MotionCtx()
+    for (k, v) in pg.vars { G.v[k] = v }
+    G.v["pi"] = .pi; G.v["tau"] = 2 * .pi; G.v["e"] = M_E
+    G.v["cx"] = Double(viewBox.midX); G.v["cy"] = Double(viewBox.midY); G.v["U"] = unit; G.v["R"] = rim
+    G.v["vbw"] = Double(viewBox.width); G.v["vbh"] = Double(viewBox.height)
+    var ctxs: [MotionCtx] = []
+    for sh in shapes {
+      let c = MotionCtx(G)
+      var hx = 0.0, hy = 0.0
+      switch sh.kind {
+      case "rect":
+        hx = Double((sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2); hy = Double((sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
+        c.v["w"] = Double(sh.n["w"] ?? 0); c.v["h"] = Double(sh.n["h"] ?? 0)
+      case "circle":
+        hx = Double(sh.n["cx"] ?? 0); hy = Double(sh.n["cy"] ?? 0); c.v["r"] = Double(sh.n["r"] ?? 0)
+      default:
+        let x1 = Double(sh.n["x1"] ?? 0), y1 = Double(sh.n["y1"] ?? 0), x2 = Double(sh.n["x2"] ?? 0), y2 = Double(sh.n["y2"] ?? 0)
+        hx = (x1 + x2) / 2; hy = (y1 + y2) / 2
+        let dx = x2 - x1, dy = y2 - y1, L = max(1e-6, hypot(dx, dy))
+        c.v["x1"] = x1; c.v["y1"] = y1; c.v["x2"] = x2; c.v["y2"] = y2; c.v["L"] = L
+        c.v["lx"] = dx / L; c.v["ly"] = dy / L; c.v["nx"] = -dy / L; c.v["ny"] = dx / L
+        let bx = dy / L * 0.85 - dx / L * 0.35, by = -dx / L * 0.85 - dy / L * 0.35, bl = max(1e-6, hypot(bx, by))
+        c.v["bx"] = bx / bl; c.v["by"] = by / bl
+        c.v["width"] = Double(sh.n["width"] ?? 1)
+        if sh.kind == "bars" {
+          c.v["thick"] = Double(sh.n["thick"] ?? 6); c.v["cols"] = Double(sh.heights.count)
+          c.v["swh"] = Double(sh.swellHeight); c.v["swt"] = Double(sh.swellThick)
+          let hs = sh.heights.map { Double($0) }
+          c.fn["height"] = { args in let i = Int((args.first ?? 0).rounded()); return hs.isEmpty ? 0 : hs[max(0, min(hs.count - 1, i))] }
+        }
+      }
+      c.v["home.x"] = hx; c.v["home.y"] = hy
+      let ddx = hx - Double(viewBox.midX), ddy = hy - Double(viewBox.midY), dl = max(1e-6, hypot(ddx, ddy))
+      c.v["dir.x"] = ddx / dl; c.v["dir.y"] = ddy / dl
+      if let id = sh.id, let sp = pg.shapes[id] { for (k, v) in sp.vars { c.v[k] = v } }
+      ctxs.append(c)
+    }
+    return (G, ctxs)
+  }
+
+  private func mixColor(_ a: CGColor, _ b: CGColor, _ k: Double) -> CGColor {
+    let kk = CGFloat(min(1, max(0, k)))
+    var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0, r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+    UIColor(cgColor: a).getRed(&r1, green: &g1, blue: &b1, alpha: &a1); UIColor(cgColor: b).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+    return UIColor(red: r1 + (r2 - r1) * kk, green: g1 + (g2 - g1) * kk, blue: b1 + (b2 - b1) * kk, alpha: a1 + (a2 - a1) * kk).cgColor
+  }
+
+  private func runProgram(dt: Double) {
+    guard let pg = program, layers.count == shapes.count else { return }
+    if progCtx == nil { progCtx = programContexts(pg) }
+    guard let ctx = progCtx else { return }
+    let G = ctx.global, (s, o) = fitted
+    progT += dt
+    G.v["t"] = progT; G.v["rec"] = progRec; G.v["since"] = progT - progFlipped
+    G.v["level"] = Double(max(0, min(1, level())))
+    var quiet = true
+    func step(_ name: String, _ spec: MotionProgram.Spring, _ key: String, _ c: MotionCtx) {
+      var st = progSprings[key] ?? (v: spec.rest, vel: 0, prev: spec.rest)
+      c.v["prev"] = st.prev
+      let target = MotionLang.eval(spec.target, c, pg.funcs), w = max(0.1, MotionLang.eval(spec.rate, c, pg.funcs)), z = max(0, MotionLang.eval(spec.damp, c, pg.funcs))
+      st.prev = target
+      st.vel += (target - st.v) * w * w * dt - 2 * z * w * st.vel * dt; st.v += st.vel * dt
+      progSprings[key] = st; c.v[name] = st.v
+      if abs(st.v - target) > pg.eps || abs(st.vel) > pg.eps * 10 { quiet = false }
+    }
+    for (name, spec) in pg.springs where !spec.shapeScoped { step(name, spec, name, G) }
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    // The whole mark.
+    let ms = pg.mark["scale"].map { MotionLang.eval($0, G, pg.funcs) } ?? 1, mr = pg.mark["rot"].map { MotionLang.eval($0, G, pg.funcs) } ?? 0
+    root.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(ms), CGFloat(ms), 1), CATransform3DMakeRotation(CGFloat(mr) * .pi / 180, 0, 0, 1))
+    if let op = pg.mark["opacity"] { root.opacity = Float(min(1, max(0, MotionLang.eval(op, G, pg.funcs)))) }
+    // Every shape.
+    let sig = pg.signal.cgColor
+    var homes: [Int: CGPoint] = [:], placed: [Int: (pos: CGPoint, tf: CATransform3D, op: Float)] = [:]
+    for (i, sh) in shapes.enumerated() {
+      let c = ctx.shapes[i], l = layers[i]
+      for (name, spec) in pg.springs where spec.shapeScoped { step(name, spec, "\(name)@\(i)", c) }
+      let hx = CGFloat(c.v["home.x"] ?? 0), hy = CGFloat(c.v["home.y"] ?? 0)
+      let home = CGPoint(x: o.x + hx * s, y: o.y + hy * s); homes[i] = home
+      guard let id = sh.id, let sp = pg.shapes[id] else { continue }
+      let pr = sp.props
+      let dx = pr["dx"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, dy = pr["dy"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0
+      let rot = pr["rot"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, sc = pr["scale"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1
+      let op = Float(min(1, max(0, pr["opacity"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1)))
+      let pos = CGPoint(x: home.x + CGFloat(dx) * s, y: home.y + CGFloat(dy) * s)
+      let tf = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot) * .pi / 180, 0, 0, 1))
+      l.position = pos; l.transform = tf; l.opacity = op
+      placed[i] = (pos, tf, op)
+      let ink = (tint ?? sh.color ?? UIColor.black).cgColor
+      if let mx = pr["mix"] {
+        let col = mixColor(ink, sig, MotionLang.eval(mx, c, pg.funcs))
+        if sh.kind == "line" || sh.kind == "bars" { l.strokeColor = col } else { l.fillColor = col }
+        if let bars = progBars[i] { for (bl, _) in bars { bl.strokeColor = col } }
+      }
+      if sh.kind == "bars", let bars = progBars[i] {
+        // Each bar, its rise and its lean, from the program.
+        let x1 = c.v["x1"] ?? 0, y1 = c.v["y1"] ?? 0, x2 = c.v["x2"] ?? 0, y2 = c.v["y2"] ?? 0
+        let lx = c.v["lx"] ?? 0, ly = c.v["ly"] ?? 0, nx = c.v["nx"] ?? 0, ny = c.v["ny"] ?? 0
+        let thick = Double(sh.n["thick"] ?? 6), swh = Double(sh.swellHeight), swt = Double(sh.swellThick)
+        for (j, bar) in bars.enumerated() where j < sh.heights.count {
+          let bc = MotionCtx(c); bc.v["i"] = Double(j); bc.v["f"] = bar.f; bc.v["hgt"] = Double(sh.heights[j])
+          let rise = min(1, max(0, pr["rise"].map { MotionLang.eval($0, bc, pg.funcs) } ?? 0)); bc.v["rise"] = rise
+          let lean = pr["lean"].map { MotionLang.eval($0, bc, pg.funcs) } ?? 0
+          let h = Double(sh.heights[j]) * (1 + (swh - 1) * rise), cxb = x1 + (x2 - x1) * bar.f, cyb = y1 + (y2 - y1) * bar.f
+          let p = UIBezierPath()
+          p.move(to: CGPoint(x: o.x + CGFloat(cxb - nx * h / 2) * s - home.x, y: o.y + CGFloat(cyb - ny * h / 2) * s - home.y))
+          p.addLine(to: CGPoint(x: o.x + CGFloat(cxb + nx * h / 2 + lx * lean * h) * s - home.x, y: o.y + CGFloat(cyb + ny * h / 2 + ly * lean * h) * s - home.y))
+          bar.layer.path = p.cgPath; bar.layer.lineWidth = CGFloat(thick * (1 + (swt - 1) * rise)) * s
+          bar.layer.position = pos; bar.layer.transform = tf; bar.layer.opacity = op; bar.layer.isHidden = false
+        }
+      }
+    }
+    // What the program draws around the shapes: pooled layers, behind the shape they attach to.
+    while progEmitPools.count < pg.emit.count { progEmitPools.append([]) }
+    for (n, e) in pg.emit.enumerated() {
+      guard let hi = shapes.firstIndex(where: { $0.id == e.attach }), let home = homes[hi], let place = placed[hi] else { continue }
+      let base = ctx.shapes[hi], host = layers[hi]
+      let counts = e.repeats.map { max(0, min(64, Int(MotionLang.eval($0, base, pg.funcs)))) }
+      let n0 = counts.count > 0 ? counts[0] : 1, n1 = counts.count > 1 ? counts[1] : 1
+      let color = e.signal ? sig : (tint ?? shapes[hi].color ?? UIColor.black).cgColor
+      var used = 0
+      for a in 0..<n0 { for b in 0..<n1 {
+        let c = MotionCtx(base)
+        if e.names.count > 0 { c.v[e.names[0]] = Double(a) }; if e.names.count > 1 { c.v[e.names[1]] = Double(b) }
+        if used >= progEmitPools[n].count {
+          let l = CAShapeLayer(); l.lineJoin = .round
+          root.insertSublayer(l, below: host); extras.append(l); progEmitPools[n].append(l)
+        }
+        let l = progEmitPools[n][used]; used += 1
+        func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: o.x + CGFloat(x) * s - home.x, y: o.y + CGFloat(y) * s - home.y) }
+        let p = UIBezierPath()
+        if e.kind == "line" {
+          p.move(to: px(e.fields["x1"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, e.fields["y1"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0))
+          p.addLine(to: px(e.fields["x2"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, e.fields["y2"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0))
+          l.fillColor = nil; l.strokeColor = color; l.lineWidth = CGFloat(MotionLang.eval(e.width, c, pg.funcs)) * s
+        } else if e.kind == "circle" {
+          let cxe = e.fields["cx"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, cye = e.fields["cy"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0
+          let r = max(0, e.fields["r"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1)
+          let ctr = px(cxe, cye)
+          p.append(UIBezierPath(ovalIn: CGRect(x: ctr.x - CGFloat(r) * s, y: ctr.y - CGFloat(r) * s, width: CGFloat(r) * 2 * s, height: CGFloat(r) * 2 * s)))
+          l.fillColor = color; l.strokeColor = nil
+        } else {
+          var first = true
+          func add(_ x: Double, _ y: Double) { let q = px(x, y); if first { p.move(to: q); first = false } else { p.addLine(to: q) } }
+          if let pts = e.points { for (xa, ya) in pts { add(MotionLang.eval(xa, c, pg.funcs), MotionLang.eval(ya, c, pg.funcs)) } }
+          else if let g = e.gen { let cnt = max(0, min(64, Int(MotionLang.eval(g.count, c, pg.funcs)))); for j in 0..<cnt { c.v[g.name] = Double(j); add(MotionLang.eval(g.x, c, pg.funcs), MotionLang.eval(g.y, c, pg.funcs)) } }
+          if e.kind == "polygon" { p.close(); l.fillColor = color; l.strokeColor = nil }
+          else { l.fillColor = nil; l.strokeColor = color; l.lineWidth = CGFloat(MotionLang.eval(e.width, c, pg.funcs)) * s }
+        }
+        l.path = p.cgPath; l.position = place.pos; l.transform = place.tf; l.isHidden = false
+        l.opacity = Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
+      } }
+      for u in used..<progEmitPools[n].count { progEmitPools[n][u].isHidden = true }
+    }
+    CATransaction.commit()
+    // Home: the recording is over and every spring is at rest, or its time is up.
+    if progSettling, quiet || (progT - progFlipped) > pg.timeout {
+      for k in progSprings.keys { progSprings[k]!.vel = 0 }
+      progSettling = false
+      let done = onSettled; onSettled = nil; done?()
+    }
+  }
+
   /// Shapes of a kind this build draws; anything else is skipped, not shown.
   static func parse(_ spec: [String: KBJSON]) -> (shapes: [Shape], viewBox: CGRect)? {
     guard let vb = spec["viewBox"]?.asArray?.compactMap({ $0.asCGFloat }), vb.count == 4, vb[2] > 0, vb[3] > 0,
@@ -2005,11 +2430,23 @@ final class TulmiMarkView: UIView {
       l.position = center
       root.addSublayer(l)
       layers.append(l)
-      if !reduce, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
+      if !reduce, program == nil, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
     }
     // Motion on the whole mark: the view's own layer, about its centre.
     layer.removeAllAnimations()
-    if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
+    if !reduce, program == nil { animate(layer, id: "mark", scale: s, dash: []) }
+    if program != nil {
+      // The program draws every bar itself, one layer each; the emits are
+      // pooled as they are first needed. Then it paints this frame.
+      progBars = [:]; progEmitPools = []; progCtx = nil
+      for (i, sh) in shapes.enumerated() where sh.kind == "bars" {
+        layers[i].isHidden = true
+        progBars[i] = dashLayers(for: i, color: (tint ?? sh.color ?? UIColor.black).cgColor, scale: s, origin: o).map { ($0.0, $0.1) }
+        for (l, _) in progBars[i]! { l.opacity = 1 }
+      }
+      runProgram(dt: 0)
+      return
+    }
     // The wave's bars, if the signal did not already make them.
     if let w = wave, bars.isEmpty || bars[0].layer.superlayer == nil {
       bars = dashLayers(for: w.layer, color: (tint ?? shapes[w.layer].color ?? UIColor.black).cgColor, scale: s, origin: o)
@@ -4061,13 +4498,13 @@ final class SDUIRenderer: NSObject {
   private var currentMicMark: TulmiMarkView?
   private var currentMicMarkKey = ""
 
-  private func persistedMark(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) -> TulmiMarkView? {
-    let key = "\(spec)|\(String(describing: motion))|\(tint)"
+  private func persistedMark(spec: [String: KBJSON], motion: [String: KBJSON]?, program: [String: KBJSON]?, tint: UIColor) -> TulmiMarkView? {
+    let key = "\(spec)|\(String(describing: motion))|\(String(describing: program))|\(tint)"
     if let mv = currentMicMark, currentMicMarkKey == key {
       mv.removeFromSuperview()               // detach from the discarded button
       return mv
     }
-    guard let mv = TulmiMarkView(spec: spec, motion: motion, tint: tint) else { return nil }
+    guard let mv = TulmiMarkView(spec: spec, motion: motion, program: program, tint: tint) else { return nil }
     mv.level = { [weak self] in self?.state.micLevel ?? 0 }
     currentMicMark = mv
     currentMicMarkKey = key
@@ -5318,10 +5755,11 @@ final class SDUIRenderer: NSObject {
     // is the same picture standing still.
     let markSpec = node.props?["mark"]?.asObject
     let markMotion = node.props?["motion"]?.asObject
-    // What the server wants while the microphone is open: the dispersal (the
-    // parts fly out and only the wave stays, below), the particles, or nothing.
-    let recKind = TulmiMarkView.recordingKind(markMotion)
-    let plays = recKind == "disperse" && markSpec != nil
+    let markProgram = node.props?["program"]?.asObject
+    // What the server wants of the key: its program (everything, idle and
+    // recording, as text), else the dispersal, the particles, or nothing.
+    let recKind = TulmiMarkView.recordingKind(markMotion, program: markProgram)
+    let plays = (recKind == "disperse" || recKind == "program") && markSpec != nil
     if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
@@ -5373,8 +5811,8 @@ final class SDUIRenderer: NSObject {
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .center
     } else if let spec = markSpec,
-              let mv = plays ? persistedMark(spec: spec, motion: markMotion, tint: tint)
-                              : TulmiMarkView(spec: spec, motion: markMotion, tint: tint) {
+              let mv = plays ? persistedMark(spec: spec, motion: markMotion, program: markProgram, tint: tint)
+                              : TulmiMarkView(spec: spec, motion: markMotion, program: markProgram, tint: tint) {
       // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
       // recoloured or set moving by a deploy. Only geometry reaches this
       // branch, so pushed media still cannot stand where the mark stands.
