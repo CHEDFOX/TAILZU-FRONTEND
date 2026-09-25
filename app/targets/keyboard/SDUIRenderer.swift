@@ -1506,6 +1506,41 @@ final class TulmiMarkView: UIView {
   private var layers: [CAShapeLayer] = []
   private var extras: [CALayer] = []     // overlays the motion adds; rebuilt with the layers
   private var laidOut: CGSize = .zero
+  private var fitted: (scale: CGFloat, origin: CGPoint) = (1, .zero)
+  /// Holds every shape. The twist sways this; the breath is on the view's own
+  /// layer above it, so neither transform cancels the other.
+  private let root = CALayer()
+
+  // MARK: The twist — the structure alive while the microphone is open
+  //
+  // Every square and the dot is a node; each line's ends tie to the nearest
+  // node at a fixed offset, so when a node drifts and turns the line follows
+  // its corner like a linkage. Each node rides its own slow orbit and turns
+  // about its centre, phased across the mark left to right so the motion
+  // travels through it like a wave; the whole mark sways. The voice drives
+  // the clock and the reach, and a sudden rise kicks a node into a turn.
+  // Everything is a critically damped spring toward its target, so stop just
+  // sets the target to home and the mark comes back the way it left; then
+  // the layers are rebuilt crisp and the idle motion resumes. The numbers —
+  // drift, spin, sway, lag, settle — are the server's, from motion.recording.
+  struct Twist { let drift, spin, sway, lag, settle: Double }
+  private struct Node {
+    let layer: Int; let c: CGPoint; var phase = 0.0
+    var x = 0.0, y = 0.0, r = 0.0, vx = 0.0, vy = 0.0, vr = 0.0   // offset (artboard units), turn (degrees), and their speeds
+  }
+  private struct Tie { let node: Int; let d: CGPoint }
+  let twistSpec: Twist?
+  private var nodes: [Node] = []
+  private var tieLines: [Int] = []        // shape indices of the lines
+  private var ties: [[Tie]] = []          // per line, its two ends
+  private var twisting = false, settling = false
+  private var tau = 0.0, swayS = 0.0, swayV = 0.0, settleAt = 0.0, lastLevel = 0.0, kicks = 0
+  private var lastTick: CFTimeInterval = 0
+  private var display: CADisplayLink?
+  private var onSettled: (() -> Void)?
+  /// The live microphone level, 0…1. The renderer points this at its state.
+  var level: () -> CGFloat = { 0 }
+  var isTwisting: Bool { twisting || settling }
 
   init?(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) {
     guard let parsed = TulmiMarkView.parse(spec) else { return nil }
@@ -1514,12 +1549,166 @@ final class TulmiMarkView: UIView {
     circle = TulmiMarkView.isCircle(spec)
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
+    twistSpec = TulmiMarkView.twist(from: motion)
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isOpaque = false
     backgroundColor = .clear
+    layer.addSublayer(root)
+    if twistSpec != nil { tie() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// What the key does while the microphone is open: "twist", "particles" or
+  /// "none". A backend before the twist sent a name; now it sends the twist's
+  /// numbers under `kind`. Absent, the particles — what older builds do.
+  static func recordingKind(_ motion: [String: KBJSON]?) -> String {
+    let r = motion?["recording"]
+    return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
+  }
+  static func twist(from motion: [String: KBJSON]?) -> Twist? {
+    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "twist" else { return nil }
+    return Twist(drift: r["drift"]?.asDouble ?? 0.11, spin: r["spin"]?.asDouble ?? 26, sway: r["sway"]?.asDouble ?? 5,
+                 lag: r["lag"]?.asDouble ?? 1.2, settle: max(0.1, r["settle"]?.asDouble ?? 0.7))
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil { stopDisplay(); return }
+    // Under a new key (the tree remounts on every state change) the layers
+    // come without their animations, so they are rebuilt; the twist's state
+    // lives in `nodes` and carries straight on.
+    if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
+    if isTwisting { startDisplay() }
+  }
+
+  /// Nodes and the lines' ties to them, once, from the geometry.
+  private func tie() {
+    nodes = []; tieLines = []; ties = []
+    for (i, sh) in shapes.enumerated() {
+      if sh.kind == "rect" {
+        nodes.append(Node(layer: i, c: CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)))
+      } else if sh.kind == "circle" {
+        nodes.append(Node(layer: i, c: CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)))
+      }
+    }
+    guard !nodes.isEmpty else { return }
+    let xs = nodes.map { $0.c.x }, lo = xs.min()!, hi = xs.max()!
+    for i in nodes.indices { nodes[i].phase = (twistSpec?.lag ?? 1.2) * Double((nodes[i].c.x - lo) / max(1, hi - lo)) }
+    for (i, sh) in shapes.enumerated() where sh.kind == "line" {
+      tieLines.append(i)
+      let ends = [CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)]
+      ties.append(ends.map { p in
+        let best = nodes.indices.min { hypot(nodes[$0].c.x - p.x, nodes[$0].c.y - p.y) < hypot(nodes[$1].c.x - p.x, nodes[$1].c.y - p.y) }!
+        return Tie(node: best, d: CGPoint(x: p.x - nodes[best].c.x, y: p.y - nodes[best].c.y))
+      })
+    }
+  }
+
+  /// The microphone opened: the structure comes alive. A no-op without a twist
+  /// from the server, so a still or particle mark is unaffected.
+  func beginTwist() {
+    guard twistSpec != nil, !nodes.isEmpty else { return }
+    twisting = true; settling = false; onSettled = nil; settleAt = 0
+    restSignal()
+    startDisplay()
+  }
+  /// The microphone closed: every part springs home, then `onDone`.
+  func settle(_ onDone: @escaping () -> Void) {
+    guard twisting else { onDone(); return }
+    twisting = false; settling = true; settleAt = 0; onSettled = onDone
+    startDisplay()
+  }
+  private func startDisplay() {
+    guard display == nil, window != nil else { return }
+    lastTick = 0
+    let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+    l.add(to: .main, forMode: .common)
+    display = l
+  }
+  private func stopDisplay() { display?.invalidate(); display = nil }
+  /// The signal rests while the structure moves: its overlays would not follow the shapes.
+  private func restSignal() {
+    for l in layers { l.removeAnimation(forKey: "signal") }
+    for e in extras { e.isHidden = true }
+  }
+  private func home() {
+    stopDisplay()
+    settling = false; twisting = false; tau = 0; swayS = 0; swayV = 0
+    for i in nodes.indices { nodes[i].x = 0; nodes[i].y = 0; nodes[i].r = 0; nodes[i].vx = 0; nodes[i].vy = 0; nodes[i].vr = 0 }
+    root.transform = CATransform3DIdentity
+    laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
+    let done = onSettled; onSettled = nil; done?()
+  }
+
+  @objc private func tick(_ l: CADisplayLink) {
+    let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
+    lastTick = l.timestamp
+    guard let tw = twistSpec, !nodes.isEmpty else { return }
+    let lv = Double(max(0, min(1, level())))
+    let U = Double(min(viewBox.width, viewBox.height)), A = tw.drift * U
+    let g = twisting ? 0.35 + 0.65 * lv : 0
+    if twisting {
+      // Quiet is a slow float; speech quickens the clock and widens the reach.
+      tau += dt * (0.55 + 1.45 * lv)
+      // A sudden rise in the voice: one node is kicked into a turn.
+      if lv - lastLevel > 0.12 {
+        let i = kicks % nodes.count, ang = Double(kicks) * 2.4
+        kicks += 1
+        nodes[i].vr += (kicks % 2 == 1 ? 1 : -1) * tw.spin * 6
+        nodes[i].vx += cos(ang) * A * 3; nodes[i].vy += sin(ang) * A * 3
+      }
+    }
+    lastLevel = lv
+    let k = 90.0, c = 2 * k.squareRoot()     // critically damped
+    var far = 0.0, fast = 0.0
+    for i in nodes.indices {
+      var n = nodes[i]
+      let ph = n.phase
+      let tx = twisting ? A * g * (0.6 * sin(1.9 * tau + ph) + 0.4 * sin(3.1 * tau + 1.7 + ph)) : 0
+      let ty = twisting ? A * g * (0.6 * cos(1.5 * tau + ph) + 0.4 * sin(2.7 * tau + 0.6 + ph)) : 0
+      let tr = twisting ? tw.spin * g * (0.7 * sin(1.3 * tau + ph) + 0.3 * sin(2.9 * tau + 2.1 + ph)) : 0
+      n.vx += (tx - n.x) * k * dt - n.vx * c * dt; n.x += n.vx * dt
+      n.vy += (ty - n.y) * k * dt - n.vy * c * dt; n.y += n.vy * dt
+      n.vr += (tr - n.r) * k * dt - n.vr * c * dt; n.r += n.vr * dt
+      far = max(far, abs(n.x), abs(n.y), abs(n.r) * U / 90)
+      fast = max(fast, abs(n.vx), abs(n.vy), abs(n.vr) * U / 90)
+      nodes[i] = n
+    }
+    let st = twisting ? tw.sway * g * sin(0.9 * tau) : 0
+    swayV += (st - swayS) * k * dt - swayV * c * dt; swayS += swayV * dt
+    far = max(far, abs(swayS) * U / 90)
+    apply()
+    if settling {
+      settleAt += dt
+      if (far < U * 0.002 && fast < U * 0.02) || settleAt > tw.settle { home() }
+    }
+  }
+
+  /// The layers as the twist has moved them: squares and the dot offset and
+  /// turned about their centres, lines re-tied end to end, the whole swayed.
+  private func apply() {
+    guard layers.count == shapes.count else { return }
+    let (s, o) = fitted
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    for n in nodes {
+      let l = layers[n.layer]
+      l.position = CGPoint(x: o.x + (n.c.x + CGFloat(n.x)) * s, y: o.y + (n.c.y + CGFloat(n.y)) * s)
+      l.transform = CATransform3DMakeRotation(CGFloat(n.r) * .pi / 180, 0, 0, 1)
+    }
+    for (j, li) in tieLines.enumerated() {
+      let l = layers[li]
+      let ends = ties[j].map { t -> CGPoint in
+        let n = nodes[t.node], r = CGFloat(n.r) * .pi / 180, cr = cos(r), sr = sin(r)
+        return CGPoint(x: o.x + (n.c.x + CGFloat(n.x) + t.d.x * cr - t.d.y * sr) * s - l.position.x,
+                       y: o.y + (n.c.y + CGFloat(n.y) + t.d.x * sr + t.d.y * cr) * s - l.position.y)
+      }
+      let p = UIBezierPath(); p.move(to: ends[0]); p.addLine(to: ends[1])
+      l.path = p.cgPath
+    }
+    root.transform = CATransform3DMakeRotation(CGFloat(swayS) * .pi / 180, 0, 0, 1)
+    CATransaction.commit()
+  }
 
   /// Shapes of a kind this build draws; anything else is skipped, not shown.
   static func parse(_ spec: [String: KBJSON]) -> (shapes: [Shape], viewBox: CGRect)? {
@@ -1557,7 +1746,11 @@ final class TulmiMarkView: UIView {
     laidOut = bounds.size
     (layers + extras).forEach { $0.removeFromSuperlayer() }
     layers = []; extras = []
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    root.frame = bounds
+    CATransaction.commit()
     let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size, circle: circle)
+    fitted = (s, o)
     let reduce = UIAccessibility.isReduceMotionEnabled
     for sh in shapes {
       let l = CAShapeLayer()
@@ -1593,13 +1786,15 @@ final class TulmiMarkView: UIView {
       }
       l.path = p.cgPath
       l.position = center
-      layer.addSublayer(l)
+      root.addSublayer(l)
       layers.append(l)
       if !reduce, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
     }
     // Motion on the whole mark: the view's own layer, about its centre.
     layer.removeAllAnimations()
     if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
+    // Mid-twist (a remount, a resize): the new layers take up where the old left off.
+    if isTwisting { restSignal(); apply() }
   }
 
   private func animate(_ l: CALayer, id: String, scale s: CGFloat, dash: [CGFloat]) {
@@ -1645,7 +1840,7 @@ final class TulmiMarkView: UIView {
             for a in [end, start] { a.duration = period; a.repeatCount = .infinity; a.calculationMode = .linear }
             win.add(end, forKey: "signalEnd"); win.add(start, forKey: "signalStart")
             ov.mask = win
-            layer.insertSublayer(ov, above: sub)
+            root.insertSublayer(ov, above: sub)
             extras.append(ov)
           } else {
             // On in sixty milliseconds, off in sixty: a swap, not a flicker.
@@ -3623,6 +3818,25 @@ final class SDUIRenderer: NSObject {
   // than the static mark) for that brief converge window after recording ends.
   private var currentMicParticles: MicParticleView?
   private var micReassembling = false
+  // The mark view that lives across remounts when the server's recording
+  // motion is the twist, so record → stop → home is one unbroken motion. A
+  // new spec, motion or ink (a deploy, a theme flip) makes a new one.
+  private var currentMicMark: TulmiMarkView?
+  private var currentMicMarkKey = ""
+
+  private func persistedMark(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) -> TulmiMarkView? {
+    let key = "\(spec)|\(String(describing: motion))|\(tint)"
+    if let mv = currentMicMark, currentMicMarkKey == key {
+      mv.removeFromSuperview()               // detach from the discarded button
+      return mv
+    }
+    guard let mv = TulmiMarkView(spec: spec, motion: motion, tint: tint) else { return nil }
+    mv.level = { [weak self] in self?.state.micLevel ?? 0 }
+    currentMicMark = mv
+    currentMicMarkKey = key
+    if state.dictating { mv.beginTwist() }   // first built mid-recording (a deploy landed)
+    return mv
+  }
 
   private func showRecordingVisuals() {
     // Wait for the remount that stateChanged() scheduled — that's where
@@ -4867,7 +5081,11 @@ final class SDUIRenderer: NSObject {
     // is the same picture standing still.
     let markSpec = node.props?["mark"]?.asObject
     let markMotion = node.props?["motion"]?.asObject
-    if (state.dictating || micReassembling), particlesOn {
+    // What the server wants while the microphone is open: the twist (the
+    // structure itself comes alive, below), the particles, or nothing.
+    let recKind = TulmiMarkView.recordingKind(markMotion)
+    let twists = recKind == "twist" && markSpec != nil
+    if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
       // way we mount the SAME persistent sim so the motion is continuous across
@@ -4897,7 +5115,7 @@ final class SDUIRenderer: NSObject {
         particles.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
         particles.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
       ])
-    } else if state.dictating,
+    } else if state.dictating, !twists,
               let spec = flagIcon("kb.mic.idleIcon"),
               let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
       // Fallback recording visual (particles disabled): the animated media.
@@ -4917,10 +5135,14 @@ final class SDUIRenderer: NSObject {
                            withConfiguration: cfgSym), for: .normal)
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .center
-    } else if let spec = markSpec, let mv = TulmiMarkView(spec: spec, motion: markMotion, tint: tint) {
+    } else if let spec = markSpec,
+              let mv = twists ? persistedMark(spec: spec, motion: markMotion, tint: tint)
+                              : TulmiMarkView(spec: spec, motion: markMotion, tint: tint) {
       // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
       // recoloured or set moving by a deploy. Only geometry reaches this
       // branch, so pushed media still cannot stand where the mark stands.
+      // With the twist it is the same view at idle and while recording: the
+      // structure moves in place and springs home, so nothing is swapped.
       btn.setImage(nil, for: .normal)
       btn.imageView?.stopAnimating()
       mv.translatesAutoresizingMaskIntoConstraints = false
@@ -7662,6 +7884,8 @@ final class SDUIRenderer: NSObject {
       // Re-entering recording (possibly mid-reassembly): scatter the dots again.
       micReassembling = false
       currentMicParticles?.beginRecording()
+      // Or, with the twist, the structure comes alive in place.
+      currentMicMark?.beginTwist()
     } else {
       hideRecordingVisuals()
       // Reverse animation: the dots spring back INTO the mark, then hand off to
@@ -7677,6 +7901,9 @@ final class SDUIRenderer: NSObject {
           self.stateChanged()          // final remount → static brand mark
         }
       }
+      // The twist springs home on its own and rebuilds itself crisp; the same
+      // view stays mounted throughout, so there is nothing to swap in.
+      currentMicMark?.settle {}
     }
     stateChanged()
   }

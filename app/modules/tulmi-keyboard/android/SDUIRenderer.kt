@@ -294,6 +294,11 @@ class SDUIRenderer(
     private var currentMicParticles: MicParticleView? = null
     private var micReassembling = false
     private var lastDictating = false
+    // The mark view that lives across redraws when the server's recording
+    // motion is the twist, so record → stop → home is one unbroken motion. A
+    // new spec, motion or ink (a deploy, a theme flip) makes a new one.
+    private var currentMicMark: TulmiMarkView? = null
+    private var currentMicMarkKey = ""
     private var markBitmapCache: Bitmap? = null
     private var markBitmapResolved = false
 
@@ -349,6 +354,8 @@ class SDUIRenderer(
                 // mid-reassembly from a quick stop→start).
                 micReassembling = false
                 currentMicParticles?.beginRecording()
+                // Or, with the twist, the structure comes alive in place.
+                currentMicMark?.beginTwist()
             } else {
                 // Stopping — the dots spring back INTO the mark, then hand off to
                 // the crisp static mark. Keep the sim mounted until it settles.
@@ -362,6 +369,9 @@ class SDUIRenderer(
                         }
                     }
                 }
+                // The twist springs home on its own; the same view stays
+                // mounted throughout, so there is nothing to swap in.
+                currentMicMark?.settle {}
             }
             lastDictating = nowDict
         }
@@ -1068,8 +1078,12 @@ class SDUIRenderer(
         // The dots burst from whichever mark the key is drawing.
         val mark = markSpec?.let { TulmiMarkView.bitmap(it, fg, dp(44)) } ?: markBitmap()
         val dictating = host.state().dictating
+        // What the server wants while the microphone is open: the twist (the
+        // structure itself comes alive, in the mark branch), the particles, or
+        // nothing.
+        val recKind = TulmiMarkView.recordingKind(markMotion)
 
-        val view: View = if (particlesOn && (dictating || micReassembling)) {
+        val view: View = if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
             val frame = FrameLayout(host.context()).apply { background = keyBackground(node) }
             val inset = dp(flagFloat("kb.mic.particles.inset", 6f).toInt())
             frame.setPadding(inset, inset, inset, inset)
@@ -1094,13 +1108,16 @@ class SDUIRenderer(
             // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture:
             // resized, recoloured or set moving by a deploy. Only geometry
             // reaches this branch, so pushed media still cannot stand where
-            // the mark stands.
+            // the mark stands. With the twist it is the same view at idle and
+            // while recording: the structure moves in place and springs home.
             FrameLayout(host.context()).apply {
                 background = keyBackground(node)
                 val pad = dp(flagFloat("kb.mic.idleIconInset", 10f).toInt())
                 setPadding(pad, pad, pad, pad)
+                val ink = if (tinted) fg else null
                 addView(
-                    TulmiMarkView(host.context(), markSpec, markMotion, if (tinted) fg else null),
+                    if (recKind == "twist") persistedMark(markSpec, markMotion, ink)
+                    else TulmiMarkView(host.context(), markSpec, markMotion, ink),
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1133,6 +1150,20 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
+    }
+
+    /** The one mark view for the twist, reused across redraws while the spec,
+     *  motion and ink are the same objects; a new tree or a theme flip makes
+     *  a new one. Built mid-recording (a deploy landed), it starts twisting. */
+    private fun persistedMark(spec: JSONObject, motion: JSONObject?, tint: Int?): TulmiMarkView {
+        val key = "${System.identityHashCode(spec)}|${System.identityHashCode(motion)}|$tint"
+        currentMicMark?.let { if (currentMicMarkKey == key) { (it.parent as? ViewGroup)?.removeView(it); return it } }
+        return TulmiMarkView(host.context(), spec, motion, tint).also {
+            it.level = { host.state().micLevel }
+            currentMicMark = it
+            currentMicMarkKey = key
+            if (host.state().dictating) it.beginTwist()
+        }
     }
 
     /** RefineKey — triggers the existing refine path. */
@@ -2043,16 +2074,165 @@ class SDUIRenderer(
         private var signal = 0f             // 0..1 of one signal period
         private val animators = ArrayList<ValueAnimator>()
 
+        // THE TWIST — the structure alive while the microphone is open.
+        //
+        // Every square and the dot is a node; each line's ends tie to the
+        // nearest node at a fixed offset, so when a node drifts and turns the
+        // line follows its corner like a linkage. Each node rides its own slow
+        // orbit and turns about its centre, phased across the mark left to
+        // right so the motion travels through it like a wave; the whole mark
+        // sways. The voice drives the clock and the reach, and a sudden rise
+        // kicks a node into a turn. Everything is a critically damped spring
+        // toward its target, so stop just sets the target to home and the mark
+        // comes back the way it left; then the idle motion resumes. The
+        // numbers — drift, spin, sway, lag, settle — are the server's, from
+        // motion.recording.
+        class Twist(val drift: Float, val spin: Float, val sway: Float, val lag: Float, val settle: Float)
+        private class Node(val index: Int, val cx: Float, val cy: Float) {
+            var phase = 0f
+            val s = FloatArray(3)           // offset x, y (artboard units) and turn (degrees)
+            val v = FloatArray(3)           // their speeds
+        }
+        private class Tie(val node: Int, val dx: Float, val dy: Float)
+        val twist: Twist? = parseTwist(motion)
+        private val nodes = ArrayList<Node>()
+        private val ties = HashMap<Int, List<Tie>>()   // line shape index → its two ends
+        private val idleNoSignal: List<JSONObject>
+        private var twisting = false
+        private var settling = false
+        private var tau = 0f
+        private val swayS = FloatArray(1)
+        private val swayV = FloatArray(1)
+        private var settleAt = 0f
+        private var lastLevel = 0f
+        private var kicks = 0
+        private var lastNanos = 0L
+        private var onSettled: (() -> Unit)? = null
+        /** The live microphone level, 0..1. The renderer points this at its state. */
+        var level: () -> Float = { 0f }
+        val isTwisting: Boolean get() = twisting || settling
+
         init {
             val parsed = parse(spec)
             shapes = parsed?.first ?: emptyList()
             vb = parsed?.second ?: floatArrayOf(0f, 0f, 1f, 1f)
             val arr = motion?.optJSONArray("idle")
             idle = (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it) }
+            // The signal rests while the structure moves: its overlays would not follow the shapes.
+            idleNoSignal = idle.filter { it.optString("kind") != "signal" }
+            if (twist != null) tie()
         }
 
-        override fun onAttachedToWindow() { super.onAttachedToWindow(); start() }
+        override fun onAttachedToWindow() { super.onAttachedToWindow(); start(); if (isTwisting) postInvalidateOnAnimation() }
         override fun onDetachedFromWindow() { animators.forEach { it.cancel() }; animators.clear(); super.onDetachedFromWindow() }
+
+        /** Nodes and the lines' ties to them, once, from the geometry. */
+        private fun tie() {
+            nodes.clear(); ties.clear()
+            shapes.forEachIndexed { i, sh ->
+                when (sh.kind) {
+                    "rect" -> nodes += Node(i, (sh.o.optDouble("x") + sh.o.optDouble("w") / 2).toFloat(), (sh.o.optDouble("y") + sh.o.optDouble("h") / 2).toFloat())
+                    "circle" -> nodes += Node(i, sh.o.optDouble("cx").toFloat(), sh.o.optDouble("cy").toFloat())
+                }
+            }
+            if (nodes.isEmpty()) return
+            val lo = nodes.minOf { it.cx }; val hi = nodes.maxOf { it.cx }
+            for (n in nodes) n.phase = (twist?.lag ?: 1.2f) * (n.cx - lo) / maxOf(1f, hi - lo)
+            shapes.forEachIndexed { i, sh ->
+                if (sh.kind != "line") return@forEachIndexed
+                ties[i] = listOf(1, 2).map { e ->
+                    val px = sh.o.optDouble("x$e").toFloat(); val py = sh.o.optDouble("y$e").toFloat()
+                    val best = nodes.indices.minByOrNull { Math.hypot((nodes[it].cx - px).toDouble(), (nodes[it].cy - py).toDouble()) }!!
+                    Tie(best, px - nodes[best].cx, py - nodes[best].cy)
+                }
+            }
+        }
+
+        /** The microphone opened: the structure comes alive. A no-op without a
+         *  twist from the server, so a still or particle mark is unaffected. */
+        fun beginTwist() {
+            if (twist == null || nodes.isEmpty()) return
+            twisting = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L
+            postInvalidateOnAnimation()
+        }
+
+        /** The microphone closed: every part springs home, then `onDone`. */
+        fun settle(onDone: () -> Unit) {
+            if (!twisting) { onDone(); return }
+            twisting = false; settling = true; settleAt = 0f; onSettled = onDone
+            postInvalidateOnAnimation()
+        }
+
+        private fun home() {
+            settling = false; twisting = false; tau = 0f
+            for (n in nodes) { n.s.fill(0f); n.v.fill(0f) }
+            swayS[0] = 0f; swayV[0] = 0f
+            val d = onSettled; onSettled = null; d?.invoke()
+            invalidate()
+        }
+
+        private fun spring(s: FloatArray, v: FloatArray, i: Int, target: Float, dt: Float) {
+            val k = 90f; val c = 2f * kotlin.math.sqrt(k)       // critically damped
+            v[i] += (target - s[i]) * k * dt - v[i] * c * dt
+            s[i] += v[i] * dt
+        }
+
+        /** One frame of the twist: targets from the clock and the voice, springs toward them. */
+        private fun stepTwist() {
+            val tw = twist ?: return
+            val now = System.nanoTime()
+            val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 30f)
+            lastNanos = now
+            val lv = level().coerceIn(0f, 1f)
+            val u = minOf(vb[2], vb[3]); val a = tw.drift * u
+            val g = if (twisting) 0.35f + 0.65f * lv else 0f
+            if (twisting) {
+                // Quiet is a slow float; speech quickens the clock and widens the reach.
+                tau += dt * (0.55f + 1.45f * lv)
+                // A sudden rise in the voice: one node is kicked into a turn.
+                if (lv - lastLevel > 0.12f) {
+                    val n = nodes[kicks % nodes.size]; val ang = kicks * 2.4f; kicks++
+                    n.v[2] += (if (kicks % 2 == 1) 1f else -1f) * tw.spin * 6f
+                    n.v[0] += cs(ang) * a * 3f; n.v[1] += sn(ang) * a * 3f
+                }
+            }
+            lastLevel = lv
+            var far = 0f; var fast = 0f
+            for (n in nodes) {
+                val ph = n.phase
+                spring(n.s, n.v, 0, if (twisting) a * g * (0.6f * sn(1.9f * tau + ph) + 0.4f * sn(3.1f * tau + 1.7f + ph)) else 0f, dt)
+                spring(n.s, n.v, 1, if (twisting) a * g * (0.6f * cs(1.5f * tau + ph) + 0.4f * sn(2.7f * tau + 0.6f + ph)) else 0f, dt)
+                spring(n.s, n.v, 2, if (twisting) tw.spin * g * (0.7f * sn(1.3f * tau + ph) + 0.3f * sn(2.9f * tau + 2.1f + ph)) else 0f, dt)
+                far = maxOf(far, Math.abs(n.s[0]), Math.abs(n.s[1]), Math.abs(n.s[2]) * u / 90f)
+                fast = maxOf(fast, Math.abs(n.v[0]), Math.abs(n.v[1]), Math.abs(n.v[2]) * u / 90f)
+            }
+            spring(swayS, swayV, 0, if (twisting) tw.sway * g * sn(0.9f * tau) else 0f, dt)
+            far = maxOf(far, Math.abs(swayS[0]) * u / 90f)
+            if (settling) {
+                settleAt += dt
+                if ((far < u * 0.002f && fast < u * 0.02f) || settleAt > tw.settle) home()
+            }
+        }
+
+        /** The shapes as the twist has moved them: squares and the dot offset
+         *  and turned about their centres, lines re-tied end to end. The spec
+         *  itself stays as sent; these are copies for one frame. */
+        private fun twisted(): List<Shape> {
+            val byIndex = HashMap<Int, Node>(); for (n in nodes) byIndex[n.index] = n
+            return shapes.mapIndexed { i, sh ->
+                val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
+                val n = byIndex[i]
+                if (n != null) {
+                    if (sh.kind == "rect") { o.put("x", sh.o.optDouble("x") + n.s[0]); o.put("y", sh.o.optDouble("y") + n.s[1]); o.put("_rot", n.s[2].toDouble()) }
+                    else { o.put("cx", sh.o.optDouble("cx") + n.s[0]); o.put("cy", sh.o.optDouble("cy") + n.s[1]) }
+                } else ties[i]?.forEachIndexed { j, t ->
+                    val m = nodes[t.node]; val r = m.s[2] * Math.PI.toFloat() / 180f; val cr = cs(r); val sr = sn(r)
+                    o.put("x${j + 1}", (m.cx + m.s[0] + t.dx * cr - t.dy * sr).toDouble())
+                    o.put("y${j + 1}", (m.cy + m.s[1] + t.dx * sr + t.dy * cr).toDouble())
+                }
+                Shape(sh.id, sh.kind, o, sh.color)
+            }
+        }
 
         private fun start() {
             if (animators.isNotEmpty() || !animatorsEnabled(context)) return
@@ -2081,10 +2261,37 @@ class SDUIRenderer(
         private val circle = spec.optString("fit", "circle") != "box"
 
         override fun onDraw(c: Canvas) {
-            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
+            if (isTwisting) {
+                stepTwist()
+                paintShapes(c, twisted(), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f, swayS[0])
+                if (isTwisting) postInvalidateOnAnimation()
+            } else {
+                paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
+            }
         }
 
         companion object {
+            private fun sn(x: Float) = Math.sin(x.toDouble()).toFloat()
+            private fun cs(x: Float) = Math.cos(x.toDouble()).toFloat()
+
+            /** What the key does while the microphone is open: "twist",
+             *  "particles" or "none". A backend before the twist sent a name;
+             *  now it sends the twist's numbers under `kind`. Absent, the
+             *  particles — what older builds do. */
+            fun recordingKind(motion: JSONObject?): String {
+                val r = motion?.opt("recording") ?: return "particles"
+                return (r as? JSONObject)?.optString("kind", "particles") ?: r.toString()
+            }
+
+            fun parseTwist(motion: JSONObject?): Twist? {
+                val r = motion?.optJSONObject("recording") ?: return null
+                if (r.optString("kind") != "twist") return null
+                return Twist(
+                    r.optDouble("drift", 0.11).toFloat(), r.optDouble("spin", 26.0).toFloat(), r.optDouble("sway", 5.0).toFloat(),
+                    r.optDouble("lag", 1.2).toFloat(), r.optDouble("settle", 0.7).toFloat().coerceAtLeast(0.1f),
+                )
+            }
+
             /** Shapes of a kind this build draws; anything else is skipped, not shown. */
             fun parse(spec: JSONObject): Pair<List<Shape>, FloatArray>? {
                 val vbA = spec.optJSONArray("viewBox") ?: return null
@@ -2121,6 +2328,7 @@ class SDUIRenderer(
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
                 tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true, signal: Float = 0f,
+                sway: Float = 0f,
             ) {
                 val s = if (circle) minOf(w, h) / Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat()
                         else minOf(w / vb[2], h / vb[3])
@@ -2143,6 +2351,7 @@ class SDUIRenderer(
                     c.scale(msc, msc, w / 2, h / 2)
                     markAlpha = 1f - (1f - markBreath.optDouble("opacity", 1.0).toFloat()) * breath
                 }
+                if (sway != 0f) c.rotate(sway, w / 2, h / 2)      // the twist's sway of the whole
                 for (sh in shapes) {
                     val o = sh.o
                     paint.reset(); paint.isAntiAlias = true
@@ -2178,6 +2387,8 @@ class SDUIRenderer(
                                 ox + (o.optDouble("x") + o.optDouble("w")).toFloat() * s, oy + (o.optDouble("y") + o.optDouble("h")).toFloat() * s,
                             )
                             c.scale(sc, sc, r.centerX(), r.centerY())
+                            val turn = o.optDouble("_rot", 0.0).toFloat()          // the twist's turn about its centre
+                            if (turn != 0f) c.rotate(turn, r.centerX(), r.centerY())
                             paint.style = Paint.Style.FILL
                             val rx = o.optDouble("rx").toFloat() * s
                             c.drawRoundRect(r, rx, rx, paint)
