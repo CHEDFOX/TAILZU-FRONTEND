@@ -1510,35 +1510,34 @@ final class TulmiMarkView: UIView {
   /// Holds every shape, under the view's own layer, which carries the breath.
   private let root = CALayer()
 
-  // MARK: The dance — one choreography while the microphone is open
+  // MARK: The dispersal — only the wave stays while the microphone is open
   //
-  // The squares and the dot are the dancers, in chain order left to right
-  // and by depth from the top. The server sends a score: movements, each a
-  // figure of time that says where every dancer is and how it is turned at
-  // second τ of the movement, always at rest at τ = 0 and τ = `for`.
-  // Movements overlap by `blend` seconds, weighted by a raised cosine, so
-  // one flows into the next, and the score loops. The pose is chased on
-  // critically damped springs, which gives it the lag and weight of a real
-  // thing, and each square stretches along its own speed. The voice sets
-  // the tempo and the reach, a little, and a rise in it is an accent — one
-  // breath of the whole. Stop chases home, lands exactly, and rebuilds the
-  // layers crisp for the idle motion.
-  struct Move { let name: String; let length: Double; let beat: Double; let n: [String: Double] }
-  struct Dance { let tempo, reach, blend, voice, settle: Double; let score: [Move] }
-  private struct Dancer {
-    let layer: Int; let h: CGPoint
-    var k = 0, depth = 0                     // place in the chain: left to right, and from the top
-    var x: Double, y: Double
-    var a = 0.0, vx = 0.0, vy = 0.0, va = 0.0        // where it is, its turn, their speeds
-    var tx: Double, ty: Double
-    var ta = 0.0, px = 0.0, py = 0.0, pa = 0.0        // the pose it chases; a figure's scratch
+  // The squares, the plain lines and the dot are the parts: at the start of
+  // a recording each flies straight out from the middle, turning as it goes,
+  // past the rim and out of sight. The kept shape, the dashed link between
+  // the blocks, is the wave: it eases to the middle and grows, and its dashes
+  // become bars that rise and fall with the voice while the bright cluster
+  // keeps running along it. On stop every part flies back and lands exactly
+  // where it began, the wave goes back to being the link, and the layers are
+  // rebuilt crisp so the idle signal resumes. All of it on critically damped
+  // springs, so nothing ever jumps: the parts leave from rest and arrive to
+  // rest. The numbers are the server's, from motion.recording.
+  struct Disperse { let keep: String; let out, spin, settle, lift, rise, run, width: Double; let centre: Bool }
+  private struct Part {
+    let layer: Int; let c: CGPoint; let ux: Double; let uy: Double; let sign: Double
+    var x = 0.0, y = 0.0, a = 0.0, vx = 0.0, vy = 0.0, va = 0.0
   }
-  private struct Tie { let dancer: Int; let d: CGPoint }
-  let danceSpec: Dance?
-  private var dancers: [Dancer] = [], tieLines: [Int] = [], ties: [[Tie]] = [], starts: [Double] = []
-  private var total = 0.0, chainN = (x: 0.0, y: 0.0), top = 0, current = -1
+  private struct Wave {
+    let layer: Int; let mid: CGPoint; let width: CGFloat
+    var x = 0.0, y = 0.0, k = 1.0, vx = 0.0, vy = 0.0, vk = 0.0
+  }
+  let disperseSpec: Disperse?
+  private var parts: [Part] = []
+  private var wave: Wave?
+  private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's dashes, one layer each
+  private var barLit: CGColor = UIColor.white.cgColor          // what a lit bar wears: the signal's colour
   private var playing = false, settling = false
-  private var clock = 0.0, lastAccent = -9.0, lastLevel = 0.0, settleAt = 0.0, accS = 0.0, accV = 0.0
+  private var clock = 0.0, smooth = 0.0, settleAt = 0.0
   private var lastTick: CFTimeInterval = 0
   private var display: CADisplayLink?
   private var onSettled: (() -> Void)?
@@ -1553,93 +1552,103 @@ final class TulmiMarkView: UIView {
     circle = TulmiMarkView.isCircle(spec)
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
-    danceSpec = TulmiMarkView.dance(from: motion)
+    disperseSpec = TulmiMarkView.disperse(from: motion)
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isOpaque = false
     backgroundColor = .clear
     layer.addSublayer(root)
-    if danceSpec != nil { tie() }
+    if disperseSpec != nil { tie() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
-  /// What the key does while the microphone is open: "dance", "particles" or
-  /// "none". A backend before the dance sent a name; now it sends the score
-  /// under `kind`. Absent, the particles — what older builds do.
+  /// What the key does while the microphone is open: "disperse", "particles"
+  /// or "none". A backend before the dispersal sent a name; now it sends the
+  /// numbers under `kind`. Absent, the particles — what older builds do.
   static func recordingKind(_ motion: [String: KBJSON]?) -> String {
     let r = motion?["recording"]
     return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
   }
-  static func dance(from motion: [String: KBJSON]?) -> Dance? {
-    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "dance" else { return nil }
-    let score = (r["score"]?.asArray ?? []).compactMap { item -> Move? in
-      guard let mv = item.asObject, let name = mv["move"]?.asString else { return nil }
-      var n: [String: Double] = [:]
-      for (key, v) in mv { if let d = v.asDouble { n[key] = d } }
-      return Move(name: name, length: max(1, mv["for"]?.asDouble ?? 6), beat: max(0.2, mv["beat"]?.asDouble ?? 2), n: n)
-    }
-    guard !score.isEmpty else { return nil }
-    return Dance(tempo: max(0.1, r["tempo"]?.asDouble ?? 1), reach: r["reach"]?.asDouble ?? 1,
-                 blend: max(0.05, r["blend"]?.asDouble ?? 1.5), voice: min(1, max(0, r["voice"]?.asDouble ?? 0.35)),
-                 settle: max(0.1, r["settle"]?.asDouble ?? 0.9), score: score)
+  static func disperse(from motion: [String: KBJSON]?) -> Disperse? {
+    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "disperse" else { return nil }
+    let w = r["wave"]?.asObject
+    return Disperse(keep: r["keep"]?.asString ?? "link", out: max(1, r["out"]?.asDouble ?? 1.7), spin: r["spin"]?.asDouble ?? 35,
+                    settle: max(0.1, r["settle"]?.asDouble ?? 0.8), lift: max(0.5, w?["lift"]?.asDouble ?? 2),
+                    rise: max(0, w?["rise"]?.asDouble ?? 0.9), run: max(0.2, w?["run"]?.asDouble ?? 1),
+                    width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)), centre: w?["centre"]?.asBool ?? true)
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil { stopDisplay(); return }
     // Under a new key (the tree remounts on every state change) the layers
-    // come without their animations, so they are rebuilt; the dance's state
-    // lives in `dancers` and carries straight on.
+    // come without their animations, so they are rebuilt; the dispersal's
+    // state lives in `parts` and `wave` and carries straight on.
     if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
     if isPlaying { startDisplay() }
   }
 
   private var center: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
   private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
+  private var rim: Double { Double(hypot(viewBox.width, viewBox.height)) / 2 }
 
-  /// Dancers, the chain, the lines' ties, and the score's timeline, once.
+  /// The parts and the wave, once, from the geometry.
   private func tie() {
-    dancers = []; tieLines = []; ties = []
+    parts = []; wave = nil
+    let C = center
     for (i, sh) in shapes.enumerated() {
-      var h: CGPoint
-      if sh.kind == "rect" { h = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2) }
-      else if sh.kind == "circle" { h = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0) }
-      else { continue }
-      dancers.append(Dancer(layer: i, h: h, x: Double(h.x), y: Double(h.y), tx: Double(h.x), ty: Double(h.y)))
-    }
-    guard !dancers.isEmpty else { return }
-    for (i, sh) in shapes.enumerated() where sh.kind == "line" {
-      tieLines.append(i)
-      let ends = [CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)].map { p -> Tie in
-        let best = dancers.indices.min { hypot(dancers[$0].h.x - p.x, dancers[$0].h.y - p.y) < hypot(dancers[$1].h.x - p.x, dancers[$1].h.y - p.y) }!
-        return Tie(dancer: best, d: CGPoint(x: p.x - dancers[best].h.x, y: p.y - dancers[best].h.y))
+      let c: CGPoint
+      switch sh.kind {
+      case "rect": c = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
+      case "circle": c = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
+      default: c = CGPoint(x: ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2, y: ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2)
       }
-      ties.append(ends)
-    }
-    // The chain: order left to right, depth from the top, and its normal.
-    let byX = dancers.indices.sorted { dancers[$0].h.x < dancers[$1].h.x }
-    let byY = dancers.indices.sorted { dancers[$0].h.y < dancers[$1].h.y }
-    for (order, i) in byX.enumerated() { dancers[i].k = order }
-    for (order, i) in byY.enumerated() { dancers[i].depth = order }
-    top = byY[0]
-    let f = dancers[byX[0]].h, l = dancers[byX[byX.count - 1]].h
-    let dx = Double(l.x - f.x), dy = Double(l.y - f.y), len = max(1e-6, hypot(dx, dy))
-    chainN = (-dy / len, dx / len)
-    starts = []; total = 0
-    if let sp = danceSpec {
-      for (i, mv) in sp.score.enumerated() { starts.append(total); total += mv.length - (i < sp.score.count - 1 ? sp.blend : 0) }
+      if sh.id == disperseSpec?.keep, sh.kind == "line", !sh.dash.isEmpty {
+        wave = Wave(layer: i, mid: c, width: sh.n["width"] ?? 1)
+        continue
+      }
+      let dx = Double(c.x) - C.x, dy = Double(c.y) - C.y, len = max(1e-6, hypot(dx, dy))
+      parts.append(Part(layer: i, c: c, ux: dx / len, uy: dy / len, sign: parts.count % 2 == 1 ? -1 : 1))
     }
   }
 
-  /// The microphone opened: the dance begins from the top. A no-op without a
-  /// score from the server, so a still or particle mark is unaffected.
+  /// One layer per dash of a dashed line, in the signal colour and hidden,
+  /// each with its place along the line. The run lights them on their cue;
+  /// while the microphone is open they are the wave's bars.
+  private func dashLayers(for li: Int, color: CGColor, scale s: CGFloat, origin o: CGPoint) -> [(CAShapeLayer, Double)] {
+    let sh = shapes[li], sub = layers[li]
+    let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
+    let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash[0]), off = Double(sh.dash.count > 1 ? sh.dash[1] : sh.dash[0])
+    var out: [(CAShapeLayer, Double)] = [], pos = 0.0
+    barLit = color
+    while pos < L, on > 0 {
+      let f0 = pos / L, f1 = min(L, pos + on) / L
+      let d = CAShapeLayer(), p = UIBezierPath()
+      p.move(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f0)) * s - sub.position.x,
+                         y: o.y + (a.y + (b.y - a.y) * CGFloat(f0)) * s - sub.position.y))
+      p.addLine(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f1)) * s - sub.position.x,
+                            y: o.y + (a.y + (b.y - a.y) * CGFloat(f1)) * s - sub.position.y))
+      d.path = p.cgPath; d.position = sub.position
+      d.fillColor = nil; d.strokeColor = color; d.lineWidth = sub.lineWidth; d.lineCap = .butt
+      d.opacity = 0
+      root.insertSublayer(d, above: sub)
+      extras.append(d)
+      out.append((d, (f0 + f1) / 2))
+      pos += on + off
+    }
+    return out
+  }
+
+  /// The microphone opened: the parts fly out, the wave stays. A no-op
+  /// without a dispersal from the server, so a still or particle mark is
+  /// unaffected.
   func beginPlay() {
-    guard danceSpec != nil, !dancers.isEmpty, total > 0 else { return }
-    playing = true; settling = false; onSettled = nil; settleAt = 0; clock = 0; current = -1
+    guard disperseSpec != nil, wave != nil else { return }
+    playing = true; settling = false; onSettled = nil; settleAt = 0
     restSignal()
     startDisplay()
   }
-  /// The microphone closed: everything comes home, then `onDone`.
+  /// The microphone closed: everything flies home, then `onDone`.
   func settle(_ onDone: @escaping () -> Void) {
     guard playing else { onDone(); return }
     playing = false; settling = true; settleAt = 0; onSettled = onDone
@@ -1653,126 +1662,58 @@ final class TulmiMarkView: UIView {
     display = l
   }
   private func stopDisplay() { display?.invalidate(); display = nil }
-  /// The signal rests while the structure moves: its overlays would not follow the shapes.
+  /// The signal rests while the parts are away: its overlays would not follow the shapes.
   private func restSignal() {
     for l in layers { l.removeAnimation(forKey: "signal") }
-    for e in extras { e.isHidden = true }
+    for e in extras { e.removeAllAnimations(); e.isHidden = true }
   }
   private func home() {
     stopDisplay()
-    settling = false; playing = false; current = -1
-    for i in dancers.indices {
-      dancers[i].x = Double(dancers[i].h.x); dancers[i].y = Double(dancers[i].h.y)
-      dancers[i].a = 0; dancers[i].vx = 0; dancers[i].vy = 0; dancers[i].va = 0
-    }
+    settling = false; playing = false
+    for i in parts.indices { parts[i].x = 0; parts[i].y = 0; parts[i].a = 0; parts[i].vx = 0; parts[i].vy = 0; parts[i].va = 0 }
+    if wave != nil { wave!.x = 0; wave!.y = 0; wave!.k = 1; wave!.vx = 0; wave!.vy = 0; wave!.vk = 0 }
     root.transform = CATransform3DIdentity
     laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
     let done = onSettled; onSettled = nil; done?()
   }
 
-  // MARK: The figures. Each sets px, py, pa for every dancer at τ into the
-  // movement: the position and the turn, at rest at both ends.
-  private func env(_ tau: Double, _ mv: Move) -> Double { let e = sin(.pi * tau / mv.length); return e * e }
-  private func ramp(_ tau: Double, _ mv: Move) -> Double { tau / mv.length - sin(2 * .pi * tau / mv.length) / (2 * .pi) }   // 0→1 with no speed at the ends
-  private func about(_ i: Int, _ cx: Double, _ cy: Double, _ ang: Double, _ scale: Double) {
-    let c = cos(ang), s = sin(ang), dx = (Double(dancers[i].h.x) - cx) * scale, dy = (Double(dancers[i].h.y) - cy) * scale
-    dancers[i].px = cx + dx * c - dy * s; dancers[i].py = cy + dx * s + dy * c
-  }
-  private func figure(_ mv: Move, _ tau: Double, _ reach: Double) -> Bool {
-    let U = unit, C = center, e = env(tau, mv), w = 2 * .pi * tau / mv.beat, deg = Double.pi / 180
-    func v(_ key: String, _ d: Double) -> Double { mv.n[key] ?? d }
-    switch mv.name {
-    case "sway":
-      let ang = v("turn", 12) * deg * reach * e * sin(w), sc = 1 + v("breathe", 0.06) * reach * e * sin(2 * w)
-      for i in dancers.indices { about(i, C.x, C.y, ang, sc); dancers[i].pa = -ang * 0.5 }
-    case "wave":
-      let lift = v("lift", 0.16) * U * reach * e, lag = v("lag", 1.1), tilt = v("tilt", 26) * deg * reach * e
-      for i in dancers.indices {
-        let ph = w - lag * Double(dancers[i].k), h = sin(ph)
-        dancers[i].px = Double(dancers[i].h.x) + chainN.x * lift * h; dancers[i].py = Double(dancers[i].h.y) + chainN.y * lift * h
-        dancers[i].pa = tilt * cos(ph)
-      }
-    case "carousel":
-      let ang = 2 * .pi * v("turns", 1) * ramp(tau, mv), epi = v("epicycle", 0.06) * U * reach * e
-      for i in dancers.indices {
-        about(i, C.x, C.y, ang, 1)
-        let ph = w + Double(dancers[i].k) * .pi / 2
-        dancers[i].px += epi * cos(ph); dancers[i].py += epi * sin(ph); dancers[i].pa = ang
-      }
-    case "fold":
-      let r = 1 - v("depth", 0.42) * reach * e, turn = v("turn", 40) * deg * reach * e
-      for i in dancers.indices { about(i, C.x, C.y, 0, r); dancers[i].pa = (dancers[i].k % 2 == 1 ? -1 : 1) * turn }
-    case "pendulum":
-      let swing = v("swing", 24) * deg * reach * e, lag = v("lag", 0.55), pivot = dancers[top].h
-      for i in dancers.indices {
-        let th = swing * sin(w - lag * Double(dancers[i].depth))
-        about(i, Double(pivot.x), Double(pivot.y), th, 1); dancers[i].pa = th
-      }
-    case "eight":
-      let size = v("size", 0.14) * U * reach * e, lag = v("lag", 0.9), tilt = v("tilt", 20) * deg * reach * e
-      for i in dancers.indices {
-        let ph = w + lag * Double(dancers[i].k)
-        dancers[i].px = Double(dancers[i].h.x) + size * sin(ph); dancers[i].py = Double(dancers[i].h.y) + size * 0.5 * sin(2 * ph)
-        dancers[i].pa = tilt * sin(ph)
-      }
-    case "spiral":
-      let ang = 2 * .pi * v("turns", 1) * ramp(tau, mv), sc = 1 + v("breathe", 0.08) * reach * sin(2 * .pi * tau / mv.length) * e * 2
-      for i in dancers.indices { about(i, C.x, C.y, ang, sc); dancers[i].pa = ang + (sc - 1) * 1.5 }
-    default:
-      return false                          // a figure this build does not know: skipped
-    }
-    return true
-  }
-
-  /// The pose at second `t` of the loop: every movement under way, weighted.
-  private func pose(_ t: Double) {
-    guard let sp = danceSpec else { return }
-    var ax = [Double](repeating: 0, count: dancers.count), ay = ax, aa = ax, sum = 0.0
-    let reach = sp.reach * (1 + accS)
-    for (i, mv) in sp.score.enumerated() {
-      let tau = t - starts[i]
-      if tau < 0 || tau > mv.length { continue }
-      var w = tau < sp.blend ? 0.5 - 0.5 * cos(.pi * tau / sp.blend)
-            : tau > mv.length - sp.blend ? 0.5 - 0.5 * cos(.pi * (mv.length - tau) / sp.blend) : 1
-      if i == 0, tau < sp.blend { w = 1 }                                   // the first opens plainly
-      if i == sp.score.count - 1, tau > mv.length - sp.blend { w = 1 }      // and the last closes plainly
-      if w <= 0 || !figure(mv, tau, reach) { continue }
-      for j in dancers.indices { ax[j] += dancers[j].px * w; ay[j] += dancers[j].py * w; aa[j] += dancers[j].pa * w }
-      sum += w
-      if w >= 0.5 { current = i }
-    }
-    for j in dancers.indices {
-      if sum > 0 { dancers[j].tx = ax[j] / sum; dancers[j].ty = ay[j] / sum; dancers[j].ta = aa[j] / sum }
-      else { dancers[j].tx = Double(dancers[j].h.x); dancers[j].ty = Double(dancers[j].h.y); dancers[j].ta = 0 }
-    }
+  private static func mix(_ a: CGColor, _ b: CGColor, _ k: CGFloat) -> CGColor {
+    let ua = UIColor(cgColor: a), ub = UIColor(cgColor: b)
+    var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0, r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+    ua.getRed(&r1, green: &g1, blue: &b1, alpha: &a1); ub.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+    return UIColor(red: r1 + (r2 - r1) * k, green: g1 + (g2 - g1) * k, blue: b1 + (b2 - b1) * k, alpha: a1 + (a2 - a1) * k).cgColor
   }
 
   @objc private func tick(_ l: CADisplayLink) {
     let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
-    guard let sp = danceSpec, !dancers.isEmpty, total > 0 else { return }
-    let lv = Double(max(0, min(1, level()))), U = unit
-    if playing {
-      // The clock runs at the tempo, a little faster for speech; a rise is an accent.
-      clock = (clock + dt * sp.tempo * (1 - sp.voice * 0.3 + sp.voice * lv)).truncatingRemainder(dividingBy: total)
-      if lv - lastLevel > 0.15, clock - lastAccent > 0.4 { accV += 1.4 * sp.voice; lastAccent = clock }
-      pose(clock)
-    } else {
-      for i in dancers.indices { dancers[i].tx = Double(dancers[i].h.x); dancers[i].ty = Double(dancers[i].h.y); dancers[i].ta = 0 }
-    }
-    lastLevel = lv
-    accV += (0 - accS) * 40 * dt - 2 * (40.0).squareRoot() * accV * dt; accS += accV * dt
-    let w0 = 14.0, c0 = 2 * w0             // critically damped: the lag and weight of a real thing
+    guard let sp = disperseSpec, wave != nil else { return }
+    let lv = Double(max(0, min(1, level()))), U = unit, C = center
+    clock += dt
+    // The voice, followed quickly up and slowly down, is what the bars rise to.
+    smooth += (lv - smooth) * min(1, dt * (lv > smooth ? 18 : 6))
+    let out = sp.out * rim, spin = sp.spin * .pi / 180
     var far = 0.0, fast = 0.0
-    for i in dancers.indices {
-      var n = dancers[i]
-      n.vx += (n.tx - n.x) * w0 * w0 * dt - c0 * n.vx * dt; n.x += n.vx * dt
-      n.vy += (n.ty - n.y) * w0 * w0 * dt - c0 * n.vy * dt; n.y += n.vy * dt
-      n.va += (n.ta - n.a) * w0 * w0 * dt - c0 * n.va * dt; n.a += n.va * dt
-      far = max(far, abs(n.x - Double(n.h.x)), abs(n.y - Double(n.h.y)), abs(n.a) * U / 3)
-      fast = max(fast, abs(n.vx), abs(n.vy))
-      dancers[i] = n
+    // Out on a slower spring — it leaves from rest and gathers speed — and
+    // back on a quicker one, so the return is brisk and lands without a bump.
+    let w0 = playing ? 7.0 : 11.0, c0 = 2 * w0
+    for i in parts.indices {
+      var p = parts[i]
+      let tx = playing ? p.ux * out : 0, ty = playing ? p.uy * out : 0, ta = playing ? p.sign * spin : 0
+      p.vx += (tx - p.x) * w0 * w0 * dt - c0 * p.vx * dt; p.x += p.vx * dt
+      p.vy += (ty - p.y) * w0 * w0 * dt - c0 * p.vy * dt; p.y += p.vy * dt
+      p.va += (ta - p.a) * w0 * w0 * dt - c0 * p.va * dt; p.a += p.va * dt
+      far = max(far, abs(p.x), abs(p.y), abs(p.a) * U / 3); fast = max(fast, abs(p.vx), abs(p.vy))
+      parts[i] = p
     }
+    var w = wave!
+    let w1 = 9.0, c1 = 2 * w1
+    let tx = playing && sp.centre ? C.x - Double(w.mid.x) : 0, ty = playing && sp.centre ? C.y - Double(w.mid.y) : 0, tk = playing ? sp.lift : 1
+    w.vx += (tx - w.x) * w1 * w1 * dt - c1 * w.vx * dt; w.x += w.vx * dt
+    w.vy += (ty - w.y) * w1 * w1 * dt - c1 * w.vy * dt; w.y += w.vy * dt
+    w.vk += (tk - w.k) * w1 * w1 * dt - c1 * w.vk * dt; w.k += w.vk * dt
+    far = max(far, abs(w.x), abs(w.y), abs(w.k - 1) * U); fast = max(fast, abs(w.vx), abs(w.vy))
+    wave = w
     draw()
     if settling {
       settleAt += dt
@@ -1780,33 +1721,42 @@ final class TulmiMarkView: UIView {
     }
   }
 
-  /// The layers as the dance has them: each dancer where it is, stretched
-  /// along its speed and squashed across it, turned; the lines re-tied end
-  /// to end, their ends turning with their dancer.
+  /// The layers as the dispersal has them: each part where it is and turned;
+  /// the wave moved and grown, its bars standing in for the link.
   private func draw() {
-    guard layers.count == shapes.count else { return }
+    guard let sp = disperseSpec, let w = wave, layers.count == shapes.count else { return }
     let (s, o) = fitted
-    let U = unit
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    for n in dancers {
-      let l = layers[n.layer]
-      l.position = CGPoint(x: o.x + CGFloat(n.x) * s, y: o.y + CGFloat(n.y) * s)
-      let sp = hypot(n.vx, n.vy), st = CGFloat(1 + 0.3 * min(1, sp / (1.4 * U))), va = sp > 1 ? CGFloat(atan2(n.vy, n.vx)) : 0
-      let m = CGAffineTransform(rotationAngle: CGFloat(n.a))
-        .concatenating(CGAffineTransform(rotationAngle: -va))
-        .concatenating(CGAffineTransform(scaleX: st, y: 1 / st))
-        .concatenating(CGAffineTransform(rotationAngle: va))
-      l.transform = CATransform3DMakeAffineTransform(m)
+    for p in parts {
+      let l = layers[p.layer]
+      l.position = CGPoint(x: o.x + (p.c.x + CGFloat(p.x)) * s, y: o.y + (p.c.y + CGFloat(p.y)) * s)
+      l.transform = CATransform3DMakeRotation(CGFloat(p.a), 0, 0, 1)
     }
-    for (j, li) in tieLines.enumerated() {
-      let l = layers[li]
-      let ends = ties[j].map { t -> CGPoint in
-        let n = dancers[t.dancer], c = cos(n.a), sn = sin(n.a)
-        return CGPoint(x: o.x + CGFloat(n.x + Double(t.d.x) * c - Double(t.d.y) * sn) * s - l.position.x,
-                       y: o.y + CGFloat(n.y + Double(t.d.x) * sn + Double(t.d.y) * c) * s - l.position.y)
-      }
-      let p = UIBezierPath(); p.move(to: ends[0]); p.addLine(to: ends[1])
-      l.path = p.cgPath
+    // THE WAVE. Each dash is a bar: a slow ripple down the line and a little
+    // grain, both scaled by the voice, set its height; the bright cluster
+    // runs along, a touch faster the louder it gets. The bars stand in for
+    // the link while the microphone is open and fade back to the plain link
+    // as it closes.
+    let link = layers[w.layer]
+    let pos = CGPoint(x: o.x + (w.mid.x + CGFloat(w.x)) * s, y: o.y + (w.mid.y + CGFloat(w.y)) * s)
+    let show = playing ? 1.0 : max(0, min(1, (w.k - 1) / max(0.05, sp.lift - 1)))
+    link.position = pos
+    link.transform = CATransform3DMakeScale(CGFloat(w.k), CGFloat(w.k), 1)
+    link.opacity = Float(1 - show)
+    let run = sp.run * (1 - 0.35 * smooth), half = sp.width / 2
+    let u = clock.truncatingRemainder(dividingBy: run) / run, centre = u * (1 + sp.width) - half, amp = 0.25 + 0.75 * smooth
+    let ink = link.strokeColor ?? UIColor.black.cgColor
+    for (k, bar) in bars.enumerated() {
+      let ripple = 0.5 + 0.5 * sin(2 * .pi * clock / 0.9 - 0.8 * Double(k))
+      let grain = 0.5 + 0.5 * sin(clock * 7.3 + Double(k) * 1.7) * sin(clock * 3.1 + Double(k) * 0.9)
+      let h = 1 + show * ((0.4 + 0.6 * (ripple * 0.6 + grain * 0.4) * amp) * (1 + sp.rise * smooth) - 1)
+      let q = abs(bar.f - centre) / half, lit = q >= 1 ? 0 : q < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (q - 0.5) / 0.5)
+      bar.layer.isHidden = false
+      bar.layer.position = pos
+      bar.layer.transform = link.transform
+      bar.layer.lineWidth = w.width * s * CGFloat(h)
+      bar.layer.strokeColor = TulmiMarkView.mix(ink, barLit, CGFloat(lit))
+      bar.layer.opacity = Float(show)
     }
     CATransaction.commit()
   }
@@ -1846,7 +1796,7 @@ final class TulmiMarkView: UIView {
     guard bounds.size != laidOut, bounds.width > 1, bounds.height > 1 else { return }
     laidOut = bounds.size
     (layers + extras).forEach { $0.removeFromSuperlayer() }
-    layers = []; extras = []
+    layers = []; extras = []; bars = []
     CATransaction.begin(); CATransaction.setDisableActions(true)
     root.frame = bounds
     CATransaction.commit()
@@ -1894,7 +1844,11 @@ final class TulmiMarkView: UIView {
     // Motion on the whole mark: the view's own layer, about its centre.
     layer.removeAllAnimations()
     if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
-    // Mid-dance (a remount, a resize): the new layers take up where the old left off.
+    // The wave's bars, if the signal did not already make them.
+    if let w = wave, bars.isEmpty || bars[0].layer.superlayer == nil {
+      bars = dashLayers(for: w.layer, color: (tint ?? shapes[w.layer].color ?? UIColor.black).cgColor, scale: s, origin: o)
+    }
+    // Mid-dispersal (a remount, a resize): the new layers take up where the old left off.
     if isPlaying { restSignal(); draw() }
   }
 
@@ -1921,21 +1875,11 @@ final class TulmiMarkView: UIView {
             // where they are, and a bright cluster of them — `width` of the
             // line, fully lit at its core and soft at its edges — travels from
             // end to end in `run` seconds. One layer per dash, lit on its cue.
-            let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
-            let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash[0]), off = Double(sh.dash.count > 1 ? sh.dash[1] : sh.dash[0])
             let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
             let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
-            var pos = 0.0
-            while pos < L, on > 0 {
-              let f0 = pos / L, f1 = min(L, pos + on) / L, f = (f0 + f1) / 2
-              let d = CAShapeLayer(), p = UIBezierPath()
-              p.move(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f0)) * s - sub.position.x,
-                                 y: o.y + (a.y + (b.y - a.y) * CGFloat(f0)) * s - sub.position.y))
-              p.addLine(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f1)) * s - sub.position.x,
-                                    y: o.y + (a.y + (b.y - a.y) * CGFloat(f1)) * s - sub.position.y))
-              d.path = p.cgPath; d.position = sub.position
-              d.fillColor = nil; d.strokeColor = sig; d.lineWidth = sub.lineWidth; d.lineCap = .butt
-              d.opacity = 0
+            let dashes = dashLayers(for: i, color: sig, scale: s, origin: o)
+            if sh.id == disperseSpec?.keep { bars = dashes }
+            for (d, f) in dashes {
               // Its cue: the cluster's centre passes at `tf`; fully lit for the
               // core half of the cluster about that, fading over the rest.
               let tf = at + run * (f + half) / (1 + width), edge = run * half / (1 + width), core = edge * 0.5
@@ -1945,9 +1889,6 @@ final class TulmiMarkView: UIView {
               an.timingFunctions = [linear, ease, linear, ease, linear]
               an.duration = period; an.repeatCount = .infinity
               d.add(an, forKey: "signal")
-              root.insertSublayer(d, above: sub)
-              extras.append(d)
-              pos += on + off
             }
           } else {
             // On in sixty milliseconds, off in sixty: a swap, not a flicker.
@@ -3926,8 +3867,8 @@ final class SDUIRenderer: NSObject {
   private var currentMicParticles: MicParticleView?
   private var micReassembling = false
   // The mark view that lives across remounts when the server's recording
-  // motion is the dance, so record → stop → home is one unbroken motion. A
-  // new spec, motion or ink (a deploy, a theme flip) makes a new one.
+  // motion is the dispersal, so record → stop → home is one unbroken motion.
+  // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
   private var currentMicMark: TulmiMarkView?
   private var currentMicMarkKey = ""
 
@@ -5188,10 +5129,10 @@ final class SDUIRenderer: NSObject {
     // is the same picture standing still.
     let markSpec = node.props?["mark"]?.asObject
     let markMotion = node.props?["motion"]?.asObject
-    // What the server wants while the microphone is open: the dance (the
-    // structure itself, choreographed, below), the particles, or nothing.
+    // What the server wants while the microphone is open: the dispersal (the
+    // parts fly out and only the wave stays, below), the particles, or nothing.
     let recKind = TulmiMarkView.recordingKind(markMotion)
-    let plays = recKind == "dance" && markSpec != nil
+    let plays = recKind == "disperse" && markSpec != nil
     if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
@@ -5248,8 +5189,8 @@ final class SDUIRenderer: NSObject {
       // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
       // recoloured or set moving by a deploy. Only geometry reaches this
       // branch, so pushed media still cannot stand where the mark stands.
-      // With the dance it is the same view at idle and while recording: the
-      // structure moves in place and comes home, so nothing is swapped.
+      // With the dispersal it is the same view at idle and while recording:
+      // the parts fly out and back in place, so nothing is swapped.
       btn.setImage(nil, for: .normal)
       btn.imageView?.stopAnimating()
       mv.translatesAutoresizingMaskIntoConstraints = false
@@ -7991,7 +7932,7 @@ final class SDUIRenderer: NSObject {
       // Re-entering recording (possibly mid-reassembly): scatter the dots again.
       micReassembling = false
       currentMicParticles?.beginRecording()
-      // Or, with the dance, the structure begins its score in place.
+      // Or, with the dispersal, the parts fly out and the wave stays.
       currentMicMark?.beginPlay()
     } else {
       hideRecordingVisuals()
@@ -8008,8 +7949,8 @@ final class SDUIRenderer: NSObject {
           self.stateChanged()          // final remount → static brand mark
         }
       }
-      // The dance comes home on its own and rebuilds itself crisp; the same
-      // view stays mounted throughout, so there is nothing to swap in.
+      // The parts fly home on their own and the view rebuilds itself crisp;
+      // the same view stays mounted throughout, so there is nothing to swap in.
       currentMicMark?.settle {}
     }
     stateChanged()
