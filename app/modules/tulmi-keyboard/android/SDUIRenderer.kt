@@ -2092,7 +2092,8 @@ class SDUIRenderer(
         class Disperse(
             val keep: String, val out: Float, val spin: Float, val arc: Float, val shrink: Float, val gather: Float, val stagger: Float,
             val settle: Float, val lift: Float, val wait: Float, val tidePeriod: Float, val tideLength: Float, val tideRise: Float,
-            val tideRows: Int, val tideDepth: Float, val tideLean: Float, val tideSkew: Float, val centre: Boolean,
+            val tideRows: Int, val tideDepth: Float, val tideLean: Float, val tideSkew: Float, val tideMess: Float,
+            val backSpeed: Float, val backBounce: Float, val backTurbulence: Float, val backTumble: Float, val backStagger: Float, val centre: Boolean,
         )
         private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
             var k = 0                                   // its turn: nearest the wave leaves first, comes back last
@@ -2194,13 +2195,15 @@ class SDUIRenderer(
             clock += dt
             val out = sp.out * rim; val n = parts.size; val tau = clock - startAt; val sigma = clock - stopAt
             var far = 0f; var fast = 0f
-            val w0 = if (playing) 6.5f else 7.5f; val c0 = 2f * w0     // critically damped; a shade quicker home
+            // Out on a critically damped spring; in on a fast underdamped one, so a
+            // part arrives like something thrown, overshoots the core and snaps on.
+            val w0 = if (playing) 6.5f else sp.backSpeed; val c0 = if (playing) 2f * w0 else 2f * sp.backBounce * w0
             for (p in parts) {
                 // Its cue: out after its turn — a touch inward first, the gather —
                 // and back after the opposite turn, once the wave has begun to settle.
                 val lead = p.k * sp.stagger
                 if (playing) p.t = if (tau < lead) 0f else if (tau < lead + 0.1f) -sp.gather else 1f
-                else if (sigma >= (n - 1 - p.k) * sp.stagger + 0.15f) p.t = 0f
+                else if (sigma >= (n - 1 - p.k) * sp.backStagger + 0.12f) p.t = 0f
                 p.v += (p.t - p.p) * w0 * w0 * dt - c0 * p.v * dt; p.p += p.v * dt
                 far = maxOf(far, Math.abs(p.p) * out); fast = maxOf(fast, Math.abs(p.v) * out)
             }
@@ -2224,16 +2227,22 @@ class SDUIRenderer(
             val w = wave ?: return shapes
             val out = ArrayList<Shape>(shapes.size + 12)
             val byIndex = HashMap<Int, Part>(); for (p in parts) byIndex[p.index] = p
-            val reach = sp.out * rim; val arc = sp.arc * rim; val spin = sp.spin * Math.PI.toFloat() / 180f
+            val reach = sp.out * rim; val arc = sp.arc * rim; val spin = sp.spin * Math.PI.toFloat() / 180f; val turb = sp.backTurbulence * rim
             shapes.forEachIndexed { i, sh ->
                 val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
                 val p = byIndex[i]
                 if (p != null) {
-                    val e = p.p; val c = e.coerceIn(0f, 1f); val sc = 1f - sp.shrink * c; val op = 1f - smoothStep(0.55f, 1f, c); val rot = spin * e * p.sign
+                    val idx = parts.indexOf(p)
+                    val e = p.p; val c = e.coerceIn(0f, 1f); val sc = 1f - sp.shrink * c; val op = 1f - smoothStep(0.55f, 1f, c)
+                    // Turning as it goes; thrown in, it tumbles a whole turn more.
+                    val rot = (spin + (if (playing) 0f else sp.backTumble * 2f * Math.PI.toFloat())) * e * p.sign
                     // Out along an arc: the straight line from the middle, bent sideways
-                    // most at the midpoint, so it swings rather than shoots.
-                    val bend = arc * sn(Math.PI.toFloat() * c) * p.sign
-                    val dx = p.ux * reach * e - p.uy * bend; val dy = p.uy * reach * e + p.ux * bend
+                    // most at the midpoint, so it swings rather than shoots. Thrown in, it
+                    // is buffeted as well — a turbulence that dies as it closes in.
+                    val tb = if (playing) 0f else turb * Math.abs(e) * (0.6f * sn(clock * 11f + idx * 2.1f) + 0.4f * sn(clock * 17f + idx * 0.7f))
+                    val tr = if (playing) 0f else turb * 0.5f * Math.abs(e) * sn(clock * 13f + idx * 1.3f)
+                    val bend = arc * sn(Math.PI.toFloat() * c) * p.sign + tb
+                    val dx = p.ux * (reach * e + tr) - p.uy * bend; val dy = p.uy * (reach * e + tr) + p.ux * bend
                     when (sh.kind) {
                         "rect" -> { o.put("x", sh.o.optDouble("x") + dx); o.put("y", sh.o.optDouble("y") + dy) }
                         "circle" -> { o.put("cx", sh.o.optDouble("cx") + dx); o.put("cy", sh.o.optDouble("cy") + dy) }
@@ -2261,16 +2270,25 @@ class SDUIRenderer(
                     val dx = ddx / len; val dy = ddy / len; val nx = -dy; val ny = dx
                     var ux = -nx * 0.85f - dx * 0.35f; var uy = -ny * 0.85f - dy * 0.35f
                     val ul = maxOf(1e-6f, Math.hypot(ux.toDouble(), uy.toDouble()).toFloat()); ux /= ul; uy /= ul
+                    // Messy by `mess`: a third crest runs against the other two, a chop of
+                    // short ripples crosses all of them, and a slow noise lifts and drops
+                    // patches of the surface, so no two tides are alike.
                     fun tide(f: Float, r: Int): Float {
-                        val a = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / sp.tideLength - clock / sp.tidePeriod + r * sp.tideSkew)))
-                        val b = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / (sp.tideLength * 0.55f) - clock / (sp.tidePeriod * 0.7f) + 0.3f + r * sp.tideSkew)))
-                        return minOf(1f, (Math.pow(a.toDouble(), 1.6).toFloat() + 0.45f * Math.pow(b.toDouble(), 1.6).toFloat()) * sp.tideRise)
+                        val tau2 = 2f * Math.PI.toFloat()
+                        val a = maxOf(0f, sn(tau2 * (f / sp.tideLength - clock / sp.tidePeriod + r * sp.tideSkew)))
+                        val b = maxOf(0f, sn(tau2 * (f / (sp.tideLength * 0.55f) - clock / (sp.tidePeriod * 0.7f) + 0.3f + r * sp.tideSkew)))
+                        val cc = maxOf(0f, sn(tau2 * (f / (sp.tideLength * 0.8f) + clock / (sp.tidePeriod * 1.3f) - r * sp.tideSkew * 1.5f)))
+                        val chop = sn(tau2 * (f * 6.5f - clock * 2.3f + r * 0.37f)) * sn(tau2 * (f * 3.1f + clock * 1.7f))
+                        val noise = sn(clock * 3.7f + r * 2.1f + f * 11f) * sn(clock * 2.3f - f * 7f + r)
+                        val v = Math.pow(a.toDouble(), 1.6).toFloat() + 0.45f * Math.pow(b.toDouble(), 1.6).toFloat() +
+                            sp.tideMess * (0.35f * Math.pow(cc.toDouble(), 1.4).toFloat() + 0.18f * chop + 0.15f * noise)
+                        return (v * sp.tideRise).coerceIn(0f, 1f)
                     }
                     val rows = sp.tideRows
                     val tops = Array(rows) { FloatArray(n * 2) }; val ks = Array(rows) { FloatArray(n) }
                     val barShapes = ArrayList<Shape>(n)
                     for (r in 0 until rows) {
-                        val scale = 1f - 0.12f * r; val off = sp.tideDepth * k * r * q
+                        val scale = 1f - 0.12f * r; val off = sp.tideDepth * k * r * q * (1f + sp.tideMess * 0.12f * sn(clock * 1.3f + r * 1.9f))
                         for (j in 0 until n) {
                             val f = (j + 0.5f) / n; val kk = tide(f, r)
                             val h = hs.optDouble(j, 0.0).toFloat() * k * (1f + (swH - 1f) * kk * q) * scale
@@ -2386,6 +2404,12 @@ class SDUIRenderer(
                     (w?.optJSONObject("tide")?.optDouble("depth", 14.0) ?: 14.0).toFloat().coerceAtLeast(0f),
                     (w?.optJSONObject("tide")?.optDouble("lean", 0.55) ?: 0.55).toFloat().coerceAtLeast(0f),
                     (w?.optJSONObject("tide")?.optDouble("skew", 0.09) ?: 0.09).toFloat(),
+                    (w?.optJSONObject("tide")?.optDouble("mess", 0.7) ?: 0.7).toFloat().coerceIn(0f, 1f),
+                    (r.optJSONObject("back")?.optDouble("speed", 12.0) ?: 12.0).toFloat().coerceAtLeast(2f),
+                    (r.optJSONObject("back")?.optDouble("bounce", 0.6) ?: 0.6).toFloat().coerceIn(0.1f, 1f),
+                    (r.optJSONObject("back")?.optDouble("turbulence", 0.14) ?: 0.14).toFloat().coerceAtLeast(0f),
+                    (r.optJSONObject("back")?.optDouble("tumble", 1.0) ?: 1.0).toFloat().coerceAtLeast(0f),
+                    (r.optJSONObject("back")?.optDouble("stagger", 0.05) ?: 0.05).toFloat().coerceAtLeast(0f),
                     w?.optBoolean("centre", true) ?: true,
                 )
             }
