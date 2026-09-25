@@ -1,5 +1,8 @@
 # Tailzu Launch Runbook
 
+> Day to day, the commands that ship each part are in [SHIP.md](SHIP.md).
+> This page is the launch checklist around them.
+
 Everything code-side is on **`main`** and green. What is left is deploy, store
 console work, and — the part with no substitute — actually using the builds.
 
