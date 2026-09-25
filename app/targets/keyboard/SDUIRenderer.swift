@@ -1535,7 +1535,8 @@ final class TulmiMarkView: UIView {
   // numbers are the server's, from motion.recording.
   struct Disperse {
     let keep: String
-    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise: Double
+    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise, tideDepth, tideLean, tideSkew: Double
+    let tideRows: Int
     let centre: Bool
   }
   private struct Part {
@@ -1550,8 +1551,9 @@ final class TulmiMarkView: UIView {
   let disperseSpec: Disperse?
   private var parts: [Part] = []
   private var wave: Wave?
-  private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's dashes, one layer each
-  private var barLit: CGColor = UIColor.white.cgColor          // what a lit bar wears: the signal's colour
+  private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's bars or dashes, one layer each
+  private var barLit: CGColor = UIColor.white.cgColor          // what a lit dash wears: the signal's colour; a bar's own ink
+  private var sea: (rows: [CAShapeLayer], facets: [[CAShapeLayer]])?   // the surface behind the bars, while the microphone is open
   private var playing = false, settling = false
   private var clock = 0.0, startAt = 0.0, stopAt = 0.0, settleAt = 0.0
   private var lastTick: CFTimeInterval = 0
@@ -1597,6 +1599,10 @@ final class TulmiMarkView: UIView {
                     tidePeriod: max(0.2, w?["tide"]?.asObject?["period"]?.asDouble ?? 1.2),
                     tideLength: max(0.1, w?["tide"]?.asObject?["length"]?.asDouble ?? 0.6),
                     tideRise: min(1, max(0, w?["tide"]?.asObject?["rise"]?.asDouble ?? 1)),
+                    tideDepth: max(0, w?["tide"]?.asObject?["depth"]?.asDouble ?? 14),
+                    tideLean: max(0, w?["tide"]?.asObject?["lean"]?.asDouble ?? 0.55),
+                    tideSkew: w?["tide"]?.asObject?["skew"]?.asDouble ?? 0.09,
+                    tideRows: min(8, max(1, Int(w?["tide"]?.asObject?["rows"]?.asDouble ?? 5))),
                     centre: w?["centre"]?.asBool ?? true)
   }
 
@@ -1795,26 +1801,88 @@ final class TulmiMarkView: UIView {
                       y: o.y + (w.mid.y + CGFloat((sp.centre ? C.y - Double(w.mid.y) : 0) * w.q)) * s)
     link.position = pos
     link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
-    for bar in bars {
-      let a = max(0, sin(2 * .pi * (bar.f / sp.tideLength - clock / sp.tidePeriod)))
-      let b = max(0, sin(2 * .pi * (bar.f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3)))
-      let k = min(1, (pow(a, 1.6) + 0.45 * pow(b, 1.6)) * sp.tideRise) * q
-      bar.layer.isHidden = false
-      bar.layer.position = pos
-      bar.layer.transform = link.transform
-      bar.layer.strokeColor = barLit
-      if let e = bar.layer.value(forKey: "ends") as? [CGFloat], e.count == 8, let rest = bar.layer.value(forKey: "rest") as? [Any], let peak = bar.layer.value(forKey: "peak") as? [Any] {
-        // A bar, k of the way up: its ends between rest and peak, its width
-        // too. The path is about the link's home, as built; the layer's
-        // position and scale carry the glide and the growth.
-        let kk = CGFloat(k), p = UIBezierPath(), home = CGPoint(x: o.x + w.mid.x * s, y: o.y + w.mid.y * s)
-        p.move(to: CGPoint(x: o.x + (e[0] + (e[4] - e[0]) * kk) * s - home.x, y: o.y + (e[1] + (e[5] - e[1]) * kk) * s - home.y))
-        p.addLine(to: CGPoint(x: o.x + (e[2] + (e[6] - e[2]) * kk) * s - home.x, y: o.y + (e[3] + (e[7] - e[3]) * kk) * s - home.y))
-        bar.layer.path = p.cgPath
-        bar.layer.lineWidth = (rest[1] as? CGFloat ?? 1) + ((peak[1] as? CGFloat ?? 1) - (rest[1] as? CGFloat ?? 1)) * kk
-        bar.layer.opacity = 1
-      } else {
-        bar.layer.opacity = Float(k)      // a dash: lit under the crest
+    // Two crests, a long slow one and a quicker one riding it; a row meets
+    // them a little later than the row before, so they run diagonally.
+    func tide(_ f: Double, _ r: Int) -> Double {
+      let a = max(0, sin(2 * .pi * (f / sp.tideLength - clock / sp.tidePeriod + Double(r) * sp.tideSkew)))
+      let b = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3 + Double(r) * sp.tideSkew)))
+      return min(1, (pow(a, 1.6) + 0.45 * pow(b, 1.6)) * sp.tideRise)
+    }
+    let home = CGPoint(x: o.x + w.mid.x * s, y: o.y + w.mid.y * s)
+    let sh = shapes[w.layer]
+    if sh.kind == "bars", !bars.isEmpty {
+      // THE SEA. The bars are its front; rows of surface rise behind them,
+      // each higher, smaller and fainter, joined by contour lines, the water
+      // between them facets of ink, deeper where the crest stands. Under a
+      // crest the surface rises and its top leans forward, the curl of a
+      // breaking wave; it collapses behind. Rows grow out of the bars as the
+      // wave opens (`q`) and sink back into them as it closes.
+      let x1 = Double(sh.n["x1"] ?? 0), y1 = Double(sh.n["y1"] ?? 0), ddx = Double(sh.n["x2"] ?? 0) - x1, ddy = Double(sh.n["y2"] ?? 0) - y1
+      let L = max(1e-6, hypot(ddx, ddy)), dx = ddx / L, dy = ddy / L, nx = -dy, ny = dx
+      var ux = -nx * 0.85 - dx * 0.35, uy = -ny * 0.85 - dy * 0.35
+      let ul = max(1e-6, hypot(ux, uy)); ux /= ul; uy /= ul
+      let rows = sp.tideRows, cols = bars.count, ink = link.strokeColor ?? UIColor.black.cgColor, thick = (sh.n["thick"] ?? 6) * s
+      if sea == nil || sea!.rows.count != rows || (sea!.facets.first?.count ?? 0) != max(0, cols - 1) {
+        sea?.rows.forEach { $0.removeFromSuperlayer() }; sea?.facets.forEach { $0.forEach { $0.removeFromSuperlayer() } }
+        var rl: [CAShapeLayer] = [], fl: [[CAShapeLayer]] = []
+        for _ in 0..<rows {
+          let l = CAShapeLayer(); l.fillColor = nil; l.strokeColor = ink; l.lineWidth = thick * 0.35; l.lineJoin = .round; l.opacity = 0
+          root.insertSublayer(l, below: link); extras.append(l); rl.append(l)
+        }
+        for _ in 0..<max(0, rows - 1) {
+          var band: [CAShapeLayer] = []
+          for _ in 0..<max(0, cols - 1) {
+            let l = CAShapeLayer(); l.fillColor = ink; l.strokeColor = nil; l.opacity = 0
+            root.insertSublayer(l, below: link); extras.append(l); band.append(l)
+          }
+          fl.append(band)
+        }
+        sea = (rl, fl)
+      }
+      func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: o.x + CGFloat(x) * s - home.x, y: o.y + CGFloat(y) * s - home.y) }
+      var tops: [[(Double, Double)]] = [], ks: [[Double]] = []
+      for r in 0..<rows {
+        let scale = 1 - 0.12 * Double(r), off = sp.tideDepth * Double(r) * q
+        var pts: [(Double, Double)] = [], kr: [Double] = []
+        for (i, h0) in sh.heights.enumerated() where i < cols {
+          let f = (Double(i) + 0.5) / Double(cols), k = tide(f, r)
+          let h = Double(h0) * (1 + (Double(sh.swellHeight) - 1) * k * q) * scale
+          let cx = x1 + ddx * f + ux * off, cy = y1 + ddy * f + uy * off
+          let tx = cx + nx * h / 2 + dx * sp.tideLean * h * k * q, ty = cy + ny * h / 2 + dy * sp.tideLean * h * k * q
+          pts.append((tx, ty)); kr.append(k)
+          if r == 0 {
+            // The bar itself, k of the way up, its top leaning with the crest.
+            let bar = bars[i].layer, p = UIBezierPath()
+            let hh = Double(h0) * (1 + (Double(sh.swellHeight) - 1) * k * q)
+            p.move(to: px(x1 + ddx * f - nx * hh / 2, y1 + ddy * f - ny * hh / 2))
+            p.addLine(to: px(x1 + ddx * f + nx * hh / 2 + dx * sp.tideLean * hh * k * q, y1 + ddy * f + ny * hh / 2 + dy * sp.tideLean * hh * k * q))
+            bar.isHidden = false; bar.position = pos; bar.transform = link.transform
+            bar.path = p.cgPath; bar.lineWidth = thick * (1 + (Double(sh.swellThick) - 1) * k * q); bar.strokeColor = ink; bar.opacity = 1
+          }
+        }
+        tops.append(pts); ks.append(kr)
+        let rp = UIBezierPath()
+        for (i, t) in pts.enumerated() { if i == 0 { rp.move(to: px(t.0, t.1)) } else { rp.addLine(to: px(t.0, t.1)) } }
+        let row = sea!.rows[r]
+        row.position = pos; row.transform = link.transform; row.path = rp.cgPath
+        row.opacity = Float(q * (r == 0 ? 0.85 : 0.6 - 0.1 * Double(r)))
+      }
+      for r in 0..<max(0, rows - 1) {
+        for i in 0..<max(0, cols - 1) {
+          let fp = UIBezierPath()
+          fp.move(to: px(tops[r][i].0, tops[r][i].1)); fp.addLine(to: px(tops[r][i + 1].0, tops[r][i + 1].1))
+          fp.addLine(to: px(tops[r + 1][i + 1].0, tops[r + 1][i + 1].1)); fp.addLine(to: px(tops[r + 1][i].0, tops[r + 1][i].1)); fp.close()
+          let facet = sea!.facets[r][i], kavg = (ks[r][i] + ks[r][i + 1] + ks[r + 1][i] + ks[r + 1][i + 1]) / 4
+          facet.position = pos; facet.transform = link.transform; facet.path = fp.cgPath
+          facet.opacity = Float(q * (0.09 + 0.3 * kavg) * (1 - 0.12 * Double(r)))
+        }
+      }
+    } else {
+      // A dashed line kept instead: its dashes light under the crests.
+      for bar in bars {
+        let k = tide(bar.f, 0) * q
+        bar.layer.isHidden = false; bar.layer.position = pos; bar.layer.transform = link.transform
+        bar.layer.strokeColor = barLit; bar.layer.opacity = Float(k)
       }
     }
     CATransaction.commit()
@@ -1859,7 +1927,7 @@ final class TulmiMarkView: UIView {
     guard bounds.size != laidOut, bounds.width > 1, bounds.height > 1 else { return }
     laidOut = bounds.size
     (layers + extras).forEach { $0.removeFromSuperlayer() }
-    layers = []; extras = []; bars = []
+    layers = []; extras = []; bars = []; sea = nil
     CATransaction.begin(); CATransaction.setDisableActions(true)
     root.frame = bounds
     CATransaction.commit()
