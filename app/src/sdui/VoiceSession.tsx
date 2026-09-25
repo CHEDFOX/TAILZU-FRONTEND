@@ -55,6 +55,10 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
   const silenceMs = Math.max(600, Number(props?.silenceMs) || 1500);
   const maxTurns = Math.max(2, Number(props?.maxTurns) || 40);
   const language = props?.language ? String(props.language) : undefined;
+  // What the phone SPEAKS in: a locale ("hi-IN"), where `language` is the hint
+  // the recogniser and the partner get ("hi", "hinglish"). The server sends
+  // both; without the second, the voice follows the hint as best it can.
+  const speakLanguage = props?.speakLanguage ? String(props.speakLanguage) : language;
 
   const statePath = String(props?.statePath ?? "sessionState");
   const levelPath = String(props?.levelPath ?? "level");
@@ -245,7 +249,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         // Listening puts .playAndRecord back before it opens the mic again.
         await speakerOnly();
         Speech.speak(reply, {
-          language,
+          language: speakLanguage,
           onDone: () => { if (r.alive) void listen(); },
           // A synthesiser that fails silently would strand the conversation in
           // "speaking" forever, so both exits go back to listening.
@@ -305,7 +309,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         await speakerOnly();
         if (!r.alive) return;
         Speech.speak(greeting, {
-          language,
+          language: speakLanguage,
           onDone: () => { void afterGreeting(permission); },
           onStopped: () => { void afterGreeting(permission); },
           onError: () => { void afterGreeting(permission); },

@@ -96,6 +96,10 @@ enum TulmiBackend {
     req.httpMethod = "GET"
     req.timeoutInterval = 30
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    // WHICH BINARY IS ASKING. The server keys a few flags on it — the recording
+    // veil's blur, for one, which only a build that raises the veil above the
+    // keys can wear. An older build sends nothing and gets the safe answer.
+    req.setValue(SDUIRenderer.buildStamp, forHTTPHeaderField: "X-Tulmi-Keyboard-Build")
     URLSession.shared.dataTask(with: req) { data, response, error in
       if let error = error { completion(.failure(error)); return }
       // Reject non-2xx BEFORE the caller caches the body. Previously the status
