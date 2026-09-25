@@ -32,6 +32,8 @@ final class FlowSessionManager: NSObject {
   static let nStop       = "space.tailzu.tulmi.flow.stop"
   static let nTranscript = "space.tailzu.tulmi.flow.transcript"
   static let nEnded      = "space.tailzu.tulmi.flow.ended"
+  /// widget → app: end the session (the Live Activity's End button).
+  static let nEnd        = "space.tailzu.tulmi.flow.end"
 
   private var store: UserDefaults? { UserDefaults(suiteName: FlowSessionManager.appGroup) }
 
@@ -181,6 +183,12 @@ final class FlowSessionManager: NSObject {
     publishHeartbeat()   // immediate liveness so the keyboard sees a live session at once
     startHeartbeat()
     resetIdleTimer()
+    // THE SESSION, ON THE LOCK SCREEN. Requested now, while the app is in
+    // front — the one moment iOS allows it — and updated from the background
+    // from here on. See FlowLiveActivity.
+    if #available(iOS 16.2, *) {
+      FlowLiveActivity.shared.sessionStarted(until: Date(timeIntervalSinceNow: idleTimeout))
+    }
   }
 
   /// End the session now (user turned Flow off, or the app decided to).
@@ -263,6 +271,9 @@ final class FlowSessionManager: NSObject {
   // MARK: - Idle timer
 
   private func resetIdleTimer() {
+    if #available(iOS 16.2, *) {
+      FlowLiveActivity.shared.extended(until: Date(timeIntervalSinceNow: idleTimeout))
+    }
     // Timer.scheduledTimer attaches to the CURRENT thread's run loop. `relay`
     // calls this from the URLSession receive queue, whose run loop isn't
     // running — the timer would never fire and the background mic would stay
@@ -291,6 +302,7 @@ final class FlowSessionManager: NSObject {
     publishInactive()
     deactivateAudioSession()
     if notify { post(FlowSessionManager.nEnded) }
+    if #available(iOS 16.2, *) { FlowLiveActivity.shared.ended() }
   }
 
   // MARK: - Darwin observers (keyboard → app)
@@ -312,6 +324,12 @@ final class FlowSessionManager: NSObject {
       let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
       DispatchQueue.main.async { this.endDictation() }
     }, FlowSessionManager.nStop as CFString, nil, .deliverImmediately)
+    // The Live Activity's End button, from the widget extension.
+    CFNotificationCenterAddObserver(center, ptr, { _, p, _, _, _ in
+      guard let p = p else { return }
+      let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
+      DispatchQueue.main.async { this.end() }
+    }, FlowSessionManager.nEnd as CFString, nil, .deliverImmediately)
 
     // THE SESSION HAS TO SURVIVE BEING INTERRUPTED, because it will be.
     //
@@ -388,6 +406,7 @@ final class FlowSessionManager: NSObject {
     guard armed, !dictating else { return }
     resetIdleTimer()
     dictating = true
+    if #available(iOS 16.2, *) { FlowLiveActivity.shared.listening() }
     pcmLock.lock(); preroll = Data(); pcmLock.unlock()
     if !capturing { startCapture() }   // safety net — the engine should already be live
     if oneShot {
@@ -401,6 +420,7 @@ final class FlowSessionManager: NSObject {
     guard dictating else { return }
     resetIdleTimer()
     dictating = false
+    if #available(iOS 16.2, *) { FlowLiveActivity.shared.writing() }
     if oneShot { uploadUtterance(); return }
     // Stop STREAMING this utterance — but deliberately keep the engine running
     // (do NOT stopCapture) so the app stays alive in the background between
@@ -429,6 +449,7 @@ final class FlowSessionManager: NSObject {
     setTask(nil)
     pendingClose = nil
     finishing = false
+    if #available(iOS 16.2, *) { FlowLiveActivity.shared.ready() }
   }
 
   // MARK: - WebSocket
@@ -546,6 +567,13 @@ final class FlowSessionManager: NSObject {
   private func relay(_ text: String, isFinal: Bool) {
     resetIdleTimer()
     seq += 1
+    // The Live Activity counts the words that landed; partials are not
+    // pushed, they come many times a second and the count would only jitter.
+    if isFinal, #available(iOS 16.2, *) {
+      let n = text.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
+      FlowLiveActivity.shared.spoke(words: n)
+      if !dictating { FlowLiveActivity.shared.ready() }
+    }
     let d = store
     d?.set(seq, forKey: "tulmi.flow.transcript.seq")
     d?.set(text, forKey: "tulmi.flow.transcript.text")
