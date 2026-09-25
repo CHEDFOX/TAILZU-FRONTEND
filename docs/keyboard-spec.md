@@ -119,7 +119,15 @@ mark stands, on either platform.
         { "on": "mark", "kind": "breathe", "period": 4.2, "scale": 1.06, "opacity": 1 },
         { "on": "link", "kind": "hatch", "period": 2.6 }
       ],
-      "recording": { "kind": "twist", "drift": 0.11, "spin": 26, "sway": 5, "lag": 1.2, "settle": 0.7 }
+      "recording": {
+        "kind": "play", "wobble": 0.32, "speed": 16, "reach": 1, "tempo": 1.2, "settle": 0.8,
+        "idle": { "squash": 0.03, "period": 2.4 },
+        "gags": [
+          { "name": "yank", "frames": [{ "t": 0, "sx": 0.92, "sy": 1.06 }, { "t": 0.12, "sx": 1.45, "sy": 0.72 }, { "t": 0.38, "sx": 1, "sy": 1 }] },
+          { "name": "pinch", "frames": [{ "t": 0, "pull": [{ "on": "a", "dx": 0.06, "dy": -0.2 }], "rot": -4 }, { "t": 0.3, "pull": [], "rot": 0 }] },
+          { "name": "spin", "frames": [{ "t": 0, "rot": -14 }, { "t": 0.12, "rot": 360 }, { "t": 0.6, "wrap": 360 }] }
+        ]
+      }
     }
   }
 }
@@ -129,5 +137,5 @@ mark stands, on either platform.
 - `fit: "circle"` (default) scales the artboard so its diagonal spans the key, which keeps every corner inside a round key; `"box"` fits the sides.
 - `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
 - `motion.idle`: `signal` (on `"mark"`) is the splash's sequence on a loop, a timeline of `steps` over `period` seconds. Each step names a shape and the second it lights (`at`): a square or plain line wears the signal `color` for `hold` seconds (on in 60ms, off in 60ms); a dashed line has a run of light travel its length for `run` seconds, dash by dash, in step with its hatch. `color` defaults to pale on a tinted mark and amber otherwise. `breathe` swells a shape (or `"mark"`, the whole) to `scale` and fades it to `opacity` and back; `hatch` runs a dashed line's dashes along it. All on `period` seconds; all honour the system's reduce-motion setting. On a 36pt key the signal and the breath are what shows; the hatch is for the sizes where dashes resolve.
-- `motion.recording`: what the key does while the microphone is open. `{ "kind": "twist", ... }` — the structure comes alive in place: every square and the dot rides its own slow orbit and turns about its centre, phased left to right (`lag`, radians) so the motion runs through the mark like a wave; the lines stretch between them like a linkage; the whole mark sways (`sway`, degrees). `drift` is the reach as a fraction of the artboard's short side, `spin` the turn in degrees. The live microphone level drives the clock and the reach, and a sudden rise kicks a node into a turn. On stop every part springs home, critically damped, within `settle` seconds, and the idle motion resumes; the same view stays mounted throughout. `"particles"` — the mark bursts into the dot sim and springs back on stop — or `"none"`. A build before the twist reads a name only and shows its particles.
+- `motion.recording`: what the key does while the microphone is open. `{ "kind": "play", ... }` — the structure is played with, cartoon style. The body has six channels, `tx`/`ty` (slide, fractions of the artboard's short side), `rot` (degrees), `shear` (skew factor), `sx`/`sy` (stretch), and every square and the dot is a node a gag can `pull` by a corner (`dx`/`dy`, same units; an empty `pull` lets go of all) or push away from the centre (`out`), with the lines tied to the nearest node at each end. A gag is `frames` of targets at rising `t` seconds; unnamed channels keep their targets. Every channel chases its target on an underdamped spring, `wobble` the damping ratio and `speed` the rate, which is where the anticipation, snap, overshoot and wobble come from. `wrap` takes a full turn back off the count once it is done, so a spin ends at home; a turn of 180° or more is never scaled. The live microphone level is the hand: a rise fires the next gag at once, talking keeps them coming at `tempo` a second, silence is a jelly breath (`idle.squash` at `idle.period`) and a small poke now and then; `reach` scales every gag. On stop the damping turns critical and the targets go home, so the mark comes back smoothly within `settle` seconds and lands exactly; the same view stays mounted throughout and the idle motion resumes. `"particles"` — the mark bursts into the dot sim and springs back on stop — or `"none"`. A build before the play reads a name only and shows its particles.
 - A shape kind or motion kind a build does not know is skipped. A build older than this ignores both props and draws its bundled mark; a backend older than this sends neither and the keyboard does the same.
