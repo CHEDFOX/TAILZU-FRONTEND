@@ -1857,7 +1857,8 @@ final class TulmiMarkView: UIView {
     if isPlaying || (program != nil && !UIAccessibility.isReduceMotionEnabled) { startDisplay() }
   }
 
-  private var center: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
+  // The artboard's middle, in its own units. (`center` is UIView's.)
+  private var mid: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
   private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
   private var rim: Double { Double(hypot(viewBox.width, viewBox.height)) / 2 }
 
@@ -1866,7 +1867,7 @@ final class TulmiMarkView: UIView {
   /// the middle out; they come back in the opposite order.
   private func tie() {
     parts = []; wave = nil
-    let C = center
+    let C = mid
     for (i, sh) in shapes.enumerated() {
       let c: CGPoint
       switch sh.kind {
@@ -2036,7 +2037,7 @@ final class TulmiMarkView: UIView {
   private func draw() {
     guard let sp = disperseSpec, let w = wave, layers.count == shapes.count else { return }
     let (s, o) = fitted
-    let C = center, out = sp.out * rim, arc = sp.arc * rim, spin = sp.spin * .pi / 180
+    let C = mid, out = sp.out * rim, arc = sp.arc * rim, spin = sp.spin * .pi / 180
     CATransaction.begin(); CATransaction.setDisableActions(true)
     let turb = sp.backTurbulence * rim
     for (idx, p) in parts.enumerated() {
@@ -2481,7 +2482,7 @@ final class TulmiMarkView: UIView {
             // lights in the signal colour. One layer per bar, on its own cue.
             let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
             let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
-            let dashes = dashLayers(for: i, color: sh.kind == "bars" ? (tint ?? sh.color ?? UIColor.black).cgColor : sig, scale: s, origin: o)
+            let dashes = dashLayers(for: i, color: sh.kind == "bars" ? (tint ?? sh.color ?? UIColor.black).cgColor : sig, scale: s, origin: fitted.origin)
             if sh.id == disperseSpec?.keep { bars = dashes }
             for (d, f) in dashes {
               // Its cue: the crest's centre passes at `tf`, the whole crest in `2 * edge`.
