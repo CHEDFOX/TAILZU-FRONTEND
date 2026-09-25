@@ -2091,7 +2091,8 @@ class SDUIRenderer(
         // around: nothing ever jumps. The numbers are the server's.
         class Disperse(
             val keep: String, val out: Float, val spin: Float, val arc: Float, val shrink: Float, val gather: Float, val stagger: Float,
-            val settle: Float, val lift: Float, val wait: Float, val tidePeriod: Float, val tideLength: Float, val tideRise: Float, val centre: Boolean,
+            val settle: Float, val lift: Float, val wait: Float, val tidePeriod: Float, val tideLength: Float, val tideRise: Float,
+            val tideRows: Int, val tideDepth: Float, val tideLean: Float, val tideSkew: Float, val centre: Boolean,
         )
         private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
             var k = 0                                   // its turn: nearest the wave leaves first, comes back last
@@ -2241,27 +2242,68 @@ class SDUIRenderer(
                     o.put("_turn", (rot * 180f / Math.PI.toFloat()).toDouble()); o.put("_scale", sc.toDouble()); o.put("_alpha", op.toDouble())
                     out += Shape(sh.id, sh.kind, o, sh.color)
                 } else if (i == w.index && sh.kind == "bars") {
-                    // THE WAVE IS WATER. Two crests travel the bars, a long slow one and
-                    // a shorter quicker one riding it; where they add a tide forms — each
-                    // bar rising under the crest and collapsing behind it — and where they
-                    // cancel it goes flat. The bars glide and grow with the wave; each
-                    // carries its own rise for the painter. All in the mark's own ink.
+                    // THE SEA. The bars are its front; rows of surface rise behind them,
+                    // each higher, smaller and fainter, joined by contour lines, the water
+                    // between them facets of ink, deeper where the crest stands. Two crests
+                    // travel it, running diagonally; under a crest the surface rises and
+                    // its top leans forward, the curl of a breaking wave, and collapses
+                    // behind. Rows grow out of the bars as the wave opens and sink back as
+                    // it closes. Facets and contours are shapes of this frame only, never
+                    // from the server. All in the mark's own ink.
                     val q = w.q.coerceIn(0f, 1f); val k = 1f + (sp.lift - 1f) * w.q
                     val x1 = sh.o.optDouble("x1").toFloat(); val y1 = sh.o.optDouble("y1").toFloat(); val x2 = sh.o.optDouble("x2").toFloat(); val y2 = sh.o.optDouble("y2").toFloat()
                     val mx = w.mx + (if (sp.centre) cX - w.mx else 0f) * w.q; val my = w.my + (if (sp.centre) cY - w.my else 0f) * w.q
                     val ax = mx + (x1 - w.mx) * k; val ay = my + (y1 - w.my) * k; val bx = mx + (x2 - w.mx) * k; val by = my + (y2 - w.my) * k
                     val hs = sh.o.optJSONArray("heights")!!; val n = hs.length()
-                    val grown = org.json.JSONArray(); val rises = org.json.JSONArray()
-                    for (j in 0 until n) {
-                        val f = (j + 0.5f) / n
-                        val a = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / sp.tideLength - clock / sp.tidePeriod)))
-                        val b = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / (sp.tideLength * 0.55f) - clock / (sp.tidePeriod * 0.7f) + 0.3f)))
-                        val rise = minOf(1f, (Math.pow(a.toDouble(), 1.6).toFloat() + 0.45f * Math.pow(b.toDouble(), 1.6).toFloat()) * sp.tideRise) * q
-                        grown.put(hs.optDouble(j, 0.0) * k); rises.put(rise.toDouble())
+                    val swell = sh.o.optJSONObject("swell"); val swT = swell?.optDouble("thick", 1.3)?.toFloat() ?: 1.3f; val swH = swell?.optDouble("height", 1.9)?.toFloat() ?: 1.9f
+                    val thick = sh.o.optDouble("thick", 6.0).toFloat() * k
+                    val ddx = bx - ax; val ddy = by - ay; val len = maxOf(1e-6f, Math.hypot(ddx.toDouble(), ddy.toDouble()).toFloat())
+                    val dx = ddx / len; val dy = ddy / len; val nx = -dy; val ny = dx
+                    var ux = -nx * 0.85f - dx * 0.35f; var uy = -ny * 0.85f - dy * 0.35f
+                    val ul = maxOf(1e-6f, Math.hypot(ux.toDouble(), uy.toDouble()).toFloat()); ux /= ul; uy /= ul
+                    fun tide(f: Float, r: Int): Float {
+                        val a = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / sp.tideLength - clock / sp.tidePeriod + r * sp.tideSkew)))
+                        val b = maxOf(0f, sn(2f * Math.PI.toFloat() * (f / (sp.tideLength * 0.55f) - clock / (sp.tidePeriod * 0.7f) + 0.3f + r * sp.tideSkew)))
+                        return minOf(1f, (Math.pow(a.toDouble(), 1.6).toFloat() + 0.45f * Math.pow(b.toDouble(), 1.6).toFloat()) * sp.tideRise)
                     }
-                    o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble())
-                    o.put("thick", sh.o.optDouble("thick", 6.0) * k); o.put("heights", grown); o.put("_rise", rises)
-                    out += Shape(sh.id, sh.kind, o, sh.color)
+                    val rows = sp.tideRows
+                    val tops = Array(rows) { FloatArray(n * 2) }; val ks = Array(rows) { FloatArray(n) }
+                    val barShapes = ArrayList<Shape>(n)
+                    for (r in 0 until rows) {
+                        val scale = 1f - 0.12f * r; val off = sp.tideDepth * k * r * q
+                        for (j in 0 until n) {
+                            val f = (j + 0.5f) / n; val kk = tide(f, r)
+                            val h = hs.optDouble(j, 0.0).toFloat() * k * (1f + (swH - 1f) * kk * q) * scale
+                            val cx = ax + ddx * f + ux * off; val cy = ay + ddy * f + uy * off
+                            tops[r][j * 2] = cx + nx * h / 2 + dx * sp.tideLean * h * kk * q; tops[r][j * 2 + 1] = cy + ny * h / 2 + dy * sp.tideLean * h * kk * q
+                            ks[r][j] = kk
+                            if (r == 0) {
+                                // The bar itself, k of the way up, its top leaning with the crest.
+                                val hh = hs.optDouble(j, 0.0).toFloat() * k * (1f + (swH - 1f) * kk * q)
+                                val bar = JSONObject()
+                                bar.put("x1", (ax + ddx * f - nx * hh / 2).toDouble()); bar.put("y1", (ay + ddy * f - ny * hh / 2).toDouble())
+                                bar.put("x2", (ax + ddx * f + nx * hh / 2 + dx * sp.tideLean * hh * kk * q).toDouble()); bar.put("y2", (ay + ddy * f + ny * hh / 2 + dy * sp.tideLean * hh * kk * q).toDouble())
+                                bar.put("width", (thick * (1f + (swT - 1f) * kk * q)).toDouble())
+                                barShapes += Shape(null, "line", bar, sh.color)
+                            }
+                        }
+                    }
+                    // Behind the bars: the water, then the contours; the bars last, in front.
+                    for (r in 0 until rows - 1) for (j in 0 until n - 1) {
+                        val pts = org.json.JSONArray()
+                        pts.put(tops[r][j * 2].toDouble()); pts.put(tops[r][j * 2 + 1].toDouble()); pts.put(tops[r][j * 2 + 2].toDouble()); pts.put(tops[r][j * 2 + 3].toDouble())
+                        pts.put(tops[r + 1][j * 2 + 2].toDouble()); pts.put(tops[r + 1][j * 2 + 3].toDouble()); pts.put(tops[r + 1][j * 2].toDouble()); pts.put(tops[r + 1][j * 2 + 1].toDouble())
+                        val kavg = (ks[r][j] + ks[r][j + 1] + ks[r + 1][j] + ks[r + 1][j + 1]) / 4
+                        val facet = JSONObject(); facet.put("pts", pts); facet.put("_alpha", (q * (0.09f + 0.3f * kavg) * (1f - 0.12f * r)).toDouble())
+                        out += Shape(null, "_poly", facet, sh.color)
+                    }
+                    for (r in 0 until rows) {
+                        val pts = org.json.JSONArray(); for (v in tops[r]) pts.put(v.toDouble())
+                        val contour = JSONObject(); contour.put("pts", pts); contour.put("width", (thick * 0.35f).toDouble())
+                        contour.put("_alpha", (q * (if (r == 0) 0.85f else 0.6f - 0.1f * r)).toDouble())
+                        out += Shape(null, "_pline", contour, sh.color)
+                    }
+                    out.addAll(barShapes)
                 } else if (i == w.index) {
                     // The wave as a dashed line: its ends glided and grown about its middle, and the cluster's lit dashes over it.
                     val q = w.q.coerceIn(0f, 1f); val k = 1f + (sp.lift - 1f) * w.q
@@ -2340,6 +2382,10 @@ class SDUIRenderer(
                     (w?.optJSONObject("tide")?.optDouble("period", 1.2) ?: 1.2).toFloat().coerceAtLeast(0.2f),
                     (w?.optJSONObject("tide")?.optDouble("length", 0.6) ?: 0.6).toFloat().coerceAtLeast(0.1f),
                     (w?.optJSONObject("tide")?.optDouble("rise", 1.0) ?: 1.0).toFloat().coerceIn(0f, 1f),
+                    (w?.optJSONObject("tide")?.optInt("rows", 5) ?: 5).coerceIn(1, 8),
+                    (w?.optJSONObject("tide")?.optDouble("depth", 14.0) ?: 14.0).toFloat().coerceAtLeast(0f),
+                    (w?.optJSONObject("tide")?.optDouble("lean", 0.55) ?: 0.55).toFloat().coerceAtLeast(0f),
+                    (w?.optJSONObject("tide")?.optDouble("skew", 0.09) ?: 0.09).toFloat(),
                     w?.optBoolean("centre", true) ?: true,
                 )
             }
@@ -2460,6 +2506,23 @@ class SDUIRenderer(
                             motionOf(c, o, cx, cy)
                             paint.style = Paint.Style.FILL
                             c.drawCircle(cx, cy, o.optDouble("r").toFloat() * s * sc, paint)
+                        }
+                        "_poly", "_pline" -> {
+                            // The sea's facets and contours: made by the wave for one frame,
+                            // never sent by the server (parse() refuses these kinds).
+                            val pts = o.optJSONArray("pts")
+                            if (pts != null && pts.length() >= 4) {
+                                val path = android.graphics.Path()
+                                var j = 0
+                                while (j + 1 < pts.length()) {
+                                    val px = ox + pts.optDouble(j, 0.0).toFloat() * s; val py = oy + pts.optDouble(j + 1, 0.0).toFloat() * s
+                                    if (j == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                                    j += 2
+                                }
+                                if (sh.kind == "_poly") { path.close(); paint.style = Paint.Style.FILL }
+                                else { paint.style = Paint.Style.STROKE; paint.strokeWidth = o.optDouble("width", 1.0).toFloat() * s; paint.strokeJoin = Paint.Join.ROUND }
+                                c.drawPath(path, paint)
+                            }
                         }
                         "bars" -> {
                             // THE WAVE OF THE ICON: thin bars of uneven height across the
