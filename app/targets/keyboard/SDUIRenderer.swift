@@ -1917,32 +1917,38 @@ final class TulmiMarkView: UIView {
           let sub = layers[i], sh = shapes[i]
           let at = min(period, max(0, st["at"]?.asDouble ?? 0))
           if sh.kind == "line", !sh.dash.isEmpty, let run = st["run"]?.asDouble, run > 0 {
-            // The same dashes again, in the signal colour, seen through a
-            // window a fifth of the line wide that slides from end to end.
-            // The overlay carries the base's hatch so lit dashes sit exactly
-            // on the dashes beneath them.
-            let box = sub.path!.boundingBox.insetBy(dx: -sub.lineWidth, dy: -sub.lineWidth)
-            let ov = CAShapeLayer()
-            ov.path = sub.path; ov.bounds = box; ov.position = sub.position
-            ov.fillColor = nil; ov.strokeColor = sig; ov.lineWidth = sub.lineWidth
-            ov.lineCap = sub.lineCap; ov.lineDashPattern = sub.lineDashPattern
-            if let h = sub.animation(forKey: "hatch") { ov.add(h, forKey: "hatch") }
-            let win = CAShapeLayer()
-            win.path = sub.path; win.bounds = box; win.position = .zero
-            win.fillColor = nil; win.strokeColor = UIColor.black.cgColor; win.lineWidth = sub.lineWidth + 2
-            win.strokeStart = 0; win.strokeEnd = 0
-            let w = 0.22
-            let end = CAKeyframeAnimation(keyPath: "strokeEnd")
-            end.values = [0, 0, 1, 1]
-            end.keyTimes = TulmiMarkView.keyTimes([0, at, at + run / (1 + w), period], period)
-            let start = CAKeyframeAnimation(keyPath: "strokeStart")
-            start.values = [0, 0, 1, 1]
-            start.keyTimes = TulmiMarkView.keyTimes([0, at + run * w / (1 + w), at + run, period], period)
-            for a in [end, start] { a.duration = period; a.repeatCount = .infinity; a.calculationMode = .linear }
-            win.add(end, forKey: "signalEnd"); win.add(start, forKey: "signalStart")
-            ov.mask = win
-            root.insertSublayer(ov, above: sub)
-            extras.append(ov)
+            // THE RUN BETWEEN THE BLOCKS, as the splash has it: the dashes stay
+            // where they are, and a bright cluster of them — `width` of the
+            // line, fully lit at its core and soft at its edges — travels from
+            // end to end in `run` seconds. One layer per dash, lit on its cue.
+            let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
+            let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash[0]), off = Double(sh.dash.count > 1 ? sh.dash[1] : sh.dash[0])
+            let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
+            let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
+            var pos = 0.0
+            while pos < L, on > 0 {
+              let f0 = pos / L, f1 = min(L, pos + on) / L, f = (f0 + f1) / 2
+              let d = CAShapeLayer(), p = UIBezierPath()
+              p.move(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f0)) * s - sub.position.x,
+                                 y: o.y + (a.y + (b.y - a.y) * CGFloat(f0)) * s - sub.position.y))
+              p.addLine(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f1)) * s - sub.position.x,
+                                    y: o.y + (a.y + (b.y - a.y) * CGFloat(f1)) * s - sub.position.y))
+              d.path = p.cgPath; d.position = sub.position
+              d.fillColor = nil; d.strokeColor = sig; d.lineWidth = sub.lineWidth; d.lineCap = .butt
+              d.opacity = 0
+              // Its cue: the cluster's centre passes at `tf`; fully lit for the
+              // core half of the cluster about that, fading over the rest.
+              let tf = at + run * (f + half) / (1 + width), edge = run * half / (1 + width), core = edge * 0.5
+              let an = CAKeyframeAnimation(keyPath: "opacity")
+              an.values = [0, 0, 1, 1, 0, 0]
+              an.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf - core, tf + core, tf + edge, period], period)
+              an.timingFunctions = [linear, ease, linear, ease, linear]
+              an.duration = period; an.repeatCount = .infinity
+              d.add(an, forKey: "signal")
+              root.insertSublayer(d, above: sub)
+              extras.append(d)
+              pos += on + off
+            }
           } else {
             // On in sixty milliseconds, off in sixty: a swap, not a flicker.
             let hold = max(0.05, st["hold"]?.asDouble ?? 0.4)
