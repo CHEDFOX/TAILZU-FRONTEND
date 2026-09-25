@@ -2126,6 +2126,9 @@ class SDUIRenderer(
                 val order = pulse?.optJSONArray("order")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
                 val low = pulse?.optDouble("low", 0.55)?.toFloat() ?: 1f
                 val slot = if (order.isEmpty()) 0f else (1f - pulse!!.optDouble("rest", 0.35).toFloat().coerceIn(0f, 0.9f)) / order.size
+                // A wave, not a row of blinks: each brightening lasts `spread`
+                // slots as a raised cosine, so neighbours overlap and the light travels.
+                val width = if (order.isEmpty()) 0f else minOf(0.98f, maxOf(slot, pulse!!.optDouble("spread", 2.0).toFloat() * slot))
                 var markAlpha = 1f
                 c.save()
                 if (markBreath != null) {
@@ -2147,7 +2150,7 @@ class SDUIRenderer(
                     val turn = sh.id?.let { order.indexOf(it) } ?: -1
                     if (turn >= 0) {
                         var pos = signal - turn * slot; while (pos < 0f) pos += 1f
-                        val bump = when { pos < 0.055f -> pos / 0.055f; pos < 0.12f -> 1f - (pos - 0.055f) / 0.065f; else -> 0f }
+                        val bump = if (pos < width) (0.5 - 0.5 * Math.cos(2 * Math.PI * pos / width)).toFloat() else 0f
                         alpha *= low + (1f - low) * bump
                     }
                     paint.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
