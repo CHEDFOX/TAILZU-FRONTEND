@@ -1497,6 +1497,14 @@ final class TulmiMarkView: UIView {
   struct Shape {
     let id: String?; let kind: String; let n: [String: CGFloat]
     let dash: [CGFloat]; let cap: String; let color: UIColor?
+    let heights: [CGFloat]                 // bars: each bar's length across the line
+    let swellThick: CGFloat, swellHeight: CGFloat   // bars: what a bar becomes under the bright cluster
+    /// A bar's ends, for the bar at fraction `t` along the line, `grow` taller than drawn.
+    func bar(at t: CGFloat, height h: CGFloat) -> (CGPoint, CGPoint) {
+      let x1 = n["x1"] ?? 0, y1 = n["y1"] ?? 0, dx = (n["x2"] ?? 0) - x1, dy = (n["y2"] ?? 0) - y1
+      let L = max(1e-6, hypot(dx, dy)), nx = -dy / L, ny = dx / L, cx = x1 + dx * t, cy = y1 + dy * t
+      return (CGPoint(x: cx - nx * h / 2, y: cy - ny * h / 2), CGPoint(x: cx + nx * h / 2, y: cy + ny * h / 2))
+    }
   }
   private let shapes: [Shape]
   private let viewBox: CGRect
@@ -1618,8 +1626,8 @@ final class TulmiMarkView: UIView {
       case "circle": c = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
       default: c = CGPoint(x: ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2, y: ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2)
       }
-      if sh.id == disperseSpec?.keep, sh.kind == "line", !sh.dash.isEmpty {
-        wave = Wave(layer: i, mid: c, width: sh.n["width"] ?? 1)
+      if sh.id == disperseSpec?.keep, sh.kind == "bars" || (sh.kind == "line" && !sh.dash.isEmpty) {
+        wave = Wave(layer: i, mid: c, width: sh.n["width"] ?? sh.n["thick"] ?? 1)
         continue
       }
       let dx = Double(c.x) - C.x, dy = Double(c.y) - C.y, len = max(1e-6, hypot(dx, dy))
@@ -1630,28 +1638,40 @@ final class TulmiMarkView: UIView {
     for (k, i) in order.enumerated() { parts[i].k = k }
   }
 
-  /// One layer per dash of a dashed line, in the signal colour and hidden,
-  /// each with its place along the line. The run lights them on their cue;
-  /// while the microphone is open they are the wave's bars.
+  /// One layer per bar of a row of bars — its swollen twin, thicker and a
+  /// touch taller — or per dash of a dashed line, in the signal colour and
+  /// hidden, each with its place along the line. The run lights them on
+  /// their cue; while the microphone is open they are the wave's.
   private func dashLayers(for li: Int, color: CGColor, scale s: CGFloat, origin o: CGPoint) -> [(CAShapeLayer, Double)] {
     let sh = shapes[li], sub = layers[li]
-    let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
-    let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash[0]), off = Double(sh.dash.count > 1 ? sh.dash[1] : sh.dash[0])
-    var out: [(CAShapeLayer, Double)] = [], pos = 0.0
+    var out: [(CAShapeLayer, Double)] = []
     barLit = color
-    while pos < L, on > 0 {
-      let f0 = pos / L, f1 = min(L, pos + on) / L
+    func add(_ a: CGPoint, _ b: CGPoint, width: CGFloat, at f: Double) {
       let d = CAShapeLayer(), p = UIBezierPath()
-      p.move(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f0)) * s - sub.position.x,
-                         y: o.y + (a.y + (b.y - a.y) * CGFloat(f0)) * s - sub.position.y))
-      p.addLine(to: CGPoint(x: o.x + (a.x + (b.x - a.x) * CGFloat(f1)) * s - sub.position.x,
-                            y: o.y + (a.y + (b.y - a.y) * CGFloat(f1)) * s - sub.position.y))
+      p.move(to: CGPoint(x: o.x + a.x * s - sub.position.x, y: o.y + a.y * s - sub.position.y))
+      p.addLine(to: CGPoint(x: o.x + b.x * s - sub.position.x, y: o.y + b.y * s - sub.position.y))
       d.path = p.cgPath; d.position = sub.position
-      d.fillColor = nil; d.strokeColor = color; d.lineWidth = sub.lineWidth; d.lineCap = .butt
+      d.fillColor = nil; d.strokeColor = color; d.lineWidth = width; d.lineCap = .butt
       d.opacity = 0
       root.insertSublayer(d, above: sub)
       extras.append(d)
-      out.append((d, (f0 + f1) / 2))
+      out.append((d, f))
+    }
+    if sh.kind == "bars" {
+      for (i, h) in sh.heights.enumerated() {
+        let t = (CGFloat(i) + 0.5) / CGFloat(sh.heights.count)
+        let (a, b) = sh.bar(at: t, height: h * sh.swellHeight)
+        add(a, b, width: (sh.n["thick"] ?? 6) * sh.swellThick * s, at: Double(t))
+      }
+      return out
+    }
+    let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
+    let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash.first ?? 0), off = Double(sh.dash.count > 1 ? sh.dash[1] : (sh.dash.first ?? 0))
+    var pos = 0.0
+    while pos < L, on > 0 {
+      let f0 = pos / L, f1 = min(L, pos + on) / L
+      add(CGPoint(x: a.x + (b.x - a.x) * CGFloat(f0), y: a.y + (b.y - a.y) * CGFloat(f0)),
+          CGPoint(x: a.x + (b.x - a.x) * CGFloat(f1), y: a.y + (b.y - a.y) * CGFloat(f1)), width: sub.lineWidth, at: (f0 + f1) / 2)
       pos += on + off
     }
     return out
@@ -1771,7 +1791,6 @@ final class TulmiMarkView: UIView {
       bar.layer.isHidden = false
       bar.layer.position = pos
       bar.layer.transform = link.transform
-      bar.layer.lineWidth = w.width * s
       bar.layer.strokeColor = barLit
       bar.layer.opacity = Float(lit * q)
     }
@@ -1785,13 +1804,17 @@ final class TulmiMarkView: UIView {
     var out: [Shape] = []
     for item in raw {
       guard let o = item.asObject, let kind = o["kind"]?.asString,
-            ["rect", "line", "circle"].contains(kind) else { continue }
+            ["rect", "line", "circle", "bars"].contains(kind) else { continue }
       var n: [String: CGFloat] = [:]
       for (k, v) in o { if let d = v.asCGFloat { n[k] = d } }
       let dash = o["dash"]?.asArray?.compactMap { $0.asCGFloat } ?? []
+      let heights = o["heights"]?.asArray?.compactMap { $0.asCGFloat } ?? []
+      if kind == "bars", heights.isEmpty { continue }
+      let swell = o["swell"]?.asObject
       let color = o["color"]?.asString.map { UIColor(tulmiHex: $0) }
       out.append(Shape(id: o["id"]?.asString, kind: kind, n: n, dash: dash,
-                       cap: o["cap"]?.asString ?? "butt", color: color))
+                       cap: o["cap"]?.asString ?? "butt", color: color, heights: heights,
+                       swellThick: swell?["thick"]?.asCGFloat ?? 1.5, swellHeight: swell?["height"]?.asCGFloat ?? 1.07))
     }
     return out.isEmpty ? nil : (out, CGRect(x: vb[0], y: vb[1], width: vb[2], height: vb[3]))
   }
@@ -1840,6 +1863,18 @@ final class TulmiMarkView: UIView {
         let r = (sh.n["r"] ?? 0) * s
         p.append(UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)))
         l.fillColor = color
+      case "bars":
+        // The wave of the icon: bars across the line, uneven, one path.
+        center = CGPoint(x: o.x + ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2 * s, y: o.y + ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2 * s)
+        for (i, h) in sh.heights.enumerated() {
+          let (a, b) = sh.bar(at: (CGFloat(i) + 0.5) / CGFloat(sh.heights.count), height: h)
+          p.move(to: CGPoint(x: o.x + a.x * s - center.x, y: o.y + a.y * s - center.y))
+          p.addLine(to: CGPoint(x: o.x + b.x * s - center.x, y: o.y + b.y * s - center.y))
+        }
+        l.fillColor = nil
+        l.strokeColor = color
+        l.lineWidth = (sh.n["thick"] ?? 6) * s
+        l.lineCap = .butt
       default:
         let a = CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s)
         let b = CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s)
@@ -1887,11 +1922,12 @@ final class TulmiMarkView: UIView {
           guard let sid = st["on"]?.asString, let i = shapes.firstIndex(where: { $0.id == sid }) else { continue }
           let sub = layers[i], sh = shapes[i]
           let at = min(period, max(0, st["at"]?.asDouble ?? 0))
-          if sh.kind == "line", !sh.dash.isEmpty, let run = st["run"]?.asDouble, run > 0 {
-            // THE RUN BETWEEN THE BLOCKS, as the splash has it: the dashes stay
-            // where they are, and a bright cluster of them — `width` of the
-            // line, fully lit at its core and soft at its edges — travels from
-            // end to end in `run` seconds. One layer per dash, lit on its cue.
+          if (sh.kind == "line" && !sh.dash.isEmpty) || sh.kind == "bars", let run = st["run"]?.asDouble, run > 0 {
+            // THE RUN BETWEEN THE BLOCKS, as the splash has it: the bars (or
+            // dashes) stay where they are, and a bright cluster — `width` of
+            // the line, fully lit at its core and soft at its edges, each bar
+            // under it swollen — travels from end to end in `run` seconds.
+            // One layer per bar, lit on its cue.
             let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
             let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
             let dashes = dashLayers(for: i, color: sig, scale: s, origin: o)
@@ -1972,6 +2008,15 @@ final class TulmiMarkView: UIView {
           let r = (sh.n["r"] ?? 0) * s
           c.fillEllipse(in: CGRect(x: o.x + (sh.n["cx"] ?? 0) * s - r, y: o.y + (sh.n["cy"] ?? 0) * s - r,
                                    width: r * 2, height: r * 2))
+        case "bars":
+          c.setLineWidth((sh.n["thick"] ?? 6) * s)
+          c.setLineCap(.butt)
+          for (i, h) in sh.heights.enumerated() {
+            let (a, b) = sh.bar(at: (CGFloat(i) + 0.5) / CGFloat(sh.heights.count), height: h)
+            c.move(to: CGPoint(x: o.x + a.x * s, y: o.y + a.y * s))
+            c.addLine(to: CGPoint(x: o.x + b.x * s, y: o.y + b.y * s))
+            c.strokePath()
+          }
         default:
           c.setLineWidth((sh.n["width"] ?? 1) * s)
           c.setLineCap(sh.cap == "round" ? .round : .butt)
