@@ -3986,7 +3986,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K36"
+  static let buildStamp = "K37"
 
   /// The bundled brand mark.
   ///
@@ -4570,15 +4570,17 @@ final class SDUIRenderer: NSObject {
       case "chrome":  style = light ? .systemChromeMaterialLight : .systemChromeMaterialDark
       default:        style = light ? .systemUltraThinMaterialLight : .systemUltraThinMaterialDark
       }
-      let v = UIVisualEffectView(effect: UIBlurEffect(style: style))
+      let v = DictationVeilBlur(effect: UIBlurEffect(style: style))
       v.contentView.backgroundColor = tint
+      v.passthrough = currentMicButton
       dim = v
     } else {
       // No blur to carry the signal, so the veil has to do it alone — but from
       // the appearance's own side, never a black slab over a pale keyboard.
-      let v = UIView()
+      let v = DictationVeilPlain()
       v.backgroundColor = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
         .withAlphaComponent(flagCGFloat("kb.dictation.dim.fallbackAlpha", 0.5))
+      v.passthrough = currentMicButton
       dim = v
     }
     dim.translatesAutoresizingMaskIntoConstraints = false
@@ -4602,6 +4604,32 @@ final class SDUIRenderer: NSObject {
     let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
     UIView.animate(withDuration: fadeMs / 1000.0) { dim.alpha = 1 }
     recordingDimView = dim
+  }
+
+  /// THE MIC IS THE WAY OUT, so the veil must never cover it. Raising the tools
+  /// row above the veil only works when that row is a direct child of the
+  /// container, and in a nested tree it is not — the raise is a no-op and the
+  /// veil swallows the one tap that stops the recording. So the veil itself
+  /// declines any touch over the mic, whatever the tree looks like: hit-testing
+  /// falls through to the views beneath, and the mic takes it.
+  private static func veilHit(_ veil: UIView, _ passthrough: UIView?, _ point: CGPoint) -> Bool {
+    guard let mic = passthrough, mic.window != nil, let sup = mic.superview else { return false }
+    let p = sup.convert(point, from: veil)
+    return mic.frame.insetBy(dx: -6, dy: -6).contains(p)
+  }
+  private final class DictationVeilBlur: UIVisualEffectView {
+    weak var passthrough: UIView?
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+      if SDUIRenderer.veilHit(self, passthrough, point) { return nil }
+      return super.hitTest(point, with: event)
+    }
+  }
+  private final class DictationVeilPlain: UIView {
+    weak var passthrough: UIView?
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+      if SDUIRenderer.veilHit(self, passthrough, point) { return nil }
+      return super.hitTest(point, with: event)
+    }
   }
 
   private func removeKeyDimming() {
