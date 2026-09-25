@@ -1525,17 +1525,18 @@ final class TulmiMarkView: UIView {
   // turn, a beat after the last, along an arc — out past the rim, shrinking
   // and fading as it crosses it, turning as it goes. Once they are away the
   // kept shape, the dashed link between the blocks, glides to the middle and
-  // grows: the wave, doing what it does in the splash — the dashes stay put
-  // and the bright cluster runs along them, over and over. Stop reverses it: the
-  // wave settles back into the link, and the parts glide in on the same arcs
-  // in cascade and land exactly where they began; then the layers are
+  // grows: the wave, a sea with depth. Stop is a throw: the wave settles
+  // back into the link, and the parts are hurled in from outside in cascade,
+  // tumbling, buffeted by a turbulence that dies as they close in, each
+  // overshooting the core a touch and snapping onto it; then the layers are
   // rebuilt crisp so the idle signal resumes. Every part follows one
-  // number, its progress from home to away, on a critically damped spring,
-  // so a stop mid-flight simply turns it around: nothing ever jumps. The
-  // numbers are the server's, from motion.recording.
+  // number, its progress from home to away — critically damped out,
+  // underdamped in — so a stop mid-flight simply turns it around: nothing
+  // ever jumps. The numbers are the server's, from motion.recording.
   struct Disperse {
     let keep: String
-    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise, tideDepth, tideLean, tideSkew: Double
+    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise, tideDepth, tideLean, tideSkew, tideMess: Double
+    let backSpeed, backBounce, backTurbulence, backTumble, backStagger: Double
     let tideRows: Int
     let centre: Bool
   }
@@ -1602,6 +1603,12 @@ final class TulmiMarkView: UIView {
                     tideDepth: max(0, w?["tide"]?.asObject?["depth"]?.asDouble ?? 14),
                     tideLean: max(0, w?["tide"]?.asObject?["lean"]?.asDouble ?? 0.55),
                     tideSkew: w?["tide"]?.asObject?["skew"]?.asDouble ?? 0.09,
+                    tideMess: min(1, max(0, w?["tide"]?.asObject?["mess"]?.asDouble ?? 0.7)),
+                    backSpeed: max(2, r["back"]?.asObject?["speed"]?.asDouble ?? 12),
+                    backBounce: min(1, max(0.1, r["back"]?.asObject?["bounce"]?.asDouble ?? 0.6)),
+                    backTurbulence: max(0, r["back"]?.asObject?["turbulence"]?.asDouble ?? 0.14),
+                    backTumble: max(0, r["back"]?.asObject?["tumble"]?.asDouble ?? 1),
+                    backStagger: max(0, r["back"]?.asObject?["stagger"]?.asDouble ?? 0.05),
                     tideRows: min(8, max(1, Int(w?["tide"]?.asObject?["rows"]?.asDouble ?? 5))),
                     centre: w?["centre"]?.asBool ?? true)
   }
@@ -1745,14 +1752,16 @@ final class TulmiMarkView: UIView {
     clock += dt
     let out = sp.out * rim, n = parts.count, tau = clock - startAt, sigma = clock - stopAt
     var far = 0.0, fast = 0.0
-    let w0 = playing ? 6.5 : 7.5, c0 = 2 * w0     // critically damped; a shade quicker home
+    // Out on a critically damped spring; in on a fast underdamped one, so a
+    // part arrives like something thrown, overshoots the core and snaps on.
+    let w0 = playing ? 6.5 : sp.backSpeed, c0 = playing ? 2 * w0 : 2 * sp.backBounce * w0
     for i in parts.indices {
       var p = parts[i]
       // Its cue: out after its turn — a touch inward first, the gather —
       // and back after the opposite turn, once the wave has begun to settle.
       let lead = Double(p.k) * sp.stagger
       if playing { p.t = tau < lead ? 0 : tau < lead + 0.1 ? -sp.gather : 1 }
-      else if sigma >= Double(n - 1 - p.k) * sp.stagger + 0.15 { p.t = 0 }
+      else if sigma >= Double(n - 1 - p.k) * sp.backStagger + 0.12 { p.t = 0 }
       p.v += (p.t - p.p) * w0 * w0 * dt - c0 * p.v * dt; p.p += p.v * dt
       far = max(far, abs(p.p) * out); fast = max(fast, abs(p.v) * out)
       parts[i] = p
@@ -1778,13 +1787,19 @@ final class TulmiMarkView: UIView {
     let (s, o) = fitted
     let C = center, out = sp.out * rim, arc = sp.arc * rim, spin = sp.spin * .pi / 180
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    for p in parts {
+    let turb = sp.backTurbulence * rim
+    for (idx, p) in parts.enumerated() {
       let l = layers[p.layer]
-      let e = p.p, c = min(1, max(0, e)), sc = 1 - sp.shrink * c, op = 1 - TulmiMarkView.smooth(0.55, 1, c), rot = spin * e * p.sign
+      let e = p.p, c = min(1, max(0, e)), sc = 1 - sp.shrink * c, op = 1 - TulmiMarkView.smooth(0.55, 1, c)
+      // Turning as it goes; thrown in, it tumbles a whole turn more.
+      let rot = (spin + (playing ? 0 : sp.backTumble * 2 * .pi)) * e * p.sign
       // Out along an arc: the straight line from the middle, bent sideways
-      // most at the midpoint, so it swings rather than shoots.
-      let bend = arc * sin(.pi * c) * p.sign
-      let dx = p.ux * out * e - p.uy * bend, dy = p.uy * out * e + p.ux * bend
+      // most at the midpoint, so it swings rather than shoots. Thrown in, it
+      // is buffeted as well — a turbulence that dies as it closes in.
+      let tb = playing ? 0 : turb * abs(e) * (0.6 * sin(clock * 11 + Double(idx) * 2.1) + 0.4 * sin(clock * 17 + Double(idx) * 0.7))
+      let tr = playing ? 0 : turb * 0.5 * abs(e) * sin(clock * 13 + Double(idx) * 1.3)
+      let bend = arc * sin(.pi * c) * p.sign + tb
+      let dx = p.ux * (out * e + tr) - p.uy * bend, dy = p.uy * (out * e + tr) + p.ux * bend
       l.position = CGPoint(x: o.x + (p.c.x + CGFloat(dx)) * s, y: o.y + (p.c.y + CGFloat(dy)) * s)
       l.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot), 0, 0, 1))
       l.opacity = Float(op)
@@ -1803,10 +1818,18 @@ final class TulmiMarkView: UIView {
     link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
     // Two crests, a long slow one and a quicker one riding it; a row meets
     // them a little later than the row before, so they run diagonally.
+    // Messy by `mess`: a third crest runs against the other two, a chop of
+    // short ripples crosses all of them, and a slow noise lifts and drops
+    // patches of the surface, so no two tides are alike.
     func tide(_ f: Double, _ r: Int) -> Double {
-      let a = max(0, sin(2 * .pi * (f / sp.tideLength - clock / sp.tidePeriod + Double(r) * sp.tideSkew)))
-      let b = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3 + Double(r) * sp.tideSkew)))
-      return min(1, (pow(a, 1.6) + 0.45 * pow(b, 1.6)) * sp.tideRise)
+      let rr = Double(r)
+      let a = max(0, sin(2 * .pi * (f / sp.tideLength - clock / sp.tidePeriod + rr * sp.tideSkew)))
+      let b = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3 + rr * sp.tideSkew)))
+      let c = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.8) + clock / (sp.tidePeriod * 1.3) - rr * sp.tideSkew * 1.5)))
+      let chop = sin(2 * .pi * (f * 6.5 - clock * 2.3 + rr * 0.37)) * sin(2 * .pi * (f * 3.1 + clock * 1.7))
+      let noise = sin(clock * 3.7 + rr * 2.1 + f * 11) * sin(clock * 2.3 - f * 7 + rr)
+      let v = pow(a, 1.6) + 0.45 * pow(b, 1.6) + sp.tideMess * (0.35 * pow(c, 1.4) + 0.18 * chop + 0.15 * noise)
+      return min(1, max(0, v * sp.tideRise))
     }
     let home = CGPoint(x: o.x + w.mid.x * s, y: o.y + w.mid.y * s)
     let sh = shapes[w.layer]
@@ -1842,7 +1865,7 @@ final class TulmiMarkView: UIView {
       func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: o.x + CGFloat(x) * s - home.x, y: o.y + CGFloat(y) * s - home.y) }
       var tops: [[(Double, Double)]] = [], ks: [[Double]] = []
       for r in 0..<rows {
-        let scale = 1 - 0.12 * Double(r), off = sp.tideDepth * Double(r) * q
+        let scale = 1 - 0.12 * Double(r), off = sp.tideDepth * Double(r) * q * (1 + sp.tideMess * 0.12 * sin(clock * 1.3 + Double(r) * 1.9))
         var pts: [(Double, Double)] = [], kr: [Double] = []
         for (i, h0) in sh.heights.enumerated() where i < cols {
           let f = (Double(i) + 0.5) / Double(cols), k = tide(f, r)
