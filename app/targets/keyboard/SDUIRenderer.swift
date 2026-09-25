@@ -1507,40 +1507,40 @@ final class TulmiMarkView: UIView {
   private var extras: [CALayer] = []     // overlays the motion adds; rebuilt with the layers
   private var laidOut: CGSize = .zero
   private var fitted: (scale: CGFloat, origin: CGPoint) = (1, .zero)
-  /// Holds every shape. The play deforms this; the breath is on the view's own
-  /// layer above it, so neither transform cancels the other.
+  /// Holds every shape, under the view's own layer, which carries the breath.
   private let root = CALayer()
 
-  // MARK: The play — the structure played with while the microphone is open
+  // MARK: The physics — the structure as a thing inside the key
   //
-  // Cartoon physics on the whole mark. The body has six channels — slide x
-  // and y, turn, shear, stretch x and y — and every square and the dot is a
-  // node a gag can pull by its corner, with the lines tied to them. A gag is
-  // a few keyframes of targets, sent by the server; every channel chases its
-  // target on an underdamped spring, so a step becomes anticipation, snap,
-  // overshoot and wobble on its own. The voice fires the gags: a rise in the
-  // level fires one at once, talking keeps them coming at `tempo`, silence
-  // gets a slow jelly breath and the odd small poke. Stop turns the damping
-  // critical and the targets to home, so the mark comes back smoothly, lands
-  // exactly, and the layers are rebuilt crisp for the idle motion.
-  struct Play {
-    let wobble, speed, reach, tempo, settle, idleSquash, idlePeriod: Double
-    let gags: [[[String: KBJSON]]]        // each gag: its frames, in order
+  // While the microphone is open the squares and the dot are masses, each
+  // line a rod between the two nearest (a distance constraint solved by
+  // position, rigid or rubbery by `stiff`), the key's rim a round wall, and
+  // the masses collide. Forces come from the scene — a tether to home,
+  // gravity, a current, a pull to the middle, ambient jitter — and from the
+  // voice, which throws a kick in on every rise and feeds the wind and the
+  // jitter. Squares turn with their rods and stretch along their own
+  // velocity, cartoon style. The server sends a series of scenes; they run
+  // in turn and blend by lerping every number, so nothing ever jumps. Stop
+  // blends to a stiff, critically damped tether with the wall gone, the
+  // mark lands exactly, and the layers are rebuilt crisp for the idle motion.
+  struct Scene { let name: String; let length: Double; let p: [Double]; let pin: [String]; let launch: Double; let toss: Double }
+  struct Physics { let force, wall, blend, settle: Double; let scenes: [Scene] }
+  private static let pKeys = ["hold", "stiff", "drag", "gravity", "spin", "wind", "swirl", "centre", "bounce", "kick", "jitter", "squash", "pinHold"]
+  private static let pHome: [Double] = [160, 0.6, 25.3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  private struct Mass {
+    let layer: Int; let id: String?; let h: CGPoint; let r: Double; let m: Double
+    var x: Double, y: Double
+    var vx = 0.0, vy = 0.0, px = 0.0, py = 0.0, ang = 0.0, pin = 0.0, pinT = 0.0, jx = 0.0, jy = 0.0, jt = 0.0
+    var rods: [Int] = []
   }
-  private struct Node {
-    let layer: Int; let c: CGPoint
-    var x = 0.0, y = 0.0, vx = 0.0, vy = 0.0, tx = 0.0, ty = 0.0   // pull (artboard units), its speed, its target
-  }
-  private static let bodyKeys = ["tx", "ty", "rot", "shear", "sx", "sy"]
-  private static let bodyHome = [0.0, 0, 0, 0, 1, 1]
-  let playSpec: Play?
-  private var nodes: [Node] = []
-  private var tieLines: [Int] = []        // shape indices of the lines
-  private var ties: [[Int]] = []          // per line, the node each end is tied to
-  private var body = TulmiMarkView.bodyHome, bodyV = [Double](repeating: 0, count: 6), bodyT = TulmiMarkView.bodyHome
+  private struct Rod { let i: Int; let j: Int; let rest: Double; let ang: Double }
+  private struct Tie { let mass: Int; let d: CGPoint }
+  let physicsSpec: Physics?
+  private var masses: [Mass] = [], rods: [Rod] = [], tieLines: [Int] = [], ties: [[Tie]] = []
+  private var P = TulmiMarkView.pHome, T = TulmiMarkView.pHome
   private var playing = false, settling = false
-  private var clock = 0.0, lastGag = -9.0, gagIndex = -1, gagAt = 0.0, gagAmp = 1.0, gagNext = 0, settleAt = 0.0, lastLevel = 0.0
-  private var gag: [[String: KBJSON]]?
+  private var clock = 0.0, sceneT = 0.0, sceneI = -1, gAng = Double.pi / 2, lastKick = -9.0, lastToss = 0.0, lastLevel = 0.0, settleAt = 0.0
+  private var seed: UInt64 = 7
   private var lastTick: CFTimeInterval = 0
   private var display: CADisplayLink?
   private var onSettled: (() -> Void)?
@@ -1555,78 +1555,100 @@ final class TulmiMarkView: UIView {
     circle = TulmiMarkView.isCircle(spec)
     self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
     self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
-    playSpec = TulmiMarkView.play(from: motion)
+    physicsSpec = TulmiMarkView.physics(from: motion)
     super.init(frame: .zero)
     isUserInteractionEnabled = false
     isOpaque = false
     backgroundColor = .clear
     layer.addSublayer(root)
-    if playSpec != nil { tie() }
+    if physicsSpec != nil { tie() }
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
-  /// What the key does while the microphone is open: "play", "particles" or
-  /// "none". A backend before the play sent a name; now it sends the play's
-  /// numbers and gags under `kind`. Absent, the particles — what older builds do.
+  /// What the key does while the microphone is open: "physics", "particles"
+  /// or "none". A backend before the physics sent a name; now it sends the
+  /// scenes under `kind`. Absent, the particles — what older builds do.
   static func recordingKind(_ motion: [String: KBJSON]?) -> String {
     let r = motion?["recording"]
     return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
   }
-  static func play(from motion: [String: KBJSON]?) -> Play? {
-    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "play" else { return nil }
-    let idle = r["idle"]?.asObject
-    let gags = (r["gags"]?.asArray ?? []).compactMap { g -> [[String: KBJSON]]? in
-      let frames = g.asObject?["frames"]?.asArray?.compactMap { $0.asObject } ?? []
-      return frames.isEmpty ? nil : frames
+  static func physics(from motion: [String: KBJSON]?) -> Physics? {
+    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "physics" else { return nil }
+    let scenes = (r["scenes"]?.asArray ?? []).compactMap { item -> Scene? in
+      guard let sc = item.asObject else { return nil }
+      let pin = sc["pin"]?.asArray?.compactMap { $0.asString } ?? []
+      var p = pKeys.map { key -> Double in
+        sc[key]?.asDouble ?? (key == "stiff" ? 0.9 : key == "bounce" ? 0.5 : key == "drag" ? 1 : 0)
+      }
+      p[12] = pin.isEmpty ? 0 : 400
+      return Scene(name: sc["name"]?.asString ?? "", length: max(1, sc["for"]?.asDouble ?? 8), p: p, pin: pin,
+                   launch: sc["launch"]?.asDouble ?? 0, toss: sc["toss"]?.asDouble ?? 0)
     }
-    return Play(wobble: min(1, max(0.05, r["wobble"]?.asDouble ?? 0.32)), speed: max(2, r["speed"]?.asDouble ?? 16),
-                reach: r["reach"]?.asDouble ?? 1, tempo: max(0.1, r["tempo"]?.asDouble ?? 1.2),
-                settle: max(0.1, r["settle"]?.asDouble ?? 0.8), idleSquash: idle?["squash"]?.asDouble ?? 0.03,
-                idlePeriod: max(0.3, idle?["period"]?.asDouble ?? 2.4), gags: gags)
+    guard !scenes.isEmpty else { return nil }
+    return Physics(force: r["force"]?.asDouble ?? 1, wall: min(1, max(0.5, r["wall"]?.asDouble ?? 0.96)),
+                   blend: max(0.05, r["blend"]?.asDouble ?? 1.2), settle: max(0.1, r["settle"]?.asDouble ?? 1), scenes: scenes)
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
     if window == nil { stopDisplay(); return }
     // Under a new key (the tree remounts on every state change) the layers
-    // come without their animations, so they are rebuilt; the play's state
-    // lives in `body` and `nodes` and carries straight on.
+    // come without their animations, so they are rebuilt; the physics' state
+    // lives in `masses` and carries straight on.
     if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
     if isPlaying { startDisplay() }
   }
 
-  /// Nodes and the lines' ties to them, once, from the geometry.
+  /// The same run on every platform: a plain multiplicative generator.
+  private func rnd() -> Double { seed = (seed * 16807) % 2147483647; return Double(seed) / 2147483647 }
+  private var center: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
+  private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
+
+  /// Masses, rods and the lines' ties, once, from the geometry.
   private func tie() {
-    nodes = []; tieLines = []; ties = []
+    masses = []; rods = []; tieLines = []; ties = []
     for (i, sh) in shapes.enumerated() {
       if sh.kind == "rect" {
-        nodes.append(Node(layer: i, c: CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)))
+        let h = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
+        masses.append(Mass(layer: i, id: sh.id, h: h, r: Double(sh.n["w"] ?? 0) * 0.45, m: 1, x: Double(h.x), y: Double(h.y)))
       } else if sh.kind == "circle" {
-        nodes.append(Node(layer: i, c: CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)))
+        let h = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
+        masses.append(Mass(layer: i, id: sh.id, h: h, r: max(Double(sh.n["r"] ?? 0) * 1.5, unit * 0.03), m: 0.35, x: Double(h.x), y: Double(h.y)))
       }
     }
-    guard !nodes.isEmpty else { return }
+    guard !masses.isEmpty else { return }
     for (i, sh) in shapes.enumerated() where sh.kind == "line" {
       tieLines.append(i)
-      let ends = [CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)]
-      ties.append(ends.map { p in
-        nodes.indices.min { hypot(nodes[$0].c.x - p.x, nodes[$0].c.y - p.y) < hypot(nodes[$1].c.x - p.x, nodes[$1].c.y - p.y) }!
-      })
+      let ends = [CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)].map { p -> Tie in
+        let best = masses.indices.min { hypot(masses[$0].h.x - p.x, masses[$0].h.y - p.y) < hypot(masses[$1].h.x - p.x, masses[$1].h.y - p.y) }!
+        return Tie(mass: best, d: CGPoint(x: p.x - masses[best].h.x, y: p.y - masses[best].h.y))
+      }
+      ties.append(ends)
+      if ends[0].mass != ends[1].mass {
+        let a = masses[ends[0].mass], b = masses[ends[1].mass]
+        rods.append(Rod(i: ends[0].mass, j: ends[1].mass, rest: Double(hypot(b.h.x - a.h.x, b.h.y - a.h.y)),
+                        ang: atan2(Double(b.h.y - a.h.y), Double(b.h.x - a.h.x))))
+        masses[ends[0].mass].rods.append(rods.count - 1)
+        masses[ends[1].mass].rods.append(rods.count - 1)
+      }
     }
   }
 
-  /// The microphone opened: the play begins. A no-op without a play from the
-  /// server, so a still or particle mark is unaffected.
+  /// The microphone opened: the next scene begins. A no-op without physics
+  /// from the server, so a still or particle mark is unaffected.
   func beginPlay() {
-    guard playSpec != nil, !nodes.isEmpty else { return }
-    playing = true; settling = false; onSettled = nil; settleAt = 0; lastGag = clock - 9
+    guard let sp = physicsSpec, !masses.isEmpty else { return }
+    playing = true; settling = false; onSettled = nil; settleAt = 0
+    enter((sceneI + 1) % sp.scenes.count)
     restSignal()
     startDisplay()
   }
-  /// The microphone closed: everything springs home, then `onDone`.
+  /// The microphone closed: everything comes home, then `onDone`.
   func settle(_ onDone: @escaping () -> Void) {
     guard playing else { onDone(); return }
-    playing = false; settling = true; settleAt = 0; onSettled = onDone; gag = nil
+    playing = false; settling = true; settleAt = 0; onSettled = onDone
+    T = TulmiMarkView.pHome
+    for k in masses.indices { masses[k].pinT = 0 }
     startDisplay()
   }
   private func startDisplay() {
@@ -1642,94 +1664,156 @@ final class TulmiMarkView: UIView {
     for l in layers { l.removeAnimation(forKey: "signal") }
     for e in extras { e.isHidden = true }
   }
-  /// Targets home: the body and every pull.
-  private func rest() {
-    bodyT = TulmiMarkView.bodyHome
-    for i in nodes.indices { nodes[i].tx = 0; nodes[i].ty = 0 }
-  }
   private func home() {
     stopDisplay()
-    settling = false; playing = false; gag = nil
-    body = TulmiMarkView.bodyHome; bodyV = [Double](repeating: 0, count: 6); bodyT = TulmiMarkView.bodyHome
-    for i in nodes.indices { nodes[i].x = 0; nodes[i].y = 0; nodes[i].vx = 0; nodes[i].vy = 0; nodes[i].tx = 0; nodes[i].ty = 0 }
+    settling = false; playing = false
+    for k in masses.indices {
+      masses[k].x = Double(masses[k].h.x); masses[k].y = Double(masses[k].h.y)
+      masses[k].vx = 0; masses[k].vy = 0; masses[k].ang = 0; masses[k].pin = 0
+    }
     root.transform = CATransform3DIdentity
     laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
     let done = onSettled; onSettled = nil; done?()
   }
 
-  /// The next gag: every one in turn, in a scrambled order, at `amp` of its reach.
-  private func fire(_ amp: Double) {
-    guard let sp = playSpec, !sp.gags.isEmpty else { return }
-    gagIndex = (gagIndex + 7) % sp.gags.count
-    gag = sp.gags[gagIndex]; gagNext = 0; gagAt = clock; gagAmp = amp * sp.reach; lastGag = clock
+  private func enter(_ i: Int) {
+    guard let sp = physicsSpec else { return }
+    let sc = sp.scenes[i]
+    sceneI = i; sceneT = 0; T = sc.p
+    for k in masses.indices { masses[k].pinT = masses[k].id.map { sc.pin.contains($0) } == true ? 1 : 0 }
+    // A turn on entry: every mass gets the velocity of a body spinning about the middle.
+    if sc.launch != 0 {
+      let C = center
+      for k in masses.indices {
+        masses[k].vx += -(masses[k].y - C.y) * sc.launch
+        masses[k].vy += (masses[k].x - C.x) * sc.launch
+      }
+    }
+    lastToss = clock
   }
-  /// One keyframe: new targets for the channels it names.
-  private func apply(frame f: [String: KBJSON]) {
-    let U = Double(min(viewBox.width, viewBox.height))
-    let C = CGPoint(x: viewBox.midX, y: viewBox.midY)
-    for (i, key) in TulmiMarkView.bodyKeys.enumerated() {
-      guard let v = f[key]?.asDouble else { continue }
-      // A full turn is a full turn; anything else scales with the voice.
-      let home = TulmiMarkView.bodyHome[i]
-      bodyT[i] = (key == "rot" && abs(v) >= 180) ? v : home + (v - home) * gagAmp
-    }
-    if let pulls = f["pull"]?.asArray {
-      for i in nodes.indices { nodes[i].tx = 0; nodes[i].ty = 0 }
-      for p in pulls.compactMap({ $0.asObject }) {
-        guard let id = p["on"]?.asString, let i = nodes.firstIndex(where: { shapes[$0.layer].id == id }) else { continue }
-        nodes[i].tx = (p["dx"]?.asDouble ?? 0) * U * gagAmp
-        nodes[i].ty = (p["dy"]?.asDouble ?? 0) * U * gagAmp
-      }
-    }
-    if let out = f["out"]?.asDouble {
-      for i in nodes.indices {
-        let dx = Double(nodes[i].c.x - C.x), dy = Double(nodes[i].c.y - C.y), len = max(1, hypot(dx, dy))
-        nodes[i].tx = out * U * gagAmp * dx / len
-        nodes[i].ty = out * U * gagAmp * dy / len
-      }
-    }
-    if let w = f["wrap"]?.asDouble { body[2] -= w; bodyT[2] = 0 }
+  /// One mass thrown, `strength` key-widths a second, against gravity if there is any.
+  private func kick(_ strength: Double, against g: (x: Double, y: Double)?) {
+    guard !masses.isEmpty else { return }
+    let k = min(masses.count - 1, Int(rnd() * Double(masses.count))), a = rnd() * 2 * .pi
+    var dx = cos(a), dy = sin(a)
+    if let g = g { dx = dx * 0.6 - g.x; dy = dy * 0.6 - g.y; let l = max(1e-6, hypot(dx, dy)); dx /= l; dy /= l }
+    masses[k].vx += dx * strength * unit; masses[k].vy += dy * strength * unit
   }
 
   @objc private func tick(_ l: CADisplayLink) {
     let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
-    guard let sp = playSpec, !nodes.isEmpty else { return }
-    let lv = Double(max(0, min(1, level())))
-    let U = Double(min(viewBox.width, viewBox.height))
+    guard let sp = physicsSpec, !masses.isEmpty, sceneI >= 0 else { return }
+    let lv = Double(max(0, min(1, level()))), U = unit, C = center, force = sp.force, energy = 0.25 + lv
     clock += dt
     if playing {
-      // THE VOICE IS THE HAND. A rise fires a gag at once; talking keeps them
-      // coming; silence is a jelly breath and, now and then, a small poke.
-      if lv - lastLevel > 0.15, clock - lastGag > 0.4 { fire(0.55 + 0.45 * lv) }
-      else if lv > 0.25, clock - lastGag > 1 / sp.tempo { fire(0.55 + 0.45 * lv) }
-      else if lv < 0.1, clock - lastGag > 2.2 { fire(0.45) }
-      if let g = gag {
-        while gagNext < g.count, clock - gagAt >= (g[gagNext]["t"]?.asDouble ?? 0) { apply(frame: g[gagNext]); gagNext += 1 }
-        if gagNext >= g.count, clock - gagAt >= (g[g.count - 1]["t"]?.asDouble ?? 0) + 0.05 { gag = nil; rest() }
+      sceneT += dt
+      if sceneT >= sp.scenes[sceneI].length { enter((sceneI + 1) % sp.scenes.count) }
+    }
+    // Everything blends: the scene's numbers, and each mass's pin.
+    let rate = min(1, dt * (settling ? 4 : 1 / sp.blend))
+    for i in P.indices { P[i] += (T[i] - P[i]) * rate }
+    for k in masses.indices { masses[k].pin += ((playing ? masses[k].pinT : 0) - masses[k].pin) * rate }
+    let hold = P[0], stiff = P[1], drag = P[2], gravity = P[3], spin = P[4], wind = P[5], swirl = P[6]
+    let centre = P[7], bounce = P[8], kickS = P[9], jitter = P[10], pinHold = P[12]
+    // Gravity's direction: turning at `spin`, or settling to straight down.
+    if spin > 0.5 { gAng += spin * .pi / 180 * dt }
+    else { let dA = atan2(sin(.pi / 2 - gAng), cos(.pi / 2 - gAng)); gAng += dA * min(1, dt * 2) }
+    let gx = cos(gAng) * gravity * U, gy = sin(gAng) * gravity * U
+    let gu: (x: Double, y: Double)? = gravity > 0.5 ? (cos(gAng), sin(gAng)) : nil
+    if playing {
+      // THE VOICE IS THE FORCE. A rise throws a kick into one mass, against
+      // gravity when there is any; quiet, the toy gets thrown up now and then.
+      if lv - lastLevel > 0.12, clock - lastKick > 0.25 { kick(kickS * force * (0.6 + 0.8 * lv), against: gu); lastKick = clock }
+      let sc = sp.scenes[sceneI]
+      if sc.toss > 0, let g = gu, lv < 0.15, clock - lastToss > sc.toss {
+        for k in masses.indices {
+          masses[k].vx += (-g.x + (rnd() - 0.5) * 0.5) * kickS * force * 0.9 * U
+          masses[k].vy += (-g.y + (rnd() - 0.5) * 0.3) * kickS * force * 0.9 * U
+        }
+        lastToss = clock
       }
-      if gag == nil {
-        let q = sp.idleSquash * sin(2 * .pi * clock / sp.idlePeriod)
-        bodyT[4] = 1 + q; bodyT[5] = 1 - q
-      }
-    } else {
-      rest()
     }
     lastLevel = lv
-    let w = sp.speed, z = playing ? sp.wobble : 1       // bouncy at play, critical coming home
-    var far = 0.0, fast = 0.0
-    for i in 0..<6 {
-      bodyV[i] += (bodyT[i] - body[i]) * w * w * dt - 2 * z * w * bodyV[i] * dt
-      body[i] += bodyV[i] * dt
-      let unit = i < 2 ? U : i < 4 ? U / 90 : U / 2
-      far = max(far, abs(body[i] - TulmiMarkView.bodyHome[i]) * unit); fast = max(fast, abs(bodyV[i]) * unit)
+    let R = Double(hypot(viewBox.width, viewBox.height)) / 2 * sp.wall, sub = 4, h = dt / Double(sub)
+    for _ in 0..<sub {
+      for k in masses.indices {
+        var n = masses[k]
+        // Ambient shake: a smooth random push, renewed every so often, fed by the voice.
+        if jitter > 0.001 {
+          n.jt -= h
+          if n.jt <= 0 { let ja = rnd() * 2 * .pi; n.jx = cos(ja); n.jy = sin(ja); n.jt = 0.1 + rnd() * 0.15 }
+        }
+        let tether = hold + pinHold * n.pin, nx = (n.x - C.x) / U, ny = (n.y - C.y) / U
+        var ax = tether * (Double(n.h.x) - n.x) + centre * (C.x - n.x) + gx - drag * n.vx
+        var ay = tether * (Double(n.h.y) - n.y) + centre * (C.y - n.y) + gy - drag * n.vy
+        if wind > 0.001 {
+          // A current: a slow field of eddies plus a swirl about the middle.
+          let wg = wind * force * (0.4 + 0.6 * lv) * U * 1.6
+          ax += wg * (sin(2.1 * ny + 0.9 * clock) + 0.6 * cos(1.7 * nx - 1.3 * clock))
+          ay += wg * (cos(1.9 * nx + 1.1 * clock) - 0.6 * sin(2.3 * ny + 0.7 * clock))
+          let rl = max(1e-6, hypot(nx, ny)), sg = swirl * force * (0.4 + 0.6 * lv) * U * 1.2
+          ax += -ny / rl * sg; ay += nx / rl * sg
+        }
+        if jitter > 0.001 { ax += n.jx * jitter * force * energy * U * 14; ay += n.jy * jitter * force * energy * U * 14 }
+        n.vx += ax * h; n.vy += ay * h
+        n.px = n.x; n.py = n.y; n.x += n.vx * h; n.y += n.vy * h
+        masses[k] = n
+      }
+      // The rods, by position: rigid at 1, rubbery below. Pinned masses do not move.
+      for _ in 0..<4 {
+        for rod in rods {
+          let a = masses[rod.i], b = masses[rod.j]
+          let dx = b.x - a.x, dy = b.y - a.y, len = max(1e-6, hypot(dx, dy))
+          let wa = a.pin > 0.5 ? 0 : 1 / a.m, wb = b.pin > 0.5 ? 0 : 1 / b.m, ws = max(1e-6, wa + wb)
+          let c = (len - rod.rest) * stiff / len
+          masses[rod.i].x += dx * c * wa / ws; masses[rod.i].y += dy * c * wa / ws
+          masses[rod.j].x -= dx * c * wb / ws; masses[rod.j].y -= dy * c * wb / ws
+        }
+      }
+      for k in masses.indices { masses[k].vx = (masses[k].x - masses[k].px) / h; masses[k].vy = (masses[k].y - masses[k].py) / h }
+      if !settling {
+        // The wall, and the masses against each other.
+        for k in masses.indices {
+          var n = masses[k]
+          let ox = n.x - C.x, oy = n.y - C.y, d = hypot(ox, oy), lim = R - n.r
+          if d > lim, d > 0 {
+            let ux = ox / d, uy = oy / d, vn = n.vx * ux + n.vy * uy
+            n.x = C.x + ux * lim; n.y = C.y + uy * lim
+            if vn > 0 { n.vx -= (1 + bounce) * vn * ux; n.vy -= (1 + bounce) * vn * uy }
+          }
+          masses[k] = n
+        }
+        for i in masses.indices {
+          for j in masses.indices where j > i {
+            let a = masses[i], b = masses[j]
+            let ddx = b.x - a.x, ddy = b.y - a.y, dd = hypot(ddx, ddy), minD = a.r + b.r
+            if dd >= minD || dd == 0 { continue }
+            let ux = ddx / dd, uy = ddy / dd, push = minD - dd, wa = 1 / a.m, wb = 1 / b.m, ws = wa + wb
+            masses[i].x -= ux * push * wa / ws; masses[i].y -= uy * push * wa / ws
+            masses[j].x += ux * push * wb / ws; masses[j].y += uy * push * wb / ws
+            let rvn = (b.vx - a.vx) * ux + (b.vy - a.vy) * uy
+            if rvn < 0 {
+              let jn = -(1 + bounce) * rvn / ws
+              masses[i].vx -= jn * wa * ux; masses[i].vy -= jn * wa * uy
+              masses[j].vx += jn * wb * ux; masses[j].vy += jn * wb * uy
+            }
+          }
+        }
+      }
     }
-    for i in nodes.indices {
-      var n = nodes[i]
-      n.vx += (n.tx - n.x) * w * w * dt - 2 * z * w * n.vx * dt; n.x += n.vx * dt
-      n.vy += (n.ty - n.y) * w * w * dt - 2 * z * w * n.vy * dt; n.y += n.vy * dt
-      far = max(far, abs(n.x), abs(n.y)); fast = max(fast, abs(n.vx), abs(n.vy))
-      nodes[i] = n
+    // Each square turns with its rods: the mean of how far each has swung from rest.
+    var far = 0.0, fast = 0.0
+    for k in masses.indices {
+      var sum = 0.0
+      for ri in masses[k].rods {
+        let rod = rods[ri], a = masses[rod.i], b = masses[rod.j]
+        let d = atan2(b.y - a.y, b.x - a.x) - rod.ang
+        sum += atan2(sin(d), cos(d))
+      }
+      masses[k].ang = masses[k].rods.isEmpty ? 0 : sum / Double(masses[k].rods.count)
+      far = max(far, abs(masses[k].x - Double(masses[k].h.x)), abs(masses[k].y - Double(masses[k].h.y)), abs(masses[k].ang) * U / 3)
+      fast = max(fast, abs(masses[k].vx), abs(masses[k].vy))
     }
     draw()
     if settling {
@@ -1738,30 +1822,32 @@ final class TulmiMarkView: UIView {
     }
   }
 
-  /// The layers as the play has them: the body's slide, turn, shear and
-  /// stretch about the centre on the root, the pulls on the nodes, the lines
-  /// re-tied end to end.
+  /// The layers as the physics has them: each mass where it is, stretched
+  /// along its velocity and squashed across it, turned with its rods; the
+  /// lines re-tied end to end, their ends turning with their mass.
   private func draw() {
     guard layers.count == shapes.count else { return }
     let (s, o) = fitted
-    let U = min(viewBox.width, viewBox.height) * s
+    let U = unit, squash = P[11]
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    let m = CGAffineTransform(scaleX: CGFloat(body[4]), y: CGFloat(body[5]))
-      .concatenating(CGAffineTransform(a: 1, b: 0, c: CGFloat(body[3]), d: 1, tx: 0, ty: 0))
-      .concatenating(CGAffineTransform(rotationAngle: CGFloat(body[2]) * .pi / 180))
-      .concatenating(CGAffineTransform(translationX: CGFloat(body[0]) * U, y: CGFloat(body[1]) * U))
-    root.transform = CATransform3DMakeAffineTransform(m)
-    for n in nodes {
-      layers[n.layer].position = CGPoint(x: o.x + (n.c.x + CGFloat(n.x)) * s, y: o.y + (n.c.y + CGFloat(n.y)) * s)
+    for n in masses {
+      let l = layers[n.layer]
+      l.position = CGPoint(x: o.x + CGFloat(n.x) * s, y: o.y + CGFloat(n.y) * s)
+      let sp = hypot(n.vx, n.vy), st = CGFloat(1 + squash * 0.45 * min(1, sp / (1.2 * U))), va = sp > 1 ? CGFloat(atan2(n.vy, n.vx)) : 0
+      let m = CGAffineTransform(rotationAngle: CGFloat(n.ang))
+        .concatenating(CGAffineTransform(rotationAngle: -va))
+        .concatenating(CGAffineTransform(scaleX: st, y: 1 / st))
+        .concatenating(CGAffineTransform(rotationAngle: va))
+      l.transform = CATransform3DMakeAffineTransform(m)
     }
     for (j, li) in tieLines.enumerated() {
-      let l = layers[li], sh = shapes[li]
-      let a = nodes[ties[j][0]], b = nodes[ties[j][1]]
-      let p = UIBezierPath()
-      p.move(to: CGPoint(x: o.x + ((sh.n["x1"] ?? 0) + CGFloat(a.x)) * s - l.position.x,
-                         y: o.y + ((sh.n["y1"] ?? 0) + CGFloat(a.y)) * s - l.position.y))
-      p.addLine(to: CGPoint(x: o.x + ((sh.n["x2"] ?? 0) + CGFloat(b.x)) * s - l.position.x,
-                            y: o.y + ((sh.n["y2"] ?? 0) + CGFloat(b.y)) * s - l.position.y))
+      let l = layers[li]
+      let ends = ties[j].map { t -> CGPoint in
+        let n = masses[t.mass], c = cos(n.ang), sn = sin(n.ang)
+        return CGPoint(x: o.x + CGFloat(n.x + Double(t.d.x) * c - Double(t.d.y) * sn) * s - l.position.x,
+                       y: o.y + CGFloat(n.y + Double(t.d.x) * sn + Double(t.d.y) * c) * s - l.position.y)
+      }
+      let p = UIBezierPath(); p.move(to: ends[0]); p.addLine(to: ends[1])
       l.path = p.cgPath
     }
     CATransaction.commit()
@@ -1850,7 +1936,7 @@ final class TulmiMarkView: UIView {
     // Motion on the whole mark: the view's own layer, about its centre.
     layer.removeAllAnimations()
     if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
-    // Mid-play (a remount, a resize): the new layers take up where the old left off.
+    // Mid-physics (a remount, a resize): the new layers take up where the old left off.
     if isPlaying { restSignal(); draw() }
   }
 
@@ -3876,8 +3962,8 @@ final class SDUIRenderer: NSObject {
   private var currentMicParticles: MicParticleView?
   private var micReassembling = false
   // The mark view that lives across remounts when the server's recording
-  // motion is the play, so record → stop → home is one unbroken motion. A
-  // new spec, motion or ink (a deploy, a theme flip) makes a new one.
+  // motion is the physics, so record → stop → home is one unbroken motion.
+  // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
   private var currentMicMark: TulmiMarkView?
   private var currentMicMarkKey = ""
 
@@ -5138,10 +5224,10 @@ final class SDUIRenderer: NSObject {
     // is the same picture standing still.
     let markSpec = node.props?["mark"]?.asObject
     let markMotion = node.props?["motion"]?.asObject
-    // What the server wants while the microphone is open: the play (the
-    // structure itself is played with, below), the particles, or nothing.
+    // What the server wants while the microphone is open: the physics (the
+    // structure itself, a thing inside the key, below), the particles, or nothing.
     let recKind = TulmiMarkView.recordingKind(markMotion)
-    let plays = recKind == "play" && markSpec != nil
+    let plays = recKind == "physics" && markSpec != nil
     if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
@@ -5198,8 +5284,8 @@ final class SDUIRenderer: NSObject {
       // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
       // recoloured or set moving by a deploy. Only geometry reaches this
       // branch, so pushed media still cannot stand where the mark stands.
-      // With the play it is the same view at idle and while recording: the
-      // structure is played with in place and springs home, so nothing is swapped.
+      // With the physics it is the same view at idle and while recording: the
+      // structure moves in place and comes home, so nothing is swapped.
       btn.setImage(nil, for: .normal)
       btn.imageView?.stopAnimating()
       mv.translatesAutoresizingMaskIntoConstraints = false
@@ -7941,7 +8027,7 @@ final class SDUIRenderer: NSObject {
       // Re-entering recording (possibly mid-reassembly): scatter the dots again.
       micReassembling = false
       currentMicParticles?.beginRecording()
-      // Or, with the play, the structure is played with in place.
+      // Or, with the physics, the structure comes alive in place.
       currentMicMark?.beginPlay()
     } else {
       hideRecordingVisuals()
@@ -7958,7 +8044,7 @@ final class SDUIRenderer: NSObject {
           self.stateChanged()          // final remount → static brand mark
         }
       }
-      // The play springs home on its own and rebuilds itself crisp; the same
+      // The physics comes home on its own and rebuilds itself crisp; the same
       // view stays mounted throughout, so there is nothing to swap in.
       currentMicMark?.settle {}
     }
