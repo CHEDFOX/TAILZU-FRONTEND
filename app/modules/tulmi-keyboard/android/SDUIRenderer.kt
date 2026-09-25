@@ -295,8 +295,8 @@ class SDUIRenderer(
     private var micReassembling = false
     private var lastDictating = false
     // The mark view that lives across redraws when the server's recording
-    // motion is the play, so record → stop → home is one unbroken motion. A
-    // new spec, motion or ink (a deploy, a theme flip) makes a new one.
+    // motion is the physics, so record → stop → home is one unbroken motion.
+    // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
     private var currentMicMark: TulmiMarkView? = null
     private var currentMicMarkKey = ""
     private var markBitmapCache: Bitmap? = null
@@ -354,7 +354,7 @@ class SDUIRenderer(
                 // mid-reassembly from a quick stop→start).
                 micReassembling = false
                 currentMicParticles?.beginRecording()
-                // Or, with the play, the structure is played with in place.
+                // Or, with the physics, the structure comes alive in place.
                 currentMicMark?.beginPlay()
             } else {
                 // Stopping — the dots spring back INTO the mark, then hand off to
@@ -369,7 +369,7 @@ class SDUIRenderer(
                         }
                     }
                 }
-                // The play springs home on its own; the same view stays
+                // The physics comes home on its own; the same view stays
                 // mounted throughout, so there is nothing to swap in.
                 currentMicMark?.settle {}
             }
@@ -1078,9 +1078,9 @@ class SDUIRenderer(
         // The dots burst from whichever mark the key is drawing.
         val mark = markSpec?.let { TulmiMarkView.bitmap(it, fg, dp(44)) } ?: markBitmap()
         val dictating = host.state().dictating
-        // What the server wants while the microphone is open: the play (the
-        // structure itself is played with, in the mark branch), the particles,
-        // or nothing.
+        // What the server wants while the microphone is open: the physics
+        // (the structure itself, a thing inside the key, in the mark branch),
+        // the particles, or nothing.
         val recKind = TulmiMarkView.recordingKind(markMotion)
 
         val view: View = if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
@@ -1108,15 +1108,15 @@ class SDUIRenderer(
             // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture:
             // resized, recoloured or set moving by a deploy. Only geometry
             // reaches this branch, so pushed media still cannot stand where
-            // the mark stands. With the play it is the same view at idle and
-            // while recording: the structure is played with in place and springs home.
+            // the mark stands. With the physics it is the same view at idle and
+            // while recording: the structure moves in place and comes home.
             FrameLayout(host.context()).apply {
                 background = keyBackground(node)
                 val pad = dp(flagFloat("kb.mic.idleIconInset", 10f).toInt())
                 setPadding(pad, pad, pad, pad)
                 val ink = if (tinted) fg else null
                 addView(
-                    if (recKind == "play") persistedMark(markSpec, markMotion, ink)
+                    if (recKind == "physics") persistedMark(markSpec, markMotion, ink)
                     else TulmiMarkView(host.context(), markSpec, markMotion, ink),
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1152,7 +1152,7 @@ class SDUIRenderer(
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
     }
 
-    /** The one mark view for the play, reused across redraws while the spec,
+    /** The one mark view for the physics, reused across redraws while the spec,
      *  motion and ink are the same objects; a new tree or a theme flip makes
      *  a new one. Built mid-recording (a deploy landed), it starts at once. */
     private fun persistedMark(spec: JSONObject, motion: JSONObject?, tint: Int?): TulmiMarkView {
@@ -2074,44 +2074,47 @@ class SDUIRenderer(
         private var signal = 0f             // 0..1 of one signal period
         private val animators = ArrayList<ValueAnimator>()
 
-        // THE PLAY — the structure played with while the microphone is open.
+        // THE PHYSICS — the structure as a thing inside the key.
         //
-        // Cartoon physics on the whole mark. The body has six channels — slide
-        // x and y, turn, shear, stretch x and y — and every square and the dot
-        // is a node a gag can pull by its corner, with the lines tied to them.
-        // A gag is a few keyframes of targets, sent by the server; every
-        // channel chases its target on an underdamped spring, so a step
-        // becomes anticipation, snap, overshoot and wobble on its own. The
-        // voice fires the gags: a rise in the level fires one at once, talking
-        // keeps them coming at `tempo`, silence gets a slow jelly breath and
-        // the odd small poke. Stop turns the damping critical and the targets
-        // to home, so the mark comes back smoothly and lands exactly; then the
-        // idle motion resumes.
-        class Play(
-            val wobble: Float, val speed: Float, val reach: Float, val tempo: Float, val settle: Float,
-            val idleSquash: Float, val idlePeriod: Float, val gags: List<List<JSONObject>>,
-        )
-        private class Node(val index: Int, val cx: Float, val cy: Float) {
-            var x = 0f; var y = 0f; var vx = 0f; var vy = 0f; var tx = 0f; var ty = 0f   // pull (artboard units), its speed, its target
+        // While the microphone is open the squares and the dot are masses,
+        // each line a rod between the two nearest (a distance constraint
+        // solved by position, rigid or rubbery by `stiff`), the key's rim a
+        // round wall, and the masses collide. Forces come from the scene — a
+        // tether to home, gravity, a current, a pull to the middle, ambient
+        // jitter — and from the voice, which throws a kick in on every rise
+        // and feeds the wind and the jitter. Squares turn with their rods and
+        // stretch along their own velocity, cartoon style. The server sends a
+        // series of scenes; they run in turn and blend by lerping every
+        // number, so nothing ever jumps. Stop blends to a stiff, critically
+        // damped tether with the wall gone, and the mark lands exactly; then
+        // the idle motion resumes.
+        class Scene(val name: String, val length: Float, val p: FloatArray, val pin: List<String>, val launch: Float, val toss: Float)
+        class Physics(val force: Float, val wall: Float, val blend: Float, val settle: Float, val scenes: List<Scene>)
+        private class Mass(val index: Int, val id: String?, val hx: Float, val hy: Float, val r: Float, val m: Float) {
+            var x = hx; var y = hy; var vx = 0f; var vy = 0f; var px = 0f; var py = 0f
+            var ang = 0f; var pin = 0f; var pinT = 0f; var jx = 0f; var jy = 0f; var jt = 0f
+            val rods = ArrayList<Int>()
         }
-        val play: Play? = parsePlay(motion)
-        private val nodes = ArrayList<Node>()
-        private val ties = HashMap<Int, IntArray>()     // line shape index → the node each end is tied to
+        private class Rod(val i: Int, val j: Int, val rest: Float, val ang: Float)
+        private class Tie(val mass: Int, val dx: Float, val dy: Float)
+        val physics: Physics? = parsePhysics(motion)
+        private val masses = ArrayList<Mass>()
+        private val rods = ArrayList<Rod>()
+        private val ties = HashMap<Int, List<Tie>>()   // line shape index → its two ends
         private val idleNoSignal: List<JSONObject>
-        private val body = BODY_HOME.clone()
-        private val bodyV = FloatArray(6)
-        private val bodyT = BODY_HOME.clone()
+        private val P = P_HOME.clone()
+        private var T = P_HOME.clone()
         private var playing = false
         private var settling = false
         private var clock = 0f
-        private var lastGag = -9f
-        private var gagIndex = -1
-        private var gagAt = 0f
-        private var gagAmp = 1f
-        private var gagNext = 0
-        private var gag: List<JSONObject>? = null
-        private var settleAt = 0f
+        private var sceneT = 0f
+        private var sceneI = -1
+        private var gAng = Math.PI.toFloat() / 2
+        private var lastKick = -9f
+        private var lastToss = 0f
         private var lastLevel = 0f
+        private var settleAt = 0f
+        private var seed = 7L
         private var lastNanos = 0L
         private var onSettled: (() -> Unit)? = null
         /** The live microphone level, 0..1. The renderer points this at its state. */
@@ -2126,137 +2129,202 @@ class SDUIRenderer(
             idle = (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it) }
             // The signal rests while the structure moves: its overlays would not follow the shapes.
             idleNoSignal = idle.filter { it.optString("kind") != "signal" }
-            if (play != null) tie()
+            if (physics != null) tie()
         }
 
         override fun onAttachedToWindow() { super.onAttachedToWindow(); start(); if (isPlaying) postInvalidateOnAnimation() }
         override fun onDetachedFromWindow() { animators.forEach { it.cancel() }; animators.clear(); super.onDetachedFromWindow() }
 
-        /** Nodes and the lines' ties to them, once, from the geometry. */
+        /** The same run on every platform: a plain multiplicative generator. */
+        private fun rnd(): Float { seed = (seed * 16807L) % 2147483647L; return seed.toFloat() / 2147483647f }
+        private val unit: Float get() = minOf(vb[2], vb[3])
+        private val cX: Float get() = vb[0] + vb[2] / 2
+        private val cY: Float get() = vb[1] + vb[3] / 2
+
+        /** Masses, rods and the lines' ties, once, from the geometry. */
         private fun tie() {
-            nodes.clear(); ties.clear()
+            masses.clear(); rods.clear(); ties.clear()
             shapes.forEachIndexed { i, sh ->
                 when (sh.kind) {
-                    "rect" -> nodes += Node(i, (sh.o.optDouble("x") + sh.o.optDouble("w") / 2).toFloat(), (sh.o.optDouble("y") + sh.o.optDouble("h") / 2).toFloat())
-                    "circle" -> nodes += Node(i, sh.o.optDouble("cx").toFloat(), sh.o.optDouble("cy").toFloat())
+                    "rect" -> masses += Mass(i, sh.id, (sh.o.optDouble("x") + sh.o.optDouble("w") / 2).toFloat(), (sh.o.optDouble("y") + sh.o.optDouble("h") / 2).toFloat(),
+                        sh.o.optDouble("w").toFloat() * 0.45f, 1f)
+                    "circle" -> masses += Mass(i, sh.id, sh.o.optDouble("cx").toFloat(), sh.o.optDouble("cy").toFloat(),
+                        maxOf(sh.o.optDouble("r").toFloat() * 1.5f, unit * 0.03f), 0.35f)
                 }
             }
-            if (nodes.isEmpty()) return
+            if (masses.isEmpty()) return
             shapes.forEachIndexed { i, sh ->
                 if (sh.kind != "line") return@forEachIndexed
-                ties[i] = IntArray(2) { j ->
-                    val px = sh.o.optDouble("x${j + 1}").toFloat(); val py = sh.o.optDouble("y${j + 1}").toFloat()
-                    nodes.indices.minByOrNull { Math.hypot((nodes[it].cx - px).toDouble(), (nodes[it].cy - py).toDouble()) }!!
+                val ends = listOf(1, 2).map { e ->
+                    val px = sh.o.optDouble("x$e").toFloat(); val py = sh.o.optDouble("y$e").toFloat()
+                    val best = masses.indices.minByOrNull { Math.hypot((masses[it].hx - px).toDouble(), (masses[it].hy - py).toDouble()) }!!
+                    Tie(best, px - masses[best].hx, py - masses[best].hy)
+                }
+                ties[i] = ends
+                if (ends[0].mass != ends[1].mass) {
+                    val a = masses[ends[0].mass]; val b = masses[ends[1].mass]
+                    rods += Rod(ends[0].mass, ends[1].mass, Math.hypot((b.hx - a.hx).toDouble(), (b.hy - a.hy).toDouble()).toFloat(),
+                        Math.atan2((b.hy - a.hy).toDouble(), (b.hx - a.hx).toDouble()).toFloat())
+                    a.rods += rods.size - 1; b.rods += rods.size - 1
                 }
             }
         }
 
-        /** The microphone opened: the play begins. A no-op without a play from
-         *  the server, so a still or particle mark is unaffected. */
+        /** The microphone opened: the next scene begins. A no-op without
+         *  physics from the server, so a still or particle mark is unaffected. */
         fun beginPlay() {
-            if (play == null || nodes.isEmpty()) return
-            playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L; lastGag = clock - 9f
+            val sp = physics ?: return
+            if (masses.isEmpty()) return
+            playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L
+            enter((sceneI + 1) % sp.scenes.size)
             postInvalidateOnAnimation()
         }
 
-        /** The microphone closed: everything springs home, then `onDone`. */
+        /** The microphone closed: everything comes home, then `onDone`. */
         fun settle(onDone: () -> Unit) {
             if (!playing) { onDone(); return }
-            playing = false; settling = true; settleAt = 0f; onSettled = onDone; gag = null
+            playing = false; settling = true; settleAt = 0f; onSettled = onDone
+            T = P_HOME.clone()
+            for (n in masses) n.pinT = 0f
             postInvalidateOnAnimation()
-        }
-
-        /** Targets home: the body and every pull. */
-        private fun rest() {
-            BODY_HOME.copyInto(bodyT)
-            for (n in nodes) { n.tx = 0f; n.ty = 0f }
         }
 
         private fun home() {
-            settling = false; playing = false; gag = null
-            BODY_HOME.copyInto(body); bodyV.fill(0f); BODY_HOME.copyInto(bodyT)
-            for (n in nodes) { n.x = 0f; n.y = 0f; n.vx = 0f; n.vy = 0f; n.tx = 0f; n.ty = 0f }
+            settling = false; playing = false
+            for (n in masses) { n.x = n.hx; n.y = n.hy; n.vx = 0f; n.vy = 0f; n.ang = 0f; n.pin = 0f }
             val d = onSettled; onSettled = null; d?.invoke()
             invalidate()
         }
 
-        /** The next gag: every one in turn, in a scrambled order, at `amp` of its reach. */
-        private fun fire(amp: Float) {
-            val sp = play ?: return
-            if (sp.gags.isEmpty()) return
-            gagIndex = (gagIndex + 7) % sp.gags.size
-            gag = sp.gags[gagIndex]; gagNext = 0; gagAt = clock; gagAmp = amp * sp.reach; lastGag = clock
+        private fun enter(i: Int) {
+            val sp = physics ?: return
+            val sc = sp.scenes[i]
+            sceneI = i; sceneT = 0f; T = sc.p
+            for (n in masses) n.pinT = if (n.id != null && sc.pin.contains(n.id)) 1f else 0f
+            // A turn on entry: every mass gets the velocity of a body spinning about the middle.
+            if (sc.launch != 0f) for (n in masses) { n.vx += -(n.y - cY) * sc.launch; n.vy += (n.x - cX) * sc.launch }
+            lastToss = clock
         }
 
-        /** One keyframe: new targets for the channels it names. */
-        private fun frame(f: JSONObject) {
-            val u = minOf(vb[2], vb[3]); val cx = vb[0] + vb[2] / 2; val cy = vb[1] + vb[3] / 2
-            BODY_KEYS.forEachIndexed { i, key ->
-                if (!f.has(key)) return@forEachIndexed
-                val v = f.optDouble(key).toFloat()
-                // A full turn is a full turn; anything else scales with the voice.
-                bodyT[i] = if (key == "rot" && Math.abs(v) >= 180f) v else BODY_HOME[i] + (v - BODY_HOME[i]) * gagAmp
-            }
-            f.optJSONArray("pull")?.let { pulls ->
-                for (n in nodes) { n.tx = 0f; n.ty = 0f }
-                for (k in 0 until pulls.length()) {
-                    val p = pulls.optJSONObject(k) ?: continue
-                    val id = p.optString("on")
-                    val n = nodes.firstOrNull { shapes[it.index].id == id } ?: continue
-                    n.tx = p.optDouble("dx", 0.0).toFloat() * u * gagAmp
-                    n.ty = p.optDouble("dy", 0.0).toFloat() * u * gagAmp
-                }
-            }
-            if (f.has("out")) {
-                val out = f.optDouble("out").toFloat()
-                for (n in nodes) {
-                    val dx = n.cx - cx; val dy = n.cy - cy
-                    val len = maxOf(1f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
-                    n.tx = out * u * gagAmp * dx / len; n.ty = out * u * gagAmp * dy / len
-                }
-            }
-            if (f.has("wrap")) { body[2] -= f.optDouble("wrap").toFloat(); bodyT[2] = 0f }
+        /** One mass thrown, `strength` key-widths a second, against gravity if there is any. */
+        private fun kick(strength: Float, gx: Float, gy: Float, against: Boolean) {
+            if (masses.isEmpty()) return
+            val n = masses[minOf(masses.size - 1, (rnd() * masses.size).toInt())]
+            val a = rnd() * 2f * Math.PI.toFloat()
+            var dx = cs(a); var dy = sn(a)
+            if (against) { dx = dx * 0.6f - gx; dy = dy * 0.6f - gy; val l = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat()); dx /= l; dy /= l }
+            n.vx += dx * strength * unit; n.vy += dy * strength * unit
         }
 
-        /** One frame of the play: the voice fires gags, the springs chase their targets. */
-        private fun stepPlay() {
-            val sp = play ?: return
+        /** One frame of the physics: forces, rods, wall, collisions; then each square's turn. */
+        private fun stepPhysics() {
+            val sp = physics ?: return
+            if (sceneI < 0) return
             val now = System.nanoTime()
             val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 30f)
             lastNanos = now
-            val lv = level().coerceIn(0f, 1f)
-            val u = minOf(vb[2], vb[3])
+            val lv = level().coerceIn(0f, 1f); val u = unit; val cx = cX; val cy = cY; val force = sp.force; val energy = 0.25f + lv
             clock += dt
             if (playing) {
-                // THE VOICE IS THE HAND. A rise fires a gag at once; talking keeps
-                // them coming; silence is a jelly breath and, now and then, a small poke.
-                if (lv - lastLevel > 0.15f && clock - lastGag > 0.4f) fire(0.55f + 0.45f * lv)
-                else if (lv > 0.25f && clock - lastGag > 1f / sp.tempo) fire(0.55f + 0.45f * lv)
-                else if (lv < 0.1f && clock - lastGag > 2.2f) fire(0.45f)
-                gag?.let { g ->
-                    while (gagNext < g.size && clock - gagAt >= g[gagNext].optDouble("t", 0.0).toFloat()) { frame(g[gagNext]); gagNext++ }
-                    if (gagNext >= g.size && clock - gagAt >= g.last().optDouble("t", 0.0).toFloat() + 0.05f) { gag = null; rest() }
+                sceneT += dt
+                if (sceneT >= sp.scenes[sceneI].length) enter((sceneI + 1) % sp.scenes.size)
+            }
+            // Everything blends: the scene's numbers, and each mass's pin.
+            val rate = minOf(1f, dt * (if (settling) 4f else 1f / sp.blend))
+            for (i in P.indices) P[i] += (T[i] - P[i]) * rate
+            for (n in masses) n.pin += ((if (playing) n.pinT else 0f) - n.pin) * rate
+            val hold = P[0]; val stiff = P[1]; val drag = P[2]; val gravity = P[3]; val spin = P[4]; val wind = P[5]; val swirl = P[6]
+            val centre = P[7]; val bounce = P[8]; val kickS = P[9]; val jitter = P[10]; val pinHold = P[12]
+            // Gravity's direction: turning at `spin`, or settling to straight down.
+            if (spin > 0.5f) gAng += spin * Math.PI.toFloat() / 180f * dt
+            else { val dA = Math.atan2(Math.sin((Math.PI / 2 - gAng)), Math.cos((Math.PI / 2 - gAng))).toFloat(); gAng += dA * minOf(1f, dt * 2f) }
+            val gx = cs(gAng) * gravity * u; val gy = sn(gAng) * gravity * u
+            val hasG = gravity > 0.5f; val gux = cs(gAng); val guy = sn(gAng)
+            if (playing) {
+                // THE VOICE IS THE FORCE. A rise throws a kick into one mass, against
+                // gravity when there is any; quiet, the toy gets thrown up now and then.
+                if (lv - lastLevel > 0.12f && clock - lastKick > 0.25f) { kick(kickS * force * (0.6f + 0.8f * lv), gux, guy, hasG); lastKick = clock }
+                val sc = sp.scenes[sceneI]
+                if (sc.toss > 0f && hasG && lv < 0.15f && clock - lastToss > sc.toss) {
+                    for (n in masses) {
+                        n.vx += (-gux + (rnd() - 0.5f) * 0.5f) * kickS * force * 0.9f * u
+                        n.vy += (-guy + (rnd() - 0.5f) * 0.3f) * kickS * force * 0.9f * u
+                    }
+                    lastToss = clock
                 }
-                if (gag == null) {
-                    val q = sp.idleSquash * sn(2f * Math.PI.toFloat() * clock / sp.idlePeriod)
-                    bodyT[4] = 1f + q; bodyT[5] = 1f - q
-                }
-            } else {
-                rest()
             }
             lastLevel = lv
-            val w = sp.speed; val z = if (playing) sp.wobble else 1f       // bouncy at play, critical coming home
-            var far = 0f; var fast = 0f
-            for (i in 0 until 6) {
-                bodyV[i] += (bodyT[i] - body[i]) * w * w * dt - 2f * z * w * bodyV[i] * dt
-                body[i] += bodyV[i] * dt
-                val unit = if (i < 2) u else if (i < 4) u / 90f else u / 2f
-                far = maxOf(far, Math.abs(body[i] - BODY_HOME[i]) * unit); fast = maxOf(fast, Math.abs(bodyV[i]) * unit)
+            val wallR = Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat() / 2 * sp.wall
+            val sub = 4; val h = dt / sub
+            repeat(sub) {
+                for (n in masses) {
+                    // Ambient shake: a smooth random push, renewed every so often, fed by the voice.
+                    if (jitter > 0.001f) {
+                        n.jt -= h
+                        if (n.jt <= 0f) { val ja = rnd() * 2f * Math.PI.toFloat(); n.jx = cs(ja); n.jy = sn(ja); n.jt = 0.1f + rnd() * 0.15f }
+                    }
+                    val tether = hold + pinHold * n.pin; val nx = (n.x - cx) / u; val ny = (n.y - cy) / u
+                    var ax = tether * (n.hx - n.x) + centre * (cx - n.x) + gx - drag * n.vx
+                    var ay = tether * (n.hy - n.y) + centre * (cy - n.y) + gy - drag * n.vy
+                    if (wind > 0.001f) {
+                        // A current: a slow field of eddies plus a swirl about the middle.
+                        val wg = wind * force * (0.4f + 0.6f * lv) * u * 1.6f
+                        ax += wg * (sn(2.1f * ny + 0.9f * clock) + 0.6f * cs(1.7f * nx - 1.3f * clock))
+                        ay += wg * (cs(1.9f * nx + 1.1f * clock) - 0.6f * sn(2.3f * ny + 0.7f * clock))
+                        val rl = maxOf(1e-6f, Math.hypot(nx.toDouble(), ny.toDouble()).toFloat()); val sg = swirl * force * (0.4f + 0.6f * lv) * u * 1.2f
+                        ax += -ny / rl * sg; ay += nx / rl * sg
+                    }
+                    if (jitter > 0.001f) { ax += n.jx * jitter * force * energy * u * 14f; ay += n.jy * jitter * force * energy * u * 14f }
+                    n.vx += ax * h; n.vy += ay * h
+                    n.px = n.x; n.py = n.y; n.x += n.vx * h; n.y += n.vy * h
+                }
+                // The rods, by position: rigid at 1, rubbery below. Pinned masses do not move.
+                repeat(4) {
+                    for (rod in rods) {
+                        val a = masses[rod.i]; val b = masses[rod.j]
+                        val dx = b.x - a.x; val dy = b.y - a.y; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
+                        val wa = if (a.pin > 0.5f) 0f else 1f / a.m; val wb = if (b.pin > 0.5f) 0f else 1f / b.m; val ws = maxOf(1e-6f, wa + wb)
+                        val c = (len - rod.rest) * stiff / len
+                        a.x += dx * c * wa / ws; a.y += dy * c * wa / ws; b.x -= dx * c * wb / ws; b.y -= dy * c * wb / ws
+                    }
+                }
+                for (n in masses) { n.vx = (n.x - n.px) / h; n.vy = (n.y - n.py) / h }
+                if (!settling) {
+                    // The wall, and the masses against each other.
+                    for (n in masses) {
+                        val ox = n.x - cx; val oy = n.y - cy; val d = Math.hypot(ox.toDouble(), oy.toDouble()).toFloat(); val lim = wallR - n.r
+                        if (d > lim && d > 0f) {
+                            val ux = ox / d; val uy = oy / d; val vn = n.vx * ux + n.vy * uy
+                            n.x = cx + ux * lim; n.y = cy + uy * lim
+                            if (vn > 0f) { n.vx -= (1f + bounce) * vn * ux; n.vy -= (1f + bounce) * vn * uy }
+                        }
+                    }
+                    for (i in masses.indices) for (j in i + 1 until masses.size) {
+                        val a = masses[i]; val b = masses[j]
+                        val ddx = b.x - a.x; val ddy = b.y - a.y; val dd = Math.hypot(ddx.toDouble(), ddy.toDouble()).toFloat(); val minD = a.r + b.r
+                        if (dd >= minD || dd == 0f) continue
+                        val ux = ddx / dd; val uy = ddy / dd; val push = minD - dd; val wa = 1f / a.m; val wb = 1f / b.m; val ws = wa + wb
+                        a.x -= ux * push * wa / ws; a.y -= uy * push * wa / ws; b.x += ux * push * wb / ws; b.y += uy * push * wb / ws
+                        val rvn = (b.vx - a.vx) * ux + (b.vy - a.vy) * uy
+                        if (rvn < 0f) {
+                            val jn = -(1f + bounce) * rvn / ws
+                            a.vx -= jn * wa * ux; a.vy -= jn * wa * uy; b.vx += jn * wb * ux; b.vy += jn * wb * uy
+                        }
+                    }
+                }
             }
-            for (n in nodes) {
-                n.vx += (n.tx - n.x) * w * w * dt - 2f * z * w * n.vx * dt; n.x += n.vx * dt
-                n.vy += (n.ty - n.y) * w * w * dt - 2f * z * w * n.vy * dt; n.y += n.vy * dt
-                far = maxOf(far, Math.abs(n.x), Math.abs(n.y)); fast = maxOf(fast, Math.abs(n.vx), Math.abs(n.vy))
+            // Each square turns with its rods: the mean of how far each has swung from rest.
+            var far = 0f; var fast = 0f
+            for (n in masses) {
+                var sum = 0f
+                for (ri in n.rods) {
+                    val rod = rods[ri]; val a = masses[rod.i]; val b = masses[rod.j]
+                    val d = Math.atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble()).toFloat() - rod.ang
+                    sum += Math.atan2(Math.sin(d.toDouble()), Math.cos(d.toDouble())).toFloat()
+                }
+                n.ang = if (n.rods.isEmpty()) 0f else sum / n.rods.size
+                far = maxOf(far, Math.abs(n.x - n.hx), Math.abs(n.y - n.hy), Math.abs(n.ang) * u / 3f)
+                fast = maxOf(fast, Math.abs(n.vx), Math.abs(n.vy))
             }
             if (settling) {
                 settleAt += dt
@@ -2264,21 +2332,27 @@ class SDUIRenderer(
             }
         }
 
-        /** The shapes as the pulls have moved them: squares and the dot offset,
-         *  lines re-tied end to end. The body's deformation is the canvas's.
-         *  The spec itself stays as sent; these are copies for one frame. */
-        private fun pulled(): List<Shape> {
-            val byIndex = HashMap<Int, Node>(); for (n in nodes) byIndex[n.index] = n
+        /** The shapes as the physics has them: each mass where it is, with
+         *  its turn and its stretch along its velocity for the painter; the
+         *  lines re-tied end to end, their ends turning with their mass. The
+         *  spec itself stays as sent; these are copies for one frame. */
+        private fun moved(): List<Shape> {
+            val byIndex = HashMap<Int, Mass>(); for (n in masses) byIndex[n.index] = n
+            val u = unit; val squash = P[11]
             return shapes.mapIndexed { i, sh ->
                 val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
                 val n = byIndex[i]
                 if (n != null) {
-                    if (sh.kind == "rect") { o.put("x", sh.o.optDouble("x") + n.x); o.put("y", sh.o.optDouble("y") + n.y) }
-                    else { o.put("cx", sh.o.optDouble("cx") + n.x); o.put("cy", sh.o.optDouble("cy") + n.y) }
-                } else ties[i]?.forEachIndexed { j, ni ->
-                    val m = nodes[ni]
-                    o.put("x${j + 1}", sh.o.optDouble("x${j + 1}") + m.x)
-                    o.put("y${j + 1}", sh.o.optDouble("y${j + 1}") + m.y)
+                    if (sh.kind == "rect") { o.put("x", sh.o.optDouble("x") + (n.x - n.hx)); o.put("y", sh.o.optDouble("y") + (n.y - n.hy)) }
+                    else { o.put("cx", n.x.toDouble()); o.put("cy", n.y.toDouble()) }
+                    val sp = Math.hypot(n.vx.toDouble(), n.vy.toDouble()).toFloat()
+                    o.put("_turn", (n.ang * 180f / Math.PI.toFloat()).toDouble())
+                    o.put("_stretch", (1f + squash * 0.45f * minOf(1f, sp / (1.2f * u))).toDouble())
+                    o.put("_along", (if (sp > 1f) Math.atan2(n.vy.toDouble(), n.vx.toDouble()) * 180.0 / Math.PI else 0.0))
+                } else ties[i]?.forEachIndexed { j, t ->
+                    val m = masses[t.mass]; val c = cs(m.ang); val s = sn(m.ang)
+                    o.put("x${j + 1}", (m.x + t.dx * c - t.dy * s).toDouble())
+                    o.put("y${j + 1}", (m.y + t.dx * s + t.dy * c).toDouble())
                 }
                 Shape(sh.id, sh.kind, o, sh.color)
             }
@@ -2286,8 +2360,8 @@ class SDUIRenderer(
 
         override fun onDraw(c: Canvas) {
             if (isPlaying) {
-                stepPlay()
-                paintShapes(c, pulled(), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f, body)
+                stepPhysics()
+                paintShapes(c, moved(), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f)
                 if (isPlaying) postInvalidateOnAnimation()
             } else {
                 paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
@@ -2296,35 +2370,40 @@ class SDUIRenderer(
 
         companion object {
             private fun sn(x: Float) = Math.sin(x.toDouble()).toFloat()
-            private val BODY_KEYS = arrayOf("tx", "ty", "rot", "shear", "sx", "sy")
-            private val BODY_HOME = floatArrayOf(0f, 0f, 0f, 0f, 1f, 1f)
+            private fun cs(x: Float) = Math.cos(x.toDouble()).toFloat()
+            private val P_KEYS = arrayOf("hold", "stiff", "drag", "gravity", "spin", "wind", "swirl", "centre", "bounce", "kick", "jitter", "squash", "pinHold")
+            private val P_HOME = floatArrayOf(160f, 0.6f, 25.3f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
 
-            /** What the key does while the microphone is open: "play",
-             *  "particles" or "none". A backend before the play sent a name;
-             *  now it sends the play's numbers and gags under `kind`. Absent,
-             *  the particles — what older builds do. */
+            /** What the key does while the microphone is open: "physics",
+             *  "particles" or "none". A backend before the physics sent a
+             *  name; now it sends the scenes under `kind`. Absent, the
+             *  particles — what older builds do. */
             fun recordingKind(motion: JSONObject?): String {
                 val r = motion?.opt("recording") ?: return "particles"
                 return (r as? JSONObject)?.optString("kind", "particles") ?: r.toString()
             }
 
-            fun parsePlay(motion: JSONObject?): Play? {
+            fun parsePhysics(motion: JSONObject?): Physics? {
                 val r = motion?.optJSONObject("recording") ?: return null
-                if (r.optString("kind") != "play") return null
-                val idle = r.optJSONObject("idle")
-                val gags = ArrayList<List<JSONObject>>()
-                val ga = r.optJSONArray("gags")
-                for (i in 0 until (ga?.length() ?: 0)) {
-                    val fa = ga!!.optJSONObject(i)?.optJSONArray("frames") ?: continue
-                    val frames = (0 until fa.length()).mapNotNull { fa.optJSONObject(it) }
-                    if (frames.isNotEmpty()) gags += frames
+                if (r.optString("kind") != "physics") return null
+                val scenes = ArrayList<Scene>()
+                val sa = r.optJSONArray("scenes")
+                for (i in 0 until (sa?.length() ?: 0)) {
+                    val sc = sa!!.optJSONObject(i) ?: continue
+                    val pa = sc.optJSONArray("pin")
+                    val pin = (0 until (pa?.length() ?: 0)).map { pa!!.optString(it) }.filter { it.isNotEmpty() }
+                    val p = FloatArray(P_KEYS.size) { k ->
+                        val key = P_KEYS[k]
+                        if (sc.has(key)) sc.optDouble(key).toFloat() else when (key) { "stiff" -> 0.9f; "bounce" -> 0.5f; "drag" -> 1f; else -> 0f }
+                    }
+                    p[12] = if (pin.isEmpty()) 0f else 400f
+                    scenes += Scene(sc.optString("name"), sc.optDouble("for", 8.0).toFloat().coerceAtLeast(1f), p, pin,
+                        sc.optDouble("launch", 0.0).toFloat(), sc.optDouble("toss", 0.0).toFloat())
                 }
-                return Play(
-                    r.optDouble("wobble", 0.32).toFloat().coerceIn(0.05f, 1f), r.optDouble("speed", 16.0).toFloat().coerceAtLeast(2f),
-                    r.optDouble("reach", 1.0).toFloat(), r.optDouble("tempo", 1.2).toFloat().coerceAtLeast(0.1f),
-                    r.optDouble("settle", 0.8).toFloat().coerceAtLeast(0.1f),
-                    idle?.optDouble("squash", 0.03)?.toFloat() ?: 0.03f, (idle?.optDouble("period", 2.4)?.toFloat() ?: 2.4f).coerceAtLeast(0.3f),
-                    gags,
+                if (scenes.isEmpty()) return null
+                return Physics(
+                    r.optDouble("force", 1.0).toFloat(), r.optDouble("wall", 0.96).toFloat().coerceIn(0.5f, 1f),
+                    r.optDouble("blend", 1.2).toFloat().coerceAtLeast(0.05f), r.optDouble("settle", 1.0).toFloat().coerceAtLeast(0.1f), scenes,
                 )
             }
 
@@ -2346,6 +2425,14 @@ class SDUIRenderer(
                 return if (out.isEmpty()) null else Pair(out, vb)
             }
 
+            /** The physics' turn and stretch on one shape, about its centre:
+             *  stretched along its velocity, squashed across it, then turned. */
+            private fun motionOf(c: Canvas, o: JSONObject, cx: Float, cy: Float) {
+                if (!o.has("_stretch")) return
+                val st = o.optDouble("_stretch", 1.0).toFloat(); val along = o.optDouble("_along", 0.0).toFloat(); val turn = o.optDouble("_turn", 0.0).toFloat()
+                c.rotate(along, cx, cy); c.scale(st, 1f / st, cx, cy); c.rotate(-along, cx, cy); c.rotate(turn, cx, cy)
+            }
+
             /** `a` moved `k` of the way to `b`, channel by channel. */
             fun mix(a: Int, b: Int, k: Float): Int {
                 val j = k.coerceIn(0f, 1f)
@@ -2364,7 +2451,6 @@ class SDUIRenderer(
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
                 tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true, signal: Float = 0f,
-                body: FloatArray? = null,
             ) {
                 val s = if (circle) minOf(w, h) / Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat()
                         else minOf(w / vb[2], h / vb[3])
@@ -2386,12 +2472,6 @@ class SDUIRenderer(
                     val msc = 1f + (markBreath.optDouble("scale", 1.06).toFloat() - 1f) * breath
                     c.scale(msc, msc, w / 2, h / 2)
                     markAlpha = 1f - (1f - markBreath.optDouble("opacity", 1.0).toFloat()) * breath
-                }
-                if (body != null) {
-                    // The play's body: slide, turn, shear and stretch about the artboard's centre.
-                    val u = minOf(vb[2], vb[3]) * s
-                    val cxp = ox + (vb[0] + vb[2] / 2) * s; val cyp = oy + (vb[1] + vb[3] / 2) * s
-                    c.translate(cxp + body[0] * u, cyp + body[1] * u); c.rotate(body[2]); c.skew(body[3], 0f); c.scale(body[4], body[5]); c.translate(-cxp, -cyp)
                 }
                 for (sh in shapes) {
                     val o = sh.o
@@ -2428,6 +2508,7 @@ class SDUIRenderer(
                                 ox + (o.optDouble("x") + o.optDouble("w")).toFloat() * s, oy + (o.optDouble("y") + o.optDouble("h")).toFloat() * s,
                             )
                             c.scale(sc, sc, r.centerX(), r.centerY())
+                            motionOf(c, o, r.centerX(), r.centerY())
                             paint.style = Paint.Style.FILL
                             val rx = o.optDouble("rx").toFloat() * s
                             c.drawRoundRect(r, rx, rx, paint)
@@ -2435,6 +2516,7 @@ class SDUIRenderer(
                         "circle" -> {
                             val cx = ox + o.optDouble("cx").toFloat() * s
                             val cy = oy + o.optDouble("cy").toFloat() * s
+                            motionOf(c, o, cx, cy)
                             paint.style = Paint.Style.FILL
                             c.drawCircle(cx, cy, o.optDouble("r").toFloat() * s * sc, paint)
                         }
