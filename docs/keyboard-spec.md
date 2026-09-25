@@ -122,6 +122,6 @@ mark stands, on either platform.
 - `shapes`: `rect` (x, y, w, h, rx), `line` (x1, y1, x2, y2, width, cap, dash), `circle` (cx, cy, r). Coordinates are the artboard's; `viewBox` is the part shown, aspect-fit into the key.
 - `fit: "circle"` (default) scales the artboard so its diagonal spans the key, which keeps every corner inside a round key; `"box"` fits the sides.
 - `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
-- `motion.idle`: `hatch` runs a dashed line's dashes along it once per `period` seconds; `breathe` swells a shape to `scale` and fades it to `opacity` and back. Both honour the system's reduce-motion setting.
+- `motion.idle`: `pulse` (on `"mark"`) runs a signal through the shapes named in `order`, each brightening briefly in turn and sitting at `low` opacity otherwise, with `rest` of the period dark; `breathe` swells a shape (or `"mark"`, the whole) to `scale` and fades it to `opacity` and back; `hatch` runs a dashed line's dashes along it. All on `period` seconds; all honour the system's reduce-motion setting. On a 36pt key only the pulse and the breath are visible; the hatch is for the sizes where dashes resolve.
 - `motion.recording`: `"particles"` — the mark bursts into the dot sim while the microphone is open — or `"none"`.
 - A shape kind or motion kind a build does not know is skipped. A build older than this ignores both props and draws its bundled mark; a backend older than this sends neither and the keyboard does the same.

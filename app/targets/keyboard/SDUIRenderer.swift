@@ -1596,16 +1596,36 @@ final class TulmiMarkView: UIView {
       layers.append(l)
       if !reduce, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
     }
+    // Motion on the whole mark: the view's own layer, about its centre.
+    layer.removeAllAnimations()
+    if !reduce { animate(layer, id: "mark", scale: s, dash: []) }
   }
 
-  private func animate(_ l: CAShapeLayer, id: String, scale s: CGFloat, dash: [CGFloat]) {
+  private func animate(_ l: CALayer, id: String, scale s: CGFloat, dash: [CGFloat]) {
     for m in motion where m["on"]?.asString == id {
       let period = max(0.2, m["period"]?.asDouble ?? 2.6)
       switch m["kind"]?.asString {
+      case "pulse":
+        // A SIGNAL THROUGH THE MARK. Every shape in `order` gets the same
+        // brief brightening, placed in time by its turn; the rest of the
+        // period they all sit at `low`. Runs on the whole-mark entry, and
+        // hands each named sublayer its own animation.
+        guard let order = m["order"]?.asArray?.compactMap({ $0.asString }), !order.isEmpty else { continue }
+        let low = m["low"]?.asDouble ?? 0.55, rest = min(0.9, max(0, m["rest"]?.asDouble ?? 0.35))
+        let slot = (1 - rest) / Double(order.count)
+        for (sub, sh) in zip(layers, shapes) {
+          guard let sid = sh.id, let i = order.firstIndex(of: sid) else { continue }
+          let a = CAKeyframeAnimation(keyPath: "opacity")
+          a.values = [low, 1, low, low]; a.keyTimes = [0, 0.055, 0.12, 1]
+          a.duration = period; a.repeatCount = .infinity
+          a.timeOffset = period - (Double(i) * slot * period).truncatingRemainder(dividingBy: period)
+          sub.opacity = Float(low)
+          sub.add(a, forKey: "pulse")
+        }
       case "hatch":
         // One pattern length per period, the way the header runs it.
         let len = dash.reduce(0, +) * s
-        guard len > 0 else { continue }
+        guard len > 0, l is CAShapeLayer else { continue }
         let a = CABasicAnimation(keyPath: "lineDashPhase")
         a.fromValue = 0; a.toValue = -len; a.duration = period; a.repeatCount = .infinity
         l.add(a, forKey: "hatch")
