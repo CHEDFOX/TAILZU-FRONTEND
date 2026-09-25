@@ -1613,10 +1613,16 @@ final class TulmiMarkView: UIView {
         guard let order = m["order"]?.asArray?.compactMap({ $0.asString }), !order.isEmpty else { continue }
         let low = m["low"]?.asDouble ?? 0.55, rest = min(0.9, max(0, m["rest"]?.asDouble ?? 0.35))
         let slot = (1 - rest) / Double(order.count)
+        // A WAVE, NOT A ROW OF BLINKS: each brightening lasts `spread` slots,
+        // eased in and out, so it overlaps the shapes on either side and the
+        // light travels through the mark rather than hopping.
+        let width = min(0.98, max(slot, (m["spread"]?.asDouble ?? 2) * slot))
         for (sub, sh) in zip(layers, shapes) {
           guard let sid = sh.id, let i = order.firstIndex(of: sid) else { continue }
           let a = CAKeyframeAnimation(keyPath: "opacity")
-          a.values = [low, 1, low, low]; a.keyTimes = [0, 0.055, 0.12, 1]
+          a.values = [low, 1, low, low]
+          a.keyTimes = [0, NSNumber(value: width / 2), NSNumber(value: width), 1]
+          a.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .linear)]
           a.duration = period; a.repeatCount = .infinity
           a.timeOffset = period - (Double(i) * slot * period).truncatingRemainder(dividingBy: period)
           sub.opacity = Float(low)
