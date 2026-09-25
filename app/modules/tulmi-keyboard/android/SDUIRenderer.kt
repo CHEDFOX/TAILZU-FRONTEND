@@ -2040,6 +2040,7 @@ class SDUIRenderer(
         private val idle: List<JSONObject>
         private var phase = 0f              // 0..1 of one dash pattern
         private var breath = 0f             // 0..1, sine-shaped
+        private var signal = 0f             // 0..1 of one pulse period
         private val animators = ArrayList<ValueAnimator>()
 
         init {
@@ -2062,6 +2063,7 @@ class SDUIRenderer(
                 }
                 val known = when (m.optString("kind")) {
                     "hatch" -> { a.addUpdateListener { phase = it.animatedValue as Float; invalidate() }; true }
+                    "pulse" -> { a.addUpdateListener { signal = it.animatedValue as Float; invalidate() }; true }
                     "breathe" -> {
                         a.addUpdateListener {
                             breath = ((1 - Math.cos((it.animatedValue as Float) * 2 * Math.PI)) / 2).toFloat(); invalidate()
@@ -2079,7 +2081,7 @@ class SDUIRenderer(
         private val circle = spec.optString("fit", "circle") != "box"
 
         override fun onDraw(c: Canvas) {
-            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle)
+            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
         }
 
         companion object {
@@ -2110,22 +2112,45 @@ class SDUIRenderer(
              *  no square is cut off at the rim; `fit: "box"` fits the sides. */
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
-                tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true,
+                tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true, signal: Float = 0f,
             ) {
                 val s = if (circle) minOf(w, h) / Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat()
                         else minOf(w / vb[2], h / vb[3])
                 val ox = (w - vb[2] * s) / 2 - vb[0] * s
                 val oy = (h - vb[3] * s) / 2 - vb[1] * s
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                // Motion on the whole mark: a breath about the centre, and the
+                // signal that runs through the shapes in order.
+                val markBreath = idle.firstOrNull { it.optString("on") == "mark" && it.optString("kind") == "breathe" }
+                val pulse = idle.firstOrNull { it.optString("on") == "mark" && it.optString("kind") == "pulse" && it.optJSONArray("order") != null }
+                val order = pulse?.optJSONArray("order")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } } ?: emptyList()
+                val low = pulse?.optDouble("low", 0.55)?.toFloat() ?: 1f
+                val slot = if (order.isEmpty()) 0f else (1f - pulse!!.optDouble("rest", 0.35).toFloat().coerceIn(0f, 0.9f)) / order.size
+                var markAlpha = 1f
+                c.save()
+                if (markBreath != null) {
+                    val msc = 1f + (markBreath.optDouble("scale", 1.06).toFloat() - 1f) * breath
+                    c.scale(msc, msc, w / 2, h / 2)
+                    markAlpha = 1f - (1f - markBreath.optDouble("opacity", 1.0).toFloat()) * breath
+                }
                 for (sh in shapes) {
                     val o = sh.o
                     paint.reset(); paint.isAntiAlias = true
                     paint.color = tint ?: sh.color ?: Color.BLACK
                     paint.pathEffect = null
+                    var alpha = markAlpha
                     // A shape that breathes swells about its own centre and fades a little.
                     val br = sh.id?.let { id -> idle.firstOrNull { it.optString("on") == id && it.optString("kind") == "breathe" } }
                     val sc = if (br != null) 1f + (br.optDouble("scale", 1.45).toFloat() - 1f) * breath else 1f
-                    if (br != null) paint.alpha = (255 * (1f - (1f - br.optDouble("opacity", 0.72).toFloat()) * breath)).toInt()
+                    if (br != null) alpha *= 1f - (1f - br.optDouble("opacity", 0.72).toFloat()) * breath
+                    // Its turn in the signal: one brief brightening, then `low`.
+                    val turn = sh.id?.let { order.indexOf(it) } ?: -1
+                    if (turn >= 0) {
+                        var pos = signal - turn * slot; while (pos < 0f) pos += 1f
+                        val bump = when { pos < 0.055f -> pos / 0.055f; pos < 0.12f -> 1f - (pos - 0.055f) / 0.065f; else -> 0f }
+                        alpha *= low + (1f - low) * bump
+                    }
+                    paint.alpha = (255 * alpha.coerceIn(0f, 1f)).toInt()
                     c.save()
                     when (sh.kind) {
                         "rect" -> {
@@ -2164,6 +2189,7 @@ class SDUIRenderer(
                     }
                     c.restore()
                 }
+                c.restore()
             }
 
             /** The mark as a picture, for the particle sim to burst from. The sim
