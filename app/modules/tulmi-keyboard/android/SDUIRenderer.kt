@@ -1,13 +1,17 @@
 package com.tulmi.app.keyboard
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
+import android.view.animation.LinearInterpolator
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
@@ -1054,7 +1058,15 @@ class SDUIRenderer(
      */
     private fun renderMicKey(node: KBNode, parent: ViewGroup) {
         val particlesOn = flagBoolean("kb.mic.particles", true)
-        val mark = markBitmap()
+        // THE MARK, FROM THE SERVER: its shapes and its motion travel on the
+        // node. Absent — a backend older than this — the bundled drawable
+        // stands in, which is the same picture standing still.
+        val markSpec = node.props["mark"] as? JSONObject
+        val markMotion = node.props["motion"] as? JSONObject
+        val fg = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(kbConfig.theme.keyText)
+        val tinted = markSpec?.optBoolean("tint", true) ?: true
+        // The dots burst from whichever mark the key is drawing.
+        val mark = markSpec?.let { TulmiMarkView.bitmap(it, fg, dp(44)) } ?: markBitmap()
         val dictating = host.state().dictating
 
         val view: View = if (particlesOn && (dictating || micReassembling)) {
@@ -1078,6 +1090,23 @@ class SDUIRenderer(
                 ),
             )
             frame
+        } else if (markSpec != null) {
+            // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture:
+            // resized, recoloured or set moving by a deploy. Only geometry
+            // reaches this branch, so pushed media still cannot stand where
+            // the mark stands.
+            FrameLayout(host.context()).apply {
+                background = keyBackground(node)
+                val pad = dp(flagFloat("kb.mic.idleIconInset", 10f).toInt())
+                setPadding(pad, pad, pad, pad)
+                addView(
+                    TulmiMarkView(host.context(), markSpec, markMotion, if (tinted) fg else null),
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+            }
         } else if (mark != null) {
             ImageButton(host.context()).apply {
                 setImageBitmap(mark)
@@ -1989,6 +2018,161 @@ class SDUIRenderer(
     // strong ref so the SAME instance survives redraw()'s removeAllViews() and
     // its physics stay continuous across the stop remount.
     // -----------------------------------------------------------------------
+    /**
+     * THE MARK ON THE MIC KEY, REDRAWN FROM THE BACKEND.
+     *
+     * The server sends the brand mark as shapes — three squares, the hatched
+     * link, the line up to the dot — with the motion each may have, and this
+     * draws them on a Canvas: the same picture the bundled drawable held, but
+     * resized, recoloured or set moving by a deploy rather than a store build.
+     * Geometry is all it accepts. A bitmap, animated or not, cannot stand here,
+     * which keeps the rule that pushed media never replaces the mark.
+     */
+    private class TulmiMarkView(
+        ctx: Context,
+        spec: JSONObject,
+        motion: JSONObject?,
+        private val tint: Int?,
+    ) : View(ctx) {
+        class Shape(val id: String?, val kind: String, val o: JSONObject, val color: Int?)
+        private val shapes: List<Shape>
+        private val vb: FloatArray
+        private val idle: List<JSONObject>
+        private var phase = 0f              // 0..1 of one dash pattern
+        private var breath = 0f             // 0..1, sine-shaped
+        private val animators = ArrayList<ValueAnimator>()
+
+        init {
+            val parsed = parse(spec)
+            shapes = parsed?.first ?: emptyList()
+            vb = parsed?.second ?: floatArrayOf(0f, 0f, 1f, 1f)
+            val arr = motion?.optJSONArray("idle")
+            idle = (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it) }
+        }
+
+        override fun onAttachedToWindow() { super.onAttachedToWindow(); start() }
+        override fun onDetachedFromWindow() { animators.forEach { it.cancel() }; animators.clear(); super.onDetachedFromWindow() }
+
+        private fun start() {
+            if (animators.isNotEmpty() || !animatorsEnabled(context)) return
+            for (m in idle) {
+                val period = (m.optDouble("period", 2.6).coerceAtLeast(0.2) * 1000).toLong()
+                val a = ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = period; repeatCount = ValueAnimator.INFINITE; interpolator = LinearInterpolator()
+                }
+                val known = when (m.optString("kind")) {
+                    "hatch" -> { a.addUpdateListener { phase = it.animatedValue as Float; invalidate() }; true }
+                    "breathe" -> {
+                        a.addUpdateListener {
+                            breath = ((1 - Math.cos((it.animatedValue as Float) * 2 * Math.PI)) / 2).toFloat(); invalidate()
+                        }
+                        true
+                    }
+                    else -> false          // a kind this build does not know
+                }
+                if (!known) continue
+                animators += a
+                a.start()
+            }
+        }
+
+        override fun onDraw(c: Canvas) {
+            paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath)
+        }
+
+        companion object {
+            /** Shapes of a kind this build draws; anything else is skipped, not shown. */
+            fun parse(spec: JSONObject): Pair<List<Shape>, FloatArray>? {
+                val vbA = spec.optJSONArray("viewBox") ?: return null
+                if (vbA.length() != 4) return null
+                val vb = FloatArray(4) { vbA.optDouble(it, 0.0).toFloat() }
+                if (vb[2] <= 0f || vb[3] <= 0f) return null
+                val raw = spec.optJSONArray("shapes") ?: return null
+                val out = ArrayList<Shape>()
+                for (i in 0 until raw.length()) {
+                    val o = raw.optJSONObject(i) ?: continue
+                    val kind = o.optString("kind")
+                    if (kind !in listOf("rect", "line", "circle")) continue
+                    val color = o.optString("color", "").takeIf { it.isNotEmpty() }?.let { parseHex(it) }
+                    out += Shape(o.optString("id", "").takeIf { it.isNotEmpty() }, kind, o, color)
+                }
+                return if (out.isEmpty()) null else Pair(out, vb)
+            }
+
+            fun animatorsEnabled(ctx: Context): Boolean =
+                if (Build.VERSION.SDK_INT >= 26) ValueAnimator.areAnimatorsEnabled()
+                else Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) != 0f
+
+            /** The artboard aspect-fit and centred in w × h, then every shape. */
+            fun paintShapes(
+                c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
+                tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float,
+            ) {
+                val s = minOf(w / vb[2], h / vb[3])
+                val ox = (w - vb[2] * s) / 2 - vb[0] * s
+                val oy = (h - vb[3] * s) / 2 - vb[1] * s
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                for (sh in shapes) {
+                    val o = sh.o
+                    paint.reset(); paint.isAntiAlias = true
+                    paint.color = tint ?: sh.color ?: Color.BLACK
+                    paint.pathEffect = null
+                    // A shape that breathes swells about its own centre and fades a little.
+                    val br = sh.id?.let { id -> idle.firstOrNull { it.optString("on") == id && it.optString("kind") == "breathe" } }
+                    val sc = if (br != null) 1f + (br.optDouble("scale", 1.45).toFloat() - 1f) * breath else 1f
+                    if (br != null) paint.alpha = (255 * (1f - (1f - br.optDouble("opacity", 0.72).toFloat()) * breath)).toInt()
+                    c.save()
+                    when (sh.kind) {
+                        "rect" -> {
+                            val r = RectF(
+                                ox + o.optDouble("x").toFloat() * s, oy + o.optDouble("y").toFloat() * s,
+                                ox + (o.optDouble("x") + o.optDouble("w")).toFloat() * s, oy + (o.optDouble("y") + o.optDouble("h")).toFloat() * s,
+                            )
+                            c.scale(sc, sc, r.centerX(), r.centerY())
+                            paint.style = Paint.Style.FILL
+                            val rx = o.optDouble("rx").toFloat() * s
+                            c.drawRoundRect(r, rx, rx, paint)
+                        }
+                        "circle" -> {
+                            val cx = ox + o.optDouble("cx").toFloat() * s
+                            val cy = oy + o.optDouble("cy").toFloat() * s
+                            paint.style = Paint.Style.FILL
+                            c.drawCircle(cx, cy, o.optDouble("r").toFloat() * s * sc, paint)
+                        }
+                        else -> {
+                            val x1 = ox + o.optDouble("x1").toFloat() * s; val y1 = oy + o.optDouble("y1").toFloat() * s
+                            val x2 = ox + o.optDouble("x2").toFloat() * s; val y2 = oy + o.optDouble("y2").toFloat() * s
+                            c.scale(sc, sc, (x1 + x2) / 2, (y1 + y2) / 2)
+                            paint.style = Paint.Style.STROKE
+                            paint.strokeWidth = o.optDouble("width", 1.0).toFloat() * s
+                            paint.strokeCap = if (o.optString("cap") == "round") Paint.Cap.ROUND else Paint.Cap.BUTT
+                            val dash = o.optJSONArray("dash")
+                            if (dash != null && dash.length() >= 2) {
+                                val iv = FloatArray(dash.length()) { dash.optDouble(it, 0.0).toFloat() * s }
+                                val len = iv.sum()
+                                // The dashes travel along the line when its motion says `hatch`.
+                                val runs = sh.id?.let { id -> idle.any { it.optString("on") == id && it.optString("kind") == "hatch" } } ?: false
+                                paint.pathEffect = DashPathEffect(iv, if (runs) -phase * len else 0f)
+                            }
+                            c.drawLine(x1, y1, x2, y2, paint)
+                        }
+                    }
+                    c.restore()
+                }
+            }
+
+            /** The mark as a picture, for the particle sim to burst from. The sim
+             *  samples opaque pixels, so the colour is beside the point. */
+            fun bitmap(spec: JSONObject, tint: Int, px: Int): Bitmap? {
+                val parsed = parse(spec) ?: return null
+                val size = px.coerceAtLeast(8)
+                val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                paintShapes(Canvas(bmp), parsed.first, parsed.second, size.toFloat(), size.toFloat(), tint, emptyList(), 0f, 0f)
+                return bmp
+            }
+        }
+    }
+
     private class MicParticleView(
         ctx: Context,
         private val count: Int,

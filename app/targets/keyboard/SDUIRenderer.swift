@@ -1483,6 +1483,174 @@ final class KeyCalloutView: UIView {
 // adds/removes it with the rest of the tree — no manual start/stop, no leaked
 // CADisplayLink (which would otherwise retain the view and keep ticking).
 // =============================================================================
+// MARK: - The mark, drawn from the server's geometry
+
+/// THE MARK ON THE MIC KEY, REDRAWN FROM THE BACKEND.
+///
+/// The server sends the brand mark as shapes — three squares, the hatched
+/// link, the line up to the dot — with the motion each may have, and this
+/// draws them with CoreAnimation: the same picture the bundled TailzuMark
+/// asset held, but resized, recoloured or set moving by a deploy rather than a
+/// store build. Geometry is all it accepts. A bitmap, animated or not, cannot
+/// stand here, which keeps the rule that pushed media never replaces the mark.
+final class TulmiMarkView: UIView {
+  struct Shape {
+    let id: String?; let kind: String; let n: [String: CGFloat]
+    let dash: [CGFloat]; let cap: String; let color: UIColor?
+  }
+  private let shapes: [Shape]
+  private let viewBox: CGRect
+  private let tint: UIColor?
+  private let motion: [[String: KBJSON]]
+  private var layers: [CAShapeLayer] = []
+  private var laidOut: CGSize = .zero
+
+  init?(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) {
+    guard let parsed = TulmiMarkView.parse(spec) else { return nil }
+    shapes = parsed.shapes
+    viewBox = parsed.viewBox
+    self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
+    self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    isOpaque = false
+    backgroundColor = .clear
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// Shapes of a kind this build draws; anything else is skipped, not shown.
+  static func parse(_ spec: [String: KBJSON]) -> (shapes: [Shape], viewBox: CGRect)? {
+    guard let vb = spec["viewBox"]?.asArray?.compactMap({ $0.asCGFloat }), vb.count == 4, vb[2] > 0, vb[3] > 0,
+          let raw = spec["shapes"]?.asArray else { return nil }
+    var out: [Shape] = []
+    for item in raw {
+      guard let o = item.asObject, let kind = o["kind"]?.asString,
+            ["rect", "line", "circle"].contains(kind) else { continue }
+      var n: [String: CGFloat] = [:]
+      for (k, v) in o { if let d = v.asCGFloat { n[k] = d } }
+      let dash = o["dash"]?.asArray?.compactMap { $0.asCGFloat } ?? []
+      let color = o["color"]?.asString.map { UIColor(tulmiHex: $0) }
+      out.append(Shape(id: o["id"]?.asString, kind: kind, n: n, dash: dash,
+                       cap: o["cap"]?.asString ?? "butt", color: color))
+    }
+    return out.isEmpty ? nil : (out, CGRect(x: vb[0], y: vb[1], width: vb[2], height: vb[3]))
+  }
+
+  /// Where the artboard lands in `size`: aspect-fit, centred.
+  private static func fit(_ viewBox: CGRect, in size: CGSize) -> (scale: CGFloat, origin: CGPoint) {
+    let s = min(size.width / viewBox.width, size.height / viewBox.height)
+    return (s, CGPoint(x: (size.width - viewBox.width * s) / 2 - viewBox.minX * s,
+                       y: (size.height - viewBox.height * s) / 2 - viewBox.minY * s))
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard bounds.size != laidOut, bounds.width > 1, bounds.height > 1 else { return }
+    laidOut = bounds.size
+    layers.forEach { $0.removeFromSuperlayer() }
+    layers = []
+    let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size)
+    let reduce = UIAccessibility.isReduceMotionEnabled
+    for sh in shapes {
+      let l = CAShapeLayer()
+      let color = (tint ?? sh.color ?? UIColor.black).cgColor
+      let p = UIBezierPath()
+      // Every path is built about its own centre and placed by `position`, so
+      // a scale animates the shape in place instead of about the view's corner.
+      var center = CGPoint.zero
+      switch sh.kind {
+      case "rect":
+        let r = CGRect(x: o.x + (sh.n["x"] ?? 0) * s, y: o.y + (sh.n["y"] ?? 0) * s,
+                       width: (sh.n["w"] ?? 0) * s, height: (sh.n["h"] ?? 0) * s)
+        center = CGPoint(x: r.midX, y: r.midY)
+        p.append(UIBezierPath(roundedRect: CGRect(x: -r.width / 2, y: -r.height / 2, width: r.width, height: r.height),
+                              cornerRadius: (sh.n["rx"] ?? 0) * s))
+        l.fillColor = color
+      case "circle":
+        center = CGPoint(x: o.x + (sh.n["cx"] ?? 0) * s, y: o.y + (sh.n["cy"] ?? 0) * s)
+        let r = (sh.n["r"] ?? 0) * s
+        p.append(UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)))
+        l.fillColor = color
+      default:
+        let a = CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s)
+        let b = CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s)
+        center = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        p.move(to: CGPoint(x: a.x - center.x, y: a.y - center.y))
+        p.addLine(to: CGPoint(x: b.x - center.x, y: b.y - center.y))
+        l.fillColor = nil
+        l.strokeColor = color
+        l.lineWidth = (sh.n["width"] ?? 1) * s
+        l.lineCap = sh.cap == "round" ? .round : .butt
+        if !sh.dash.isEmpty { l.lineDashPattern = sh.dash.map { NSNumber(value: Double($0 * s)) } }
+      }
+      l.path = p.cgPath
+      l.position = center
+      layer.addSublayer(l)
+      layers.append(l)
+      if !reduce, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
+    }
+  }
+
+  private func animate(_ l: CAShapeLayer, id: String, scale s: CGFloat, dash: [CGFloat]) {
+    for m in motion where m["on"]?.asString == id {
+      let period = max(0.2, m["period"]?.asDouble ?? 2.6)
+      switch m["kind"]?.asString {
+      case "hatch":
+        // One pattern length per period, the way the header runs it.
+        let len = dash.reduce(0, +) * s
+        guard len > 0 else { continue }
+        let a = CABasicAnimation(keyPath: "lineDashPhase")
+        a.fromValue = 0; a.toValue = -len; a.duration = period; a.repeatCount = .infinity
+        l.add(a, forKey: "hatch")
+      case "breathe":
+        let sc = CAKeyframeAnimation(keyPath: "transform.scale")
+        sc.values = [1, m["scale"]?.asDouble ?? 1.45, 1]; sc.keyTimes = [0, 0.5, 1]
+        sc.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        let op = CAKeyframeAnimation(keyPath: "opacity")
+        op.values = [1, m["opacity"]?.asDouble ?? 0.72, 1]; op.keyTimes = [0, 0.5, 1]
+        let g = CAAnimationGroup()
+        g.animations = [sc, op]; g.duration = period; g.repeatCount = .infinity
+        l.add(g, forKey: "breathe")
+      default:
+        continue
+      }
+    }
+  }
+
+  /// The mark as a picture, for the particle sim to burst from. The sim
+  /// samples opaque pixels, so the colour is beside the point.
+  static func image(spec: [String: KBJSON], tint: UIColor, size: CGSize) -> UIImage? {
+    guard let parsed = parse(spec) else { return nil }
+    let (s, o) = fit(parsed.viewBox, in: size)
+    return UIGraphicsImageRenderer(size: size).image { ctx in
+      let c = ctx.cgContext
+      c.setFillColor(tint.cgColor)
+      c.setStrokeColor(tint.cgColor)
+      for sh in parsed.shapes {
+        switch sh.kind {
+        case "rect":
+          let r = CGRect(x: o.x + (sh.n["x"] ?? 0) * s, y: o.y + (sh.n["y"] ?? 0) * s,
+                         width: (sh.n["w"] ?? 0) * s, height: (sh.n["h"] ?? 0) * s)
+          c.addPath(UIBezierPath(roundedRect: r, cornerRadius: (sh.n["rx"] ?? 0) * s).cgPath)
+          c.fillPath()
+        case "circle":
+          let r = (sh.n["r"] ?? 0) * s
+          c.fillEllipse(in: CGRect(x: o.x + (sh.n["cx"] ?? 0) * s - r, y: o.y + (sh.n["cy"] ?? 0) * s - r,
+                                   width: r * 2, height: r * 2))
+        default:
+          c.setLineWidth((sh.n["width"] ?? 1) * s)
+          c.setLineCap(sh.cap == "round" ? .round : .butt)
+          c.setLineDash(phase: 0, lengths: sh.dash.map { $0 * s })
+          c.move(to: CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s))
+          c.addLine(to: CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s))
+          c.strokePath()
+          c.setLineDash(phase: 0, lengths: [])
+        }
+      }
+    }
+  }
+}
+
 final class MicParticleView: UIView {
   private struct Dot { var p: CGPoint; var v: CGVector }
   private var dots: [Dot] = []
@@ -4619,6 +4787,11 @@ final class SDUIRenderer: NSObject {
     //   • IDLE      → the CLEAN brand mark (bundled TailzuMark, else SF mic) on
     //     the amber circle — "the structure".
     let particlesOn = flagBool("kb.mic.particles", true)
+    // THE MARK, FROM THE SERVER: its shapes and its motion travel on the node.
+    // Absent — a backend older than this — the bundled asset stands in, which
+    // is the same picture standing still.
+    let markSpec = node.props?["mark"]?.asObject
+    let markMotion = node.props?["motion"]?.asObject
     if (state.dictating || micReassembling), particlesOn {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
@@ -4634,7 +4807,9 @@ final class SDUIRenderer: NSObject {
         // wall and each other, instead of a few big blobs. Backend-tunable.
         let count = Int(flagCGFloat("kb.mic.particles.count", 60))
         let dotR = flagCGFloat("kb.mic.particles.radius", 0.9)
-        let mark = SDUIRenderer.tailzuMark()
+        // The dots burst from whichever mark the key is drawing.
+        let mark = markSpec.flatMap { TulmiMarkView.image(spec: $0, tint: tint, size: CGSize(width: 44, height: 44)) }
+          ?? SDUIRenderer.tailzuMark()
         particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
         currentMicParticles = particles
       }
@@ -4667,11 +4842,27 @@ final class SDUIRenderer: NSObject {
                            withConfiguration: cfgSym), for: .normal)
       btn.imageEdgeInsets = .zero
       btn.imageView?.contentMode = .center
+    } else if let spec = markSpec, let mv = TulmiMarkView(spec: spec, motion: markMotion, tint: tint) {
+      // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
+      // recoloured or set moving by a deploy. Only geometry reaches this
+      // branch, so pushed media still cannot stand where the mark stands.
+      btn.setImage(nil, for: .normal)
+      btn.imageView?.stopAnimating()
+      mv.translatesAutoresizingMaskIntoConstraints = false
+      btn.addSubview(mv)
+      let inset = flagCGFloat("kb.mic.idleIconInset", 0)
+      NSLayoutConstraint.activate([
+        mv.leadingAnchor.constraint(equalTo: btn.leadingAnchor, constant: inset),
+        mv.trailingAnchor.constraint(equalTo: btn.trailingAnchor, constant: -inset),
+        mv.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
+        mv.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
+      ])
     } else if let mark = SDUIRenderer.tailzuMark() {
-      // OWNER DECISION: the idle mic is ALWAYS the static brand mark — never
-      // backend-pushed media. kb.mic.idleIcon is deliberately NOT consulted at
-      // idle (it remains only the recording fallback above); an uploaded
-      // animation must not replace the mark again.
+      // OWNER DECISION: the idle mic is the brand mark and never backend-pushed
+      // MEDIA. The server may redraw it as geometry (the branch above); it may
+      // not replace it with a picture. kb.mic.idleIcon is deliberately NOT
+      // consulted at idle (it remains only the recording fallback above); an
+      // uploaded animation must not replace the mark again.
       // Idle brand mark, filling the circle.
       //
       // A UIButton does NOT scale its image up. `.scaleAspectFit` only ever

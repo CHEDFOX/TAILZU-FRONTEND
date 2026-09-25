@@ -87,3 +87,40 @@ Values from source (AOSP timings, iOS 216pt, etc.) are exact.
 10. **Glide decoder + autocomplete** (borrow KeyboardKit Pro / AOSP decoder). Heaviest; add last.
 
 Keep the **skin** (colors, tone options, sizes, labels) server-tunable via `/v1/keyboard/config`; the **engine** (callouts, gestures, haptics) ships native.
+
+## The mic key's mark comes from the server
+
+The `MicKey` node carries the brand mark as geometry and the motion it has, so
+the mark can be resized, recoloured or set moving with a backend deploy — no
+store build. Only geometry is accepted: a picture can never stand where the
+mark stands, on either platform.
+
+```json
+{
+  "type": "MicKey",
+  "props": {
+    "mark": {
+      "viewBox": [170, 228, 680, 512],
+      "tint": true,
+      "shapes": [
+        { "kind": "rect", "x": 308, "y": 269, "w": 132, "h": 132, "rx": 28, "color": "#F4F1EA" },
+        { "id": "link", "kind": "line", "x1": 444, "y1": 394, "x2": 554, "y2": 486, "width": 30, "dash": [9, 11], "color": "#E8A23C" },
+        { "id": "dot", "kind": "circle", "cx": 828, "cy": 243, "r": 11, "color": "#B06240" }
+      ]
+    },
+    "motion": {
+      "idle": [
+        { "on": "link", "kind": "hatch", "period": 2.6 },
+        { "on": "dot", "kind": "breathe", "period": 3.8, "scale": 1.45, "opacity": 0.72 }
+      ],
+      "recording": "particles"
+    }
+  }
+}
+```
+
+- `shapes`: `rect` (x, y, w, h, rx), `line` (x1, y1, x2, y2, width, cap, dash), `circle` (cx, cy, r). Coordinates are the artboard's; `viewBox` is the part shown, aspect-fit into the key.
+- `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
+- `motion.idle`: `hatch` runs a dashed line's dashes along it once per `period` seconds; `breathe` swells a shape to `scale` and fades it to `opacity` and back. Both honour the system's reduce-motion setting.
+- `motion.recording`: `"particles"` — the mark bursts into the dot sim while the microphone is open — or `"none"`.
+- A shape kind or motion kind a build does not know is skipped. A build older than this ignores both props and draws its bundled mark; a backend older than this sends neither and the keyboard does the same.
