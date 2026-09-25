@@ -2076,23 +2076,29 @@ class SDUIRenderer(
 
         // THE DISPERSAL — only the wave stays while the microphone is open.
         //
-        // The squares, the plain lines and the dot are the parts: at the
-        // start of a recording each flies straight out from the middle,
-        // turning as it goes, past the rim and out of sight. The kept shape,
-        // the dashed link between the blocks, is the wave: it eases to the
-        // middle and grows, and its dashes become bars that rise and fall
-        // with the voice while the bright cluster keeps running along it. On
-        // stop every part flies back and lands exactly where it began, the
-        // wave goes back to being the link, and the idle signal resumes. All
-        // of it on critically damped springs, so nothing ever jumps. The
-        // numbers are the server's, from motion.recording.
-        class Disperse(val keep: String, val out: Float, val spin: Float, val settle: Float,
-                       val lift: Float, val rise: Float, val run: Float, val width: Float, val centre: Boolean)
+        // The squares, the plain lines and the dot are the parts. At the
+        // start of a recording the whole gathers inward a touch, then each
+        // part leaves in turn, a beat after the last, along an arc — out past
+        // the rim, shrinking and fading as it crosses it, turning as it goes.
+        // Once they are away the kept shape, the dashed link between the
+        // blocks, glides to the middle and grows: the wave, its dashes bars
+        // that rise and fall with the voice while the bright cluster keeps
+        // running along it. Stop reverses all of it: the wave settles back
+        // into the link, and the parts glide in on the same arcs in cascade
+        // and land exactly where they began; then the idle signal resumes.
+        // Every part follows one number, its progress from home to away, on
+        // a critically damped spring, so a stop mid-flight simply turns it
+        // around: nothing ever jumps. The numbers are the server's.
+        class Disperse(
+            val keep: String, val out: Float, val spin: Float, val arc: Float, val shrink: Float, val gather: Float, val stagger: Float,
+            val settle: Float, val lift: Float, val rise: Float, val run: Float, val width: Float, val wait: Float, val centre: Boolean,
+        )
         private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
-            var x = 0f; var y = 0f; var a = 0f; var vx = 0f; var vy = 0f; var va = 0f
+            var k = 0                                   // its turn: nearest the wave leaves first, comes back last
+            var p = 0f; var v = 0f; var t = 0f          // progress from home (0) to away (1), its speed, its target
         }
         private class Wave(val index: Int, val mx: Float, val my: Float) {
-            var x = 0f; var y = 0f; var k = 1f; var vx = 0f; var vy = 0f; var vk = 0f
+            var q = 0f; var v = 0f; var t = 0f          // progress from the link (0) to the wave (1)
         }
         val disperse: Disperse? = parseDisperse(motion)
         private val parts = ArrayList<Part>()
@@ -2101,6 +2107,8 @@ class SDUIRenderer(
         private var playing = false
         private var settling = false
         private var clock = 0f
+        private var startAt = 0f
+        private var stopAt = 0f
         private var smooth = 0f
         private var settleAt = 0f
         private var lastNanos = 0L
@@ -2128,7 +2136,9 @@ class SDUIRenderer(
         private val cY: Float get() = vb[1] + vb[3] / 2
         private val rim: Float get() = Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat() / 2
 
-        /** The parts and the wave, once, from the geometry. */
+        /** The parts and the wave, once, from the geometry; and the order the
+         *  parts leave in — nearest the wave first, so the structure opens
+         *  from the middle out; they come back in the opposite order. */
         private fun tie() {
             parts.clear(); wave = null
             val keep = disperse?.keep ?: "link"
@@ -2144,32 +2154,36 @@ class SDUIRenderer(
                 val dx = cx - cX; val dy = cy - cY; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
                 parts += Part(i, cx, cy, dx / len, dy / len, if (parts.size % 2 == 1) -1f else 1f)
             }
+            val w = wave ?: return
+            parts.sortedBy { Math.hypot((it.cx - w.mx).toDouble(), (it.cy - w.my).toDouble()) }.forEachIndexed { k, p -> p.k = k }
         }
 
-        /** The microphone opened: the parts fly out, the wave stays. A no-op
+        /** The microphone opened: the parts leave, the wave stays. A no-op
          *  without a dispersal from the server, so a still or particle mark is unaffected. */
         fun beginPlay() {
             if (disperse == null || wave == null) return
-            playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L
+            playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L; startAt = clock
             postInvalidateOnAnimation()
         }
 
-        /** The microphone closed: everything flies home, then `onDone`. */
+        /** The microphone closed: everything comes home, then `onDone`. */
         fun settle(onDone: () -> Unit) {
             if (!playing) { onDone(); return }
-            playing = false; settling = true; settleAt = 0f; onSettled = onDone
+            playing = false; settling = true; settleAt = 0f; onSettled = onDone; stopAt = clock
             postInvalidateOnAnimation()
         }
 
         private fun home() {
             settling = false; playing = false
-            for (p in parts) { p.x = 0f; p.y = 0f; p.a = 0f; p.vx = 0f; p.vy = 0f; p.va = 0f }
-            wave?.let { it.x = 0f; it.y = 0f; it.k = 1f; it.vx = 0f; it.vy = 0f; it.vk = 0f }
+            for (p in parts) { p.p = 0f; p.v = 0f; p.t = 0f }
+            wave?.let { it.q = 0f; it.v = 0f; it.t = 0f }
             val d = onSettled; onSettled = null; d?.invoke()
             invalidate()
         }
 
-        /** One frame of the dispersal: the springs, out or home. */
+        private fun smoothStep(a: Float, b: Float, x: Float): Float { val t = ((x - a) / (b - a)).coerceIn(0f, 1f); return t * t * (3f - 2f * t) }
+
+        /** One frame of the dispersal: every progress toward its cue, on its spring. */
         private fun stepDisperse() {
             val sp = disperse ?: return
             val w = wave ?: return
@@ -2180,88 +2194,91 @@ class SDUIRenderer(
             clock += dt
             // The voice, followed quickly up and slowly down, is what the bars rise to.
             smooth += (lv - smooth) * minOf(1f, dt * (if (lv > smooth) 18f else 6f))
-            val out = sp.out * rim; val spin = sp.spin * Math.PI.toFloat() / 180f
+            val out = sp.out * rim; val n = parts.size; val tau = clock - startAt; val sigma = clock - stopAt
             var far = 0f; var fast = 0f
-            // Out on a slower spring — it leaves from rest and gathers speed — and
-            // back on a quicker one, so the return is brisk and lands without a bump.
-            val w0 = if (playing) 7f else 11f; val c0 = 2f * w0
+            val w0 = if (playing) 6.5f else 7.5f; val c0 = 2f * w0     // critically damped; a shade quicker home
             for (p in parts) {
-                val tx = if (playing) p.ux * out else 0f; val ty = if (playing) p.uy * out else 0f; val ta = if (playing) p.sign * spin else 0f
-                p.vx += (tx - p.x) * w0 * w0 * dt - c0 * p.vx * dt; p.x += p.vx * dt
-                p.vy += (ty - p.y) * w0 * w0 * dt - c0 * p.vy * dt; p.y += p.vy * dt
-                p.va += (ta - p.a) * w0 * w0 * dt - c0 * p.va * dt; p.a += p.va * dt
-                far = maxOf(far, Math.abs(p.x), Math.abs(p.y), Math.abs(p.a) * u / 3f); fast = maxOf(fast, Math.abs(p.vx), Math.abs(p.vy))
+                // Its cue: out after its turn — a touch inward first, the gather —
+                // and back after the opposite turn, once the wave has begun to settle.
+                val lead = p.k * sp.stagger
+                if (playing) p.t = if (tau < lead) 0f else if (tau < lead + 0.1f) -sp.gather else 1f
+                else if (sigma >= (n - 1 - p.k) * sp.stagger + 0.15f) p.t = 0f
+                p.v += (p.t - p.p) * w0 * w0 * dt - c0 * p.v * dt; p.p += p.v * dt
+                far = maxOf(far, Math.abs(p.p) * out); fast = maxOf(fast, Math.abs(p.v) * out)
             }
-            val w1 = 9f; val c1 = 2f * w1
-            val tx = if (playing && sp.centre) cX - w.mx else 0f; val ty = if (playing && sp.centre) cY - w.my else 0f; val tk = if (playing) sp.lift else 1f
-            w.vx += (tx - w.x) * w1 * w1 * dt - c1 * w.vx * dt; w.x += w.vx * dt
-            w.vy += (ty - w.y) * w1 * w1 * dt - c1 * w.vy * dt; w.y += w.vy * dt
-            w.vk += (tk - w.k) * w1 * w1 * dt - c1 * w.vk * dt; w.k += w.vk * dt
-            far = maxOf(far, Math.abs(w.x), Math.abs(w.y), Math.abs(w.k - 1f) * u); fast = maxOf(fast, Math.abs(w.vx), Math.abs(w.vy))
+            w.t = if (playing) (if (tau >= sp.wait) 1f else 0f) else 0f
+            val w1 = 7f; val c1 = 2f * w1
+            w.v += (w.t - w.q) * w1 * w1 * dt - c1 * w.v * dt; w.q += w.v * dt
+            far = maxOf(far, Math.abs(w.q) * u); fast = maxOf(fast, Math.abs(w.v) * u)
             if (settling) {
                 settleAt += dt
                 if ((far < u * 0.002f && fast < u * 0.02f) || settleAt > sp.settle) home()
             }
         }
 
-        /** The shapes as the dispersal has them: each part where it is and
-         *  turned; the link replaced by the wave's bars — one plain line per
-         *  dash, moved and grown with the wave, its height from the voice and
-         *  its colour from the running cluster — and, as the wave comes home,
-         *  the plain link fading back in under them. Copies for one frame;
-         *  the spec itself stays as sent. */
+        /** The shapes as the dispersal has them: each part along its arc,
+         *  turned, shrunk and faded by its progress; the link glided and grown
+         *  by the wave's, with its bars over its dashes — one plain line per
+         *  dash, its height from the voice and its colour from the running
+         *  cluster. Copies for one frame; the spec itself stays as sent. */
         private fun moved(tint: Int?, sigColor: Int): List<Shape> {
             val sp = disperse ?: return shapes
             val w = wave ?: return shapes
             val out = ArrayList<Shape>(shapes.size + 12)
             val byIndex = HashMap<Int, Part>(); for (p in parts) byIndex[p.index] = p
-            val show = if (playing) 1f else ((w.k - 1f) / maxOf(0.05f, sp.lift - 1f)).coerceIn(0f, 1f)
+            val reach = sp.out * rim; val arc = sp.arc * rim; val spin = sp.spin * Math.PI.toFloat() / 180f
             shapes.forEachIndexed { i, sh ->
                 val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
                 val p = byIndex[i]
                 if (p != null) {
+                    val e = p.p; val c = e.coerceIn(0f, 1f); val sc = 1f - sp.shrink * c; val op = 1f - smoothStep(0.55f, 1f, c); val rot = spin * e * p.sign
+                    // Out along an arc: the straight line from the middle, bent sideways
+                    // most at the midpoint, so it swings rather than shoots.
+                    val bend = arc * sn(Math.PI.toFloat() * c) * p.sign
+                    val dx = p.ux * reach * e - p.uy * bend; val dy = p.uy * reach * e + p.ux * bend
                     when (sh.kind) {
-                        "rect" -> { o.put("x", sh.o.optDouble("x") + p.x); o.put("y", sh.o.optDouble("y") + p.y) }
-                        "circle" -> { o.put("cx", sh.o.optDouble("cx") + p.x); o.put("cy", sh.o.optDouble("cy") + p.y) }
-                        else -> { o.put("x1", sh.o.optDouble("x1") + p.x); o.put("y1", sh.o.optDouble("y1") + p.y); o.put("x2", sh.o.optDouble("x2") + p.x); o.put("y2", sh.o.optDouble("y2") + p.y) }
+                        "rect" -> { o.put("x", sh.o.optDouble("x") + dx); o.put("y", sh.o.optDouble("y") + dy) }
+                        "circle" -> { o.put("cx", sh.o.optDouble("cx") + dx); o.put("cy", sh.o.optDouble("cy") + dy) }
+                        else -> { o.put("x1", sh.o.optDouble("x1") + dx); o.put("y1", sh.o.optDouble("y1") + dy); o.put("x2", sh.o.optDouble("x2") + dx); o.put("y2", sh.o.optDouble("y2") + dy) }
                     }
-                    o.put("_turn", (p.a * 180f / Math.PI.toFloat()).toDouble())
+                    o.put("_turn", (rot * 180f / Math.PI.toFloat()).toDouble()); o.put("_scale", sc.toDouble()); o.put("_alpha", op.toDouble())
                     out += Shape(sh.id, sh.kind, o, sh.color)
                 } else if (i == w.index) {
-                    // The wave: the link's ends moved and grown about its middle.
+                    // The wave: the link's ends glided and grown about its middle, and its bars over it.
+                    val q = w.q.coerceIn(0f, 1f); val k = 1f + (sp.lift - 1f) * w.q
                     val x1 = sh.o.optDouble("x1").toFloat(); val y1 = sh.o.optDouble("y1").toFloat(); val x2 = sh.o.optDouble("x2").toFloat(); val y2 = sh.o.optDouble("y2").toFloat()
-                    val mx = w.mx + w.x; val my = w.my + w.y
-                    val ax = mx + (x1 - w.mx) * w.k; val ay = my + (y1 - w.my) * w.k; val bx = mx + (x2 - w.mx) * w.k; val by = my + (y2 - w.my) * w.k
-                    val width = sh.o.optDouble("width", 1.0).toFloat() * w.k
-                    if (show < 1f) {
-                        o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble()); o.put("width", width.toDouble())
-                        o.put("_alpha", (1f - show).toDouble())
-                        out += Shape(sh.id, sh.kind, o, sh.color)
-                    }
+                    val mx = w.mx + (if (sp.centre) cX - w.mx else 0f) * w.q; val my = w.my + (if (sp.centre) cY - w.my else 0f) * w.q
+                    val ax = mx + (x1 - w.mx) * k; val ay = my + (y1 - w.my) * k; val bx = mx + (x2 - w.mx) * k; val by = my + (y2 - w.my) * k
+                    val width = sh.o.optDouble("width", 1.0).toFloat() * k
+                    o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble()); o.put("width", width.toDouble())
                     val dash = sh.o.optJSONArray("dash")
-                    if (show > 0f && dash != null && dash.length() >= 1) {
+                    if (dash != null && dash.length() >= 1) {
+                        // The dash pattern is drawn in the copy at the grown scale, so a bar sits exactly on its dash.
+                        val scaled = org.json.JSONArray(); for (j in 0 until dash.length()) scaled.put(dash.optDouble(j, 0.0) * k)
+                        o.put("dash", scaled)
+                        out += Shape(sh.id, sh.kind, o, sh.color)
                         val len = Math.hypot((bx - ax).toDouble(), (by - ay).toDouble()).toFloat()
-                        val on = dash.optDouble(0, 0.0).toFloat() * w.k; val off = (if (dash.length() > 1) dash.optDouble(1, 0.0) else dash.optDouble(0, 0.0)).toFloat() * w.k
+                        val on = dash.optDouble(0, 0.0).toFloat() * k; val off = (if (dash.length() > 1) dash.optDouble(1, 0.0) else dash.optDouble(0, 0.0)).toFloat() * k
                         val run = sp.run * (1f - 0.35f * smooth); val half = sp.width / 2
                         val uu = (clock % run) / run; val centre = uu * (1f + sp.width) - half; val amp = 0.25f + 0.75f * smooth
                         val ink = tint ?: sh.color ?: Color.BLACK
-                        var pos = 0f; var k = 0
+                        var pos = 0f; var j = 0
                         while (pos < len && on > 0f) {
                             val f0 = pos / len; val f1 = minOf(len, pos + on) / len; val f = (f0 + f1) / 2
-                            val ripple = 0.5f + 0.5f * sn(2f * Math.PI.toFloat() * clock / 0.9f - 0.8f * k)
-                            val grain = 0.5f + 0.5f * sn(clock * 7.3f + k * 1.7f) * sn(clock * 3.1f + k * 0.9f)
-                            val h = 1f + show * ((0.4f + 0.6f * (ripple * 0.6f + grain * 0.4f) * amp) * (1f + sp.rise * smooth) - 1f)
-                            val q = Math.abs(f - centre) / half
-                            val lit = if (q >= 1f) 0f else if (q < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (q - 0.5f) / 0.5f)
+                            val ripple = 0.5f + 0.5f * sn(2f * Math.PI.toFloat() * clock / 0.9f - 0.8f * j)
+                            val grain = 0.5f + 0.5f * sn(clock * 7.3f + j * 1.7f) * sn(clock * 3.1f + j * 0.9f)
+                            val h = 1f + q * ((0.4f + 0.6f * (ripple * 0.6f + grain * 0.4f) * amp) * (1f + sp.rise * smooth) - 1f)
+                            val qq = Math.abs(f - centre) / half
+                            val lit = q * (if (qq >= 1f) 0f else if (qq < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (qq - 0.5f) / 0.5f))
                             val bar = JSONObject()
                             bar.put("x1", (ax + (bx - ax) * f0).toDouble()); bar.put("y1", (ay + (by - ay) * f0).toDouble())
                             bar.put("x2", (ax + (bx - ax) * f1).toDouble()); bar.put("y2", (ay + (by - ay) * f1).toDouble())
                             bar.put("width", (width * h).toDouble())
-                            bar.put("_color", mix(ink, sigColor, lit)); bar.put("_alpha", show.toDouble())
+                            bar.put("_color", mix(ink, sigColor, lit))
                             out += Shape(null, "line", bar, null)
-                            pos += on + off; k++
+                            pos += on + off; j++
                         }
-                    }
+                    } else out += Shape(sh.id, sh.kind, o, sh.color)
                 } else out += Shape(sh.id, sh.kind, o, sh.color)
             }
             return out
@@ -2297,11 +2314,14 @@ class SDUIRenderer(
                 if (r.optString("kind") != "disperse") return null
                 val w = r.optJSONObject("wave")
                 return Disperse(
-                    r.optString("keep", "link").ifEmpty { "link" }, r.optDouble("out", 1.7).toFloat().coerceAtLeast(1f), r.optDouble("spin", 35.0).toFloat(),
-                    r.optDouble("settle", 0.8).toFloat().coerceAtLeast(0.1f),
+                    r.optString("keep", "link").ifEmpty { "link" },
+                    r.optDouble("out", 1.6).toFloat().coerceAtLeast(1f), r.optDouble("spin", 40.0).toFloat(),
+                    r.optDouble("arc", 0.22).toFloat().coerceAtLeast(0f), r.optDouble("shrink", 0.45).toFloat().coerceIn(0f, 0.95f),
+                    r.optDouble("gather", 0.05).toFloat().coerceAtLeast(0f), r.optDouble("stagger", 0.07).toFloat().coerceAtLeast(0f),
+                    r.optDouble("settle", 1.2).toFloat().coerceAtLeast(0.1f),
                     (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f), (w?.optDouble("rise", 0.9) ?: 0.9).toFloat().coerceAtLeast(0f),
                     (w?.optDouble("run", 1.0) ?: 1.0).toFloat().coerceAtLeast(0.2f), (w?.optDouble("width", 0.3) ?: 0.3).toFloat().coerceIn(0.05f, 0.9f),
-                    w?.optBoolean("centre", true) ?: true,
+                    (w?.optDouble("wait", 0.25) ?: 0.25).toFloat().coerceAtLeast(0f), w?.optBoolean("centre", true) ?: true,
                 )
             }
 
@@ -2326,8 +2346,10 @@ class SDUIRenderer(
             /** The physics' turn and stretch on one shape, about its centre:
              *  stretched along its velocity, squashed across it, then turned. */
             private fun motionOf(c: Canvas, o: JSONObject, cx: Float, cy: Float) {
-                if (!o.has("_stretch") && !o.has("_turn")) return
+                if (!o.has("_stretch") && !o.has("_turn") && !o.has("_scale")) return
                 val st = o.optDouble("_stretch", 1.0).toFloat(); val along = o.optDouble("_along", 0.0).toFloat(); val turn = o.optDouble("_turn", 0.0).toFloat()
+                val sc = o.optDouble("_scale", 1.0).toFloat()
+                if (sc != 1f) c.scale(sc, sc, cx, cy)
                 if (st != 1f) { c.rotate(along, cx, cy); c.scale(st, 1f / st, cx, cy); c.rotate(-along, cx, cy) }
                 if (turn != 0f) c.rotate(turn, cx, cy)
             }
@@ -2423,7 +2445,7 @@ class SDUIRenderer(
                             val x1 = ox + o.optDouble("x1").toFloat() * s; val y1 = oy + o.optDouble("y1").toFloat() * s
                             val x2 = ox + o.optDouble("x2").toFloat() * s; val y2 = oy + o.optDouble("y2").toFloat() * s
                             c.scale(sc, sc, (x1 + x2) / 2, (y1 + y2) / 2)
-                            if (o.has("_turn")) c.rotate(o.optDouble("_turn").toFloat(), (x1 + x2) / 2, (y1 + y2) / 2)   // a part flying, turning
+                            motionOf(c, o, (x1 + x2) / 2, (y1 + y2) / 2)     // a part flying: turned, shrunk
                             paint.style = Paint.Style.STROKE
                             paint.strokeWidth = o.optDouble("width", 1.0).toFloat() * s
                             paint.strokeCap = if (o.optString("cap") == "round") Paint.Cap.ROUND else Paint.Cap.BUTT
