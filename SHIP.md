@@ -22,13 +22,19 @@ ssh root@91.108.104.168 'cd ~/tulmi && CHECK=1 ./deploy/ship.sh'
 
 ## Site
 
-One file. The page is live within a minute of the copy.
+tailzu.space is on Vercel, deployed from GitHub: a push to the branch is the
+deploy. Nothing is copied to the VPS. (`vercel.json` proxies `/v1/*`,
+`/download`, `/downloads/*`, `/privacy`, `/terms` and `/.well-known/*` to
+the API.)
 
 ```powershell
 cd C:\Users\user\tailzu-web
 git pull --rebase origin claude/repo-analysis-verdict-6lpyaw
-scp index.html root@91.108.104.168:~/tulmi/site/
+git push origin claude/repo-analysis-verdict-6lpyaw
 ```
+
+Vercel builds it in under a minute; the deployment shows on the Vercel
+dashboard.
 
 ## Phones
 
