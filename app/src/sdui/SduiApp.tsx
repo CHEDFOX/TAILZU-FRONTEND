@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import * as Updates from "expo-updates";
+import { publishWidgetMonth } from "../widgets/month";
 import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
 import {
   TabThreadIcon, SettingsLines, ThreadRail, THREAD_ACTIVE, THREAD_RAIL_HEIGHT,
@@ -442,6 +443,9 @@ export default function SduiApp() {
       // Nothing reads the registry before this line, so publishing first costs
       // nothing and removes the race entirely.
       setMediaRegistry(pickMediaRegistry(b));
+      // The Home and Lock Screen widget shows this month's numbers; it is
+      // handed them here, from the same flags the stats screen draws.
+      publishWidgetMonth(b.flags as Record<string, unknown> | undefined);
       setBoot(b);
       // WHICH TAB THE APP OPENS ON is the server's call, because it turns on
       // something only the server knows: whether this person has ever reached

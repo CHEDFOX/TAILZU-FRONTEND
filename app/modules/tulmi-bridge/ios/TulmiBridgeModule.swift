@@ -1,4 +1,5 @@
 import ExpoModulesCore
+import WidgetKit
 
 /// Writes the app's backend URL + the user's token into the shared App Group so
 /// the Tulmi keyboard extension can read them (it's sandboxed separately from
@@ -184,6 +185,18 @@ public class TulmiBridgeModule: Module {
     // and tells the keyboard the session is over.
     Function("endFlowSession") { () in
       FlowSessionManager.shared.end()
+    }
+
+    // THE MONTH, FOR THE WIDGET. The app writes the numbers it just fetched
+    // (words used, left, earned, the streak, the plan) as JSON the Home and
+    // Lock Screen widget reads from the App Group, and asks WidgetKit to draw
+    // it again. Nothing the widget shows is fetched by the widget.
+    Function("setWidgetMonth") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(json, forKey: "tulmi.widget.month")
+      if #available(iOS 14.0, *) {
+        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.month")
+      }
     }
 
     // Whether a Flow Session is currently armed in this process.

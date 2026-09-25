@@ -20,6 +20,7 @@ on:
   push:
     paths:
       - "app/targets/keyboard/**"
+      - "app/targets/widgets/**"
       - "app/modules/tulmi-bridge/ios/**"
       - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
@@ -90,7 +91,7 @@ jobs:
         run: |
           set -euo pipefail
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          FILES="app/modules/tulmi-bridge/ios/FlowSessionManager.swift app/modules/tulmi-bridge/ios/TulmiKeychain.swift"
+          FILES="app/modules/tulmi-bridge/ios/FlowSessionManager.swift app/modules/tulmi-bridge/ios/FlowLiveActivity.swift app/modules/tulmi-bridge/ios/TulmiKeychain.swift"
           echo "Type-checking:"; echo "$FILES"
           # No -application-extension here: this code runs in the MAIN APP, which
           # is allowed the full API surface the keyboard is denied.
@@ -101,3 +102,34 @@ jobs:
             -typecheck \
             $FILES
           echo "✅ Flow session type-checks cleanly."
+
+  # The widgets: the month on the Home and Lock Screen, the Flow session as a
+  # Live Activity, Dictate as a Control. SwiftUI, WidgetKit, ActivityKit and
+  # AppIntents are all in the simulator SDK, so the whole target type-checks
+  # here, under the extension rules it will be built with.
+  widgets:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+
+      - name: Type-check the widget extension (swiftc, Simulator SDK)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          FILES=$(ls app/targets/widgets/*.swift)
+          echo "Type-checking:"; echo "$FILES"
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios17.0-simulator \
+            -module-name TailzuWidgets \
+            -application-extension \
+            -parse-as-library \
+            -typecheck \
+            $FILES
+          echo "✅ Widgets type-check cleanly."

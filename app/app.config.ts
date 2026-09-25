@@ -160,6 +160,11 @@ const config: ExpoConfig = {
       // code ships (FlowSessionManager.swift), so this declaration is honest
       // per Guideline 2.5.4.
       UIBackgroundModes: ["audio"],
+      // The Flow session is a Live Activity while the background microphone
+      // is armed: visible on the Lock Screen and in the Dynamic Island, and
+      // stoppable from there. Drawn by the widget extension
+      // (targets/widgets), driven by FlowSessionManager.
+      NSSupportsLiveActivities: true,
       // Detect installed apps so share targets can prefer WhatsApp/Telegram/etc.
       LSApplicationQueriesSchemes: [
         "whatsapp",

@@ -34,6 +34,7 @@ interface TulmiBridgeNative {
   ): void;
   endFlowSession?(): void;
   isFlowActive?(): boolean;
+  setWidgetMonth?(json: string): void;
 }
 
 export interface KeyboardRecordRequest {
@@ -242,5 +243,30 @@ export function cancelKeyboardHandoff(sessionId: string): void {
     native?.cancelKeyboardHandoff?.(sessionId);
   } catch {
     /* best-effort */
+  }
+}
+
+/** The month's numbers for the Home and Lock Screen widget. */
+export interface WidgetMonth {
+  used: number;
+  total: number;
+  remaining: number;
+  earned: number;
+  base: number;
+  streak: number;
+  entitled: boolean;
+  updatedAt: number;
+}
+
+/**
+ * Hand the widget the month. Written to the App Group as JSON and the widget
+ * is redrawn; the widget never fetches anything itself. A no-op where there
+ * is no widget (Android, or a build without the bridge).
+ */
+export function setWidgetMonth(month: WidgetMonth): void {
+  try {
+    native?.setWidgetMonth?.(JSON.stringify(month));
+  } catch {
+    // never let a widget stop the app
   }
 }
