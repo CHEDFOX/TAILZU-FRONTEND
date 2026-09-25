@@ -1512,24 +1512,32 @@ final class TulmiMarkView: UIView {
 
   // MARK: The dispersal — only the wave stays while the microphone is open
   //
-  // The squares, the plain lines and the dot are the parts: at the start of
-  // a recording each flies straight out from the middle, turning as it goes,
-  // past the rim and out of sight. The kept shape, the dashed link between
-  // the blocks, is the wave: it eases to the middle and grows, and its dashes
-  // become bars that rise and fall with the voice while the bright cluster
-  // keeps running along it. On stop every part flies back and lands exactly
-  // where it began, the wave goes back to being the link, and the layers are
-  // rebuilt crisp so the idle signal resumes. All of it on critically damped
-  // springs, so nothing ever jumps: the parts leave from rest and arrive to
-  // rest. The numbers are the server's, from motion.recording.
-  struct Disperse { let keep: String; let out, spin, settle, lift, rise, run, width: Double; let centre: Bool }
+  // The squares, the plain lines and the dot are the parts. At the start of
+  // a recording the whole gathers inward a touch, then each part leaves in
+  // turn, a beat after the last, along an arc — out past the rim, shrinking
+  // and fading as it crosses it, turning as it goes. Once they are away the
+  // kept shape, the dashed link between the blocks, glides to the middle and
+  // grows: the wave, its dashes bars that rise and fall with the voice while
+  // the bright cluster keeps running along it. Stop reverses all of it: the
+  // wave settles back into the link, and the parts glide in on the same arcs
+  // in cascade and land exactly where they began; then the layers are
+  // rebuilt crisp so the idle signal resumes. Every part follows one
+  // number, its progress from home to away, on a critically damped spring,
+  // so a stop mid-flight simply turns it around: nothing ever jumps. The
+  // numbers are the server's, from motion.recording.
+  struct Disperse {
+    let keep: String
+    let out, spin, arc, shrink, gather, stagger, settle, lift, rise, run, width, wait: Double
+    let centre: Bool
+  }
   private struct Part {
     let layer: Int; let c: CGPoint; let ux: Double; let uy: Double; let sign: Double
-    var x = 0.0, y = 0.0, a = 0.0, vx = 0.0, vy = 0.0, va = 0.0
+    var k = 0                                   // its turn: nearest the wave leaves first, comes back last
+    var p = 0.0, v = 0.0, t = 0.0               // progress from home (0) to away (1), its speed, its target
   }
   private struct Wave {
     let layer: Int; let mid: CGPoint; let width: CGFloat
-    var x = 0.0, y = 0.0, k = 1.0, vx = 0.0, vy = 0.0, vk = 0.0
+    var q = 0.0, v = 0.0, t = 0.0               // progress from the link (0) to the wave (1)
   }
   let disperseSpec: Disperse?
   private var parts: [Part] = []
@@ -1537,7 +1545,7 @@ final class TulmiMarkView: UIView {
   private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's dashes, one layer each
   private var barLit: CGColor = UIColor.white.cgColor          // what a lit bar wears: the signal's colour
   private var playing = false, settling = false
-  private var clock = 0.0, smooth = 0.0, settleAt = 0.0
+  private var clock = 0.0, startAt = 0.0, stopAt = 0.0, smooth = 0.0, settleAt = 0.0
   private var lastTick: CFTimeInterval = 0
   private var display: CADisplayLink?
   private var onSettled: (() -> Void)?
@@ -1572,10 +1580,14 @@ final class TulmiMarkView: UIView {
   static func disperse(from motion: [String: KBJSON]?) -> Disperse? {
     guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "disperse" else { return nil }
     let w = r["wave"]?.asObject
-    return Disperse(keep: r["keep"]?.asString ?? "link", out: max(1, r["out"]?.asDouble ?? 1.7), spin: r["spin"]?.asDouble ?? 35,
-                    settle: max(0.1, r["settle"]?.asDouble ?? 0.8), lift: max(0.5, w?["lift"]?.asDouble ?? 2),
-                    rise: max(0, w?["rise"]?.asDouble ?? 0.9), run: max(0.2, w?["run"]?.asDouble ?? 1),
-                    width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)), centre: w?["centre"]?.asBool ?? true)
+    return Disperse(keep: r["keep"]?.asString ?? "link",
+                    out: max(1, r["out"]?.asDouble ?? 1.6), spin: r["spin"]?.asDouble ?? 40,
+                    arc: max(0, r["arc"]?.asDouble ?? 0.22), shrink: min(0.95, max(0, r["shrink"]?.asDouble ?? 0.45)),
+                    gather: max(0, r["gather"]?.asDouble ?? 0.05), stagger: max(0, r["stagger"]?.asDouble ?? 0.07),
+                    settle: max(0.1, r["settle"]?.asDouble ?? 1.2),
+                    lift: max(0.5, w?["lift"]?.asDouble ?? 2), rise: max(0, w?["rise"]?.asDouble ?? 0.9),
+                    run: max(0.2, w?["run"]?.asDouble ?? 1), width: min(0.9, max(0.05, w?["width"]?.asDouble ?? 0.3)),
+                    wait: max(0, w?["wait"]?.asDouble ?? 0.25), centre: w?["centre"]?.asBool ?? true)
   }
 
   override func didMoveToWindow() {
@@ -1592,7 +1604,9 @@ final class TulmiMarkView: UIView {
   private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
   private var rim: Double { Double(hypot(viewBox.width, viewBox.height)) / 2 }
 
-  /// The parts and the wave, once, from the geometry.
+  /// The parts and the wave, once, from the geometry; and the order the
+  /// parts leave in — nearest the wave first, so the structure opens from
+  /// the middle out; they come back in the opposite order.
   private func tie() {
     parts = []; wave = nil
     let C = center
@@ -1610,6 +1624,9 @@ final class TulmiMarkView: UIView {
       let dx = Double(c.x) - C.x, dy = Double(c.y) - C.y, len = max(1e-6, hypot(dx, dy))
       parts.append(Part(layer: i, c: c, ux: dx / len, uy: dy / len, sign: parts.count % 2 == 1 ? -1 : 1))
     }
+    guard let w = wave else { return }
+    let order = parts.indices.sorted { hypot(parts[$0].c.x - w.mid.x, parts[$0].c.y - w.mid.y) < hypot(parts[$1].c.x - w.mid.x, parts[$1].c.y - w.mid.y) }
+    for (k, i) in order.enumerated() { parts[i].k = k }
   }
 
   /// One layer per dash of a dashed line, in the signal colour and hidden,
@@ -1639,19 +1656,18 @@ final class TulmiMarkView: UIView {
     return out
   }
 
-  /// The microphone opened: the parts fly out, the wave stays. A no-op
-  /// without a dispersal from the server, so a still or particle mark is
-  /// unaffected.
+  /// The microphone opened: the parts leave, the wave stays. A no-op without
+  /// a dispersal from the server, so a still or particle mark is unaffected.
   func beginPlay() {
     guard disperseSpec != nil, wave != nil else { return }
-    playing = true; settling = false; onSettled = nil; settleAt = 0
+    playing = true; settling = false; onSettled = nil; settleAt = 0; startAt = clock
     restSignal()
     startDisplay()
   }
-  /// The microphone closed: everything flies home, then `onDone`.
+  /// The microphone closed: everything comes home, then `onDone`.
   func settle(_ onDone: @escaping () -> Void) {
     guard playing else { onDone(); return }
-    playing = false; settling = true; settleAt = 0; onSettled = onDone
+    playing = false; settling = true; settleAt = 0; onSettled = onDone; stopAt = clock
     startDisplay()
   }
   private func startDisplay() {
@@ -1662,7 +1678,8 @@ final class TulmiMarkView: UIView {
     display = l
   }
   private func stopDisplay() { display?.invalidate(); display = nil }
-  /// The signal rests while the parts are away: its overlays would not follow the shapes.
+  /// The signal rests while the parts are away: a square's overlay would not
+  /// follow it, and the run's dashes are the wave's bars for now.
   private func restSignal() {
     for l in layers { l.removeAnimation(forKey: "signal") }
     for e in extras { e.removeAllAnimations(); e.isHidden = true }
@@ -1670,8 +1687,8 @@ final class TulmiMarkView: UIView {
   private func home() {
     stopDisplay()
     settling = false; playing = false
-    for i in parts.indices { parts[i].x = 0; parts[i].y = 0; parts[i].a = 0; parts[i].vx = 0; parts[i].vy = 0; parts[i].va = 0 }
-    if wave != nil { wave!.x = 0; wave!.y = 0; wave!.k = 1; wave!.vx = 0; wave!.vy = 0; wave!.vk = 0 }
+    for i in parts.indices { parts[i].p = 0; parts[i].v = 0; parts[i].t = 0 }
+    if wave != nil { wave!.q = 0; wave!.v = 0; wave!.t = 0 }
     root.transform = CATransform3DIdentity
     laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
     let done = onSettled; onSettled = nil; done?()
@@ -1683,36 +1700,38 @@ final class TulmiMarkView: UIView {
     ua.getRed(&r1, green: &g1, blue: &b1, alpha: &a1); ub.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
     return UIColor(red: r1 + (r2 - r1) * k, green: g1 + (g2 - g1) * k, blue: b1 + (b2 - b1) * k, alpha: a1 + (a2 - a1) * k).cgColor
   }
+  private static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
+    let t = min(1, max(0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+  }
 
   @objc private func tick(_ l: CADisplayLink) {
     let dt = min(1.0 / 30, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
     guard let sp = disperseSpec, wave != nil else { return }
-    let lv = Double(max(0, min(1, level()))), U = unit, C = center
+    let lv = Double(max(0, min(1, level()))), U = unit
     clock += dt
     // The voice, followed quickly up and slowly down, is what the bars rise to.
     smooth += (lv - smooth) * min(1, dt * (lv > smooth ? 18 : 6))
-    let out = sp.out * rim, spin = sp.spin * .pi / 180
+    let out = sp.out * rim, n = parts.count, tau = clock - startAt, sigma = clock - stopAt
     var far = 0.0, fast = 0.0
-    // Out on a slower spring — it leaves from rest and gathers speed — and
-    // back on a quicker one, so the return is brisk and lands without a bump.
-    let w0 = playing ? 7.0 : 11.0, c0 = 2 * w0
+    let w0 = playing ? 6.5 : 7.5, c0 = 2 * w0     // critically damped; a shade quicker home
     for i in parts.indices {
       var p = parts[i]
-      let tx = playing ? p.ux * out : 0, ty = playing ? p.uy * out : 0, ta = playing ? p.sign * spin : 0
-      p.vx += (tx - p.x) * w0 * w0 * dt - c0 * p.vx * dt; p.x += p.vx * dt
-      p.vy += (ty - p.y) * w0 * w0 * dt - c0 * p.vy * dt; p.y += p.vy * dt
-      p.va += (ta - p.a) * w0 * w0 * dt - c0 * p.va * dt; p.a += p.va * dt
-      far = max(far, abs(p.x), abs(p.y), abs(p.a) * U / 3); fast = max(fast, abs(p.vx), abs(p.vy))
+      // Its cue: out after its turn — a touch inward first, the gather —
+      // and back after the opposite turn, once the wave has begun to settle.
+      let lead = Double(p.k) * sp.stagger
+      if playing { p.t = tau < lead ? 0 : tau < lead + 0.1 ? -sp.gather : 1 }
+      else if sigma >= Double(n - 1 - p.k) * sp.stagger + 0.15 { p.t = 0 }
+      p.v += (p.t - p.p) * w0 * w0 * dt - c0 * p.v * dt; p.p += p.v * dt
+      far = max(far, abs(p.p) * out); fast = max(fast, abs(p.v) * out)
       parts[i] = p
     }
     var w = wave!
-    let w1 = 9.0, c1 = 2 * w1
-    let tx = playing && sp.centre ? C.x - Double(w.mid.x) : 0, ty = playing && sp.centre ? C.y - Double(w.mid.y) : 0, tk = playing ? sp.lift : 1
-    w.vx += (tx - w.x) * w1 * w1 * dt - c1 * w.vx * dt; w.x += w.vx * dt
-    w.vy += (ty - w.y) * w1 * w1 * dt - c1 * w.vy * dt; w.y += w.vy * dt
-    w.vk += (tk - w.k) * w1 * w1 * dt - c1 * w.vk * dt; w.k += w.vk * dt
-    far = max(far, abs(w.x), abs(w.y), abs(w.k - 1) * U); fast = max(fast, abs(w.vx), abs(w.vy))
+    w.t = playing ? (tau >= sp.wait ? 1 : 0) : 0
+    let w1 = 7.0, c1 = 2 * w1
+    w.v += (w.t - w.q) * w1 * w1 * dt - c1 * w.v * dt; w.q += w.v * dt
+    far = max(far, abs(w.q) * U); fast = max(fast, abs(w.v) * U)
     wave = w
     draw()
     if settling {
@@ -1721,42 +1740,50 @@ final class TulmiMarkView: UIView {
     }
   }
 
-  /// The layers as the dispersal has them: each part where it is and turned;
-  /// the wave moved and grown, its bars standing in for the link.
+  /// The layers as the dispersal has them: each part along its arc, turned,
+  /// shrunk and faded by its progress; the wave glided and grown by its own,
+  /// its bars over the link's dashes.
   private func draw() {
     guard let sp = disperseSpec, let w = wave, layers.count == shapes.count else { return }
     let (s, o) = fitted
+    let C = center, out = sp.out * rim, arc = sp.arc * rim, spin = sp.spin * .pi / 180
     CATransaction.begin(); CATransaction.setDisableActions(true)
     for p in parts {
       let l = layers[p.layer]
-      l.position = CGPoint(x: o.x + (p.c.x + CGFloat(p.x)) * s, y: o.y + (p.c.y + CGFloat(p.y)) * s)
-      l.transform = CATransform3DMakeRotation(CGFloat(p.a), 0, 0, 1)
+      let e = p.p, c = min(1, max(0, e)), sc = 1 - sp.shrink * c, op = 1 - TulmiMarkView.smooth(0.55, 1, c), rot = spin * e * p.sign
+      // Out along an arc: the straight line from the middle, bent sideways
+      // most at the midpoint, so it swings rather than shoots.
+      let bend = arc * sin(.pi * c) * p.sign
+      let dx = p.ux * out * e - p.uy * bend, dy = p.uy * out * e + p.ux * bend
+      l.position = CGPoint(x: o.x + (p.c.x + CGFloat(dx)) * s, y: o.y + (p.c.y + CGFloat(dy)) * s)
+      l.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot), 0, 0, 1))
+      l.opacity = Float(op)
     }
-    // THE WAVE. Each dash is a bar: a slow ripple down the line and a little
-    // grain, both scaled by the voice, set its height; the bright cluster
-    // runs along, a touch faster the louder it gets. The bars stand in for
-    // the link while the microphone is open and fade back to the plain link
-    // as it closes.
+    // THE WAVE. Each dash is a bar over the dash it came from: a slow ripple
+    // down the line and a little grain, both scaled by the voice, set its
+    // height, and the bright cluster runs along, a touch faster the louder
+    // it gets. At home a bar is exactly its dash, so the wave grows out of
+    // the link and settles back into it with no seam.
     let link = layers[w.layer]
-    let pos = CGPoint(x: o.x + (w.mid.x + CGFloat(w.x)) * s, y: o.y + (w.mid.y + CGFloat(w.y)) * s)
-    let show = playing ? 1.0 : max(0, min(1, (w.k - 1) / max(0.05, sp.lift - 1)))
+    let q = min(1, max(0, w.q)), k = 1 + (sp.lift - 1) * w.q
+    let pos = CGPoint(x: o.x + (w.mid.x + CGFloat((sp.centre ? C.x - Double(w.mid.x) : 0) * w.q)) * s,
+                      y: o.y + (w.mid.y + CGFloat((sp.centre ? C.y - Double(w.mid.y) : 0) * w.q)) * s)
     link.position = pos
-    link.transform = CATransform3DMakeScale(CGFloat(w.k), CGFloat(w.k), 1)
-    link.opacity = Float(1 - show)
+    link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
     let run = sp.run * (1 - 0.35 * smooth), half = sp.width / 2
     let u = clock.truncatingRemainder(dividingBy: run) / run, centre = u * (1 + sp.width) - half, amp = 0.25 + 0.75 * smooth
     let ink = link.strokeColor ?? UIColor.black.cgColor
-    for (k, bar) in bars.enumerated() {
-      let ripple = 0.5 + 0.5 * sin(2 * .pi * clock / 0.9 - 0.8 * Double(k))
-      let grain = 0.5 + 0.5 * sin(clock * 7.3 + Double(k) * 1.7) * sin(clock * 3.1 + Double(k) * 0.9)
-      let h = 1 + show * ((0.4 + 0.6 * (ripple * 0.6 + grain * 0.4) * amp) * (1 + sp.rise * smooth) - 1)
-      let q = abs(bar.f - centre) / half, lit = q >= 1 ? 0 : q < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (q - 0.5) / 0.5)
+    for (i, bar) in bars.enumerated() {
+      let ripple = 0.5 + 0.5 * sin(2 * .pi * clock / 0.9 - 0.8 * Double(i))
+      let grain = 0.5 + 0.5 * sin(clock * 7.3 + Double(i) * 1.7) * sin(clock * 3.1 + Double(i) * 0.9)
+      let h = 1 + q * ((0.4 + 0.6 * (ripple * 0.6 + grain * 0.4) * amp) * (1 + sp.rise * smooth) - 1)
+      let qq = abs(bar.f - centre) / half, lit = q * (qq >= 1 ? 0 : qq < 0.5 ? 1 : 0.5 + 0.5 * cos(.pi * (qq - 0.5) / 0.5))
       bar.layer.isHidden = false
       bar.layer.position = pos
       bar.layer.transform = link.transform
       bar.layer.lineWidth = w.width * s * CGFloat(h)
       bar.layer.strokeColor = TulmiMarkView.mix(ink, barLit, CGFloat(lit))
-      bar.layer.opacity = Float(show)
+      bar.layer.opacity = 1
     }
     CATransaction.commit()
   }
