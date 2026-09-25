@@ -295,8 +295,8 @@ class SDUIRenderer(
     private var micReassembling = false
     private var lastDictating = false
     // The mark view that lives across redraws when the server's recording
-    // motion is the dance, so record → stop → home is one unbroken motion.
-    // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
+    // motion is the dispersal, so record → stop → home is one unbroken
+    // motion. A new spec, motion or ink (a deploy, a theme flip) makes a new one.
     private var currentMicMark: TulmiMarkView? = null
     private var currentMicMarkKey = ""
     private var markBitmapCache: Bitmap? = null
@@ -354,7 +354,7 @@ class SDUIRenderer(
                 // mid-reassembly from a quick stop→start).
                 micReassembling = false
                 currentMicParticles?.beginRecording()
-                // Or, with the dance, the structure begins its score in place.
+                // Or, with the dispersal, the parts fly out and the wave stays.
                 currentMicMark?.beginPlay()
             } else {
                 // Stopping — the dots spring back INTO the mark, then hand off to
@@ -369,7 +369,7 @@ class SDUIRenderer(
                         }
                     }
                 }
-                // The dance comes home on its own; the same view stays
+                // The parts fly home on their own; the same view stays
                 // mounted throughout, so there is nothing to swap in.
                 currentMicMark?.settle {}
             }
@@ -1078,9 +1078,9 @@ class SDUIRenderer(
         // The dots burst from whichever mark the key is drawing.
         val mark = markSpec?.let { TulmiMarkView.bitmap(it, fg, dp(44)) } ?: markBitmap()
         val dictating = host.state().dictating
-        // What the server wants while the microphone is open: the dance (the
-        // structure itself, choreographed, in the mark branch), the particles,
-        // or nothing.
+        // What the server wants while the microphone is open: the dispersal
+        // (the parts fly out and only the wave stays, in the mark branch), the
+        // particles, or nothing.
         val recKind = TulmiMarkView.recordingKind(markMotion)
 
         val view: View = if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
@@ -1108,15 +1108,15 @@ class SDUIRenderer(
             // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture:
             // resized, recoloured or set moving by a deploy. Only geometry
             // reaches this branch, so pushed media still cannot stand where
-            // the mark stands. With the dance it is the same view at idle and
-            // while recording: the structure moves in place and comes home.
+            // the mark stands. With the dispersal it is the same view at idle
+            // and while recording: the parts fly out and back in place.
             FrameLayout(host.context()).apply {
                 background = keyBackground(node)
                 val pad = dp(flagFloat("kb.mic.idleIconInset", 10f).toInt())
                 setPadding(pad, pad, pad, pad)
                 val ink = if (tinted) fg else null
                 addView(
-                    if (recKind == "dance") persistedMark(markSpec, markMotion, ink)
+                    if (recKind == "disperse") persistedMark(markSpec, markMotion, ink)
                     else TulmiMarkView(host.context(), markSpec, markMotion, ink),
                     FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1152,7 +1152,7 @@ class SDUIRenderer(
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
     }
 
-    /** The one mark view for the dance, reused across redraws while the spec,
+    /** The one mark view for the dispersal, reused across redraws while the spec,
      *  motion and ink are the same objects; a new tree or a theme flip makes
      *  a new one. Built mid-recording (a deploy landed), it starts at once. */
     private fun persistedMark(spec: JSONObject, motion: JSONObject?, tint: Int?): TulmiMarkView {
@@ -2074,43 +2074,35 @@ class SDUIRenderer(
         private var signal = 0f             // 0..1 of one signal period
         private val animators = ArrayList<ValueAnimator>()
 
-        // THE DANCE — one choreography while the microphone is open.
+        // THE DISPERSAL — only the wave stays while the microphone is open.
         //
-        // The squares and the dot are the dancers, in chain order left to
-        // right and by depth from the top. The server sends a score:
-        // movements, each a figure of time that says where every dancer is
-        // and how it is turned at second τ of the movement, always at rest
-        // at τ = 0 and τ = `for`. Movements overlap by `blend` seconds,
-        // weighted by a raised cosine, so one flows into the next, and the
-        // score loops. The pose is chased on critically damped springs, which
-        // gives it the lag and weight of a real thing, and each square
-        // stretches along its own speed. The voice sets the tempo and the
-        // reach, a little, and a rise in it is an accent — one breath of the
-        // whole. Stop chases home and lands exactly; then the idle motion
-        // resumes.
-        class Move(val name: String, val length: Float, val beat: Float, val n: Map<String, Float>)
-        class Dance(val tempo: Float, val reach: Float, val blend: Float, val voice: Float, val settle: Float, val score: List<Move>)
-        private class Dancer(val index: Int, val hx: Float, val hy: Float) {
-            var k = 0; var depth = 0                     // place in the chain: left to right, and from the top
-            var x = hx; var y = hy; var a = 0f; var vx = 0f; var vy = 0f; var va = 0f
-            var tx = hx; var ty = hy; var ta = 0f        // the pose it chases
-            var px = 0f; var py = 0f; var pa = 0f        // a figure's scratch
+        // The squares, the plain lines and the dot are the parts: at the
+        // start of a recording each flies straight out from the middle,
+        // turning as it goes, past the rim and out of sight. The kept shape,
+        // the dashed link between the blocks, is the wave: it eases to the
+        // middle and grows, and its dashes become bars that rise and fall
+        // with the voice while the bright cluster keeps running along it. On
+        // stop every part flies back and lands exactly where it began, the
+        // wave goes back to being the link, and the idle signal resumes. All
+        // of it on critically damped springs, so nothing ever jumps. The
+        // numbers are the server's, from motion.recording.
+        class Disperse(val keep: String, val out: Float, val spin: Float, val settle: Float,
+                       val lift: Float, val rise: Float, val run: Float, val width: Float, val centre: Boolean)
+        private class Part(val index: Int, val cx: Float, val cy: Float, val ux: Float, val uy: Float, val sign: Float) {
+            var x = 0f; var y = 0f; var a = 0f; var vx = 0f; var vy = 0f; var va = 0f
         }
-        private class Tie(val dancer: Int, val dx: Float, val dy: Float)
-        val dance: Dance? = parseDance(motion)
-        private val dancers = ArrayList<Dancer>()
-        private val ties = HashMap<Int, List<Tie>>()   // line shape index → its two ends
-        private val starts = ArrayList<Float>()
-        private var total = 0f
-        private var chainNx = 0f; private var chainNy = 0f; private var top = 0; private var current = -1
+        private class Wave(val index: Int, val mx: Float, val my: Float) {
+            var x = 0f; var y = 0f; var k = 1f; var vx = 0f; var vy = 0f; var vk = 0f
+        }
+        val disperse: Disperse? = parseDisperse(motion)
+        private val parts = ArrayList<Part>()
+        private var wave: Wave? = null
         private val idleNoSignal: List<JSONObject>
         private var playing = false
         private var settling = false
         private var clock = 0f
-        private var lastAccent = -9f
-        private var lastLevel = 0f
+        private var smooth = 0f
         private var settleAt = 0f
-        private var accS = 0f; private var accV = 0f
         private var lastNanos = 0L
         private var onSettled: (() -> Unit)? = null
         /** The live microphone level, 0..1. The renderer points this at its state. */
@@ -2123,9 +2115,9 @@ class SDUIRenderer(
             vb = parsed?.second ?: floatArrayOf(0f, 0f, 1f, 1f)
             val arr = motion?.optJSONArray("idle")
             idle = (0 until (arr?.length() ?: 0)).mapNotNull { arr?.optJSONObject(it) }
-            // The signal rests while the structure moves: its overlays would not follow the shapes.
+            // The signal rests while the parts are away: its overlays would not follow the shapes.
             idleNoSignal = idle.filter { it.optString("kind") != "signal" }
-            if (dance != null) tie()
+            if (disperse != null) tie()
         }
 
         override fun onAttachedToWindow() { super.onAttachedToWindow(); start(); if (isPlaying) postInvalidateOnAnimation() }
@@ -2134,46 +2126,35 @@ class SDUIRenderer(
         private val unit: Float get() = minOf(vb[2], vb[3])
         private val cX: Float get() = vb[0] + vb[2] / 2
         private val cY: Float get() = vb[1] + vb[3] / 2
+        private val rim: Float get() = Math.hypot(vb[2].toDouble(), vb[3].toDouble()).toFloat() / 2
 
-        /** Dancers, the chain, the lines' ties, and the score's timeline, once. */
+        /** The parts and the wave, once, from the geometry. */
         private fun tie() {
-            dancers.clear(); ties.clear(); starts.clear()
+            parts.clear(); wave = null
+            val keep = disperse?.keep ?: "link"
             shapes.forEachIndexed { i, sh ->
+                val o = sh.o
+                val cx: Float; val cy: Float
                 when (sh.kind) {
-                    "rect" -> dancers += Dancer(i, (sh.o.optDouble("x") + sh.o.optDouble("w") / 2).toFloat(), (sh.o.optDouble("y") + sh.o.optDouble("h") / 2).toFloat())
-                    "circle" -> dancers += Dancer(i, sh.o.optDouble("cx").toFloat(), sh.o.optDouble("cy").toFloat())
+                    "rect" -> { cx = (o.optDouble("x") + o.optDouble("w") / 2).toFloat(); cy = (o.optDouble("y") + o.optDouble("h") / 2).toFloat() }
+                    "circle" -> { cx = o.optDouble("cx").toFloat(); cy = o.optDouble("cy").toFloat() }
+                    else -> { cx = ((o.optDouble("x1") + o.optDouble("x2")) / 2).toFloat(); cy = ((o.optDouble("y1") + o.optDouble("y2")) / 2).toFloat() }
                 }
+                if (sh.id == keep && sh.kind == "line" && o.optJSONArray("dash") != null) { wave = Wave(i, cx, cy); return@forEachIndexed }
+                val dx = cx - cX; val dy = cy - cY; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
+                parts += Part(i, cx, cy, dx / len, dy / len, if (parts.size % 2 == 1) -1f else 1f)
             }
-            if (dancers.isEmpty()) return
-            shapes.forEachIndexed { i, sh ->
-                if (sh.kind != "line") return@forEachIndexed
-                ties[i] = listOf(1, 2).map { e ->
-                    val px = sh.o.optDouble("x$e").toFloat(); val py = sh.o.optDouble("y$e").toFloat()
-                    val best = dancers.indices.minByOrNull { Math.hypot((dancers[it].hx - px).toDouble(), (dancers[it].hy - py).toDouble()) }!!
-                    Tie(best, px - dancers[best].hx, py - dancers[best].hy)
-                }
-            }
-            // The chain: order left to right, depth from the top, and its normal.
-            val byX = dancers.indices.sortedBy { dancers[it].hx }; val byY = dancers.indices.sortedBy { dancers[it].hy }
-            byX.forEachIndexed { order, i -> dancers[i].k = order }
-            byY.forEachIndexed { order, i -> dancers[i].depth = order }
-            top = byY[0]
-            val f = dancers[byX.first()]; val l = dancers[byX.last()]
-            val dx = l.hx - f.hx; val dy = l.hy - f.hy; val len = maxOf(1e-6f, Math.hypot(dx.toDouble(), dy.toDouble()).toFloat())
-            chainNx = -dy / len; chainNy = dx / len
-            total = 0f
-            dance?.score?.forEachIndexed { i, mv -> starts += total; total += mv.length - (if (i < dance.score.size - 1) dance.blend else 0f) }
         }
 
-        /** The microphone opened: the dance begins from the top. A no-op
-         *  without a score from the server, so a still or particle mark is unaffected. */
+        /** The microphone opened: the parts fly out, the wave stays. A no-op
+         *  without a dispersal from the server, so a still or particle mark is unaffected. */
         fun beginPlay() {
-            if (dance == null || dancers.isEmpty() || total <= 0f) return
-            playing = true; settling = false; onSettled = null; settleAt = 0f; clock = 0f; current = -1; lastNanos = 0L
+            if (disperse == null || wave == null) return
+            playing = true; settling = false; onSettled = null; settleAt = 0f; lastNanos = 0L
             postInvalidateOnAnimation()
         }
 
-        /** The microphone closed: everything comes home, then `onDone`. */
+        /** The microphone closed: everything flies home, then `onDone`. */
         fun settle(onDone: () -> Unit) {
             if (!playing) { onDone(); return }
             playing = false; settling = true; settleAt = 0f; onSettled = onDone
@@ -2181,143 +2162,117 @@ class SDUIRenderer(
         }
 
         private fun home() {
-            settling = false; playing = false; current = -1
-            for (n in dancers) { n.x = n.hx; n.y = n.hy; n.a = 0f; n.vx = 0f; n.vy = 0f; n.va = 0f }
+            settling = false; playing = false
+            for (p in parts) { p.x = 0f; p.y = 0f; p.a = 0f; p.vx = 0f; p.vy = 0f; p.va = 0f }
+            wave?.let { it.x = 0f; it.y = 0f; it.k = 1f; it.vx = 0f; it.vy = 0f; it.vk = 0f }
             val d = onSettled; onSettled = null; d?.invoke()
             invalidate()
         }
 
-        // The figures. Each sets px, py, pa for every dancer at τ into the
-        // movement: the position and the turn, at rest at both ends.
-        private fun env(tau: Float, mv: Move): Float { val e = sn(Math.PI.toFloat() * tau / mv.length); return e * e }
-        private fun ramp(tau: Float, mv: Move): Float = tau / mv.length - sn(2f * Math.PI.toFloat() * tau / mv.length) / (2f * Math.PI.toFloat())   // 0→1 with no speed at the ends
-        private fun about(n: Dancer, cx: Float, cy: Float, ang: Float, scale: Float) {
-            val c = cs(ang); val s = sn(ang); val dx = (n.hx - cx) * scale; val dy = (n.hy - cy) * scale
-            n.px = cx + dx * c - dy * s; n.py = cy + dx * s + dy * c
-        }
-        private fun figure(mv: Move, tau: Float, reach: Float): Boolean {
-            val u = unit; val cx = cX; val cy = cY; val e = env(tau, mv); val w = 2f * Math.PI.toFloat() * tau / mv.beat; val deg = Math.PI.toFloat() / 180f
-            fun v(key: String, d: Float) = mv.n[key] ?: d
-            when (mv.name) {
-                "sway" -> {
-                    val ang = v("turn", 12f) * deg * reach * e * sn(w); val sc = 1f + v("breathe", 0.06f) * reach * e * sn(2f * w)
-                    for (n in dancers) { about(n, cx, cy, ang, sc); n.pa = -ang * 0.5f }
-                }
-                "wave" -> {
-                    val lift = v("lift", 0.16f) * u * reach * e; val lag = v("lag", 1.1f); val tilt = v("tilt", 26f) * deg * reach * e
-                    for (n in dancers) { val ph = w - lag * n.k; val h = sn(ph); n.px = n.hx + chainNx * lift * h; n.py = n.hy + chainNy * lift * h; n.pa = tilt * cs(ph) }
-                }
-                "carousel" -> {
-                    val ang = 2f * Math.PI.toFloat() * v("turns", 1f) * ramp(tau, mv); val epi = v("epicycle", 0.06f) * u * reach * e
-                    for (n in dancers) { about(n, cx, cy, ang, 1f); val ph = w + n.k * Math.PI.toFloat() / 2f; n.px += epi * cs(ph); n.py += epi * sn(ph); n.pa = ang }
-                }
-                "fold" -> {
-                    val r = 1f - v("depth", 0.42f) * reach * e; val turn = v("turn", 40f) * deg * reach * e
-                    for (n in dancers) { about(n, cx, cy, 0f, r); n.pa = (if (n.k % 2 == 1) -1f else 1f) * turn }
-                }
-                "pendulum" -> {
-                    val swing = v("swing", 24f) * deg * reach * e; val lag = v("lag", 0.55f); val pivot = dancers[top]
-                    for (n in dancers) { val th = swing * sn(w - lag * n.depth); about(n, pivot.hx, pivot.hy, th, 1f); n.pa = th }
-                }
-                "eight" -> {
-                    val size = v("size", 0.14f) * u * reach * e; val lag = v("lag", 0.9f); val tilt = v("tilt", 20f) * deg * reach * e
-                    for (n in dancers) { val ph = w + lag * n.k; n.px = n.hx + size * sn(ph); n.py = n.hy + size * 0.5f * sn(2f * ph); n.pa = tilt * sn(ph) }
-                }
-                "spiral" -> {
-                    val ang = 2f * Math.PI.toFloat() * v("turns", 1f) * ramp(tau, mv); val sc = 1f + v("breathe", 0.08f) * reach * sn(2f * Math.PI.toFloat() * tau / mv.length) * e * 2f
-                    for (n in dancers) { about(n, cx, cy, ang, sc); n.pa = ang + (sc - 1f) * 1.5f }
-                }
-                else -> return false                    // a figure this build does not know: skipped
-            }
-            return true
-        }
-
-        /** The pose at second `t` of the loop: every movement under way, weighted. */
-        private fun pose(t: Float) {
-            val sp = dance ?: return
-            val ax = FloatArray(dancers.size); val ay = FloatArray(dancers.size); val aa = FloatArray(dancers.size); var sum = 0f
-            val reach = sp.reach * (1f + accS)
-            sp.score.forEachIndexed { i, mv ->
-                val tau = t - starts[i]
-                if (tau < 0f || tau > mv.length) return@forEachIndexed
-                var w = if (tau < sp.blend) 0.5f - 0.5f * cs(Math.PI.toFloat() * tau / sp.blend)
-                        else if (tau > mv.length - sp.blend) 0.5f - 0.5f * cs(Math.PI.toFloat() * (mv.length - tau) / sp.blend) else 1f
-                if (i == 0 && tau < sp.blend) w = 1f                                   // the first opens plainly
-                if (i == sp.score.size - 1 && tau > mv.length - sp.blend) w = 1f       // and the last closes plainly
-                if (w <= 0f || !figure(mv, tau, reach)) return@forEachIndexed
-                dancers.forEachIndexed { j, n -> ax[j] += n.px * w; ay[j] += n.py * w; aa[j] += n.pa * w }
-                sum += w
-                if (w >= 0.5f) current = i
-            }
-            dancers.forEachIndexed { j, n ->
-                if (sum > 0f) { n.tx = ax[j] / sum; n.ty = ay[j] / sum; n.ta = aa[j] / sum }
-                else { n.tx = n.hx; n.ty = n.hy; n.ta = 0f }
-            }
-        }
-
-        /** One frame of the dance: the clock, the pose, the springs. */
-        private fun stepDance() {
-            val sp = dance ?: return
-            if (total <= 0f) return
+        /** One frame of the dispersal: the springs, out or home. */
+        private fun stepDisperse() {
+            val sp = disperse ?: return
+            val w = wave ?: return
             val now = System.nanoTime()
             val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 30f)
             lastNanos = now
             val lv = level().coerceIn(0f, 1f); val u = unit
-            if (playing) {
-                // The clock runs at the tempo, a little faster for speech; a rise is an accent.
-                clock = (clock + dt * sp.tempo * (1f - sp.voice * 0.3f + sp.voice * lv)) % total
-                if (lv - lastLevel > 0.15f && clock - lastAccent > 0.4f) { accV += 1.4f * sp.voice; lastAccent = clock }
-                pose(clock)
-            } else {
-                for (n in dancers) { n.tx = n.hx; n.ty = n.hy; n.ta = 0f }
-            }
-            lastLevel = lv
-            accV += (0f - accS) * 40f * dt - 2f * kotlin.math.sqrt(40f) * accV * dt; accS += accV * dt
-            val w0 = 14f; val c0 = 2f * w0             // critically damped: the lag and weight of a real thing
+            clock += dt
+            // The voice, followed quickly up and slowly down, is what the bars rise to.
+            smooth += (lv - smooth) * minOf(1f, dt * (if (lv > smooth) 18f else 6f))
+            val out = sp.out * rim; val spin = sp.spin * Math.PI.toFloat() / 180f
             var far = 0f; var fast = 0f
-            for (n in dancers) {
-                n.vx += (n.tx - n.x) * w0 * w0 * dt - c0 * n.vx * dt; n.x += n.vx * dt
-                n.vy += (n.ty - n.y) * w0 * w0 * dt - c0 * n.vy * dt; n.y += n.vy * dt
-                n.va += (n.ta - n.a) * w0 * w0 * dt - c0 * n.va * dt; n.a += n.va * dt
-                far = maxOf(far, Math.abs(n.x - n.hx), Math.abs(n.y - n.hy), Math.abs(n.a) * u / 3f)
-                fast = maxOf(fast, Math.abs(n.vx), Math.abs(n.vy))
+            // Out on a slower spring — it leaves from rest and gathers speed — and
+            // back on a quicker one, so the return is brisk and lands without a bump.
+            val w0 = if (playing) 7f else 11f; val c0 = 2f * w0
+            for (p in parts) {
+                val tx = if (playing) p.ux * out else 0f; val ty = if (playing) p.uy * out else 0f; val ta = if (playing) p.sign * spin else 0f
+                p.vx += (tx - p.x) * w0 * w0 * dt - c0 * p.vx * dt; p.x += p.vx * dt
+                p.vy += (ty - p.y) * w0 * w0 * dt - c0 * p.vy * dt; p.y += p.vy * dt
+                p.va += (ta - p.a) * w0 * w0 * dt - c0 * p.va * dt; p.a += p.va * dt
+                far = maxOf(far, Math.abs(p.x), Math.abs(p.y), Math.abs(p.a) * u / 3f); fast = maxOf(fast, Math.abs(p.vx), Math.abs(p.vy))
             }
+            val w1 = 9f; val c1 = 2f * w1
+            val tx = if (playing && sp.centre) cX - w.mx else 0f; val ty = if (playing && sp.centre) cY - w.my else 0f; val tk = if (playing) sp.lift else 1f
+            w.vx += (tx - w.x) * w1 * w1 * dt - c1 * w.vx * dt; w.x += w.vx * dt
+            w.vy += (ty - w.y) * w1 * w1 * dt - c1 * w.vy * dt; w.y += w.vy * dt
+            w.vk += (tk - w.k) * w1 * w1 * dt - c1 * w.vk * dt; w.k += w.vk * dt
+            far = maxOf(far, Math.abs(w.x), Math.abs(w.y), Math.abs(w.k - 1f) * u); fast = maxOf(fast, Math.abs(w.vx), Math.abs(w.vy))
             if (settling) {
                 settleAt += dt
                 if ((far < u * 0.002f && fast < u * 0.02f) || settleAt > sp.settle) home()
             }
         }
 
-        /** The shapes as the dance has them: each dancer where it is, with
-         *  its turn and its stretch along its speed for the painter; the
-         *  lines re-tied end to end, their ends turning with their dancer.
-         *  The spec itself stays as sent; these are copies for one frame. */
-        private fun moved(): List<Shape> {
-            val byIndex = HashMap<Int, Dancer>(); for (n in dancers) byIndex[n.index] = n
-            val u = unit
-            return shapes.mapIndexed { i, sh ->
+        /** The shapes as the dispersal has them: each part where it is and
+         *  turned; the link replaced by the wave's bars — one plain line per
+         *  dash, moved and grown with the wave, its height from the voice and
+         *  its colour from the running cluster — and, as the wave comes home,
+         *  the plain link fading back in under them. Copies for one frame;
+         *  the spec itself stays as sent. */
+        private fun moved(tint: Int?, sigColor: Int): List<Shape> {
+            val sp = disperse ?: return shapes
+            val w = wave ?: return shapes
+            val out = ArrayList<Shape>(shapes.size + 12)
+            val byIndex = HashMap<Int, Part>(); for (p in parts) byIndex[p.index] = p
+            val show = if (playing) 1f else ((w.k - 1f) / maxOf(0.05f, sp.lift - 1f)).coerceIn(0f, 1f)
+            shapes.forEachIndexed { i, sh ->
                 val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
-                val n = byIndex[i]
-                if (n != null) {
-                    if (sh.kind == "rect") { o.put("x", sh.o.optDouble("x") + (n.x - n.hx)); o.put("y", sh.o.optDouble("y") + (n.y - n.hy)) }
-                    else { o.put("cx", n.x.toDouble()); o.put("cy", n.y.toDouble()) }
-                    val sp = Math.hypot(n.vx.toDouble(), n.vy.toDouble()).toFloat()
-                    o.put("_turn", (n.a * 180f / Math.PI.toFloat()).toDouble())
-                    o.put("_stretch", (1f + 0.3f * minOf(1f, sp / (1.4f * u))).toDouble())
-                    o.put("_along", (if (sp > 1f) Math.atan2(n.vy.toDouble(), n.vx.toDouble()) * 180.0 / Math.PI else 0.0))
-                } else ties[i]?.forEachIndexed { j, t ->
-                    val m = dancers[t.dancer]; val c = cs(m.a); val s = sn(m.a)
-                    o.put("x${j + 1}", (m.x + t.dx * c - t.dy * s).toDouble())
-                    o.put("y${j + 1}", (m.y + t.dx * s + t.dy * c).toDouble())
-                }
-                Shape(sh.id, sh.kind, o, sh.color)
+                val p = byIndex[i]
+                if (p != null) {
+                    when (sh.kind) {
+                        "rect" -> { o.put("x", sh.o.optDouble("x") + p.x); o.put("y", sh.o.optDouble("y") + p.y) }
+                        "circle" -> { o.put("cx", sh.o.optDouble("cx") + p.x); o.put("cy", sh.o.optDouble("cy") + p.y) }
+                        else -> { o.put("x1", sh.o.optDouble("x1") + p.x); o.put("y1", sh.o.optDouble("y1") + p.y); o.put("x2", sh.o.optDouble("x2") + p.x); o.put("y2", sh.o.optDouble("y2") + p.y) }
+                    }
+                    o.put("_turn", (p.a * 180f / Math.PI.toFloat()).toDouble())
+                    out += Shape(sh.id, sh.kind, o, sh.color)
+                } else if (i == w.index) {
+                    // The wave: the link's ends moved and grown about its middle.
+                    val x1 = sh.o.optDouble("x1").toFloat(); val y1 = sh.o.optDouble("y1").toFloat(); val x2 = sh.o.optDouble("x2").toFloat(); val y2 = sh.o.optDouble("y2").toFloat()
+                    val mx = w.mx + w.x; val my = w.my + w.y
+                    val ax = mx + (x1 - w.mx) * w.k; val ay = my + (y1 - w.my) * w.k; val bx = mx + (x2 - w.mx) * w.k; val by = my + (y2 - w.my) * w.k
+                    val width = sh.o.optDouble("width", 1.0).toFloat() * w.k
+                    if (show < 1f) {
+                        o.put("x1", ax.toDouble()); o.put("y1", ay.toDouble()); o.put("x2", bx.toDouble()); o.put("y2", by.toDouble()); o.put("width", width.toDouble())
+                        o.put("_alpha", (1f - show).toDouble())
+                        out += Shape(sh.id, sh.kind, o, sh.color)
+                    }
+                    val dash = sh.o.optJSONArray("dash")
+                    if (show > 0f && dash != null && dash.length() >= 1) {
+                        val len = Math.hypot((bx - ax).toDouble(), (by - ay).toDouble()).toFloat()
+                        val on = dash.optDouble(0, 0.0).toFloat() * w.k; val off = (if (dash.length() > 1) dash.optDouble(1, 0.0) else dash.optDouble(0, 0.0)).toFloat() * w.k
+                        val run = sp.run * (1f - 0.35f * smooth); val half = sp.width / 2
+                        val uu = (clock % run) / run; val centre = uu * (1f + sp.width) - half; val amp = 0.25f + 0.75f * smooth
+                        val ink = tint ?: sh.color ?: Color.BLACK
+                        var pos = 0f; var k = 0
+                        while (pos < len && on > 0f) {
+                            val f0 = pos / len; val f1 = minOf(len, pos + on) / len; val f = (f0 + f1) / 2
+                            val ripple = 0.5f + 0.5f * sn(2f * Math.PI.toFloat() * clock / 0.9f - 0.8f * k)
+                            val grain = 0.5f + 0.5f * sn(clock * 7.3f + k * 1.7f) * sn(clock * 3.1f + k * 0.9f)
+                            val h = 1f + show * ((0.4f + 0.6f * (ripple * 0.6f + grain * 0.4f) * amp) * (1f + sp.rise * smooth) - 1f)
+                            val q = Math.abs(f - centre) / half
+                            val lit = if (q >= 1f) 0f else if (q < 0.5f) 1f else 0.5f + 0.5f * cs(Math.PI.toFloat() * (q - 0.5f) / 0.5f)
+                            val bar = JSONObject()
+                            bar.put("x1", (ax + (bx - ax) * f0).toDouble()); bar.put("y1", (ay + (by - ay) * f0).toDouble())
+                            bar.put("x2", (ax + (bx - ax) * f1).toDouble()); bar.put("y2", (ay + (by - ay) * f1).toDouble())
+                            bar.put("width", (width * h).toDouble())
+                            bar.put("_color", mix(ink, sigColor, lit)); bar.put("_alpha", show.toDouble())
+                            out += Shape(null, "line", bar, null)
+                            pos += on + off; k++
+                        }
+                    }
+                } else out += Shape(sh.id, sh.kind, o, sh.color)
             }
+            return out
         }
 
         override fun onDraw(c: Canvas) {
             if (isPlaying) {
-                stepDance()
-                paintShapes(c, moved(), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f)
+                stepDisperse()
+                val sig = idle.firstOrNull { it.optString("kind") == "signal" }?.let { parseHex(it.optString("color", if (tint != null) "#F4F1EA" else "#E8A23C")) }
+                    ?: parseHex(if (tint != null) "#F4F1EA" else "#E8A23C")
+                paintShapes(c, moved(tint, sig), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f)
                 if (isPlaying) postInvalidateOnAnimation()
             } else {
                 paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
@@ -2328,32 +2283,25 @@ class SDUIRenderer(
             private fun sn(x: Float) = Math.sin(x.toDouble()).toFloat()
             private fun cs(x: Float) = Math.cos(x.toDouble()).toFloat()
 
-            /** What the key does while the microphone is open: "dance",
-             *  "particles" or "none". A backend before the dance sent a name;
-             *  now it sends the score under `kind`. Absent, the particles —
-             *  what older builds do. */
+            /** What the key does while the microphone is open: "disperse",
+             *  "particles" or "none". A backend before the dispersal sent a
+             *  name; now it sends the numbers under `kind`. Absent, the
+             *  particles — what older builds do. */
             fun recordingKind(motion: JSONObject?): String {
                 val r = motion?.opt("recording") ?: return "particles"
                 return (r as? JSONObject)?.optString("kind", "particles") ?: r.toString()
             }
 
-            fun parseDance(motion: JSONObject?): Dance? {
+            fun parseDisperse(motion: JSONObject?): Disperse? {
                 val r = motion?.optJSONObject("recording") ?: return null
-                if (r.optString("kind") != "dance") return null
-                val score = ArrayList<Move>()
-                val sa = r.optJSONArray("score")
-                for (i in 0 until (sa?.length() ?: 0)) {
-                    val mv = sa!!.optJSONObject(i) ?: continue
-                    val name = mv.optString("move", ""); if (name.isEmpty()) continue
-                    val n = HashMap<String, Float>()
-                    for (key in mv.keys()) { val v = mv.opt(key); if (v is Number) n[key] = v.toFloat() }
-                    score += Move(name, mv.optDouble("for", 6.0).toFloat().coerceAtLeast(1f), mv.optDouble("beat", 2.0).toFloat().coerceAtLeast(0.2f), n)
-                }
-                if (score.isEmpty()) return null
-                return Dance(
-                    r.optDouble("tempo", 1.0).toFloat().coerceAtLeast(0.1f), r.optDouble("reach", 1.0).toFloat(),
-                    r.optDouble("blend", 1.5).toFloat().coerceAtLeast(0.05f), r.optDouble("voice", 0.35).toFloat().coerceIn(0f, 1f),
-                    r.optDouble("settle", 0.9).toFloat().coerceAtLeast(0.1f), score,
+                if (r.optString("kind") != "disperse") return null
+                val w = r.optJSONObject("wave")
+                return Disperse(
+                    r.optString("keep", "link").ifEmpty { "link" }, r.optDouble("out", 1.7).toFloat().coerceAtLeast(1f), r.optDouble("spin", 35.0).toFloat(),
+                    r.optDouble("settle", 0.8).toFloat().coerceAtLeast(0.1f),
+                    (w?.optDouble("lift", 2.0) ?: 2.0).toFloat().coerceAtLeast(0.5f), (w?.optDouble("rise", 0.9) ?: 0.9).toFloat().coerceAtLeast(0f),
+                    (w?.optDouble("run", 1.0) ?: 1.0).toFloat().coerceAtLeast(0.2f), (w?.optDouble("width", 0.3) ?: 0.3).toFloat().coerceIn(0.05f, 0.9f),
+                    w?.optBoolean("centre", true) ?: true,
                 )
             }
 
@@ -2378,9 +2326,10 @@ class SDUIRenderer(
             /** The physics' turn and stretch on one shape, about its centre:
              *  stretched along its velocity, squashed across it, then turned. */
             private fun motionOf(c: Canvas, o: JSONObject, cx: Float, cy: Float) {
-                if (!o.has("_stretch")) return
+                if (!o.has("_stretch") && !o.has("_turn")) return
                 val st = o.optDouble("_stretch", 1.0).toFloat(); val along = o.optDouble("_along", 0.0).toFloat(); val turn = o.optDouble("_turn", 0.0).toFloat()
-                c.rotate(along, cx, cy); c.scale(st, 1f / st, cx, cy); c.rotate(-along, cx, cy); c.rotate(turn, cx, cy)
+                if (st != 1f) { c.rotate(along, cx, cy); c.scale(st, 1f / st, cx, cy); c.rotate(-along, cx, cy) }
+                if (turn != 0f) c.rotate(turn, cx, cy)
             }
 
             /** `a` moved `k` of the way to `b`, channel by channel. */
@@ -2426,9 +2375,9 @@ class SDUIRenderer(
                 for (sh in shapes) {
                     val o = sh.o
                     paint.reset(); paint.isAntiAlias = true
-                    paint.color = tint ?: sh.color ?: Color.BLACK
+                    paint.color = if (o.has("_color")) o.optInt("_color") else tint ?: sh.color ?: Color.BLACK   // a bar of the wave wears its own
                     paint.pathEffect = null
-                    var alpha = markAlpha
+                    var alpha = markAlpha * o.optDouble("_alpha", 1.0).toFloat()
                     // A shape that breathes swells about its own centre and fades a little.
                     val br = sh.id?.let { id -> idle.firstOrNull { it.optString("on") == id && it.optString("kind") == "breathe" } }
                     val sc = if (br != null) 1f + (br.optDouble("scale", 1.45).toFloat() - 1f) * breath else 1f
@@ -2474,6 +2423,7 @@ class SDUIRenderer(
                             val x1 = ox + o.optDouble("x1").toFloat() * s; val y1 = oy + o.optDouble("y1").toFloat() * s
                             val x2 = ox + o.optDouble("x2").toFloat() * s; val y2 = oy + o.optDouble("y2").toFloat() * s
                             c.scale(sc, sc, (x1 + x2) / 2, (y1 + y2) / 2)
+                            if (o.has("_turn")) c.rotate(o.optDouble("_turn").toFloat(), (x1 + x2) / 2, (y1 + y2) / 2)   // a part flying, turning
                             paint.style = Paint.Style.STROKE
                             paint.strokeWidth = o.optDouble("width", 1.0).toFloat() * s
                             paint.strokeCap = if (o.optString("cap") == "round") Paint.Cap.ROUND else Paint.Cap.BUTT
