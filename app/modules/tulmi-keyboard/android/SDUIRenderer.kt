@@ -2340,7 +2340,7 @@ class SDUIRenderer(
                 val c = ctx.second[i]
                 for ((name, sp) in pg.springs) if (sp.shapeScoped) step(name, sp, "$name@$i", c)
                 val prog = sh.id?.let { pg.shapes[it] }
-                val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
+                val o = JSONObject(sh.o, sh.o.keys().asSequence().toList().toTypedArray())
                 if (prog == null) { out += Shape(sh.id, sh.kind, o, sh.color); return@forEachIndexed }
                 val pr = prog.props
                 val dx = pr["dx"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 0f; val dy = pr["dy"]?.let { MotionLang.eval(it, c, pg.funcs) } ?: 0f
@@ -2425,7 +2425,7 @@ class SDUIRenderer(
             val byIndex = HashMap<Int, Part>(); for (p in parts) byIndex[p.index] = p
             val reach = sp.out * rim; val arc = sp.arc * rim; val spin = sp.spin * Math.PI.toFloat() / 180f; val turb = sp.backTurbulence * rim
             shapes.forEachIndexed { i, sh ->
-                val o = JSONObject(sh.o, JSONObject.getNames(sh.o) ?: emptyArray())
+                val o = JSONObject(sh.o, sh.o.keys().asSequence().toList().toTypedArray())
                 val p = byIndex[i]
                 if (p != null) {
                     val idx = parts.indexOf(p)
