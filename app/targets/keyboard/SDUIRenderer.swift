@@ -1504,6 +1504,7 @@ final class TulmiMarkView: UIView {
   private let tint: UIColor?
   private let motion: [[String: KBJSON]]
   private var layers: [CAShapeLayer] = []
+  private var extras: [CALayer] = []     // overlays the motion adds; rebuilt with the layers
   private var laidOut: CGSize = .zero
 
   init?(spec: [String: KBJSON], motion: [String: KBJSON]?, tint: UIColor) {
@@ -1554,8 +1555,8 @@ final class TulmiMarkView: UIView {
     super.layoutSubviews()
     guard bounds.size != laidOut, bounds.width > 1, bounds.height > 1 else { return }
     laidOut = bounds.size
-    layers.forEach { $0.removeFromSuperlayer() }
-    layers = []
+    (layers + extras).forEach { $0.removeFromSuperlayer() }
+    layers = []; extras = []
     let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size, circle: circle)
     let reduce = UIAccessibility.isReduceMotionEnabled
     for sh in shapes {
@@ -1605,28 +1606,58 @@ final class TulmiMarkView: UIView {
     for m in motion where m["on"]?.asString == id {
       let period = max(0.2, m["period"]?.asDouble ?? 2.6)
       switch m["kind"]?.asString {
-      case "pulse":
-        // A SIGNAL THROUGH THE MARK. Every shape in `order` gets the same
-        // brief brightening, placed in time by its turn; the rest of the
-        // period they all sit at `low`. Runs on the whole-mark entry, and
-        // hands each named sublayer its own animation.
-        guard let order = m["order"]?.asArray?.compactMap({ $0.asString }), !order.isEmpty else { continue }
-        let low = m["low"]?.asDouble ?? 0.55, rest = min(0.9, max(0, m["rest"]?.asDouble ?? 0.35))
-        let slot = (1 - rest) / Double(order.count)
-        // A WAVE, NOT A ROW OF BLINKS: each brightening lasts `spread` slots,
-        // eased in and out, so it overlaps the shapes on either side and the
-        // light travels through the mark rather than hopping.
-        let width = min(0.98, max(slot, (m["spread"]?.asDouble ?? 2) * slot))
-        for (sub, sh) in zip(layers, shapes) {
-          guard let sid = sh.id, let i = order.firstIndex(of: sid) else { continue }
-          let a = CAKeyframeAnimation(keyPath: "opacity")
-          a.values = [low, 1, low, low]
-          a.keyTimes = [0, NSNumber(value: width / 2), NSNumber(value: width), 1]
-          a.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .linear)]
-          a.duration = period; a.repeatCount = .infinity
-          a.timeOffset = period - (Double(i) * slot * period).truncatingRemainder(dividingBy: period)
-          sub.opacity = Float(low)
-          sub.add(a, forKey: "pulse")
+      case "signal":
+        // THE SPLASH'S SIGNAL, ON A LOOP. Each step names a shape and the
+        // second of the period it lights: a square (or a plain line) wears
+        // the signal colour for `hold`; a dashed line has a run of light
+        // travel its length for `run`, dash by dash, in step with its hatch.
+        // Runs on the whole-mark entry and hands each named sublayer its own
+        // animation, so every shape keeps the one clock.
+        guard let steps = m["steps"]?.asArray?.compactMap({ $0.asObject }), !steps.isEmpty else { continue }
+        let sig = (m["color"]?.asString.map { UIColor(tulmiHex: $0) }
+                   ?? UIColor(tulmiHex: tint != nil ? "#F4F1EA" : "#E8A23C")).cgColor
+        for st in steps {
+          guard let sid = st["on"]?.asString, let i = shapes.firstIndex(where: { $0.id == sid }) else { continue }
+          let sub = layers[i], sh = shapes[i]
+          let at = min(period, max(0, st["at"]?.asDouble ?? 0))
+          if sh.kind == "line", !sh.dash.isEmpty, let run = st["run"]?.asDouble, run > 0 {
+            // The same dashes again, in the signal colour, seen through a
+            // window a fifth of the line wide that slides from end to end.
+            // The overlay carries the base's hatch so lit dashes sit exactly
+            // on the dashes beneath them.
+            let box = sub.path!.boundingBox.insetBy(dx: -sub.lineWidth, dy: -sub.lineWidth)
+            let ov = CAShapeLayer()
+            ov.path = sub.path; ov.bounds = box; ov.position = sub.position
+            ov.fillColor = nil; ov.strokeColor = sig; ov.lineWidth = sub.lineWidth
+            ov.lineCap = sub.lineCap; ov.lineDashPattern = sub.lineDashPattern
+            if let h = sub.animation(forKey: "hatch") { ov.add(h, forKey: "hatch") }
+            let win = CAShapeLayer()
+            win.path = sub.path; win.bounds = box; win.position = .zero
+            win.fillColor = nil; win.strokeColor = UIColor.black.cgColor; win.lineWidth = sub.lineWidth + 2
+            win.strokeStart = 0; win.strokeEnd = 0
+            let w = 0.22
+            let end = CAKeyframeAnimation(keyPath: "strokeEnd")
+            end.values = [0, 0, 1, 1]
+            end.keyTimes = TulmiMarkView.keyTimes([0, at, at + run / (1 + w), period], period)
+            let start = CAKeyframeAnimation(keyPath: "strokeStart")
+            start.values = [0, 0, 1, 1]
+            start.keyTimes = TulmiMarkView.keyTimes([0, at + run * w / (1 + w), at + run, period], period)
+            for a in [end, start] { a.duration = period; a.repeatCount = .infinity; a.calculationMode = .linear }
+            win.add(end, forKey: "signalEnd"); win.add(start, forKey: "signalStart")
+            ov.mask = win
+            layer.insertSublayer(ov, above: sub)
+            extras.append(ov)
+          } else {
+            // On in sixty milliseconds, off in sixty: a swap, not a flicker.
+            let hold = max(0.05, st["hold"]?.asDouble ?? 0.4)
+            let stroke = sh.kind == "line"
+            guard let base = stroke ? sub.strokeColor : sub.fillColor else { continue }
+            let a = CAKeyframeAnimation(keyPath: stroke ? "strokeColor" : "fillColor")
+            a.values = [base, base, sig, sig, base, base]
+            a.keyTimes = TulmiMarkView.keyTimes([0, at, at + 0.06, at + hold, at + hold + 0.06, period], period)
+            a.duration = period; a.repeatCount = .infinity; a.calculationMode = .linear
+            sub.add(a, forKey: "signal")
+          }
         }
       case "hatch":
         // One pattern length per period, the way the header runs it.
@@ -1647,6 +1678,17 @@ final class TulmiMarkView: UIView {
       default:
         continue
       }
+    }
+  }
+
+  /// Seconds into a period as keyframe times: clamped to the period and kept
+  /// strictly rising, which is what Core Animation asks of them.
+  private static func keyTimes(_ secs: [Double], _ period: Double) -> [NSNumber] {
+    var last = -1.0
+    return secs.map { s in
+      let t = max(last + 0.0005, min(1, max(0, s / period)))
+      last = min(t, 1)
+      return NSNumber(value: last)
     }
   }
 
