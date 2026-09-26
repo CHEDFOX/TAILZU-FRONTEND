@@ -146,6 +146,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // autocorrect off too. Ask whenever either consumer is on; what the
         // bar SHOWS is decided where the reply lands.
         if (!suggestionsEnabled && !autocorrectEnabled) return
+        // A password is never read for suggestions: the bar would show it in
+        // the clear and the system spell checker would be sent it.
+        if (kbState.secured) { corrections?.clear(); return }
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val word = before.takeLastWhile { !it.isWhitespace() }
@@ -452,6 +455,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     private fun buildSduiInputView(rawJson: String, cfg: KBConfig): View {
         val container = FrameLayout(this)
+        // A keyboard is left to right whatever the system language: on an
+        // Arabic or Hebrew phone every row would otherwise lay out mirrored
+        // (p o i u y t r e w q). The script a key TYPES is unaffected.
+        container.layoutDirection = View.LAYOUT_DIRECTION_LTR
         sduiContainer = container
         rootView = container
         sduiActive = true
@@ -858,6 +865,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     /** Swap the on-screen interim text for the latest hypothesis. */
     private fun replacePartial(text: String) {
+        // Live words never go into a password box focus moved into mid-dictation.
+        if (kbState.secured) return
         val ic = currentInputConnection ?: return
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         ic.commitText(text, 1)
@@ -936,6 +945,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // that and nothing else. Several finals can arrive in one utterance.
         dictatedText += inserted
         if (!liveText) return          // deferred: it lands once, written properly
+        if (kbState.secured) { pendingPartial = ""; return }
         val ic = currentInputConnection ?: return
         clearPartial()
         ic.commitText(inserted, 1)
@@ -1000,6 +1010,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             pendingPartial = ""
         }
         endStreaming()
+        // Focus moved into a password box before the dictation closed: nothing
+        // is added to it, and nothing from it is sent.
+        if (kbState.secured) dictatedSomething = false
         if (dictatedSomething) {
             // If the user picked a one-shot command from the tone menu, drop it
             // in as a trailing suffix before refine — the backend command-mode
@@ -1086,6 +1099,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     // there's nothing to refine in that case either.
                     if (looksLikeFiller(cleaned)) {
                         setStatus("")
+                        return@post
+                    }
+                    // The words finished after focus moved into a password
+                    // box: they were not spoken for it, and its contents must
+                    // not go to the server as refine context.
+                    if (kbState.secured) {
+                        setStatus(label("micSecure", "Dictation is off in password fields."), actionable = true)
                         return@post
                     }
                     val conn = currentInputConnection
@@ -1210,6 +1230,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
                     setStatus("")
+                    // Focus moved into a password box while the refine ran.
+                    if (kbState.secured) return@post
                     val conn = currentInputConnection ?: return@post
                     if (refined.isBlank() || looksLikeFiller(refined)) return@post
                     // DEFERRED: nothing of this utterance is at the cursor, so

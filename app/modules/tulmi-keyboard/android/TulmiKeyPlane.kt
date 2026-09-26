@@ -335,6 +335,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** Where the finger was when the trackpad took over. */
     private val modeAnchorX = FloatArray(MAX_POINTERS)
     private val lastX = FloatArray(MAX_POINTERS)
+    private val lastY = FloatArray(MAX_POINTERS)
 
     private val hitRect = Rect()
     private val focusRect = RectF()
@@ -428,6 +429,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     val x = ev.getX(i)
                     val y = ev.getY(i)
                     lastX[slot] = x
+                    lastY[slot] = y
                     when (modes[slot]) {
                         MODE_TRAY -> { gestures?.trayMove(this, x, y); continue }
                         MODE_TRACKPAD -> { gestures?.trackpadMove(this, x - modeAnchorX[slot]); continue }
@@ -518,7 +520,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                         endMode(slot, lastX[slot], downY[slot], cancelled = true)
                         releaseSilently(id)
                     } else {
-                        release(id, commit = false, x = downX[slot], y = downY[slot])
+                        // Where the finger LAST was, not where it went down:
+                        // a system back swipe that starts on an edge key has
+                        // travelled far by the time it is cancelled, and must
+                        // not be rescued as a tap on that key.
+                        release(id, commit = false, x = lastX[slot], y = lastY[slot])
                     }
                 }
                 updateFocus()
@@ -575,6 +581,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         downX[slot] = x
         downY[slot] = y
         lastX[slot] = x
+        lastY[slot] = y
         downAt[slot] = System.currentTimeMillis()
         setPressed(key, true)
         (key as? DrawnKey)?.let { it.suppressCommit = false; it.onPressStart?.invoke() }

@@ -178,8 +178,11 @@ class TulmiPersonalityRow @JvmOverloads constructor(
             for (i in 0 until host.childCount) kids.add(host.getChildAt(i))
             blurredKids = kids
             val r = knobFloat("kb.personalityRow.blurRadius", 22f)
-            val fx = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP)
-            kids.forEach { it.setRenderEffect(fx) }
+            // A radius of 0 or less makes no effect at all (and throws).
+            if (r > 0f) {
+                val fx = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP)
+                kids.forEach { it.setRenderEffect(fx) }
+            }
         }
 
         val scrimView = FrameLayout(context).apply {
@@ -210,7 +213,7 @@ class TulmiPersonalityRow @JvmOverloads constructor(
         // of the chip: scale up from a near-zero point at its bottom-left.
         val hostLoc = IntArray(2); host.getLocationInWindow(hostLoc)
         val anchorLoc = IntArray(2); anchor.getLocationInWindow(anchorLoc)
-        scrimView.animate().alpha(1f).setDuration(knobLong("kb.personalityRow.scrimFadeMs", 160L)).start()
+        scrimView.animate().alpha(1f).setDuration(knobLong("kb.personalityRow.scrimFadeMs", 160L).coerceAtLeast(0L)).start()
         sheet.post {
             val lp = sheet.layoutParams as FrameLayout.LayoutParams
             lp.leftMargin = (anchorLoc[0] - hostLoc[0]).coerceAtLeast(dp(8f))
@@ -225,7 +228,7 @@ class TulmiPersonalityRow @JvmOverloads constructor(
             sheet.animate()
                 .scaleX(1f).scaleY(1f).alpha(1f)
                 .setInterpolator(OvershootInterpolator(knobFloat("kb.personalityRow.popOvershoot", 1.6f)))
-                .setDuration(knobLong("kb.personalityRow.popMs", 300L))
+                .setDuration(knobLong("kb.personalityRow.popMs", 300L).coerceAtLeast(0L))
                 .start()
         }
     }
@@ -302,7 +305,7 @@ class TulmiPersonalityRow @JvmOverloads constructor(
         }
         // Reverse suction: the sheet collapses back toward the chip as frost clears.
         val to = knobFloat("kb.personalityRow.popScale", 0.06f)
-        val ms = knobLong("kb.personalityRow.dismissMs", 190L)
+        val ms = knobLong("kb.personalityRow.dismissMs", 190L).coerceAtLeast(0L)
         (scrimView.getChildAt(0))?.animate()
             ?.scaleX(to)?.scaleY(to)?.alpha(0f)
             ?.setInterpolator(AnticipateInterpolator(knobFloat("kb.personalityRow.dismissAnticipate", 1.1f)))

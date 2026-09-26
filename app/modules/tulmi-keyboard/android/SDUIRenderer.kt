@@ -373,8 +373,9 @@ class SDUIRenderer(
         else -> def
     }
 
+    /** Finite, or the default: 1e39 is Infinity as a Float. */
     private fun flagFloat(key: String, def: Float): Float =
-        (kbConfig.flags[key] as? Number)?.toFloat() ?: def
+        (kbConfig.flags[key] as? Number)?.toFloat()?.takeIf { !it.isNaN() && !it.isInfinite() } ?: def
 
     private fun flagInt(key: String, def: Int): Int =
         (kbConfig.flags[key] as? Number)?.toInt() ?: def
@@ -415,8 +416,22 @@ class SDUIRenderer(
         redraw()
     }
 
+    /**
+     * A rebuild in progress, and whether another was asked for during it.
+     *
+     * removeAllViews() sends ACTION_CANCEL to a row that still has a finger on
+     * it, and what that cancel does — rescue a tap, end a trackpad drag,
+     * refresh suggestions — can call stateChanged() on this same stack. A
+     * second redraw() inside the first added the new tree into the child array
+     * the outer removal was still nulling out, and the next draw hit a null
+     * child. Now the inner request waits and runs once the first has finished.
+     */
+    private var redrawing = false
+    private var redrawAgain = false
+
     /** Cheap re-render: clear + walk again. Called on any state mutation. */
     fun stateChanged() {
+        if (redrawing) { redrawAgain = true; return }
         // Detect the dictation start/stop edge to drive the mic sim's physics
         // (mirrors iOS reflectDictating). Every mutation funnels through here,
         // but dictating only flips via start/stopDictation, so an edge check is
@@ -762,6 +777,20 @@ class SDUIRenderer(
     }
 
     private fun redraw() {
+        if (redrawing) { redrawAgain = true; return }
+        redrawing = true
+        try {
+            redrawNow()
+        } finally {
+            redrawing = false
+        }
+        if (redrawAgain) {
+            redrawAgain = false
+            container.post { stateChanged() }
+        }
+    }
+
+    private fun redrawNow() {
         // Clear any pending long-press repeats attached to the previous view
         // tree so they don't fire against views that no longer exist.
         handler.removeCallbacksAndMessages(null)
@@ -1148,6 +1177,11 @@ class SDUIRenderer(
 
     private var trayMovedFrom: PointF? = null
     private var trackpadAnchor = -1
+    /** The text around the caret when the trackpad began, and where the caret
+     *  sat in it: steps are counted in characters as a person sees them (an
+     *  emoji is one), and the caret stops at the ends of the text. */
+    private var trackpadWindow = ""
+    private var trackpadCaretInWindow = 0
     private var trackpadSteps = 0
 
     private val scratchLoc = IntArray(2)
@@ -1339,6 +1373,13 @@ class SDUIRenderer(
             s.trackpadActive = true
             trackpadAnchor = host.caretPosition()
             trackpadSteps = 0
+            val ic = host.ic()
+            val before = ic?.getTextBeforeCursor(2000, 0)?.toString() ?: ""
+            val after = ic?.getTextAfterCursor(2000, 0)?.toString() ?: ""
+            trackpadWindow = before + after
+            trackpadCaretInWindow = before.length
+            // The window must start inside the field for the anchor to place it.
+            if (trackpadAnchor < before.length) trackpadAnchor = -1
             lastSpaceAt = 0L
             keyPop?.hidePop()
             val dim = flagFloat("kb.trackpad.dimAlpha", 0.35f).coerceIn(0f, 1f)
@@ -1365,6 +1406,7 @@ class SDUIRenderer(
             if (trackpadSteps != 0) host.onCaretMoved()
             trackpadSteps = 0
             trackpadAnchor = -1
+            trackpadWindow = ""
         }
     }
 
@@ -1376,7 +1418,8 @@ class SDUIRenderer(
     private fun moveCaret(delta: Int) {
         val ic = host.ic() ?: return
         if (trackpadAnchor >= 0) {
-            val target = (trackpadAnchor + trackpadSteps).coerceAtLeast(0)
+            val inWindow = stepCodePoints(trackpadWindow, trackpadCaretInWindow, trackpadSteps)
+            val target = trackpadAnchor - trackpadCaretInWindow + inWindow
             ic.setSelection(target, target)
             return
         }
@@ -1391,6 +1434,16 @@ class SDUIRenderer(
     private fun holdHaptic(v: View) {
         if (!flagBoolean("kb.haptics.enabled", true) || !flagBoolean("kb.haptics.holds", true)) return
         v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    /** Move `steps` characters from `from` in `s`, never splitting a
+     *  surrogate pair and never leaving the string. */
+    private fun stepCodePoints(s: String, from: Int, steps: Int): Int {
+        var i = from.coerceIn(0, s.length)
+        var n = steps
+        while (n > 0 && i < s.length) { i += Character.charCount(s.codePointAt(i)); n-- }
+        while (n < 0 && i > 0) { i -= Character.charCount(s.codePointBefore(i)); n++ }
+        return i.coerceIn(0, s.length)
     }
 
     /** Type a tray pick: the same shift release and word refresh as a letter. */
@@ -2671,9 +2724,10 @@ class SDUIRenderer(
         tv.layoutParams = lp
         container.addView(tv, lp)
         toastView = tv
-        val hold = flagFloat("kb.toast.durationMs", 2000f).toLong()
-        val fadeOut = flagFloat("kb.toast.fadeOutMs", 250f).toLong()
-        tv.animate().alpha(1f).setDuration(flagFloat("kb.toast.fadeInMs", 180f).toLong()).withEndAction {
+        // Animators throw on a negative duration or delay.
+        val hold = flagFloat("kb.toast.durationMs", 2000f).toLong().coerceAtLeast(0L)
+        val fadeOut = flagFloat("kb.toast.fadeOutMs", 250f).toLong().coerceAtLeast(0L)
+        tv.animate().alpha(1f).setDuration(flagFloat("kb.toast.fadeInMs", 180f).toLong().coerceAtLeast(0L)).withEndAction {
             tv.animate().alpha(0f).setStartDelay(hold).setDuration(fadeOut).withEndAction {
                 (tv.parent as? ViewGroup)?.removeView(tv)
                 if (toastView === tv) toastView = null
@@ -3273,9 +3327,18 @@ class SDUIRenderer(
             fun step(name: String, sp: MotionProgram.Spring, key: String, c: MotionCtx) {
                 val st = progSprings.getOrPut(key) { floatArrayOf(sp.rest, 0f, sp.rest) }
                 c.v["prev"] = st[2]
-                val target = MotionLang.eval(sp.target, c, pg.funcs); val w = maxOf(0.1f, MotionLang.eval(sp.rate, c, pg.funcs)); val z = maxOf(0f, MotionLang.eval(sp.damp, c, pg.funcs))
+                val target = MotionLang.eval(sp.target, c, pg.funcs)
+                val w = MotionLang.eval(sp.rate, c, pg.funcs).coerceIn(0.1f, 1000f); val z = MotionLang.eval(sp.damp, c, pg.funcs).coerceIn(0f, 100f)
                 st[2] = target
-                st[1] += (target - st[0]) * w * w * dt - 2f * z * w * st[1] * dt; st[0] += st[1] * dt
+                // One step is stable only while w·dt and 2·z·w·dt stay small; a
+                // stiff spring on a long frame diverges to NaN. Sub-step instead —
+                // the shipped springs still take one step per frame.
+                val n = Math.ceil((maxOf(w, 2f * z * w) * dt / 0.5f).toDouble()).toInt().coerceIn(1, 64)
+                val h = dt / n
+                repeat(n) { st[1] += (target - st[0]) * w * w * h - 2f * z * w * st[1] * h; st[0] += st[1] * h }
+                if (st[0].isNaN() || st[0].isInfinite() || st[1].isNaN() || st[1].isInfinite() || Math.abs(st[0]) > 1e6f) {
+                    st[0] = target; st[1] = 0f
+                }
                 c.v[name] = st[0]
                 if (Math.abs(st[0] - target) > pg.eps || Math.abs(st[1]) > pg.eps * 10f) quiet = false
             }
@@ -3322,8 +3385,13 @@ class SDUIRenderer(
                         val ec = MotionCtx(c)
                         if (e.names.isNotEmpty()) ec.v[e.names[0]] = a.toFloat()
                         if (e.names.size > 1) ec.v[e.names[1]] = b.toFloat()
-                        val eo = JSONObject()
                         val alpha = MotionLang.eval(e.opacity, ec, pg.funcs).coerceIn(0f, 1f) * op
+                        // Invisible costs nothing else: at rest the shipped
+                        // program's 42 emitted lines are all at zero, and
+                        // building them anyway was most of each idle frame. (A
+                        // generated shape may read its counter in its opacity.)
+                        if (e.genCount == null && alpha <= 0.002f) continue
+                        val eo = JSONObject()
                         eo.put("_color", color); eo.put("_alpha", alpha.toDouble()); eo.put("_turn", rot.toDouble()); eo.put("_scale", sc.toDouble())
                         eo.put("_about_x", (hx + dx).toDouble()); eo.put("_about_y", (hy + dy).toDouble())
                         fun ev(ast: MotionAst?): Float = ast?.let { MotionLang.eval(it, ec, pg.funcs) } ?: 0f
@@ -3510,7 +3578,12 @@ class SDUIRenderer(
                 val now = System.nanoTime()
                 val dt = if (lastNanos == 0L) 1f / 60f else ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 1f / 20f)
                 lastNanos = now
-                val frame = runProgram(pg, dt)
+                // A program the renderer cannot run (a value it cannot draw)
+                // is a still mark, never a keyboard that crashes on every open.
+                val frame = try { runProgram(pg, dt) } catch (t: Exception) {
+                    progSprings.clear()
+                    Frame(shapes, null)
+                }
                 paintShapes(c, frame.shapes, vb, width.toFloat(), height.toFloat(), tint, emptyList(), 0f, 0f, circle, 0f, frame.mark)
                 if (animatorsEnabled(context)) postDelayed(nextFrame, (1000 / (if (progRec == 1f) pg.fpsRec else pg.fpsIdle)).toLong())
                 return
@@ -3519,7 +3592,8 @@ class SDUIRenderer(
                 stepDisperse()
                 val sig = idle.firstOrNull { it.optString("kind") == "signal" }?.let { parseHex(it.optString("color", if (tint != null) "#F4F1EA" else "#E8A23C")) }
                     ?: parseHex(if (tint != null) "#F4F1EA" else "#E8A23C")
-                paintShapes(c, moved(tint, sig), vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f)
+                val shown = try { moved(tint, sig) } catch (t: Exception) { shapes }
+                paintShapes(c, shown, vb, width.toFloat(), height.toFloat(), tint, idleNoSignal, phase, breath, circle, 0f)
                 if (isPlaying) postInvalidateOnAnimation()
             } else {
                 paintShapes(c, shapes, vb, width.toFloat(), height.toFloat(), tint, idle, phase, breath, circle, signal)
@@ -4079,7 +4153,8 @@ class SDUIRenderer(
         override fun onDraw(canvas: Canvas) {
             val w = width.toFloat()
             val h = height.toFloat()
-            if (w <= 0f || h <= 0f) return
+            // Under 2px there is no bar to draw, and coerceIn(2f, h) would throw.
+            if (w <= 0f || h < 2f) return
             val level = levelProvider().coerceIn(0f, 1f)
             val n = baselines.size
             val barW = maxOf(1.5f, (w - spacingPx * (n - 1)) / n)
@@ -4520,8 +4595,8 @@ object MotionLang {
 
     fun eval(n: MotionAst, ctx: MotionCtx, funcs: Map<String, MotionFunc>, depth: Int = 0): Float {
         return when (n) {
-            is MotionAst.Num -> n.v
-            is MotionAst.Name -> ctx.get(n.k) ?: 0f
+            is MotionAst.Num -> fin(n.v)
+            is MotionAst.Name -> fin(ctx.get(n.k) ?: 0f)
             is MotionAst.Neg -> -eval(n.x, ctx, funcs, depth)
             is MotionAst.Not -> if (eval(n.x, ctx, funcs, depth) != 0f) 0f else 1f
             is MotionAst.Tern -> if (eval(n.c, ctx, funcs, depth) != 0f) eval(n.a, ctx, funcs, depth) else eval(n.b, ctx, funcs, depth)
@@ -4543,9 +4618,11 @@ object MotionLang {
                 if (n.op == "&&") return if (eval(n.l, ctx, funcs, depth) != 0f && eval(n.r, ctx, funcs, depth) != 0f) 1f else 0f
                 val x = eval(n.l, ctx, funcs, depth); val y = eval(n.r, ctx, funcs, depth)
                 when (n.op) {
-                    "+" -> x + y; "-" -> x - y; "*" -> x * y
-                    "/" -> if (y == 0f) 0f else x / y
-                    "%" -> if (y == 0f) 0f else x - Math.floor(d(x / y)).toFloat() * y
+                    // Finite in, finite out: an overflow is Infinity, Infinity
+                    // minus itself is NaN, and JSONObject.put throws on both.
+                    "+" -> fin(x + y); "-" -> fin(x - y); "*" -> fin(x * y)
+                    "/" -> if (y == 0f) 0f else fin(x / y)
+                    "%" -> if (y == 0f) 0f else fin(x - Math.floor(d(x / y)).toFloat() * y)
                     "^" -> fin(Math.pow(d(x), d(y)).toFloat())
                     "<" -> if (x < y) 1f else 0f; "<=" -> if (x <= y) 1f else 0f; ">" -> if (x > y) 1f else 0f; ">=" -> if (x >= y) 1f else 0f
                     "==" -> if (x == y) 1f else 0f; "!=" -> if (x != y) 1f else 0f
