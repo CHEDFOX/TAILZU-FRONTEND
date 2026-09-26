@@ -5920,9 +5920,9 @@ final class SDUIRenderer: NSObject {
     guard let btn = view as? UIButton else { return }
     let rt = host?.hostReturnKeyType() ?? .default
     guard returnKeyIsAction(rt) else { return }
-    let accent = node.style?["actionBg"]?.asString.map { UIColor(tulmiHex: $0) }
+    let accent = (node.style?["actionBg"]?.asString).map { UIColor(tulmiHex: $0) }
       ?? flagColor("kb.returnKey.actionBg", "#007AFF")
-    let fg = node.style?["actionFg"]?.asString.map { UIColor(tulmiHex: $0) }
+    let fg = (node.style?["actionFg"]?.asString).map { UIColor(tulmiHex: $0) }
       ?? flagColor("kb.returnKey.actionFg", "#FFFFFF")
     btn.backgroundColor = accent
     btn.setTitleColor(fg, for: .normal)
@@ -9336,6 +9336,8 @@ final class SDUIRenderer: NSObject {
   /// changed (returnKeyType / primaryLanguage / hasMultipleKeyboards) so we're
   /// not remounting on every keystroke.
   private var lastReflectedReturnKey: UIReturnKeyType?
+  /// keyboardType | isSecure | autocapitalization, last seen (field.*).
+  private var lastReflectedFieldTraits: String?
   private var lastFieldContextReadAt: TimeInterval = 0
   private var pendingFieldContextRefresh = false
   func reflectFieldContext() {
@@ -9371,6 +9373,13 @@ final class SDUIRenderer: NSObject {
       changed = true
     }
     if state.hasMultipleKeyboards != multi  { state.hasMultipleKeyboards = multi; changed = true }
+    // The traits field.* reads in the tree's conditions: a focus switch that
+    // changes them re-renders, so a gate like {truthy: "field.isSecure"}
+    // follows the field the user is in.
+    if let h = host {
+      let sig = "\(h.hostKeyboardTypeName())|\(h.hostIsSecureField())|\(Self.autocapName(h.hostAutocapitalizationType()))"
+      if lastReflectedFieldTraits != sig { lastReflectedFieldTraits = sig; changed = true }
+    }
     // A field that only takes numbers gets the number pad, not QWERTY.
     //
     // The field TELLS us this — keyboardType is how every other keyboard knows
