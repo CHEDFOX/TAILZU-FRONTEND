@@ -54,6 +54,13 @@ struct FlowTuning {
   /// The endpoints, relative to baseUrl.
   var streamPath = "/v1/transcribe-stream"
   var uploadPath = "/v1/transcribe-clean"
+  /// The voice level the keyboard's mic mark moves to: sent this often while
+  /// a dictation runs, and mapped from floorDb (silence, 0) to ceilDb (a
+  /// raised voice, 1). Off sends nothing and the mark stays still.
+  var levelEnabled = true
+  var levelInterval: TimeInterval = 0.05
+  var levelFloorDb: Float = -50
+  var levelCeilDb: Float = -12
 
   init() {}
 
@@ -90,6 +97,10 @@ struct FlowTuning {
     tapFrames = count("tapFrames", tapFrames, min: 1)
     if let s = o["streamPath"] as? String, !s.isEmpty { streamPath = s }
     if let s = o["uploadPath"] as? String, !s.isEmpty { uploadPath = s }
+    if let b = o["level"] as? Bool { levelEnabled = b }
+    if let ms = num("levelMs"), ms >= 16 { levelInterval = ms / 1000.0 }
+    if let d = num("levelFloorDb"), d < 0 { levelFloorDb = Float(d) }
+    if let d = num("levelCeilDb"), d <= 0 { levelCeilDb = Float(d) }
   }
 }
 
@@ -105,6 +116,12 @@ final class FlowSessionManager: NSObject {
   static let nEnded      = "space.tailzu.tulmi.flow.ended"
   /// widget → app: end the session (the Live Activity's End button).
   static let nEnd        = "space.tailzu.tulmi.flow.end"
+  /// app → keyboard: the voice level, as one of 17 names — `level.0` (silent)
+  /// to `level.16` (loud). A Darwin notification carries no payload, so the
+  /// level IS the name; that is what lets it move 20 times a second without
+  /// touching the App Group store the keyboard would otherwise have to poll.
+  static let nLevelPrefix = "space.tailzu.tulmi.flow.level."
+  static let levelSteps = 16
 
   private var store: UserDefaults? { UserDefaults(suiteName: FlowSessionManager.appGroup) }
 
@@ -212,6 +229,13 @@ final class FlowSessionManager: NSObject {
   // force-quit kills the process before it can clear the `active` tombstone.
   private var heartbeatTimer: Timer?
   private var lastBufferAt: TimeInterval = 0   // set on the audio thread (plain Double = realtime-safe)
+
+  // Voice level for the keyboard's mic mark. The audio thread writes the
+  // loudest recent RMS (a plain Float, like lastBufferAt); a main-thread timer
+  // reads it, maps it, and posts it only when it changes.
+  private var levelPeak: Float = 0
+  private var levelTimer: Timer?
+  private var lastLevelStep = -1
 
   private override init() { super.init() }
 
@@ -349,6 +373,57 @@ final class FlowSessionManager: NSObject {
     store?.removeObject(forKey: "tulmi.flow.heartbeat")
   }
 
+  // MARK: - Voice level (the keyboard's mic mark moves with the voice)
+
+  private func startLevel() {
+    levelTimer?.invalidate(); levelTimer = nil
+    lastLevelStep = -1
+    levelPeak = 0
+    guard tuning.levelEnabled else { return }
+    levelTimer = Timer.scheduledTimer(withTimeInterval: tuning.levelInterval, repeats: true) { [weak self] _ in
+      self?.publishLevel()
+    }
+  }
+
+  private func stopLevel() {
+    levelTimer?.invalidate(); levelTimer = nil
+    // Leave the mark at rest, not frozen mid-word.
+    if lastLevelStep > 0 { post(FlowSessionManager.nLevelPrefix + "0") }
+    lastLevelStep = -1
+    levelPeak = 0
+  }
+
+  private func publishLevel() {
+    let rms = levelPeak
+    levelPeak = 0
+    let floor = tuning.levelFloorDb
+    let span = max(1, tuning.levelCeilDb - floor)
+    let db = rms > 0 ? 20 * log10(rms) : floor
+    let unit = max(0, min(1, (db - floor) / span))
+    let step = Int((unit * Float(FlowSessionManager.levelSteps)).rounded())
+    guard step != lastLevelStep else { return }
+    lastLevelStep = step
+    post(FlowSessionManager.nLevelPrefix + String(step))
+  }
+
+  /// Loudness of one tap buffer (RMS, 0…1). Realtime thread: a plain loop,
+  /// no allocation.
+  private func bufferRMS(_ buffer: AVAudioPCMBuffer) -> Float {
+    let n = Int(buffer.frameLength)
+    guard n > 0 else { return 0 }
+    var sum: Float = 0
+    if let ch = buffer.floatChannelData {
+      let p = ch[0]
+      for i in 0..<n { let v = p[i]; sum += v * v }
+    } else if let ch = buffer.int16ChannelData {
+      let p = ch[0]
+      for i in 0..<n { let v = Float(p[i]) / 32768; sum += v * v }
+    } else {
+      return 0
+    }
+    return (sum / Float(n)).squareRoot()
+  }
+
   private func post(_ name: String) {
     CFNotificationCenterPostNotification(
       CFNotificationCenterGetDarwinNotifyCenter(),
@@ -381,6 +456,7 @@ final class FlowSessionManager: NSObject {
     idleTimer?.invalidate(); idleTimer = nil
     stopHeartbeat()
     dictating = false
+    stopLevel()
     finishing = false
     pendingClose = nil
     stopCapture()   // only now do we tear the engine down — end of the session
@@ -494,6 +570,7 @@ final class FlowSessionManager: NSObject {
     guard armed, !dictating else { return }
     resetIdleTimer()
     dictating = true
+    startLevel()
     if #available(iOS 16.2, *) { FlowLiveActivity.shared.listening() }
     pcmLock.lock(); preroll = Data(); pcmLock.unlock()
     if !capturing { startCapture() }   // safety net — the engine should already be live
@@ -508,6 +585,7 @@ final class FlowSessionManager: NSObject {
     guard dictating else { return }
     resetIdleTimer()
     dictating = false
+    stopLevel()
     if #available(iOS 16.2, *) { FlowLiveActivity.shared.writing() }
     if oneShot { uploadUtterance(); return }
     // Stop STREAMING this utterance — but deliberately keep the engine running
@@ -738,6 +816,12 @@ final class FlowSessionManager: NSObject {
     // server DURING a dictation. Between utterances the captured buffers are
     // discarded here — their only job was to keep the app alive in the background.
     guard dictating else { return }
+    // The loudest buffer since the level was last sent — the mark moves on
+    // syllables, not on the average of a whole beat.
+    if tuning.levelEnabled {
+      let rms = bufferRMS(buffer)
+      if rms > levelPeak { levelPeak = rms }
+    }
     // Snapshot the object refs under the lock so main can't free them mid-use.
     // In one-shot there is no socket — the converter alone is enough.
     let (snapConv, snapTask) = captureAV()

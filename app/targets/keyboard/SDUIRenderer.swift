@@ -4142,7 +4142,10 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K40"
+  /// K41: the mic ring moves with the voice (the app sends the level), and
+  /// password boxes — secure or marked by content type — get no mic, no
+  /// Refine and no autocorrect.
+  static let buildStamp = "K41"
 
   /// The bundled brand mark.
   ///
@@ -9146,6 +9149,9 @@ final class SDUIRenderer: NSObject {
       case "systemVersion":        return .string(state.systemVersion)
       case "isNetworkReachable":   return .bool(state.isNetworkReachable)
       case "keyboardHeight":       return .number(Double(state.keyboardHeight))
+      // A password box. Read from the field each time, so it is always the
+      // field the user is in; the tree hides the mic and Refine on it.
+      case "secured":              return .bool(host?.hostIsSecureField() ?? false)
       default:
         // state.user.<anything> — backend scratch dict.
         if key.hasPrefix("user.") {

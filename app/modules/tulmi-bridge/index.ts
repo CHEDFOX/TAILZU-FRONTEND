@@ -39,6 +39,14 @@ export interface FlowArmOptions {
   voiceProcessing?: boolean;
   /** Frames per audio tap callback. 2048. */
   tapFrames?: number;
+  /** Send the voice level to the keyboard's mic mark while dictating. true. */
+  level?: boolean;
+  /** How often the level is sent. 50. */
+  levelMs?: number;
+  /** The level's silence, in dBFS (level 0). -50. */
+  levelFloorDb?: number;
+  /** The level's loud end, in dBFS (level 1). -12. */
+  levelCeilDb?: number;
   /** Streaming endpoint path. "/v1/transcribe-stream". */
   streamPath?: string;
   /** One-shot upload endpoint path. "/v1/transcribe-clean". */
