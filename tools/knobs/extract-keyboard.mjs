@@ -29,6 +29,10 @@ function literal(rest) {
   if ((m = /^"((?:[^"\\]|\\.)*)"\s*\)/.exec(rest))) return { v: JSON.parse(`"${m[1].replace(/\\\(/g, "(")}"`) };
   if ((m = /^(-?\d+(?:\.\d+)?)[fFLd]?\s*\)/.exec(rest))) return { v: Number(m[1]) };
   if ((m = /^(true|false)\s*\)/.exec(rest))) return { v: m[1] === "true" };
+  // A list of strings: Swift ["a", "b"] or Kotlin listOf("a", "b").
+  if ((m = /^(?:\[|listOf\()\s*((?:"(?:[^"\\]|\\.)*"\s*,?\s*)*)[\])]\s*\)/.exec(rest))) {
+    return { v: [...m[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => JSON.parse(`"${x[1]}"`)) };
+  }
   return null;
 }
 
@@ -64,10 +68,12 @@ function scan(files, fns, direct) {
 }
 
 const ios = scan(read(IOS, ".swift"),
-  ["flagBool", "flagDouble", "flagCGFloat", "flagString", "flagColor", "flagIcon", "hostLabel", "label"],
+  ["flagBool", "flagDouble", "flagCGFloat", "flagString", "flagColor", "flagIcon", "hostLabel", "label",
+    "knobDouble", "knobInt", "knobBool", "knobString", "knobStrings", "knobLabel"],
   /flags\??\["(kb\.[^"]+)"\]/g);
 const android = scan([...read(ANDROID, ".kt")],
-  ["flagFloat", "flagBoolean", "label", "optBoolean", "optString", "optInt", "optDouble"],
+  ["flagFloat", "flagBoolean", "flagString", "flagInt", "flagColor", "label", "optBoolean", "optString", "optInt", "optDouble",
+    "knobFloat", "knobInt", "knobLong", "knobBool", "knobString", "knobStrings", "knobLabel"],
   /(?:flags\??(?:\.get\(|\[)|optJSONObject\(|optJSONArray\()"(kb\.[^"]+)"/g);
 
 const clashes = [...ios.clashes.map((c) => "ios " + c), ...android.clashes.map((c) => "android " + c)];

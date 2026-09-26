@@ -21,15 +21,22 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
-const roots = [path.join(repo, "app/src"), path.join(repo, "app/App.tsx")];
+// The app, and the desktop app (its window renders the same bootstrap; its
+// main process reads the same flags through its own copy of the knobs).
+const roots = [path.join(repo, "app/src"), path.join(repo, "app/App.tsx"), path.join(repo, "desktop")];
 const out = path.join(here, "app-knobs.json");
 
 const files = [];
 const walk = (p) => {
   if (!fs.existsSync(p)) return;
   const st = fs.statSync(p);
-  if (st.isDirectory()) { for (const f of fs.readdirSync(p)) walk(path.join(p, f)); return; }
-  if (/\.(ts|tsx)$/.test(p) && !p.endsWith("knobs.ts")) files.push(p);
+  if (st.isDirectory()) {
+    if (/node_modules|dist|build|assets$/.test(path.basename(p))) return;
+    for (const f of fs.readdirSync(p)) walk(path.join(p, f));
+    return;
+  }
+  if (p.includes("node_modules") || p.includes(`${path.sep}dist${path.sep}`)) return;
+  if (/\.(ts|tsx|js|html)$/.test(p) && !/knobs\.(ts|js)$/.test(p) && !/gen-\w+\.js$/.test(p)) files.push(p);
 };
 roots.forEach(walk);
 

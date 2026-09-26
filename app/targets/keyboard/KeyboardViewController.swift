@@ -404,6 +404,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var lastAppliedConfigData: Data?
 
   private func applySDUIIfAvailable(_ data: Data) {
+    // Every non-renderer file reads its server values through KBKnobs.
+    KBKnobs.shared.update(configJSON: data)
     guard let kb = SDUIRenderer.decodeConfig(data),
           kb.features?.sdui == true,
           kb.root != nil

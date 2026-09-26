@@ -87,6 +87,7 @@
       "kb.mic.particles.inset": 6,
       "kb.mic.particles.radius": 0.9,
       "kb.network.timeoutMs": 15000,
+      "kb.network.timeouts.refineMs": 60000,
       "kb.press.fadeMs": 120,
       "kb.returnKey.actionBg": "#007AFF",
       "kb.returnKey.actionFg": "#FFFFFF",
@@ -195,7 +196,7 @@
       "words_out_status": "Out of free words — open Tailzu to get more."
     },
     "dynamic": [
-      "kb.accents.<locale>",
+      "kb.accents",
       "kb.audio.channels",
       "kb.audio.quality",
       "kb.audio.sampleRate",
@@ -247,6 +248,7 @@
       "kb.mic.particles.count": 40,
       "kb.mic.particles.inset": 6,
       "kb.mic.particles.radius": 1.5,
+      "kb.network.timeoutMs": 15000,
       "kb.quota.exhausted": false,
       "kb.quota.screenId": "words_out",
       "kb.render.drawnKeys": false,
