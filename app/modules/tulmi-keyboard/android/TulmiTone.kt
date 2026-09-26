@@ -94,14 +94,21 @@ object TulmiTone {
      * user put on it; it used to add the whole tone list (Formal, Casual…),
      * so someone who had added nothing still had four options they never chose.
      */
-    fun keyboardTones(flags: Map<String, Any?>): List<Item> {
-        val on = when (val v = flags["kb.personality.keyboardTones"]) {
-            is Boolean -> v
-            is Number -> v.toInt() != 0
-            is String -> v.equals("true", ignoreCase = true)
-            else -> false
-        }
-        return if (on) tones(flags) else emptyList()
+    fun keyboardTones(flags: Map<String, Any?>): List<Item> =
+        if (keyboardTonesOn(flags)) tones(flags) else emptyList()
+
+    /** Whether the server offers the tone list on the keyboard at all. Off
+     *  until a config says otherwise, as on iOS. */
+    fun keyboardTonesOn(flags: Map<String, Any?>): Boolean =
+        flags.optBoolean("kb.personality.keyboardTones", false)
+
+    /** A switch in the config, read the way the renderer's flagBoolean reads
+     *  one; the literal holds only while the config does not say. */
+    private fun Map<String, Any?>.optBoolean(key: String, fallback: Boolean): Boolean = when (val v = this[key]) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        is String -> v.equals("true", ignoreCase = true)
+        else -> fallback
     }
 
     /** Everything the pill cycles: the voices, then any tones the server offers. */

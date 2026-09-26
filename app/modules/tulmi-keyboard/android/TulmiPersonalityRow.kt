@@ -2,24 +2,22 @@ package com.tulmi.app.keyboard
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.animation.AnticipateInterpolator
-import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Personality quick-swap row above the keyboard keys.
@@ -32,12 +30,13 @@ import android.widget.TextView
  * Interactions:
  *   • Tap → switch active preset. Fires [onSelect] with (presetId, null) so
  *     the caller uses the preset's default tone.
- *   • Long-press → PopupMenu of tones, tap fires (presetId, tone).
+ *   • Hold (kb.personalityRow.longPressSec) → the tone sheet springs out of
+ *     the chip over the frosted keyboard; a pick fires (presetId, tone).
  *
  * No hardcoded chips, no hardcoded tones, no hardcoded colors. Every visible
- * value comes from [update] or from a kb.personalityRow.* knob (sizes, the
- * sheet's colours, the animation). If the backend clears the pinned list, the
- * row hides itself.
+ * value comes from [update] or from a kb.personalityRow.* knob — the iOS row's
+ * keys, with its meanings and defaults (sizes, the sheet's colour and shadow,
+ * the animation). If the backend clears the pinned list, the row hides itself.
  */
 class TulmiPersonalityRow @JvmOverloads constructor(
     context: Context,
@@ -61,24 +60,30 @@ class TulmiPersonalityRow @JvmOverloads constructor(
     /** Fired on tap (tone = null → preset's default) or on tone pick. */
     var onSelect: ((presetId: String, tone: String?) -> Unit)? = null
 
+    /**
+     * Where the search for the sheet's host starts. The renderer points it at
+     * the frame the keyboard sits in, outside the tree a rebuild empties, so a
+     * pick (which rebuilds) does not tear the sheet down mid-animation.
+     */
+    var overlayHost: (() -> View?)? = null
+
     private val stack = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        val pad = dp(knobFloat("kb.personalityRow.padH", 8f))
-        val padV = dp(knobFloat("kb.personalityRow.padV", 4f))
-        setPadding(pad, padV, pad, padV)
+        val marginH = dp(knobFloat("kb.personalityRow.marginH", 8f))
+        val marginV = dp(knobFloat("kb.personalityRow.marginV", 4f))
+        setPadding(marginH, marginV, marginH, marginV)
     }
 
     private var chips: List<ChipData> = emptyList()
-    private var tones: List<Tone> = emptyList()
+    private var tones: List<Tone>? = null
     private var activeId: String = ""
     private var accent: Int = Color.WHITE
-    private var chipBg: Int = Color.argb(23, 255, 255, 255)   // 0.09 alpha
-    private var chipFg: Int = Color.argb(229, 255, 255, 255)  // 0.9 alpha
+    private var chipBg: Int = withAlpha(Color.WHITE, knobFloat("kb.personalityRow.chipBgAlpha", 0.09f))
+    private var chipFg: Int = withAlpha(Color.WHITE, knobFloat("kb.personalityRow.chipFgAlpha", 0.9f))
 
-    /** Frosted scrim + tone sheet shown over the whole keyboard on long-press. */
-    private var scrim: FrameLayout? = null
-    private var blurredKids: List<View> = emptyList()
+    /** Frosted scrim + tone sheet shown over the whole keyboard on a hold. */
+    private var sheet: TulmiToneSheet? = null
 
     init {
         isHorizontalScrollBarEnabled = false
@@ -94,12 +99,15 @@ class TulmiPersonalityRow @JvmOverloads constructor(
     }
 
     /**
-     * Update the row. [chips] and [tones] both come from the backend
-     * keyboard-config flags — this view holds no defaults for either.
+     * Update the row. [chips] come from the backend keyboard-config flags —
+     * this view holds no defaults for them. [tones] is what a chip's sheet
+     * offers: null when the keyboard offers no tones (a hold then does
+     * nothing), the server's list, or empty when the server offers tones but
+     * sent no list — then its fallback pair, kb.personalityRow.fallbackTone*.
      */
     fun update(
         chips: List<ChipData>,
-        tones: List<Tone>,
+        tones: List<Tone>?,
         activeId: String,
         accentColor: Int,
         chipBgColor: Int,
@@ -114,6 +122,18 @@ class TulmiPersonalityRow @JvmOverloads constructor(
         rebuild()
     }
 
+    /** kb.personalityRow.height tall, unless the server's node sized the row. */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val mode = MeasureSpec.getMode(heightMeasureSpec)
+        if (mode == MeasureSpec.EXACTLY) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            return
+        }
+        var h = dp(knobFloat("kb.personalityRow.height", 36f)).coerceAtLeast(0)
+        if (mode == MeasureSpec.AT_MOST) h = h.coerceAtMost(MeasureSpec.getSize(heightMeasureSpec))
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+    }
+
     private fun rebuild() {
         stack.removeAllViews()
         if (chips.isEmpty()) {
@@ -126,7 +146,7 @@ class TulmiPersonalityRow @JvmOverloads constructor(
             val v = chipView(chip, isActive = chip.id == activeId)
             if (i > 0) {
                 val gap = View(context)
-                stack.addView(gap, LinearLayout.LayoutParams(dp(knobFloat("kb.personalityRow.gap", 6f)), 1))
+                stack.addView(gap, LinearLayout.LayoutParams(dp(knobFloat("kb.personalityRow.spacing", 6f)), 1))
             }
             stack.addView(v)
         }
@@ -135,144 +155,192 @@ class TulmiPersonalityRow @JvmOverloads constructor(
     private fun chipView(chip: ChipData, isActive: Boolean): TextView {
         val tv = TextView(context)
         tv.text = if (chip.emoji.isNotEmpty()) "${chip.emoji} ${chip.name}" else chip.name
-        tv.setTextColor(if (isActive) accent else chipFg)
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, knobFloat("kb.personalityRow.fontSize", 13f))
+        // The active chip is the accent at activeAlpha, its text black or
+        // white against it, as on iOS.
+        tv.setTextColor(if (isActive) readableOn(accent) else chipFg)
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, knobFloat("kb.personalityRow.chipFontSize", 12f))
         tv.setTypeface(Typeface.DEFAULT, if (isActive) Typeface.BOLD else Typeface.NORMAL)
         tv.gravity = Gravity.CENTER
-        val chipPadH = dp(knobFloat("kb.personalityRow.chipPadH", 14f))
-        val chipPadV = dp(knobFloat("kb.personalityRow.chipPadV", 7f))
+        val chipPadH = dp(knobFloat("kb.personalityRow.chipPadH", 10f))
+        val chipPadV = dp(knobFloat("kb.personalityRow.chipPadV", 5f))
         tv.setPadding(chipPadH, chipPadV, chipPadH, chipPadV)
         tv.background = pill(
-            fill = if (isActive) blend(chipBg, accent, knobFloat("kb.personalityRow.activeBlend", 0.24f)) else chipBg,
-            stroke = if (isActive) accent else Color.TRANSPARENT,
-            radiusDp = knobFloat("kb.personalityRow.chipRadius", 999f),
+            fill = if (isActive) withAlpha(accent, knobFloat("kb.personalityRow.activeAlpha", 0.9f)) else chipBg,
+            radiusDp = knobFloat("kb.personalityRow.chipRadius", 14f),
         )
 
-        // Tap → switch. Long-press → tone popover.
+        // Tap → switch. Hold → tone sheet.
         tv.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             onSelect?.invoke(chip.id, null)
         }
-        tv.setOnLongClickListener {
-            showTonePopover(tv, chip)
-            true
-        }
+        bindHold(tv) { showTonePopover(tv, chip) }
         return tv
     }
 
-    private fun showTonePopover(anchor: View, chip: ChipData) {
-        if (tones.isEmpty()) return
-        anchor.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-
-        // Cover the whole keyboard so the sheet floats over a frosted/dimmed
-        // backdrop. If we can't find a host container, fall back to a plain menu.
-        val host = findOverlayHost()
-        if (host == null) { legacyTonePopup(anchor, chip); return }
-        dismissScrim(animated = false)
-
-        // Blur the keyboard behind (API 31+); dark scrim carries the "pushed back"
-        // read on older devices. Snapshot existing children so only they blur —
-        // not the scrim we add on top.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val kids = ArrayList<View>(host.childCount)
-            for (i in 0 until host.childCount) kids.add(host.getChildAt(i))
-            blurredKids = kids
-            val r = knobFloat("kb.personalityRow.blurRadius", 22f)
-            // A radius of 0 or less makes no effect at all (and throws).
-            if (r > 0f) {
-                val fx = RenderEffect.createBlurEffect(r, r, Shader.TileMode.CLAMP)
-                kids.forEach { it.setRenderEffect(fx) }
+    /**
+     * [onHold] after an unbroken press of kb.personalityRow.longPressSec — the
+     * server's threshold, not the system's long-press timeout — and the
+     * release that follows is not also a tap. Moving past the touch slop, or
+     * the row taking the drag to scroll, calls it off.
+     */
+    private fun bindHold(v: View, onHold: () -> Unit) {
+        val holdMs = (knobFloat("kb.personalityRow.longPressSec", 0.35f) * 1000f).toLong().coerceIn(50L, 10_000L)
+        val slop = ViewConfiguration.get(context).scaledTouchSlop
+        var fired = false
+        var downX = 0f
+        var downY = 0f
+        val hold = Runnable {
+            fired = true
+            // Runs straight off the looper: nothing in a sheet may take the keyboard down.
+            try { onHold() } catch (t: Throwable) { android.util.Log.w("SDUI", "personality sheet failed: ${t.message}") }
+        }
+        v.setOnTouchListener { view, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    fired = false
+                    downX = e.x
+                    downY = e.y
+                    view.postDelayed(hold, holdMs)
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!fired && (abs(e.x - downX) > slop || abs(e.y - downY) > slop)) view.removeCallbacks(hold)
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    view.removeCallbacks(hold)
+                    if (fired) {
+                        // The view sees a cancel: its pressed state and the tap clear.
+                        val cancel = MotionEvent.obtain(e)
+                        cancel.action = MotionEvent.ACTION_CANCEL
+                        view.onTouchEvent(cancel)
+                        cancel.recycle()
+                        true
+                    } else false
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.removeCallbacks(hold)
+                    false
+                }
+                else -> false
             }
-        }
-
-        val scrimView = FrameLayout(context).apply {
-            setBackgroundColor(parseHex(knobString("kb.personalityRow.scrimColor", "#0000008C")))
-            isClickable = true
-            alpha = 0f
-            setOnClickListener { dismissScrim(animated = true) }
-        }
-        host.addView(
-            scrimView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ),
-        )
-        scrim = scrimView
-
-        val sheet = buildToneSheet(chip)
-        scrimView.addView(
-            sheet,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-
-        // Position the sheet just above the long-pressed chip, then "suck it out"
-        // of the chip: scale up from a near-zero point at its bottom-left.
-        val hostLoc = IntArray(2); host.getLocationInWindow(hostLoc)
-        val anchorLoc = IntArray(2); anchor.getLocationInWindow(anchorLoc)
-        scrimView.animate().alpha(1f).setDuration(knobLong("kb.personalityRow.scrimFadeMs", 160L).coerceAtLeast(0L)).start()
-        sheet.post {
-            val lp = sheet.layoutParams as FrameLayout.LayoutParams
-            lp.leftMargin = (anchorLoc[0] - hostLoc[0]).coerceAtLeast(dp(8f))
-            lp.topMargin = (anchorLoc[1] - hostLoc[1] - sheet.height - dp(6f)).coerceAtLeast(dp(8f))
-            sheet.layoutParams = lp
-            sheet.pivotX = 0f
-            sheet.pivotY = sheet.height.toFloat()
-            val from = knobFloat("kb.personalityRow.popScale", 0.06f)
-            sheet.scaleX = from
-            sheet.scaleY = from
-            sheet.alpha = 0f
-            sheet.animate()
-                .scaleX(1f).scaleY(1f).alpha(1f)
-                .setInterpolator(OvershootInterpolator(knobFloat("kb.personalityRow.popOvershoot", 1.6f)))
-                .setDuration(knobLong("kb.personalityRow.popMs", 300L).coerceAtLeast(0L))
-                .start()
         }
     }
 
-    private fun buildToneSheet(chip: ChipData): LinearLayout {
-        val sheet = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = pill(
-                parseHex(knobString("kb.personalityRow.sheetBg", "#17171AF5")),
-                Color.TRANSPARENT,
-                knobFloat("kb.personalityRow.sheetRadius", 14f),
-            )
-            val pad = dp(knobFloat("kb.personalityRow.sheetPad", 6f))
-            setPadding(pad, pad, pad, pad)
-            elevation = dp(knobFloat("kb.personalityRow.sheetElevation", 10f)).toFloat()
+    /**
+     * What the sheet offers: the server's tones, else its fallback pair of
+     * lists (ids and labels, zipped), as on iOS. Nothing at all when the
+     * keyboard offers no tones.
+     */
+    private fun sheetTones(): List<Tone> {
+        val server = tones ?: return emptyList()
+        if (server.isNotEmpty()) return server
+        val ids = knobStrings("kb.personalityRow.fallbackToneIds", listOf(
+            "none", "formal", "casual", "very-casual", "excited",
+        ))
+        val labels = knobStrings("kb.personalityRow.fallbackToneLabels", listOf(
+            "None · raw", "Formal", "Casual", "Very Casual", "Excited",
+        ))
+        return ids.zip(labels) { id, label -> Tone(id, label) }
+    }
+
+    private fun showTonePopover(anchor: View, chip: ChipData) {
+        val tones = sheetTones()
+        if (tones.isEmpty()) return
+        anchor.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+
+        // Cover the whole keyboard so the sheet floats over a frosted backdrop.
+        // If we can't find a host container, fall back to a plain menu.
+        val host = findOverlayHost()
+        if (host == null) { legacyTonePopup(anchor, chip, tones); return }
+        dismissSheet(animated = false)
+
+        // Just above the held chip, from its left edge, kept inside the host.
+        val edge = dp(knobFloat("kb.personalityRow.sheetEdgeMin", 8f))
+        val gap = dp(knobFloat("kb.personalityRow.sheetGap", 6f))
+        val s = TulmiToneSheet(sheetLook())
+        sheet = s
+        val shown = s.show(host, buildToneSheet(chip, tones), anchor) { panel, a ->
+            val lp = panel.layoutParams as FrameLayout.LayoutParams
+            val maxLeft = (host.width - panel.width - edge).coerceAtLeast(edge)
+            lp.leftMargin = a.left.coerceIn(edge, maxLeft)
+            lp.topMargin = (a.top - gap - panel.height).coerceAtLeast(edge)
+            panel.layoutParams = lp
         }
+        if (!shown) {
+            sheet = null
+            legacyTonePopup(anchor, chip, tones)
+        }
+    }
+
+    /**
+     * The sheet's look and motion. The panel is a grey (sheetWhite) at
+     * sheetAlpha with a black shadow; it grows from popScale, popDrop below
+     * where it settles, on a popInSec spring (popDamping, popVelocity), and
+     * shrinks back over popOutSec as the frost (blurInSec in) clears.
+     */
+    private fun sheetLook(): TulmiToneSheet.Look {
+        val white = unit(knobFloat("kb.personalityRow.sheetWhite", 0.09f))
+        return TulmiToneSheet.Look(
+            panelColor = Color.argb(unit(knobFloat("kb.personalityRow.sheetAlpha", 0.96f)), white, white, white),
+            radius = dpf(knobFloat("kb.personalityRow.sheetRadius", 12f)),
+            shadowColor = Color.BLACK,
+            shadowOpacity = knobFloat("kb.personalityRow.sheetShadowOpacity", 0.35f),
+            shadowRadius = dpf(knobFloat("kb.personalityRow.sheetShadowRadius", 12f)),
+            shadowDy = dpf(knobFloat("kb.personalityRow.sheetShadowY", 6f)),
+            blurRadius = knobFloat("kb.personalityRow.blurRadius", 22f),
+            scrimColor = parseHex(knobString("kb.personalityRow.scrimColor", "#0000008C")),
+            blurInMs = ms(knobFloat("kb.personalityRow.blurInSec", 0.16f)),
+            openMs = ms(knobFloat("kb.personalityRow.popInSec", 0.42f)),
+            closeMs = ms(knobFloat("kb.personalityRow.popOutSec", 0.2f)),
+            damping = knobFloat("kb.personalityRow.popDamping", 0.72f),
+            velocity = knobFloat("kb.personalityRow.popVelocity", 0.6f),
+            collapsedScale = knobFloat("kb.personalityRow.popScale", 0.06f),
+            collapsedDy = dpf(knobFloat("kb.personalityRow.popDrop", 14f)),
+        )
+    }
+
+    private fun buildToneSheet(chip: ChipData, tones: List<Tone>): View {
+        val list = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dp(knobFloat("kb.personalityRow.sheetPadding", 6f))
+            setPadding(pad, pad, pad, pad)
+            minimumWidth = dp(knobFloat("kb.personalityRow.sheetMinWidth", 150f))
+        }
+        val spacing = dp(knobFloat("kb.personalityRow.sheetSpacing", 2f))
+        val fontSize = knobFloat("kb.personalityRow.toneFontSize", 13f)
+        val padV = dp(knobFloat("kb.personalityRow.tonePadV", 8f))
+        val padH = dp(knobFloat("kb.personalityRow.tonePadH", 14f))
+        val color = parseHex(knobString("kb.personalityRow.itemColor", "#FFFFFF"))
         tones.forEach { t ->
             val item = TextView(context).apply {
                 text = t.label
-                setTextColor(parseHex(knobString("kb.personalityRow.itemColor", "#FFFFFF")))
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, knobFloat("kb.personalityRow.itemFontSize", 14f))
-                setPadding(dp(16f), dp(9f), dp(24f), dp(9f))
+                setTextColor(color)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setPadding(padH, padV, padH, padV)
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 isClickable = true
                 setOnClickListener {
                     it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    dismissSheet(animated = true)
                     onSelect?.invoke(chip.id, t.id)
                     activeId = chip.id
                     rebuild()
-                    dismissScrim(animated = true)
                 }
             }
-            sheet.addView(
-                item,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                ),
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
             )
+            if (list.childCount > 0) lp.topMargin = spacing
+            list.addView(item, lp)
         }
-        return sheet
+        return list
     }
 
-    private fun legacyTonePopup(anchor: View, chip: ChipData) {
+    private fun legacyTonePopup(anchor: View, chip: ChipData, tones: List<Tone>) {
         val popup = PopupMenu(context, anchor)
         tones.forEachIndexed { idx, t -> popup.menu.add(0, idx, idx, t.label) }
         popup.setOnMenuItemClickListener { item ->
@@ -280,48 +348,32 @@ class TulmiPersonalityRow @JvmOverloads constructor(
             onSelect?.invoke(chip.id, tone.id)
             true
         }
-        popup.show()
+        try { popup.show() } catch (_: Throwable) { /* no window to show it in */ }
     }
 
-    /** Largest FrameLayout ancestor (the IME input view) to host the overlay. */
+    /**
+     * The view the sheet and its scrim cover. Walking up from [overlayHost]
+     * (else this row's parent), the first FrameLayout taller than
+     * kb.personalityRow.overlayMinHeight — big enough to float a menu in, as
+     * on iOS — else the outermost FrameLayout on the way.
+     */
     private fun findOverlayHost(): FrameLayout? {
-        var v: View? = this
-        var best: FrameLayout? = null
+        val minHeight = dp(knobFloat("kb.personalityRow.overlayMinHeight", 120f))
+        var v: View? = overlayHost?.invoke() ?: (parent as? View)
+        var outermost: FrameLayout? = null
         while (v != null) {
-            if (v is FrameLayout) best = v
+            if (v is FrameLayout) {
+                if (v.height > minHeight) return v
+                outermost = v
+            }
             v = v.parent as? View
         }
-        return best
+        return outermost
     }
 
-    private fun dismissScrim(animated: Boolean) {
-        val scrimView = scrim
-        scrim = null
-        if (scrimView == null) { clearBlur(); return }
-        if (!animated) {
-            (scrimView.parent as? ViewGroup)?.removeView(scrimView)
-            clearBlur()
-            return
-        }
-        // Reverse suction: the sheet collapses back toward the chip as frost clears.
-        val to = knobFloat("kb.personalityRow.popScale", 0.06f)
-        val ms = knobLong("kb.personalityRow.dismissMs", 190L).coerceAtLeast(0L)
-        (scrimView.getChildAt(0))?.animate()
-            ?.scaleX(to)?.scaleY(to)?.alpha(0f)
-            ?.setInterpolator(AnticipateInterpolator(knobFloat("kb.personalityRow.dismissAnticipate", 1.1f)))
-            ?.setDuration(ms)?.start()
-        scrimView.animate().alpha(0f).setDuration(ms).withEndAction {
-            (scrimView.parent as? ViewGroup)?.removeView(scrimView)
-            clearBlur()
-        }.start()
-    }
-
-    private fun clearBlur() {
-        if (blurredKids.isEmpty()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            blurredKids.forEach { it.setRenderEffect(null) }
-        }
-        blurredKids = emptyList()
+    private fun dismissSheet(animated: Boolean) {
+        sheet?.dismiss(animated)
+        sheet = null
     }
 
     // -- helpers -----------------------------------------------------------
@@ -329,21 +381,37 @@ class TulmiPersonalityRow @JvmOverloads constructor(
     private fun dp(value: Float): Int =
         (value * resources.displayMetrics.density).toInt()
 
-    private fun pill(fill: Int, stroke: Int, radiusDp: Float): GradientDrawable =
+    private fun dpf(value: Float): Float =
+        value * resources.displayMetrics.density
+
+    /** Seconds (the iOS knobs' unit) to animator milliseconds. */
+    private fun ms(sec: Float): Long =
+        if (sec.isNaN()) 0L else (sec.coerceIn(0f, 10f) * 1000f).toLong()
+
+    /** A 0…1 knob as a colour channel. */
+    private fun unit(f: Float): Int =
+        if (f.isNaN()) 0 else (f.coerceIn(0f, 1f) * 255f).roundToInt()
+
+    /** [color] with its alpha replaced, as UIColor.withAlphaComponent does. */
+    private fun withAlpha(color: Int, alpha: Float): Int =
+        Color.argb(unit(alpha), Color.red(color), Color.green(color), Color.blue(color))
+
+    /**
+     * Black or white, whichever reads on [color]: the luminance pick the
+     * renderer's readableOn makes, cut at kb.personalityRow.contrastThreshold,
+     * so the active chip's text stays legible on any accent the server sends.
+     */
+    private fun readableOn(color: Int): Int {
+        val lum = 0.2126f * Color.red(color) / 255f +
+            0.7152f * Color.green(color) / 255f +
+            0.0722f * Color.blue(color) / 255f
+        return if (lum > knobFloat("kb.personalityRow.contrastThreshold", 0.55f)) Color.BLACK else Color.WHITE
+    }
+
+    private fun pill(fill: Int, radiusDp: Float): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = radiusDp * resources.displayMetrics.density
             setColor(fill)
-            if (stroke != Color.TRANSPARENT) setStroke(dp(1f), stroke)
         }
-
-    private fun blend(a: Int, b: Int, t: Float): Int {
-        val u = 1 - t
-        return Color.argb(
-            (Color.alpha(a) * u + Color.alpha(b) * t).toInt().coerceIn(0, 255),
-            (Color.red(a)   * u + Color.red(b)   * t).toInt().coerceIn(0, 255),
-            (Color.green(a) * u + Color.green(b) * t).toInt().coerceIn(0, 255),
-            (Color.blue(a)  * u + Color.blue(b)  * t).toInt().coerceIn(0, 255),
-        )
-    }
 }
