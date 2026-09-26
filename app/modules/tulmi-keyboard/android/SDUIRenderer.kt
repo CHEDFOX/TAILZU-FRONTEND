@@ -2277,8 +2277,14 @@ class SDUIRenderer(
                 tone = strField(p, "tone") ?: "",
             )
         }
-        // The same tone list the pill cycles, in the server's order.
-        val toneList = TulmiTone.keyboardTones(kbConfig.flags).map { TulmiPersonalityRow.Tone(id = it.id, label = it.label) }
+        // The same tone list the pill cycles, in the server's order — none
+        // unless the server offers tones on the keyboard; then an empty list
+        // (it sent none) lets the row use its fallback pair.
+        val toneList = if (TulmiTone.keyboardTonesOn(kbConfig.flags)) {
+            TulmiTone.tones(kbConfig.flags).map { TulmiPersonalityRow.Tone(id = it.id, label = it.label) }
+        } else null
+        // Its hold sheet goes where the pill's does, clear of the rebuilds.
+        row.overlayHost = { sheetHost() }
         row.update(
             chips = chips,
             tones = toneList,
@@ -2598,36 +2604,79 @@ class SDUIRenderer(
         host.onStateChanged() // re-render → the tone pill shows the new label
     }
 
+    /** The hold sheet on screen, if any. */
+    private var toneSheet: TulmiToneSheet? = null
+
     /**
-     * Hold the pill → every voice and tone at once, the active ones ticked in
-     * kb.tone.sheet.accent. A plain menu anchored on the pill: it cannot be
-     * clipped by the keyboard's frame and needs no overlay of our own.
+     * Where a hold sheet goes: the frame the IME put the keyboard in, beside
+     * the container rather than inside it, so a rebuild (a pick, a config
+     * refetch) — which empties the container — leaves the sheet and its
+     * closing animation alone. The container itself if that frame is not a
+     * FrameLayout.
+     */
+    private fun sheetHost(): FrameLayout? = (container.parent as? FrameLayout) ?: (container as? FrameLayout)
+
+    /**
+     * Hold the pill → every voice (and tone, when the server offers them) at
+     * once, the one the pill is on ticked in kb.tone.sheet.accent. As on iOS
+     * the keyboard frosts, and the sheet springs out of the pill and drops
+     * down over the keys, right-aligned to it; it scrolls rather than run
+     * past the keyboard's bottom. Every colour, size and timing is a
+     * kb.tone.sheet.* flag, with the …Light colours in light appearance —
+     * white rows on a light keyboard were unreadable.
      */
     private fun showToneSheet(anchor: View) {
         val ctx = host.context()
         val voices = TulmiTone.voices(kbConfig.flags)
         val tones = TulmiTone.keyboardTones(kbConfig.flags)
         if (voices.isEmpty() && tones.isEmpty()) return
+        val overlay = sheetHost() ?: return
         // The tick goes on what the pill is showing — Zu, for someone who has
         // not picked yet, rather than on nothing.
         val current = TulmiTone.current(ctx, kbConfig.flags)
+        val light = host.state().appearance == "light"
         val accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
-        val popup = android.widget.PopupMenu(ctx, anchor)
-        val picks = ArrayList<TulmiTone.Item>()
-        var order = 0
+        val rowFg = if (light) flagColor("kb.tone.sheet.fgLight", "#000000") else flagColor("kb.tone.sheet.fg", "#FFFFFF")
+        val headerFg = if (light) flagColor("kb.tone.sheet.headerFgLight", "#00000066")
+            else flagColor("kb.tone.sheet.headerFg", "#FFFFFF66")
+        val rowFont = flagFloat("kb.tone.sheet.fontSize", 14f)
+        val rowPadV = dp(flagFloat("kb.tone.sheet.rowPadV", 9f))
+        val rowPadH = dp(flagFloat("kb.tone.sheet.rowPadH", 16f))
+        val rowGap = dp(flagFloat("kb.tone.sheet.rowGap", 2f))
+        val check = flagString("kb.tone.sheet.checkSuffix", "  ✓")
+        val list = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dp(flagFloat("kb.tone.sheet.padding", 6f))
+            setPadding(pad, pad, pad, pad)
+            minimumWidth = dp(flagFloat("kb.tone.sheet.minWidth", 150f))
+        }
+        fun add(v: View) {
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            if (list.childCount > 0) lp.topMargin = rowGap
+            list.addView(v, lp)
+        }
         fun header(text: String) {
             if (text.isEmpty()) return
-            popup.menu.add(0, android.view.Menu.NONE, order++, text).isEnabled = false
+            add(TextView(ctx).apply {
+                this.text = text.uppercase()
+                setTextColor(headerFg)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, flagFloat("kb.tone.sheet.headerFontSize", 10f))
+                applyFontWeight(this, "bold")
+                setPadding(dp(16), dp(7), dp(16), dp(2))
+            })
         }
         fun entry(item: TulmiTone.Item, active: Boolean) {
-            picks += item
-            val title: CharSequence = if (active) {
-                android.text.SpannableString("${item.label}  \u2713").apply {
-                    setSpan(android.text.style.ForegroundColorSpan(accent), 0, length, 0)
-                }
-            } else item.label
-            // Ids start at 1: Menu.NONE (0) is the headers'.
-            popup.menu.add(0, picks.size, order++, title)
+            add(TextView(ctx).apply {
+                text = if (active) "${item.label}$check" else item.label
+                setTextColor(if (active) accent else rowFg)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, rowFont)
+                applyFontWeight(this, if (active) "semibold" else "medium")
+                setPadding(rowPadH, rowPadV, rowPadH, rowPadV)
+                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+                contentDescription = item.label
+                isClickable = true
+                setOnClickListener { v -> selectFromSheet(v, item) }
+            })
         }
         // Headers only when there are two kinds to tell apart.
         val mixed = voices.isNotEmpty() && tones.isNotEmpty()
@@ -2635,11 +2684,59 @@ class SDUIRenderer(
         voices.forEach { entry(it, it == current) }
         if (mixed) header(label("tone_sheet_tones", "Tones"))
         tones.forEach { entry(it, it == current) }
-        popup.setOnMenuItemClickListener { mi ->
-            picks.getOrNull(mi.itemId - 1)?.let { pickTone(it) }
-            true
+        // Voices and tones together can outgrow the keyboard: the list scrolls.
+        val scroll = android.widget.ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        try { popup.show() } catch (t: Throwable) { Log.w("SDUI", "tone sheet failed: ${t.message}") }
+
+        // #171717F5 is the old white 0.09 / alpha 0.96, to the nearest byte.
+        // The sheet grows from a speck at the pill (anim.scale, liftPt above
+        // where it settles) on a spring and shrinks back as the frost clears.
+        val look = TulmiToneSheet.Look(
+            panelColor = if (light) flagColor("kb.tone.sheet.bgLight", "#F9F9F9F5")
+                else flagColor("kb.tone.sheet.bg", "#171717F5"),
+            radius = dp(flagFloat("kb.tone.sheet.radius", 12f)).toFloat(),
+            shadowColor = flagColor("kb.tone.sheet.shadowColor", "#000000"),
+            shadowOpacity = flagFloat("kb.tone.sheet.shadowOpacity", 0.35f),
+            shadowRadius = dp(flagFloat("kb.tone.sheet.shadowRadius", 12f)).toFloat(),
+            shadowDy = dp(flagFloat("kb.tone.sheet.shadowOffsetY", 6f)).toFloat(),
+            // iOS frosts with systemThinMaterialDark; Android blurs (API 31+) and
+            // tints, "in the family" as renderBlurBackdrop draws that material.
+            blurRadius = flagFloat("kb.tone.sheet.blurRadius", 16f),
+            scrimColor = flagColor("kb.tone.sheet.scrimColor", "#00000066"),
+            blurInMs = flagFloat("kb.tone.sheet.anim.blurMs", 160f).toLong(),
+            openMs = flagFloat("kb.tone.sheet.anim.openMs", 420f).toLong(),
+            closeMs = flagFloat("kb.tone.sheet.anim.closeMs", 200f).toLong(),
+            damping = flagFloat("kb.tone.sheet.anim.damping", 0.72f),
+            velocity = flagFloat("kb.tone.sheet.anim.velocity", 0.6f),
+            collapsedScale = flagFloat("kb.tone.sheet.anim.scale", 0.08f),
+            collapsedDy = dp(flagFloat("kb.tone.sheet.anim.liftPt", -10f)).toFloat(),
+        )
+        val edge = dp(flagFloat("kb.tone.sheet.edgeInset", 8f))
+        val offsetY = dp(flagFloat("kb.tone.sheet.offsetY", 6f))
+        toneSheet?.dismiss(animated = false)
+        val sheet = TulmiToneSheet(look)
+        toneSheet = sheet
+        sheet.show(overlay, scroll, anchor) { panel, a ->
+            // The pill sits in the tools row at the top, so the sheet drops DOWN
+            // over the keys; going up would leave the keyboard's frame.
+            val lp = panel.layoutParams as FrameLayout.LayoutParams
+            lp.leftMargin = (a.right - panel.width).coerceAtLeast(edge)
+            lp.topMargin = a.bottom + offsetY
+            val room = overlay.height - edge - lp.topMargin
+            if (panel.height > room) lp.height = room.coerceAtLeast(0)
+            panel.layoutParams = lp
+        }
+    }
+
+    /** A pick in the hold sheet: the sheet closes into the pill, which moves there. */
+    private fun selectFromSheet(v: View, item: TulmiTone.Item) {
+        hapticTap(v, "tone")
+        toneSheet?.dismiss(animated = true)
+        toneSheet = null
+        pickTone(item)
     }
 
     /** Look back for a word boundary and delete that many chars. */
