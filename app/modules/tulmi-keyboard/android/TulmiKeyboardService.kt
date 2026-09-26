@@ -1281,17 +1281,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                         setStatus(label("micSecure", "Dictation is off in password fields."), actionable = true)
                         return@post
                     }
-                    val conn = currentInputConnection
-                    // What the user had already written, BEFORE this dictation
-                    // lands. Handed to refine as context so the new sentence is
-                    // fitted to the draft it joins — and so refine rewrites the
-                    // dictated span ONLY.
-                    val prior = (conn?.getTextBeforeCursor(refineContextChars(), 0)?.toString() ?: "")
-                    conn?.commitText(cleaned, 1)
+                    // /v1/transcribe-clean transcribes AND writes in one call, so
+                    // this is already the finished sentence. It is not refined
+                    // again, as on iOS: a second pass over written text is slower,
+                    // and each pass drifts further from what was said.
+                    currentInputConnection?.commitText(cleaned, 1)
                     TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
                     corrections?.clear()
                     setStatus("")
-                    if (kbConfig?.refine != false) refineDictated(cleaned, prior)
                     // A one-shot tone command (Shorter/Longer/Bullets) is only
                     // meaningful if a refine actually consumes it — same as the
                     // streaming path's onDictationClosed(). Appending it without a
