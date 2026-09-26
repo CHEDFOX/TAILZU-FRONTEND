@@ -1,0 +1,46 @@
+{
+  "labels": {
+    "offline.body": "Tailzu can't reach its server right now. Check your connection. It will keep trying.",
+    "offline.checking": "Checking…",
+    "offline.retry": "Try again",
+    "offline.retryIn": "Trying again in {s}s",
+    "offline.title": "You're offline"
+  },
+  "flags": {
+    "app.offline.bodySize": 15,
+    "app.offline.buttonRadius": 22,
+    "app.offline.buttonText": "#000000",
+    "app.offline.devHoldMs": 3000,
+    "app.offline.padding": 32,
+    "app.offline.retryFactor": 1.6,
+    "app.offline.retryMaxMs": 30000,
+    "app.offline.retryMs": 8000,
+    "app.offline.titleSize": 22
+  },
+  "dynamic": {
+    "app.boot.watchdogMs": {
+      "kind": "num",
+      "at": "app/src/sdui/SduiApp.tsx:690"
+    },
+    "app.offline.accent": {
+      "kind": "color",
+      "at": "app/src/sdui/OfflineScreen.tsx:28"
+    },
+    "app.offline.bg": {
+      "kind": "color",
+      "at": "app/src/sdui/OfflineScreen.tsx:25"
+    },
+    "app.offline.devConnection": {
+      "kind": "bool",
+      "at": "app/src/sdui/OfflineScreen.tsx:56"
+    },
+    "app.offline.muted": {
+      "kind": "color",
+      "at": "app/src/sdui/OfflineScreen.tsx:27"
+    },
+    "app.offline.text": {
+      "kind": "color",
+      "at": "app/src/sdui/OfflineScreen.tsx:26"
+    }
+  }
+}
