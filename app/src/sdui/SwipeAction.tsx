@@ -77,9 +77,13 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   /** The floor under a commit's travel time, ms. */
   const minCommitMs = Number(props?.minCommitMs ?? K.num("ui.SwipeAction.minCommitMs", 140));
   /** The commit's landing curve, as cubic-bezier control points. */
-  const easingPts = Array.isArray(props?.commitEasing) && props.commitEasing.length === 4
+  // Exactly four numbers, x1 and x2 inside 0..1 — Easing.bezier throws on
+  // anything else, at the moment of the commit.
+  const easingRaw = Array.isArray(props?.commitEasing) && props.commitEasing.length === 4
     ? (props.commitEasing as unknown[]).map(Number)
-    : K.list<number>("ui.SwipeAction.commitEasing", [0.22, 1, 0.3, 1]);
+    : K.tuple("ui.SwipeAction.commitEasing", [0.22, 1, 0.3, 1], 4);
+  const easingPts = easingRaw.every(Number.isFinite) && easingRaw[0] >= 0 && easingRaw[0] <= 1 && easingRaw[2] >= 0 && easingRaw[2] <= 1
+    ? easingRaw : [0.22, 1, 0.3, 1];
   const easingKey = easingPts.join(",");
   /** Below this many points on both axes a release is a tap, not a drag. */
   const tapSlop = Number(props?.tapSlop ?? K.num("ui.SwipeAction.tapSlop", 6));
@@ -89,9 +93,12 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   /** How far the disc has come when the label is fully gone, 0..1 of the run. */
   const labelFadeAt = Number(props?.labelFadeAt ?? K.num("ui.SwipeAction.labelFadeAt", 0.45));
   /** The target's opacity at rest, halfway, and arrived. */
-  const targetRamp = Array.isArray(props?.targetRamp) && props.targetRamp.length === 3
+  // Three stops for a three-stop interpolation: the native driver reads past
+  // the end of a shorter list and crashes.
+  const rampRaw = Array.isArray(props?.targetRamp) && props.targetRamp.length === 3
     ? (props.targetRamp as unknown[]).map(Number)
-    : K.list<number>("ui.SwipeAction.targetRamp", [0.35, 0.7, 1]);
+    : K.tuple("ui.SwipeAction.targetRamp", [0.35, 0.7, 1], 3);
+  const targetRamp = rampRaw.every(Number.isFinite) ? rampRaw : [0.35, 0.7, 1];
   const pressedOpacity = Number(props?.pressedOpacity ?? K.num("ui.SwipeAction.pressedOpacity", 0.92));
   /**
    * How long the disc takes to cross the WHOLE pill once committed, ms.

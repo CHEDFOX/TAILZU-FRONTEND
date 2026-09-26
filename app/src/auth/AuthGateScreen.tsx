@@ -227,7 +227,7 @@ function CountryPickerModal({
   const term = q.trim().toLowerCase();
   const all = countries();
   const data = term
-    ? all.filter((c) => c.name.toLowerCase().includes(term) || c.dial.includes(term))
+    ? all.filter((c) => String(c.name ?? "").toLowerCase().includes(term) || c.dial.includes(term))
     : all;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
