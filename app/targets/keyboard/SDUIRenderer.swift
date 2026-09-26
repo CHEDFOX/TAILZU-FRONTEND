@@ -4569,27 +4569,32 @@ final class SDUIRenderer: NSObject {
       path = sup
     }
 
-    let light = state.appearance == "light"
+    // KEY BY KEY, AND ONLY A LITTLE. Each key is photographed on its own,
+    // blurred a couple of points, faded and drawn a touch smaller in its own
+    // place; the gaps between keys stay exactly as they are and nothing is
+    // laid over the rows. It reads as the keys going soft, not as a sheet.
+    // A row with no keys in it (a bar of suggestions) is frosted whole.
     let veil = DictationVeil()
     veil.swallows = flagBool("kb.dictation.dim.blocksTouches", true)
-    let radius = flagBool("kb.dictation.dim.blur", true) ? flagCGFloat("kb.dictation.dim.iosBlurRadius", 4) : 0
-    let keyAlpha = flagCGFloat("kb.dictation.dim.keyAlpha", 0.72)
-    let tint = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
-      .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.08))
+    let radius = flagBool("kb.dictation.dim.blur", true) ? flagCGFloat("kb.dictation.dim.iosBlurRadius", 2.5) : 0
+    let keyAlpha = flagCGFloat("kb.dictation.dim.iosKeyAlpha", 0.6)
+    let shrink = flagCGFloat("kb.dictation.dim.iosKeyScale", 0.985)
     for r in rows {
-      let frame = r.convert(r.bounds, to: container)
-      if let img = SDUIRenderer.frosted(r, radius: radius) {
-        let iv = UIImageView(image: img)
-        iv.frame = frame
-        iv.alpha = keyAlpha
-        veil.addSubview(iv)
+      veil.rects.append(r.convert(r.bounds, to: container))
+      var keys: [UIView] = []
+      SDUIRenderer.keyViews(in: r, into: &keys)
+      for k in (keys.isEmpty ? [r] : keys) {
+        let frame = k.convert(k.bounds, to: container)
+        if let img = SDUIRenderer.frosted(k, radius: radius) {
+          let iv = UIImageView(image: img)
+          iv.frame = frame
+          iv.alpha = keyAlpha
+          iv.transform = CGAffineTransform(scaleX: shrink, y: shrink)
+          veil.addSubview(iv)
+        }
+        veil.hidden.append(k)
+        k.alpha = 0
       }
-      let wash = UIView(frame: frame)
-      wash.backgroundColor = tint
-      veil.addSubview(wash)
-      veil.rects.append(frame)
-      veil.hidden.append(r)
-      r.alpha = 0
     }
 
     veil.frame = container.bounds
@@ -4601,6 +4606,15 @@ final class SDUIRenderer: NSObject {
       UIView.animate(withDuration: fadeMs / 1000.0) { veil.alpha = 1 }
     }
     recordingDimView = veil
+  }
+
+  /// The keys in a row: its controls, outermost first — a key inside a key
+  /// (a label in a button) is the button's, not its own.
+  private static func keyViews(in view: UIView, into out: inout [UIView]) {
+    for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
+      if sub is UIControl, sub.bounds.width >= 8, sub.bounds.height >= 8 { out.append(sub) }
+      else { keyViews(in: sub, into: &out) }
+    }
   }
 
   /// A view, photographed and blurred `radius` points (0: as it is).
