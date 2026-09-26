@@ -9,6 +9,12 @@
  * find and change every one.
  *
  *   node tools/knobs/extract-keyboard.mjs [--check]
+ *   node tools/knobs/extract-keyboard.mjs --parity
+ *
+ * --parity fails when the iOS keyboard reads a knob that the Android keyboard
+ * neither reads nor names as iOS-only in tools/knobs/ios-only.json (with the
+ * reason). It also fails on a stale entry there — one Android now reads —
+ * so the list can only ever describe real differences.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -81,7 +87,24 @@ if (clashes.length) console.error("Note — one key, two defaults (first kept):\
 const doc = { ios: { flags: ios.flags, labels: ios.labels, dynamic: ios.dynamic },
   android: { flags: android.flags, labels: android.labels, dynamic: android.dynamic } };
 const text = JSON.stringify(doc, null, 2) + "\n";
-if (process.argv.includes("--check")) {
+if (process.argv.includes("--parity")) {
+  const only = JSON.parse(fs.readFileSync(path.join(here, "ios-only.json"), "utf8"));
+  const excused = (key, keys = {}, prefixes = {}) =>
+    key in keys || Object.keys(prefixes).some((p) => key.startsWith(p));
+  const gaps = [
+    ...Object.keys(ios.flags).filter((k) => !(k in android.flags) && !excused(k, only.keys, only.prefixes)),
+    ...Object.keys(ios.labels).filter((k) => !(k in android.labels) && !excused(k, only.labels, only.labelPrefixes))
+      .map((k) => `label ${k}`),
+  ];
+  const stale = [
+    ...Object.keys(only.keys ?? {}).filter((k) => k in android.flags),
+    ...Object.keys(only.labels ?? {}).filter((k) => k in android.labels).map((k) => `label ${k}`),
+  ];
+  if (stale.length) console.error("Android reads these, so they are not iOS-only — remove them from ios-only.json:\n  " + stale.join("\n  "));
+  if (gaps.length) console.error(`Android does not read ${gaps.length} iOS knob(s). Read each one, or list it in tools/knobs/ios-only.json with the reason:\n  ` + gaps.join("\n  "));
+  if (gaps.length || stale.length) process.exit(1);
+  console.log(`keyboard parity: every iOS knob is read on Android or listed as iOS-only`);
+} else if (process.argv.includes("--check")) {
   const cur = fs.existsSync(out) ? fs.readFileSync(out, "utf8") : "";
   if (cur !== text) { console.error("keyboard-knobs.json is out of date: run node tools/knobs/extract-keyboard.mjs"); process.exit(1); }
   console.log("keyboard knob manifest up to date");
