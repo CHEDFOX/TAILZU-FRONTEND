@@ -495,7 +495,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         (flags?.get("kb.autocorrect.maxCostPerChar") as? Number)?.let {
             TulmiAutocorrect.maxCostPerChar = it.toFloat()
         }
-        (flags?.get("kb.autocorrect.minLength") as? Number)?.let {
+        // kb.autocorrect.minLen is the name the backend sends (and iOS reads);
+        // minLength stays as an older alias.
+        ((flags?.get("kb.autocorrect.minLen") ?: flags?.get("kb.autocorrect.minLength")) as? Number)?.let {
             TulmiAutocorrect.minLength = it.toInt()
         }
         suggestionsEnabled = (flags?.get("kb.suggestions.enabled") as? Boolean) ?: true
@@ -770,7 +772,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (finishing) return
         val s = stream ?: run { endStreaming(); return }
         finishing = true
-        setStatus(label("transcribing", "Finishing…"))
+        setStatus(label("finishing", "Finishing…"))
         s.finish()
     }
 
@@ -786,7 +788,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         kbState.dictating = false
         kbState.micLevel = 0f
         sduiRenderer?.stateChanged()
-        if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
+        if (statusView?.text == label("finishing", "Finishing…")) setStatus("")
     }
 
     /** Dictation closed -> auto-refine what was just spoken (replaces the old Refine key). */
@@ -851,7 +853,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             kbState.dictating = true
             sduiRenderer?.stateChanged()
             startMicLevelPolling()
-            setStatus(label("listening", "Listening… tap mic to stop"))
+            setStatus(label("listening_tap_stop", "Listening… tap mic to stop"))
         } catch (e: Exception) {
             setStatus(label("voice_not_listening", "444 : Not Listening"))
             cleanupRecorder()

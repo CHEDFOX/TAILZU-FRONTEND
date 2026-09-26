@@ -1615,7 +1615,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
                 actionable: true)
       return
     }
-    setStatus(label("flow_arming", "Turning on Flow — swipe back into your app."), actionable: true)
+    setStatus(label("flow_arming_return", "Turning on Flow — swipe back into your app."), actionable: true)
     attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened, diag in
       guard let self = self else { return }
       // A tap that rides into an app switch can leave the system button stuck
@@ -2018,7 +2018,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingRecording = false
         guard granted else {
-          self.setStatus(self.label("mic_denied", "Microphone denied. Open Tailzu settings to allow it."), actionable: true)
+          self.setStatus(self.label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable: true)
           self.bailDictating()
           return
         }
