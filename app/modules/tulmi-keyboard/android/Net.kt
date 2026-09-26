@@ -1,6 +1,7 @@
 package com.tulmi.app.keyboard
 
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,7 +18,9 @@ import java.util.concurrent.TimeUnit
  * The base URL and the user's token come from the app (tulmi-bridge writes
  * them to SharedPreferences, see [load]). Every path except the config's own
  * is a knob, and so is every timeout — the config has to be reachable before
- * any knob is, so its path stays fixed.
+ * any knob is, so its path stays fixed. The knobs are the ones iOS reads
+ * (kb.endpoints.*, kb.network.timeouts.*, kb.network.retries, kb.upload.*), so
+ * one value on the server moves both keyboards.
  */
 object Net {
     var baseUrl: String = "https://api.tailzu.space"
@@ -82,17 +85,65 @@ object Net {
         conn.setRequestProperty(BUILD_HEADER, SDUIRenderer.BUILD_STAMP)
     }
 
-    /** Deadline for short calls — config, telemetry, personality, callEndpoint. */
-    fun shortTimeoutMs(): Long = knobLong("kb.network.timeoutMs", 15000L)
-
-    /** Deadline for calls that do real work server-side — refine and transcribe. */
-    private fun longTimeoutMs(): Long = knobLong("kb.network.longTimeoutMs", 60000L)
+    /** A server timeout, given in seconds as on iOS, as milliseconds. */
+    private fun secondsMs(sec: Float): Long = (sec.toDouble() * 1000.0).toLong()
 
     /** Run a request with its own deadline; returns (code, body). */
     private fun call(req: Request, timeoutMs: Long): Pair<Int, String> {
         val c = client.newCall(req)
         c.timeout().timeout(timeoutMs.coerceAtLeast(1000L), TimeUnit.MILLISECONDS)
         c.execute().use { res -> return res.code to (res.body?.string() ?: "") }
+    }
+
+    /**
+     * The server's path for an endpoint, or [fallback] when what it sent is
+     * blank or is not a path at all. A typo in the console must cost that one
+     * setting, not the request: the path is appended to the base URL, and
+     * anything that does not start with "/" or has a space in it would make a
+     * URL that fails, or worse, one on another host.
+     */
+    private fun path(server: String, fallback: String): String {
+        val p = server.trim()
+        return if (p.startsWith("/") && !p.startsWith("//") && p.none { it.isWhitespace() }) p else fallback
+    }
+
+    /** A response worth asking again for: the server failed or asked us to wait. */
+    private fun transient(code: Int): Boolean = code >= 500 || code == 408 || code == 429
+
+    /**
+     * Run an idempotent request (a GET), retrying a network failure or a
+     * 5xx / 408 / 429 up to kb.network.retries times. The first retry waits
+     * kb.network.retryBackoffMs and each later one twice the one before. The
+     * default is no retries — exactly the single attempt this always made. A
+     * 4xx (an expired token, say) is never retried: asking again won't fix it.
+     *
+     * [attempt] returns the status and whatever it read, and throws an
+     * IOException when there was no response at all. The pauses block the
+     * calling thread, so this is only ever called off the main thread — the
+     * config refresh and the image loader's pool. Both numbers are capped so a
+     * console typo cannot park that thread for hours.
+     */
+    fun <T> getWithRetry(attempt: () -> Pair<Int, T>): Pair<Int, T> {
+        var left = knobInt("kb.network.retries", 0).coerceIn(0, 10)
+        var delayMs = knobFloat("kb.network.retryBackoffMs", 500f).toDouble().coerceIn(0.0, 60_000.0)
+        while (true) {
+            val result = try {
+                attempt()
+            } catch (e: java.io.IOException) {
+                if (left <= 0) throw e
+                null
+            }
+            if (result != null && (left <= 0 || !transient(result.first))) return result
+            left -= 1
+            try {
+                Thread.sleep(delayMs.toLong())
+            } catch (e: InterruptedException) {
+                // Torn down mid-wait: stop asking. The last answer, if there was one.
+                Thread.currentThread().interrupt()
+                return result ?: throw java.io.IOException("interrupted")
+            }
+            delayMs = (delayMs * 2).coerceAtMost(60_000.0)
+        }
     }
 
     /** WebSocket URL for live dictation: same host as baseUrl, ws/wss scheme. */
@@ -102,7 +153,7 @@ object Net {
             baseUrl.startsWith("http://") -> "ws://" + baseUrl.removePrefix("http://")
             else -> baseUrl
         }
-        return ws + knobString("kb.network.streamPath", "/v1/transcribe-stream")
+        return ws + path(knobString("kb.endpoints.stream", "/v1/transcribe-stream"), "/v1/transcribe-stream")
     }
 
     /** Server-driven keyboard config (theme/labels/flags). Fetched + cached. */
@@ -192,7 +243,7 @@ object Net {
     fun getKeyboardConfigJson(): String {
         // The one path that is NOT a knob: knobs arrive in this response.
         val req = authorize(Request.Builder().url("$baseUrl/v1/keyboard/config")).get().build()
-        val (code, s) = call(req, shortTimeoutMs())
+        val (code, s) = getWithRetry { call(req, secondsMs(knobFloat("kb.network.timeouts.configSec", 30f))) }
         if (code !in 200..299) throw RuntimeException("config $code: $s")
         return s
     }
@@ -210,7 +261,7 @@ object Net {
         return if (toneId.isNotEmpty() && toneId in routed) {
             knobString("kb.refine.tonePathPrefix", "/v1/refine/") + toneId
         } else {
-            knobString("kb.network.refinePath", "/v1/refine")
+            path(knobString("kb.endpoints.refine", "/v1/refine"), "/v1/refine")
         }
     }
 
@@ -239,7 +290,7 @@ object Net {
         val req = authorize(Request.Builder().url("$baseUrl$path"))
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
-        val (code, s) = call(req, longTimeoutMs())
+        val (code, s) = call(req, secondsMs(knobFloat("kb.network.timeouts.refineSec", 60f)))
         if (code !in 200..299) throw RuntimeException("refine $code: $s")
         return JSONObject(s).optString("refinedText")
     }
@@ -250,10 +301,10 @@ object Net {
      * so sending { activeTone } does not wipe vocabulary or pins.
      */
     fun putPersonality(body: JSONObject) {
-        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.personalityPath", "/v1/personality")))
+        val req = authorize(Request.Builder().url(baseUrl + path(knobString("kb.endpoints.personality", "/v1/personality"), "/v1/personality")))
             .put(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        val (code, s) = call(req, shortTimeoutMs())
+        val (code, s) = call(req, secondsMs(knobFloat("kb.network.timeouts.personalitySec", 15f)))
         if (code !in 200..299) throw RuntimeException("personality $code: $s")
     }
 
@@ -272,10 +323,10 @@ object Net {
             .put("build", build)
             .put("platform", "android")
             .toString()
-        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.telemetryPath", "/v1/keyboard/telemetry")))
+        val req = authorize(Request.Builder().url(baseUrl + path(knobString("kb.endpoints.telemetry", "/v1/keyboard/telemetry"), "/v1/keyboard/telemetry")))
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
-        val (code, s) = call(req, shortTimeoutMs())
+        val (code, s) = call(req, secondsMs(knobFloat("kb.network.timeouts.telemetrySec", 15f)))
         if (code !in 200..299) throw RuntimeException("telemetry $code: $s")
     }
 
@@ -286,16 +337,22 @@ object Net {
          *  sentence this call writes fits what it joins. */
         context: String = "",
     ): String {
+        // The upload's name and type are the server's (kb.upload.*), for when
+        // the recorder's format changes before this build does. A blank name or
+        // a type OkHttp cannot parse keeps the one this always sent.
+        val filename = knobString("kb.upload.filename", "audio.m4a").trim().ifEmpty { "audio.m4a" }
+        val mimeType = knobString("kb.upload.mimeType", "audio/m4a").trim().toMediaTypeOrNull()
+            ?: "audio/m4a".toMediaType()
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("audio", "audio.m4a", file.asRequestBody("audio/m4a".toMediaType()))
+            .addFormDataPart("audio", filename, file.asRequestBody(mimeType))
             .addFormDataPart("targetApp", targetApp)
             .addFormDataPart("language", language())
             .apply { if (context.isNotBlank()) addFormDataPart("context", context) }
             .build()
-        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.transcribePath", "/v1/transcribe-clean")))
+        val req = authorize(Request.Builder().url(baseUrl + path(knobString("kb.endpoints.transcribeClean", "/v1/transcribe-clean"), "/v1/transcribe-clean")))
             .post(body)
             .build()
-        val (code, s) = call(req, longTimeoutMs())
+        val (code, s) = call(req, secondsMs(knobFloat("kb.network.timeouts.transcribeCleanSec", 60f)))
         if (code !in 200..299) throw RuntimeException("transcribe $code: $s")
         return JSONObject(s).optString("cleanedText")
     }

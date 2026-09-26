@@ -52,11 +52,13 @@ object TulmiTelemetry {
     private const val KEY_WINDOW_START = "windowStart"
 
     /** Persist at most this often. Typing bursts hundreds of events; writing
-     *  each one would put a disk commit on the keystroke path. */
-    private fun persistThrottleMs(): Long = knobLong("kb.telemetry.persistThrottleMs", 20000L)
+     *  each one would put a disk commit on the keystroke path. The server's
+     *  number, in seconds as iOS reads it (kb.telemetry.persistSec). */
+    private fun persistThrottleMs(): Long = (knobFloat("kb.telemetry.persistSec", 20f).toDouble() * 1000.0).toLong()
     /** Don't upload more often than this — config refreshes on every keyboard
-     *  open, which for a heavy user is dozens of times an hour. */
-    private fun uploadIntervalMs(): Long = knobLong("kb.telemetry.uploadIntervalMs", 1800000L)
+     *  open, which for a heavy user is dozens of times an hour. Seconds, as on
+     *  iOS (kb.telemetry.uploadIntervalSec). */
+    private fun uploadIntervalMs(): Long = (knobFloat("kb.telemetry.uploadIntervalSec", 1800f).toDouble() * 1000.0).toLong()
 
     /** The server's off switch: counting and uploading both stop. */
     private fun enabled(): Boolean = knobBool("kb.telemetry.enabled", true)

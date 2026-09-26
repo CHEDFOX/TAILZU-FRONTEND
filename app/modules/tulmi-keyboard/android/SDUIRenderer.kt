@@ -830,6 +830,9 @@ class SDUIRenderer(
         // A toast still on screen outlives the rebuild instead of vanishing
         // with the tree it was drawn over.
         toastView?.let { t -> if (t.parent == null) container.addView(t, t.layoutParams) }
+        // The status line, the build stamp and the touch-rect sheet sit over
+        // whatever tree was just drawn.
+        drawOverlays()
         // Baseline for the next fast-shift comparison.
         lastTreeKey = treeKey()
         publishKeyGeometry(container)
@@ -2556,7 +2559,7 @@ class SDUIRenderer(
             is KBActionSpec.CycleTone -> cycleTone()
             is KBActionSpec.Confetti -> effects.confetti()
             is KBActionSpec.OpenApp -> openApp(spec.screenId)
-            is KBActionSpec.OpenSettings -> openInputMethodSettings()
+            is KBActionSpec.OpenSettings -> openSettings()
             is KBActionSpec.OpenUrl -> openUrl(spec.url)
             is KBActionSpec.Haptic -> haptic(spec.style)
             is KBActionSpec.Toast -> toast(spec.message, spec.tone)
@@ -2777,43 +2780,34 @@ class SDUIRenderer(
         if (toDelete > 0) ic.deleteSurroundingText(toDelete, 0)
     }
 
+    /** The app at a screen (kb.deepLink.urlTemplate), or at its root
+     *  (kb.deepLink.rootUrl) when the action names none — see TulmiLinks. */
     private fun openApp(screenId: String?) {
-        val uri = Uri.parse(flagString("kb.deeplink.base", "tulmi://screen/") + (screenId ?: ""))
-        val i = Intent(Intent.ACTION_VIEW, uri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            host.context().startActivity(i)
-        } catch (t: Throwable) {
-            Log.w("SDUI", "openApp failed: ${t.message}")
-        }
+        if (!TulmiLinks.treeMayOpenApp()) return
+        TulmiLinks.openOwn(host.context(), TulmiLinks.appUrl(screenId))
     }
 
-    private fun openInputMethodSettings() {
-        val i = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            host.context().startActivity(i)
-        } catch (t: Throwable) {
-            Log.w("SDUI", "openSettings failed: ${t.message}")
-        }
+    /** What iOS's openSettings reaches through the app: the system page for
+     *  Tailzu, or the app screen kb.deepLink.settingsUrl names. */
+    private fun openSettings() {
+        if (!TulmiLinks.treeMayOpenApp()) return
+        TulmiLinks.openSettings(host.context())
     }
 
     /** Open an arbitrary URL. Unlike iOS keyboard extensions (which can't launch
-     *  URLs and drop a tombstone), an Android IME can startActivity directly —
-     *  same pattern as openApp/openInputMethodSettings. `external` is implicit on
-     *  Android (the OS routes to the right handler). */
+     *  URLs and drop a tombstone), an Android IME can startActivity directly.
+     *  A URL on one of the app's own schemes (kb.deepLink.openUrlSchemes) opens
+     *  in the app, as on iOS, and pinned to it; anything else still opens
+     *  directly — iOS routes it through the app only because a keyboard there
+     *  may not open another app, and Android has no such rule and no note to
+     *  carry the URL across. `external` is implicit on Android. */
     private fun openUrl(url: String) {
         if (url.isEmpty()) return
-        val i = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (TulmiLinks.isOwnScheme(url)) {
+            if (TulmiLinks.treeMayOpenApp()) TulmiLinks.openOwn(host.context(), url)
+            return
         }
-        try {
-            host.context().startActivity(i)
-        } catch (t: Throwable) {
-            Log.w("SDUI", "openUrl failed: ${t.message}")
-        }
+        TulmiLinks.openAny(host.context(), url)
     }
 
     /** The toast on screen, so a rebuild can carry it over (see redraw). */
@@ -2836,16 +2830,27 @@ class SDUIRenderer(
             "success" -> flagColor("kb.toast.color.success", "#34C759E6")
             else -> flagColor("kb.toast.color.info", "#000000D9")
         }
+        val padH = dp(flagFloat("kb.toast.padH", 14f))
+        val padV = dp(flagFloat("kb.toast.padV", 6f))
         val tv = TextView(ctx).apply {
             text = message
             isAllCaps = false
             maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
             gravity = android.view.Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(flagColor("kb.toast.fg", "#FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, flagFloat("kb.toast.fontSize", 13f))
             applyFontWeight(this, "medium")
-            setPadding(dp(14), 0, dp(14), 0)
-            background = GradientDrawable().apply { setColor(bg); cornerRadius = heightPx / 2f }
+            setPadding(padH, padV, padH, padV)
+            background = GradientDrawable().apply {
+                setColor(bg)
+                cornerRadius = dp(flagFloat("kb.toast.radius", 8f)).toFloat()
+            }
+            // No wider than kb.toast.maxWidthFraction of the keyboard; a longer
+            // message ends in an ellipsis instead of running off both edges.
+            val fraction = flagFloat("kb.toast.maxWidthFraction", 0.9f).coerceIn(0.05f, 1f)
+            val width = container.width.takeIf { it > 0 } ?: ctx.resources.displayMetrics.widthPixels
+            maxWidth = (width * fraction).toInt()
             alpha = 0f
             isClickable = false
         }
@@ -2866,6 +2871,143 @@ class SDUIRenderer(
                 if (toastView === tv) toastView = null
             }.start()
         }.start()
+    }
+
+    // --- Overlays over the tree (status line, build stamp, touch rects) -------
+
+    private fun drawOverlays() {
+        syncStatusOverlay()
+        addBuildStamp()
+        applyTouchRectsDebug()
+    }
+
+    /** The floating status line, kept across rebuilds and restyled on each. */
+    private var statusOverlay: TextView? = null
+
+    /**
+     * The status line, floating over the top of the keyboard whatever shape
+     * the tree has — iOS re-attaches its status label the same way once a tree
+     * mounts, so a blocking message is never lost to a tree without a band.
+     *
+     * WHEN it shows is not decided here: the host's setStatus applies
+     * kb.status.show and leaves state.status empty for anything that must not
+     * show, and status is part of treeKey, so every change lands in a rebuild
+     * and here. This only draws it, styled by kb.status.overlay.*. A tree with
+     * its own status band shows it there too, as on iOS.
+     */
+    private fun syncStatusOverlay() {
+        val text = host.state().status
+        val old = statusOverlay
+        if (text.isEmpty()) {
+            old?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            statusOverlay = null
+            return
+        }
+        val ctx = host.context()
+        val tv = old ?: TextView(ctx).apply {
+            isAllCaps = false
+            gravity = android.view.Gravity.CENTER
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            // Never takes a touch: whatever is under it keeps working.
+            isClickable = false
+            isFocusable = false
+        }
+        tv.text = text
+        tv.setTextColor(flagColor("kb.status.overlay.fg", "#FFFFFF"))
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, flagFloat("kb.status.overlay.fontSize", 12f))
+        applyFontWeight(tv, "medium")
+        tv.maxLines = flagInt("kb.status.overlay.maxLines", 2).coerceAtLeast(1)
+        tv.minHeight = dp(flagFloat("kb.status.overlay.minHeight", 24f))
+        tv.setPadding(dp(8), dp(2), dp(8), dp(2))
+        tv.background = GradientDrawable().apply {
+            setColor(flagColor("kb.status.overlay.bg", "#000000BF"))
+            cornerRadius = dp(flagFloat("kb.status.overlay.radius", 8f)).toFloat()
+        }
+        val side = dp(flagFloat("kb.status.overlay.insetX", 12f))
+        val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = android.view.Gravity.TOP
+            leftMargin = side
+            rightMargin = side
+            topMargin = dp(flagFloat("kb.status.overlay.insetTop", 4f))
+        }
+        (tv.parent as? ViewGroup)?.removeView(tv)
+        container.addView(tv, lp)
+        statusOverlay = tv
+    }
+
+    /**
+     * kb.buildStamp.enabled — a small corner mark with this binary's
+     * BUILD_STAMP, over the tree. Off by default: a debug mark must never ship
+     * visible. Flipped on from the server, the stamp appearing proves both that
+     * this build is the one running and that live config reaches it.
+     */
+    private fun addBuildStamp() {
+        if (!flagBoolean("kb.buildStamp.enabled", false)) return
+        val tv = TextView(host.context()).apply {
+            text = BUILD_STAMP
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(0xE6FF9500.toInt())
+            isClickable = false
+            isFocusable = false
+        }
+        val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            rightMargin = dp(5)
+            bottomMargin = dp(3)
+        }
+        container.addView(tv, lp)
+    }
+
+    /** The sheet painted by kb.debug.showTouchRects, while it is on. */
+    private var touchRectsSheet: android.graphics.drawable.Drawable? = null
+
+    /**
+     * kb.debug.showTouchRects — paint what the touch planes actually own.
+     *
+     * Every plane's band is filled (the plane gives the gaps between its keys
+     * to the nearest key, so the whole band is what a finger can land on) and
+     * every key it holds as a view is outlined. A dead zone is then simply a
+     * place with no colour on it. Off by default and backend-flippable, so it
+     * can be turned on against a real device and off again without a build.
+     * Painted into the container's overlay, where it never takes a touch.
+     */
+    private fun applyTouchRectsDebug() {
+        touchRectsSheet?.let { container.overlay.remove(it) }
+        touchRectsSheet = null
+        if (!flagBoolean("kb.debug.showTouchRects", false)) return
+        val own = Paint().apply { color = 0x2934C759; style = Paint.Style.FILL }
+        val key = Paint().apply { color = 0x80FFFFFF.toInt(); style = Paint.Style.STROKE; strokeWidth = 1f }
+        val r = android.graphics.Rect()
+        val sheet = object : android.graphics.drawable.Drawable() {
+            override fun draw(canvas: Canvas) {
+                fun walk(v: View) {
+                    if (v is TulmiKeyPlane && v.isShown) {
+                        r.set(0, 0, v.width, v.height)
+                        container.offsetDescendantRectToMyCoords(v, r)
+                        canvas.drawRect(r, own)
+                        for (i in 0 until v.childCount) {
+                            val c = v.getChildAt(i)
+                            if (!c.isShown) continue
+                            c.getHitRect(r)
+                            container.offsetDescendantRectToMyCoords(v, r)
+                            canvas.drawRect(r, key)
+                        }
+                    }
+                    if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+                }
+                try { walk(container) } catch (_: Throwable) { /* a debug paint never costs a frame */ }
+            }
+            override fun setAlpha(alpha: Int) {}
+            override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+            @Deprecated("Deprecated in Java")
+            override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+        }
+        sheet.setBounds(0, 0, Int.MAX_VALUE / 2, Int.MAX_VALUE / 2)
+        container.overlay.add(sheet)
+        touchRectsSheet = sheet
+        // The keys have no positions until the next layout pass.
+        container.post { sheet.invalidateSelf() }
     }
 
     private fun copyToClipboard(text: String) {

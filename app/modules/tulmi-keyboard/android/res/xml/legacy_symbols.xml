@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Symbol page of the hand-built fallback keyboard — the iOS hand-built
+  keyboard's symbol page, key for key. Labelled in code and as tall as the
+  number page. -3 turns back to the number page, -2 to letters.
+-->
+<Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
+    android:keyWidth="10%p"
+    android:keyHeight="62.5dp"
+    android:horizontalGap="0px"
+    android:verticalGap="0px">
+
+    <Row>
+        <Key android:codes="91" />
+        <Key android:codes="93" />
+        <Key android:codes="123" />
+        <Key android:codes="125" />
+        <Key android:codes="35" />
+        <Key android:codes="37" />
+        <Key android:codes="94" />
+        <Key android:codes="42" />
+        <Key android:codes="43" />
+        <Key android:codes="61" />
+    </Row>
+
+    <Row>
+        <Key android:codes="95" />
+        <Key android:codes="92" />
+        <Key android:codes="124" />
+        <Key android:codes="126" />
+        <Key android:codes="60" />
+        <Key android:codes="62" />
+        <Key android:codes="8364" />
+        <Key android:codes="163" />
+        <Key android:codes="165" />
+        <Key android:codes="8226" />
+    </Row>
+
+    <Row>
+        <Key android:codes="-3" android:keyWidth="15%p" />
+        <Key android:codes="46" android:keyWidth="14%p" />
+        <Key android:codes="44" android:keyWidth="14%p" />
+        <Key android:codes="63" android:keyWidth="14%p" />
+        <Key android:codes="33" android:keyWidth="14%p" />
+        <Key android:codes="39" android:keyWidth="14%p" />
+        <Key android:codes="-5" android:keyLabel="⌫" android:keyWidth="15%p" android:isRepeatable="true" />
+    </Row>
+
+    <Row>
+        <Key android:codes="-2" android:keyWidth="15%p" />
+        <Key android:codes="-100" android:keyLabel="🎙" android:keyWidth="15%p" />
+        <Key android:codes="32" android:keyWidth="40%p" />
+        <Key android:codes="-101" android:keyLabel="✨" android:keyWidth="10%p" />
+        <Key android:codes="-4" android:keyLabel="↵" android:keyWidth="20%p" />
+    </Row>
+</Keyboard>
