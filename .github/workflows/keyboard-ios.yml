@@ -22,6 +22,7 @@ on:
       - "app/targets/keyboard/**"
       - "app/targets/widgets/**"
       - "app/modules/tulmi-bridge/ios/**"
+      - "tools/ci/**"
       - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
 
@@ -73,9 +74,9 @@ jobs:
   # checking it. A break there fails exactly the same way a keyboard break does:
   # at EAS build time, ten minutes in.
   #
-  # Only the files that import system frameworks alone are checkable this way.
-  # TulmiBridgeModule.swift needs ExpoModulesCore (a pod), so it stays out; it is
-  # thin glue, and the logic worth gating is in the files below.
+  # TulmiBridgeModule.swift needs ExpoModulesCore, a pod CI does not install.
+  # It is checked against tools/ci/ExpoModulesCoreStub.swift, a stand-in with
+  # the same Module / Function declarations, built as its own module first.
   flow-session:
     runs-on: macos-15
     steps:
@@ -102,6 +103,27 @@ jobs:
             -typecheck \
             $FILES
           echo "✅ Flow session type-checks cleanly."
+
+      - name: Type-check the bridge module (stand-in ExpoModulesCore)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          STUB=$(mktemp -d)
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name ExpoModulesCore \
+            -parse-as-library \
+            -emit-module -emit-module-path "$STUB/ExpoModulesCore.swiftmodule" \
+            tools/ci/ExpoModulesCoreStub.swift
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TulmiBridge \
+            -I "$STUB" \
+            -typecheck \
+            app/modules/tulmi-bridge/ios/*.swift
+          echo "✅ Bridge module type-checks cleanly."
 
   # The widgets: the month on the Home and Lock Screen, the Flow session as a
   # Live Activity, Dictate as a Control. SwiftUI, WidgetKit, ActivityKit and
