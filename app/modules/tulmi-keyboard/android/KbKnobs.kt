@@ -33,20 +33,36 @@ object KbKnobs {
     internal fun label(key: String): String? = if (labels.has(key)) labels.optString(key) else null
 }
 
-fun knobFloat(key: String, fallback: Float): Float = when (val v = KbKnobs.flag(key)) {
-    is Number -> v.toFloat()
-    is String -> v.toFloatOrNull() ?: fallback
-    else -> fallback
+/** Finite, or the fallback: "NaN" or 1e39 from the console is no number. */
+fun knobFloat(key: String, fallback: Float): Float {
+    val f = when (val v = KbKnobs.flag(key)) {
+        is Number -> v.toFloat()
+        is String -> v.toFloatOrNull() ?: return fallback
+        else -> return fallback
+    }
+    return if (f.isNaN() || f.isInfinite()) fallback else f
 }
 
 fun knobInt(key: String, fallback: Int): Int = knobFloat(key, fallback.toFloat()).toInt()
 
 fun knobLong(key: String, fallback: Long): Long = when (val v = KbKnobs.flag(key)) {
-    is Number -> v.toLong()
+    is Number -> v.toDouble().let { if (it.isNaN() || it.isInfinite()) fallback else v.toLong() }
+    is String -> v.toDoubleOrNull()?.takeIf { !it.isNaN() && !it.isInfinite() }?.toLong() ?: fallback
     else -> fallback
 }
 
-fun knobBool(key: String, fallback: Boolean): Boolean = (KbKnobs.flag(key) as? Boolean) ?: fallback
+/** Read the way the renderer's flagBoolean reads: a console "false" or 0 is
+ *  off, not ignored — these are the kill switches. */
+fun knobBool(key: String, fallback: Boolean): Boolean = when (val v = KbKnobs.flag(key)) {
+    is Boolean -> v
+    is Number -> v.toDouble() != 0.0
+    is String -> when (v.trim().lowercase()) {
+        "true", "1", "yes" -> true
+        "false", "0", "no" -> false
+        else -> fallback
+    }
+    else -> fallback
+}
 
 fun knobString(key: String, fallback: String): String = (KbKnobs.flag(key) as? String) ?: fallback
 

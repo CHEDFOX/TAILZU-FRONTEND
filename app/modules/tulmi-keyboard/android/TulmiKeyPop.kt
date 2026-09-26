@@ -139,6 +139,12 @@ class TulmiKeyPop : Drawable() {
         if (items.isEmpty()) return
         val w = bounds.width().toFloat()
         val n = items.size
+        // Nine chips for "a" are 400dp at the server's width; on a 360dp phone
+        // the last ones would be off screen and unreachable. Narrow them to fit.
+        if (w > 0f) {
+            val fit = (w - 2f * edgeInset - 2f * trayPadding - (n - 1) * chipGap) / n
+            if (fit > 0f) chipWidth = minOf(chipWidth, fit)
+        }
         val width = n * chipWidth + (n - 1) * chipGap + trayPadding * 2f
         val margin = edgeInset
         var left = key.centerX() - trayPadding - chipWidth / 2f
