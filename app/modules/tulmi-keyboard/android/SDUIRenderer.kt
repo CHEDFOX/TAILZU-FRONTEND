@@ -149,7 +149,7 @@ interface KBHost {
      * line since the mic shipped; Android suppressed everything, which is why
      * every blocked path there was silent.
      */
-    fun setStatus(text: String, actionable: Boolean = false)
+    fun setStatus(text: String, actionable: Boolean = false, blocking: Boolean = false)
     fun state(): KBState
     fun config(): KBConfig
     /**
@@ -2278,7 +2278,7 @@ class SDUIRenderer(
             )
         }
         // The same tone list the pill cycles, in the server's order.
-        val toneList = TulmiTone.tones(kbConfig.flags).map { TulmiPersonalityRow.Tone(id = it.id, label = it.label) }
+        val toneList = TulmiTone.keyboardTones(kbConfig.flags).map { TulmiPersonalityRow.Tone(id = it.id, label = it.label) }
         row.update(
             chips = chips,
             tones = toneList,
@@ -2585,7 +2585,8 @@ class SDUIRenderer(
 
     private fun cycleTone() {
         val items = TulmiTone.items(kbConfig.flags)
-        if (items.isEmpty()) return
+        // Zu alone: nowhere to go, and nothing to save.
+        if (items.size <= 1) return
         val cur = TulmiTone.current(host.context(), kbConfig.flags)
         val next = items[(items.indexOf(cur) + 1) % items.size]
         pickTone(next)
@@ -2605,10 +2606,11 @@ class SDUIRenderer(
     private fun showToneSheet(anchor: View) {
         val ctx = host.context()
         val voices = TulmiTone.voices(kbConfig.flags)
-        val tones = TulmiTone.tones(kbConfig.flags)
+        val tones = TulmiTone.keyboardTones(kbConfig.flags)
         if (voices.isEmpty() && tones.isEmpty()) return
-        val activeVoice = TulmiTone.activeVoiceId(ctx, kbConfig.flags)
-        val activeTone = TulmiTone.activeToneId(ctx, kbConfig.flags)
+        // The tick goes on what the pill is showing — Zu, for someone who has
+        // not picked yet, rather than on nothing.
+        val current = TulmiTone.current(ctx, kbConfig.flags)
         val accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
         val popup = android.widget.PopupMenu(ctx, anchor)
         val picks = ArrayList<TulmiTone.Item>()
@@ -2627,12 +2629,12 @@ class SDUIRenderer(
             // Ids start at 1: Menu.NONE (0) is the headers'.
             popup.menu.add(0, picks.size, order++, title)
         }
-        if (voices.isNotEmpty()) {
-            header(label("tone_sheet_voices", "Voices"))
-            voices.forEach { entry(it, it.id == activeVoice) }
-            header(label("tone_sheet_tones", "Tones"))
-        }
-        tones.forEach { entry(it, it.id == activeTone) }
+        // Headers only when there are two kinds to tell apart.
+        val mixed = voices.isNotEmpty() && tones.isNotEmpty()
+        if (mixed) header(label("tone_sheet_voices", "Voices"))
+        voices.forEach { entry(it, it == current) }
+        if (mixed) header(label("tone_sheet_tones", "Tones"))
+        tones.forEach { entry(it, it == current) }
         popup.setOnMenuItemClickListener { mi ->
             picks.getOrNull(mi.itemId - 1)?.let { pickTone(it) }
             true

@@ -60,11 +60,12 @@ object TulmiTone {
     private fun serverString(flags: Map<String, Any?>, key: String): String =
         (flags[key] as? String)?.trim().orEmpty()
 
-    /** The user's keyboard voices, in the server's order. */
+    /** The user's keyboard voices, in the server's order. `label` is what
+     *  the pill shows (ZU for Zu); a server that sends none gets the name. */
     fun voices(flags: Map<String, Any?>): List<Item> =
         elements(flags["kb.personality.pinned"]).mapNotNull { el ->
             val id = field(el, "id") ?: return@mapNotNull null
-            Item("voice", id, field(el, "name") ?: id, field(el, "tone") ?: "")
+            Item("voice", id, field(el, "label") ?: field(el, "name") ?: id, field(el, "tone") ?: "")
         }
 
     /**
@@ -87,8 +88,24 @@ object TulmiTone {
             .map { Item("tone", it.lowercase().replace(' ', '-'), it, it.lowercase().replace(' ', '-')) }
     }
 
-    /** Everything the pill cycles: voices, then tones. */
-    fun items(flags: Map<String, Any?>): List<Item> = voices(flags) + tones(flags)
+    /**
+     * The tones the KEYBOARD offers: none, unless the server turns them on
+     * (kb.personality.keyboardTones). The keyboard is Zu and the voices the
+     * user put on it; it used to add the whole tone list (Formal, Casual…),
+     * so someone who had added nothing still had four options they never chose.
+     */
+    fun keyboardTones(flags: Map<String, Any?>): List<Item> {
+        val on = when (val v = flags["kb.personality.keyboardTones"]) {
+            is Boolean -> v
+            is Number -> v.toInt() != 0
+            is String -> v.equals("true", ignoreCase = true)
+            else -> false
+        }
+        return if (on) tones(flags) else emptyList()
+    }
+
+    /** Everything the pill cycles: the voices, then any tones the server offers. */
+    fun items(flags: Map<String, Any?>): List<Item> = voices(flags) + keyboardTones(flags)
 
     // --- what is active ------------------------------------------------------
 
