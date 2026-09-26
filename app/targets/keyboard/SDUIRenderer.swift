@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import CoreImage
 
 // =============================================================================
 // KeyRowStackView — a horizontal key row that never wastes a touch.
@@ -3954,11 +3955,11 @@ final class SDUIRenderer: NSObject {
     // from one line that was never written.
     //
     // Raised after everything else, above the plane and below the build stamp.
-    if state.dictating, let dim = recordingDimView {
-      container.bringSubviewToFront(dim)
-      // The tools row goes above it again: the mic that STOPS the recording
-      // has to stay reachable, and it is the only thing that does.
-      if let mic = currentMicButton?.superview { container.bringSubviewToFront(mic) }
+    if state.dictating, recordingDimView != nil {
+      // The veil is photographs of the OLD tree's rows; the new tree's rows
+      // are live and unfrosted beneath it. Draw it again from the new rows.
+      removeKeyDimming(animated: false)
+      applyKeyDimming(animated: false)
     }
     // Build stamp — added LAST so it sits on top of the tree + plane. A small
     // corner marker that proves whether THIS binary is the one running: if iOS
@@ -3986,7 +3987,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K37"
+  static let buildStamp = "K38"
 
   /// The bundled brand mark.
   ///
@@ -4531,113 +4532,117 @@ final class SDUIRenderer: NSObject {
     removeKeyDimming()
   }
 
-  private func applyKeyDimming() {
+  private func applyKeyDimming(animated: Bool = true) {
     // Backend flags:
-    //   kb.dictation.dim.enabled  (default true)  — set false to skip the dim entirely
-    //   kb.dictation.dim.color    (default "#000000")
-    //   kb.dictation.dim.alpha    (default 0.45)  — 0..1 opacity of the dim overlay
-    //   kb.dictation.dim.fadeMs   (default 250)   — fade-in duration
+    //   kb.dictation.dim.enabled        (default true)  — set false to skip the veil entirely
+    //   kb.dictation.dim.blur           (default true)  — frost the keys (false: fade only)
+    //   kb.dictation.dim.iosBlurRadius  (default 4)     — points; the Android radius is px and larger
+    //   kb.dictation.dim.keyAlpha       (default 0.72)  — the frosted keys' opacity
+    //   kb.dictation.dim.color / .alpha                 — a tint over the rows, whisper by default
+    //   kb.dictation.dim.blocksTouches  (default true)  — the frosted rows swallow touches
+    //   kb.dictation.dim.fadeMs         (default 250)
     guard flagBool("kb.dictation.dim.enabled", true) else { return }
     guard let container = mountContainer, recordingDimView == nil else { return }
-    // A BLUR, not just a scrim, when the platform can do it — the keys should
-    // read as behind frosted glass rather than merely darkened. The tint stays
-    // underneath it so the amount of hiding is still one flag.
-    // The TINT follows the appearance.
+    guard let mic = currentMicButton, mic.window != nil else { return }
+    container.layoutIfNeeded()
+
+    // FROSTED KEYS, DRAWN. Each key row is photographed, blurred a few points,
+    // faded, and shown in the row's own place while the row itself is hidden:
+    // the keys read as behind glass, still recognisably keys, and the veil
+    // owns their touches. The tools row — the mic that stops the recording,
+    // and everything beside it — is never touched: not frosted, not covered,
+    // not blocked. That is the whole difference from the system material,
+    // which sat over the entire keyboard, hid the mic, and turned dark keys
+    // into a sheet of fog.
     //
-    // It used to be black at 45% unconditionally. Our background is transparent
-    // by design — iOS's own keyboard region shows through — and in LIGHT
-    // appearance that region is pale, so black over it did not read as
-    // "dimmed": it read as a grey slab dropped behind the whole keyboard.
-    //
-    // Tinting toward the surface the user is already looking at keeps it a
-    // veil in both appearances, and the blur is what actually carries the
-    // "not now". kb.dictation.dim.color still overrides if a build needs it.
+    // Which views are rows: the mic's row is its first ancestor as wide as
+    // the keyboard; everything beside that row and beside its ancestors up
+    // to the tree is a row of keys (or a bar), whatever the tree's nesting.
+    var row: UIView = mic
+    while let sup = row.superview, sup !== container, row.bounds.width < container.bounds.width * 0.8 { row = sup }
+    var rows: [UIView] = []
+    var path: UIView = row
+    while let sup = path.superview, sup !== container {
+      for sib in sup.subviews where sib !== path && !sib.isHidden && sib.alpha > 0.01 && sib.bounds.height >= 12 {
+        rows.append(sib)
+      }
+      path = sup
+    }
+
     let light = state.appearance == "light"
+    let veil = DictationVeil()
+    veil.swallows = flagBool("kb.dictation.dim.blocksTouches", true)
+    let radius = flagBool("kb.dictation.dim.blur", true) ? flagCGFloat("kb.dictation.dim.iosBlurRadius", 4) : 0
+    let keyAlpha = flagCGFloat("kb.dictation.dim.keyAlpha", 0.72)
     let tint = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
       .withAlphaComponent(flagCGFloat("kb.dictation.dim.alpha", 0.08))
-    let dim: UIView
-    if flagBool("kb.dictation.dim.blur", true) {
-      // THE MATERIAL IS NAMED BY THE SERVER, because the choice between them is
-      // the whole difference between frosted keys and a grey slab. Every system
-      // material carries its own fill as well as its blur, and thin carries
-      // enough of one to read as a sheet laid over the keyboard rather than the
-      // keyboard seen through something. Ultra-thin is nearly all blur.
-      let name = flagString("kb.dictation.dim.material", "ultraThin")
-      let style: UIBlurEffect.Style
-      switch name {
-      case "thin":    style = light ? .systemThinMaterialLight : .systemThinMaterialDark
-      case "regular": style = light ? .systemMaterialLight : .systemMaterialDark
-      case "chrome":  style = light ? .systemChromeMaterialLight : .systemChromeMaterialDark
-      default:        style = light ? .systemUltraThinMaterialLight : .systemUltraThinMaterialDark
+    for r in rows {
+      let frame = r.convert(r.bounds, to: container)
+      if let img = SDUIRenderer.frosted(r, radius: radius) {
+        let iv = UIImageView(image: img)
+        iv.frame = frame
+        iv.alpha = keyAlpha
+        veil.addSubview(iv)
       }
-      let v = DictationVeilBlur(effect: UIBlurEffect(style: style))
-      v.contentView.backgroundColor = tint
-      v.passthrough = currentMicButton
-      dim = v
-    } else {
-      // No blur to carry the signal, so the veil has to do it alone — but from
-      // the appearance's own side, never a black slab over a pale keyboard.
-      let v = DictationVeilPlain()
-      v.backgroundColor = flagColor("kb.dictation.dim.color", light ? "#FFFFFF" : "#000000")
-        .withAlphaComponent(flagCGFloat("kb.dictation.dim.fallbackAlpha", 0.5))
-      v.passthrough = currentMicButton
-      dim = v
+      let wash = UIView(frame: frame)
+      wash.backgroundColor = tint
+      veil.addSubview(wash)
+      veil.rects.append(frame)
+      veil.hidden.append(r)
+      r.alpha = 0
     }
-    dim.translatesAutoresizingMaskIntoConstraints = false
-    // SWALLOW touches. This was false, so every key under the dim stayed live:
-    // the keyboard LOOKED disabled while dictating and typed anyway, which is
-    // the worst of both — a stray thumb landing mid-utterance inserted a
-    // character into the text the refine pass was about to rewrite.
-    //
-    // The tools row is raised above this view below, so the mic that STOPS the
-    // recording is still reachable. Nothing else is.
-    dim.isUserInteractionEnabled = flagBool("kb.dictation.dim.blocksTouches", true)
-    dim.alpha = 0
-    container.addSubview(dim)
-    NSLayoutConstraint.activate([
-      dim.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-      dim.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-      dim.topAnchor.constraint(equalTo: container.topAnchor),
-      dim.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-    ])
-    if let mic = currentMicButton?.superview { container.bringSubviewToFront(mic) }
-    let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
-    UIView.animate(withDuration: fadeMs / 1000.0) { dim.alpha = 1 }
-    recordingDimView = dim
+
+    veil.frame = container.bounds
+    veil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    veil.alpha = animated ? 0 : 1
+    container.addSubview(veil)
+    if animated {
+      let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
+      UIView.animate(withDuration: fadeMs / 1000.0) { veil.alpha = 1 }
+    }
+    recordingDimView = veil
   }
 
-  /// THE MIC IS THE WAY OUT, so the veil must never cover it. Raising the tools
-  /// row above the veil only works when that row is a direct child of the
-  /// container, and in a nested tree it is not — the raise is a no-op and the
-  /// veil swallows the one tap that stops the recording. So the veil itself
-  /// declines any touch over the mic, whatever the tree looks like: hit-testing
-  /// falls through to the views beneath, and the mic takes it.
-  private static func veilHit(_ veil: UIView, _ passthrough: UIView?, _ point: CGPoint) -> Bool {
-    guard let mic = passthrough, mic.window != nil, let sup = mic.superview else { return false }
-    let p = sup.convert(point, from: veil)
-    return mic.frame.insetBy(dx: -6, dy: -6).contains(p)
-  }
-  private final class DictationVeilBlur: UIVisualEffectView {
-    weak var passthrough: UIView?
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-      if SDUIRenderer.veilHit(self, passthrough, point) { return nil }
-      return super.hitTest(point, with: event)
+  /// A view, photographed and blurred `radius` points (0: as it is).
+  private static let frostContext = CIContext(options: nil)
+  private static func frosted(_ view: UIView, radius: CGFloat) -> UIImage? {
+    let size = view.bounds.size
+    guard size.width > 1, size.height > 1 else { return nil }
+    let format = UIGraphicsImageRendererFormat.default()
+    format.opaque = false
+    let shot = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+      view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
     }
+    guard radius > 0, let ci = CIImage(image: shot) else { return shot }
+    let blurred = ci.clampedToExtent()
+      .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius * shot.scale])
+      .cropped(to: ci.extent)
+    guard let cg = frostContext.createCGImage(blurred, from: ci.extent) else { return shot }
+    return UIImage(cgImage: cg, scale: shot.scale, orientation: .up)
   }
-  private final class DictationVeilPlain: UIView {
-    weak var passthrough: UIView?
+
+  /// The veil: the frosted rows, and their touches. A touch anywhere else —
+  /// the tools row, the mic — falls straight through to what is there.
+  private final class DictationVeil: UIView {
+    var rects: [CGRect] = []
+    var hidden: [UIView] = []
+    var swallows = true
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-      if SDUIRenderer.veilHit(self, passthrough, point) { return nil }
-      return super.hitTest(point, with: event)
+      guard swallows, rects.contains(where: { $0.contains(point) }) else { return nil }
+      return self
     }
   }
 
-  private func removeKeyDimming() {
+  private func removeKeyDimming(animated: Bool = true) {
     guard let dim = recordingDimView else { return }
+    recordingDimView = nil
+    // The rows come back the moment the veil starts to go: a hidden key under
+    // a fading veil reads as the keyboard returning, which it is.
+    (dim as? DictationVeil)?.hidden.forEach { $0.alpha = 1 }
+    guard animated else { dim.removeFromSuperview(); return }
     let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
     UIView.animate(withDuration: fadeMs / 1000.0, animations: { dim.alpha = 0 },
                    completion: { _ in dim.removeFromSuperview() })
-    recordingDimView = nil
   }
 
   private func startDotStream() {
