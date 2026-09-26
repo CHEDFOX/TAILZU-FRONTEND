@@ -34,6 +34,9 @@ enum KeyboardTelemetry {
     case planeMissed
     /// Action-key taps that lifted just outside the key and were kept.
     case liftRescued
+    /// Space / return fired early because another key landed while they
+    /// were held (press-order rollover, K40).
+    case liftRolled
     /// Action-key taps the system cancelled early and were kept.
     case cancelRescued
     /// Letters typed on touch-down and taken back because a tray opened.
