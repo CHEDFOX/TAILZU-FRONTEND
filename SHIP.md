@@ -41,6 +41,13 @@ dashboard.
 Only for changes to the app or the keyboards themselves. iOS goes to
 TestFlight by itself; the Android build is uploaded in Play Console by hand.
 
+Everything a rule in the control console (`/admin` on the API) can change
+needs no build at all. The keyboards carry a copy of the server's config
+for their very first open (`default-config.json`, and
+`tailzu_default_config.json` on Android). It is refreshed in the repo from
+the backend (`npx tsx scripts/export-keyboard-snapshots.ts`), so there is
+nothing to do for it here.
+
 ```powershell
 cd C:\Users\user\tulmi
 git pull --rebase origin claude/repo-analysis-verdict-6lpyaw

@@ -31,10 +31,18 @@ final class KBStateSim {
   var layoutId = "en"
 }
 enum KBActionSpec { case insertKey(char: String); case returnKey; case deleteBackward }
+/// The slice of the config the lifted code reads: flags, as the keyboard
+/// decodes them.
+enum KBJSON {
+  case null, bool(Bool), number(Double), string(String), array([KBJSON]), object([String: KBJSON])
+  var asString: String? { if case .string(let s) = self { return s }; return nil }
+}
+struct SimConfig { var flags: [String: KBJSON]? = nil }
 enum KBActionRef { case inline(KBActionSpec) }
 
 final class SDUIRenderer: NSObject {
   var host: FakeHost? = FakeHost()
+  var config = SimConfig()
   let state = KBStateSim()
   weak var keyPlane: KeyPlaneView?
   var mountContainer: UIView?

@@ -87,7 +87,14 @@ r.append(decl("fileprivate func planeCommit(char: String) {"))
 retract = decl("fileprivate func planeRetractDownCommit() {", required=False)
 have["RETRACT"] = bool(retract)
 r.append(retract)
-r.append(decl("private var accentMap: [String: [String]] {"))
+# The accent map: kb.accents from the config (K40+), else the built-in map.
+acc = src.find("  /// kb.accents — the long-press alternates")
+if acc >= 0:
+    end = src.index("\n  ]\n", src.index("private static let builtInAccents", acc)) + len("\n  ]\n")
+    r.append(src[acc:end])
+    have["CONFIG_ACCENTS"] = True
+else:
+    r.append(decl("private var accentMap: [String: [String]] {"))
 m = re.search(r"\n(\s*private var lastKeyInsert: String\?)\n", src)
 have["LASTKEYINSERT"] = bool(m)
 if m:

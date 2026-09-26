@@ -282,7 +282,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
 
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
-        val cached = prefs.getString("config_json", null)
+        // The last config fetched, else the server's own config as shipped in
+        // the app (res/raw/tailzu_default_config.json, exported by the
+        // backend), so the very first open draws the server's keyboard.
+        val cached = prefs.getString("config_json", null) ?: bundledConfig()
         val useSdui = cached != null && SDUIRenderer.isSDUI(cached)
 
         return if (useSdui) buildSduiInputView(cached!!) else buildFallbackInputView()
@@ -422,12 +425,20 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         pendingCommand = null
     }
 
+    /** res/raw/tailzu_default_config.json — the backend's keyboard config for a
+     *  signed-out phone, re-exported before each store build. Looked up by
+     *  name so this file does not depend on the app's R class. */
+    private fun bundledConfig(): String? = try {
+        val id = resources.getIdentifier("tailzu_default_config", "raw", packageName)
+        if (id == 0) null else resources.openRawResource(id).bufferedReader().use { it.readText() }
+    } catch (_: Exception) { null }
+
     // --- server-driven config (theme/labels/flags), cached for offline -------
 
     private fun loadAndApplyConfig() {
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         // Apply last-known config immediately so the keyboard never waits on the network.
-        prefs.getString("config_json", null)?.let { applyRawJson(it) }
+        (prefs.getString("config_json", null) ?: bundledConfig())?.let { applyRawJson(it) }
         // Refresh in the background; cache the result for next time.
         Thread {
             try {
