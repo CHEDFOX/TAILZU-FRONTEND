@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The widget's ground. Its colour here is only the default ground (#0F0D0B)
+  shown before the first draw; the provider tints it to the colour the app
+  wrote. Launchers before Android 12 do not round widgets, so it rounds itself.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0F0D0B" />
+    <corners android:radius="16dp" />
+</shape>

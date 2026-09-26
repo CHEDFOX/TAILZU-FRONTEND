@@ -4,16 +4,16 @@
  * The bootstrap's quota flags are the numbers the stats screen draws and the
  * keyboard reads; the widget shows the same ones, so it is written here from
  * the same source, every time a bootstrap lands. The widget reads the App
- * Group and draws; it never asks the server, and it is never told anything
- * the user said.
+ * Group (iOS) or the app's SharedPreferences (Android) and draws; it never
+ * asks the server, and it is never told anything the user said.
  *
  * It cannot read the server's labels or flags either, so they travel with the
  * numbers: every word on the widget (widget.month.* labels), its colours
  * (widget.color.*, widget.alpha.*), where a tap goes, how often it asks again,
  * a subscriber's span, whether the streak shows, and the headline and line it
- * draws. The Live
- * Activity's words (publishFlowCopy) and the Dictate control's screen go out
- * at the same moment. Each fallback here is the literal the Swift side keeps.
+ * draws. On iOS the Live Activity's words (publishFlowCopy) and the Dictate
+ * control's screen go out at the same moment. Each fallback here is the
+ * literal the Swift and Kotlin sides keep.
  */
 import { Platform } from "react-native";
 import { setWidgetDictatePath, setWidgetMonth } from "../../modules/tulmi-bridge";
@@ -35,13 +35,16 @@ export function widgetMonthLabels(): Record<string, string> {
     inlinePaid: txt("widget.month.inlinePaid", "Tailzu · {n} words"),
     inlineFree: txt("widget.month.inlineFree", "Tailzu · {n} left"),
     inlineStreak: txt("widget.month.inlineStreak", " · {n}d"),
+    // The iOS widget gallery's name and description. Android's picker shows
+    // them before the app has ever run, so it keeps its own string resources.
     displayName: txt("widget.month.displayName", "The Month"),
     description: txt("widget.month.description", "Words this month."),
   };
 }
 
 /**
- * Write the month (and everything the widget draws it with) to the App Group.
+ * Write the month (and everything the widget draws it with) where the widget
+ * reads it: the App Group on iOS, the app's SharedPreferences on Android.
  *
  * `labels` is the same bootstrap's labels. This runs just BEFORE that
  * bootstrap is set as the one in hand, so without them the knobs still read
@@ -51,7 +54,7 @@ export function publishWidgetMonth(
   flags: Record<string, unknown> | undefined,
   labels?: Record<string, string>,
 ): void {
-  if (Platform.OS !== "ios" || !flags) return;
+  if ((Platform.OS !== "ios" && Platform.OS !== "android") || !flags) return;
   if (labels) setKnobs({ flags: flags as NonNullable<BootstrapResponse["flags"]>, labels });
   const count = (k: string): number => {
     const v = Number(flags[k]);
@@ -98,7 +101,10 @@ export function publishWidgetMonth(
     showStreak: bool("widget.month.streak", false),
   });
   // The Live Activity's words and the Dictate control's screen land with the
-  // month, from the same bootstrap.
-  publishFlowCopy();
-  setWidgetDictatePath(str("widget.dictate.path", "screen/flow_arm"));
+  // month, from the same bootstrap. iOS only: Android records in the keyboard
+  // itself, so there is no background Flow session to show or to arm.
+  if (Platform.OS === "ios") {
+    publishFlowCopy();
+    setWidgetDictatePath(str("widget.dictate.path", "screen/flow_arm"));
+  }
 }

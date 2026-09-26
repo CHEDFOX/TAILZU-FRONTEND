@@ -344,7 +344,8 @@ export function cancelKeyboardHandoff(sessionId: string): void {
 /**
  * The month's numbers for the Home and Lock Screen widget — and, optional so
  * an older writer still fits, what the widget draws them with. Each absent
- * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift).
+ * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift,
+ * and MonthLook in the Android bridge's TailzuMonthWidget.kt).
  */
 export interface WidgetMonth {
   used: number;
@@ -376,9 +377,10 @@ export interface WidgetMonth {
 }
 
 /**
- * Hand the widget the month. Written to the App Group as JSON and the widget
- * is redrawn; the widget never fetches anything itself. A no-op where there
- * is no widget (Android, or a build without the bridge).
+ * Hand the widget the month. Written as JSON to the App Group (iOS) or the
+ * app's SharedPreferences (Android) and the widget is redrawn; the widget
+ * never fetches anything itself. A no-op in a build without the bridge, or a
+ * binary older than its widget.
  */
 export function setWidgetMonth(month: WidgetMonth): void {
   try {
