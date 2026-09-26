@@ -5,6 +5,7 @@
  * (Sentry / PostHog / RevenueCat) no-op silently instead of throwing, so the
  * same binary works whether or not you fill env variables.
  */
+import { str } from "./knobs";
 import { Alert, Linking, Platform, Share, Vibration } from "react-native";
 import { manageElsewhere } from "../billing/elsewhere";
 import * as Haptics from "expo-haptics";
@@ -259,7 +260,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // so the one thing that would have helped, the paywall, was the one
         // thing they never saw.
         if (err instanceof QuotaExceededError) {
-          ctx.nav.push("paywall");
+          // Which screen answers "out of words" is the server's call.
+          ctx.nav.push(str("quota.screenId", "paywall"));
           break;
         }
         await runAction(action.onError, ctx);

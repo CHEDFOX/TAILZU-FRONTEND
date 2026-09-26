@@ -588,8 +588,12 @@ export default function SduiApp() {
        */
       if (paywallEnt && (paywallBlock || paywallAfterOnboarding)) await initBilling();
       else if (paywallEnt) void initBilling();
+      // The server's answer counts as much as the store SDK's: a subscription
+      // bought on another platform, or granted from the console, is in
+      // billing.entitled even when this device's store has never seen it.
       const lacksEntitlement =
-        !!paywallEnt && isBillingEnabled() && !hasEntitlement(paywallEnt);
+        !!paywallEnt && isBillingEnabled() && !hasEntitlement(paywallEnt)
+        && b.flags?.["billing.entitled"] !== true;
       const shouldShowPaywall =
         lacksEntitlement && (paywallBlock || paywallAfterOnboarding);
 
@@ -1028,7 +1032,7 @@ export default function SduiApp() {
       // on an error toast instead of the one screen that can fix it.
       if (overFreeLimit()) {
         kbRoutedRef.current = true;
-        setStack([{ screenId: "paywall" }]);
+        setStack([{ screenId: str("quota.screenId", "paywall") }]);
         return "navigated";
       }
       // FIRST RUN COMES FIRST. Same shape as the free-limit check above: the
@@ -1064,7 +1068,7 @@ export default function SduiApp() {
         // transcript the server is going to refuse.
         if (overFreeLimit()) {
           kbRoutedRef.current = true;
-          setStack([{ screenId: "paywall" }]);
+          setStack([{ screenId: str("quota.screenId", "paywall") }]);
           return "navigated";
         }
         // First run first — and crucially, DO NOT ARM YET. Turning the mic on
