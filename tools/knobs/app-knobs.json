@@ -15,12 +15,13 @@
     "app.offline.retryFactor": 1.6,
     "app.offline.retryMaxMs": 30000,
     "app.offline.retryMs": 8000,
-    "app.offline.titleSize": 22
+    "app.offline.titleSize": 22,
+    "quota.screenId": "paywall"
   },
   "dynamic": {
     "app.boot.watchdogMs": {
       "kind": "num",
-      "at": "app/src/sdui/SduiApp.tsx:690"
+      "at": "app/src/sdui/SduiApp.tsx:694"
     },
     "app.offline.accent": {
       "kind": "color",
