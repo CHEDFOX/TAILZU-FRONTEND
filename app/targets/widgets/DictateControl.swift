@@ -28,7 +28,9 @@ struct DictateControl: ControlWidget {
 struct DictateIntent: AppIntent {
   static let title: LocalizedStringResource = "Dictate with Tailzu"
   static let description = IntentDescription("Turns the microphone on so the keyboard can dictate.")
-  static let openAppWhenRun: Bool = true
+  // No openAppWhenRun: that runs perform() inside the APP, and this intent is
+  // compiled only into the widget extension, so the press would find nothing
+  // to run. It runs here instead and opens the app by returning the URL.
 
   func perform() async throws -> some IntentResult & OpensIntent {
     // Which screen arms is the server's (widget.dictate.path in the app's

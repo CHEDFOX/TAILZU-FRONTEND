@@ -104,6 +104,8 @@
       <key>NSPrivacyAccessedAPITypeReasons</key>
       <array>
         <string>CA92.1</string>
+        <!-- 1C8F.1: the App Group shared by the app, the keyboard and the widgets. -->
+        <string>1C8F.1</string>
       </array>
     </dict>
     <dict>
@@ -136,6 +138,8 @@
       <key>NSPrivacyAccessedAPITypeReasons</key>
       <array>
         <string>54BD.1</string>
+        <!-- 3EC4.1: a custom keyboard app checking whether its keyboard is on. -->
+        <string>3EC4.1</string>
       </array>
     </dict>
   </array>
