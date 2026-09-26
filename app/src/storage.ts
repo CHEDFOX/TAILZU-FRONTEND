@@ -156,3 +156,12 @@ export async function setLastBoot(note: string): Promise<void> {
 export async function getLastBoot(): Promise<string | null> {
   try { return await AsyncStorage.getItem(LAST_BOOT_KEY); } catch { return null; }
 }
+
+/** Whether the server-scheduled push-permission ask (flag push.ask) has run
+ *  on this install. Stored per key so the server can ask again under a new key. */
+export async function getPushAsked(key: string): Promise<boolean> {
+  return (await AsyncStorage.getItem(`tulmi.pushAsked.${key}`)) === "1";
+}
+export async function setPushAsked(key: string): Promise<void> {
+  await AsyncStorage.setItem(`tulmi.pushAsked.${key}`, "1");
+}

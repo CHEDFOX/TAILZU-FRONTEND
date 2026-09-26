@@ -31,10 +31,11 @@ import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
 import type { ActionSpec, BootstrapResponse, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
-import { setKnobs, txt, num, bool, str, color } from "./knobs";
+import { setKnobs, txt, num, bool, str, color, obj } from "./knobs";
+import * as Notifications from "expo-notifications";
 import OfflineScreen from "./OfflineScreen";
 import { hasSeenCard, markCardSeen } from "./launchCard";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall } from "../storage";
+import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall, getPushAsked, setPushAsked } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
@@ -774,6 +775,28 @@ export default function SduiApp() {
   }, [loadBoot]);
 
   const current = stack[stack.length - 1];
+
+  // WHEN TO ASK FOR NOTIFICATIONS is the server's call: flag push.ask names a
+  // screen and a delay ({ screen: "stats", afterMs: 1500, key: "v1" }). The
+  // first time that screen is shown on this install, the app asks. Absent or
+  // with no screen, nothing asks — the default while no notifications are
+  // sent. A new key asks once more.
+  const currentScreenId = current?.screenId;
+  useEffect(() => {
+    const ask = obj<{ screen?: string; afterMs?: number; key?: string }>("push.ask", {});
+    if (!ask.screen || currentScreenId !== ask.screen) return;
+    const key = ask.key || "default";
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        if (cancelled || (await getPushAsked(key))) return;
+        await setPushAsked(key);
+        const p = await Notifications.requestPermissionsAsync();
+        if (p.granted) await registerForPushToken();
+      } catch { /* the ask is best-effort */ }
+    }, typeof ask.afterMs === "number" ? ask.afterMs : 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [currentScreenId]);
 
   /**
    * WHAT TO DRAW RIGHT NOW — resolved during render, not after it.
