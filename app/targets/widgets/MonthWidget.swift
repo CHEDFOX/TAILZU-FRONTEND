@@ -8,9 +8,9 @@ import WidgetKit
 // fills very slowly — the same rule as the stats screen.
 //
 // The app now writes the headline and the line's fill itself, along with the
-// words, colours, tap target, refresh interval and subscriber span (see
-// WidgetLook in TailzuWidgets.swift). The rule below is kept only for JSON an
-// older app wrote, which has none of that.
+// words, colours, tap target, refresh interval, subscriber span and whether
+// the streak shows (see WidgetLook in TailzuWidgets.swift). The rule below is
+// kept only for JSON an older app wrote, which has none of that.
 
 struct MonthStats: Codable {
   var used: Int = 0
@@ -92,7 +92,7 @@ struct MonthWidget: Widget {
         .widgetURL(WidgetLook.current.tapURL)
     }
     .configurationDisplayName(WidgetLook.current.text("displayName", "The Month"))
-    .description(WidgetLook.current.text("description", "Words this month, and your streak."))
+    .description(WidgetLook.current.text("description", "Words this month."))
     .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular, .accessoryInline])
   }
 }
@@ -114,38 +114,37 @@ struct MonthView: View {
 
   /// Nothing written yet, or a phone that has not signed in: the mark alone.
   private var empty: some View {
-    VStack(spacing: 8) {
-      WaveMark().frame(width: 44, height: 30)
-      Text(look.text("brandCaps", "TAILZU")).font(.system(size: 9, weight: .semibold)).tracking(1.8).foregroundStyle(Ink.dim)
-    }
+    WaveMark(color: Ink.dim).frame(width: 36, height: 24)
   }
 
+  /// The number, what it counts, and the line. Nothing else unless the server
+  /// turns the streak on.
   private var small: some View {
     Group {
       if let m = entry.month {
         VStack(alignment: .leading, spacing: 0) {
-          HStack(alignment: .top) {
-            WaveMark().frame(width: 30, height: 20)
-            Spacer()
-            if m.streak > 0 {
-              Text(look.text("streakShort", "{n}d", n: String(m.streak)))
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(Ink.amber)
-            }
-          }
-          Spacer(minLength: 6)
+          Spacer(minLength: 0)
           Text(n(m.headline))
-            .font(.system(size: 30, weight: .heavy, design: .rounded))
+            .font(.system(size: 34, weight: .semibold, design: .rounded))
+            .monospacedDigit()
             .foregroundStyle(Ink.pale)
-            .minimumScaleFactor(0.6)
+            .minimumScaleFactor(0.5)
             .lineLimit(1)
           Text(m.label)
-            .font(.system(size: 8, weight: .semibold))
-            .tracking(1.6)
+            .font(.system(size: 9, weight: .medium))
+            .tracking(1.4)
             .foregroundStyle(Ink.dim)
-            .padding(.top, 1)
-          Line(fraction: m.fraction).frame(height: 5).padding(.top, 8)
+            .lineLimit(1)
+            .padding(.top, 2)
+          if look.showStreak && m.streak > 0 {
+            Text(look.text("streakShort", "{n}d", n: String(m.streak)))
+              .font(.system(size: 9, weight: .medium))
+              .foregroundStyle(Ink.dim)
+              .padding(.top, 2)
+          }
+          Line(fraction: m.fraction).frame(height: 3).padding(.top, 10)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
       } else {
         empty
       }
@@ -170,26 +169,23 @@ struct MonthView: View {
   private var rectangular: some View {
     Group {
       if let m = entry.month {
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 6) {
-            WaveMark(color: .primary).frame(width: 18, height: 12)
-            Text(m.entitled
-                 ? look.text("wordsThisMonth", "Words this month")
-                 : look.text("wordsLeftTitle", "Words left"))
-              .font(.system(size: 12, weight: .semibold))
-          }
-          Text(n(m.headline)).font(.system(size: 22, weight: .heavy, design: .rounded))
-          Line(fraction: m.fraction, tint: .primary).frame(height: 4)
-          if m.streak > 0 {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(m.entitled
+               ? look.text("wordsThisMonth", "Words this month")
+               : look.text("wordsLeftTitle", "Words left"))
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+          Text(n(m.headline))
+            .font(.system(size: 22, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+          Line(fraction: m.fraction, tint: .primary).frame(height: 3).padding(.top, 2)
+          if look.showStreak && m.streak > 0 {
             Text(look.text("streakLong", "{n}-day streak", n: String(m.streak)))
               .font(.system(size: 11)).foregroundStyle(.secondary)
           }
         }
       } else {
-        HStack(spacing: 6) {
-          WaveMark(color: .primary).frame(width: 18, height: 12)
-          Text(look.text("brand", "Tailzu")).font(.system(size: 12, weight: .semibold))
-        }
+        Text(look.text("brand", "Tailzu")).font(.system(size: 12, weight: .medium))
       }
     }
   }
@@ -197,7 +193,7 @@ struct MonthView: View {
   private var inline: some View {
     Group {
       if let m = entry.month {
-        let streak = m.streak > 0 ? look.text("inlineStreak", " · {n}d", n: String(m.streak)) : ""
+        let streak = look.showStreak && m.streak > 0 ? look.text("inlineStreak", " · {n}d", n: String(m.streak)) : ""
         if m.entitled {
           Text(look.text("inlinePaid", "Tailzu · {n} words", n: n(m.used)) + streak)
         } else {
@@ -218,7 +214,7 @@ struct MonthView: View {
 /// The line: the month, as far along as it is.
 struct Line: View {
   let fraction: Double
-  var tint: Color = Ink.amber
+  var tint: Color = Ink.mark
   var body: some View {
     GeometryReader { geo in
       ZStack(alignment: .leading) {

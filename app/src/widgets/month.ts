@@ -10,13 +10,14 @@
  * It cannot read the server's labels or flags either, so they travel with the
  * numbers: every word on the widget (widget.month.* labels), its colours
  * (widget.color.*, widget.alpha.*), where a tap goes, how often it asks again,
- * a subscriber's span, and the headline and line it draws. The Live
+ * a subscriber's span, whether the streak shows, and the headline and line it
+ * draws. The Live
  * Activity's words (publishFlowCopy) and the Dictate control's screen go out
  * at the same moment. Each fallback here is the literal the Swift side keeps.
  */
 import { Platform } from "react-native";
 import { setWidgetDictatePath, setWidgetMonth } from "../../modules/tulmi-bridge";
-import { color, num, setKnobs, str, txt } from "../sdui/knobs";
+import { bool, color, num, setKnobs, str, txt } from "../sdui/knobs";
 import type { BootstrapResponse } from "../sdui/types";
 import { publishFlowCopy } from "./flow";
 
@@ -25,7 +26,6 @@ export function widgetMonthLabels(): Record<string, string> {
   return {
     thisMonth: txt("widget.month.thisMonth", "THIS MONTH"),
     wordsLeft: txt("widget.month.wordsLeft", "WORDS LEFT"),
-    brandCaps: txt("widget.month.brandCaps", "TAILZU"),
     brand: txt("widget.month.brand", "Tailzu"),
     gaugeWords: txt("widget.month.gaugeWords", "words"),
     streakShort: txt("widget.month.streakShort", "{n}d"),
@@ -36,7 +36,7 @@ export function widgetMonthLabels(): Record<string, string> {
     inlineFree: txt("widget.month.inlineFree", "Tailzu · {n} left"),
     inlineStreak: txt("widget.month.inlineStreak", " · {n}d"),
     displayName: txt("widget.month.displayName", "The Month"),
-    description: txt("widget.month.description", "Words this month, and your streak."),
+    description: txt("widget.month.description", "Words this month."),
   };
 }
 
@@ -83,7 +83,8 @@ export function publishWidgetMonth(
     colors: {
       ground: color("widget.color.ground", "#0F0D0B"),
       pale: color("widget.color.pale", "#F3E2C6"),
-      amber: color("widget.color.amber", "#E8A23C"),
+      // The mark and the line's fill. Never the brand colour: that is the app's.
+      mark: color("widget.color.mark", "#F3E2C6"),
     },
     alpha: {
       dim: num("widget.alpha.dim", 0.52),
@@ -93,6 +94,8 @@ export function publishWidgetMonth(
     url: str("widget.month.url", "tulmi://screen/stats"),
     refreshSec: num("widget.month.refreshSec", 3600),
     span: paidSpan,
+    // Minimal by default: the streak shows only when the server turns it on.
+    showStreak: bool("widget.month.streak", false),
   });
   // The Live Activity's words and the Dictate control's screen land with the
   // month, from the same bootstrap.

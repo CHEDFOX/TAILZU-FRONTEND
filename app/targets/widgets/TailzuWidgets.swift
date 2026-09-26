@@ -23,17 +23,18 @@ struct TailzuWidgetBundle: WidgetBundle {
   }
 }
 
-/// The app's own colours, as STATS_UI in the backend's catalog has them — or
-/// as the server last sent them (widget.color.* / widget.alpha.* in the app's
-/// flags, written into the month's JSON).
+/// The widgets' ink: a dark ground and one pale ink at a few strengths. The
+/// brand colour stays in the app. As the server last sent them (widget.color.*
+/// / widget.alpha.* in the app's flags, written into the month's JSON), or
+/// these.
 enum Ink {
   private static let groundFallback = Color(red: 0x0F / 255, green: 0x0D / 255, blue: 0x0B / 255)
   private static let paleFallback = Color(red: 0xF3 / 255, green: 0xE2 / 255, blue: 0xC6 / 255)
-  private static let amberFallback = Color(red: 0xE8 / 255, green: 0xA2 / 255, blue: 0x3C / 255)
 
   static var ground: Color { WidgetLook.current.color("ground", groundFallback) }
   static var pale: Color { WidgetLook.current.color("pale", paleFallback) }
-  static var amber: Color { WidgetLook.current.color("amber", amberFallback) }
+  /// The mark and the line's fill. Pale unless the server says otherwise.
+  static var mark: Color { WidgetLook.current.color("mark", pale) }
   static var dim: Color { pale.opacity(WidgetLook.current.alpha("dim", 0.52)) }
   static var rule: Color { pale.opacity(WidgetLook.current.alpha("rule", 0.13)) }
   /// The empty part of the month's line.
@@ -47,9 +48,9 @@ enum Shared {
 
 /// Everything the app wrote next to the month's numbers that is not a number:
 /// the words (labels), the colours, the line's alphas, where a tap goes, how
-/// often to ask again, the subscriber's span. Read leniently — a missing or
-/// mistyped field is simply absent, and its caller falls back to its literal —
-/// so nothing here can stop the numbers from drawing.
+/// often to ask again, the subscriber's span, whether the streak shows. Read
+/// leniently — a missing or mistyped field is simply absent, and its caller
+/// falls back to its literal — so nothing here can stop the numbers drawing.
 struct WidgetLook {
   var labels: [String: String] = [:]
   var colors: [String: String] = [:]
@@ -57,6 +58,8 @@ struct WidgetLook {
   var url: String?
   var refreshSec: Double?
   var span: Double?
+  /// Whether the month shows the streak (widget.month.streak). Off: minimal.
+  var showStreak = false
 
   init() {}
 
@@ -68,6 +71,7 @@ struct WidgetLook {
     url = o["url"] as? String
     refreshSec = WidgetLook.number(o["refreshSec"])
     span = WidgetLook.number(o["span"])
+    showStreak = (o["showStreak"] as? Bool) ?? false
   }
 
   private static func number(_ v: Any?) -> Double? {
@@ -142,7 +146,7 @@ extension Color {
 /// as the keyboard's mic key draws them. Drawn, not an image, so it is the
 /// same shape at every size and in every colour.
 struct WaveMark: View {
-  var color: Color = Ink.amber
+  var color: Color = Ink.mark
   private let heights: [CGFloat] = [28, 36, 41, 46, 43, 34, 28]
   var body: some View {
     GeometryReader { geo in

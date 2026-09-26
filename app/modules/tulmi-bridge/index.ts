@@ -361,7 +361,7 @@ export interface WidgetMonth {
   fraction?: number;
   /** The widget's words; `{n}` is a count where a template has one. */
   labels?: Record<string, string>;
-  /** "#RRGGBB" / "#RRGGBBAA": ground, pale, amber. */
+  /** "#RRGGBB" / "#RRGGBBAA": ground, pale, mark. */
   colors?: Record<string, string>;
   /** 0–1: dim, rule, track. */
   alpha?: Record<string, number>;
@@ -371,6 +371,8 @@ export interface WidgetMonth {
   refreshSec?: number;
   /** A subscriber's line: the words that would fill it. */
   span?: number;
+  /** Whether the month shows the streak. Absent: it does not. */
+  showStreak?: boolean;
 }
 
 /**
