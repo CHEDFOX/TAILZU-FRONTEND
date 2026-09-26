@@ -82,7 +82,10 @@ public class TulmiBridgeModule: Module {
     // NSExtensionContext, so `openApp` / `openSettings` actions leave a
     // pending path here. The app reads + clears it on foreground.
     // Returns "" when nothing is pending.
-    Function("consumeKeyboardDeepLink") { () -> String in
+    //
+    // `maxAgeMs` (optional) is how fresh the tombstone must be to count — the
+    // server's number, passed from JS; 45 s when absent or not positive.
+    Function("consumeKeyboardDeepLink") { (maxAgeMs: Double?) -> String in
       let d = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       let path = d?.string(forKey: "tulmi.kb.pendingDeepLink") ?? ""
       guard !path.isEmpty else { return "" }
@@ -93,11 +96,13 @@ public class TulmiBridgeModule: Module {
       // nowhere. Always clear it; only return it if it's fresh (~45s), which
       // covers "tapped the mic, then opened the app by hand" without hijacking a
       // later normal open.
+      var window: Double = 45_000
+      if let m = maxAgeMs, m.isFinite, m > 0 { window = m }
       let at = d?.double(forKey: "tulmi.kb.pendingDeepLinkAt") ?? 0
       let ageMs = Date().timeIntervalSince1970 * 1000 - at
       d?.removeObject(forKey: "tulmi.kb.pendingDeepLink")
       d?.removeObject(forKey: "tulmi.kb.pendingDeepLinkAt")
-      if at <= 0 || ageMs > 45_000 { return "" }
+      if at <= 0 || ageMs > window { return "" }
       return path
     }
 
@@ -175,10 +180,17 @@ public class TulmiBridgeModule: Module {
     // socket (partials at the cursor), true buffers it and POSTs once at stop
     // (nothing until the finished text lands). Backend-chosen — see
     // kb.flow.transport.
-    Function("armFlowSession") { (baseUrl: String, token: String, language: String, idleTimeoutMs: Double, oneShot: Bool) in
+    //
+    // `options` (optional, trailing) carries the rest of the session's numbers
+    // from the server's flags — heartbeatMs, bufferFreshMs, prerollCapBytes,
+    // oneShotCapBytes, closeTimeoutMs, minUtteranceBytes, oneShotRetries,
+    // oneShotRetryDelayMs, oneShotTimeoutMs, duckOthers, voiceProcessing,
+    // tapFrames, streamPath, uploadPath (see FlowTuning). Absent, or any field
+    // absent, keeps the value that was hardcoded.
+    Function("armFlowSession") { (baseUrl: String, token: String, language: String, idleTimeoutMs: Double, oneShot: Bool, options: [String: Any]?) in
       FlowSessionManager.shared.arm(
         baseUrl: baseUrl, token: token, language: language, idleTimeoutMs: idleTimeoutMs,
-        oneShot: oneShot)
+        oneShot: oneShot, tuning: FlowTuning(options))
     }
 
     // End the Flow Session (user turned Flow off). Deactivates the audio session
@@ -191,12 +203,38 @@ public class TulmiBridgeModule: Module {
     // (words used, left, earned, the streak, the plan) as JSON the Home and
     // Lock Screen widget reads from the App Group, and asks WidgetKit to draw
     // it again. Nothing the widget shows is fetched by the widget.
+    //
+    // The same JSON carries what the widget draws them with — its words,
+    // colours, tap target, refresh interval — built from the server's labels
+    // and flags (src/widgets/month.ts).
     Function("setWidgetMonth") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.month")
       if #available(iOS 14.0, *) {
         WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.month")
       }
+    }
+
+    // THE FLOW SESSION'S WORDS, FOR THE LIVE ACTIVITY. A JSON object of
+    // strings (listening, writing, ready, readyHint, wordsSoFar, words, stop,
+    // end, compact, and the SF Symbols) from the server's labels; the widget
+    // extension reads it from the App Group, each word falling back to the one
+    // it replaced. A running activity is redrawn so the change shows now.
+    Function("setFlowActivityCopy") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(json, forKey: "tulmi.widget.flow.copy")
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        DispatchQueue.main.async { FlowLiveActivity.shared.redraw() }
+      }
+      #endif
+    }
+
+    // Which screen the Dictate control opens to arm ("screen/<id>"), the
+    // server's choice. The control reads it when pressed.
+    Function("setWidgetDictatePath") { (path: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(path, forKey: "tulmi.widget.dictate.path")
     }
 
     // Whether a Flow Session is currently armed in this process.

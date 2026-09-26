@@ -34,8 +34,10 @@ final class TulmiStream: NSObject {
   /// audio indefinitely. Keyboard extensions have a ~60 MB memory ceiling —
   /// unbounded queuing gets the process killed. When we hit the cap we drop
   /// the newest frames (aka "spill from the end") rather than the oldest,
-  /// which keeps the transcript in temporal order.
-  private let sendCapBytes = 2 * 1024 * 1024   // 2 MB in-flight ≈ 60s of 16k PCM
+  /// which keeps the transcript in temporal order. The server's number
+  /// (kb.stream.sendCapBytes), read once per stream so the audio thread never
+  /// asks; 2 MB in flight ≈ 60s of 16k PCM until a config says otherwise.
+  private let sendCapBytes = knobInt("kb.stream.sendCapBytes", 2097152)
   private var inFlightBytes = 0
   private let sendQueue = DispatchQueue(label: "TulmiStream.send")
 
@@ -66,21 +68,24 @@ final class TulmiStream: NSObject {
       return
     }
     var req = URLRequest(url: url)
-    req.setValue("Bearer \(TulmiBackend.bearer)", forHTTPHeaderField: "Authorization")
+    // No token → no Authorization header and no token field (the server then
+    // refuses the stream, as it refuses any request from a signed-out keyboard).
+    TulmiBackend.authorize(&req)
     let task = session.webSocketTask(with: req)
     self.task = task
     task.resume()
     receiveLoop()
 
-    let start: [String: Any] = [
+    var start: [String: Any] = [
       "type": "start",
-      "token": TulmiBackend.bearer,
       "targetApp": targetApp,
       "language": language,
       "sampleRate": 16000,
       "encoding": "pcm_s16le",
       "channels": 1,
     ]
+    let bearer = TulmiBackend.bearer
+    if !bearer.isEmpty { start["token"] = bearer }
     if let data = try? JSONSerialization.data(withJSONObject: start),
        let str = String(data: data, encoding: .utf8) {
       task.send(.string(str)) { _ in }
@@ -108,7 +113,8 @@ final class TulmiStream: NSObject {
     // Watchdog: if the server never flushes "done" (dropped socket / wedged
     // engine), force-close so we don't hang in the finishing state. Held as a
     // work item so a graceful "done" cancels it (see handleMessage) — otherwise
-    // it fired a second .closed ~2s after the clean close.
+    // it fired a second .closed ~2s after the clean close. How long to wait is
+    // the server's (kb.stream.finishTimeoutMs, 2.5s until a config arrives).
     let watchdog = DispatchWorkItem { [weak self] in
       guard let self = self, self.task != nil else { return }
       self.task?.cancel(with: .normalClosure, reason: nil)
@@ -116,7 +122,8 @@ final class TulmiStream: NSObject {
       self.emitClosedOnce()
     }
     finishWatchdog = watchdog
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: watchdog)
+    let finishTimeout = knobDouble("kb.stream.finishTimeoutMs", 2500) / 1000.0
+    DispatchQueue.main.asyncAfter(deadline: .now() + finishTimeout, execute: watchdog)
   }
 
   /// Abort immediately (keyboard dismissed, error, etc.).
@@ -147,6 +154,12 @@ final class TulmiStream: NSObject {
 
   private func startCapture() {
     let audio = AVAudioSession.sharedInstance()
+    // Voice processing (echo cancel, noise suppression, gain) and ducking
+    // other apps' audio are the server's calls (kb.audio.voiceProcessing,
+    // kb.audio.duckOthers); both on until a config says otherwise. Off, the
+    // session uses the plain .default mode and the input node is left raw.
+    let voiceProcessing = knobBool("kb.audio.voiceProcessing", true)
+    let duckOthers = knobBool("kb.audio.duckOthers", true)
     do {
       // .voiceChat enables the OS voice-processing IO unit (AEC + noise
       // suppression + AGC) — exactly what a keyboard dictating in a noisy
@@ -154,7 +167,9 @@ final class TulmiStream: NSObject {
       // extension and throw here; fall back to plain .record so capture
       // still works.
       do {
-        try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.duckOthers])
+        let mode: AVAudioSession.Mode = voiceProcessing ? .voiceChat : .default
+        let options: AVAudioSession.CategoryOptions = duckOthers ? [.duckOthers] : []
+        try audio.setCategory(.playAndRecord, mode: mode, options: options)
       } catch {
         try audio.setCategory(.record, mode: .default)
       }
@@ -169,11 +184,13 @@ final class TulmiStream: NSObject {
     // iOS 13+; throws on hardware that can't do it — non-fatal, we just capture
     // raw. If enabling it later makes engine.start() fail, KeyboardViewController
     // falls back to the local batch-record path, so streaming never hard-fails.
-    try? input.setVoiceProcessingEnabled(true)
+    if voiceProcessing { try? input.setVoiceProcessingEnabled(true) }
 
     let inputFormat = input.outputFormat(forBus: 0)
     converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-    input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+    // Frames per tap callback — the server's (kb.stream.tapFrames).
+    let tapFrames = AVAudioFrameCount(clamping: max(1, knobInt("kb.stream.tapFrames", 2048)))
+    input.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)
     }
     tapInstalled = true

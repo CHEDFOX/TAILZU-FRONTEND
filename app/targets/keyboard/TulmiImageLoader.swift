@@ -27,8 +27,9 @@ enum TulmiImageLoader {
   /// the backend has ever served stayed resident for the life of the extension
   /// — which is exactly the shape of "the keyboard vanishes mid-sentence".
   /// The disk cache is untouched by any of this, so an evicted image comes
-  /// back without a network round trip.
-  private static let memoryLimit = 12
+  /// back without a network round trip. The server's number
+  /// (kb.images.memoryCap); 12 until a config says otherwise.
+  private static var memoryLimit: Int { max(0, knobInt("kb.images.memoryCap", 12)) }
   private static var inflight: Set<String> = []
   private static let appGroup = "group.com.tulmi.app"
   private static let cacheDirName = "keyboard-media"
@@ -52,7 +53,8 @@ enum TulmiImageLoader {
   private static func remember(_ url: String, _ image: UIImage) {
     if memory[url] == nil { order.append(url) }
     memory[url] = image
-    while order.count > memoryLimit {
+    let cap = memoryLimit
+    while order.count > cap {
       let oldest = order.removeFirst()
       memory.removeValue(forKey: oldest)
     }
@@ -73,7 +75,9 @@ enum TulmiImageLoader {
     // removing `url` from inflight — permanently blocking every future load of
     // that url. Constructing + inserting in this order can't leak the slot.
     guard let u = URL(string: url), inflight.insert(url).inserted else { return }
-    URLSession.shared.dataTask(with: u) { data, _, _ in
+    // A GET, so it takes the backend client's retry policy (kb.network.retries
+    // — none by default, the single attempt this always made).
+    TulmiBackend.getWithRetry(URLRequest(url: u)) { data, _, _ in
       DispatchQueue.main.async {
         inflight.remove(url)
         guard let data = data, let img = decode(data) else { return }
@@ -81,7 +85,7 @@ enum TulmiImageLoader {
         writeDisk(data, url: url)
         onLoad?()
       }
-    }.resume()
+    }
   }
 
   // MARK: - Decoder — handles static + animated (GIF / APNG)
@@ -92,8 +96,12 @@ enum TulmiImageLoader {
   /// crashes the extension outright. 256px covers the largest mic button
   /// at 3× scale (~108px physical) with headroom for HDR / tint blending;
   /// larger sources are downscaled at decode time so the animated image
-  /// footprint stays predictable.
-  private static let maxFrameEdge: CGFloat = 256
+  /// footprint stays predictable. The server's number (kb.images.maxEdgePx);
+  /// anything that isn't a positive number keeps 256.
+  private static var maxFrameEdge: CGFloat {
+    let v = knobDouble("kb.images.maxEdgePx", 256)
+    return v.isFinite && v > 0 ? CGFloat(v) : 256
+  }
 
   /// Decode static or animated (GIF/APNG) image data, downscaling every frame
   /// to `maxFrameEdge` so the keyboard extension can't blow its ~48MB ceiling.
@@ -146,11 +154,19 @@ enum TulmiImageLoader {
     return UIImage(cgImage: cg)
   }
 
-  /// Read per-frame delay from GIF / APNG metadata. Falls back to 100ms when
-  /// the source omits a duration (matches how browsers render "instant" gifs).
+  /// The delay for a frame whose source names none: the server's
+  /// (kb.images.fallbackFrameDelaySec), 100ms until a config arrives — which
+  /// matches how browsers render "instant" gifs.
+  private static var fallbackFrameDelay: TimeInterval {
+    let v = knobDouble("kb.images.fallbackFrameDelaySec", 0.1)
+    return v.isFinite && v > 0 ? v : 0.1
+  }
+
+  /// Read per-frame delay from GIF / APNG metadata. Falls back to
+  /// `fallbackFrameDelay` when the source omits a duration.
   private static func frameDuration(_ src: CGImageSource, index: Int) -> TimeInterval {
     guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [String: Any] else {
-      return 0.1
+      return fallbackFrameDelay
     }
     if let gif = props[kCGImagePropertyGIFDictionary as String] as? [String: Any] {
       if let d = gif[kCGImagePropertyGIFUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
@@ -160,7 +176,7 @@ enum TulmiImageLoader {
       if let d = png[kCGImagePropertyAPNGUnclampedDelayTime as String] as? Double, d > 0.0009 { return d }
       if let d = png[kCGImagePropertyAPNGDelayTime as String] as? Double, d > 0.0009 { return d }
     }
-    return 0.1
+    return fallbackFrameDelay
   }
 
   // MARK: - Disk cache (shared via App Group so main app + keyboard hit it)
@@ -183,8 +199,19 @@ enum TulmiImageLoader {
     return dir.appendingPathComponent(String(h, radix: 36) + ".bin")
   }
 
+  /// A cached file older than kb.images.maxAgeSec is dropped and fetched
+  /// again. 0 (the default) = never expire, which is how this always behaved.
   private static func readDisk(_ url: String) -> UIImage? {
-    guard let f = file(for: url), let data = try? Data(contentsOf: f) else { return nil }
+    guard let f = file(for: url) else { return nil }
+    let maxAge = knobDouble("kb.images.maxAgeSec", 0)
+    if maxAge > 0,
+       let attrs = try? FileManager.default.attributesOfItem(atPath: f.path),
+       let modified = attrs[.modificationDate] as? Date,
+       Date().timeIntervalSince(modified) > maxAge {
+      try? FileManager.default.removeItem(at: f)
+      return nil
+    }
+    guard let data = try? Data(contentsOf: f) else { return nil }
     return decode(data)
   }
 

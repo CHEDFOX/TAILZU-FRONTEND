@@ -6,6 +6,11 @@ import WidgetKit
 // left, with the line as far along as the month is spent; for a subscriber
 // there is no such number, so it is the words this month and a line that
 // fills very slowly — the same rule as the stats screen.
+//
+// The app now writes the headline and the line's fill itself, along with the
+// words, colours, tap target, refresh interval and subscriber span (see
+// WidgetLook in TailzuWidgets.swift). The rule below is kept only for JSON an
+// older app wrote, which has none of that.
 
 struct MonthStats: Codable {
   var used: Int = 0
@@ -16,17 +21,38 @@ struct MonthStats: Codable {
   var streak: Int = 0
   var entitled: Bool = false
   var updatedAt: Double = 0
+  /// The headline number and the line's fill, as the app worked them out.
+  /// Absent from what an older app wrote; then they are worked out here.
+  var sentHeadline: Double? = nil
+  var sentFraction: Double? = nil
 
-  /// A subscriber's line: the month against a span no month reaches.
+  enum CodingKeys: String, CodingKey {
+    case used, total, remaining, earned, base, streak, entitled, updatedAt
+    case sentHeadline = "headline"
+    case sentFraction = "fraction"
+  }
+
+  /// A subscriber's line: the month against a span no month reaches — the
+  /// server's (widget.month.paidSpan), or this.
   static let paidSpan = 120_000
 
   var fraction: Double {
-    if entitled { return min(1, Double(max(0, used)) / Double(MonthStats.paidSpan)) }
+    if let f = sentFraction, f.isFinite { return min(1, max(0, f)) }
+    if entitled {
+      let span = WidgetLook.current.span.flatMap { $0 > 0 ? $0 : nil } ?? Double(MonthStats.paidSpan)
+      return min(1, Double(max(0, used)) / span)
+    }
     guard total > 0 else { return 0 }
     return min(1, Double(max(0, used)) / Double(total))
   }
-  var headline: Int { entitled ? used : remaining }
-  var label: String { entitled ? "THIS MONTH" : "WORDS LEFT" }
+  var headline: Int {
+    if let h = sentHeadline, h.isFinite, abs(h) < 1e15 { return Int(h.rounded()) }
+    return entitled ? used : remaining
+  }
+  var label: String {
+    let look = WidgetLook.current
+    return entitled ? look.text("thisMonth", "THIS MONTH") : look.text("wordsLeft", "WORDS LEFT")
+  }
 
   /// What the app last wrote to the App Group, or nothing.
   static func load() -> MonthStats? {
@@ -50,9 +76,11 @@ struct MonthProvider: TimelineProvider {
   }
   func getTimeline(in context: Context, completion: @escaping (Timeline<MonthEntry>) -> Void) {
     // The app reloads the widget whenever it fetches fresh numbers; this
-    // timeline only has to survive between those, so it asks again in an hour.
+    // timeline only has to survive between those, so it asks again after the
+    // server's interval (an hour until the app has written one).
     let entry = MonthEntry(date: Date(), month: MonthStats.load())
-    completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(3600))))
+    let next = Date().addingTimeInterval(WidgetLook.current.refreshInterval)
+    completion(Timeline(entries: [entry], policy: .after(next)))
   }
 }
 
@@ -61,10 +89,10 @@ struct MonthWidget: Widget {
     StaticConfiguration(kind: "space.tailzu.month", provider: MonthProvider()) { entry in
       MonthView(entry: entry)
         .containerBackground(Ink.ground, for: .widget)
-        .widgetURL(URL(string: "tulmi://screen/stats"))
+        .widgetURL(WidgetLook.current.tapURL)
     }
-    .configurationDisplayName("The Month")
-    .description("Words this month, and your streak.")
+    .configurationDisplayName(WidgetLook.current.text("displayName", "The Month"))
+    .description(WidgetLook.current.text("description", "Words this month, and your streak."))
     .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular, .accessoryInline])
   }
 }
@@ -72,6 +100,8 @@ struct MonthWidget: Widget {
 struct MonthView: View {
   @Environment(\.widgetFamily) private var family
   let entry: MonthEntry
+  /// The words the app last wrote (cached per change, so cheap to ask for).
+  private var look: WidgetLook { WidgetLook.current }
 
   var body: some View {
     switch family {
@@ -86,7 +116,7 @@ struct MonthView: View {
   private var empty: some View {
     VStack(spacing: 8) {
       WaveMark().frame(width: 44, height: 30)
-      Text("TAILZU").font(.system(size: 9, weight: .semibold)).tracking(1.8).foregroundStyle(Ink.dim)
+      Text(look.text("brandCaps", "TAILZU")).font(.system(size: 9, weight: .semibold)).tracking(1.8).foregroundStyle(Ink.dim)
     }
   }
 
@@ -98,7 +128,7 @@ struct MonthView: View {
             WaveMark().frame(width: 30, height: 20)
             Spacer()
             if m.streak > 0 {
-              Text("\(m.streak)d")
+              Text(look.text("streakShort", "{n}d", n: String(m.streak)))
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundStyle(Ink.amber)
             }
@@ -126,7 +156,7 @@ struct MonthView: View {
     Group {
       if let m = entry.month {
         Gauge(value: m.entitled ? m.fraction : 1 - m.fraction) {
-          Text("words")
+          Text(look.text("gaugeWords", "words"))
         } currentValueLabel: {
           Text(short(m.headline)).font(.system(size: 14, weight: .bold, design: .rounded))
         }
@@ -143,18 +173,22 @@ struct MonthView: View {
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
             WaveMark(color: .primary).frame(width: 18, height: 12)
-            Text(m.entitled ? "Words this month" : "Words left").font(.system(size: 12, weight: .semibold))
+            Text(m.entitled
+                 ? look.text("wordsThisMonth", "Words this month")
+                 : look.text("wordsLeftTitle", "Words left"))
+              .font(.system(size: 12, weight: .semibold))
           }
           Text(n(m.headline)).font(.system(size: 22, weight: .heavy, design: .rounded))
           Line(fraction: m.fraction, tint: .primary).frame(height: 4)
           if m.streak > 0 {
-            Text("\(m.streak)-day streak").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(look.text("streakLong", "{n}-day streak", n: String(m.streak)))
+              .font(.system(size: 11)).foregroundStyle(.secondary)
           }
         }
       } else {
         HStack(spacing: 6) {
           WaveMark(color: .primary).frame(width: 18, height: 12)
-          Text("Tailzu").font(.system(size: 12, weight: .semibold))
+          Text(look.text("brand", "Tailzu")).font(.system(size: 12, weight: .semibold))
         }
       }
     }
@@ -163,13 +197,14 @@ struct MonthView: View {
   private var inline: some View {
     Group {
       if let m = entry.month {
+        let streak = m.streak > 0 ? look.text("inlineStreak", " · {n}d", n: String(m.streak)) : ""
         if m.entitled {
-          Text("Tailzu · \(n(m.used)) words" + (m.streak > 0 ? " · \(m.streak)d" : ""))
+          Text(look.text("inlinePaid", "Tailzu · {n} words", n: n(m.used)) + streak)
         } else {
-          Text("Tailzu · \(n(m.remaining)) left" + (m.streak > 0 ? " · \(m.streak)d" : ""))
+          Text(look.text("inlineFree", "Tailzu · {n} left", n: n(m.remaining)) + streak)
         }
       } else {
-        Text("Tailzu")
+        Text(look.text("brand", "Tailzu"))
       }
     }
   }
@@ -187,7 +222,7 @@ struct Line: View {
   var body: some View {
     GeometryReader { geo in
       ZStack(alignment: .leading) {
-        Capsule().fill(tint.opacity(0.14))
+        Capsule().fill(tint.opacity(Ink.track))
         Capsule().fill(tint).frame(width: max(0, min(1, fraction)) * geo.size.width)
       }
     }

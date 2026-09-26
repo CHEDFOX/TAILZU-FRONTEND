@@ -23,11 +23,16 @@ import Foundation
 /// That means iOS still holds its process image, so bringing it forward feels
 /// near-instant. "Cold" = the primer screen has to run so the user knows to
 /// grant mic + swipe back.
+///
+/// The window, both screen ids and the URL's shape are the server's
+/// (kb.handoff.*, kb.deepLink.urlTemplate); the literals below hold only until
+/// the first config.
 final class TulmiHandoff: NSObject {
   static let appGroup = "group.com.tulmi.app"
   static let darwinNotification = "space.tailzu.tulmi.handoff.complete"
-  /// Main app is treated as "warm" if it was foregrounded within this window.
-  static let warmWindowSeconds: TimeInterval = 15 * 60
+  /// Main app is treated as "warm" if it was foregrounded within this window
+  /// (15 minutes unless the server says otherwise).
+  static var warmWindowSeconds: TimeInterval { knobDouble("kb.handoff.warmWindowMs", 900000) / 1000.0 }
 
   /// Called on the main queue when a handoff completes (or is cancelled).
   var onResult: ((_ text: String, _ cancelled: Bool) -> Void)?
@@ -84,13 +89,20 @@ final class TulmiHandoff: NSObject {
 
     // Also drop a "pending deep link" so the existing consumeKeyboardDeepLink
     // path in SduiApp routes the user to the right screen on next foreground.
-    let screenId = isAppWarm ? "keyboard_record" : "keyboard_primer"
+    let screenId = isAppWarm
+      ? knobString("kb.handoff.screens.warm", "keyboard_record")
+      : knobString("kb.handoff.screens.cold", "keyboard_primer")
     d?.set("screen/\(screenId)", forKey: "tulmi.kb.pendingDeepLink")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
 
-    // Try to open the containing app directly. Query params ride on top so
-    // the SDUI screen can pick up the session id.
-    let urlString = "tulmi://s/\(screenId)?session=\(sessionId)&host=\(hostApp.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hostApp)"
+    // Try to open the containing app directly. The server's template names the
+    // screen ({screen}); the query params ride on top so the SDUI screen can
+    // pick up the session id — joined with "&" if the template already has a
+    // query of its own.
+    let host = hostApp.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hostApp
+    let base = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
+      .replacingOccurrences(of: "{screen}", with: screenId)
+    let urlString = base + (base.contains("?") ? "&" : "?") + "session=\(sessionId)&host=\(host)"
     if let url = URL(string: urlString) {
       _ = openURL(url)
     }

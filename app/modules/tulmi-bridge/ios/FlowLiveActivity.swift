@@ -61,6 +61,11 @@ final class FlowLiveActivity {
   func ready() { phase = "ready"; push() }
   /// A transcript landed: the count grows by the final's words.
   func spoke(words n: Int) { words += max(0, n); push() }
+  /// The activity's words changed (setFlowActivityCopy writes them to the App
+  /// Group, where the widget extension reads them). ActivityKit redraws on an
+  /// update, so push the unchanged state to show them now rather than at the
+  /// next dictation.
+  func redraw() { push() }
 
   func ended() {
     let a = activity; activity = nil

@@ -31,11 +31,16 @@ struct DictateIntent: AppIntent {
   static let openAppWhenRun: Bool = true
 
   func perform() async throws -> some IntentResult & OpensIntent {
+    // Which screen arms is the server's (widget.dictate.path in the app's
+    // flags, written here by the app as "tulmi.widget.dictate.path").
+    let d = UserDefaults(suiteName: Shared.appGroup)
+    let sent = d?.string(forKey: "tulmi.widget.dictate.path") ?? ""
+    let path = sent.isEmpty ? "screen/flow_arm" : sent
     // The tombstone the keyboard leaves when it opens the app to arm: the app
     // consumes it on arrival and arms. Belt and braces with the URL below.
-    let d = UserDefaults(suiteName: Shared.appGroup)
-    d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(path, forKey: "tulmi.kb.pendingDeepLink")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
-    return .result(opensIntent: OpenURLIntent(URL(string: "tulmi://screen/flow_arm")!))
+    let url = URL(string: "tulmi://\(path)") ?? URL(string: "tulmi://screen/flow_arm")!
+    return .result(opensIntent: OpenURLIntent(url))
   }
 }

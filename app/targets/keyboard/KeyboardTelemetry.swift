@@ -71,11 +71,13 @@ enum KeyboardTelemetry {
   private static let storeKey = "tulmi.kb.telemetry"
   private static let windowStartKey = "tulmi.kb.telemetry.start"
   /// Persist at most this often. Typing bursts hundreds of events; writing
-  /// each one would put a UserDefaults sync on the keystroke path.
-  private static let persistThrottle: TimeInterval = 20
+  /// each one would put a UserDefaults sync on the keystroke path. The
+  /// server's (kb.telemetry.persistSec); 20s until a config arrives.
+  private static var persistThrottle: TimeInterval { knobDouble("kb.telemetry.persistSec", 20) }
   /// Don't upload more often than this — the host refreshes config on every
-  /// keyboard open, which for a heavy user is dozens of times an hour.
-  private static let uploadInterval: TimeInterval = 30 * 60
+  /// keyboard open, which for a heavy user is dozens of times an hour. The
+  /// server's (kb.telemetry.uploadIntervalSec); 30 minutes until then.
+  private static var uploadInterval: TimeInterval { knobDouble("kb.telemetry.uploadIntervalSec", 1800) }
 
   private static var counters: [String: Int] = [:]
   private static var lastPersist: TimeInterval = 0
@@ -88,11 +90,13 @@ enum KeyboardTelemetry {
   /// path — the lock is uncontended in practice (touch handling is main-thread)
   /// and guards only a dictionary bump.
   static func bump(_ c: Counter, by n: Int = 1) {
+    // Read before taking the lock, so the knob lookup never nests inside it.
+    let throttle = persistThrottle
     lock.lock()
     loadIfNeeded()
     counters[c.rawValue, default: 0] += n
     let now = Date().timeIntervalSince1970
-    let due = now - lastPersist > persistThrottle
+    let due = now - lastPersist > throttle
     if due { lastPersist = now }
     let snapshot = due ? counters : nil
     lock.unlock()
@@ -127,7 +131,11 @@ enum KeyboardTelemetry {
   /// Everything the uploader needs, or nil when there's nothing worth sending
   /// or the interval hasn't elapsed. Clearing happens only after a successful
   /// upload (see `commitUpload`), so a failed request doesn't lose the data.
+  ///
+  /// The server can switch uploads off (kb.telemetry.enabled = false): then
+  /// nothing is ever pending, and the counters simply stay on the phone.
   static func pendingUpload() -> (counters: [String: Int], windowMs: Int)? {
+    guard knobBool("kb.telemetry.enabled", true) else { return nil }
     lock.lock()
     loadIfNeeded()
     let snapshot = counters

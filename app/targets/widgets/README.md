@@ -20,5 +20,21 @@ text is ever drawn — a widget sits on a Lock Screen.
   screen, which arms the microphone and says "swipe back": the same path the
   keyboard's mic key takes, one tap earlier.
 
+## What the server decides
+
+The widgets cannot read the server, so the app writes the server's values
+into the App Group next to the numbers, and every Swift read keeps the literal
+it replaced as its fallback (for a phone whose app has not written them yet):
+
+| App Group key | Written by | Carries | App knobs |
+| --- | --- | --- | --- |
+| `tulmi.widget.month` | `setWidgetMonth` | the numbers, plus `headline`, `fraction`, `labels`, `colors`, `alpha`, `url`, `refreshSec`, `span` | `widget.month.*` (labels and flags), `widget.color.*`, `widget.alpha.*` |
+| `tulmi.widget.flow.copy` | `setFlowActivityCopy` | the Live Activity's words and SF Symbols | `widget.flow.*` |
+| `tulmi.widget.dictate.path` | `setWidgetDictatePath` | the screen Dictate opens | `widget.dictate.path` |
+
+`WidgetLook` (`TailzuWidgets.swift`) reads the month's JSON leniently: a
+missing or mistyped field falls back without stopping the numbers. `Ink` is
+the palette read through it.
+
 Type-checked in CI (`keyboard-ios.yml`, job `widgets`). Built by EAS with the
 app through `@bacons/apple-targets`.

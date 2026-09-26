@@ -12,6 +12,28 @@ import WidgetKit
 // The attributes are declared once more, byte for byte, in the app's bridge
 // module (FlowLiveActivity.swift). ActivityKit matches the two by the type's
 // name and its encoding, so the two copies must stay identical.
+//
+// The words (and the symbols) are the server's: the app writes them to the
+// App Group as "tulmi.widget.flow.copy" (setFlowActivityCopy, from the
+// widget.flow.* labels), and each one read here falls back to the word it
+// replaced. The colours are Ink's, from the month's JSON.
+
+/// The activity's words, as the app last wrote them.
+enum FlowCopy {
+  static func text(_ key: String, _ fallback: String) -> String {
+    guard let raw = Shared.store?.string(forKey: "tulmi.widget.flow.copy"),
+          let data = raw.data(using: .utf8),
+          let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let s = dict[key] as? String
+    else { return fallback }
+    return s
+  }
+
+  /// A word with its `{n}` filled in.
+  static func text(_ key: String, _ fallback: String, n value: String) -> String {
+    text(key, fallback).replacingOccurrences(of: "{n}", with: value)
+  }
+}
 
 struct FlowActivityAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
@@ -67,7 +89,7 @@ struct FlowActivityWidget: Widget {
           }
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Text("\(n(context.state.words)) words")
+          Text(FlowCopy.text("words", "{n} words", n: n(context.state.words)))
             .font(.system(size: 13, weight: .medium, design: .rounded))
             .foregroundStyle(Ink.dim)
         }
@@ -75,14 +97,18 @@ struct FlowActivityWidget: Widget {
           FlowButtons(phase: context.state.phase)
         }
       } compactLeading: {
-        Image(systemName: context.state.phase == "listening" ? "waveform" : "mic")
+        Image(systemName: context.state.phase == "listening"
+              ? FlowCopy.text("iconListening", "waveform")
+              : FlowCopy.text("iconIdle", "mic"))
           .foregroundStyle(Ink.amber)
       } compactTrailing: {
-        Text(context.state.phase == "listening" ? "\(context.state.words)" : "Flow")
+        Text(context.state.phase == "listening"
+             ? String(context.state.words)
+             : FlowCopy.text("compact", "Flow"))
           .font(.system(size: 12, weight: .semibold, design: .rounded))
           .foregroundStyle(Ink.pale)
       } minimal: {
-        Image(systemName: "waveform").foregroundStyle(Ink.amber)
+        Image(systemName: FlowCopy.text("iconMinimal", "waveform")).foregroundStyle(Ink.amber)
       }
       .keylineTint(Ink.amber)
     }
@@ -91,9 +117,9 @@ struct FlowActivityWidget: Widget {
 
 func phaseWord(_ phase: String) -> String {
   switch phase {
-  case "listening": return "Listening"
-  case "writing": return "Writing"
-  default: return "Flow is on"
+  case "listening": return FlowCopy.text("listening", "Listening")
+  case "writing": return FlowCopy.text("writing", "Writing")
+  default: return FlowCopy.text("ready", "Flow is on")
   }
 }
 
@@ -106,8 +132,8 @@ struct FlowBanner: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(phaseWord(state.phase)).font(.system(size: 15, weight: .semibold)).foregroundStyle(Ink.pale)
         Text(state.phase == "ready"
-             ? "Tap the mic on the keyboard to dictate."
-             : "\(n(state.words)) words so far.")
+             ? FlowCopy.text("readyHint", "Tap the mic on the keyboard to dictate.")
+             : FlowCopy.text("wordsSoFar", "{n} words so far.", n: n(state.words)))
           .font(.system(size: 12)).foregroundStyle(Ink.dim)
       }
       Spacer()
@@ -124,7 +150,7 @@ struct FlowButtons: View {
     HStack(spacing: 8) {
       if phase == "listening" {
         Button(intent: StopDictationIntent()) {
-          Label("Stop", systemImage: "stop.fill")
+          Label(FlowCopy.text("stop", "Stop"), systemImage: FlowCopy.text("iconStop", "stop.fill"))
             .font(.system(size: 12, weight: .semibold))
             .padding(.horizontal, 12).padding(.vertical, 7)
         }
@@ -133,7 +159,7 @@ struct FlowButtons: View {
         .background(Ink.amber, in: Capsule())
       }
       Button(intent: EndFlowSessionIntent()) {
-        Label("End", systemImage: "xmark")
+        Label(FlowCopy.text("end", "End"), systemImage: FlowCopy.text("iconEnd", "xmark"))
           .font(.system(size: 12, weight: .semibold))
           .padding(.horizontal, 12).padding(.vertical, 7)
       }
