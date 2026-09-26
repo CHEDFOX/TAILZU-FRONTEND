@@ -203,6 +203,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         /** Hold before [onLongPress] fires; 0 = the plane's default. Shift
          *  sets it from kb.shift.longPressMs. */
         val longPressMs: Long = 0L,
+        /** This key's own press colour (its style.pressedBg); 0 = the row's. */
+        val pressedFill: Int = 0,
     ) {
         /** Filled in by the plane at layout time. */
         val rect = RectF()
@@ -226,6 +228,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     /** Colour a key flashes on press (theme.keyPressed). */
     var pressedFill: Int = 0
+
+    /** A built key's own press colour (its style.pressedBg), over the row's. */
+    private val pressedOverride = java.util.WeakHashMap<View, Int>()
+
+    fun setPressedColor(v: View, color: Int) { pressedOverride[v] = color }
 
     /**
      * kb.touch.vInsetPx — paint each key this far inside its row, top and
@@ -302,7 +309,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                             k.rect.right, k.rect.bottom - drawnVInsetPx)
                 painted
             } else k.rect
-            fillPaint.color = if (k === pressedKey && pressedFill != 0) pressedFill else k.fill
+            val press = if (k.pressedFill != 0) k.pressedFill else pressedFill
+            fillPaint.color = if (k === pressedKey && press != 0) press else k.fill
             canvas.drawRoundRect(paintRect, k.radiusPx, k.radiusPx, fillPaint)
             val g = k.glyph
             if (g != null) {
@@ -881,9 +889,10 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 // would throw away anything else.
                 val gd = o.background as? android.graphics.drawable.GradientDrawable ?: return
                 if (pressed) {
-                    if (pressedFill == 0) return
+                    val fill = pressedOverride[o] ?: pressedFill
+                    if (fill == 0) return
                     if (!restFill.containsKey(o)) restFill[o] = gd.color?.defaultColor ?: return
-                    gd.setColor(pressedFill)
+                    gd.setColor(fill)
                 } else {
                     restFill[o]?.let { gd.setColor(it) }
                 }
