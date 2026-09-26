@@ -1,4 +1,14 @@
 import { ExpoConfig } from "expo/config";
+// Config-time only (Node); the app's own TypeScript has no Node types.
+const { existsSync } = require("fs") as { existsSync(path: string): boolean };
+
+// Firebase for Android push: without it an Android phone never gets a push
+// token, so the server's notifications cannot reach it. EAS builds read it
+// from the GOOGLE_SERVICES_JSON file variable; a local build from
+// app/google-services.json. Neither present: the build is unchanged.
+const googleServicesFile =
+  process.env.GOOGLE_SERVICES_JSON ||
+  (existsSync("./google-services.json") ? "./google-services.json" : undefined);
 
 /**
  * Expo app config for Tulmi (Android + iOS from one codebase).
@@ -255,6 +265,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.tulmi.app",
+    ...(googleServicesFile ? { googleServicesFile } : {}),
     // ONLY permissions the launch build actually exercises. The old
     // "everything we might want next year" list was a Play-submission
     // liability: READ_MEDIA_IMAGES/VIDEO trigger the Photo & Video Permissions
