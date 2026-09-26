@@ -1471,6 +1471,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        caretAt = info?.initialSelStart ?: -1
         // The app may have signed in / out, or edited the dictionary, since the
         // view was built: both are cheap in-memory preference reads.
         Net.load(this)
@@ -1504,7 +1505,19 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        caretAt = newSelStart
         refreshAutoCap()
+    }
+
+    /** The caret as the editor last reported it; -1 until it has. */
+    private var caretAt = -1
+
+    override fun caretPosition(): Int = caretAt
+
+    override fun onCaretMoved() {
+        if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
+        lastCorrection = null
+        suggestForCaretWord()
     }
 
     /**

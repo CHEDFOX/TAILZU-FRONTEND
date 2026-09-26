@@ -101,6 +101,8 @@ class KBState(
      * mean to share, and a key that would be refused is better not drawn.
      */
     var secured: Boolean = false,
+    /** The space bar is being held as a trackpad (state.trackpadActive). */
+    var trackpadActive: Boolean = false,
     /**
      * "dark" or "light" — the system appearance.
      *
@@ -175,6 +177,13 @@ interface KBHost {
     fun onBackspace(): Boolean = false
     /** Text was just deleted by a key; the word under the caret has changed. */
     fun onTextDeleted() {}
+    /**
+     * Where the caret is, in characters from the start of the field, or -1
+     * when the host does not know. The trackpad places the caret from here.
+     */
+    fun caretPosition(): Int = -1
+    /** The trackpad moved the caret: the word under it is a different one. */
+    fun onCaretMoved() = onTextDeleted()
 }
 
 // ===========================================================================
@@ -619,6 +628,10 @@ class SDUIRenderer(
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel, s.returnAction,
             s.hasMultipleKeyboards, s.appearance,
+            // A password box hides the mic and Refine (visibleIf state.secured).
+            // Unfingerprinted, moving from a normal field into one took the
+            // fast-shift path and left both on screen.
+            s.secured,
             // suggestions deliberately NOT fingerprinted — they are applied in
             // place by refreshSuggestionBarInPlace(). Including them here put a
             // full teardown-and-rebuild of the whole keyboard on the keystroke
@@ -752,6 +765,12 @@ class SDUIRenderer(
         // Clear any pending long-press repeats attached to the previous view
         // tree so they don't fire against views that no longer exist.
         handler.removeCallbacksAndMessages(null)
+        // The keys the pop-up, tray and trackpad were tied to are going.
+        focusByPlane.clear()
+        keyPop?.clear()
+        trackpadViews.clear()
+        trackpadDrawn.clear()
+        host.state().trackpadActive = false
         // Reset the fast-shift refs — repopulated as the fresh tree renders.
         letterButtonsByChar.clear()
         shiftButton = null
@@ -923,6 +942,8 @@ class SDUIRenderer(
                 if (letters.size >= flagInt("kb.swipe.minKeys", 2).coerceAtLeast(2)) host.onSwipe(word)
             }
         }
+        // Held keys: the accent tray, the space-bar trackpad, and the pop-up.
+        configureHolds(ll)
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
@@ -1088,6 +1109,8 @@ class SDUIRenderer(
             }
 
             keys += key
+            // Hold space to steer the caret, unless the server gave it a hold.
+            if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress")) trackpadDrawn += key
             if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
                 drawnLettersByChar[raw.lowercase()] = key
             }
@@ -1105,6 +1128,286 @@ class SDUIRenderer(
     }
 
     private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
+
+    // -----------------------------------------------------------------------
+    // Held keys and the pop-up — the Android half of iOS's key callout, accent
+    // tray and space-bar trackpad. The planes time the holds and keep the
+    // fingers; this decides what a hold means and draws it into the
+    // container's overlay, where it can never take a touch or move a key.
+    // -----------------------------------------------------------------------
+
+    /** The pop-up and the tray, painted over the whole keyboard. */
+    private var keyPop: TulmiKeyPop? = null
+
+    /** Which plane currently has a lone finger on a letter, and on what. */
+    private val focusByPlane = HashMap<TulmiKeyPlane, Pair<String, RectF>>()
+
+    /** Space keys a hold turns into a trackpad. */
+    private val trackpadViews = java.util.Collections.newSetFromMap(java.util.WeakHashMap<View, Boolean>())
+    private val trackpadDrawn = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<TulmiKeyPlane.DrawnKey, Boolean>())
+
+    private var trayMovedFrom: PointF? = null
+    private var trackpadAnchor = -1
+    private var trackpadSteps = 0
+
+    private val scratchLoc = IntArray(2)
+    private val scratchBase = IntArray(2)
+
+    private fun keyPop(): TulmiKeyPop {
+        keyPop?.let { return it }
+        val p = TulmiKeyPop()
+        container.overlay.add(p)
+        keyPop = p
+        return p
+    }
+
+    /** A plane-local rect in container coordinates. */
+    private fun toContainer(plane: View, r: RectF): RectF {
+        plane.getLocationInWindow(scratchLoc)
+        container.getLocationInWindow(scratchBase)
+        val dx = (scratchLoc[0] - scratchBase[0]).toFloat()
+        val dy = (scratchLoc[1] - scratchBase[1]).toFloat()
+        return RectF(r.left + dx, r.top + dy, r.right + dx, r.bottom + dy)
+    }
+
+    private fun toContainerX(plane: View, x: Float): Float {
+        plane.getLocationInWindow(scratchLoc)
+        container.getLocationInWindow(scratchBase)
+        return x + (scratchLoc[0] - scratchBase[0])
+    }
+
+    private fun toContainerY(plane: View, y: Float): Float {
+        plane.getLocationInWindow(scratchLoc)
+        container.getLocationInWindow(scratchBase)
+        return y + (scratchLoc[1] - scratchBase[1])
+    }
+
+    private fun sizePop(p: TulmiKeyPop) {
+        p.setBounds(0, 0, container.width, container.height)
+    }
+
+    /** Letters only, as on iOS: numbers, symbols and space never pop. */
+    private fun pops(label: String?): Boolean =
+        label != null && label.length == 1 && label[0].isLetter()
+
+    /**
+     * Show the pop-up only while exactly one plane has a lone finger on a
+     * letter. Rows are separate planes, so two fingers in two rows would
+     * otherwise each claim it and it would flicker between them.
+     */
+    private fun refreshPop() {
+        val p = keyPop ?: if (focusByPlane.isEmpty()) return else keyPop()
+        val only = focusByPlane.values.singleOrNull()
+        if (only == null || p.trayOpen || host.state().trackpadActive) { p.hidePop(); return }
+        sizePop(p)
+        val dm = host.context().resources.displayMetrics
+        p.headExtraWidth = flagFloat("kb.callout.headExtraWidth", 28f) * dm.density
+        p.headMinWidth = flagFloat("kb.callout.headMinWidth", 44f) * dm.density
+        p.headExtraHeight = flagFloat("kb.callout.headExtraHeight", 8f) * dm.density
+        p.neckHeight = flagFloat("kb.callout.neckHeight", 10f) * dm.density
+        p.headRadius = flagFloat("kb.callout.radius", 7f) * dm.density
+        p.keyRadius = theme.keyRadius * dm.density
+        p.edgeInset = flagFloat("kb.callout.edgeInset", 3f) * dm.density
+        val shadow = flagColor("kb.callout.shadowColor", "#000000")
+        val opacity = flagFloat("kb.callout.shadowOpacity", 0.18f).coerceIn(0f, 1f)
+        p.setShadow(
+            Color.argb((opacity * 255).toInt(), Color.red(shadow), Color.green(shadow), Color.blue(shadow)),
+            flagFloat("kb.callout.shadowRadius", 5f) * dm.density,
+            flagFloat("kb.callout.shadowOffsetX", 0f) * dm.density,
+            flagFloat("kb.callout.shadowOffsetY", 2f) * dm.density,
+        )
+        val keyFill = parseHex(theme.key)
+        val dark = luminance(keyFill) < 0.5
+        val bg = flagString("kb.callout.bg", "").takeIf { it.isNotBlank() }?.let { parseHex(it) }
+            ?: if (dark) Color.rgb(77, 77, 77) else Color.WHITE
+        val ink = flagString("kb.callout.text", "").takeIf { it.isNotBlank() }?.let { parseHex(it) }
+            ?: if (dark) Color.WHITE else Color.rgb(28, 28, 28)
+        p.showPop(only.second, only.first, bg, ink, flagFloat("kb.callout.fontSize", 24f) * dm.scaledDensity)
+    }
+
+    private fun luminance(c: Int): Double =
+        (0.299 * Color.red(c) + 0.587 * Color.green(c) + 0.114 * Color.blue(c)) / 255.0
+
+    /** kb.accents for this key, as typed right now (shift applies), base first. */
+    private fun accentsFor(label: String?): List<String>? {
+        if (label == null || label.length != 1) return null
+        if (!flagBoolean("kb.keyPlane.accentTrays", true)) return null
+        val base = label.lowercase()
+        val list: List<String> = when (val raw = (kbConfig.flags["kb.accents"] as? JSONObject)?.opt(base)) {
+            is JSONArray -> (0 until raw.length()).mapNotNull { raw.optString(it, "").takeIf { s -> s.isNotEmpty() } }
+            // Older configs sent one string of glyphs: "àáâ".
+            is String -> {
+                val out = ArrayList<String>()
+                var i = 0
+                while (i < raw.length) {
+                    val n = Character.charCount(raw.codePointAt(i))
+                    out += raw.substring(i, i + n)
+                    i += n
+                }
+                out
+            }
+            else -> return null
+        }
+        if (list.isEmpty()) return null
+        val s = host.state()
+        val upper = s.shift || s.capsLock
+        return (listOf(label) + list).map { if (upper) it.uppercase() else it }
+    }
+
+    /** One held-key brain for every row. */
+    private val keyGestures = object : TulmiKeyPlane.Gestures {
+        override fun focus(plane: TulmiKeyPlane, owner: Any?, label: String?, rect: RectF?) {
+            if (!flagBoolean("kb.callout.enabled", true)) {
+                if (focusByPlane.isNotEmpty()) { focusByPlane.clear(); keyPop?.hidePop() }
+                return
+            }
+            if (owner == null || rect == null || !pops(label)) {
+                if (focusByPlane.remove(plane) == null && focusByPlane.isEmpty()) return
+            } else {
+                val s = host.state()
+                val shown = if (s.shift || s.capsLock) label!!.uppercase() else label!!.lowercase()
+                focusByPlane[plane] = shown to toContainer(plane, rect)
+            }
+            refreshPop()
+        }
+
+        override fun accentsFor(owner: Any, label: String?): List<String>? = this@SDUIRenderer.accentsFor(label)
+
+        override fun trayOpen(plane: TulmiKeyPlane, owner: Any, items: List<String>, rect: RectF): Boolean {
+            val p = keyPop()
+            sizePop(p)
+            val dm = host.context().resources.displayMetrics
+            p.chipWidth = flagFloat("kb.accentTray.chipWidth", 40f) * dm.density
+            p.chipGap = flagFloat("kb.accentTray.gap", 4f) * dm.density
+            p.trayPadding = flagFloat("kb.accentTray.padding", 4f) * dm.density
+            p.trayHeight = flagFloat("kb.accentTray.height", 48f) * dm.density
+            p.trayRadius = flagFloat("kb.accentTray.radius", 8f) * dm.density
+            p.chipRadius = flagFloat("kb.accentTray.chipRadius", 6f) * dm.density
+            p.trayOffsetY = flagFloat("kb.accentTray.offsetY", -52f) * dm.density
+            p.edgeInset = 4f * dm.density
+            p.showTray(
+                toContainer(plane, rect), items,
+                bg = parseHex(theme.key),
+                ink = parseHex(theme.keyText),
+                activeBg = flagColor("kb.accentTray.chipActiveBg", "#007AFF"),
+                textPx = flagFloat("kb.accentTray.chipFontSize", 22f) * dm.scaledDensity,
+            )
+            trayMovedFrom = null
+            holdHaptic(plane)
+            TulmiTelemetry.bump(TulmiTelemetry.ACCENT_TRAY_OPENED)
+            return true
+        }
+
+        override fun trayMove(plane: TulmiKeyPlane, x: Float, y: Float) {
+            val p = keyPop ?: return
+            val cx = toContainerX(plane, x)
+            val cy = toContainerY(plane, y)
+            // The base stays lit until the finger actually travels, so a hold
+            // released where it started types the letter that was held.
+            val from = trayMovedFrom
+            if (from == null) { trayMovedFrom = PointF(cx, cy); return }
+            val travel = Math.hypot((cx - from.x).toDouble(), (cy - from.y).toDouble())
+            if (p.active == 0 && travel < 4.0 * host.context().resources.displayMetrics.density) return
+            p.setActive(p.chipAt(cx, cy))
+        }
+
+        override fun trayRelease(plane: TulmiKeyPlane, x: Float, y: Float, onKey: Boolean, cancelled: Boolean): Boolean {
+            val p = keyPop ?: return false
+            val active = p.active
+            val pick = p.activeItem()
+            p.hideTray()
+            trayMovedFrom = null
+            if (cancelled) return false
+            return when {
+                active == 0 -> true                     // the base: the key's own tap
+                pick != null -> { typeAccent(pick); false }
+                else -> onKey                           // slid off the tray, back on the key
+            }
+        }
+
+        override fun isTrackpad(owner: Any): Boolean {
+            if (!flagBoolean("kb.trackpad.enabled", true)) return false
+            return when (owner) {
+                is View -> owner in trackpadViews
+                is TulmiKeyPlane.DrawnKey -> owner in trackpadDrawn
+                else -> false
+            }
+        }
+
+        override fun trackpadStart(plane: TulmiKeyPlane) {
+            val s = host.state()
+            s.trackpadActive = true
+            trackpadAnchor = host.caretPosition()
+            trackpadSteps = 0
+            lastSpaceAt = 0L
+            keyPop?.hidePop()
+            val dim = flagFloat("kb.trackpad.dimAlpha", 0.35f).coerceIn(0f, 1f)
+            for (row in lockableRows) row.alpha = dim
+            holdHaptic(plane)
+            TulmiTelemetry.bump(TulmiTelemetry.TRACKPAD_USED)
+        }
+
+        override fun trackpadMove(plane: TulmiKeyPlane, dx: Float) {
+            val perChar = flagFloat("kb.trackpad.ptPerChar", 7f).coerceAtLeast(1f) *
+                host.context().resources.displayMetrics.density
+            val steps = (dx / perChar).toInt()
+            if (steps == trackpadSteps) return
+            val delta = steps - trackpadSteps
+            trackpadSteps = steps
+            moveCaret(delta)
+        }
+
+        override fun trackpadEnd(plane: TulmiKeyPlane) {
+            val s = host.state()
+            s.trackpadActive = false
+            lastSpaceAt = 0L
+            for (row in lockableRows) row.alpha = 1f
+            if (trackpadSteps != 0) host.onCaretMoved()
+            trackpadSteps = 0
+            trackpadAnchor = -1
+        }
+    }
+
+    /**
+     * Step the caret. From a known start it is placed exactly (setSelection),
+     * which never lags however fast the finger moves; without one it steps with
+     * arrow keys, which every editor understands.
+     */
+    private fun moveCaret(delta: Int) {
+        val ic = host.ic() ?: return
+        if (trackpadAnchor >= 0) {
+            val target = (trackpadAnchor + trackpadSteps).coerceAtLeast(0)
+            ic.setSelection(target, target)
+            return
+        }
+        val code = if (delta < 0) android.view.KeyEvent.KEYCODE_DPAD_LEFT else android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+        repeat(kotlin.math.abs(delta)) {
+            ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, code))
+            ic.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code))
+        }
+    }
+
+    /** The bump that says a hold took: the tray opened, the trackpad woke. */
+    private fun holdHaptic(v: View) {
+        if (!flagBoolean("kb.haptics.enabled", true) || !flagBoolean("kb.haptics.holds", true)) return
+        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    /** Type a tray pick: the same shift release and word refresh as a letter. */
+    private fun typeAccent(ch: String) {
+        insertText(ch)
+        val s = host.state()
+        if (s.shift && !s.capsLock) { s.shift = false; host.onStateChanged() }
+    }
+
+    /** Timings and switches the planes read from the server. */
+    private fun configureHolds(plane: TulmiKeyPlane) {
+        plane.gestures = keyGestures
+        plane.trayHoldMs = flagFloat("kb.accentTray.longPressMs", 500f).toLong()
+        plane.trackpadHoldMs = flagFloat("kb.trackpad.longPressMs", 300f).toLong()
+        plane.holdCancelDriftPx = flagFloat("kb.accentTray.cancelDriftPt", 12f) *
+            host.context().resources.displayMetrics.density
+    }
 
     /** Spacer = flex-weighted empty View. Direction inferred from parent orientation. */
     private fun renderSpacer(node: KBNode, parent: ViewGroup) {
@@ -1270,6 +1573,9 @@ class SDUIRenderer(
             pressSpace()
             invokeEvent(node, "onPress")
         }
+        // Hold to steer the caret (the row's plane runs it), unless the server
+        // gave space a hold of its own.
+        if (!node.on.containsKey("onLongPress")) trackpadViews += b
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
     }
 
@@ -1278,9 +1584,49 @@ class SDUIRenderer(
      * first, then the space lands, then a symbol layer hands back to letters.
      */
     private fun pressSpace() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (smartPeriod(now)) { autoReturnToLetters(); return }
         host.beforeWordBoundary(" ")
         insertText(" ")
+        lastSpaceAt = now
         autoReturnToLetters()
+    }
+
+    /** When space last typed a space; 0 after anything that breaks the pair. */
+    private var lastSpaceAt = 0L
+
+    /**
+     * Two spaces in quick succession end the sentence: the first becomes
+     * ". ", as on iOS and every system keyboard. kb.smartPeriod turns it off;
+     * kb.smartPeriod.windowMs is how quick "quick" is.
+     *
+     * Only after a word — never after punctuation, a line break or another
+     * space — and never in a password box, where two spaces are two spaces.
+     */
+    private fun smartPeriod(now: Long): Boolean {
+        val since = now - lastSpaceAt
+        lastSpaceAt = 0L
+        if (!flagBoolean("kb.smartPeriod", true) || host.state().secured) return false
+        if (since > flagFloat("kb.smartPeriod.windowMs", 500f).toLong()) return false
+        val ic = host.ic() ?: return false
+        val before = ic.getTextBeforeCursor(2, 0)?.toString() ?: return false
+        if (before.length < 2 || before[1] != ' ') return false
+        val prev = before[0]
+        if (prev.isWhitespace() || isPunctuation(prev)) return false
+        ic.beginBatchEdit()
+        ic.deleteSurroundingText(1, 0)
+        ic.commitText(". ", 1)
+        ic.endBatchEdit()
+        TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+        host.onTextInserted()
+        return true
+    }
+
+    private fun isPunctuation(c: Char): Boolean = when (Character.getType(c).toByte()) {
+        Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION, Character.START_PUNCTUATION,
+        Character.END_PUNCTUATION, Character.INITIAL_QUOTE_PUNCTUATION,
+        Character.FINAL_QUOTE_PUNCTUATION, Character.OTHER_PUNCTUATION -> true
+        else -> false
     }
 
     /**
@@ -2561,6 +2907,7 @@ class SDUIRenderer(
             "hasFullAccess" -> s.hasFullAccess
             "hasMultipleKeyboards" -> s.hasMultipleKeyboards
             "secured" -> s.secured
+            "trackpadActive" -> s.trackpadActive
             "appearance" -> s.appearance
             "status" -> s.status
             "micLevel" -> s.micLevel
@@ -3761,7 +4108,9 @@ class SDUIRenderer(
          * Deliberately its own series: this keyboard is not a port of the iOS
          * one and its stamps should never be read as tracking K-numbers.
          */
-        const val BUILD_STAMP = "A2"
+        // A3: key pop-ups, accent trays, the space-bar trackpad, double-space
+        // full stop, and the mic hidden when focus moves into a password box.
+        const val BUILD_STAMP = "A3"
 
         /** Tag on suggestion chips, so nothing mistakes a one-letter chip for a key. */
         const val CHIP_TAG = "tulmi.chip"
