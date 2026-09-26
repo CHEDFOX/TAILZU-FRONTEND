@@ -124,11 +124,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       if isFinal { self.commitFinal(text) }
       else if self.micLiveText { self.replacePartial(with: text) }
     }
+    f.onLevel = { [weak self] level in
+      // The ring moves with the voice. Only while this keyboard is the one
+      // dictating — a level that lands after stop must not wake a still mark.
+      guard let self = self, self.flowRecording else { return }
+      self.sduiRenderer?.reflectMicLevel(CGFloat(level))
+    }
     f.onEnded = { [weak self] in
       guard let self = self else { return }
       // Session expired / turned off — reset the mic UI. The button flips back
       // to "Start Flow"; the next tap re-opens the app to arm a fresh session.
       self.flowRecording = false
+      self.sduiRenderer?.reflectMicLevel(0)
       self.pendingPartial = ""
       self.sduiRenderer?.reflectDictating(false)
       self.refreshFlowButton()
@@ -1236,6 +1243,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   @objc private func micTapped() {
+    // A PASSWORD BOX — the tree hides the mic there (state.secured), and this
+    // is the half that does not depend on the tree: a mic that opens in a
+    // password field sends the password to be transcribed. A dictation
+    // already running is left to its own stop.
+    if hostIsSecureField() && !isStreaming && !isRecording && !flowRecording && !isHandoffActive {
+      sduiRenderer?.reflectDictating(false)
+      setStatus(label("micSecure", "Dictation is off in password fields."), actionable: true)
+      return
+    }
     // OUT OF WORDS — before anything else, and before the microphone opens.
     //
     // Every mic mode below ends in a request that would be refused, so the
@@ -1400,6 +1416,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// so the user isn't stuck talking to a mic that captures nothing.
   private func abandonDeadFlowDictation() {
     flowRecording = false
+    sduiRenderer?.reflectMicLevel(0)
     pendingPartial = ""
     flowDictationToken &+= 1                // invalidate any in-flight watchdog
     sduiRenderer?.reflectDictating(false)
@@ -1425,6 +1442,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func stopFlowDictation() {
     flowRecording = false
+    sduiRenderer?.reflectMicLevel(0)
     flow.stopDictation()                   // app finalizes; final lands via onTranscript
     // Back to the armed-idle mic — the session stays live for the next utterance
     // (no app trip). The final transcript still commits via onTranscript.
@@ -2256,6 +2274,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // MARK: - Refine
 
   @objc private func refineTapped() {
+    // Refine reads the whole field and sends it to the server. In a password
+    // box that is the password.
+    if hostIsSecureField() {
+      setStatus(label("refineSecure", "Refine is off in password fields."), actionable: true)
+      return
+    }
     let proxy = textDocumentProxy
     let before = proxy.documentContextBeforeInput ?? ""
     let after = proxy.documentContextAfterInput ?? ""
@@ -2428,6 +2452,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       flowRecording = false
       pendingPartial = ""
     }
+    sduiRenderer?.reflectMicLevel(0)
     isHandoffActive = false
     sduiRenderer?.reflectDictating(false)
   }
@@ -2605,9 +2630,28 @@ extension KeyboardViewController: KBHostControllerProtocol {
     }
   }
 
-  /// True in a password field (field.isSecure in the tree's conditions).
+  /// True in a password field (field.isSecure and state.secured in the
+  /// tree's conditions).
+  ///
+  /// iOS swaps in the system keyboard for a dotted secure field, so that case
+  /// rarely reaches us. What does reach us is the same password shown in the
+  /// clear — a "show password" toggle, or a login form that marks the box as a
+  /// password by content type alone. Dictating, refining or autocorrecting
+  /// there would send or rewrite the user's password, so those count too:
+  /// kb.secure.contentTypes names which content types (the server's list).
   func hostIsSecureField() -> Bool {
-    (textDocumentProxy as? UITextInputTraits)?.isSecureTextEntry ?? false
+    let traits = textDocumentProxy as? UITextInputTraits
+    if traits?.isSecureTextEntry ?? false { return true }
+    guard let type: UITextContentType = traits?.textContentType ?? nil else { return false }
+    for name in knobStrings("kb.secure.contentTypes", ["password", "newPassword"]) {
+      switch name {
+      case "password":    if type == .password { return true }
+      case "newPassword": if type == .newPassword { return true }
+      case "oneTimeCode": if type == .oneTimeCode { return true }
+      default:            if type.rawValue == name { return true }
+      }
+    }
+    return false
   }
 
   /// The globe key's touches, forwarded to the system switcher — Apple's
@@ -2628,7 +2672,9 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// The current field's autocorrection trait — the renderer keeps autocorrect
   /// and suggestion chips out of fields that opt out (URL, email, code).
   func hostAutocorrectionType() -> UITextAutocorrectionType {
-    (textDocumentProxy as? UITextInputTraits)?.autocorrectionType ?? .default
+    // A password is not a word: no corrections, no suggestion chips.
+    if hostIsSecureField() { return .no }
+    return (textDocumentProxy as? UITextInputTraits)?.autocorrectionType ?? .default
   }
 
   /// Word-boundary text expansion: the user's Tailzu dictionary first (their

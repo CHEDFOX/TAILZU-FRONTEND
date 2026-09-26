@@ -17,12 +17,20 @@ final class TulmiFlow: NSObject {
   static let nStop       = "space.tailzu.tulmi.flow.stop"
   static let nTranscript = "space.tailzu.tulmi.flow.transcript"
   static let nEnded      = "space.tailzu.tulmi.flow.ended"
+  /// The voice level: the app posts `level.<0…16>` while a dictation runs
+  /// (FlowSessionManager). The number is in the name because a Darwin
+  /// notification carries nothing else.
+  static let nLevelPrefix = "space.tailzu.tulmi.flow.level."
+  static let levelSteps = 16
 
   /// A new partial/final transcript landed. `isFinal` distinguishes a finalized
   /// segment (commit) from an in-progress hypothesis (replace).
   var onTranscript: ((_ text: String, _ isFinal: Bool) -> Void)?
   /// The Flow Session ended (idle-expired or turned off) — reset UI to idle.
   var onEnded: (() -> Void)?
+  /// How loud the voice is right now, 0…1, while a dictation runs — what the
+  /// mic mark moves to. Only the app can hear the microphone, so it tells us.
+  var onLevel: ((Double) -> Void)?
 
   private var lastSeq = 0
   private var lastSessionId: String?
@@ -103,6 +111,15 @@ final class TulmiFlow: NSObject {
       let this = Unmanaged<TulmiFlow>.fromOpaque(p).takeUnretainedValue()
       DispatchQueue.main.async { this.onEnded?() }
     }, TulmiFlow.nEnded as CFString, nil, .deliverImmediately)
+    for step in 0...TulmiFlow.levelSteps {
+      CFNotificationCenterAddObserver(center, ptr, { _, p, name, _, _ in
+        guard let p = p, let raw = name.map({ $0.rawValue as String }),
+              let step = Int(raw.dropFirst(TulmiFlow.nLevelPrefix.count)) else { return }
+        let this = Unmanaged<TulmiFlow>.fromOpaque(p).takeUnretainedValue()
+        let level = Double(step) / Double(TulmiFlow.levelSteps)
+        DispatchQueue.main.async { this.onLevel?(level) }
+      }, (TulmiFlow.nLevelPrefix + String(step)) as CFString, nil, .deliverImmediately)
+    }
   }
 
   private func readTranscript() {

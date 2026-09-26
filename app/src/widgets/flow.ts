@@ -60,5 +60,9 @@ export function flowArmOptions(): FlowArmOptions {
     tapFrames: num("app.flow.tapFrames", 2048),
     streamPath: str("app.flow.streamPath", "/v1/transcribe-stream"),
     uploadPath: str("app.flow.uploadPath", "/v1/transcribe-clean"),
+    level: bool("app.flow.level.enabled", true),
+    levelMs: num("app.flow.level.intervalMs", 50),
+    levelFloorDb: num("app.flow.level.floorDb", -50),
+    levelCeilDb: num("app.flow.level.ceilDb", -12),
   };
 }
