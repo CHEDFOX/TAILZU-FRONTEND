@@ -52,6 +52,7 @@ import {
   writeAppWarmHeartbeat,
   consumeKeyboardRecordRequest,
   armFlowSession,
+  endFlowSession,
 } from "../../modules/tulmi-bridge";
 import { supabaseAuth, getSupabaseAccessToken } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
@@ -445,8 +446,10 @@ export default function SduiApp() {
     setTimeout(() => setToast(null), num("app.toastMs", 2800));
   }, []);
 
-  const loadBoot = useCallback(async () => {
-    setPhase("loading");
+  const loadBoot = useCallback(async (opts?: { quiet?: boolean }) => {
+    // The offline card retries quietly: dropping to "loading" unmounted it on
+    // every attempt, so it flashed blank and its back-off restarted at zero.
+    if (!opts?.quiet) setPhase("loading");
     // READ THE DEVICE BEFORE ASKING THE SERVER WHAT TO SHOW.
     //
     // The bootstrap carries mic + keyboard state, and the server picks the
@@ -790,13 +793,18 @@ export default function SduiApp() {
       // The last server's words and numbers, before anything is drawn — the
       // sign-in screen included. App.tsx does this synchronously where the
       // binary can; this is the floor under it.
-      await primeKnobsFromDisk();
       // A REINSTALL IS NOT A LAUNCH. The Keychain survives app deletion, so a
       // delete-and-reinstall came back holding the previous install's session
       // and walked straight past sign-in. Cleared BEFORE the session is read,
       // so the app sees what a new install should see: nobody signed in.
       // Local scope only — the account and its other devices are untouched.
-      if (await isFreshInstall()) {
+      //
+      // Asked FIRST, before anything else touches storage: AsyncStorage runs
+      // one operation at a time, and a write queued ahead of this check (the
+      // boot breadcrumb) made every new install look like one that had run.
+      const fresh = await isFreshInstall();
+      await primeKnobsFromDisk();
+      if (fresh) {
         await supabaseAuth.clearLocalSession().catch(() => {});
       }
       // Gate on auth first: the app needs a JWT to talk to the backend.
@@ -814,7 +822,9 @@ export default function SduiApp() {
       // Supabase's autoRefreshToken fires TOKEN_REFRESHED before expiry; this
       // handler forwards each refresh straight to the keyboard.
       const { data: { subscription } } = supabaseAuth.onAuthStateChange((_e, s) => {
-        if (!s && SUPABASE_CONFIGURED) { setPhase("auth"); return; }
+        // Signed out (or the account deleted): the background microphone goes
+        // with the session — nothing may stay armed for nobody.
+        if (!s && SUPABASE_CONFIGURED) { endFlowSession(); setPhase("auth"); return; }
         if (s) void syncKeyboardCredentials();
       });
       unsub = () => subscription.unsubscribe();
@@ -1211,7 +1221,29 @@ export default function SduiApp() {
   //
   // arm() is idempotent — re-arming just refreshes the idle window — so running
   // this whenever the flags land is safe and self-healing.
+  //
+  // ONLY FOR A SIGNED-IN USER WHOSE MICROPHONE IS ALREADY ALLOWED. Arming opens
+  // the audio session: signed out, it held the microphone in the background
+  // behind the sign-in screen with nobody to transcribe for (the flag reaches
+  // the app from the sign-in screen's own bootstrap and the disk copy, before
+  // anyone is signed in); on a fresh install, it raised the microphone prompt
+  // over the sign-in code screen. The permission is asked where it is
+  // explained (onboarding, the arming screen); this only reads it.
+  const armIfAllowed = useCallback(async () => {
+    if (!bool("kb.flow.armOnForeground", false)) return;
+    const [base, tok, lang] = await Promise.all([
+      getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
+    ]);
+    if (!tok) return;
+    const signals = await refreshDeviceSignalsBounded();
+    if (!signals.micGranted) return;
+    const idle = num("kb.flow.idleTimeoutMs", 600000);
+    const oneShot = str("kb.flow.transport", "stream") === "oneshot";
+    armFlowSession(base, tok, lang || "auto", idle, oneShot, flowArmOptions());
+  }, []);
+
   useEffect(() => {
+    if (phase !== "ready") return;
     if (!bool("kb.flow.armOnForeground", false)) return;
     // NOT GATED ON AppState.currentState.
     //
@@ -1231,17 +1263,11 @@ export default function SduiApp() {
       // (supabase.auth.getSession() goes to the network when the JWT has
       // expired, which is once an hour and invisible the rest of the time).
       const t0 = Date.now();
-      const [base, tok, lang] = await Promise.all([
-        getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-      ]);
-      const creds = Date.now() - t0;
-      const idle = num("kb.flow.idleTimeoutMs", 600000);
-      const oneShot = str("kb.flow.transport", "stream") === "oneshot";
-      armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
+      await armIfAllowed();
       // eslint-disable-next-line no-console
-      console.log(`[flow] armed — creds ${creds}ms, token ${tok ? "live" : "none"}`);
+      console.log(`[flow] arm checked — ${Date.now() - t0}ms`);
     })();
-  }, [boot]);
+  }, [boot, phase, armIfAllowed]);
 
   // Refetch bootstrap + current screen when the app returns to the foreground
   // — so a user who left the app open, backgrounded it for hours, and comes
@@ -1264,16 +1290,7 @@ export default function SduiApp() {
       // the idle window is backend-tunable. This holds the mic in the background
       // (recording indicator + battery), so it's a backend flag, OFF unless the
       // backend explicitly turns it on.
-      if (bool("kb.flow.armOnForeground", false)) {
-        void (async () => {
-          const [base, tok, lang] = await Promise.all([
-            getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-          ]);
-          const idle = num("kb.flow.idleTimeoutMs", 600000);
-          const oneShot = str("kb.flow.transport", "stream") === "oneshot";
-          armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
-        })();
-      }
+      if (phase === "ready") void armIfAllowed();
       if (phase !== "ready") return;
       // Consume whatever the keyboard left (mic-handoff record request or a
       // deep-link tombstone — it can't call openURL itself, so it drops a target
@@ -1703,7 +1720,7 @@ export default function SduiApp() {
     return (
       <OfflineScreen
         theme={boot?.theme}
-        onRetry={loadBoot}
+        onRetry={() => loadBoot({ quiet: true })}
         onDev={() => setShowConnection(true)}
       />
     );

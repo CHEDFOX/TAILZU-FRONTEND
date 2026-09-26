@@ -64,9 +64,30 @@ export function color(key: string, fallback: string): string {
   return typeof v === "string" && v.length > 0 ? v : fallback;
 }
 
+/**
+ * A list, shaped like its fallback: when the fallback's items are numbers,
+ * strings or objects, the server's list is used only if every item is one too
+ * (numbers finite, objects non-null). A console list with a null or a string
+ * among the numbers otherwise reaches an animation or a .toLowerCase() and
+ * takes the app down; now it is ignored and the fallback holds.
+ */
 export function list<T>(key: string, fallback: T[]): T[] {
   const v = flags[key];
-  return Array.isArray(v) ? (v as T[]) : fallback;
+  if (!Array.isArray(v)) return fallback;
+  const sample = fallback[0];
+  if (sample === undefined) return v.filter((x) => x !== null && x !== undefined) as T[];
+  const ok = (x: unknown): boolean =>
+    typeof sample === "number" ? typeof x === "number" && Number.isFinite(x)
+      : typeof sample === "string" ? typeof x === "string"
+        : typeof sample === "object" ? !!x && typeof x === "object" && !Array.isArray(x)
+          : typeof x === typeof sample;
+  return v.every(ok) ? (v as T[]) : fallback;
+}
+
+/** A numeric tuple of exactly `len` finite numbers (a curve, a ramp), else the fallback. */
+export function tuple(key: string, fallback: number[], len: number): number[] {
+  const v = list<number>(key, fallback);
+  return v.length === len ? v : fallback;
 }
 
 export function obj<T extends object>(key: string, fallback: T): T {

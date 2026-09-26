@@ -51,8 +51,10 @@ export async function isFreshInstall(): Promise<boolean> {
   try {
     if ((await AsyncStorage.getItem(KEY_INSTALLED)) === "1") return false;
     const keys = await AsyncStorage.getAllKeys();
+    // The boot breadcrumb is written on every launch, the first included, so it
+    // says nothing about an earlier install.
     const ranBefore = keys.some(
-      (k) => k !== KEY_INSTALLED && (k.startsWith("tulmi.") || k.startsWith("tailzu.")),
+      (k) => k !== KEY_INSTALLED && k !== "tailzu.lastBoot" && (k.startsWith("tulmi.") || k.startsWith("tailzu.")),
     );
     await AsyncStorage.setItem(KEY_INSTALLED, "1");
     return !ranBefore;

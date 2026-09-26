@@ -114,6 +114,26 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
 
   // Resolve props: literal props + bound props (bind: { prop -> statePath }).
   const props: Record<string, any> = { ...(node.props ?? {}) };
+  // Resolve "@label.key" string props against the catalog's central copy.
+  //
+  // A key the catalog does not have drew as the KEY — "paywall.cta.monthly"
+  // on a button, in front of a user. Blank is the honest failure: nothing is
+  // better than an identifier. The server can ask for the key back (policy
+  // "key") while it is authoring, to see what is missing.
+  //
+  // Only the node's OWN props, before binding: a bound value is the user's
+  // text (a history row, a dictation), and "@Sarah can you…" is a sentence,
+  // not a label key — it went blank.
+  let missingPolicy: string | null = null;
+  for (const k of Object.keys(props)) {
+    const v = props[k];
+    if (typeof v === "string" && v.startsWith("@")) {
+      const hit = ctx.labels[v.slice(1)];
+      if (hit !== undefined) { props[k] = hit; continue; }
+      if (missingPolicy === null) missingPolicy = str("labels.missingPolicy", "blank");
+      props[k] = missingPolicy === "key" ? v.slice(1) : "";
+    }
+  }
   // A bind to a key the screen never declared resolves to undefined, and
   // undefined is not "unbound" — it lands on the prop and erases the literal
   // underneath it. That is how a clip bound to a play flag the screen forgot
@@ -125,22 +145,6 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
     for (const k of Object.keys(node.bind)) {
       const v = ctx.store.get(node.bind[k]);
       if (v !== undefined) props[k] = v;
-    }
-  }
-  // Resolve "@label.key" string props against the catalog's central copy.
-  //
-  // A key the catalog does not have drew as the KEY — "paywall.cta.monthly"
-  // on a button, in front of a user. Blank is the honest failure: nothing is
-  // better than an identifier. The server can ask for the key back (policy
-  // "key") while it is authoring, to see what is missing.
-  let missingPolicy: string | null = null;
-  for (const k of Object.keys(props)) {
-    const v = props[k];
-    if (typeof v === "string" && v.startsWith("@")) {
-      const hit = ctx.labels[v.slice(1)];
-      if (hit !== undefined) { props[k] = hit; continue; }
-      if (missingPolicy === null) missingPolicy = str("labels.missingPolicy", "blank");
-      props[k] = missingPolicy === "key" ? v.slice(1) : "";
     }
   }
 

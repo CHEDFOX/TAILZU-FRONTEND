@@ -500,6 +500,15 @@ export async function bootstrap(): Promise<BootstrapResponse> {
 let lastBootstrapAt = 0;
 
 /**
+ * Forget that the bootstrap is fresh, so the next foreground fetches a new one.
+ * For moments that change what it says about the user — a purchase, a restore,
+ * hitting the free cap — which must not wait out the server's cache TTL.
+ */
+export function expireBootstrap(): void {
+  lastBootstrapAt = 0;
+}
+
+/**
  * Whether a bootstrap received this session is still inside the TTL the
  * server put on it. False when there has been none, or the server sent no TTL.
  */

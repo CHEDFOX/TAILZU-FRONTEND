@@ -29,7 +29,7 @@ import * as Speech from "expo-speech";
 import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition } from "./types";
 import { Store } from "./state";
-import { callEndpoint, invalidateScreens, QuotaExceededError } from "./client";
+import { callEndpoint, invalidateScreens, QuotaExceededError, expireBootstrap } from "./client";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { buyPackage, showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
@@ -264,6 +264,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // so the one thing that would have helped, the paywall, was the one
         // thing they never saw.
         if (err instanceof QuotaExceededError) {
+          // The bootstrap still says there are words left; let the next
+          // foreground ask again instead of waiting out its TTL.
+          expireBootstrap();
           // Which screen answers "out of words" is the server's call.
           ctx.nav.push(str("quota.screenId", "paywall"));
           break;
@@ -587,6 +590,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           console.warn("[iap] purchase failed:", res.detail ?? res.reason);
           Alert.alert(txt("iap.error.title", "Couldn't start the purchase"), res.reason);
         }
+        // A purchase changes quota and entitlement; the next foreground must
+        // not keep showing the paywall from a bootstrap cached before it.
+        if (res.ok) expireBootstrap();
         await runAction(res.ok ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
@@ -595,6 +601,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       if (elsewhere(ctx)) break;
       try {
         const ok = await subscribeToProduct(action.productId);
+        if (ok) expireBootstrap();
         await runAction(ok ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
@@ -602,6 +609,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "iap.restore": {
       try {
         await restorePurchases();
+        expireBootstrap();
         await runAction(action.onSuccess, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;

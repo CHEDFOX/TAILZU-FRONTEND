@@ -40,9 +40,9 @@ const walk = (p) => {
 };
 roots.forEach(walk);
 
-const KIND = { txt: "labels", num: "flags", bool: "flags", str: "flags", color: "flags", list: "flags", obj: "flags" };
+const KIND = { txt: "labels", num: "flags", bool: "flags", str: "flags", color: "flags", list: "flags", tuple: "flags", obj: "flags" };
 // A TypeScript type argument may sit between the name and the call: obj<T>("k", {}).
-const call = /\b(txt|num|bool|str|color|list|obj)(?:<[^()]*?>)?\(\s*(["'])((?:(?!\2).)+)\2\s*,\s*/g;
+const call = /\b(txt|num|bool|str|color|list|tuple|obj)(?:<[^()]*?>)?\(\s*(["'])((?:(?!\2).)+)\2\s*,\s*/g;
 
 /** Read the literal default starting at `i`; undefined if it is not a literal. */
 function literalAt(src, i) {
