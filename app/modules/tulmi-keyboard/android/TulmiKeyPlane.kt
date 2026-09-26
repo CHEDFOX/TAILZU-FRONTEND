@@ -97,6 +97,59 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      */
     var onSwipe: ((List<String>) -> Unit)? = null
 
+    /**
+     * What a key does beyond a tap, answered by the renderer. The plane times
+     * the hold and routes the finger; the renderer decides what it means and
+     * draws it. Every method has a do-nothing default, so a plane without
+     * gestures behaves exactly as it did.
+     */
+    interface Gestures {
+        /**
+         * The key under the one finger that is down, for the pop-up above it.
+         * `owner` null means hide it: no finger, two fingers, or a finger that
+         * is holding a tray or driving the trackpad. `rect` is what is painted,
+         * in plane coordinates.
+         */
+        fun focus(plane: TulmiKeyPlane, owner: Any?, label: String?, rect: RectF?) {}
+
+        /** The alternates behind this key, base first, or null for none. */
+        fun accentsFor(owner: Any, label: String?): List<String>? = null
+
+        /** Show the tray for a held key. False leaves the key as a plain hold. */
+        fun trayOpen(plane: TulmiKeyPlane, owner: Any, items: List<String>, rect: RectF): Boolean = false
+
+        /** The finger moved while its tray is open (plane coordinates). */
+        fun trayMove(plane: TulmiKeyPlane, x: Float, y: Float) {}
+
+        /**
+         * The finger lifted (or was cancelled) with the tray open. The renderer
+         * types a chosen alternate itself; true asks the plane to fire the key
+         * as a normal tap, for the base chip or a lift back on the key.
+         */
+        fun trayRelease(plane: TulmiKeyPlane, x: Float, y: Float, onKey: Boolean, cancelled: Boolean): Boolean = false
+
+        /** Is this the key a hold turns into a trackpad (the space bar)? */
+        fun isTrackpad(owner: Any): Boolean = false
+        fun trackpadStart(plane: TulmiKeyPlane) {}
+        /** Horizontal travel since the trackpad started, in px. */
+        fun trackpadMove(plane: TulmiKeyPlane, dx: Float) {}
+        fun trackpadEnd(plane: TulmiKeyPlane) {}
+    }
+
+    var gestures: Gestures? = null
+
+    /** kb.accentTray.longPressMs — hold before a key's alternates open. */
+    var trayHoldMs: Long = 500L
+
+    /** kb.trackpad.longPressMs — hold on space before it becomes a trackpad. */
+    var trackpadHoldMs: Long = 300L
+
+    /**
+     * kb.accentTray.cancelDriftPt — a finger that wanders this far before its
+     * hold fires is rolling to the next key, not holding this one.
+     */
+    var holdCancelDriftPx: Float = 12f * context.resources.displayMetrics.density
+
     // The trace, as the primary pointer walks it. Only one finger traces; a
     // second pointer during a swipe is ignored rather than starting a race.
     private var tracing = false
@@ -277,8 +330,62 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private val downX = FloatArray(MAX_POINTERS)
     private val downY = FloatArray(MAX_POINTERS)
     private val downAt = LongArray(MAX_POINTERS)
+    /** What each finger is doing: typing a key, holding a tray, or steering. */
+    private val modes = IntArray(MAX_POINTERS)
+    /** Where the finger was when the trackpad took over. */
+    private val modeAnchorX = FloatArray(MAX_POINTERS)
+    private val lastX = FloatArray(MAX_POINTERS)
 
     private val hitRect = Rect()
+    private val focusRect = RectF()
+
+    /** Does any finger hold a tray or the trackpad? New fingers wait. */
+    private fun anyHeldMode(): Boolean {
+        for (i in 0 until MAX_POINTERS) if (pointerIds[i] != -1 && modes[i] != MODE_KEY) return true
+        return false
+    }
+
+    /**
+     * Tell the renderer which key the pop-up belongs over. Only a lone finger
+     * on a plain key gets one: two fingers would fight over it, and a tray or
+     * the trackpad replaces it.
+     */
+    private fun updateFocus() {
+        val g = gestures ?: return
+        var fingers = 0
+        var slot = -1
+        for (i in 0 until MAX_POINTERS) if (pointerIds[i] != -1) { fingers++; slot = i }
+        val o = if (slot >= 0) owners[slot] else null
+        if (fingers != 1 || o == null || modes[slot] != MODE_KEY || tracing || !rectOf(o, hitRect)) {
+            g.focus(this, null, null, null)
+            return
+        }
+        focusRect.set(hitRect)
+        if (o is DrawnKey && drawnVInsetPx > 0f) {
+            focusRect.top += drawnVInsetPx
+            focusRect.bottom -= drawnVInsetPx
+        }
+        g.focus(this, o, labelOf(o), focusRect)
+    }
+
+    /** Leave a held mode: the tray or the trackpad lets go of the finger. */
+    private fun endMode(slot: Int, x: Float, y: Float, cancelled: Boolean): Boolean {
+        val g = gestures
+        val o = owners[slot]
+        return when (modes[slot]) {
+            MODE_TRAY -> {
+                modes[slot] = MODE_KEY
+                val onKey = o != null && within(o, x, y, holdMultiplier)
+                g?.trayRelease(this, x, y, onKey, cancelled) == true
+            }
+            MODE_TRACKPAD -> {
+                modes[slot] = MODE_KEY
+                g?.trackpadEnd(this)
+                false
+            }
+            else -> false
+        }
+    }
 
     init {
         orientation = HORIZONTAL
@@ -304,7 +411,15 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = ev.actionIndex
-                claim(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+                // A finger already holding a tray or steering the trackpad
+                // owns the moment; a second one landing is a brush, not a key.
+                if (!anyHeldMode()) {
+                    // A second finger means typing, not holding: the first
+                    // key's tray or trackpad would open under a rolling hand.
+                    if (armedHoldIsGesture) cancelArmedLongPress()
+                    claim(ev.getPointerId(i), ev.getX(i), ev.getY(i))
+                }
+                updateFocus()
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -312,7 +427,18 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     val slot = slotOf(ev.getPointerId(i)) ?: continue
                     val x = ev.getX(i)
                     val y = ev.getY(i)
+                    lastX[slot] = x
+                    when (modes[slot]) {
+                        MODE_TRAY -> { gestures?.trayMove(this, x, y); continue }
+                        MODE_TRACKPAD -> { gestures?.trackpadMove(this, x - modeAnchorX[slot]); continue }
+                    }
                     val held = owners[slot] ?: continue
+                    // Drifted off before the hold fired: the finger is rolling
+                    // on, so no tray or trackpad opens under it.
+                    if (armedHoldIsGesture && armedSlot == slot &&
+                        hypot(x - downX[slot], y - downY[slot]) > holdCancelDriftPx) {
+                        cancelArmedLongPress()
+                    }
                     // Stay on the pressed key while the finger is anywhere in
                     // its grown rect. Only a move that lands on ANOTHER key
                     // retargets — drifting into a gap keeps what you pressed.
@@ -327,6 +453,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                             tracing = true
                             traced.clear()
                             traced.add(held)
+                            cancelArmedLongPress()
+                            updateFocus()
                         }
                     }
                     if (within(held, x, y, holdMultiplier)) continue
@@ -343,24 +471,39 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                     // double a letter — a real double letter comes from the
                     // dictionary, not from the path.
                     if (tracing && traced.lastOrNull() !== next) traced.add(next)
+                    updateFocus()
                 }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val i = ev.actionIndex
-                if (tracing && slotOf(ev.getPointerId(i)) == 0) {
+                val id = ev.getPointerId(i)
+                val slot = slotOf(id)
+                if (slot != null && modes[slot] != MODE_KEY) {
+                    // The tray or the trackpad had this finger; it decides.
+                    cancelArmedLongPress()
+                    val key = owners[slot]
+                    val fire = endMode(slot, ev.getX(i), ev.getY(i), cancelled = false)
+                    releaseSilently(id)
+                    if (fire && key != null) commitOwner(key)
+                    updateFocus()
+                    return true
+                }
+                if (tracing && slot == 0) {
                     // A trace types a word, not the letter it ended on — so the
                     // key under the finger must NOT also commit.
                     val path = ArrayList(traced)
                     endTrace()
-                    releaseSilently(ev.getPointerId(i))
+                    releaseSilently(id)
                     val letters = path.mapNotNull { labelOf(it) }
                         .filter { it.length == 1 }
                         .map { it.lowercase() }
                     if (letters.size >= 2) onSwipe?.invoke(letters)
+                    updateFocus()
                     return true
                 }
-                release(ev.getPointerId(i), commit = true, x = ev.getX(i), y = ev.getY(i))
+                release(id, commit = true, x = ev.getX(i), y = ev.getY(i))
+                updateFocus()
             }
 
             MotionEvent.ACTION_CANCEL -> {
@@ -369,11 +512,37 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 endTrace()
                 for (slot in 0 until MAX_POINTERS) {
                     val id = pointerIds[slot]
-                    if (id != -1) release(id, commit = false, x = downX[slot], y = downY[slot])
+                    if (id == -1) continue
+                    if (modes[slot] != MODE_KEY) {
+                        // A tray or trackpad cut off mid-gesture types nothing.
+                        endMode(slot, lastX[slot], downY[slot], cancelled = true)
+                        releaseSilently(id)
+                    } else {
+                        release(id, commit = false, x = downX[slot], y = downY[slot])
+                    }
                 }
+                updateFocus()
             }
         }
         return true
+    }
+
+    /**
+     * The row is leaving the screen (a rebuild) with fingers still on it: let
+     * the tray, the trackpad and the pop-up go with it rather than leave them
+     * floating over keys that no longer exist.
+     */
+    override fun onDetachedFromWindow() {
+        cancelArmedLongPress()
+        for (slot in 0 until MAX_POINTERS) {
+            if (pointerIds[slot] == -1) continue
+            if (modes[slot] != MODE_KEY) endMode(slot, lastX[slot], downY[slot], cancelled = true)
+            pointerIds[slot] = -1
+            owners[slot] = null
+            modes[slot] = MODE_KEY
+        }
+        gestures?.focus(this, null, null, null)
+        super.onDetachedFromWindow()
     }
 
     /** Drop a pointer's ownership without firing its key. */
@@ -382,6 +551,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         owners[slot]?.let { setPressed(it, false); (it as? DrawnKey)?.onPressEnd?.invoke() }
         pointerIds[slot] = -1
         owners[slot] = null
+        modes[slot] = MODE_KEY
     }
 
     private fun endTrace() {
@@ -401,12 +571,20 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         }
         pointerIds[slot] = id
         owners[slot] = key
+        modes[slot] = MODE_KEY
         downX[slot] = x
         downY[slot] = y
+        lastX[slot] = x
         downAt[slot] = System.currentTimeMillis()
         setPressed(key, true)
         (key as? DrawnKey)?.let { it.suppressCommit = false; it.onPressStart?.invoke() }
-        if (slot == 0) armLongPress(key)
+        armLongPress(key, slot, alone = activeFingers() == 1)
+    }
+
+    private fun activeFingers(): Int {
+        var n = 0
+        for (i in 0 until MAX_POINTERS) if (pointerIds[i] != -1) n++
+        return n
     }
 
     private fun release(id: Int, commit: Boolean, x: Float, y: Float) {
@@ -463,27 +641,81 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      */
     private val longPressHandler = Handler(Looper.getMainLooper())
     private var armedLongPress: Runnable? = null
+    /** The finger the armed hold belongs to. */
+    private var armedSlot = -1
+    /** The armed hold opens a tray or the trackpad (not a key's own hold). */
+    private var armedHoldIsGesture = false
 
-    private fun armLongPress(o: Any) {
+    /**
+     * Arm what holding this key does. A hold the key names itself (shift's
+     * caps lock, the tone pill's sheet, a server onLongPress) comes first;
+     * then a tray of alternates; then the trackpad, for space.
+     */
+    private fun armLongPress(o: Any, slot: Int, alone: Boolean) {
+        val own: Pair<Long, () -> Unit>? = when (o) {
+            is DrawnKey -> o.onLongPress?.let { (if (o.longPressMs > 0L) o.longPressMs else LONG_PRESS_MS) to it }
+            is View -> viewHolds[o]
+            else -> null
+        }
+        // A key's own hold arms for the first finger, as it always has. A tray
+        // or the trackpad only for a finger that lands alone: one landing while
+        // another is down is part of a rolling hand, not a deliberate press.
+        if (if (own != null) slot != 0 else !alone) return
         cancelArmedLongPress()
-        val hold: Pair<Long, () -> Unit> = when (o) {
-            is DrawnKey -> {
-                val action = o.onLongPress ?: return
-                (if (o.longPressMs > 0L) o.longPressMs else LONG_PRESS_MS) to action
+        val r: Runnable
+        val delay: Long
+        val g = gestures
+        val accents = if (own == null && g != null) g.accentsFor(o, labelOf(o))?.takeIf { it.size > 1 } else null
+        when {
+            own != null -> {
+                delay = own.first
+                r = Runnable {
+                    armedLongPress = null
+                    // The key is consumed by the long-press: clear it so the lift
+                    // that follows does not ALSO type the character.
+                    for (i in 0 until MAX_POINTERS) if (owners[i] === o) owners[i] = null
+                    setPressed(o, false)
+                    updateFocus()
+                    own.second()
+                }
             }
-            is View -> viewHolds[o] ?: return
+            accents != null && g != null -> {
+                delay = trayHoldMs
+                r = Runnable {
+                    armedLongPress = null
+                    if (pointerIds[slot] == -1 || owners[slot] !== o || !rectOf(o, hitRect)) return@Runnable
+                    focusRect.set(hitRect)
+                    if (o is DrawnKey && drawnVInsetPx > 0f) {
+                        focusRect.top += drawnVInsetPx
+                        focusRect.bottom -= drawnVInsetPx
+                    }
+                    if (g.trayOpen(this, o, accents, focusRect)) {
+                        modes[slot] = MODE_TRAY
+                        setPressed(o, false)
+                        updateFocus()
+                    }
+                }
+            }
+            g != null && g.isTrackpad(o) -> {
+                delay = trackpadHoldMs
+                r = Runnable {
+                    armedLongPress = null
+                    if (pointerIds[slot] == -1 || owners[slot] !== o) return@Runnable
+                    modes[slot] = MODE_TRACKPAD
+                    modeAnchorX[slot] = lastX[slot]
+                    // A trace that had begun on space is over: the finger steers.
+                    if (slot == 0) endTrace()
+                    setPressed(o, false)
+                    updateFocus()
+                    g.trackpadStart(this)
+                }
+            }
             else -> return
         }
-        val r = Runnable {
-            armedLongPress = null
-            // The key is consumed by the long-press: clear it so the lift
-            // that follows does not ALSO type the character.
-            for (i in 0 until MAX_POINTERS) if (owners[i] === o) owners[i] = null
-            setPressed(o, false)
-            hold.second()
-        }
         armedLongPress = r
-        longPressHandler.postDelayed(r, hold.first)
+        armedSlot = slot
+        armedHoldIsGesture = own == null
+        longPressHandler.postDelayed(r, delay.coerceAtLeast(50L))
     }
 
     /**
@@ -502,6 +734,8 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private fun cancelArmedLongPress() {
         armedLongPress?.let { longPressHandler.removeCallbacks(it) }
         armedLongPress = null
+        armedSlot = -1
+        armedHoldIsGesture = false
     }
 
     /** The owner's rect in plane coordinates. */
@@ -672,6 +906,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
         /** Hold before a drawn key's long-press fires. Matches Android's own. */
         private const val LONG_PRESS_MS = 500L
+
+        /** What a finger is doing. */
+        private const val MODE_KEY = 0
+        private const val MODE_TRAY = 1
+        private const val MODE_TRACKPAD = 2
 
         /**
          * Tag a key with this and the plane will not take its touches. For keys
