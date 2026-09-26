@@ -27,6 +27,24 @@ enum KeyboardTelemetry {
   /// silent data loss rather than an error.
   enum Counter: String {
     case keystrokes
+    // THE TOUCH PATH, COUNTED — so "fast typing drops keys" is a number.
+    /// Touches the plane took.
+    case planeTouches
+    /// Touches the plane took that resolved to no key at all.
+    case planeMissed
+    /// Action-key taps that lifted just outside the key and were kept.
+    case liftRescued
+    /// Action-key taps the system cancelled early and were kept.
+    case cancelRescued
+    /// Letters typed on touch-down and taken back because a tray opened.
+    case trayRetracted
+    /// Full rebuilds of the key tree.
+    case remounts
+    /// Milliseconds the insert path took, summed. keyMs / keystrokes is the
+    /// average wait between contact and the letter showing.
+    case keyMs
+    /// Inserts that took longer than a frame and a half (24 ms).
+    case slowKeys
     case autocorrectApplied
     case autocorrectReverted
     case suggestionAccepted
