@@ -1,0 +1,30 @@
+name: keyboard-sim
+
+# Types into the iOS keyboard's real touch code on Linux (tools/keyboard-sim):
+# every point of the keyboard tapped, a two-thumb typist at 40–120 wpm, and
+# the edge cases fast typing hits. Fails on any keyboard-caused typing error,
+# dead point, or failed edge case.
+
+on:
+  push:
+    paths:
+      - "app/targets/keyboard/**"
+      - "tools/keyboard-sim/**"
+      - ".github/workflows/keyboard-sim.yml"
+  workflow_dispatch: {}
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Type into the keyboard
+        run: KBSIM_STRICT=1 tools/keyboard-sim/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: keyboard-sim
+          path: |
+            tools/keyboard-sim/build/*/report.txt
+            tools/keyboard-sim/build/*/results.json
+            tools/keyboard-sim/build/*/coverage.png

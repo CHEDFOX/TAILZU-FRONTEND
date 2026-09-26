@@ -221,6 +221,9 @@ final class KeyPlaneView: UIView {
   /// Set maxMs to 0 to stop rescuing cancelled taps entirely.
   var cancelCommitMaxMs: Double = 300
   var cancelCommitMaxDrift: CGFloat = 12
+  /// kb.touch.roleReach — how far past its painted rect shift / 123 claim a
+  /// touch, and only where they are nearer than any other key (roleKeyAt).
+  var roleReach: CGFloat = 20
 
   /// Live, enabled controls elsewhere in the tree (shift / delete / space /
   /// return / mic / tone / suggestion chips). Their rects VETO plane
@@ -839,10 +842,26 @@ final class KeyPlaneView: UIView {
         ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
       let expanded = f.rect.inset(by: UIEdgeInsets(
         top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
-      guard expanded.contains(point) else { continue }
       let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
       let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
       let d = dx + dy
+      if !expanded.contains(point) {
+        // HALF THE GAP IS SHIFT'S. Every other key owns the space around it
+        // up to the midpoint with its neighbour; shift and 123 owned only
+        // their painted rect, so the 19pt between shift and z typed z all the
+        // way to shift's edge, and a thumb landing a hair right of shift got
+        // a letter instead of a capital. A point nearer to a role key than to
+        // any key in `frames`, within kb.touch.roleReach, is the role key's.
+        // Nearer to a real button (the globe beside 123) is that button's
+        // side of the gap, not the role key's.
+        guard roleReach > 0, d <= roleReach, gridBand.contains(point) else { continue }
+        func l1(_ r: CGRect) -> CGFloat {
+          max(0, max(r.minX - point.x, point.x - r.maxX)) + max(0, max(r.minY - point.y, point.y - r.maxY))
+        }
+        if frames.contains(where: { l1($0.rect) <= d }) || obstacleRects.contains(where: { l1($0) <= d }) {
+          continue
+        }
+      }
       if best == nil || d < best!.dist { best = (f.button, f.role, d) }
     }
     return best.map { ($0.button, $0.role) }
@@ -985,6 +1004,13 @@ final class KeyPlaneView: UIView {
     // Press-order rollover: a NEW finger down commits every still-held key
     // right now, so overlapped presses land in the order they were pressed —
     // not the order the fingers happened to lift.
+    //
+    // Space and return first. They are real buttons that type on LIFT, and
+    // letters type on contact, so a letter landing while the other thumb
+    // still held space went in ahead of it: "hellow orld". Measured in the
+    // simulator (tools/keyboard-sim) at 80 wpm it was two sentences in
+    // three, and every error was that one.
+    renderer?.planeFlushHeldLifts()
     flushPendingCommits()
     for t in touches {
       let p = t.location(in: self)
@@ -3827,6 +3853,7 @@ final class SDUIRenderer: NSObject {
     weakShiftButton = nil
     liftActions.removeAll(keepingCapacity: true)
     liftDownAt.removeAll()
+    liftRolled.removeAll()
     KeyboardTelemetry.bump(.remounts)
     let v = render(node: root)
     v.translatesAutoresizingMaskIntoConstraints = false
@@ -3938,6 +3965,7 @@ final class SDUIRenderer: NSObject {
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
+        plane.roleReach = flagCGFloat("kb.touch.roleReach", 20)
         if plane.superview !== container {
           plane.translatesAutoresizingMaskIntoConstraints = false
           container.addSubview(plane)   // topmost — intercepts plane-key touches only
@@ -4022,7 +4050,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K39"
+  static let buildStamp = "K40"
 
   /// The bundled brand mark.
   ///
@@ -6707,7 +6735,7 @@ final class SDUIRenderer: NSObject {
     // managed letters have isUserInteractionEnabled == false and reach here
     // via planeDown instead — they must NOT flush (their own touch was just
     // registered by the same event).
-    if btn.isUserInteractionEnabled { keyPlane?.flushPendingCommits() }
+    keyDownRollover(btn)
     // Apple's inversion: letter keys press to function color, function keys
     // press to letter color. We don't know which side a key is on, so use
     // theme.keyPressed if present, else lighten the base color.
@@ -7122,19 +7150,59 @@ final class SDUIRenderer: NSObject {
     }
   }
 
-  // MARK: - Lift keys (K39)
+  // MARK: - Lift keys (K39, K40)
   //
   // Space, return and every onPress key fire on lift, so slide-off cancels
-  // (Apple's pattern). Two things a fast thumb does broke that. It lifts a
-  // few points outside the key it pressed — .touchUpOutside, and the tap was
-  // dropped, "helloworld". And near the home indicator iOS cancels the touch
-  // outright — .touchCancel, dropped too. The system keyboard types both. So
-  // does this: a lift within kb.key.liftSlop of the key fires, and a
-  // cancelled touch fires if it was a short, still tap that no gesture (the
-  // space trackpad) took. Handlers are target/action, not UIAction, because
-  // only those receive the UIEvent that says where the finger was.
+  // (Apple's pattern). Three things a fast thumb does broke that.
+  //
+  // The other thumb lands the next letter before this one lifts. Letters
+  // type on contact, so the letter went in first: "hellow orld". The fix is
+  // the system keyboard's rollover — any key landing fires every lift key
+  // still held, in press order, and their own lift is then spent (K40).
+  //
+  // Near the home indicator iOS cancels the touch outright — .touchCancel,
+  // and the tap was dropped. A cancelled short, still tap that no gesture
+  // (the space trackpad) took now fires.
+  //
+  // A lift outside the key is .touchUpOutside — but UIKit only reports that
+  // beyond about 70pt; nearer it is still .touchUpInside. So the liftSlop
+  // rescue is a backstop for a slop raised past that, not a common path.
+  //
+  // Handlers are target/action, not UIAction, because only those receive the
+  // UIEvent that says where the finger was.
   private var liftActions: [ObjectIdentifier: () -> Void] = [:]
   private var liftDownAt: [ObjectIdentifier: CFTimeInterval] = [:]
+  /// Presses already fired by rollover; their own lift fires nothing.
+  private var liftRolled: Set<ObjectIdentifier> = []
+
+  /// Fire every lift key still held, oldest first, except `btn` (the key
+  /// going down now). kb.key.liftRollover=false restores lift-only.
+  private func flushHeldLifts(except btn: UIButton? = nil) {
+    guard flagBool("kb.key.liftRollover", true), !liftDownAt.isEmpty else { return }
+    let skip = btn.map { ObjectIdentifier($0) }
+    let held = liftDownAt.filter { $0.key != skip }.sorted { $0.value < $1.value }
+    for (id, _) in held {
+      liftDownAt[id] = nil
+      liftRolled.insert(id)
+      KeyboardTelemetry.bump(.liftRolled)
+      liftActions[id]?()
+    }
+  }
+
+  /// A plane finger landing: lift keys held by the other thumb go first.
+  fileprivate func planeFlushHeldLifts() { flushHeldLifts() }
+
+  /// The part of a key going down that is about ORDER, not paint: every key
+  /// still held and not yet typed commits first — lift keys, then plane keys
+  /// — so overlapping presses land in the order they were pressed. Plane-
+  /// managed letters have isUserInteractionEnabled == false and reach
+  /// keyTouchDown via planeDown instead; their own touch was just registered
+  /// by the plane, which has already flushed.
+  fileprivate func keyDownRollover(_ btn: UIButton) {
+    guard btn.isUserInteractionEnabled else { return }
+    flushHeldLifts(except: btn)
+    keyPlane?.flushPendingCommits()
+  }
 
   private func bindLift(_ btn: UIButton, _ fire: @escaping () -> Void) {
     liftActions[ObjectIdentifier(btn)] = fire
@@ -7145,11 +7213,13 @@ final class SDUIRenderer: NSObject {
   }
 
   @objc private func liftDown(_ btn: UIButton) {
+    liftRolled.remove(ObjectIdentifier(btn))
     liftDownAt[ObjectIdentifier(btn)] = CACurrentMediaTime()
   }
 
   @objc private func liftInside(_ btn: UIButton) {
     liftDownAt[ObjectIdentifier(btn)] = nil
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
     liftActions[ObjectIdentifier(btn)]?()
   }
 
@@ -7162,6 +7232,7 @@ final class SDUIRenderer: NSObject {
 
   @objc private func liftOutside(_ btn: UIButton, event: UIEvent?) {
     liftDownAt[ObjectIdentifier(btn)] = nil
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
     guard liftNear(btn, event) else { return }
     KeyboardTelemetry.bump(.liftRescued)
     liftActions[ObjectIdentifier(btn)]?()
@@ -7169,6 +7240,7 @@ final class SDUIRenderer: NSObject {
 
   @objc private func liftCancelled(_ btn: UIButton, event: UIEvent?) {
     let down = liftDownAt.removeValue(forKey: ObjectIdentifier(btn))
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
     guard !state.trackpadActive, let down = down else { return }
     let maxMs = flagDouble("kb.key.cancelMs", 250)
     guard maxMs > 0, (CACurrentMediaTime() - down) * 1000 < maxMs else { return }
