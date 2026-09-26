@@ -5,8 +5,8 @@ import Foundation
 ///
 /// The renderer reads flags through its own helpers (flagDouble etc.). These
 /// files had no way to ask the server anything, so their numbers, endpoints
-/// and strings were literals. Now they call knobDouble("kb.network.timeouts.refineMs", 60000)
-/// and the value comes from the last config the keyboard fetched (or the one
+/// and strings were literals. Now they call knobDouble with a kb.* key and the
+/// old literal, and the value comes from the last config the keyboard fetched (or the one
 /// it shipped with), falling back to the literal only before any config.
 ///
 /// Every key read here is collected by tools/knobs/extract-keyboard.mjs, and
@@ -43,7 +43,13 @@ func knobDouble(_ key: String, _ fallback: Double) -> Double {
   }
 }
 
-func knobInt(_ key: String, _ fallback: Int) -> Int { Int(knobDouble(key, Double(fallback))) }
+/// Whole numbers. A non-finite or out-of-range value from the server falls
+/// back instead of trapping the conversion.
+func knobInt(_ key: String, _ fallback: Int) -> Int {
+  let d = knobDouble(key, Double(fallback))
+  guard d.isFinite, d > Double(Int.min), d < Double(Int.max) else { return fallback }
+  return Int(d)
+}
 
 func knobBool(_ key: String, _ fallback: Bool) -> Bool {
   (KBKnobs.shared.flag(key) as? Bool) ?? fallback

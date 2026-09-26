@@ -41,8 +41,9 @@ final class TulmiFlow: NSObject {
   /// live. The app stamps it ~1×/sec. 4s was too lax — it left a multi-second
   /// window after a force-quit/suspend where the last stamp still looked fresh,
   /// so a tap in that window animated into a dead mic. 2.5s tolerates a missed
-  /// tick or two but closes that window fast.
-  static let heartbeatMaxAgeMs = 2500.0
+  /// tick or two but closes that window fast. The server's call
+  /// (kb.flow.heartbeatMaxAgeMs); 2.5s until a config says otherwise.
+  static var heartbeatMaxAgeMs: Double { knobDouble("kb.flow.heartbeatMaxAgeMs", 2500) }
 
   /// The raw heartbeat timestamp (ms). The keyboard captures this at dictation
   /// start and re-checks shortly after: a LIVE app keeps stamping (the value

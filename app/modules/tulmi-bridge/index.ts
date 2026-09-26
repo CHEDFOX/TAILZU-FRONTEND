@@ -9,12 +9,59 @@ export interface KeyboardStatus {
   lastActiveMs: number;
 }
 
+/**
+ * The Flow Session's numbers and switches, from the server's flags. Every
+ * field is optional; an absent one keeps the value the native side always
+ * used (shown after each). See FlowTuning in FlowSessionManager.swift.
+ */
+export interface FlowArmOptions {
+  /** How often the liveness heartbeat is stamped. 1000. */
+  heartbeatMs?: number;
+  /** How recent the last audio buffer must be for a heartbeat. 2000. */
+  bufferFreshMs?: number;
+  /** Audio kept until the socket opens, in bytes. 96000 (3 s). */
+  prerollCapBytes?: number;
+  /** Ceiling on one buffered one-shot utterance, in bytes. 3840000 (~2 min). */
+  oneShotCapBytes?: number;
+  /** After stop, how long to wait for the server's terminal message. 9000. */
+  closeTimeoutMs?: number;
+  /** Shorter than this is a mis-tap, not speech, in bytes. 3200 (0.1 s). */
+  minUtteranceBytes?: number;
+  /** Retries of a failed one-shot upload. 1. */
+  oneShotRetries?: number;
+  /** Wait before each retry. 800. */
+  oneShotRetryDelayMs?: number;
+  /** The one-shot upload's request timeout. 90000. */
+  oneShotTimeoutMs?: number;
+  /** Duck other apps' audio while armed. true. */
+  duckOthers?: boolean;
+  /** The OS voice-processing IO (echo cancel, noise suppression). true. */
+  voiceProcessing?: boolean;
+  /** Frames per audio tap callback. 2048. */
+  tapFrames?: number;
+  /** Streaming endpoint path. "/v1/transcribe-stream". */
+  streamPath?: string;
+  /** One-shot upload endpoint path. "/v1/transcribe-clean". */
+  uploadPath?: string;
+}
+
+/**
+ * The Flow Live Activity's words and symbols. `{n}` in wordsSoFar / words is
+ * the count. Each absent key keeps the word the widget was built with.
+ */
+export type FlowActivityCopy = Partial<Record<
+  | "listening" | "writing" | "ready" | "readyHint" | "wordsSoFar" | "words"
+  | "stop" | "end" | "compact"
+  | "iconListening" | "iconIdle" | "iconMinimal" | "iconStop" | "iconEnd",
+  string
+>>;
+
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
   setKeyboardLanguage?(code: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
-  consumeKeyboardDeepLink?(): string;
+  consumeKeyboardDeepLink?(maxAgeMs?: number): string;
   // Mic handoff — see TulmiBridgeModule.swift for the flow.
   writeAppWarmHeartbeat?(): void;
   consumeKeyboardRecordRequest?(): {
@@ -31,10 +78,13 @@ interface TulmiBridgeNative {
     language: string,
     idleTimeoutMs: number,
     oneShot: boolean,
+    options?: FlowArmOptions,
   ): void;
   endFlowSession?(): void;
   isFlowActive?(): boolean;
   setWidgetMonth?(json: string): void;
+  setFlowActivityCopy?(json: string): void;
+  setWidgetDictatePath?(path: string): void;
 }
 
 export interface KeyboardRecordRequest {
@@ -128,7 +178,9 @@ export function isBridgeAvailable(): boolean {
  * only (the keyboard can't record itself); no-op elsewhere. `idleTimeoutMs` is
  * how long the session stays live with no dictation before it must be re-armed.
  * `oneShot` buffers each utterance and sends it in one request at stop instead
- * of streaming it (backend's choice — kb.flow.transport).
+ * of streaming it (backend's choice — kb.flow.transport). `options` carries the
+ * rest of the session's numbers from the server (see FlowArmOptions; the app's
+ * flowArmOptions() in src/widgets/flow.ts builds it from the bootstrap).
  */
 export function armFlowSession(
   baseUrl: string,
@@ -136,18 +188,38 @@ export function armFlowSession(
   language: string,
   idleTimeoutMs: number,
   oneShot = false,
+  options?: FlowArmOptions,
 ): void {
+  const arm = native?.armFlowSession;
+  if (!arm || !native) return;
+  const args = [baseUrl, token, language || "auto", idleTimeoutMs || 300000, oneShot === true] as const;
+  const opts = cleanOptions(options);
+  if (opts) {
+    try {
+      arm.call(native, ...args, opts);
+      return;
+    } catch {
+      // A binary older than this JS takes five arguments and rejects a sixth
+      // before running anything — arm it the old way below.
+    }
+  }
   try {
-    native?.armFlowSession?.(
-      baseUrl,
-      token,
-      language || "auto",
-      idleTimeoutMs || 300000,
-      oneShot === true,
-    );
+    arm.call(native, ...args);
   } catch {
     /* best-effort; never block the app */
   }
+}
+
+/** Drop the fields that are not set, so native sees only real values. */
+function cleanOptions(options: FlowArmOptions | undefined): FlowArmOptions | null {
+  if (!options) return null;
+  const out: Record<string, number | boolean | string> = {};
+  for (const [k, v] of Object.entries(options)) {
+    if (typeof v === "number" ? Number.isFinite(v) : typeof v === "boolean" || typeof v === "string") {
+      out[k] = v as number | boolean | string;
+    }
+  }
+  return Object.keys(out).length > 0 ? (out as FlowArmOptions) : null;
 }
 
 /** End the Flow Session (mic released, keyboard returns to "open app to arm"). */
@@ -176,10 +248,25 @@ export function isFlowActive(): boolean {
  * Returns null when nothing is pending. Path shapes:
  *   "screen/<screenId>"  → navigate to that SDUI screen
  *   "openSettings"       → open the app's system settings page
+ *
+ * `maxAgeMs` is how fresh the tombstone must be to count (the server's number;
+ * native keeps 45000 when it is absent or not positive).
  */
-export function consumeKeyboardDeepLink(): string | null {
+export function consumeKeyboardDeepLink(maxAgeMs?: number): string | null {
+  const consume = native?.consumeKeyboardDeepLink;
+  if (!consume || !native) return null;
+  let s: string | undefined;
+  if (typeof maxAgeMs === "number" && Number.isFinite(maxAgeMs) && maxAgeMs > 0) {
+    try {
+      s = consume.call(native, maxAgeMs);
+      return s && s.length > 0 ? s : null;
+    } catch {
+      // An older binary takes no argument and rejects one before reading (or
+      // clearing) anything — ask it the old way below.
+    }
+  }
   try {
-    const s = native?.consumeKeyboardDeepLink?.();
+    s = consume.call(native);
     return s && s.length > 0 ? s : null;
   } catch {
     return null;
@@ -246,7 +333,11 @@ export function cancelKeyboardHandoff(sessionId: string): void {
   }
 }
 
-/** The month's numbers for the Home and Lock Screen widget. */
+/**
+ * The month's numbers for the Home and Lock Screen widget — and, optional so
+ * an older writer still fits, what the widget draws them with. Each absent
+ * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift).
+ */
 export interface WidgetMonth {
   used: number;
   total: number;
@@ -256,6 +347,22 @@ export interface WidgetMonth {
   streak: number;
   entitled: boolean;
   updatedAt: number;
+  /** The big number: words left on the free plan, words this month paid. */
+  headline?: number;
+  /** How full the line is, 0–1. */
+  fraction?: number;
+  /** The widget's words; `{n}` is a count where a template has one. */
+  labels?: Record<string, string>;
+  /** "#RRGGBB" / "#RRGGBBAA": ground, pale, amber. */
+  colors?: Record<string, string>;
+  /** 0–1: dim, rule, track. */
+  alpha?: Record<string, number>;
+  /** Where a tap on the widget goes. */
+  url?: string;
+  /** Seconds before the widget asks for a new timeline on its own. */
+  refreshSec?: number;
+  /** A subscriber's line: the words that would fill it. */
+  span?: number;
 }
 
 /**
@@ -266,6 +373,32 @@ export interface WidgetMonth {
 export function setWidgetMonth(month: WidgetMonth): void {
   try {
     native?.setWidgetMonth?.(JSON.stringify(month));
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * Hand the Flow Live Activity its words (from the server's labels). Written to
+ * the App Group; a running activity is redrawn. No-op without the native
+ * function (Android, Expo Go, an older binary).
+ */
+export function setFlowActivityCopy(copy: FlowActivityCopy): void {
+  try {
+    native?.setFlowActivityCopy?.(JSON.stringify(copy ?? {}));
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * Tell the Dictate control which screen arms the microphone ("screen/<id>").
+ * No-op without the native function.
+ */
+export function setWidgetDictatePath(path: string): void {
+  if (!path) return;
+  try {
+    native?.setWidgetDictatePath?.(path);
   } catch {
     // never let a widget stop the app
   }

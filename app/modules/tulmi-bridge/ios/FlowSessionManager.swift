@@ -22,6 +22,77 @@ import AVFoundation
 ///
 /// Everything here is process-local to the MAIN APP. The keyboard side lives in
 /// KeyboardViewController (flow mic mode).
+
+/// Every number and switch in a Flow Session that used to be a literal here,
+/// now handed in at arm time (armFlowSession's optional `options`, which the
+/// app builds from the server's flags). Each defaults to the value that was
+/// hardcoded, so an arm without options behaves exactly as before.
+struct FlowTuning {
+  /// How often the liveness heartbeat is stamped.
+  var heartbeatInterval: TimeInterval = 1.0
+  /// How recent the last audio buffer must be for a heartbeat to be stamped.
+  var bufferFresh: TimeInterval = 2.0
+  /// Audio kept from the tap until the socket opens: 3 s of 16 kHz mono int16.
+  var prerollCapBytes = 16_000 * 2 * 3
+  /// Ceiling on one buffered one-shot utterance: ~2 min of 16 kHz mono int16.
+  var oneShotCapBytes = 16_000 * 2 * 120
+  /// After stop, how long to wait for the server's terminal message.
+  var closeTimeout: TimeInterval = 9.0
+  /// Shorter than this is a mis-tap, not speech (0.1 s).
+  var minUtteranceBytes = 3200
+  /// Retries of a failed one-shot upload, and the wait before each.
+  var oneShotRetries = 1
+  var oneShotRetryDelay: TimeInterval = 0.8
+  /// The one-shot upload's request timeout.
+  var oneShotTimeout: TimeInterval = 90
+  /// Duck other apps' audio while the session holds the mic.
+  var duckOthers = true
+  /// The OS voice-processing IO (echo cancel, noise suppression, gain).
+  var voiceProcessing = true
+  /// Frames per tap callback.
+  var tapFrames = 2048
+  /// The endpoints, relative to baseUrl.
+  var streamPath = "/v1/transcribe-stream"
+  var uploadPath = "/v1/transcribe-clean"
+
+  init() {}
+
+  /// From the JS options object. A missing, mistyped or out-of-range field
+  /// keeps its default.
+  init(_ o: [String: Any]?) {
+    guard let o = o else { return }
+    func num(_ key: String) -> Double? {
+      guard let v = o[key] else { return nil }
+      if let d = v as? Double { return d.isFinite ? d : nil }
+      if let i = v as? Int { return Double(i) }
+      if let n = v as? NSNumber { return n.doubleValue.isFinite ? n.doubleValue : nil }
+      return nil
+    }
+    func seconds(_ key: String, _ current: TimeInterval) -> TimeInterval {
+      guard let ms = num(key), ms > 0 else { return current }
+      return ms / 1000.0
+    }
+    func count(_ key: String, _ current: Int, min lower: Int) -> Int {
+      guard let v = num(key), v >= Double(lower), v < 1e9 else { return current }
+      return Int(v)
+    }
+    heartbeatInterval = seconds("heartbeatMs", heartbeatInterval)
+    bufferFresh = seconds("bufferFreshMs", bufferFresh)
+    prerollCapBytes = count("prerollCapBytes", prerollCapBytes, min: 0)
+    oneShotCapBytes = count("oneShotCapBytes", oneShotCapBytes, min: 0)
+    closeTimeout = seconds("closeTimeoutMs", closeTimeout)
+    minUtteranceBytes = count("minUtteranceBytes", minUtteranceBytes, min: 0)
+    oneShotRetries = count("oneShotRetries", oneShotRetries, min: 0)
+    if let ms = num("oneShotRetryDelayMs"), ms >= 0 { oneShotRetryDelay = ms / 1000.0 }
+    oneShotTimeout = seconds("oneShotTimeoutMs", oneShotTimeout)
+    if let b = o["duckOthers"] as? Bool { duckOthers = b }
+    if let b = o["voiceProcessing"] as? Bool { voiceProcessing = b }
+    tapFrames = count("tapFrames", tapFrames, min: 1)
+    if let s = o["streamPath"] as? String, !s.isEmpty { streamPath = s }
+    if let s = o["uploadPath"] as? String, !s.isEmpty { uploadPath = s }
+  }
+}
+
 final class FlowSessionManager: NSObject {
   static let shared = FlowSessionManager()
 
@@ -82,13 +153,23 @@ final class FlowSessionManager: NSObject {
   /// dropped, since if anything has to be lost it should be the part furthest
   /// from what the person is saying now.
   private var preroll = Data()
-  /// Three seconds at 16 kHz mono int16. Long enough to cover a slow connect,
-  /// short enough that a dead socket costs 96 KB and not a recording.
-  private static let prerollCap = 16_000 * 2 * 3
-  /// ~2 minutes of 16 kHz mono int16. Far beyond any real dictation, and a hard
-  /// ceiling matters here: this buffer lives in a background app whose memory
-  /// iOS is happy to reclaim.
-  private static let pcmCap = 16_000 * 2 * 120
+  /// Three seconds at 16 kHz mono int16 by default. Long enough to cover a slow
+  /// connect, short enough that a dead socket costs 96 KB and not a recording.
+  /// Kept apart from `tuning` as a plain Int because the realtime audio thread
+  /// reads it (a word-sized read, like `dictating`).
+  private var prerollCap = FlowTuning().prerollCapBytes
+  /// ~2 minutes of 16 kHz mono int16 by default. Far beyond any real
+  /// dictation, and a hard ceiling matters here: this buffer lives in a
+  /// background app whose memory iOS is happy to reclaim. Audio-thread read,
+  /// like `prerollCap`.
+  private var pcmCap = FlowTuning().oneShotCapBytes
+  /// The rest of the session's numbers and switches (main-thread reads).
+  private var tuning = FlowTuning()
+  /// The socket that last delivered a non-empty final. A stream that drops
+  /// after words reached the keyboard is not a failure worth reporting — the
+  /// keyboard has something to write, and the failure flag would make it
+  /// throw that away. Main-thread state.
+  private var heardOn: URLSessionWebSocketTask?
   /// The utterance currently being uploaded — held so a failed request can be
   /// retried with the same audio rather than losing it.
   private var lastUtterance = Data()
@@ -131,7 +212,6 @@ final class FlowSessionManager: NSObject {
   // force-quit kills the process before it can clear the `active` tombstone.
   private var heartbeatTimer: Timer?
   private var lastBufferAt: TimeInterval = 0   // set on the audio thread (plain Double = realtime-safe)
-  private let heartbeatIntervalS: TimeInterval = 1.0
 
   private override init() { super.init() }
 
@@ -141,13 +221,18 @@ final class FlowSessionManager: NSObject {
   /// audio session and keeps it active — that's what keeps the app alive after
   /// the user swipes back to their app. Registers the Darwin observers the
   /// keyboard nudges. Idempotent; calling again refreshes the idle window.
+  /// `tuning` carries the server's numbers (see FlowTuning); its defaults are
+  /// the values this always used.
   func arm(baseUrl: String, token: String, language: String, idleTimeoutMs: Double,
-           oneShot: Bool = false) {
+           oneShot: Bool = false, tuning: FlowTuning = FlowTuning()) {
     self.baseUrl = baseUrl
     self.token = token
     self.language = language.isEmpty ? "auto" : language
     self.idleTimeout = idleTimeoutMs > 0 ? idleTimeoutMs / 1000.0 : 300
     self.oneShot = oneShot
+    self.tuning = tuning
+    self.prerollCap = tuning.prerollCapBytes
+    self.pcmCap = tuning.oneShotCapBytes
 
     registerObservers()
     activateAudioSession()
@@ -200,15 +285,17 @@ final class FlowSessionManager: NSObject {
 
   private func activateAudioSession() {
     let audio = AVAudioSession.sharedInstance()
+    // Ducking other apps' audio is the server's call (tuning.duckOthers).
+    let duck: AVAudioSession.CategoryOptions = tuning.duckOthers ? [.duckOthers] : []
     do {
       // .spokenAudio + voice-friendly options; keep the session ACTIVE across
       // the swipe-back so the app stays alive in the background to record.
       try audio.setCategory(.playAndRecord, mode: .spokenAudio,
-                            options: [.duckOthers, .allowBluetooth, .defaultToSpeaker])
+                            options: duck.union([.allowBluetooth, .defaultToSpeaker]))
       try audio.setActive(true)
     } catch {
       // Fall back to a plainer category if the voice-tuned one is refused.
-      try? audio.setCategory(.playAndRecord, mode: .default, options: [.duckOthers])
+      try? audio.setCategory(.playAndRecord, mode: .default, options: duck)
       try? audio.setActive(true)
     }
   }
@@ -248,10 +335,10 @@ final class FlowSessionManager: NSObject {
     // UIBackgroundModes:["audio"] with an active recording session, main-runloop
     // timers keep firing in the background — the same mechanism that keeps the
     // capture alive.
-    heartbeatTimer = Timer.scheduledTimer(withTimeInterval: heartbeatIntervalS, repeats: true) { [weak self] _ in
+    heartbeatTimer = Timer.scheduledTimer(withTimeInterval: tuning.heartbeatInterval, repeats: true) { [weak self] _ in
       guard let self = self, self.armed else { return }
       let now = Date().timeIntervalSince1970
-      if self.engine.isRunning && (now - self.lastBufferAt) < 2.0 {
+      if self.engine.isRunning && (now - self.lastBufferAt) < self.tuning.bufferFresh {
         self.publishHeartbeat()
       }
     }
@@ -298,6 +385,7 @@ final class FlowSessionManager: NSObject {
     pendingClose = nil
     stopCapture()   // only now do we tear the engine down — end of the session
     task?.cancel(with: .goingAway, reason: nil); setTask(nil)
+    heardOn = nil
     armed = false
     publishInactive()
     deactivateAudioSession()
@@ -429,11 +517,12 @@ final class FlowSessionManager: NSObject {
     // after flush, and the current provider) would be truncated. Instead the
     // socket closes when the terminal server message (`final`/`done`) lands in
     // handleServer; this long watchdog only force-closes if that never comes.
+    // (How long is the server's: tuning.closeTimeout, 9 s by default.)
     guard let closing = task else { return }
     finishing = true
     pendingClose = closing
     closing.send(.string("{\"type\":\"stop\"}")) { _ in }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 9.0) { [weak self] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + tuning.closeTimeout) { [weak self] in
       self?.finalizeClose(closing)
     }
   }
@@ -460,7 +549,7 @@ final class FlowSessionManager: NSObject {
     if b.hasPrefix("https://") { ws = "wss://" + b.dropFirst("https://".count) }
     else if b.hasPrefix("http://") { ws = "ws://" + b.dropFirst("http://".count) }
     else { ws = b }
-    return URL(string: "\(ws)/v1/transcribe-stream")
+    return URL(string: "\(ws)\(tuning.streamPath)")
   }
 
   private func openStream() {
@@ -485,9 +574,13 @@ final class FlowSessionManager: NSObject {
     let t = urlSession.webSocketTask(with: req)
     setTask(t)
     t.resume()
-    receiveLoop()
+    receiveLoop(t)
+    // Which app the user is typing in, as the keyboard wrote it at dictation
+    // start — the same value the one-shot upload sends. "Generic" only when
+    // the keyboard left nothing.
+    let targetApp = store?.string(forKey: "tulmi.flow.targetApp").flatMap { $0.isEmpty ? nil : $0 } ?? "Generic"
     let start: [String: Any] = [
-      "type": "start", "token": token, "targetApp": "Generic",
+      "type": "start", "token": token, "targetApp": targetApp,
       "language": language, "sampleRate": 16000, "encoding": "pcm_s16le", "channels": 1,
     ]
     if let data = try? JSONSerialization.data(withJSONObject: start),
@@ -504,24 +597,44 @@ final class FlowSessionManager: NSObject {
     if !held.isEmpty { t.send(.data(held)) { _ in } }
   }
 
-  private func receiveLoop() {
-    task?.receive { [weak self] result in
+  /// Read `t` until it closes. Bound to that one socket: a superseded socket's
+  /// loop ends with it instead of attaching itself to the next dictation's.
+  private func receiveLoop(_ t: URLSessionWebSocketTask) {
+    t.receive { [weak self] result in
       guard let self = self else { return }
       switch result {
       case .failure:
-        break  // socket closed; the next dictation opens a fresh one
+        // Socket closed. Usually that was us (finished, superseded, disarmed)
+        // and the next dictation opens a fresh one; streamFailed tells the
+        // two apart on main, where that state lives.
+        DispatchQueue.main.async { [weak self] in self?.streamFailed(t) }
       case .success(let msg):
         switch msg {
-        case .string(let s): self.handleServer(s)
-        case .data(let d): self.handleServer(String(data: d, encoding: .utf8) ?? "")
+        case .string(let s): self.handleServer(s, from: t)
+        case .data(let d): self.handleServer(String(data: d, encoding: .utf8) ?? "", from: t)
         @unknown default: break
         }
-        self.receiveLoop()
+        self.receiveLoop(t)
       }
     }
   }
 
-  private func handleServer(_ text: String) {
+  /// The socket went down on its own — not closed by us — while an utterance
+  /// still depended on it. Tell the keyboard the same way the one-shot path
+  /// does (tulmi.flow.failed), so it says "couldn't hear that" instead of
+  /// waiting out its deadline in silence. Not when words already reached the
+  /// keyboard: it has something to write, and the flag would drop it.
+  private func streamFailed(_ t: URLSessionWebSocketTask) {
+    guard task === t, dictating || finishing else { return }
+    if heardOn !== t {
+      store?.set(true, forKey: "tulmi.flow.failed")
+    }
+    // Already stopped and draining: nothing more is coming, so close now
+    // rather than holding the Live Activity on "writing" until the watchdog.
+    if finishing, pendingClose === t { finalizeClose(t) }
+  }
+
+  private func handleServer(_ text: String, from t: URLSessionWebSocketTask) {
     guard
       let data = text.data(using: .utf8),
       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -530,7 +643,13 @@ final class FlowSessionManager: NSObject {
     switch type {
     case "partial": relay(json["text"] as? String ?? "", isFinal: false)
     case "final":
-      relay(json["text"] as? String ?? "", isFinal: true)
+      let finalText = json["text"] as? String ?? ""
+      if !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        // Main-thread state, and queued before this socket's next receive can
+        // report a failure, so streamFailed always sees it.
+        DispatchQueue.main.async { [weak self] in self?.heardOn = t }
+      }
+      relay(finalText, isFinal: true)
       // A batch provider (Groq) emits ONE `final` after our stop and no partials;
       // close as soon as it lands (once we've asked to stop) instead of waiting
       // out the watchdog. A streaming provider's interim finals arrive while
@@ -586,10 +705,13 @@ final class FlowSessionManager: NSObject {
   private func startCapture() {
     guard !capturing else { return }
     let input = engine.inputNode
-    try? input.setVoiceProcessingEnabled(true)
+    // Voice processing on (the default) is the call this always made; off
+    // turns it back off, since this one engine outlives every arm.
+    try? input.setVoiceProcessingEnabled(tuning.voiceProcessing)
     let inputFormat = input.outputFormat(forBus: 0)
     setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
-    input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+    let frames = AVAudioFrameCount(clamping: tuning.tapFrames)
+    input.installTap(onBus: 0, bufferSize: frames, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)
     }
     tapInstalled = true
@@ -638,10 +760,11 @@ final class FlowSessionManager: NSObject {
     if holdForSocket {
       // Realtime audio thread: a lock around an append is the cheapest safe
       // option, and anything heavier here glitches the capture.
+      let cap = prerollCap
       pcmLock.lock()
       preroll.append(data)
-      if preroll.count > FlowSessionManager.prerollCap {
-        preroll.removeFirst(preroll.count - FlowSessionManager.prerollCap)
+      if preroll.count > cap {
+        preroll.removeFirst(preroll.count - cap)
       }
       pcmLock.unlock()
       return
@@ -649,8 +772,9 @@ final class FlowSessionManager: NSObject {
     if oneShot {
       // Runs on the realtime audio thread — a lock around an append is the
       // cheapest safe option; anything heavier here glitches the capture.
+      let cap = pcmCap
       pcmLock.lock()
-      if pcm.count < FlowSessionManager.pcmCap { pcm.append(data) }
+      if pcm.count < cap { pcm.append(data) }
       pcmLock.unlock()
       return
     }
@@ -668,14 +792,14 @@ final class FlowSessionManager: NSObject {
     // whole advantage of buffering over streaming: a failed request can be
     // retried, where a dropped socket has nothing left to retry with.
     pcmLock.lock(); lastUtterance = pcm; pcm = Data(); pcmLock.unlock()
-    // Under 0.1s of audio is a mis-tap, not speech. Say so instead of leaving
-    // the keyboard waiting on words that were never spoken.
-    guard lastUtterance.count > 3200 else {
+    // Under 0.1s of audio (tuning.minUtteranceBytes) is a mis-tap, not speech.
+    // Say so instead of leaving the keyboard waiting on words never spoken.
+    guard lastUtterance.count > tuning.minUtteranceBytes else {
       lastUtterance = Data()
       giveUpOnUtterance()
       return
     }
-    sendUtterance(retriesLeft: 1)
+    sendUtterance(retriesLeft: tuning.oneShotRetries)
   }
 
   private func giveUpOnUtterance() {
@@ -685,13 +809,15 @@ final class FlowSessionManager: NSObject {
 
   private func sendUtterance(retriesLeft: Int) {
     let audio = lastUtterance
-    guard let url = URL(string: "\(baseUrl)/v1/transcribe-clean") else { return }
+    guard let url = URL(string: "\(baseUrl)\(tuning.uploadPath)") else { return }
+    // Captured here, on main: the completion below runs on URLSession's queue.
+    let retryDelay = tuning.oneShotRetryDelay
 
     let body = wavContainer(for: audio)
     let boundary = "Boundary-\(UUID().uuidString)"
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
-    req.timeoutInterval = 90
+    req.timeoutInterval = tuning.oneShotTimeout
     req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
@@ -728,7 +854,7 @@ final class FlowSessionManager: NSObject {
         // than the user's words.
         // `lastUtterance` is main-thread state (endDictation writes it too), so
         // every decision about it happens there.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (retriesLeft > 0 ? 0.8 : 0)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + (retriesLeft > 0 ? retryDelay : 0)) {
           [weak self] in
           guard let self = self else { return }
           if retriesLeft > 0 { self.sendUtterance(retriesLeft: retriesLeft - 1); return }

@@ -18,6 +18,11 @@ import UIKit
 /// The row is intentionally lightweight — one UIStackView of pill buttons,
 /// no auto-layout gymnastics — because the keyboard extension's memory
 /// budget is tight and this component sits above every render.
+///
+/// Every size, alpha and timing below is a knob (kb.personalityRow.*): the
+/// server sends it with the config, and the literal in each call is only what
+/// holds before a config has ever arrived. This is the legacy row — the SDUI
+/// renderer draws its own when the config turns SDUI on.
 final class TulmiPersonalityRow: UIView {
 
   // MARK: - Types
@@ -36,20 +41,29 @@ final class TulmiPersonalityRow: UIView {
   private var chips: [ChipData] = []
   private var activeId: String = ""
   private var accent: UIColor = .white
-  private var chipBg: UIColor = UIColor.white.withAlphaComponent(0.09)
-  private var chipFg: UIColor = UIColor.white.withAlphaComponent(0.9)
+  private var chipBg: UIColor = UIColor.white.withAlphaComponent(
+    CGFloat(knobDouble("kb.personalityRow.chipBgAlpha", 0.09)))
+  private var chipFg: UIColor = UIColor.white.withAlphaComponent(
+    CGFloat(knobDouble("kb.personalityRow.chipFgAlpha", 0.9)))
 
   /// Fast-tone list shown in the long-press sheet. Backend-driven via
-  /// `kb.personality.tones` (array of `{ id, label }`) so tones can be
-  /// renamed/reordered/extended with no app update; falls back to the built-in
-  /// five so the sheet always has data.
-  private var tones: [(id: String, label: String)] = [
-    ("none", "None · raw"),
-    ("formal", "Formal"),
-    ("casual", "Casual"),
-    ("very-casual", "Very Casual"),
-    ("excited", "Excited"),
-  ]
+  /// `kb.personality.tones` (array of `{ id, label }`, handed in through
+  /// `update`) so tones can be renamed/reordered/extended with no app update.
+  private var serverTones: [(id: String, label: String)]?
+
+  /// What the sheet shows when the config carried no tones: the server's
+  /// fallback pair of lists (ids and labels, zipped), else the built-in five,
+  /// so the sheet always has data.
+  private var tones: [(id: String, label: String)] {
+    if let serverTones = serverTones, !serverTones.isEmpty { return serverTones }
+    let ids = knobStrings("kb.personalityRow.fallbackToneIds", [
+      "none", "formal", "casual", "very-casual", "excited",
+    ])
+    let labels = knobStrings("kb.personalityRow.fallbackToneLabels", [
+      "None · raw", "Formal", "Casual", "Very Casual", "Excited",
+    ])
+    return zip(ids, labels).map { (id: $0.0, label: $0.1) }
+  }
 
   private let stack = UIStackView()
   private var chipButtons: [UIButton] = []
@@ -72,17 +86,19 @@ final class TulmiPersonalityRow: UIView {
     stack.axis = .horizontal
     stack.alignment = .center
     stack.distribution = .fill
-    stack.spacing = 6
+    stack.spacing = CGFloat(knobDouble("kb.personalityRow.spacing", 6))
     stack.translatesAutoresizingMaskIntoConstraints = false
     stack.isLayoutMarginsRelativeArrangement = true
-    stack.layoutMargins = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+    let marginV = CGFloat(knobDouble("kb.personalityRow.marginV", 4))
+    let marginH = CGFloat(knobDouble("kb.personalityRow.marginH", 8))
+    stack.layoutMargins = UIEdgeInsets(top: marginV, left: marginH, bottom: marginV, right: marginH)
     addSubview(stack)
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: leadingAnchor),
       stack.trailingAnchor.constraint(equalTo: trailingAnchor),
       stack.topAnchor.constraint(equalTo: topAnchor),
       stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-      heightAnchor.constraint(equalToConstant: 36),
+      heightAnchor.constraint(equalToConstant: CGFloat(knobDouble("kb.personalityRow.height", 36))),
     ])
   }
 
@@ -103,7 +119,7 @@ final class TulmiPersonalityRow: UIView {
     self.accent = accentColor
     self.chipBg = chipBgColor
     self.chipFg = chipFgColor
-    if let tones = tones, !tones.isEmpty { self.tones = tones }
+    if let tones = tones, !tones.isEmpty { self.serverTones = tones }
     rebuild()
   }
 
@@ -130,14 +146,18 @@ final class TulmiPersonalityRow: UIView {
   private func makeChipButton(_ chip: ChipData) -> UIButton {
     let b = UIButton(type: .custom)
     b.setTitle(chip.name, for: .normal)
-    b.titleLabel?.font = .systemFont(ofSize: 12, weight: .semibold)
-    b.contentEdgeInsets = UIEdgeInsets(top: 5, left: 10, bottom: 5, right: 10)
-    b.layer.cornerRadius = 14
+    b.titleLabel?.font = .systemFont(
+      ofSize: CGFloat(knobDouble("kb.personalityRow.chipFontSize", 12)), weight: .semibold)
+    let padV = CGFloat(knobDouble("kb.personalityRow.chipPadV", 5))
+    let padH = CGFloat(knobDouble("kb.personalityRow.chipPadH", 10))
+    b.contentEdgeInsets = UIEdgeInsets(top: padV, left: padH, bottom: padV, right: padH)
+    b.layer.cornerRadius = CGFloat(knobDouble("kb.personalityRow.chipRadius", 14))
     b.clipsToBounds = true
     b.tag = chipButtons.count // used as an index in gesture handlers
 
     let isActive = chip.id == activeId
-    b.backgroundColor = isActive ? accent.withAlphaComponent(0.9) : chipBg
+    let activeAlpha = CGFloat(knobDouble("kb.personalityRow.activeAlpha", 0.9))
+    b.backgroundColor = isActive ? accent.withAlphaComponent(activeAlpha) : chipBg
     b.setTitleColor(isActive ? readableOn(color: accent) : chipFg, for: .normal)
 
     // Tap = switch. Bind by index so the same button carries both handlers.
@@ -145,7 +165,7 @@ final class TulmiPersonalityRow: UIView {
 
     // Long-press = tone popover.
     let lp = UILongPressGestureRecognizer(target: self, action: #selector(chipLongPressed(_:)))
-    lp.minimumPressDuration = 0.35
+    lp.minimumPressDuration = knobDouble("kb.personalityRow.longPressSec", 0.35)
     b.addGestureRecognizer(lp)
 
     return b
@@ -174,6 +194,14 @@ final class TulmiPersonalityRow: UIView {
 
   // MARK: - Popover
 
+  /// Where the sheet starts and ends: a point sitting on the chip, dropped by
+  /// `popDrop` and shrunk to `popScale`.
+  private var collapsedTransform: CGAffineTransform {
+    let drop = CGFloat(knobDouble("kb.personalityRow.popDrop", 14))
+    let scale = CGFloat(knobDouble("kb.personalityRow.popScale", 0.06))
+    return CGAffineTransform(translationX: 0, y: drop).scaledBy(x: scale, y: scale)
+  }
+
   private func showTonePopover(anchor: UIButton, presetId: String) {
     dismissPopover(animated: false)
 
@@ -195,20 +223,24 @@ final class TulmiPersonalityRow: UIView {
 
     // 2) The tone sheet.
     let container = UIView()
-    container.backgroundColor = UIColor(white: 0.09, alpha: 0.96)
-    container.layer.cornerRadius = 12
+    container.backgroundColor = UIColor(
+      white: CGFloat(knobDouble("kb.personalityRow.sheetWhite", 0.09)),
+      alpha: CGFloat(knobDouble("kb.personalityRow.sheetAlpha", 0.96)))
+    container.layer.cornerRadius = CGFloat(knobDouble("kb.personalityRow.sheetRadius", 12))
     container.layer.shadowColor = UIColor.black.cgColor
-    container.layer.shadowOpacity = 0.35
-    container.layer.shadowRadius = 12
-    container.layer.shadowOffset = CGSize(width: 0, height: 6)
+    container.layer.shadowOpacity = Float(knobDouble("kb.personalityRow.sheetShadowOpacity", 0.35))
+    container.layer.shadowRadius = CGFloat(knobDouble("kb.personalityRow.sheetShadowRadius", 12))
+    container.layer.shadowOffset = CGSize(
+      width: 0, height: CGFloat(knobDouble("kb.personalityRow.sheetShadowY", 6)))
     container.translatesAutoresizingMaskIntoConstraints = false
 
     let vstack = UIStackView()
     vstack.axis = .vertical
-    vstack.spacing = 2
+    vstack.spacing = CGFloat(knobDouble("kb.personalityRow.sheetSpacing", 2))
     vstack.translatesAutoresizingMaskIntoConstraints = false
     vstack.isLayoutMarginsRelativeArrangement = true
-    vstack.layoutMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+    let sheetPad = CGFloat(knobDouble("kb.personalityRow.sheetPadding", 6))
+    vstack.layoutMargins = UIEdgeInsets(top: sheetPad, left: sheetPad, bottom: sheetPad, right: sheetPad)
     container.addSubview(vstack)
     NSLayoutConstraint.activate([
       vstack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -217,12 +249,15 @@ final class TulmiPersonalityRow: UIView {
       vstack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
 
+    let toneFontSize = CGFloat(knobDouble("kb.personalityRow.toneFontSize", 13))
+    let tonePadV = CGFloat(knobDouble("kb.personalityRow.tonePadV", 8))
+    let tonePadH = CGFloat(knobDouble("kb.personalityRow.tonePadH", 14))
     for tone in tones {
       let btn = UIButton(type: .system)
       btn.setTitle(tone.label, for: .normal)
       btn.setTitleColor(.white, for: .normal)
-      btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-      btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+      btn.titleLabel?.font = .systemFont(ofSize: toneFontSize, weight: .medium)
+      btn.contentEdgeInsets = UIEdgeInsets(top: tonePadV, left: tonePadH, bottom: tonePadV, right: tonePadH)
       btn.contentHorizontalAlignment = .leading
       let toneId = tone.id
       btn.addAction(UIAction { [weak self] _ in
@@ -237,10 +272,13 @@ final class TulmiPersonalityRow: UIView {
 
     host.addSubview(container)
     let anchorFrame = anchor.convert(anchor.bounds, to: host)
+    let edgeMin = CGFloat(knobDouble("kb.personalityRow.sheetEdgeMin", 8))
+    let gap = CGFloat(knobDouble("kb.personalityRow.sheetGap", 6))
     NSLayoutConstraint.activate([
-      container.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: max(8, anchorFrame.minX)),
-      container.bottomAnchor.constraint(equalTo: host.topAnchor, constant: anchorFrame.minY - 6),
-      container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+      container.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: max(edgeMin, anchorFrame.minX)),
+      container.bottomAnchor.constraint(equalTo: host.topAnchor, constant: anchorFrame.minY - gap),
+      container.widthAnchor.constraint(
+        greaterThanOrEqualToConstant: CGFloat(knobDouble("kb.personalityRow.sheetMinWidth", 150))),
     ])
     popover = container
 
@@ -249,11 +287,15 @@ final class TulmiPersonalityRow: UIView {
     // scale pivots around real geometry, then set the compressed start transform.
     host.layoutIfNeeded()
     container.alpha = 0
-    container.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.06, y: 0.06)
+    container.transform = collapsedTransform
 
-    UIView.animate(withDuration: 0.16) { blur.effect = UIBlurEffect(style: .systemThinMaterialDark) }
+    UIView.animate(withDuration: knobDouble("kb.personalityRow.blurInSec", 0.16)) {
+      blur.effect = UIBlurEffect(style: .systemThinMaterialDark)
+    }
     UIView.animate(
-      withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0.6,
+      withDuration: knobDouble("kb.personalityRow.popInSec", 0.42), delay: 0,
+      usingSpringWithDamping: CGFloat(knobDouble("kb.personalityRow.popDamping", 0.72)),
+      initialSpringVelocity: CGFloat(knobDouble("kb.personalityRow.popVelocity", 0.6)),
       options: [.curveEaseOut, .allowUserInteraction],
       animations: {
         container.alpha = 1
@@ -277,11 +319,12 @@ final class TulmiPersonalityRow: UIView {
     }
     // Reverse suction: the sheet collapses back down into the chip as the frost
     // clears.
+    let collapsed = collapsedTransform
     UIView.animate(
-      withDuration: 0.2, delay: 0, options: [.curveEaseIn],
+      withDuration: knobDouble("kb.personalityRow.popOutSec", 0.2), delay: 0, options: [.curveEaseIn],
       animations: {
         popover?.alpha = 0
-        popover?.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.06, y: 0.06)
+        popover?.transform = collapsed
         blur?.effect = nil
         blur?.alpha = 0
       },
@@ -293,9 +336,10 @@ final class TulmiPersonalityRow: UIView {
 
   private func findAncestorForOverlay() -> UIView? {
     // Walk up until we hit something big enough to render a floating menu.
+    let minHeight = CGFloat(knobDouble("kb.personalityRow.overlayMinHeight", 120))
     var v: UIView? = self
     while let cur = v {
-      if cur.bounds.height > 120 { return cur }
+      if cur.bounds.height > minHeight { return cur }
       v = cur.superview
     }
     return superview
@@ -310,6 +354,6 @@ final class TulmiPersonalityRow: UIView {
     var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
     color.getRed(&r, green: &g, blue: &b, alpha: &a)
     let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return lum > 0.55 ? .black : .white
+    return lum > CGFloat(knobDouble("kb.personalityRow.contrastThreshold", 0.55)) ? .black : .white
   }
 }
