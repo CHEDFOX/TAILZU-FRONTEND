@@ -216,7 +216,7 @@ public class TulmiBridgeModule: Module {
     }
 
     // THE FLOW SESSION'S WORDS, FOR THE LIVE ACTIVITY. A JSON object of
-    // strings (listening, writing, ready, readyHint, wordsSoFar, words, stop,
+    // strings (listening, writing, ready, readyHint, words, stop,
     // end, compact, and the SF Symbols) from the server's labels; the widget
     // extension reads it from the App Group, each word falling back to the one
     // it replaced. A running activity is redrawn so the change shows now.

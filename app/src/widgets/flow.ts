@@ -23,8 +23,8 @@ export function flowActivityCopy(): FlowActivityCopy {
     listening: txt("widget.flow.listening", "Listening"),
     writing: txt("widget.flow.writing", "Writing"),
     ready: txt("widget.flow.ready", "Flow is on"),
-    readyHint: txt("widget.flow.readyHint", "Tap the mic on the keyboard to dictate."),
-    wordsSoFar: txt("widget.flow.wordsSoFar", "{n} words so far."),
+    // No hint unless the server sends one: the banner stays one word.
+    readyHint: txt("widget.flow.readyHint", ""),
     words: txt("widget.flow.words", "{n} words"),
     stop: txt("widget.flow.stop", "Stop"),
     end: txt("widget.flow.end", "End"),

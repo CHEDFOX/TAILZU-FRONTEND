@@ -79,38 +79,31 @@ struct FlowActivityWidget: Widget {
     ActivityConfiguration(for: FlowActivityAttributes.self) { context in
       FlowBanner(state: context.state)
         .activityBackgroundTint(Ink.ground)
-        .activitySystemActionForegroundColor(Ink.amber)
+        .activitySystemActionForegroundColor(Ink.pale)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          HStack(spacing: 8) {
-            WaveMark(color: context.state.phase == "listening" ? Ink.amber : Ink.dim).frame(width: 26, height: 18)
-            Text(phaseWord(context.state.phase)).font(.system(size: 14, weight: .semibold)).foregroundStyle(Ink.pale)
-          }
+          FlowTitle(state: context.state).padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Text(FlowCopy.text("words", "{n} words", n: n(context.state.words)))
-            .font(.system(size: 13, weight: .medium, design: .rounded))
-            .foregroundStyle(Ink.dim)
-        }
-        DynamicIslandExpandedRegion(.bottom) {
           FlowButtons(phase: context.state.phase)
         }
       } compactLeading: {
         Image(systemName: context.state.phase == "listening"
               ? FlowCopy.text("iconListening", "waveform")
               : FlowCopy.text("iconIdle", "mic"))
-          .foregroundStyle(Ink.amber)
+          .foregroundStyle(context.state.phase == "listening" ? Ink.mark : Ink.dim)
       } compactTrailing: {
         Text(context.state.phase == "listening"
              ? String(context.state.words)
              : FlowCopy.text("compact", "Flow"))
-          .font(.system(size: 12, weight: .semibold, design: .rounded))
-          .foregroundStyle(Ink.pale)
+          .font(.system(size: 12, weight: .medium, design: .rounded))
+          .monospacedDigit()
+          .foregroundStyle(Ink.dim)
       } minimal: {
-        Image(systemName: FlowCopy.text("iconMinimal", "waveform")).foregroundStyle(Ink.amber)
+        Image(systemName: FlowCopy.text("iconMinimal", "waveform")).foregroundStyle(Ink.mark)
       }
-      .keylineTint(Ink.amber)
+      .keylineTint(Ink.dim)
     }
   }
 }
@@ -123,27 +116,41 @@ func phaseWord(_ phase: String) -> String {
   }
 }
 
-/// The Lock Screen banner.
-struct FlowBanner: View {
+/// The phase, and under it the count (or, when ready, the server's hint —
+/// none unless it sends one).
+struct FlowTitle: View {
   let state: FlowActivityAttributes.ContentState
+  private var detail: String {
+    state.phase == "ready"
+      ? FlowCopy.text("readyHint", "")
+      : FlowCopy.text("words", "{n} words", n: n(state.words))
+  }
   var body: some View {
-    HStack(spacing: 14) {
-      WaveMark(color: state.phase == "listening" ? Ink.amber : Ink.dim).frame(width: 34, height: 24)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(phaseWord(state.phase)).font(.system(size: 15, weight: .semibold)).foregroundStyle(Ink.pale)
-        Text(state.phase == "ready"
-             ? FlowCopy.text("readyHint", "Tap the mic on the keyboard to dictate.")
-             : FlowCopy.text("wordsSoFar", "{n} words so far.", n: n(state.words)))
-          .font(.system(size: 12)).foregroundStyle(Ink.dim)
+    VStack(alignment: .leading, spacing: 2) {
+      Text(phaseWord(state.phase)).font(.system(size: 15, weight: .medium)).foregroundStyle(Ink.pale)
+      if !detail.isEmpty {
+        Text(detail).font(.system(size: 12)).monospacedDigit().foregroundStyle(Ink.dim).lineLimit(1)
       }
-      Spacer()
-      FlowButtons(phase: state.phase)
     }
-    .padding(14)
   }
 }
 
-/// Stop the sentence while listening; end the session otherwise.
+/// The Lock Screen banner: the mark, the phase, the buttons.
+struct FlowBanner: View {
+  let state: FlowActivityAttributes.ContentState
+  var body: some View {
+    HStack(spacing: 12) {
+      WaveMark(color: state.phase == "listening" ? Ink.mark : Ink.dim).frame(width: 26, height: 18)
+      FlowTitle(state: state)
+      Spacer(minLength: 8)
+      FlowButtons(phase: state.phase)
+    }
+    .padding(16)
+  }
+}
+
+/// Stop the sentence while listening; end the session otherwise. Round,
+/// symbol only (the word stays for VoiceOver).
 struct FlowButtons: View {
   let phase: String
   var body: some View {
@@ -151,21 +158,23 @@ struct FlowButtons: View {
       if phase == "listening" {
         Button(intent: StopDictationIntent()) {
           Label(FlowCopy.text("stop", "Stop"), systemImage: FlowCopy.text("iconStop", "stop.fill"))
+            .labelStyle(.iconOnly)
             .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, 12).padding(.vertical, 7)
+            .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
         .foregroundStyle(Ink.ground)
-        .background(Ink.amber, in: Capsule())
+        .background(Ink.pale, in: Circle())
       }
       Button(intent: EndFlowSessionIntent()) {
         Label(FlowCopy.text("end", "End"), systemImage: FlowCopy.text("iconEnd", "xmark"))
+          .labelStyle(.iconOnly)
           .font(.system(size: 12, weight: .semibold))
-          .padding(.horizontal, 12).padding(.vertical, 7)
+          .frame(width: 34, height: 34)
       }
       .buttonStyle(.plain)
       .foregroundStyle(Ink.pale)
-      .background(Ink.rule, in: Capsule())
+      .background(Ink.rule, in: Circle())
     }
   }
 }
