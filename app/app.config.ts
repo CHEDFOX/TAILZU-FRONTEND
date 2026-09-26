@@ -76,7 +76,12 @@ const config: ExpoConfig = {
   // on the build before it. And that older build needs this very update: it
   // is the one that cannot come back from Google without the web bridge the
   // update carries. Bumping here would have cut it off from its own fix.
-  runtimeVersion: "d6ee7792e54ee5112449c6690444b1445752f2ab",
+  //
+  // BUMPED for the release after 1.0.1. It adds native capability on every
+  // side — three bridge functions and two new signatures, the widget
+  // extension with its Live Activity and Control, and the reworked keyboards
+  // — so an update written for it must never reach a binary without them.
+  runtimeVersion: "tailzu-2026-09-k41-a3",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the
@@ -140,6 +145,12 @@ const config: ExpoConfig = {
       NSCalendarsUsageDescription:
         "Tailzu writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
       NSRemindersUsageDescription:
+        "Tailzu writes a reminder only when you tap Add Reminder on a dictated note.",
+      // iOS 17 shows these, not the two above. Without them expo-calendar's
+      // generic "Allow Tailzu to access your calendars" is what people see.
+      NSCalendarsFullAccessUsageDescription:
+        "Tailzu writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
+      NSRemindersFullAccessUsageDescription:
         "Tailzu writes a reminder only when you tap Add Reminder on a dictated note.",
       NSAppleMusicUsageDescription:
         "Tailzu reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
@@ -322,7 +333,12 @@ const config: ExpoConfig = {
   // Expo to require() its main entry as if it were a plugin, which throws
   // on "Unexpected token 'export'".
   plugins: [
-    "expo-audio",
+    // No background playback: nothing plays audio behind the lock screen.
+    // Left on (the plugin's default), it put a media-playback foreground
+    // service and FOREGROUND_SERVICE_MEDIA_PLAYBACK into the Android build,
+    // which Play asks to be declared and justified. The iOS background audio
+    // mode the Flow session needs is set explicitly in infoPlist above.
+    ["expo-audio", { enableBackgroundPlayback: false }],
     "expo-apple-authentication",
     "expo-camera",
     "expo-image-picker",
