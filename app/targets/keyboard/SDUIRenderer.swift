@@ -4592,7 +4592,7 @@ final class SDUIRenderer: NSObject {
           iv.transform = CGAffineTransform(scaleX: shrink, y: shrink)
           veil.addSubview(iv)
         }
-        veil.hidden.append(k)
+        veil.frostedKeys.append(k)
         k.alpha = 0
       }
     }
@@ -4639,7 +4639,7 @@ final class SDUIRenderer: NSObject {
   /// the tools row, the mic — falls straight through to what is there.
   private final class DictationVeil: UIView {
     var rects: [CGRect] = []
-    var hidden: [UIView] = []
+    var frostedKeys: [UIView] = []
     var swallows = true
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
       guard swallows, rects.contains(where: { $0.contains(point) }) else { return nil }
@@ -4652,7 +4652,7 @@ final class SDUIRenderer: NSObject {
     recordingDimView = nil
     // The rows come back the moment the veil starts to go: a hidden key under
     // a fading veil reads as the keyboard returning, which it is.
-    (dim as? DictationVeil)?.hidden.forEach { $0.alpha = 1 }
+    (dim as? DictationVeil)?.frostedKeys.forEach { $0.alpha = 1 }
     guard animated else { dim.removeFromSuperview(); return }
     let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
     UIView.animate(withDuration: fadeMs / 1000.0, animations: { dim.alpha = 0 },
