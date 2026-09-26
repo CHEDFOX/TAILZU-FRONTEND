@@ -36,22 +36,24 @@ import kotlin.math.min
  */
 object TulmiAutocorrect {
 
-    /** Cost of swapping a letter for one of its on-screen neighbours. */
-    var neighbourCost: Float = 0.4f
-
-    /** Cost of swapping a letter for a distant one. */
-    var distantCost: Float = 1.0f
-
-    /** Cost of inserting or removing punctuation (apostrophes, mostly). */
-    var punctCost: Float = 0.2f
-
-    /** Total cost above which the correction is refused, per character of the
-     *  typed word. Higher accepts more aggressive corrections. */
-    var maxCostPerChar: Float = 0.5f
-
-    /** Words this short are left alone. Two-letter "corrections" are almost
-     *  always the user meaning exactly what they typed. */
-    var minLength: Int = 3
+    /**
+     * The weights, read from the server's knobs each time a decision is made
+     * (a snapshot per call — the inner loop never touches the config):
+     *
+     *   kb.autocorrect.neighborCost    swapping a letter for an on-screen neighbour
+     *   kb.autocorrect.distantCost     swapping it for a distant one
+     *   kb.autocorrect.punctCost       inserting or removing punctuation
+     *   kb.autocorrect.maxCostPerChar  total cost allowed per typed character
+     *   kb.autocorrect.minLen          words this short are left alone
+     *   kb.autocorrect.maxLengthDelta  a candidate this much longer/shorter is a different word
+     *   kb.autocorrect.punctChars      which characters count as punctuation
+     */
+    private class Weights(
+        val neighbour: Float,
+        val distant: Float,
+        val punct: Float,
+        val punctChars: String,
+    )
 
     /**
      * Key centres by lowercase character, in the plane's own coordinates.
@@ -73,7 +75,7 @@ object TulmiAutocorrect {
             val nearest = next.values.map { a ->
                 next.values.filter { it !== a }.minOf { b -> hypot(a.x - b.x, a.y - b.y) }
             }.sorted()
-            nearest[nearest.size / 2] * 1.6f
+            nearest[nearest.size / 2] * knobFloat("kb.autocorrect.neighborRadius", 1.6f)
         }
     }
 
@@ -95,16 +97,22 @@ object TulmiAutocorrect {
         val b = candidate.trim()
         if (a.isEmpty() || b.isEmpty()) return false
         if (a.equals(b, ignoreCase = true)) return false
-        if (a.length < minLength) return false
+        if (a.length < knobInt("kb.autocorrect.minLen", 3)) return false
         // A candidate that is a wildly different length is a different word, not
         // a repair of this one.
-        if (kotlin.math.abs(a.length - b.length) > 2) return false
+        if (kotlin.math.abs(a.length - b.length) > knobInt("kb.autocorrect.maxLengthDelta", 2)) return false
         // Never "correct" something the user capitalised deliberately — a name
         // they typed with a capital is a name.
         if (a.first().isUpperCase() && !b.first().isUpperCase()) return false
 
-        val cost = weightedDistance(a.lowercase(), b.lowercase())
-        return cost <= maxCostPerChar * a.length
+        val w = Weights(
+            neighbour = knobFloat("kb.autocorrect.neighborCost", 0.4f),
+            distant = knobFloat("kb.autocorrect.distantCost", 1.0f),
+            punct = knobFloat("kb.autocorrect.punctCost", 0.2f),
+            punctChars = knobString("kb.autocorrect.punctChars", "'\u2019-."),
+        )
+        val cost = weightedDistance(a.lowercase(), b.lowercase(), w)
+        return cost <= knobFloat("kb.autocorrect.maxCostPerChar", 0.5f) * a.length
     }
 
     /**
@@ -112,9 +120,13 @@ object TulmiAutocorrect {
      * it. Punctuation is nearly free, neighbouring keys are cheap, everything
      * else is full price.
      */
-    private fun weightedDistance(a: String, b: String): Float {
+    private fun weightedDistance(a: String, b: String, w: Weights): Float {
         val n = a.length
         val m = b.length
+        val distantCost = w.distant
+        val punctCost = w.punct
+        val neighbourCost = w.neighbour
+        fun Char.isPunct(): Boolean = w.punctChars.indexOf(this) >= 0
         var prev = FloatArray(m + 1) { it * distantCost }
         // The first row prices deletions from `b`; punctuation is cheap there
         // too, which is what makes "dont" -> "don't" almost free.
@@ -140,5 +152,4 @@ object TulmiAutocorrect {
         return prev[m]
     }
 
-    private fun Char.isPunct(): Boolean = this == '\'' || this == '’' || this == '-' || this == '.'
 }

@@ -1181,9 +1181,8 @@ class SDUIRenderer(
         val isTonePill = node.bind["content"] == "tone"
         if (isTonePill && flagBoolean("kb.tone.sheet.enabled", true)) {
             // Hold the pill → pick any voice or tone directly instead of
-            // cycling. Its own touch handling (the plane would never deliver a
-            // hold), with the server's threshold.
-            bindHold(b, flagFloat("kb.tone.sheet.longPressMs", 300f).toLong()) {
+            // cycling, after the server's threshold.
+            bindHold(parent, b, flagFloat("kb.tone.sheet.longPressMs", 300f).toLong()) {
                 hapticTap(b, "tone")
                 showToneSheet(b)
             }
@@ -1194,13 +1193,20 @@ class SDUIRenderer(
     }
 
     /**
-     * Give a key its own hold gesture: [onHold] fires after [holdMs] of an
-     * unbroken press, and the release that follows is swallowed so the hold is
-     * not ALSO a tap. The key is tagged RAW_TOUCH so the row's key plane leaves
-     * its touches alone — the plane commits taps and has no notion of a hold.
+     * Give a key a hold gesture: [onHold] fires after [holdMs] of an unbroken
+     * press, and the release that follows is NOT also a tap.
+     *
+     * In a key row the row's plane runs it (TulmiKeyPlane.setHold), so the key
+     * keeps gap filling and rolling presses — shift held while a letter in the
+     * same row goes down still types it. Anywhere else the key times its own
+     * press.
      */
-    private fun bindHold(v: View, holdMs: Long, onHold: () -> Unit) {
-        v.tag = TulmiKeyPlane.RAW_TOUCH
+    private fun bindHold(parent: ViewGroup, v: View, holdMs: Long, onHold: () -> Unit) {
+        val plane = parent as? TulmiKeyPlane
+        if (plane != null && plane.planeEnabled) {
+            plane.setHold(v, holdMs, onHold)
+            return
+        }
         var fired = false
         val hold = Runnable { fired = true; onHold() }
         v.setOnTouchListener { view, e ->
@@ -1212,7 +1218,7 @@ class SDUIRenderer(
                 }
                 android.view.MotionEvent.ACTION_UP -> {
                     handler.removeCallbacks(hold)
-                    if (fired) { view.isPressed = false; true } else false
+                    if (fired) { swallowRelease(view, e); true } else false
                 }
                 android.view.MotionEvent.ACTION_CANCEL -> {
                     handler.removeCallbacks(hold)
@@ -1221,6 +1227,15 @@ class SDUIRenderer(
                 else -> false
             }
         }
+    }
+
+    /** End a press the key already acted on WITHOUT its click: the view sees a
+     *  cancel, which clears its pressed state and pending taps. */
+    private fun swallowRelease(v: View, up: android.view.MotionEvent) {
+        val cancel = android.view.MotionEvent.obtain(up)
+        cancel.action = android.view.MotionEvent.ACTION_CANCEL
+        v.onTouchEvent(cancel)
+        cancel.recycle()
     }
 
     /**
@@ -1301,7 +1316,7 @@ class SDUIRenderer(
             pressShift()
             invokeEvent(node, "onPress")
         }
-        bindHold(b, flagFloat("kb.shift.longPressMs", 500f).toLong()) {
+        bindHold(parent, b, flagFloat("kb.shift.longPressMs", 500f).toLong()) {
             hapticTap(b, "shift")
             holdShift()
             invokeEvent(node, "onLongPress")
@@ -1452,7 +1467,7 @@ class SDUIRenderer(
                     repeat = null
                     // A hold that already deleted must not delete once more on release.
                     if (repeated && e.actionMasked == android.view.MotionEvent.ACTION_UP) {
-                        v.isPressed = false
+                        swallowRelease(v, e)
                         true
                     } else false
                 }

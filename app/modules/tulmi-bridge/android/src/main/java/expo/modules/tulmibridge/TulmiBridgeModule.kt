@@ -31,6 +31,29 @@ class TulmiBridgeModule : Module() {
         .apply()
     }
 
+    // Pre-seed the keyboard with the config the app just fetched
+    // (GET /v1/keyboard/config), so the keyboard's very first open draws the
+    // server's current keyboard instead of the one bundled at build time. Same
+    // SharedPreferences file + key the IME caches its own fetches under
+    // ("tulmi_kb" / "config_json"); the IME re-validates it before use and
+    // replaces it with its own fetch as soon as it has one. Anything that is
+    // not a keyboard config (not JSON, or neither a tree nor a theme) is
+    // ignored so a bad payload can never replace a good cache.
+    Function("setKeyboardConfig") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      val usable = try {
+        val o = org.json.JSONObject(json)
+        o.has("root") || o.has("theme")
+      } catch (_: Exception) {
+        false
+      }
+      if (!usable) return@Function
+      ctx.getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        .edit()
+        .putString("config_json", json)
+        .apply()
+    }
+
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being
     // enabled is the permission the onboarding gate waits for.

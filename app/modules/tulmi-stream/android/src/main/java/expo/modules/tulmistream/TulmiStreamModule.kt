@@ -34,7 +34,10 @@ class TulmiStreamModule : Module() {
 
     Function("start") { options: Map<String, Any?> ->
       val url = options["url"] as? String ?: ""
-      val token = options["token"] as? String ?: "dev"
+      // No placeholder token: without a real one the request goes out
+      // unauthenticated and the server's 401 says so, instead of a fake
+      // "dev" bearer that could only ever be refused.
+      val token = (options["token"] as? String)?.trim().orEmpty()
       val targetApp = options["targetApp"] as? String ?: "Generic"
       val language = options["language"] as? String ?: "auto"
       streamer?.cancel()
@@ -80,18 +83,18 @@ private class Streamer(
   fun start(url: String, token: String, targetApp: String, language: String) {
     val req = Request.Builder()
       .url(url)
-      .addHeader("Authorization", "Bearer $token")
+      .apply { if (token.isNotEmpty()) addHeader("Authorization", "Bearer $token") }
       .build()
     ws = client.newWebSocket(req, object : WebSocketListener() {
       override fun onOpen(webSocket: WebSocket, response: Response) {
         val start = JSONObject()
           .put("type", "start")
-          .put("token", token)
           .put("targetApp", targetApp)
           .put("language", language)
           .put("sampleRate", 16000)
           .put("encoding", "pcm_s16le")
           .put("channels", 1)
+        if (token.isNotEmpty()) start.put("token", token)
         webSocket.send(start.toString())
         startCapture(webSocket)
       }

@@ -49,10 +49,9 @@ class TulmiCorrections(
     /** How many chips the bar shows. Backend-tunable to match iOS. */
     var maxSuggestions: Int = 3
 
-    private companion object {
-        /** Ask for a few, so the first that starts and ends correctly can win. */
-        const val MAX_RESOLVE = 5
-    }
+    /** How many guesses a swipe asks the checker for, so the first that
+     *  starts and ends correctly can win (kb.swipe.candidates). */
+    private fun maxResolve(): Int = knobInt("kb.swipe.candidates", 5).coerceIn(1, 20)
 
     /** The word currently being checked, so a late reply for an older word
      *  cannot overwrite suggestions for the one being typed now. */
@@ -84,6 +83,11 @@ class TulmiCorrections(
             return
         }
         inFlight = w
+        // A candidate belongs to the word it was computed for. Keeping the last
+        // one while this word's reply is in flight let a space typed quickly
+        // "correct" the new word with a guess made for its prefix.
+        topCandidate = null
+        topCandidateFor = ""
 
         // The user's own words first, and synchronously — these must appear
         // even when there is no spell checker to ask.
@@ -110,10 +114,15 @@ class TulmiCorrections(
     var topCandidate: String? = null
         private set
 
+    /** The word [topCandidate] was computed for. */
+    var topCandidateFor: String = ""
+        private set
+
     /** Nothing is in flight and the bar should be empty — e.g. after a commit. */
     fun clear() {
         inFlight = ""
         topCandidate = null
+        topCandidateFor = ""
         onSuggestions(emptyList())
     }
 
@@ -131,7 +140,7 @@ class TulmiCorrections(
         if (s == null) { onResult(emptyList()); return }
         pendingResolve = onResult
         runCatching {
-            s.getSentenceSuggestions(arrayOf(TextInfo(skeleton)), MAX_RESOLVE)
+            s.getSentenceSuggestions(arrayOf(TextInfo(skeleton)), maxResolve())
         }.onFailure {
             pendingResolve = null
             onResult(emptyList())
@@ -191,6 +200,7 @@ class TulmiCorrections(
             // merged[0] is the typed word itself; the first real alternative is
             // what autocorrect would apply.
             topCandidate = merged.getOrNull(1)
+            topCandidateFor = typed
             onSuggestions(merged.take(maxSuggestions + 1))
         }
     }
