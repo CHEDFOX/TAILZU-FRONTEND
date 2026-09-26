@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows on Android 12+ before the widget is placed: the
+  iOS gallery's sample month (318 words left, the line at 742 of 1,060) in the
+  default ink. Fixed colours, because the picker cannot read what the app
+  wrote. Text sizes are dp, as the face's are.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/tailzu_widget_ground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="bottom|start"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:fontFeatureSettings="tnum"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:text="@string/tailzu_widget_month_preview_number"
+            android:textColor="#F3E2C6"
+            android:textSize="34dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.155"
+            android:maxLines="1"
+            android:text="@string/tailzu_widget_month_preview_label"
+            android:textColor="#85F3E2C6"
+            android:textSize="9dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/tailzu_widget_preview_track"
+            android:orientation="horizontal"
+            android:weightSum="1">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="0.7"
+                android:background="@drawable/tailzu_widget_preview_fill" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

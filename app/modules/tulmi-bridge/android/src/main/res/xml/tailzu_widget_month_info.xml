@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Month's entry in the widget picker. Two cells square by default, the
+  same card as iOS's small widget, and resizable larger; not smaller, as the
+  number needs the room.
+
+  updatePeriodMillis is 0: nothing redraws it on a timer. The app asks for a
+  redraw each time it writes the month (setWidgetMonth), and the system asks
+  on its own after a reboot or an app update.
+
+  The name and description come from string resources, not the server's
+  labels: the picker reads them before the app has run.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/tailzu_widget_month_description"
+    android:initialLayout="@layout/tailzu_widget_month"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:previewImage="@drawable/tailzu_widget_month_preview_image"
+    android:previewLayout="@layout/tailzu_widget_month_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

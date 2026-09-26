@@ -7,7 +7,8 @@ import expo.modules.kotlin.modules.ModuleDefinition
 /**
  * Writes the app's backend URL + the user's token into the app's `tulmi`
  * SharedPreferences. The Tulmi IME runs in the same package, so it can read
- * these directly (see Net.load in the keyboard module).
+ * these directly (see Net.load in the keyboard module). The month for the
+ * home-screen widget goes the same way, into `tulmi.widget`.
  */
 class TulmiBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -52,6 +53,22 @@ class TulmiBridgeModule : Module() {
         .edit()
         .putString("config_json", json)
         .apply()
+    }
+
+    // THE MONTH, FOR THE WIDGET. The same JSON the iOS widget reads from the
+    // App Group: the numbers the app just fetched, and the words, colours and
+    // tap target the widget draws them with, built from the server's labels
+    // and flags (src/widgets/month.ts). Kept in the app's own
+    // SharedPreferences, since the widget's provider runs in this package
+    // (TailzuMonthWidget.kt), and every placed widget is asked to draw again.
+    // Nothing the widget shows is fetched by the widget.
+    Function("setWidgetMonth") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      ctx.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(TailzuMonthWidget.KEY, json)
+        .apply()
+      TailzuMonthWidget.requestUpdate(ctx)
     }
 
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs

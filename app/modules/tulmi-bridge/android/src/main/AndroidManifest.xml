@@ -1,2 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      The Month, the home-screen widget (TailzuMonthWidget.kt). Merged into the
+      app's manifest with this library, so it runs in the app's own process and
+      reads the month setWidgetMonth wrote to the app's SharedPreferences. Not
+      exported: only the system delivers widget updates, and it can reach a
+      receiver that is not.
+    -->
+    <receiver
+        android:name="expo.modules.tulmibridge.TailzuMonthWidget"
+        android:exported="false"
+        android:label="@string/tailzu_widget_month_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/tailzu_widget_month_info" />
+    </receiver>
+  </application>
 </manifest>
