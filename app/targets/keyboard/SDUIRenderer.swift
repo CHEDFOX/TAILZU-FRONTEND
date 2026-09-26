@@ -5036,41 +5036,52 @@ final class SDUIRenderer: NSObject {
       completion: { _ in overlay?.removeFromSuperview(); blur?.removeFromSuperview() })
   }
 
-  /// English accent map. Order matches Apple's stock keyboard. When a locale
-  /// needs a different set, config.flags["kb.accents.<locale>"] can eventually
-  /// override this.
-  private var accentMap: [String: [String]] {
-    [
-      "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
-      "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
-      "i": ["î", "ï", "í", "ī", "į", "ì"],
-      "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
-      "u": ["û", "ü", "ù", "ú", "ū"],
-      "y": ["ÿ"],
-      "s": ["ß", "ś", "š"],
-      "l": ["ł"],
-      "z": ["ž", "ź", "ż"],
-      "c": ["ç", "ć", "č"],
-      "n": ["ñ", "ń"],
-      "d": ["ď"],
-      "h": ["ĥ", "ħ"],
-      // Number/symbol-layer alternates (native long-press sets). The tray
-      // machinery is char-keyed, so these light up automatically on the
-      // 123/#+= layers — both via the plane's hold timer and the GR path.
-      "0": ["°"],
-      "-": ["–", "—", "•"],
-      "/": ["\\"],
-      "$": ["€", "£", "¥", "₹", "¢"],
-      "&": ["§"],
-      "\"": ["\u{201C}", "\u{201D}", "„", "«", "»"],
-      ".": ["…"],
-      "?": ["¿"],
-      "!": ["¡"],
-      "'": ["\u{2018}", "\u{2019}", "‚", "`"],
-      "%": ["‰"],
-      "=": ["≠", "≈"],
-    ]
-  }
+  /// kb.accents — the long-press alternates, { "a": ["à", …], "$": ["€", …] },
+  /// sent by the server so a language, a market or an experiment can change
+  /// them. A key absent from the server's map has no tray; an empty list turns
+  /// one key's tray off. The built-in map is only the fallback for a config
+  /// that carries none. Parsed once: a renderer lives for one config.
+  private var accentMap: [String: [String]] { resolvedAccentMap }
+  private lazy var resolvedAccentMap: [String: [String]] = {
+    guard case .object(let o)? = config.flags?["kb.accents"] else { return Self.builtInAccents }
+    var out: [String: [String]] = [:]
+    for (k, v) in o {
+      if case .array(let a) = v { out[k] = a.compactMap { $0.asString } }
+    }
+    return out
+  }()
+
+  /// English, in Apple's stock order — the fallback for kb.accents.
+  private static let builtInAccents: [String: [String]] = [
+    "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
+    "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
+    "i": ["î", "ï", "í", "ī", "į", "ì"],
+    "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
+    "u": ["û", "ü", "ù", "ú", "ū"],
+    "y": ["ÿ"],
+    "s": ["ß", "ś", "š"],
+    "l": ["ł"],
+    "z": ["ž", "ź", "ż"],
+    "c": ["ç", "ć", "č"],
+    "n": ["ñ", "ń"],
+    "d": ["ď"],
+    "h": ["ĥ", "ħ"],
+    // Number/symbol-layer alternates (native long-press sets). The tray
+    // machinery is char-keyed, so these light up automatically on the
+    // 123/#+= layers — both via the plane's hold timer and the GR path.
+    "0": ["°"],
+    "-": ["–", "—", "•"],
+    "/": ["\\"],
+    "$": ["€", "£", "¥", "₹", "¢"],
+    "&": ["§"],
+    "\"": ["\u{201C}", "\u{201D}", "„", "«", "»"],
+    ".": ["…"],
+    "?": ["¿"],
+    "!": ["¡"],
+    "'": ["\u{2018}", "\u{2019}", "‚", "`"],
+    "%": ["‰"],
+    "=": ["≠", "≈"],
+  ]
 
   @objc private func letterLongPress(_ gr: UILongPressGestureRecognizer) {
     guard let btn = gr.view as? UIButton else { return }

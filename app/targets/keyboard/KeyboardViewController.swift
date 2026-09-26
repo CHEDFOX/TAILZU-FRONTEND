@@ -191,6 +191,14 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     TulmiImageLoader.purgeMemory()
   }
 
+  /// default-config.json in the extension bundle: the backend's keyboard
+  /// config for a signed-out phone, re-exported before each store build.
+  static func bundledConfig() -> Data? {
+    guard let url = Bundle(for: KeyboardViewController.self).url(forResource: "default-config", withExtension: "json")
+    else { return nil }
+    return try? Data(contentsOf: url)
+  }
+
   override func viewDidLoad() {
     super.viewDidLoad()
     KeyboardTelemetry.bump(.coldStarts)
@@ -209,7 +217,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Auto Layout pass on the main thread at every extension launch, purely to
     // throw them away — the single biggest avoidable cost on the keyboard's
     // appear latency. The legacy build remains the no-cache / no-SDUI fallback.
-    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config"),
+    // The last config fetched, else the server's own config as shipped inside
+    // the extension (default-config.json, exported by the backend), so even
+    // the very first open draws the server's keyboard, not the hand-built one.
+    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config") ?? Self.bundledConfig(),
        let kb = SDUIRenderer.decodeConfig(data),
        kb.features?.sdui == true, kb.root != nil {
       // The dictation/flow paths mutate these implicitly-unwrapped hand-built

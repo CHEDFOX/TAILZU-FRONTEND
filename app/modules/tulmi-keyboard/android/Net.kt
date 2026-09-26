@@ -98,15 +98,21 @@ object Net {
         val labels = HashMap<String, String>()
         for (k in l.keys()) labels[k] = l.getString(k)
 
-        // Accent glyphs — backend authors kb.accents.<char> = "áâäàā" as a
-        // string; we split into a Char list. Absent object → empty map.
+        // Accent glyphs, per key: kb.accents = { "a": ["à", "á", …] } (what the
+        // backend sends and iOS reads) or the older { "a": "àá…" } string form.
+        // Absent object → empty map.
         val accents = HashMap<String, List<Char>>()
         val flags = o.optJSONObject("flags")
         val accentsObj = flags?.optJSONObject("kb.accents")
         if (accentsObj != null) {
             for (k in accentsObj.keys()) {
-                val v = accentsObj.optString(k, "")
-                if (v.isNotEmpty()) accents[k.lowercase()] = v.toList()
+                val arr = accentsObj.optJSONArray(k)
+                val chars = if (arr != null) {
+                    (0 until arr.length()).mapNotNull { arr.optString(it, "").firstOrNull() }
+                } else {
+                    accentsObj.optString(k, "").toList()
+                }
+                if (chars.isNotEmpty()) accents[k.lowercase()] = chars
             }
         }
 
