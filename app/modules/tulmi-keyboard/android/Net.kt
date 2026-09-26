@@ -52,10 +52,22 @@ object Net {
         // Read every time, blank included: a sign-out must stop us sending the
         // old token, not leave it in place because the new value was empty.
         token = p.getString("tulmi.token", null)?.trim().orEmpty()
+        pickedLanguage = p.getString("tulmi.language", null)?.trim().orEmpty()
     }
 
     /** The user token, exposed for the live streaming client (Stream.kt). Empty when signed out. */
     fun bearer(): String = token
+
+    /** The language the user picked in the app (tulmi-bridge), or empty. */
+    private var pickedLanguage = ""
+
+    /**
+     * The language dictation and refine are sent with: the user's pick, else
+     * the server's kb.dictation.defaultLanguage ("auto": the server detects it,
+     * code-switching included). A soft hint either way — the backend never
+     * pins the recognizer to it. The same rule as iOS's TulmiBackend.language.
+     */
+    fun language(): String = pickedLanguage.ifEmpty { knobString("kb.dictation.defaultLanguage", "auto") }
 
     /** The headers every request to our backend carries. */
     fun authorize(b: Request.Builder): Request.Builder {
@@ -217,9 +229,8 @@ object Net {
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
-            // Never pin the recognizer or the writer to a language — the
-            // backend detects it. Same contract as iOS.
-            .put("language", "auto")
+            // A hint, never a pin: the backend still detects the language.
+            .put("language", language())
             .apply { if (context.isNotBlank()) put("context", context) }
             // The catch-all reads the tone from here; the per-tone routes carry
             // it in the path and ignore it.
@@ -268,11 +279,18 @@ object Net {
         if (code !in 200..299) throw RuntimeException("telemetry $code: $s")
     }
 
-    fun transcribeClean(file: File, targetApp: String): String {
+    fun transcribeClean(
+        file: File,
+        targetApp: String,
+        /** The draft before the caret (kb.dictation.contextChars of it), so the
+         *  sentence this call writes fits what it joins. */
+        context: String = "",
+    ): String {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("audio", "audio.m4a", file.asRequestBody("audio/m4a".toMediaType()))
             .addFormDataPart("targetApp", targetApp)
-            .addFormDataPart("language", "auto")
+            .addFormDataPart("language", language())
+            .apply { if (context.isNotBlank()) addFormDataPart("context", context) }
             .build()
         val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.transcribePath", "/v1/transcribe-clean")))
             .post(body)

@@ -875,7 +875,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 kbState.micLevel = lvl
                 sduiRenderer?.stateChanged()
             } },
-        ).also { it.start(target, "auto") }
+        ).also { it.start(target, Net.language()) }
     }
 
     /** Swap the on-screen interim text for the latest hypothesis. */
@@ -1042,12 +1042,23 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         dictatedText = ""
     }
 
+    /**
+     * What sat before the caret when this recording began: the last
+     * kb.dictation.contextChars of it, trimmed. The upload carries it so the
+     * written sentence fits the draft it joins — what iOS leaves for its app's
+     * one-shot upload when a dictation starts.
+     */
+    private var uploadContext = ""
+
     private fun startRecording() {
         // Idempotent — see startStreaming. A second start would strand the first
         // MediaRecorder with the mic hot.
         if (recording || streaming) return
         if (kbState.secured) return
         if (!micPermitted()) return
+        val contextChars = knobInt("kb.dictation.contextChars", 600).coerceAtLeast(0)
+        uploadContext = if (contextChars == 0) "" else
+            (currentInputConnection?.getTextBeforeCursor(contextChars, 0)?.toString() ?: "").trim()
         try {
             val file = File(cacheDir, "tulmi_rec.m4a")
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
@@ -1094,6 +1105,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         audioFile = null
         setStatus(label("transcribing", "Transcribing…"))
         val target = targetAppName()
+        val draftBefore = uploadContext
+        uploadContext = ""
         Thread {
             // stop() finalizes the MP4 and reset()/release() free native
             // resources — each can block hundreds of ms on the main thread
@@ -1107,7 +1120,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 return@Thread
             }
             try {
-                val cleaned = Net.transcribeClean(file, target)
+                val cleaned = Net.transcribeClean(file, target, draftBefore)
                 main.post {
                     // Drop a conversational refusal/clarification instead of
                     // committing it (mirrors the streaming commitFinal guard);
@@ -1507,6 +1520,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         super.onDestroy()
     }
 
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        // Confetti, the recording dots and the rows' fade end with the
+        // keyboard, not seconds later behind it.
+        try { sduiRenderer?.teardownEffects() } catch (_: Throwable) {}
+    }
+
     // ---------------------------------------------------------------------
     // Text-field lifecycle. Runs every time a new input field takes focus.
     // Refreshes auto-capitalization + Return-key label so both react to the
@@ -1792,7 +1812,17 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             openAppForWords()
             return
         }
-        if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
+        // kb.mic.mode, as iOS reads it: "stream" is live dictation over the
+        // socket, "local" is record → upload. iOS's default, "flow", and
+        // "handoff" both exist because an iOS keyboard cannot open the
+        // microphone and has the app record for it; this keyboard records
+        // itself, so they — and anything unknown — keep the path the server's
+        // features.liveVoice picks.
+        when (knobString("kb.mic.mode", "flow").trim().lowercase()) {
+            "stream" -> startStreaming()
+            "local" -> startRecording()
+            else -> if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
+        }
     }
 
     /**

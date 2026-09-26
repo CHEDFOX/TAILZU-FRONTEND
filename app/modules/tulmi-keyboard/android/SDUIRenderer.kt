@@ -261,6 +261,8 @@ sealed class KBActionSpec {
     object StopDictation : KBActionSpec()
     object RunRefine : KBActionSpec()
     object CycleTone : KBActionSpec()
+    /** A short burst of confetti over the keyboard (TulmiEffects, kb.confetti.*). */
+    object Confetti : KBActionSpec()
     data class OpenApp(val screenId: String?) : KBActionSpec()
     object OpenSettings : KBActionSpec()
     data class OpenUrl(val url: String, val external: Boolean) : KBActionSpec()
@@ -342,6 +344,17 @@ class SDUIRenderer(
     private var currentMicMarkKey = ""
     private var markBitmapCache: Bitmap? = null
     private var markBitmapResolved = false
+
+    // Confetti, the recording dots and the rows' frost (TulmiEffects). The mic
+    // and the tone pill are noted as a rebuild draws them — the dots stream
+    // from one to the other — and handed over at the end of that rebuild, in
+    // applyDictationLock, which then lets them go.
+    private val effects = TulmiEffects(container)
+    private var micKeyView: View? = null
+    private var toneKeyView: View? = null
+
+    /** The keyboard was put away: nothing keeps flying or fading behind it. */
+    fun teardownEffects() = effects.teardown()
 
     // Fast-shift path (Android twin of iOS applyFastShiftUpdate). A shift/caps
     // flip — which auto-cap fires ~twice per sentence, plus every manual shift
@@ -1011,23 +1024,26 @@ class SDUIRenderer(
      * not yours for the moment — and `locked` is what makes it true rather than
      * cosmetic. RenderEffect is API 31+; older devices get the dim alone, which
      * says the same thing with less polish rather than nothing at all.
+     *
+     * The server's switches are iOS's: kb.dictation.dim.blur (false: fade
+     * only), kb.dictation.dim.blocksTouches (false: the dimmed keys still
+     * type) and kb.dictation.dim.fadeMs. The dots that stream from the mic to
+     * the tone pill start and stop here too — this runs at the end of every
+     * rebuild, and a start or stop always rebuilds.
      */
     private fun applyDictationLock(active: Boolean) {
-        if (!flagBoolean("kb.dictation.dim.enabled", true)) return
-        val radius = flagFloat("kb.dictation.dim.blurRadius", 14f)
-        val dimAlpha = flagFloat("kb.dictation.dim.keyAlpha", 0.45f)
-        for (row in lockableRows) {
-            row.locked = active
-            row.alpha = if (active) dimAlpha else 1f
-            if (android.os.Build.VERSION.SDK_INT >= 31) {
-                row.setRenderEffect(
-                    if (active && radius > 0f) {
-                        android.graphics.RenderEffect.createBlurEffect(
-                            radius, radius, android.graphics.Shader.TileMode.CLAMP)
-                    } else null
-                )
-            }
-        }
+        effects.recordingDots(active, micKeyView, toneKeyView)
+        micKeyView = null
+        toneKeyView = null
+        val radius = if (flagBoolean("kb.dictation.dim.blur", true)) flagFloat("kb.dictation.dim.blurRadius", 14f) else 0f
+        effects.frost(
+            lockableRows,
+            active && flagBoolean("kb.dictation.dim.enabled", true),
+            keyAlpha = flagFloat("kb.dictation.dim.keyAlpha", 0.45f),
+            blurPx = radius,
+            blocksTouches = flagBoolean("kb.dictation.dim.blocksTouches", true),
+            fadeMs = flagFloat("kb.dictation.dim.fadeMs", 250f),
+        )
     }
 
     /** Drawn letter keys, so the fast-shift path can re-label without a rebuild. */
@@ -1512,6 +1528,8 @@ class SDUIRenderer(
             if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
         } else raw
         val b = keyButton(label, node)
+        // The tone pill is where the recording dots fly to.
+        if (node.bind["content"] == "tone") toneKeyView = b
         // Register plain letters for the in-place fast-shift path (keyed by the
         // base lowercase char). Special keys (onPress override), bound keys and
         // multi-char labels are excluded — they don't re-case.
@@ -1944,8 +1962,11 @@ class SDUIRenderer(
             } ?: MicParticleView(
                 host.context(),
                 count = flagFloat("kb.mic.particles.count", 40f).toInt(),
-                dotRadius = flagFloat("kb.mic.particles.radius", 1.5f),
-                dotColor = parseHex(theme.keyText),
+                // dp, as it is points on iOS.
+                dotRadius = flagFloat("kb.mic.particles.radius", 1.5f) * host.context().resources.displayMetrics.density,
+                // The mark's own ink, as on iOS: the tools-row mic is dark on
+                // amber, and theme-coloured dots would not be its dots.
+                dotColor = fg,
                 mark = mark,
             ).also { currentMicParticles = it }
             frame.addView(
@@ -1996,6 +2017,8 @@ class SDUIRenderer(
             }
         }
 
+        // Where the recording dots leave from.
+        micKeyView = view
         view.setOnClickListener {
             hapticTap(view, "mic")
             if (host.state().dictating) host.stopDictation() else host.startDictation()
@@ -2531,6 +2554,7 @@ class SDUIRenderer(
             is KBActionSpec.StopDictation -> host.stopDictation()
             is KBActionSpec.RunRefine -> host.runRefine()
             is KBActionSpec.CycleTone -> cycleTone()
+            is KBActionSpec.Confetti -> effects.confetti()
             is KBActionSpec.OpenApp -> openApp(spec.screenId)
             is KBActionSpec.OpenSettings -> openInputMethodSettings()
             is KBActionSpec.OpenUrl -> openUrl(spec.url)
@@ -4007,15 +4031,20 @@ class SDUIRenderer(
         }
 
         // The physics, from the server (read once per view — onDraw runs every
-        // frame). Defaults are the numbers this sim shipped with.
-        private val burstSpeedMin = knobFloat("kb.mic.particles.speedMin", 55f)
-        private val burstSpeedRange = knobFloat("kb.mic.particles.speedRange", 55f)
+        // frame), under iOS's names. Speeds and distances are points there and
+        // dp here, so one set of server numbers draws the same swarm on both;
+        // the sim itself runs in px.
+        private val dpPx = ctx.resources.displayMetrics.density
+        // The outward kick, dp per second: each dot draws its own from this range.
+        private val burstMin = knobFloat("kb.mic.particles.burstMin", 55f) * dpPx
+        private val burstMax = knobFloat("kb.mic.particles.burstMax", 110f) * dpPx
         private val wanderDrag = knobFloat("kb.mic.particles.drag", 0.985f)
-        private val wanderMinSpeed = knobFloat("kb.mic.particles.minSpeed", 13f)
+        private val wanderMinSpeed = knobFloat("kb.mic.particles.minSpeed", 13f) * dpPx
         private val homeStiffness = knobFloat("kb.mic.particles.stiffness", 26f)
         private val homeDamping = knobFloat("kb.mic.particles.damping", 0.8f)
-        private val homeMaxSec = knobFloat("kb.mic.particles.reassembleMaxMs", 600f) / 1000f
-        private val homeSnapPx = knobFloat("kb.mic.particles.snapPx", 0.8f)
+        // Landed when every dot is this close to home, or after this long.
+        private val settleSec = knobFloat("kb.mic.particles.settleMs", 600f) / 1000f
+        private val settlePx = knobFloat("kb.mic.particles.settlePt", 0.8f) * dpPx
         private val markAlphaMin = knobInt("kb.mic.particles.alphaThreshold", 90)
 
         private enum class Mode { DISPERSE, REASSEMBLE }
@@ -4082,7 +4111,8 @@ class SDUIRenderer(
             val j = rnd.nextFloat() - 0.5f
             val rx = dx * kotlin.math.cos(j) - dy * kotlin.math.sin(j)
             val ry = dx * kotlin.math.sin(j) + dy * kotlin.math.cos(j)
-            val speed = burstSpeedMin + rnd.nextFloat() * burstSpeedRange   // 55..110 px/s shipped
+            val lo = minOf(burstMin, burstMax)
+            val speed = lo + rnd.nextFloat() * (maxOf(burstMin, burstMax) - lo)
             return PointF(rx * speed, ry * speed)
         }
 
@@ -4213,7 +4243,7 @@ class SDUIRenderer(
                 val dd = kotlin.math.sqrt(toX * toX + toY * toY)
                 if (dd > maxDist) maxDist = dd
             }
-            if (!reassembleFinished && (maxDist < homeSnapPx || reassembleElapsed > homeMaxSec)) {
+            if (!reassembleFinished && (maxDist < settlePx || reassembleElapsed > settleSec)) {
                 for (i in dots.indices) {
                     val t = if (targets.isEmpty()) PointF(midX, midY) else targets[i % targets.size]
                     dots[i].x = t.x; dots[i].y = t.y
@@ -4439,6 +4469,7 @@ class SDUIRenderer(
                 "stopDictation" -> KBActionSpec.StopDictation
                 "runRefine" -> KBActionSpec.RunRefine
                 "cycleTone" -> KBActionSpec.CycleTone
+                "confetti" -> KBActionSpec.Confetti
                 "openApp" -> KBActionSpec.OpenApp(optStringOrNull(o, "screenId"))
                 "openSettings" -> KBActionSpec.OpenSettings
                 "openUrl" -> KBActionSpec.OpenUrl(

@@ -23,6 +23,17 @@ class TulmiBridgeModule : Module() {
         .apply()
     }
 
+    // The language the user picked (hi / es / hinglish / auto / …). The
+    // keyboard sends it with dictation and refine as a hint (Net.language);
+    // without it the server's kb.dictation.defaultLanguage applies.
+    Function("setKeyboardLanguage") { code: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      ctx.getSharedPreferences("tulmi", Context.MODE_PRIVATE)
+        .edit()
+        .putString("tulmi.language", code)
+        .apply()
+    }
+
     // Text-expansion dictionary (JSON array of { word, replacement }).
     Function("setDictionary") { json: String ->
       val ctx = appContext.reactContext ?: return@Function
