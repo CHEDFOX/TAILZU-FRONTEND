@@ -3,34 +3,61 @@
  * backend-JSON-only. Every component here reads `node`, `props`, `style`,
  * `children`, `fire` from the standard CompProps interface (see components.tsx).
  * Kept in its own file so the v1/v2 primitives stay easy to audit.
+ *
+ * EVERY LOOK HERE IS THE SERVER'S. These were a module-level StyleSheet of
+ * dark literals — white text, near-black cards — fixed at load, so a light
+ * theme drew white on white and nothing short of a build could change it.
+ * Each value is now resolved at render, the same way everywhere:
+ *
+ *   the node's own prop  →  the theme token, where one draws exactly what
+ *   this always drew (the cards' #0b0b0f is theme.color.card)  →  a
+ *   ui.<Component>.<name> knob  →  the literal it used to be.
+ *
+ * So nothing changes until the server says so, and then it changes for every
+ * screen at once, or for one node.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator, Animated, Easing, FlatList, Modal as RNModal, Platform,
+  Animated, Easing, Modal as RNModal, Platform,
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import type { GestureResponderEvent, LayoutChangeEvent } from "react-native";
 import Slider from "@react-native-community/slider";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image as ExpoImage } from "expo-image";
-import Svg, { Circle, G, Path, Polyline, Rect } from "react-native-svg";
+import Svg, { Circle, Path, Polyline } from "react-native-svg";
 import QRCode from "react-native-qrcode-svg";
 import { useFocusFill } from "../media/focusFill";
 import { WebView } from "react-native-webview";
 
 import type { CompProps } from "./components";
-import { useTheme, tok, staticText } from "./components";
+import { useTheme } from "./components";
 import { evalCondition } from "./actions";
 import { MediaPlayer } from "../media/MediaPlayer";
+import { resolveMedia } from "../media/resolveMedia";
+import * as K from "./knobs";
+
+/** A number from a prop when it parses, else undefined — so `??` falls through. */
+const pn = (v: unknown): number | undefined => {
+  if (v === undefined || v === null || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+/** A string from a prop when present, else undefined. */
+const ps = (v: unknown): string | undefined => (v === undefined || v === null ? undefined : String(v));
+
+/** The platform's monospace face, for the countdown's digits. */
+const mono = () => (Platform.OS === "ios"
+  ? K.str("ui.Countdown.fontIos", "Menlo")
+  : K.str("ui.Countdown.fontAndroid", "monospace"));
 
 // ---------------------------------------------------------------------------
 // Layout / navigation
 // ---------------------------------------------------------------------------
 
 const Grid = ({ props, children, style }: CompProps) => {
-  const columns = Math.max(1, Number(props.columns ?? 2));
-  const gap = Number(props.gap ?? 12);
+  const columns = Math.max(1, Number(props.columns ?? K.num("ui.Grid.columns", 2)));
+  const gap = Number(props.gap ?? K.num("ui.Grid.gap", 12));
   const kids = React.Children.toArray(children);
   return (
     <View style={[{ flexDirection: "row", flexWrap: "wrap", marginHorizontal: -gap / 2 }, style]}>
@@ -46,8 +73,8 @@ const Grid = ({ props, children, style }: CompProps) => {
 // MasonryGrid: like Grid but tries to distribute across N columns by index —
 // good enough without measuring child heights (cheap, matches most feeds).
 const MasonryGrid = ({ props, children, style }: CompProps) => {
-  const columns = Math.max(1, Number(props.columns ?? 2));
-  const gap = Number(props.gap ?? 12);
+  const columns = Math.max(1, Number(props.columns ?? K.num("ui.MasonryGrid.columns", 2)));
+  const gap = Number(props.gap ?? K.num("ui.MasonryGrid.gap", 12));
   const kids = React.Children.toArray(children);
   const cols: React.ReactNode[][] = Array.from({ length: columns }, () => []);
   kids.forEach((k, i) => cols[i % columns].push(k));
@@ -64,9 +91,16 @@ const MasonryGrid = ({ props, children, style }: CompProps) => {
   );
 };
 
+/** The dim behind a modal or a sheet. */
+const scrimColor = (props: Record<string, any>, key: "plain" | "blur") =>
+  ps(props.scrimColor) ?? (key === "blur"
+    ? K.color("ui.Modal.scrimBlur", "rgba(0,0,0,0.2)")
+    : K.color("ui.Modal.scrim", "rgba(0,0,0,0.5)"));
+
 const ModalC = ({ node, props, children, fire, store, style }: CompProps) => {
+  const theme = useTheme();
   const bindKey = node.bind?.open;
-  const [ver, force] = useState(0);
+  const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
   const open = bindKey ? !!store.get(bindKey) : !!props.open;
   const dismissable = props.dismissable !== false;
@@ -74,21 +108,41 @@ const ModalC = ({ node, props, children, fire, store, style }: CompProps) => {
     if (bindKey) store.set(bindKey, false);
     fire("onDismiss");
   };
+  const scrimPad = pn(props.scrimPadding) ?? K.num("ui.Modal.scrimPadding", 24);
+  const card = {
+    backgroundColor: ps(props.cardBackground) ?? theme.color.card ?? K.color("ui.Modal.cardBackground", "#0b0b0f"),
+    borderRadius: pn(props.radius) ?? K.num("ui.Modal.radius", 16),
+    padding: pn(props.padding) ?? K.num("ui.Modal.padding", 20),
+    minWidth: pn(props.minWidth) ?? K.num("ui.Modal.minWidth", 260),
+    maxWidth: pn(props.maxWidth) ?? K.num("ui.Modal.maxWidth", 400),
+    width: "100%" as const,
+  };
   return (
-    <RNModal visible={open} transparent animationType="fade" onRequestClose={dismissable ? close : undefined}>
+    <RNModal
+      visible={open}
+      transparent
+      animationType={(ps(props.animation) ?? K.str("ui.Modal.animation", "fade")) as "fade"}
+      onRequestClose={dismissable ? close : undefined}
+    >
       {/* props.blur → frost the content behind the card instead of just dimming it. */}
       {props.blur ? (
         <BlurView
-          intensity={Number(props.blurIntensity ?? 45)}
+          intensity={Number(props.blurIntensity ?? K.num("ui.Modal.blurIntensity", 45))}
           // Pinned dark before, which is wrong the moment a screen is light —
           // the Stats tab's expanded card sits on an amber page.
-          tint={String(props.blurTint ?? "dark") as any}
+          tint={String(props.blurTint ?? K.str("ui.Modal.blurTint", "dark")) as any}
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
       ) : null}
-      <Pressable style={props.blur ? styles.modalScrimBlur : styles.modalScrim} onPress={dismissable ? close : undefined}>
-        <Pressable onPress={(e) => e.stopPropagation()} style={[styles.modalCard, style]}>
+      <Pressable
+        style={{
+          flex: 1, alignItems: "center", justifyContent: "center", padding: scrimPad,
+          backgroundColor: scrimColor(props, props.blur ? "blur" : "plain"),
+        }}
+        onPress={dismissable ? close : undefined}
+      >
+        <Pressable onPress={(e) => e.stopPropagation()} style={[card, style]}>
           {children}
         </Pressable>
       </Pressable>
@@ -96,7 +150,8 @@ const ModalC = ({ node, props, children, fire, store, style }: CompProps) => {
   );
 };
 
-const BottomSheet = ({ node, children, fire, store, style }: CompProps) => {
+const BottomSheet = ({ node, props, children, fire, store, style }: CompProps) => {
+  const theme = useTheme();
   const bindKey = node.bind?.open;
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
@@ -105,11 +160,30 @@ const BottomSheet = ({ node, children, fire, store, style }: CompProps) => {
     if (bindKey) store.set(bindKey, false);
     fire("onDismiss");
   };
+  const radius = pn(props.radius) ?? K.num("ui.BottomSheet.radius", 20);
   return (
     <RNModal visible={open} transparent animationType="slide" onRequestClose={close}>
-      <Pressable style={styles.sheetScrim} onPress={close}>
-        <Pressable onPress={(e) => e.stopPropagation()} style={[styles.sheet, style]}>
-          <View style={styles.sheetHandle} />
+      <Pressable
+        style={{ flex: 1, justifyContent: "flex-end", backgroundColor: ps(props.scrimColor) ?? K.color("ui.BottomSheet.scrim", "rgba(0,0,0,0.5)") }}
+        onPress={close}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation()}
+          style={[{
+            backgroundColor: ps(props.background) ?? theme.color.card ?? K.color("ui.BottomSheet.background", "#0b0b0f"),
+            borderTopLeftRadius: radius, borderTopRightRadius: radius,
+            padding: pn(props.padding) ?? K.num("ui.BottomSheet.padding", 20),
+            paddingBottom: pn(props.paddingBottom) ?? K.num("ui.BottomSheet.paddingBottom", 40),
+          }, style]}
+        >
+          <View style={{
+            alignSelf: "center",
+            width: pn(props.handleWidth) ?? K.num("ui.BottomSheet.handleWidth", 40),
+            height: pn(props.handleHeight) ?? K.num("ui.BottomSheet.handleHeight", 5),
+            borderRadius: K.num("ui.BottomSheet.handleRadius", 3),
+            backgroundColor: ps(props.handleColor) ?? K.color("ui.BottomSheet.handleColor", "#444"),
+            marginBottom: K.num("ui.BottomSheet.handleMarginBottom", 12),
+          }} />
           {children}
         </Pressable>
       </Pressable>
@@ -118,6 +192,7 @@ const BottomSheet = ({ node, children, fire, store, style }: CompProps) => {
 };
 
 const ActionSheet = ({ node, props, fire, store, style }: CompProps) => {
+  const theme = useTheme();
   const bindKey = node.bind?.open;
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
@@ -127,17 +202,39 @@ const ActionSheet = ({ node, props, fire, store, style }: CompProps) => {
     fire("onDismiss");
   };
   const actions = Array.isArray(props.actions) ? props.actions : [];
+  const radius = pn(props.radius) ?? K.num("ui.ActionSheet.radius", 20);
+  const row = {
+    paddingVertical: pn(props.rowPadding) ?? K.num("ui.ActionSheet.rowPadding", 18),
+    alignItems: "center" as const,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: ps(props.dividerColor) ?? K.color("ui.ActionSheet.dividerColor", "#222"),
+  };
+  const text = {
+    color: ps(props.textColor) ?? K.color("ui.ActionSheet.textColor", "#fff"),
+    fontSize: pn(props.fontSize) ?? K.num("ui.ActionSheet.fontSize", 17),
+  };
+  const destructive = ps(props.destructiveColor) ?? K.color("ui.ActionSheet.destructiveColor", "#ff5a5f");
   return (
     <RNModal visible={open} transparent animationType="slide" onRequestClose={close}>
-      <Pressable style={styles.sheetScrim} onPress={close}>
-        <Pressable onPress={(e) => e.stopPropagation()} style={[styles.actionSheet, style]}>
+      <Pressable
+        style={{ flex: 1, justifyContent: "flex-end", backgroundColor: ps(props.scrimColor) ?? K.color("ui.ActionSheet.scrim", "rgba(0,0,0,0.5)") }}
+        onPress={close}
+      >
+        <Pressable
+          onPress={(e) => e.stopPropagation()}
+          style={[{
+            backgroundColor: ps(props.background) ?? theme.color.card ?? K.color("ui.ActionSheet.background", "#0b0b0f"),
+            borderTopLeftRadius: radius, borderTopRightRadius: radius,
+            paddingBottom: pn(props.paddingBottom) ?? K.num("ui.ActionSheet.paddingBottom", 40),
+          }, style]}
+        >
           {actions.map((a: any, i: number) => (
             <Pressable
               key={i}
               onPress={() => { close(); fire("onSelect", a); }}
-              style={styles.actionRow}
+              style={row}
             >
-              <Text style={[styles.actionText, a.destructive && { color: "#ff5a5f" }]}>{a.label}</Text>
+              <Text style={[text, a.destructive && { color: destructive }]}>{a.label}</Text>
             </Pressable>
           ))}
         </Pressable>
@@ -147,9 +244,23 @@ const ActionSheet = ({ node, props, fire, store, style }: CompProps) => {
 };
 
 const Popover = ({ props, children, style }: CompProps) => (
-  <View style={[styles.popover, style]}>
+  <View style={[{
+    backgroundColor: ps(props.background) ?? K.color("ui.Popover.background", "#1a1a1f"),
+    borderRadius: pn(props.radius) ?? K.num("ui.Popover.radius", 12),
+    padding: pn(props.padding) ?? K.num("ui.Popover.padding", 14),
+    shadowColor: K.color("ui.Popover.shadowColor", "#000"),
+    shadowOpacity: K.num("ui.Popover.shadowOpacity", 0.4),
+    shadowRadius: K.num("ui.Popover.shadowRadius", 12),
+    shadowOffset: { width: 0, height: K.num("ui.Popover.shadowOffsetY", 6) },
+  }, style]}>
     {children}
-    {props.title ? <Text style={styles.popoverTitle}>{String(props.title)}</Text> : null}
+    {props.title ? (
+      <Text style={{
+        color: ps(props.titleColor) ?? K.color("ui.Popover.titleColor", "#fff"),
+        fontWeight: (ps(props.titleWeight) ?? K.str("ui.Popover.titleWeight", "700")) as "700",
+        marginTop: K.num("ui.Popover.titleMarginTop", 6),
+      }}>{String(props.title)}</Text>
+    ) : null}
   </View>
 );
 
@@ -159,8 +270,18 @@ const Tooltip = ({ props, children, style }: CompProps) => {
     <Pressable onLongPress={() => setVisible(true)} onPressOut={() => setVisible(false)}>
       <View style={style}>{children}</View>
       {visible && (
-        <View style={styles.tooltip}>
-          <Text style={styles.tooltipText}>{String(props.content ?? "")}</Text>
+        <View style={{
+          position: "absolute",
+          top: pn(props.offset) ?? K.num("ui.Tooltip.offset", -30),
+          backgroundColor: ps(props.background) ?? K.color("ui.Tooltip.background", "rgba(20,20,25,0.95)"),
+          paddingHorizontal: K.num("ui.Tooltip.paddingHorizontal", 10),
+          paddingVertical: K.num("ui.Tooltip.paddingVertical", 6),
+          borderRadius: pn(props.radius) ?? K.num("ui.Tooltip.radius", 6),
+        }}>
+          <Text style={{
+            color: ps(props.color) ?? K.color("ui.Tooltip.color", "#fff"),
+            fontSize: pn(props.fontSize) ?? K.num("ui.Tooltip.fontSize", 12),
+          }}>{String(props.content ?? "")}</Text>
         </View>
       )}
     </Pressable>
@@ -171,11 +292,28 @@ const Collapsible = ({ props, children, style }: CompProps) => {
   const [open, setOpen] = useState(!!props.defaultOpen);
   return (
     <View style={style}>
-      <Pressable onPress={() => setOpen((o) => !o)} style={styles.collapsibleHeader}>
-        <Text style={styles.collapsibleTitle}>{String(props.title ?? "")}</Text>
-        <Text style={styles.collapsibleChevron}>{open ? "▾" : "▸"}</Text>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={{
+          flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+          paddingVertical: pn(props.headerPadding) ?? K.num("ui.Collapsible.headerPadding", 14),
+        }}
+      >
+        <Text style={{
+          color: ps(props.titleColor) ?? K.color("ui.Collapsible.titleColor", "#fff"),
+          fontSize: pn(props.titleSize) ?? K.num("ui.Collapsible.titleSize", 16),
+          fontWeight: (ps(props.titleWeight) ?? K.str("ui.Collapsible.titleWeight", "600")) as "600",
+        }}>{String(props.title ?? "")}</Text>
+        <Text style={{
+          color: ps(props.chevronColor) ?? K.color("ui.Collapsible.chevronColor", "#aaa"),
+          fontSize: pn(props.chevronSize) ?? K.num("ui.Collapsible.chevronSize", 16),
+        }}>
+          {open
+            ? (ps(props.openGlyph) ?? K.txt("ui.Collapsible.openGlyph", "▾"))
+            : (ps(props.closedGlyph) ?? K.txt("ui.Collapsible.closedGlyph", "▸"))}
+        </Text>
       </Pressable>
-      {open && <View style={{ paddingVertical: 8 }}>{children}</View>}
+      {open && <View style={{ paddingVertical: pn(props.bodyPadding) ?? K.num("ui.Collapsible.bodyPadding", 8) }}>{children}</View>}
     </View>
   );
 };
@@ -221,12 +359,33 @@ const SafeArea = ({ children, style }: CompProps) => (
 const Tabs = ({ props, style }: CompProps) => {
   const [active, setActive] = useState(0);
   const tabs: Array<{ id: string; title: string }> = Array.isArray(props.tabs) ? props.tabs : [];
+  const activeColor = ps(props.activeColor) ?? K.color("ui.Tabs.activeColor", "#fff");
   return (
     <View style={style}>
-      <View style={styles.tabsRow}>
+      <View style={{
+        flexDirection: "row",
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: ps(props.dividerColor) ?? K.color("ui.Tabs.dividerColor", "#222"),
+      }}>
         {tabs.map((t, i) => (
-          <Pressable key={t.id} onPress={() => setActive(i)} style={[styles.tabItem, active === i && styles.tabItemActive]}>
-            <Text style={[styles.tabText, active === i && styles.tabTextActive]}>{t.title}</Text>
+          <Pressable
+            key={t.id}
+            onPress={() => setActive(i)}
+            style={[
+              {
+                paddingVertical: K.num("ui.Tabs.paddingVertical", 12),
+                paddingHorizontal: K.num("ui.Tabs.paddingHorizontal", 16),
+              },
+              active === i && { borderBottomWidth: K.num("ui.Tabs.indicatorWidth", 2), borderBottomColor: activeColor },
+            ]}
+          >
+            <Text style={[
+              { color: ps(props.color) ?? K.color("ui.Tabs.color", "#888") },
+              active === i && {
+                color: activeColor,
+                fontWeight: (ps(props.activeWeight) ?? K.str("ui.Tabs.activeWeight", "700")) as "700",
+              },
+            ]}>{t.title}</Text>
           </Pressable>
         ))}
       </View>
@@ -257,14 +416,25 @@ const Switch = ({ node, props, style, store, fire }: CompProps) => {
   const value = !!store.get(bindKey ?? "");
   const theme = useTheme();
   const onColor = (props.onColor as string) || theme.color.primary;
+  const offColor = ps(props.offColor) ?? theme.color.border ?? K.color("ui.Switch.offColor", "#333");
+  // Apple's own proportions, and the spring the thumb is thrown on.
+  const g = {
+    ...K.obj("ui.Switch.look", {
+      width: 51, height: 31, radius: 16, padding: 2, thumb: 27, thumbRadius: 14, travel: 20,
+      thumbColor: "#fff", shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 2, shadowOffsetY: 1, elevation: 2,
+      friction: 9, tension: 90
+    }),
+    ...(props.look ?? {}),
+  };
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
   useEffect(() => {
     Animated.spring(anim, {
       toValue: value ? 1 : 0,
       useNativeDriver: false,   // track colour interpolates, which the native driver cannot
-      friction: 9,
-      tension: 90,
+      friction: Number(g.friction),
+      tension: Number(g.tension),
     }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, anim]);
   const toggle = () => {
     if (bindKey) store.set(bindKey, !value);
@@ -274,11 +444,14 @@ const Switch = ({ node, props, style, store, fire }: CompProps) => {
     <Pressable onPress={toggle} accessibilityRole="switch" accessibilityState={{ checked: value }}>
       <Animated.View
         style={[
-          styles.switchTrack,
+          {
+            width: Number(g.width), height: Number(g.height), borderRadius: Number(g.radius),
+            padding: Number(g.padding), justifyContent: "center",
+          },
           {
             backgroundColor: anim.interpolate({
               inputRange: [0, 1],
-              outputRange: [theme.color.border ?? "#333", onColor],
+              outputRange: [offColor, onColor],
             }),
           },
           style,
@@ -286,8 +459,13 @@ const Switch = ({ node, props, style, store, fire }: CompProps) => {
       >
         <Animated.View
           style={[
-            styles.switchThumb,
-            { transform: [{ translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [0, 20] }) }] },
+            {
+              width: Number(g.thumb), height: Number(g.thumb), borderRadius: Number(g.thumbRadius),
+              backgroundColor: String(props.thumbColor ?? g.thumbColor),
+              shadowColor: String(g.shadowColor), shadowOpacity: Number(g.shadowOpacity), shadowRadius: Number(g.shadowRadius),
+              shadowOffset: { width: 0, height: Number(g.shadowOffsetY) }, elevation: Number(g.elevation),
+            },
+            { transform: [{ translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [0, Number(g.travel)] }) }] },
           ]}
         />
       </Animated.View>
@@ -311,9 +489,9 @@ const SliderC = ({ node, props, style, store, fire }: CompProps) => {
         if (bindKey) store.set(bindKey, v);
         fire("onChange", v);
       }}
-      minimumTrackTintColor="#ffffff"
-      maximumTrackTintColor="#333"
-      thumbTintColor="#ffffff"
+      minimumTrackTintColor={ps(props.minTrackColor) ?? K.color("ui.Slider.minTrackColor", "#ffffff")}
+      maximumTrackTintColor={ps(props.maxTrackColor) ?? K.color("ui.Slider.maxTrackColor", "#333")}
+      thumbTintColor={ps(props.thumbColor) ?? K.color("ui.Slider.thumbColor", "#ffffff")}
     />
   );
 };
@@ -331,11 +509,32 @@ const Stepper = ({ node, props, style, store, fire }: CompProps) => {
     if (bindKey) store.set(bindKey, clamped);
     fire("onChange", clamped);
   };
+  const btnSize = pn(props.buttonSize) ?? K.num("ui.Stepper.buttonSize", 32);
+  const btn = {
+    width: btnSize, height: btnSize,
+    borderRadius: pn(props.buttonRadius) ?? K.num("ui.Stepper.buttonRadius", 16),
+    backgroundColor: ps(props.buttonBackground) ?? K.color("ui.Stepper.buttonBackground", "#1c1c25"),
+    alignItems: "center" as const, justifyContent: "center" as const,
+  };
+  const btnText = {
+    color: ps(props.buttonColor) ?? K.color("ui.Stepper.buttonColor", "#fff"),
+    fontSize: pn(props.buttonFontSize) ?? K.num("ui.Stepper.buttonFontSize", 18),
+    fontWeight: (ps(props.buttonWeight) ?? K.str("ui.Stepper.buttonWeight", "600")) as "600",
+  };
   return (
-    <View style={[styles.stepperRow, style]}>
-      <Pressable onPress={() => set(value - step)} style={styles.stepperBtn}><Text style={styles.stepperBtnText}>−</Text></Pressable>
-      <Text style={styles.stepperValue}>{value}</Text>
-      <Pressable onPress={() => set(value + step)} style={styles.stepperBtn}><Text style={styles.stepperBtnText}>+</Text></Pressable>
+    <View style={[{ flexDirection: "row", alignItems: "center", gap: pn(props.gap) ?? K.num("ui.Stepper.gap", 12) }, style]}>
+      <Pressable onPress={() => set(value - step)} style={btn}>
+        <Text style={btnText}>{ps(props.minusGlyph) ?? K.txt("ui.Stepper.minusGlyph", "−")}</Text>
+      </Pressable>
+      <Text style={{
+        color: ps(props.valueColor) ?? K.color("ui.Stepper.valueColor", "#fff"),
+        fontSize: pn(props.valueSize) ?? K.num("ui.Stepper.valueSize", 16),
+        minWidth: pn(props.valueMinWidth) ?? K.num("ui.Stepper.valueMinWidth", 28),
+        textAlign: "center",
+      }}>{value}</Text>
+      <Pressable onPress={() => set(value + step)} style={btn}>
+        <Text style={btnText}>{ps(props.plusGlyph) ?? K.txt("ui.Stepper.plusGlyph", "+")}</Text>
+      </Pressable>
     </View>
   );
 };
@@ -347,7 +546,12 @@ const SegmentedControl = ({ node, props, style, store, fire }: CompProps) => {
   const options: Array<{ label: string; value: any }> = Array.isArray(props.options) ? props.options : [];
   const active = store.get(bindKey ?? "");
   return (
-    <View style={[styles.segmentedTrack, style]}>
+    <View style={[{
+      flexDirection: "row",
+      backgroundColor: ps(props.background) ?? K.color("ui.SegmentedControl.background", "#1c1c25"),
+      borderRadius: pn(props.radius) ?? K.num("ui.SegmentedControl.radius", 8),
+      padding: pn(props.padding) ?? K.num("ui.SegmentedControl.padding", 2),
+    }, style]}>
       {options.map((o) => (
         <Pressable
           key={String(o.value)}
@@ -355,9 +559,23 @@ const SegmentedControl = ({ node, props, style, store, fire }: CompProps) => {
             if (bindKey) store.set(bindKey, o.value);
             fire("onChange", o.value);
           }}
-          style={[styles.segmentedItem, active === o.value && styles.segmentedItemActive]}
+          style={[
+            {
+              flex: 1, alignItems: "center",
+              paddingVertical: K.num("ui.SegmentedControl.itemPadding", 8),
+              borderRadius: pn(props.itemRadius) ?? K.num("ui.SegmentedControl.itemRadius", 6),
+            },
+            active === o.value && { backgroundColor: ps(props.activeBackground) ?? K.color("ui.SegmentedControl.activeBackground", "#fff") },
+          ]}
         >
-          <Text style={[styles.segmentedText, active === o.value && styles.segmentedTextActive]}>{o.label}</Text>
+          <Text style={[
+            {
+              color: ps(props.color) ?? K.color("ui.SegmentedControl.color", "#aaa"),
+              fontSize: pn(props.fontSize) ?? K.num("ui.SegmentedControl.fontSize", 13),
+              fontWeight: (ps(props.fontWeight) ?? K.str("ui.SegmentedControl.fontWeight", "600")) as "600",
+            },
+            active === o.value && { color: ps(props.activeColor) ?? K.color("ui.SegmentedControl.activeColor", "#000") },
+          ]}>{o.label}</Text>
         </Pressable>
       ))}
     </View>
@@ -369,19 +587,33 @@ const SearchField = ({ node, props, style, store, fire }: CompProps) => {
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
   const value = String(store.get(bindKey ?? "") ?? "");
+  const muted = ps(props.placeholderColor) ?? K.color("ui.SearchField.placeholderColor", "#666");
   return (
-    <View style={[styles.searchField, style]}>
-      <Text style={styles.searchIcon}>🔍</Text>
+    <View style={[{
+      flexDirection: "row", alignItems: "center",
+      backgroundColor: ps(props.background) ?? K.color("ui.SearchField.background", "#1c1c25"),
+      borderRadius: pn(props.radius) ?? K.num("ui.SearchField.radius", 10),
+      paddingHorizontal: pn(props.paddingHorizontal) ?? K.num("ui.SearchField.paddingHorizontal", 12),
+      paddingVertical: pn(props.paddingVertical) ?? K.num("ui.SearchField.paddingVertical", 8),
+    }, style]}>
+      <Text style={{
+        color: ps(props.iconColor) ?? K.color("ui.SearchField.iconColor", "#666"),
+        marginRight: K.num("ui.SearchField.iconGap", 8),
+      }}>{ps(props.icon) ?? K.txt("ui.SearchField.icon", "🔍")}</Text>
       <TextInput
-        placeholder={String(props.placeholder ?? "Search")}
-        placeholderTextColor="#666"
+        placeholder={String(props.placeholder ?? K.txt("ui.SearchField.placeholder", "Search"))}
+        placeholderTextColor={muted}
         value={value}
         onChangeText={(t) => {
           if (bindKey) store.set(bindKey, t);
           fire("onChange", t);
         }}
         onSubmitEditing={(e) => fire("onSubmit", e.nativeEvent.text)}
-        style={styles.searchInput}
+        style={{
+          flex: 1,
+          color: ps(props.color) ?? K.color("ui.SearchField.color", "#fff"),
+          fontSize: pn(props.fontSize) ?? K.num("ui.SearchField.fontSize", 15),
+        }}
         returnKeyType="search"
       />
     </View>
@@ -389,6 +621,7 @@ const SearchField = ({ node, props, style, store, fire }: CompProps) => {
 };
 
 const Picker = ({ node, props, style, store, fire }: CompProps) => {
+  const theme = useTheme();
   const bindKey = node.bind?.value;
   const options: Array<{ label: string; value: any }> = Array.isArray(props.options) ? props.options : [];
   const [open, setOpen] = useState(false);
@@ -396,15 +629,41 @@ const Picker = ({ node, props, style, store, fire }: CompProps) => {
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
   const value = store.get(bindKey ?? "");
   const current = options.find((o) => o.value === value);
+  const color = ps(props.color) ?? K.color("ui.Picker.color", "#fff");
+  const fontSize = pn(props.fontSize) ?? K.num("ui.Picker.fontSize", 15);
   return (
     <View style={style}>
-      <Pressable onPress={() => setOpen(true)} style={styles.pickerField}>
-        <Text style={styles.pickerText}>{current?.label ?? String(props.placeholder ?? "Select…")}</Text>
-        <Text style={styles.pickerChevron}>▾</Text>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={{
+          flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+          backgroundColor: ps(props.background) ?? K.color("ui.Picker.background", "#1c1c25"),
+          borderRadius: pn(props.radius) ?? K.num("ui.Picker.radius", 10),
+          paddingHorizontal: pn(props.paddingHorizontal) ?? K.num("ui.Picker.paddingHorizontal", 14),
+          paddingVertical: pn(props.paddingVertical) ?? K.num("ui.Picker.paddingVertical", 12),
+        }}
+      >
+        <Text style={{ color, fontSize }}>{current?.label ?? String(props.placeholder ?? K.txt("ui.Picker.placeholder", "Select…"))}</Text>
+        <Text style={{ color: ps(props.chevronColor) ?? K.color("ui.Picker.chevronColor", "#888") }}>
+          {ps(props.chevronGlyph) ?? K.txt("ui.Picker.chevronGlyph", "▾")}
+        </Text>
       </Pressable>
       <RNModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.modalScrim} onPress={() => setOpen(false)}>
-          <View style={styles.pickerSheet}>
+        <Pressable
+          style={{
+            flex: 1, alignItems: "center", justifyContent: "center",
+            padding: K.num("ui.Modal.scrimPadding", 24),
+            backgroundColor: ps(props.scrimColor) ?? K.color("ui.Modal.scrim", "rgba(0,0,0,0.5)"),
+          }}
+          onPress={() => setOpen(false)}
+        >
+          <View style={{
+            backgroundColor: ps(props.sheetBackground) ?? theme.color.card ?? K.color("ui.Picker.sheetBackground", "#0b0b0f"),
+            borderRadius: pn(props.sheetRadius) ?? K.num("ui.Picker.sheetRadius", 16),
+            minWidth: K.num("ui.Picker.sheetMinWidth", 260),
+            maxWidth: K.num("ui.Picker.sheetMaxWidth", 400),
+            width: (ps(props.sheetWidth) ?? K.str("ui.Picker.sheetWidth", "80%")) as `${number}%`,
+          }}>
             {options.map((o) => (
               <Pressable
                 key={String(o.value)}
@@ -413,9 +672,14 @@ const Picker = ({ node, props, style, store, fire }: CompProps) => {
                   fire("onChange", o.value);
                   setOpen(false);
                 }}
-                style={styles.pickerOption}
+                style={{
+                  paddingVertical: K.num("ui.Picker.optionPadding", 16),
+                  alignItems: "center",
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: ps(props.dividerColor) ?? K.color("ui.Picker.dividerColor", "#222"),
+                }}
               >
-                <Text style={styles.pickerOptionText}>{o.label}</Text>
+                <Text style={{ color, fontSize }}>{o.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -435,9 +699,15 @@ const DatePicker = ({ node, props, style, store, fire }: CompProps) => {
   const value = String(store.get(bindKey ?? "") ?? "");
   return (
     <TextInput
-      style={[styles.textField, style]}
-      placeholder={String(props.placeholder ?? "YYYY-MM-DD")}
-      placeholderTextColor="#666"
+      style={[{
+        backgroundColor: ps(props.background) ?? K.color("ui.DatePicker.background", "#1c1c25"),
+        color: ps(props.color) ?? K.color("ui.DatePicker.color", "#fff"),
+        borderRadius: pn(props.radius) ?? K.num("ui.DatePicker.radius", 10),
+        paddingHorizontal: pn(props.paddingHorizontal) ?? K.num("ui.DatePicker.paddingHorizontal", 14),
+        paddingVertical: pn(props.paddingVertical) ?? K.num("ui.DatePicker.paddingVertical", 12),
+      }, style]}
+      placeholder={String(props.placeholder ?? K.txt("ui.DatePicker.placeholder", "YYYY-MM-DD"))}
+      placeholderTextColor={ps(props.placeholderColor) ?? K.color("ui.DatePicker.placeholderColor", "#666")}
       value={value}
       onChangeText={(t) => {
         if (bindKey) store.set(bindKey, t);
@@ -468,8 +738,8 @@ function extent(arr: number[]): [number, number] {
 // No axes / grid — good enough for sparkline-heavy dashboards; upgrade later.
 const LineChart = ({ props, style }: CompProps) => {
   const series: Array<{ x: number; y: number }> = Array.isArray(props.series) ? props.series : [];
-  const color = String(props.color ?? "#ffffff");
-  const w = 100, h = 40;
+  const color = String(props.color ?? K.color("ui.LineChart.color", "#ffffff"));
+  const w = 100, h = pn(props.aspectHeight) ?? K.num("ui.LineChart.aspectHeight", 40);
   if (series.length === 0) return <View style={[{ width: "100%", aspectRatio: w / h }, style]} />;
   const [minX, maxX] = extent(series.map((s) => s.x));
   const [minY, maxY] = extent(series.map((s) => s.y));
@@ -481,7 +751,7 @@ const LineChart = ({ props, style }: CompProps) => {
   return (
     <View style={[{ width: "100%", aspectRatio: w / h }, style]}>
       <Svg viewBox={`0 0 ${w} ${h}`}>
-        <Polyline points={pts} fill="none" stroke={color} strokeWidth={1.2} />
+        <Polyline points={pts} fill="none" stroke={color} strokeWidth={pn(props.strokeWidth) ?? K.num("ui.LineChart.strokeWidth", 1.2)} />
       </Svg>
     </View>
   );
@@ -490,13 +760,26 @@ const LineChart = ({ props, style }: CompProps) => {
 const BarChart = ({ props, style }: CompProps) => {
   const series: Array<{ label: string; value: number }> = Array.isArray(props.series) ? props.series : [];
   const max = Math.max(1, ...series.map((s) => s.value));
-  const color = String(props.color ?? "#ffffff");
+  const color = String(props.color ?? K.color("ui.BarChart.color", "#ffffff"));
   return (
-    <View style={[{ flexDirection: "row", alignItems: "flex-end", gap: 6, height: 120 }, style]}>
+    <View style={[{
+      flexDirection: "row", alignItems: "flex-end",
+      gap: pn(props.gap) ?? K.num("ui.BarChart.gap", 6),
+      height: pn(props.height) ?? K.num("ui.BarChart.height", 120),
+    }, style]}>
       {series.map((s, i) => (
         <View key={i} style={{ flex: 1, alignItems: "center" }}>
-          <View style={{ backgroundColor: color, width: "70%", height: `${(s.value / max) * 100}%`, borderRadius: 3 }} />
-          <Text style={styles.barLabel}>{s.label}</Text>
+          <View style={{
+            backgroundColor: color,
+            width: (ps(props.barWidth) ?? K.str("ui.BarChart.barWidth", "70%")) as `${number}%`,
+            height: `${(s.value / max) * 100}%`,
+            borderRadius: pn(props.barRadius) ?? K.num("ui.BarChart.barRadius", 3),
+          }} />
+          <Text style={{
+            color: ps(props.labelColor) ?? K.color("ui.BarChart.labelColor", "#888"),
+            fontSize: pn(props.labelSize) ?? K.num("ui.BarChart.labelSize", 10),
+            marginTop: K.num("ui.BarChart.labelMarginTop", 4),
+          }}>{s.label}</Text>
         </View>
       ))}
     </View>
@@ -505,8 +788,8 @@ const BarChart = ({ props, style }: CompProps) => {
 
 const Sparkline = ({ props, style }: CompProps) => {
   const data: number[] = Array.isArray(props.data) ? props.data : [];
-  const color = String(props.color ?? "#ffffff");
-  const w = 100, h = 30;
+  const color = String(props.color ?? K.color("ui.Sparkline.color", "#ffffff"));
+  const w = 100, h = pn(props.aspectHeight) ?? K.num("ui.Sparkline.aspectHeight", 30);
   if (data.length === 0) return <View style={[{ width: "100%", aspectRatio: w / h }, style]} />;
   const [min, max] = extent(data);
   const pts = data.map((v, i) => {
@@ -517,7 +800,7 @@ const Sparkline = ({ props, style }: CompProps) => {
   return (
     <View style={[{ width: "100%", aspectRatio: w / h }, style]}>
       <Svg viewBox={`0 0 ${w} ${h}`}>
-        <Polyline points={pts} fill="none" stroke={color} strokeWidth={1} />
+        <Polyline points={pts} fill="none" stroke={color} strokeWidth={pn(props.strokeWidth) ?? K.num("ui.Sparkline.strokeWidth", 1)} />
       </Svg>
     </View>
   );
@@ -525,23 +808,28 @@ const Sparkline = ({ props, style }: CompProps) => {
 
 const ProgressRing = ({ props, style }: CompProps) => {
   const progress = Math.max(0, Math.min(1, Number(props.progress ?? 0)));
-  const size = Number(props.size ?? 80);
-  const stroke = Number(props.stroke ?? 6);
+  const size = Number(props.size ?? K.num("ui.ProgressRing.size", 80));
+  const stroke = Number(props.stroke ?? K.num("ui.ProgressRing.stroke", 6));
   const r = size / 2 - stroke;
   const c = 2 * Math.PI * r;
   return (
     <View style={[{ width: size, height: size, alignItems: "center", justifyContent: "center" }, style]}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={String(props.trackColor ?? "#333")} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={String(props.trackColor ?? K.color("ui.ProgressRing.trackColor", "#333"))} strokeWidth={stroke} fill="none" />
         <Circle
           cx={size / 2} cy={size / 2} r={r}
-          stroke={String(props.color ?? "#ffffff")} strokeWidth={stroke} fill="none"
-          strokeDasharray={`${c * progress} ${c}`} strokeLinecap="round"
+          stroke={String(props.color ?? K.color("ui.ProgressRing.color", "#ffffff"))} strokeWidth={stroke} fill="none"
+          strokeDasharray={`${c * progress} ${c}`}
+          strokeLinecap={(ps(props.linecap) ?? K.str("ui.ProgressRing.linecap", "round")) as "round"}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
         />
       </Svg>
       {props.label != null && (
-        <Text style={{ position: "absolute", color: "#fff", fontWeight: "700" }}>{String(props.label)}</Text>
+        <Text style={{
+          position: "absolute",
+          color: ps(props.labelColor) ?? K.color("ui.ProgressRing.labelColor", "#fff"),
+          fontWeight: (ps(props.labelWeight) ?? K.str("ui.ProgressRing.labelWeight", "700")) as "700",
+        }}>{String(props.label)}</Text>
       )}
     </View>
   );
@@ -551,45 +839,80 @@ const Gauge = ({ props, style }: CompProps) => {
   const min = Number(props.min ?? 0), max = Number(props.max ?? 100);
   const value = Math.max(min, Math.min(max, Number(props.value ?? 0)));
   const pct = (value - min) / Math.max(1e-9, max - min);
+  const height = pn(props.height) ?? K.num("ui.Gauge.height", 8);
   return (
     <View style={style}>
-      <View style={styles.gaugeTrack}>
-        <View style={[styles.gaugeFill, { width: `${pct * 100}%` }]} />
+      <View style={{
+        height,
+        backgroundColor: ps(props.trackColor) ?? K.color("ui.Gauge.trackColor", "#1c1c25"),
+        borderRadius: pn(props.radius) ?? K.num("ui.Gauge.radius", 4),
+        overflow: "hidden",
+      }}>
+        <View style={{ height: "100%", backgroundColor: ps(props.color) ?? K.color("ui.Gauge.color", "#4CD964"), width: `${pct * 100}%` }} />
       </View>
-      <Text style={styles.gaugeText}>{value}</Text>
+      <Text style={{
+        color: ps(props.labelColor) ?? K.color("ui.Gauge.labelColor", "#fff"),
+        marginTop: K.num("ui.Gauge.labelMarginTop", 4),
+        fontWeight: (ps(props.labelWeight) ?? K.str("ui.Gauge.labelWeight", "600")) as "600",
+      }}>{value}</Text>
     </View>
   );
 };
 
 const StatCard = ({ props, style }: CompProps) => {
+  const theme = useTheme();
   const delta = props.delta != null ? Number(props.delta) : null;
   return (
-    <View style={[styles.statCard, style]}>
-      <Text style={styles.statLabel}>{String(props.label ?? "")}</Text>
-      <Text style={styles.statValue}>{String(props.value ?? "")}</Text>
+    <View style={[{
+      backgroundColor: ps(props.background) ?? theme.color.card ?? K.color("ui.StatCard.background", "#0b0b0f"),
+      padding: pn(props.padding) ?? K.num("ui.StatCard.padding", 14),
+      borderRadius: pn(props.radius) ?? K.num("ui.StatCard.radius", 12),
+      gap: pn(props.gap) ?? K.num("ui.StatCard.gap", 4),
+    }, style]}>
+      <Text style={{
+        color: ps(props.labelColor) ?? K.color("ui.StatCard.labelColor", "#888"),
+        fontSize: pn(props.labelSize) ?? K.num("ui.StatCard.labelSize", 12),
+        textTransform: "uppercase",
+        letterSpacing: pn(props.labelTracking) ?? K.num("ui.StatCard.labelTracking", 0.6),
+      }}>{String(props.label ?? "")}</Text>
+      <Text style={{
+        color: ps(props.valueColor) ?? K.color("ui.StatCard.valueColor", "#fff"),
+        fontSize: pn(props.valueSize) ?? K.num("ui.StatCard.valueSize", 28),
+        fontWeight: (ps(props.valueWeight) ?? K.str("ui.StatCard.valueWeight", "800")) as "800",
+      }}>{String(props.value ?? "")}</Text>
       {delta != null && (
-        <Text style={[styles.statDelta, delta >= 0 ? styles.deltaPos : styles.deltaNeg]}>
-          {delta >= 0 ? "▲" : "▼"} {Math.abs(delta)}
+        <Text style={{
+          fontSize: pn(props.deltaSize) ?? K.num("ui.StatCard.deltaSize", 12),
+          color: delta >= 0
+            ? (ps(props.upColor) ?? K.color("ui.StatCard.upColor", "#4CD964"))
+            : (ps(props.downColor) ?? K.color("ui.StatCard.downColor", "#ff5a5f")),
+        }}>
+          {delta >= 0 ? (ps(props.upGlyph) ?? K.txt("ui.StatCard.upGlyph", "▲")) : (ps(props.downGlyph) ?? K.txt("ui.StatCard.downGlyph", "▼"))} {Math.abs(delta)}
         </Text>
       )}
     </View>
   );
 };
 
-// Default categorical palette (brand amber first, then a legible set on dark).
-// Backend can override per-slice with `color`.
-const PIE_PALETTE = ["#E8A23C", "#6EA8FE", "#48D39A", "#F0736A", "#B98CFF", "#F2C078", "#7DD3FC", "#FCA5A5"];
-
-// PieChart / Donut. Renders `data: [{ label, value, color? }]` as SVG arc
-// slices. Donut by default (set `donut:false` for a full pie); optional center
-// label and a legend (below by default, `legend:"right"` to sit beside it).
-const PieChart = ({ props, style }: CompProps) => {
+// DonutChart. Renders `data: [{ label, value, color? }]` as SVG arc slices.
+// Donut by default (set `donut:false` for a full pie); optional center label
+// and a legend (below by default, `legend:"right"` to sit beside it).
+//
+// Registered as DonutChart ONLY. It used to be registered as PieChart too, and
+// because this registry was spread after the main one it shadowed the real
+// PieChart (./PieChart, which reads the `slices` the catalog sends) — every
+// Stats ring came out empty. Slice colours default to the ui.chart.palette knob
+// (brand amber first, then a legible set on dark); a slice's own `color` wins.
+const DonutChart = ({ props, style }: CompProps) => {
+  const palette = Array.isArray(props.palette) && props.palette.length
+    ? (props.palette as unknown[]).map(String)
+    : K.list<string>("ui.chart.palette", ["#E8A23C", "#6EA8FE", "#48D39A", "#F0736A", "#B98CFF", "#F2C078", "#7DD3FC", "#FCA5A5"]);
   const raw: Array<{ label?: string; value: number; color?: string }> =
     Array.isArray(props.data) ? props.data : [];
   const data = raw.filter((d) => (Number(d?.value) || 0) > 0);
-  const size = Number(props.size ?? 168);
+  const size = Number(props.size ?? K.num("ui.DonutChart.size", 168));
   const isDonut = props.donut !== false;
-  const thickness = Number(props.thickness ?? size * 0.26);
+  const thickness = Number(props.thickness ?? size * K.num("ui.DonutChart.thickness", 0.26));
   const r = size / 2;
   const rInner = isDonut ? Math.max(0, r - thickness) : 0;
   const cx = r, cy = r;
@@ -612,15 +935,23 @@ const PieChart = ({ props, style }: CompProps) => {
     const frac = total > 0 ? (Number(d.value) || 0) / total : 0;
     const a0 = angle, a1 = angle + frac * Math.PI * 2;
     angle = a1;
-    return { d, frac, a0, a1, color: d.color ?? PIE_PALETTE[i % PIE_PALETTE.length], i };
+    return { d, frac, a0, a1, color: d.color ?? palette[i % Math.max(1, palette.length)], i };
   });
 
+  const legendSize = pn(props.legendSize) ?? K.num("ui.DonutChart.legendSize", 13);
   return (
-    <View style={[{ flexDirection: legendRight ? "row" : "column", alignItems: "center", gap: 16 }, style]}>
+    <View style={[{
+      flexDirection: legendRight ? "row" : "column", alignItems: "center",
+      gap: pn(props.gap) ?? K.num("ui.DonutChart.gap", 16),
+    }, style]}>
       <View style={{ width: size, height: size, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
         <Svg width={size} height={size}>
           {total <= 0 ? (
-            <Circle cx={cx} cy={cy} r={r - 1} fill="none" stroke={String(props.emptyColor ?? "#2a2a30")} strokeWidth={2} />
+            <Circle
+              cx={cx} cy={cy} r={r - 1} fill="none"
+              stroke={String(props.emptyColor ?? K.color("ui.DonutChart.emptyColor", "#2a2a30"))}
+              strokeWidth={pn(props.emptyStroke) ?? K.num("ui.DonutChart.emptyStroke", 2)}
+            />
           ) : slices.length === 1 ? (
             // A single 100% slice can't be drawn as one arc — use a ring/disc.
             <Circle
@@ -634,14 +965,22 @@ const PieChart = ({ props, style }: CompProps) => {
           )}
         </Svg>
         {isDonut && (props.centerLabel != null || props.centerValue != null) && (
-          <View style={styles.pieCenter} pointerEvents="none">
+          <View style={{ position: "absolute", alignItems: "center", justifyContent: "center" }} pointerEvents="none">
             {props.centerValue != null && (
-              <Text style={[styles.pieCenterValue, props.centerColor ? { color: String(props.centerColor) } : null]}>
+              <Text style={{
+                color: ps(props.centerColor) ?? K.color("ui.DonutChart.centerColor", "#fff"),
+                fontSize: pn(props.centerSize) ?? K.num("ui.DonutChart.centerSize", 26),
+                fontWeight: (ps(props.centerWeight) ?? K.str("ui.DonutChart.centerWeight", "800")) as "800",
+              }}>
                 {String(props.centerValue)}
               </Text>
             )}
             {props.centerLabel != null && (
-              <Text style={[styles.pieCenterLabel, props.centerLabelColor ? { color: String(props.centerLabelColor) } : null]}>
+              <Text style={{
+                color: ps(props.centerLabelColor) ?? K.color("ui.DonutChart.centerLabelColor", "rgba(255,255,255,0.55)"),
+                fontSize: pn(props.centerLabelSize) ?? K.num("ui.DonutChart.centerLabelSize", 12),
+                marginTop: K.num("ui.DonutChart.centerLabelMarginTop", 2),
+              }}>
                 {String(props.centerLabel)}
               </Text>
             )}
@@ -652,22 +991,43 @@ const PieChart = ({ props, style }: CompProps) => {
         // Beside the chart the legend must take the REMAINING width and be
         // allowed to shrink inside it (minWidth:0 — without it a flex child
         // refuses to go below its content and the row runs past the card).
-        <View style={[{ gap: 7 }, legendRight ? { flex: 1, minWidth: 0 } : null]}>
+        <View style={[{ gap: pn(props.legendGap) ?? K.num("ui.DonutChart.legendGap", 7) }, legendRight ? { flex: 1, minWidth: 0 } : null]}>
           {slices.map((s) => (
-            <View key={s.i} style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: s.color }]} />
+            <View key={s.i} style={{ flexDirection: "row", alignItems: "center", gap: K.num("ui.DonutChart.legendRowGap", 8) }}>
+              <View style={{
+                width: pn(props.dotSize) ?? K.num("ui.DonutChart.dotSize", 10),
+                height: pn(props.dotSize) ?? K.num("ui.DonutChart.dotSize", 10),
+                borderRadius: pn(props.dotRadius) ?? K.num("ui.DonutChart.dotRadius", 3),
+                backgroundColor: s.color,
+              }} />
               {/* The ink is the SCREEN's, not the component's. A chart drawn in
                   its own white on a warm ground is the one element that did not
                   get the memo — and legendColor was already being sent and
-                  silently dropped. */}
+                  silently dropped.
+                  minWidth keeps the values aligned when the legend sits BELOW
+                  the chart; flexShrink lets a long label ellipsize rather than
+                  push the percentage out of the card when it sits BESIDE it. */}
               <Text
-                style={[styles.legendLabel, props.legendColor ? { color: String(props.legendColor) } : null]}
+                style={{
+                  color: ps(props.legendColor) ?? K.color("ui.DonutChart.legendColor", "rgba(255,255,255,0.82)"),
+                  fontSize: legendSize,
+                  minWidth: K.num("ui.DonutChart.legendMinWidth", 72),
+                  flexShrink: 1,
+                }}
                 numberOfLines={1}
               >
                 {String(s.d.label ?? "")}
               </Text>
-              <Text style={[styles.legendValue, props.legendValueColor ? { color: String(props.legendValueColor) } : null]}>
-                {Math.round(s.frac * 100)}%
+              {/* marginLeft:auto pins the percentage to the right edge of the
+                  legend column; flexShrink:0 stops it being the thing that gets
+                  squeezed. */}
+              <Text style={{
+                color: ps(props.legendValueColor) ?? K.color("ui.DonutChart.legendValueColor", "rgba(255,255,255,0.55)"),
+                fontSize: legendSize,
+                fontWeight: (ps(props.legendValueWeight) ?? K.str("ui.DonutChart.legendValueWeight", "600")) as "600",
+                fontVariant: ["tabular-nums"], marginLeft: "auto", flexShrink: 0,
+              }}>
+                {K.txt("ui.DonutChart.percent", "{pct}%", { pct: Math.round(s.frac * 100) })}
               </Text>
             </View>
           ))}
@@ -681,13 +1041,25 @@ const Waveform = ({ node, props, style, store }: CompProps) => {
   const bindKey = node.bind?.level;
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
-  const level = Math.max(0, Math.min(1, Number(store.get(bindKey ?? "") ?? props.level ?? 0.2)));
-  const bars = 20;
+  const level = Math.max(0, Math.min(1, Number(store.get(bindKey ?? "") ?? props.level ?? K.num("ui.Waveform.level", 0.2))));
+  const w = {
+    ...K.obj("ui.Waveform.look", {
+      bars: 20, barWidth: 3, barGap: 1.5, radius: 1.5, color: "#fff", height: 48,
+      floor: 0.4, spread: 0.6, freq: 1.7, levelFreq: 3
+    }),
+    ...(props.look ?? {}),
+  };
+  const bars = Math.max(0, Math.round(Number(props.bars ?? w.bars)));
   return (
-    <View style={[styles.waveform, style]}>
+    <View style={[{ flexDirection: "row", alignItems: "flex-end", height: Number(w.height) }, style]}>
       {Array.from({ length: bars }).map((_, i) => {
-        const rand = 0.4 + 0.6 * Math.abs(Math.sin(i * 1.7 + level * 3));
-        return <View key={i} style={{ width: 3, marginHorizontal: 1.5, height: `${rand * level * 100}%`, backgroundColor: "#fff", borderRadius: 1.5 }} />;
+        const rand = Number(w.floor) + Number(w.spread) * Math.abs(Math.sin(i * Number(w.freq) + level * Number(w.levelFreq)));
+        return (
+          <View key={i} style={{
+            width: Number(w.barWidth), marginHorizontal: Number(w.barGap), height: `${rand * level * 100}%`,
+            backgroundColor: String(props.color ?? w.color), borderRadius: Number(w.radius),
+          }} />
+        );
       })}
     </View>
   );
@@ -697,9 +1069,6 @@ const Waveform = ({ node, props, style, store }: CompProps) => {
 // Media
 // ---------------------------------------------------------------------------
 
-// Video/Audio: real playback requires expo-video/expo-audio hooks. Ship a
-// placeholder that shows a link + tap-to-open; upgrade via OTA to the fancy
-// player when we style it. Backend contract stays stable.
 // Real media node (was a text placeholder): renders the app's MediaPlayer.
 // `playing` is bindable, so the backend can drive play/pause from state —
 // e.g. the Train screen's refine trigger plays the brand media while the
@@ -728,6 +1097,8 @@ const Video = ({ props, style }: CompProps) => {
   // where it should land on screen, the clip is sized and slid here instead of
   // being handed to `cover` and centred — see media/focusFill.
   const placed = useFocusFill(props);
+  const loop = (props.loop as boolean | undefined) ?? K.bool("ui.Video.loop", true);
+  const muted = props.muted !== undefined ? props.muted !== false : K.bool("ui.Video.muted", true);
   if (placed.on) {
     return (
       <View style={[style, { overflow: "hidden" }]} onLayout={placed.onLayout}>
@@ -737,8 +1108,8 @@ const Video = ({ props, style }: CompProps) => {
             style={{ position: "absolute", ...placed.fit }}
             contentFit="cover"
             autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
-            loop={(props.loop as boolean | undefined) ?? true}
-            muted={props.muted !== false}
+            loop={loop}
+            muted={muted}
             playing={typeof props.playing === "boolean" ? props.playing : undefined}
             speed={typeof props.speed === "number" ? props.speed : undefined}
           />
@@ -750,10 +1121,10 @@ const Video = ({ props, style }: CompProps) => {
     <MediaPlayer
       spec={spec}
       style={style}
-      contentFit={(props.contentFit as any) ?? "cover"}
+      contentFit={(props.contentFit as any) ?? K.str("ui.Video.contentFit", "cover")}
       autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
-      loop={(props.loop as boolean | undefined) ?? true}
-      muted={props.muted !== false}
+      loop={loop}
+      muted={muted}
       playing={typeof props.playing === "boolean" ? props.playing : undefined}
       // Playback rate. MediaPlayer has always taken this and set
       // player.playbackRate; the node simply never forwarded it, so the one
@@ -762,36 +1133,74 @@ const Video = ({ props, style }: CompProps) => {
     />
   );
 };
+
+/**
+ * PLACEHOLDERS DRAW NOTHING.
+ *
+ * Audio, Camera and QRScanner have no player or capture behind them yet, and
+ * they used to print that fact at the user — "♫ Audio: https://…", "📷 Camera
+ * (photo)" — as if a debug line were a feature. A node the build cannot serve
+ * now renders nothing, so a screen that uses one reads as a screen without it.
+ * The ui.debugPlaceholders knob brings the labels back for whoever is building
+ * a screen and needs to see where the node is.
+ */
+const Placeholder = ({ style, text }: { style: any; text: string }) => {
+  if (!K.bool("ui.debugPlaceholders", false)) return null;
+  return (
+    <View style={[{
+      backgroundColor: K.color("ui.Placeholder.background", "#1c1c25"),
+      borderRadius: K.num("ui.Placeholder.radius", 12),
+      padding: K.num("ui.Placeholder.padding", 16),
+    }, style]}>
+      <Text style={{ color: K.color("ui.Placeholder.color", "#aaa") }}>{text}</Text>
+    </View>
+  );
+};
 const Audio = ({ props, style }: CompProps) => (
-  <View style={[styles.mediaPlaceholder, style]}>
-    <Text style={styles.mediaText}>♫ Audio: {String(props.source ?? "")}</Text>
-  </View>
+  <Placeholder style={style} text={`♫ Audio: ${String(props.source ?? "")}`} />
 );
 const Camera = ({ props, style }: CompProps) => (
-  <View style={[styles.mediaPlaceholder, style]}>
-    <Text style={styles.mediaText}>📷 Camera ({String(props.mode ?? "photo")})</Text>
-  </View>
+  <Placeholder style={style} text={`📷 Camera (${String(props.mode ?? "photo")})`} />
 );
 const QRScanner = ({ style }: CompProps) => (
-  <View style={[styles.mediaPlaceholder, style]}>
-    <Text style={styles.mediaText}>▧ QR Scanner</Text>
-  </View>
+  <Placeholder style={style} text="▧ QR Scanner" />
 );
 const ImagePickerButton = ({ props, fire, style }: CompProps) => (
-  <Pressable onPress={() => fire("onPress")} style={[styles.pill, style]}>
-    <Text style={styles.pillText}>{String(props.label ?? "Pick image")}</Text>
+  <Pressable
+    onPress={() => fire("onPress")}
+    style={[{
+      backgroundColor: ps(props.background) ?? K.color("ui.ImagePickerButton.background", "#fff"),
+      paddingVertical: pn(props.paddingVertical) ?? K.num("ui.ImagePickerButton.paddingVertical", 12),
+      paddingHorizontal: pn(props.paddingHorizontal) ?? K.num("ui.ImagePickerButton.paddingHorizontal", 24),
+      borderRadius: pn(props.radius) ?? K.num("ui.ImagePickerButton.radius", 24),
+      alignItems: "center",
+    }, style]}
+  >
+    <Text style={{
+      color: ps(props.color) ?? K.color("ui.ImagePickerButton.color", "#000"),
+      fontWeight: (ps(props.fontWeight) ?? K.str("ui.ImagePickerButton.fontWeight", "700")) as "700",
+    }}>{String(props.label ?? K.txt("ui.ImagePickerButton.label", "Pick image"))}</Text>
   </Pressable>
 );
 
 const Avatar = ({ props, style }: CompProps) => {
-  const size = Number(props.size ?? 40);
-  const initials = String(props.name ?? "?").split(" ").map((s) => s[0]).join("").slice(0, 2).toUpperCase();
+  const size = Number(props.size ?? K.num("ui.Avatar.size", 40));
+  const maxInitials = K.num("ui.Avatar.maxInitials", 2);
+  const initials = String(props.name ?? K.txt("ui.Avatar.unknown", "?")).split(" ").map((s) => s[0]).join("").slice(0, maxInitials).toUpperCase();
   return (
-    <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: "#333", alignItems: "center", justifyContent: "center", overflow: "hidden" }, style]}>
+    <View style={[{
+      width: size, height: size, borderRadius: size / 2,
+      backgroundColor: ps(props.background) ?? K.color("ui.Avatar.background", "#333"),
+      alignItems: "center", justifyContent: "center", overflow: "hidden",
+    }, style]}>
       {props.source ? (
         <ExpoImage source={{ uri: String(props.source) }} style={{ width: size, height: size }} contentFit="cover" />
       ) : (
-        <Text style={{ color: "#fff", fontWeight: "700", fontSize: size * 0.4 }}>{initials}</Text>
+        <Text style={{
+          color: ps(props.color) ?? K.color("ui.Avatar.color", "#fff"),
+          fontWeight: (ps(props.fontWeight) ?? K.str("ui.Avatar.fontWeight", "700")) as "700",
+          fontSize: size * (pn(props.fontScale) ?? K.num("ui.Avatar.fontScale", 0.4)),
+        }}>{initials}</Text>
       )}
     </View>
   );
@@ -799,11 +1208,18 @@ const Avatar = ({ props, style }: CompProps) => {
 
 const AvatarStack = ({ props, style }: CompProps) => {
   const avatars: Array<{ source?: string; name?: string }> = Array.isArray(props.avatars) ? props.avatars : [];
-  const size = Number(props.size ?? 32);
+  const size = Number(props.size ?? K.num("ui.AvatarStack.size", 32));
+  const max = pn(props.max) ?? K.num("ui.AvatarStack.max", 5);
+  const overlap = pn(props.overlap) ?? K.num("ui.AvatarStack.overlap", 0.3);
   return (
     <View style={[{ flexDirection: "row" }, style]}>
-      {avatars.slice(0, 5).map((a, i) => (
-        <View key={i} style={{ marginLeft: i === 0 ? 0 : -size * 0.3, borderWidth: 2, borderColor: "#000", borderRadius: size / 2 }}>
+      {avatars.slice(0, max).map((a, i) => (
+        <View key={i} style={{
+          marginLeft: i === 0 ? 0 : -size * overlap,
+          borderWidth: pn(props.ringWidth) ?? K.num("ui.AvatarStack.ringWidth", 2),
+          borderColor: ps(props.ringColor) ?? K.color("ui.AvatarStack.ringColor", "#000"),
+          borderRadius: size / 2,
+        }}>
           <Avatar node={{ type: "Avatar" } as any} props={{ ...a, size }} style={{}} store={null as any} ctx={null as any} fire={() => {}} children={null} />
         </View>
       ))}
@@ -817,45 +1233,82 @@ const AvatarStack = ({ props, style }: CompProps) => {
 
 // Toast/Snackbar are usually action-triggered, not node-authored; ship a
 // simple always-visible variant for authored use.
-const Toast = ({ props, style }: CompProps) => (
-  <View style={[styles.toast, style]}>
-    <Text style={styles.toastText}>{String(props.message ?? "")}</Text>
-  </View>
-);
-const Snackbar = ({ props, fire, style }: CompProps) => (
-  <View style={[styles.snackbar, style]}>
-    <Text style={styles.snackText}>{String(props.message ?? "")}</Text>
-    {props.actionLabel && (
-      <Pressable onPress={() => fire("onPress")}>
-        <Text style={styles.snackAction}>{String(props.actionLabel)}</Text>
-      </Pressable>
-    )}
-  </View>
-);
-
-const LoadingSkeleton = ({ props, style }: CompProps) => {
-  const shimmer = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(Animated.timing(shimmer, { toValue: 1, duration: 1200, easing: Easing.linear, useNativeDriver: true })).start();
-  }, [shimmer]);
-  const opacity = shimmer.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.3, 0.7, 0.3] });
+const Toast = ({ props, style }: CompProps) => {
+  const theme = useTheme();
   return (
-    <Animated.View style={[{ backgroundColor: "#222", borderRadius: Number(props.radius ?? 6), height: Number(props.height ?? 16), width: props.width ?? "100%", opacity }, style]} />
+    <View style={[{
+      backgroundColor: ps(props.background) ?? theme.color.card ?? K.color("ui.Toast.background", "#0b0b0f"),
+      borderRadius: pn(props.radius) ?? K.num("ui.Toast.radius", 10),
+      padding: pn(props.padding) ?? K.num("ui.Toast.padding", 12),
+    }, style]}>
+      <Text style={{ color: ps(props.color) ?? K.color("ui.Toast.color", "#fff") }}>{String(props.message ?? "")}</Text>
+    </View>
+  );
+};
+const Snackbar = ({ props, fire, style }: CompProps) => {
+  const theme = useTheme();
+  return (
+    <View style={[{
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      backgroundColor: ps(props.background) ?? theme.color.card ?? K.color("ui.Snackbar.background", "#0b0b0f"),
+      borderRadius: pn(props.radius) ?? K.num("ui.Snackbar.radius", 10),
+      padding: pn(props.padding) ?? K.num("ui.Snackbar.padding", 14),
+      gap: pn(props.gap) ?? K.num("ui.Snackbar.gap", 12),
+    }, style]}>
+      <Text style={{ color: ps(props.color) ?? K.color("ui.Snackbar.color", "#fff"), flex: 1 }}>{String(props.message ?? "")}</Text>
+      {props.actionLabel && (
+        <Pressable onPress={() => fire("onPress")}>
+          <Text style={{
+            color: ps(props.actionColor) ?? K.color("ui.Snackbar.actionColor", "#4CD964"),
+            fontWeight: (ps(props.actionWeight) ?? K.str("ui.Snackbar.actionWeight", "700")) as "700",
+          }}>{String(props.actionLabel)}</Text>
+        </Pressable>
+      )}
+    </View>
   );
 };
 
-const Confetti = ({ style }: CompProps) => (
-  <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
-    <Text style={styles.confettiText}>🎉</Text>
-  </View>
-);
+const LoadingSkeleton = ({ props, style }: CompProps) => {
+  const shimmer = useRef(new Animated.Value(0)).current;
+  const durationMs = pn(props.durationMs) ?? K.num("ui.LoadingSkeleton.durationMs", 1200);
+  useEffect(() => {
+    Animated.loop(Animated.timing(shimmer, { toValue: 1, duration: durationMs, easing: Easing.linear, useNativeDriver: true })).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shimmer]);
+  const ramp = K.list<number>("ui.LoadingSkeleton.opacity", [0.3, 0.7, 0.3]);
+  const opacity = shimmer.interpolate({ inputRange: [0, 0.5, 1], outputRange: ramp.length === 3 ? ramp : [0.3, 0.7, 0.3] });
+  return (
+    <Animated.View style={[{
+      backgroundColor: ps(props.color) ?? K.color("ui.LoadingSkeleton.color", "#222"),
+      borderRadius: Number(props.radius ?? K.num("ui.LoadingSkeleton.radius", 6)),
+      height: Number(props.height ?? K.num("ui.LoadingSkeleton.height", 16)),
+      width: props.width ?? "100%",
+      opacity,
+    }, style]} />
+  );
+};
+
+// Confetti has no particle system behind it; it used to put one giant 🎉 over
+// the screen. Nothing, unless ui.debugPlaceholders asks to see where it is.
+const Confetti = ({ style }: CompProps) => {
+  if (!K.bool("ui.debugPlaceholders", false)) return null;
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
+      <Text style={{ fontSize: 96, textAlign: "center", marginTop: 60 }}>🎉</Text>
+    </View>
+  );
+};
 
 const Rating = ({ node, props, style, store, fire }: CompProps) => {
   const bindKey = node.bind?.value;
   const [, force] = useState(0);
   useEffect(() => bindKey ? store.subscribe(() => force((n) => n + 1)) : undefined, [bindKey, store]);
-  const max = Number(props.max ?? 5);
+  const max = Number(props.max ?? K.num("ui.Rating.max", 5));
   const value = Number(store.get(bindKey ?? "") ?? 0);
+  const size = pn(props.size) ?? K.num("ui.Rating.size", 28);
+  const on = ps(props.onColor) ?? K.color("ui.Rating.onColor", "#FFC94A");
+  const off = ps(props.offColor) ?? K.color("ui.Rating.offColor", "#333");
+  const glyph = ps(props.glyph) ?? K.txt("ui.Rating.glyph", "★");
   return (
     <View style={[{ flexDirection: "row" }, style]}>
       {Array.from({ length: max }).map((_, i) => (
@@ -867,7 +1320,7 @@ const Rating = ({ node, props, style, store, fire }: CompProps) => {
             fire("onChange", v);
           }}
         >
-          <Text style={{ fontSize: 28, color: i < value ? "#FFC94A" : "#333" }}>★</Text>
+          <Text style={{ fontSize: size, color: i < value ? on : off }}>{glyph}</Text>
         </Pressable>
       ))}
     </View>
@@ -875,10 +1328,25 @@ const Rating = ({ node, props, style, store, fire }: CompProps) => {
 };
 
 const EmptyState = ({ props, style }: CompProps) => (
-  <View style={[styles.emptyState, style]}>
-    {props.icon && <Text style={{ fontSize: 48, marginBottom: 8 }}>{String(props.icon)}</Text>}
-    <Text style={styles.emptyTitle}>{String(props.title ?? "")}</Text>
-    {props.subtitle && <Text style={styles.emptySubtitle}>{String(props.subtitle)}</Text>}
+  <View style={[{ alignItems: "center", padding: pn(props.padding) ?? K.num("ui.EmptyState.padding", 32) }, style]}>
+    {props.icon && (
+      <Text style={{
+        fontSize: pn(props.iconSize) ?? K.num("ui.EmptyState.iconSize", 48),
+        marginBottom: K.num("ui.EmptyState.iconMarginBottom", 8),
+      }}>{String(props.icon)}</Text>
+    )}
+    <Text style={{
+      color: ps(props.titleColor) ?? K.color("ui.EmptyState.titleColor", "#fff"),
+      fontSize: pn(props.titleSize) ?? K.num("ui.EmptyState.titleSize", 18),
+      fontWeight: (ps(props.titleWeight) ?? K.str("ui.EmptyState.titleWeight", "700")) as "700",
+    }}>{String(props.title ?? "")}</Text>
+    {props.subtitle && (
+      <Text style={{
+        color: ps(props.subtitleColor) ?? K.color("ui.EmptyState.subtitleColor", "#888"),
+        marginTop: K.num("ui.EmptyState.subtitleMarginTop", 6),
+        textAlign: "center",
+      }}>{String(props.subtitle)}</Text>
+    )}
   </View>
 );
 
@@ -886,10 +1354,11 @@ const Countdown = ({ props, fire, style }: CompProps) => {
   const until = String(props.until ?? "");
   const target = useMemo(() => new Date(until).getTime(), [until]);
   const [now, setNow] = useState(Date.now());
+  const tickMs = pn(props.tickMs) ?? K.num("ui.Countdown.tickMs", 1000);
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    const t = setInterval(() => setNow(Date.now()), tickMs);
     return () => clearInterval(t);
-  }, []);
+  }, [tickMs]);
   const remaining = Math.max(0, target - now);
   useEffect(() => {
     if (remaining === 0) fire("onComplete");
@@ -897,50 +1366,79 @@ const Countdown = ({ props, fire, style }: CompProps) => {
   const s = Math.floor(remaining / 1000);
   const dd = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
   return (
-    <Text style={[styles.countdown, style]}>
-      {dd > 0 ? `${dd}d ` : ""}{String(hh).padStart(2, "0")}:{String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
+    <Text style={[{
+      color: ps(props.color) ?? K.color("ui.Countdown.color", "#fff"),
+      fontSize: pn(props.fontSize) ?? K.num("ui.Countdown.fontSize", 24),
+      fontFamily: ps(props.fontFamily) ?? mono(),
+    }, style]}>
+      {dd > 0 ? K.txt("ui.Countdown.days", "{d}d ", { d: dd }) : ""}{String(hh).padStart(2, "0")}:{String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}
     </Text>
   );
 };
 
-// Lottie: real playback needs `lottie-react-native`. Preset name maps to a
-// bundled JSON later; ship an emoji fallback so it visibly renders now.
-const LottieAnimation = ({ props, style }: CompProps) => (
-  <View style={[{ alignItems: "center", justifyContent: "center", height: Number(props.height ?? 120) }, style]}>
-    <Text style={{ fontSize: 64 }}>{String(props.fallback ?? "✨")}</Text>
-  </View>
-);
+/**
+ * Lottie — through the app's MediaPlayer, which already plays Lottie JSON.
+ *
+ * `source` is any media spec (a url, a media-registry key); a bare `preset`
+ * is looked up as a media key, so uploading an animation under that name is
+ * all it takes. Nothing that resolves → nothing drawn. The old emoji stand-in
+ * ("✨" at 64pt) shows only under ui.debugPlaceholders.
+ */
+const LottieAnimation = ({ props, style }: CompProps) => {
+  const raw: any = props.source ?? props.url ?? (props.preset ? { key: String(props.preset) } : null);
+  const spec = raw && typeof raw === "object" && "source" in raw ? raw.source : raw;
+  const height = Number(props.height ?? K.num("ui.LottieAnimation.height", 120));
+  if (spec && resolveMedia(spec).kind !== "empty") {
+    return (
+      <MediaPlayer
+        spec={spec}
+        style={[{ height, width: "100%" }, style]}
+        contentFit={(props.contentFit as any) ?? "contain"}
+        autoplay={typeof props.autoplay === "boolean" ? props.autoplay : undefined}
+        loop={typeof props.loop === "boolean" ? props.loop : undefined}
+        speed={typeof props.speed === "number" ? props.speed : undefined}
+        playing={typeof props.playing === "boolean" ? props.playing : undefined}
+      />
+    );
+  }
+  if (!K.bool("ui.debugPlaceholders", false)) return null;
+  return (
+    <View style={[{ alignItems: "center", justifyContent: "center", height }, style]}>
+      <Text style={{ fontSize: 64 }}>{String(props.fallback ?? "✨")}</Text>
+    </View>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Meta / helpers
 // ---------------------------------------------------------------------------
 
 const WebViewC = ({ props, style }: CompProps) => (
-  <View style={[{ minHeight: 300 }, style]}>
+  <View style={[{ minHeight: pn(props.minHeight) ?? K.num("ui.WebView.minHeight", 300) }, style]}>
     <WebView source={{ uri: String(props.url ?? "about:blank") }} style={{ flex: 1 }} />
   </View>
 );
 
 const SVGC = ({ props, style }: CompProps) => (
   <View style={style}>
-    <Svg viewBox={String(props.viewBox ?? "0 0 100 100")}>
+    <Svg viewBox={String(props.viewBox ?? K.str("ui.SVG.viewBox", "0 0 100 100"))}>
       <Path
         d={String(props.d ?? "")}
-        fill={String(props.fill ?? "#fff")}
+        fill={String(props.fill ?? K.color("ui.SVG.fill", "#fff"))}
         stroke={String(props.stroke ?? "none")}
         strokeWidth={Number(props.strokeWidth ?? 0)}
         // Caps and joins, so a stroked glyph can have soft ends. Without them
         // every backend-drawn icon is cut square — which on a thin ✕ or a
         // chevron is the difference between a drawn mark and a cropped one.
-        strokeLinecap={(props.strokeLinecap ?? "round") as "butt" | "round" | "square"}
-        strokeLinejoin={(props.strokeLinejoin ?? "round") as "miter" | "round" | "bevel"}
+        strokeLinecap={(props.strokeLinecap ?? K.str("ui.SVG.strokeLinecap", "round")) as "butt" | "round" | "square"}
+        strokeLinejoin={(props.strokeLinejoin ?? K.str("ui.SVG.strokeLinejoin", "round")) as "miter" | "round" | "bevel"}
       />
     </Svg>
   </View>
 );
 
 const Gradient = ({ props, children, style }: CompProps) => {
-  const colors: string[] = Array.isArray(props.colors) ? props.colors : ["#000", "#333"];
+  const colors: string[] = Array.isArray(props.colors) ? props.colors : K.list<string>("ui.Gradient.colors", ["#000", "#333"]);
   const direction = String(props.direction ?? "vertical");
   /**
    * WHERE each colour sits, 0..1. Without this the stops are spread evenly,
@@ -971,14 +1469,23 @@ const Gradient = ({ props, children, style }: CompProps) => {
 
 const BlurBackground = ({ props, children, style }: CompProps) => (
   <View style={[{ overflow: "hidden", borderRadius: Number(props.radius ?? 0) }, style]}>
-    <BlurView intensity={Number(props.intensity ?? 60)} tint={String(props.tint ?? "dark") as any} style={StyleSheet.absoluteFill} />
+    <BlurView
+      intensity={Number(props.intensity ?? K.num("ui.BlurBackground.intensity", 60))}
+      tint={String(props.tint ?? K.str("ui.BlurBackground.tint", "dark")) as any}
+      style={StyleSheet.absoluteFill}
+    />
     <View style={{ padding: Number(props.padding ?? 0) }}>{children}</View>
   </View>
 );
 
 const QRCodeC = ({ props, style }: CompProps) => (
   <View style={style}>
-    <QRCode value={String(props.value ?? "")} size={Number(props.size ?? 200)} backgroundColor="transparent" color="#fff" />
+    <QRCode
+      value={String(props.value ?? "")}
+      size={Number(props.size ?? K.num("ui.QRCode.size", 200))}
+      backgroundColor={ps(props.background) ?? K.color("ui.QRCode.background", "transparent")}
+      color={ps(props.color) ?? K.color("ui.QRCode.color", "#fff")}
+    />
   </View>
 );
 
@@ -1005,108 +1512,13 @@ const ForEach = ({ node, children, store }: CompProps) => {
 
 const Portal = ({ children }: CompProps) => <>{children}</>;
 
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const styles = StyleSheet.create({
-  modalScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
-  modalScrimBlur: { flex: 1, backgroundColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center", padding: 24 },
-  modalCard: { backgroundColor: "#0b0b0f", borderRadius: 16, padding: 20, minWidth: 260, maxWidth: 400, width: "100%" },
-  sheetScrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#0b0b0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 40 },
-  sheetHandle: { alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: "#444", marginBottom: 12 },
-  actionSheet: { backgroundColor: "#0b0b0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
-  actionRow: { paddingVertical: 18, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#222" },
-  actionText: { color: "#fff", fontSize: 17 },
-  popover: { backgroundColor: "#1a1a1f", borderRadius: 12, padding: 14, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-  popoverTitle: { color: "#fff", fontWeight: "700", marginTop: 6 },
-  tooltip: { position: "absolute", top: -30, backgroundColor: "rgba(20,20,25,0.95)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
-  tooltipText: { color: "#fff", fontSize: 12 },
-  collapsibleHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14 },
-  collapsibleTitle: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  collapsibleChevron: { color: "#aaa", fontSize: 16 },
-  tabsRow: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#222" },
-  tabItem: { paddingVertical: 12, paddingHorizontal: 16 },
-  tabItemActive: { borderBottomWidth: 2, borderBottomColor: "#fff" },
-  tabText: { color: "#888" },
-  tabTextActive: { color: "#fff", fontWeight: "700" },
-  // Apple's own proportions. The track colour is set per-render from the
-  // theme, not here, so it follows the brand rather than the system.
-  switchTrack: { width: 51, height: 31, borderRadius: 16, padding: 2, justifyContent: "center" },
-  switchThumb: {
-    width: 27, height: 27, borderRadius: 14, backgroundColor: "#fff",
-    shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 2,
-    shadowOffset: { width: 0, height: 1 }, elevation: 2,
-  },
-  stepperRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  stepperBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#1c1c25", alignItems: "center", justifyContent: "center" },
-  stepperBtnText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  stepperValue: { color: "#fff", fontSize: 16, minWidth: 28, textAlign: "center" },
-  segmentedTrack: { flexDirection: "row", backgroundColor: "#1c1c25", borderRadius: 8, padding: 2 },
-  segmentedItem: { flex: 1, paddingVertical: 8, alignItems: "center", borderRadius: 6 },
-  segmentedItemActive: { backgroundColor: "#fff" },
-  segmentedText: { color: "#aaa", fontSize: 13, fontWeight: "600" },
-  segmentedTextActive: { color: "#000" },
-  searchField: { flexDirection: "row", alignItems: "center", backgroundColor: "#1c1c25", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
-  searchIcon: { color: "#666", marginRight: 8 },
-  searchInput: { flex: 1, color: "#fff", fontSize: 15 },
-  pickerField: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#1c1c25", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  pickerText: { color: "#fff", fontSize: 15 },
-  pickerChevron: { color: "#888" },
-  pickerSheet: { backgroundColor: "#0b0b0f", borderRadius: 16, minWidth: 260, maxWidth: 400, width: "80%" },
-  pickerOption: { paddingVertical: 16, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#222" },
-  pickerOptionText: { color: "#fff", fontSize: 15 },
-  textField: { backgroundColor: "#1c1c25", color: "#fff", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12 },
-  barLabel: { color: "#888", fontSize: 10, marginTop: 4 },
-  gaugeTrack: { height: 8, backgroundColor: "#1c1c25", borderRadius: 4, overflow: "hidden" },
-  gaugeFill: { height: "100%", backgroundColor: "#4CD964" },
-  gaugeText: { color: "#fff", marginTop: 4, fontWeight: "600" },
-  statCard: { backgroundColor: "#0b0b0f", padding: 14, borderRadius: 12, gap: 4 },
-  statLabel: { color: "#888", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.6 },
-  statValue: { color: "#fff", fontSize: 28, fontWeight: "800" },
-  statDelta: { fontSize: 12 },
-  deltaPos: { color: "#4CD964" },
-  deltaNeg: { color: "#ff5a5f" },
-  waveform: { flexDirection: "row", alignItems: "flex-end", height: 48 },
-  mediaPlaceholder: { backgroundColor: "#1c1c25", borderRadius: 12, padding: 16 },
-  mediaText: { color: "#aaa" },
-  pill: { backgroundColor: "#fff", paddingVertical: 12, paddingHorizontal: 24, borderRadius: 24, alignItems: "center" },
-  pillText: { color: "#000", fontWeight: "700" },
-  toast: { backgroundColor: "#0b0b0f", borderRadius: 10, padding: 12 },
-  toastText: { color: "#fff" },
-  snackbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#0b0b0f", borderRadius: 10, padding: 14, gap: 12 },
-  snackText: { color: "#fff", flex: 1 },
-  snackAction: { color: "#4CD964", fontWeight: "700" },
-  emptyState: { alignItems: "center", padding: 32 },
-  emptyTitle: { color: "#fff", fontSize: 18, fontWeight: "700" },
-  emptySubtitle: { color: "#888", marginTop: 6, textAlign: "center" },
-  countdown: { color: "#fff", fontSize: 24, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
-  confettiText: { fontSize: 96, textAlign: "center", marginTop: 60 },
-  // Pie / donut chart
-  pieCenter: { position: "absolute", alignItems: "center", justifyContent: "center" },
-  pieCenterValue: { color: "#fff", fontSize: 26, fontWeight: "800" },
-  pieCenterLabel: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 },
-  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  legendDot: { width: 10, height: 10, borderRadius: 3 },
-  // minWidth keeps the values aligned when the legend sits BELOW the chart
-  // (rows are then intrinsically sized); flexShrink lets a long label ellipsize
-  // rather than push the percentage out of the card when it sits BESIDE it.
-  legendLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13, minWidth: 72, flexShrink: 1 },
-  // marginLeft:auto pins the percentage to the right edge of the legend column;
-  // flexShrink:0 stops it being the thing that gets squeezed.
-  legendValue: {
-    color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "600",
-    fontVariant: ["tabular-nums"], marginLeft: "auto", flexShrink: 0,
-  },
-});
-
 export const REGISTRY_V3: Record<string, React.ComponentType<CompProps>> = {
   Grid, MasonryGrid, Modal: ModalC, BottomSheet, ActionSheet, Popover, Tooltip,
   Collapsible, StickyHeader, SwipeableRow, PullToRefresh, SafeArea, Tabs,
   Switch, Slider: SliderC, Stepper, SegmentedControl, SearchField, Picker, DatePicker,
   LineChart, BarChart, Sparkline, ProgressRing, Gauge, StatCard, Waveform,
-  PieChart, DonutChart: PieChart,
+  // NOT PieChart — that name belongs to ./PieChart. See DonutChart above.
+  DonutChart,
   Video, Audio, Camera, QRScanner, ImagePickerButton, Avatar, AvatarStack,
   Toast, Snackbar, LoadingSkeleton, Confetti, Rating, EmptyState, Countdown, LottieAnimation,
   WebView: WebViewC, SVG: SVGC, Gradient, BlurBackground, QRCode: QRCodeC,

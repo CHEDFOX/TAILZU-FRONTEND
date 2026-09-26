@@ -95,7 +95,12 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
     backgroundColor: ps(props.cellBackground, theme.color.inputBg),
     color: ps(props.cellColor, theme.color.text),
     borderRadius: pn(props.cellRadius, K.num("ui.DictionaryEditor.cellRadius", 10)),
-    borderWidth: pn(props.cellBorderWidth, K.num("ui.DictionaryEditor.cellBorderWidth", StyleSheet.hairlineWidth)),
+    // -1 (the default) means the device's hairline, which is not a number
+    // anyone can write down: it is one physical pixel, whatever that is here.
+    borderWidth: pn(props.cellBorderWidth, (() => {
+      const w = K.num("ui.DictionaryEditor.cellBorderWidth", -1);
+      return w < 0 ? StyleSheet.hairlineWidth : w;
+    })()),
     borderColor: ps(props.cellBorderColor, theme.color.border),
     paddingHorizontal: pn(props.cellPaddingHorizontal, K.num("ui.DictionaryEditor.cellPaddingHorizontal", 12)),
     paddingVertical: pn(props.cellPaddingVertical, K.num("ui.DictionaryEditor.cellPaddingVertical", 10)),

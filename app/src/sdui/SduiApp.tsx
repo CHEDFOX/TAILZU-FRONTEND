@@ -61,6 +61,7 @@ import { initSentry } from "../telemetry/sentry";
 import { initBilling, identifyBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
+import { flowArmOptions } from "../widgets/flow";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
@@ -441,7 +442,7 @@ export default function SduiApp() {
 
   const showToast = useCallback((message: string, tone?: string) => {
     setToast({ message, tone });
-    setTimeout(() => setToast(null), 2800);
+    setTimeout(() => setToast(null), num("app.toastMs", 2800));
   }, []);
 
   const loadBoot = useCallback(async () => {
@@ -461,13 +462,19 @@ export default function SduiApp() {
     // current screen). Offline, the first run is the whole app instead of the
     // connect screen. A screen that had never bootstrapped waits, as before.
     const commitBoot = async (b: BootstrapResponse): Promise<boolean> => {
+      // Every knob read below must see THIS bootstrap, not the one on screen.
+      // setKnobs is idempotent, and a render in between (the state set here
+      // re-renders with the previous boot) can move it back — so it is called
+      // again after each await, right before the reads that follow it.
+      setKnobs(b);
       await hydrateScreenCache(String(b.cacheVersion ?? ""));
       // Register any typeface the backend supplied. Never awaited: the first
       // screens draw in the system font and re-render when a face lands.
       loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
       // If the user's language flips the layout direction, this restarts the
       // app — so do it before we commit the rest of the boot state.
-      if (await applyDirection(b.flags)) return false;
+      setKnobs(b);
+      if (await applyDirection()) return false;
       // Publish the media registry BEFORE setBoot, not after.
       //
       // setBoot triggers the render that mounts the first screen, and the
@@ -481,7 +488,8 @@ export default function SduiApp() {
       setMediaRegistry(pickMediaRegistry(b));
       // The Home and Lock Screen widget shows this month's numbers; it is
       // handed them here, from the same flags the stats screen draws.
-      publishWidgetMonth(b.flags as Record<string, unknown> | undefined);
+      // The NEW bootstrap's words too, not whatever the knobs last pointed at.
+      publishWidgetMonth(b.flags as Record<string, unknown> | undefined, b.labels);
       setBoot(b);
       // WHICH TAB THE APP OPENS ON is the server's call, because it turns on
       // something only the server knows: whether this person has ever reached
@@ -512,8 +520,8 @@ export default function SduiApp() {
       //                                    step run before initialScreenId?
       //   flags["postLanguageScreenId"]  str  — screen to render after the
       //                                    language step commits.
-      const needsLanguagePick = boot?.flags?.["needsLanguagePick"] === true
-        || b.flags?.["needsLanguagePick"] === true;
+      setKnobs(b);
+      const needsLanguagePick = bool("needsLanguagePick", false);
       let langPicked = !!(await getLanguage());
       // Nothing stored: take the answer from the phone rather than asking.
       //
@@ -527,7 +535,7 @@ export default function SduiApp() {
       // Only for languages we actually support; anything else stays "auto",
       // which is a real answer (detect per utterance), not a missing one.
       if (!langPicked) {
-        const sys = inferSystemLanguage();
+        const sys = inferSystemLanguage(b.languages);
         if (sys) {
           try {
             // LOCAL first, and awaited: it is a disk write, it cannot hang, and
@@ -548,7 +556,7 @@ export default function SduiApp() {
             // Best-effort means best-effort: fire it, let it land whenever it
             // lands, and if it never does the local value is still correct and
             // the next boot will try again.
-            void callEndpoint("PUT", "/v1/profile", { language: sys })
+            void callEndpoint("PUT", str("net.profilePath", "/v1/profile"), { language: sys })
               .catch(() => { /* the local default already did the work */ });
           } catch { /* a default is not worth failing the boot for */ }
         }
@@ -557,8 +565,9 @@ export default function SduiApp() {
         setPhase("language");
         return false;
       }
-      const postLangScreenId =
-        (b.flags?.["postLanguageScreenId"] as string | undefined) ?? b.initialScreenId;
+      setKnobs(b);
+      // No literal fallback on purpose: absent means "the initial screen".
+      const postLangScreenId = str("postLanguageScreenId", b.initialScreenId) || b.initialScreenId;
       const firstScreenId = needsLanguagePick ? postLangScreenId : b.initialScreenId;
 
       // Paywall gate — backend requests it via flags. Two triggers:
@@ -582,7 +591,7 @@ export default function SduiApp() {
       // `undefined` means never read; `null` means read and since consumed.
       if (kbEntryRef.current === undefined) {
         const rec = consumeKeyboardRecordRequest();
-        const link = consumeKeyboardDeepLink();
+        const link = consumeKeyboardDeepLink(num("app.keyboard.deepLinkMaxAgeMs", 45000));
         kbEntryRef.current = { rec, link };
         kbWantedRef.current = !!rec || (!!link && link !== "openSettings");
       }
@@ -593,12 +602,13 @@ export default function SduiApp() {
       // update manifest in plain text — and taking it from here means an
       // `eas update` published without the build variables set can no longer
       // replace a working key with an empty string.
-      setBillingKey(b.flags?.[
-        Platform.OS === "ios" ? "billing.revenueCatKey.ios" : "billing.revenueCatKey.android"
-      ] as string | undefined);
-      const paywallEnt = String(b.flags?.["paywall.entitlement"] ?? "");
-      const paywallBlock = b.flags?.["paywall.blockUntilEntitled"] === true;
-      const paywallAfterOnboarding = b.flags?.["paywall.showAfterOnboarding"] === true;
+      setKnobs(b);
+      setBillingKey(Platform.OS === "ios"
+        ? str("billing.revenueCatKey.ios", "")
+        : str("billing.revenueCatKey.android", ""));
+      const paywallEnt = str("paywall.entitlement", "");
+      const paywallBlock = bool("paywall.blockUntilEntitled", false);
+      const paywallAfterOnboarding = bool("paywall.showAfterOnboarding", false);
       /**
        * THE STORE DOES NOT GET TO DECIDE WHETHER THE APP OPENS.
        *
@@ -619,12 +629,14 @@ export default function SduiApp() {
        */
       if (paywallEnt && (paywallBlock || paywallAfterOnboarding)) await initBilling();
       else if (paywallEnt) void initBilling();
+      setKnobs(b);
       // The server's answer counts as much as the store SDK's: a subscription
       // bought on another platform, or granted from the console, is in
       // billing.entitled even when this device's store has never seen it.
       const lacksEntitlement =
         !!paywallEnt && isBillingEnabled() && !hasEntitlement(paywallEnt)
-        && b.flags?.["billing.entitled"] !== true;
+        && !bool("billing.entitled", false);
+      const paywallScreenId = str("paywall.screenId", "paywall");
       const shouldShowPaywall =
         lacksEntitlement && (paywallBlock || paywallAfterOnboarding);
 
@@ -635,8 +647,8 @@ export default function SduiApp() {
         // showAfterOnboarding paywall stays dismissible (sits on top of home).
         setStack(
           paywallBlock
-            ? [{ screenId: "paywall" }]
-            : [{ screenId: firstScreenId }, { screenId: "paywall" }],
+            ? [{ screenId: paywallScreenId }]
+            : [{ screenId: firstScreenId }, { screenId: paywallScreenId }],
         );
       } else if (kbWantsUs) {
         // THE KEYBOARD OPENED US. It did not open us to watch the intro.
@@ -698,9 +710,9 @@ export default function SduiApp() {
         // The server decides whether, which, and how long to wait; the client
         // only honours it. Skipped when it names the screen we are already on,
         // so a prompt can never bury its own subject.
-        const promptScreenId = b.flags?.["promptScreenId"];
-        if (typeof promptScreenId === "string" && promptScreenId && promptScreenId !== firstScreenId) {
-          armArrivalPrompt(promptScreenId, Number(b.flags?.["promptAfterMs"]) || 9000);
+        const promptScreenId = str("promptScreenId", "");
+        if (promptScreenId && promptScreenId !== firstScreenId) {
+          armArrivalPrompt(promptScreenId, num("promptAfterMs", 9000));
         }
       }
       setPhase("ready");
@@ -716,13 +728,13 @@ export default function SduiApp() {
     // app looks broken and offers no way out, which is the worst failure the
     // app has.
     //
-    // So: if the boot has not finished in BOOT_WATCHDOG_MS, stop waiting and
+    // So: if the boot has not finished in app.boot.watchdogMs, stop waiting and
     // show the connection screen, which has a retry on it. A wrong-looking
     // retry card beats a dead splash, and if the boot completes later it simply
     // wins — commitBoot sets "ready" and the card is replaced.
     const watchdog = setTimeout(() => {
       setPhase((p) => (p === "loading" ? "connect" : p));
-    }, num("app.boot.watchdogMs", BOOT_WATCHDOG_MS));
+    }, bootWatchdogMs());
     let paintedFromDisk = false;
     try {
       const cached = await peekBootstrap();
@@ -730,9 +742,10 @@ export default function SduiApp() {
       if (cached) {
         // Give the network a beat; on a good connection the fresh bootstrap
         // wins outright and the disk copy is never shown.
+        const race = num("app.boot.diskRaceMs", 350);
         const first = await Promise.race([
           fresh.then((b) => ({ b, fresh: true })),
-          new Promise<{ b: BootstrapResponse; fresh: false }>((r) => setTimeout(() => r({ b: cached, fresh: false }), 350)),
+          new Promise<{ b: BootstrapResponse; fresh: false }>((r) => setTimeout(() => r({ b: cached, fresh: false }), race)),
         ]);
         if (!first.fresh) {
           paintedFromDisk = await commitBoot(first.b);
@@ -760,12 +773,13 @@ export default function SduiApp() {
     await setLanguage(code);
     setPhase("loading");
     try {
-      await callEndpoint("PUT", "/v1/profile", { language: code });
-    } catch {
+      await callEndpoint("PUT", str("net.profilePath", "/v1/profile"), { language: code });
+    } catch (e) {
       // The local pick is committed, so the picker won't return — but the
       // server never localized anything. Say so instead of silently leaving
       // the whole app in English with no visible reason.
-      showToast("Couldn't save your language — you can change it anytime in Settings.", "error");
+      console.warn("[boot] language save failed:", errorDetail(e));
+      showToast(txt("toast.languageSaveFailed", "Couldn't save your language — you can change it anytime in Settings."), "error");
     }
     await loadBoot();
   }, [loadBoot]);
@@ -773,6 +787,10 @@ export default function SduiApp() {
   useEffect(() => {
     let unsub = () => {};
     (async () => {
+      // The last server's words and numbers, before anything is drawn — the
+      // sign-in screen included. App.tsx does this synchronously where the
+      // binary can; this is the floor under it.
+      await primeKnobsFromDisk();
       // A REINSTALL IS NOT A LAUNCH. The Keychain survives app deletion, so a
       // delete-and-reinstall came back holding the previous install's session
       // and walked straight past sign-in. Cleared BEFORE the session is read,
@@ -815,7 +833,7 @@ export default function SduiApp() {
   useEffect(() => {
     const ask = obj<{ screen?: string; afterMs?: number; key?: string }>("push.ask", {});
     if (!ask.screen || currentScreenId !== ask.screen) return;
-    const key = ask.key || "default";
+    const key = ask.key || "default";   // a storage key, not copy
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
@@ -824,7 +842,7 @@ export default function SduiApp() {
         const p = await Notifications.requestPermissionsAsync();
         if (p.granted) await registerForPushToken();
       } catch { /* the ask is best-effort */ }
-    }, typeof ask.afterMs === "number" ? ask.afterMs : 1500);
+    }, typeof ask.afterMs === "number" ? ask.afterMs : num("push.askDelayMs", 1500));
     return () => { cancelled = true; clearTimeout(timer); };
   }, [currentScreenId]);
 
@@ -918,7 +936,7 @@ export default function SduiApp() {
       // And say, out loud, whether an update is available. Silent update
       // machinery is how a week of published fixes reached nobody.
       void reportUpdateCheck();
-    }, 600);
+    }, num("app.warmDelayMs", 600));
     return () => clearTimeout(t);
   }, [phase, boot]);
 
@@ -944,7 +962,7 @@ export default function SduiApp() {
     let timer: ReturnType<typeof setInterval> | undefined;
     const start = () => {
       if (timer) return;
-      timer = setInterval(() => { void refreshCachedScreens(); }, LIVE_REFRESH_MS);
+      timer = setInterval(() => { void refreshCachedScreens(); }, liveRefreshMs());
     };
     const stop = () => { if (timer) { clearInterval(timer); timer = undefined; } };
     const sub = AppState.addEventListener("change", (next) => {
@@ -994,8 +1012,11 @@ export default function SduiApp() {
         // previous render we keep it visible and layer the retry banner on
         // top. Only when there was NEVER a successful load do we render a
         // full-screen error card (handled in the render section below).
-        const msg = err instanceof Error ? err.message : "Couldn't load screen";
-        setScreenError(msg);
+        //
+        // The card shows words, not "/v1/app/screen → 500": the raw detail
+        // is for the log, the person gets the server's error.* copy.
+        console.warn(`[screen] ${current.screenId}: ${errorDetail(err)}`);
+        setScreenError(userErrorMessage(err));
       })
       .finally(() => alive && setScreenLoading(false));
     return () => {
@@ -1017,10 +1038,7 @@ export default function SduiApp() {
    * over: `quota.exceeded` already folds the entitlement in, so there is no
    * second condition here to get out of step with the server's.
    */
-  const overFreeLimit = useCallback(
-    () => bootRef.current?.flags?.["quota.exceeded"] === true,
-    [],
-  );
+  const overFreeLimit = useCallback(() => bool("quota.exceeded", false), []);
 
   // Consume whatever the keyboard extension left in the shared App Group (a mic
   // "handoff" record request or a deep-link tombstone) and route / arm from it.
@@ -1042,9 +1060,11 @@ export default function SduiApp() {
       const [base, tok, lang] = await Promise.all([
         getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
       ]);
-      const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-      const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
-      armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+      const idle = num("kb.flow.idleTimeoutMs", 600000);
+      const oneShot = str("kb.flow.transport", "stream") === "oneshot";
+      // No session, no token: the native side skips auth rather than sending
+      // a made-up one.
+      armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
     })();
   }, []);
 
@@ -1061,12 +1081,14 @@ export default function SduiApp() {
   const firstRunOwed = useCallback((): { screenId: string } | null => {
     const b = bootRef.current;
     const first = b?.initialScreenId;
-    if (first === "onboarding" || first === "onboarding_keyboard") return { screenId: first };
-    const server = b?.flags?.["profile.complete"];
-    const done = typeof server === "boolean" ? server : profileDoneRef.current;
+    if (first && list<string>("boot.firstRunGateIds", ["onboarding", "onboarding_keyboard"]).includes(first)) {
+      return { screenId: first };
+    }
+    // The server's answer where it has one; the local copy otherwise.
+    const done = bool("profile.complete", profileDoneRef.current);
     // The card renders over the You tab, so that is where the user has to be
     // standing for it to appear at all.
-    return done ? null : { screenId: "personality" };
+    return done ? null : { screenId: str("profile.hostScreenId", "personality") };
   }, []);
 
   const consumeKeyboardEntry = useCallback((): "record" | "navigated" | "none" => {
@@ -1075,10 +1097,12 @@ export default function SduiApp() {
     const stash = kbEntryRef.current ?? null;
     kbEntryRef.current = null;
     const rec = stash ? stash.rec : consumeKeyboardRecordRequest();
+    const handoffScreenId = str("kb.handoff.screenId", "keyboard_record");
+    const flowArmScreenId = str("kb.flow.armScreenId", "flow_arm");
     if (rec) {
       // Fresh mic handoff. Drain the PAIRED deep-link tombstone too, so it can't
       // re-open the record screen on a later, unrelated foreground.
-      if (!stash) consumeKeyboardDeepLink();
+      if (!stash) consumeKeyboardDeepLink(num("app.keyboard.deepLinkMaxAgeMs", 45000));
       // Over the free cap, the mic is not what should open. The server will
       // refuse the dictation anyway, so arming a session and showing a
       // recording screen only walks the user into a rejection — and lands them
@@ -1094,7 +1118,7 @@ export default function SduiApp() {
       const owed = firstRunOwed();
       if (owed) {
         pendingKbRef.current = {
-          screenId: "keyboard_record",
+          screenId: handoffScreenId,
           params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
         };
         kbRoutedRef.current = true;
@@ -1103,12 +1127,12 @@ export default function SduiApp() {
       }
       kbRoutedRef.current = true;
       setStack([{
-        screenId: "keyboard_record",
+        screenId: handoffScreenId,
         params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
       }]);
       return "record";
     }
-    const pending = stash ? stash.link : consumeKeyboardDeepLink();
+    const pending = stash ? stash.link : consumeKeyboardDeepLink(num("app.keyboard.deepLinkMaxAgeMs", 45000));
     if (!pending) return "none";
     if (pending === "openSettings") {
       Linking.openSettings().catch(() => {});
@@ -1116,7 +1140,7 @@ export default function SduiApp() {
     }
     if (pending.startsWith("screen/")) {
       const screenId = pending.slice("screen/".length);
-      if (screenId === "flow_arm") {
+      if (screenId === flowArmScreenId) {
         // Same rule as the mic handoff: no point arming a mic whose every
         // transcript the server is going to refuse.
         if (overFreeLimit()) {
@@ -1129,7 +1153,7 @@ export default function SduiApp() {
         // a screen that says nothing about it.
         const owedFlow = firstRunOwed();
         if (owedFlow) {
-          pendingKbRef.current = { screenId: "flow_arm", arm: true };
+          pendingKbRef.current = { screenId: flowArmScreenId, arm: true };
           kbRoutedRef.current = true;
           setStack([{ screenId: owedFlow.screenId }]);
           return "navigated";
@@ -1140,10 +1164,10 @@ export default function SduiApp() {
         // arming screen (whose onAppear re-arms too — arm() is idempotent).
         armFlow();
         kbRoutedRef.current = true;
-        setStack([{ screenId: "flow_arm" }]);
+        setStack([{ screenId: flowArmScreenId }]);
         return "navigated";
       }
-      if (screenId && screenId !== "keyboard_record" && screenId !== "keyboard_primer") {
+      if (screenId && !list<string>("kb.micOnlyScreenIds", ["keyboard_record", "keyboard_primer"]).includes(screenId)) {
         // keyboard_record / keyboard_primer are mic-tap-only (owned by the
         // record-request path above); a leftover deep-link to them is stale.
         kbRoutedRef.current = true;
@@ -1188,7 +1212,7 @@ export default function SduiApp() {
   // arm() is idempotent — re-arming just refreshes the idle window — so running
   // this whenever the flags land is safe and self-healing.
   useEffect(() => {
-    if (bootRef.current?.flags?.["kb.flow.armOnForeground"] !== true) return;
+    if (!bool("kb.flow.armOnForeground", false)) return;
     // NOT GATED ON AppState.currentState.
     //
     // iOS reports "inactive" for the first moments of a cold launch. This
@@ -1211,9 +1235,9 @@ export default function SduiApp() {
         getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
       ]);
       const creds = Date.now() - t0;
-      const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-      const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
-      armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+      const idle = num("kb.flow.idleTimeoutMs", 600000);
+      const oneShot = str("kb.flow.transport", "stream") === "oneshot";
+      armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
       // eslint-disable-next-line no-console
       console.log(`[flow] armed — creds ${creds}ms, token ${tok ? "live" : "none"}`);
     })();
@@ -1240,14 +1264,14 @@ export default function SduiApp() {
       // the idle window is backend-tunable. This holds the mic in the background
       // (recording indicator + battery), so it's a backend flag, OFF unless the
       // backend explicitly turns it on.
-      if (bootRef.current?.flags?.["kb.flow.armOnForeground"] === true) {
+      if (bool("kb.flow.armOnForeground", false)) {
         void (async () => {
           const [base, tok, lang] = await Promise.all([
             getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
           ]);
-          const idle = Number(bootRef.current?.flags?.["kb.flow.idleTimeoutMs"] ?? 300000);
-          const oneShot = bootRef.current?.flags?.["kb.flow.transport"] === "oneshot";
-          armFlowSession(base, tok ?? "dev", lang || "auto", idle, oneShot);
+          const idle = num("kb.flow.idleTimeoutMs", 600000);
+          const oneShot = str("kb.flow.transport", "stream") === "oneshot";
+          armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
         })();
       }
       if (phase !== "ready") return;
@@ -1266,13 +1290,20 @@ export default function SduiApp() {
       if (!navigatedThisForeground) {
         setStack((prev) => {
           const topId = prev[prev.length - 1]?.screenId;
-          if (topId === "keyboard_record" || topId === "keyboard_primer" || topId === "flow_arm") {
+          if (topId && transientScreenIds().includes(topId)) {
             const home = bootRef.current?.initialScreenId;
             if (home) return [{ screenId: home }];
           }
           return prev;
         });
       }
+      // THE BOOTSTRAP CARRIES ITS OWN TTL, and it was ignored: every
+      // foreground re-bootstrapped, however recently the last one landed.
+      // Inside the TTL the one in hand is what the server said to use; the
+      // cached screens still refresh (the live-refresh listener does that),
+      // and an explicit reload, a language change or a new launch always
+      // fetches. Switchable, in case a release needs the old behaviour back.
+      if (bool("cache.honourBootstrapTtl", true) && bootstrapIsFresh(bootRef.current)) return;
       // Force a bootstrap re-fetch (cheap, no-store on the backend), then
       // re-fetch the current screen via the standard reload counter.
       (async () => {
@@ -1338,7 +1369,7 @@ export default function SduiApp() {
           // they most want a way out.
           const top = s[0]?.screenId;
           const home = bootRef.current?.initialScreenId;
-          const transient = top === "keyboard_record" || top === "keyboard_primer" || top === "flow_arm";
+          const transient = !!top && transientScreenIds().includes(top);
           return transient && home ? [{ screenId: home }] : s;
         });
       },
@@ -1357,10 +1388,12 @@ export default function SduiApp() {
         (async () => {
           try {
             const b = await bootstrap();
-      // Register any typeface the backend supplied. Never awaited: the first
-      // screens draw in the system font and re-render when a face lands.
-      loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
-            if (await applyDirection(b.flags)) return; // RTL change → app restarts
+            // Register any typeface the backend supplied. Never awaited: the
+            // first screens draw in the system font and re-render when a face
+            // lands.
+            loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
+            setKnobs(b);
+            if (await applyDirection()) return; // RTL change → app restarts
             setMediaRegistry(pickMediaRegistry(b));
             setBoot(b);
             setReload((n) => n + 1);
@@ -1442,11 +1475,12 @@ export default function SduiApp() {
           ` kbWants=${kbWantedRef.current ? 1 : 0} kbRouted=${kbRoutedRef.current ? 1 : 0}`,
         );
       } catch { /* diagnostics must never break a boot */ }
-    }, 6000);
+    }, num("app.boot.breadcrumbMs", 6000));
     return () => clearTimeout(t);
   }, [phase, boot, screen, screenError, stack.length]);
 
-  // Whether this device has finished onboarding. Read once at startup, and a
+  // Whether this device has finished onboarding — the LOCAL answer, used only
+  // when the server sends none (boot.firstRun). Read once at startup, and a
   // ref rather than state because the splash gate must not re-run when it
   // resolves — a second pass there would drop the splash early.
   const onboardedRef = useRef(false);
@@ -1459,6 +1493,25 @@ export default function SduiApp() {
       } catch { /* treat an unreadable flag as a first run — it only costs a wait */ }
     })();
   }, []);
+
+  // ONBOARDING IS DONE WHEN THE USER IS STANDING ON THE TABS.
+  //
+  // setOnboarded existed and nothing called it, so the local answer above was
+  // "first run" on every launch and every launch held the splash for the
+  // first-run budget. The server's boot.firstRun is the real answer now; this
+  // keeps the offline fallback honest, once, the first time a tab's own
+  // screen is what is drawn.
+  const onboardedSaved = useRef(false);
+  const shownScreenId = shown?.screenId;
+  useEffect(() => {
+    if (onboardedSaved.current || phase !== "ready" || !shownScreenId) return;
+    const navShell = boot?.navigation;
+    if (navShell?.kind !== "tabs") return;
+    if (!navShell.tabs.some((t) => (t.screenId ?? t.id) === shownScreenId)) return;
+    onboardedSaved.current = true;
+    onboardedRef.current = true;
+    setOnboarded().catch(() => { /* next landing tries again */ onboardedSaved.current = false; });
+  }, [phase, boot, shownScreenId]);
 
   const splashHidden = useRef(false);
 
@@ -1485,7 +1538,7 @@ export default function SduiApp() {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
       } catch { /* nothing was holding it */ }
-    }, 7000);
+    }, num("app.splash.maxHoldMs", 7000));
     return () => clearTimeout(t);
   }, []);
 
@@ -1534,13 +1587,15 @@ export default function SduiApp() {
     //
     // A returning user waits for the opening picture and nothing else: their
     // cache is warm, and the rest is already on disk.
-    const first = !onboardedRef.current;
+    // The server's answer (boot.firstRun: true until onboarding is done); the
+    // device's own record only when there is none.
+    const first = bool("boot.firstRun", !onboardedRef.current);
     const urls = first
       ? allRemoteMedia((screen as ScreenResponse).root)
       : [firstRemoteImage((screen as ScreenResponse).root)].filter(Boolean) as string[];
 
     if (!urls.length && !first) { drop(); return; }
-    timer = setTimeout(drop, first ? FIRST_RUN_MEDIA_WAIT_MS : SPLASH_MEDIA_WAIT_MS);
+    timer = setTimeout(drop, first ? firstRunMediaWaitMs() : splashMediaWaitMs());
 
     void (async () => {
       try {
@@ -1551,8 +1606,12 @@ export default function SduiApp() {
         if (first) {
           // The screen AFTER this one, too. On a first run that is the
           // onboarding step, and it is the next thing they will look at.
-          const nextId = (boot?.flags?.["postLanguageScreenId"] as string | undefined)
-            ?? (boot?.initialScreenId === "intro" ? "onboarding" : null);
+          // No literal fallback for postLanguageScreenId: absent must stay
+          // absent (see commitBoot).
+          const afterIntro = boot?.initialScreenId === str("boot.introScreenId", "intro")
+            ? str("boot.postIntroScreenId", "onboarding")
+            : "";
+          const nextId = str("postLanguageScreenId", afterIntro) || null;
           if (nextId) {
             const next = await fetchScreen(nextId).catch(() => null);
             if (next?.root) {
@@ -1571,7 +1630,7 @@ export default function SduiApp() {
       // Only known, side-effect-safe kinds may be triggered from a URL; anything
       // else is ignored (never dispatched) so a crafted link can't run arbitrary
       // actions or crash the app.
-      if (!DEEPLINK_ACTIONS.has(kind)) return;
+      if (!deepLinkActionAllowed(kind)) return;
       const action = { kind, ...(params ?? {}) } as unknown as ActionSpec;
       void runAction(action, {
         store: new Store({}),
@@ -1584,10 +1643,20 @@ export default function SduiApp() {
     };
   }, [boot, nav, showToast]);
 
+  // A screen's theme overrides the app's group by group — colours, spacing,
+  // radii and type — each merged one level deep. Only `color` used to be
+  // merged, so a screen that set its own spacing or type scale was ignored.
   const theme: ThemeTokens | null = useMemo(() => {
     if (!boot) return null;
-    if (!screen?.theme) return boot.theme;
-    return { ...boot.theme, color: { ...boot.theme.color, ...(screen.theme.color ?? {}) } };
+    const st = screen?.theme;
+    if (!st) return boot.theme;
+    return {
+      ...boot.theme,
+      color: { ...boot.theme.color, ...(st.color ?? {}) },
+      space: { ...boot.theme.space, ...(st.space ?? {}) },
+      radius: { ...boot.theme.radius, ...(st.radius ?? {}) },
+      font: { ...boot.theme.font, ...(st.font ?? {}) },
+    };
   }, [boot, screen]);
 
   // Edge-swipe-back: a general, backend-driven capability (src/sdui/gestures).
@@ -1651,9 +1720,10 @@ export default function SduiApp() {
   // falls through below to the retry card.
   if (phase === "loading" || !theme || (!shown && !screenError)) {
     // Splash colors + label route through boot.theme + boot.labels when they
-    // land; the hardcoded values here are the ONLY fallback for the pre-boot
-    // moment (bootstrap hasn't returned yet). Backend cannot change these.
-    const splashBg = boot?.theme?.color?.bg ?? "#000000";
+    // land. Before that, the knob — whose fallback is the NATIVE splash's own
+    // ground (app.config.ts), so the hand-over from the launch image is
+    // seamless; it was #000000, a visible step from #0B0A0D.
+    const splashBg = boot?.theme?.color?.bg ?? color("app.splash.bg", "#0B0A0D");
     // No spinner on app start — just the splash background, which blends with
     // the native splash screen for a clean, quiet boot.
     return <View style={[styles.center, { backgroundColor: splashBg }]} />;
@@ -1704,7 +1774,7 @@ export default function SduiApp() {
             <Pressable
               onPress={nav.back}
               accessibilityRole="button"
-              accessibilityLabel="Back"
+              accessibilityLabel={txt("a11y.back", "Back")}
               style={styles.back}
               // What is left over goes up and left — the corner a hand comes
               // from, and the one place nothing else is waiting to take it.
@@ -1713,7 +1783,7 @@ export default function SduiApp() {
               <Text style={[typeRole(theme, "headerIcon", styles.headerIcon), { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
-            <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? boot?.labels?.["app.name"] ?? "Tailzu"}</Text>
+            <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? txt("app.name", "Tailzu")}</Text>
           )}
           {canGoBack && <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{shown?.title ?? ""}</Text>}
           {/* Settings gear — top-right on the tab roots (Home / You). Opens the
@@ -1721,7 +1791,7 @@ export default function SduiApp() {
               "Connection" entry, and stands in for the removed Settings tab.
               Hidden on pushed screens, where the back arrow + title own the bar. */}
           {!canGoBack && (
-            <Pressable onPress={() => nav.push("settings")} hitSlop={12} accessibilityLabel="Settings">
+            <Pressable onPress={() => nav.push(str("nav.settingsScreenId", "settings"))} hitSlop={12} accessibilityLabel={txt("a11y.settings", "Settings")}>
               <SettingsLines color={theme.color.muted} />
             </Pressable>
           )}
@@ -1759,19 +1829,20 @@ export default function SduiApp() {
           // Never-loaded-once + failure: render a real error card with a
           // Retry button. The old behavior showed a spinner or nothing at
           // all, which read as "the app is broken."
-          <View style={[styles.center, { paddingHorizontal: 24 }]}>
+          <View style={[styles.center, { paddingHorizontal: num("app.errorCard.padding", 24) }]}>
             <Text style={typeRole(theme, "errorTitle", { color: theme.color.text, fontSize: 18, fontWeight: "700", marginBottom: 8 })}>
-              {boot?.labels?.["error.screenTitle"] ?? "Couldn't load this screen"}
+              {txt("error.screenTitle", "Couldn't load this screen")}
             </Text>
             <Text style={typeRole(theme, "errorBody", { color: theme.color.muted, textAlign: "center", marginBottom: 20 })}>
               {screenError}
             </Text>
             <Pressable
               onPress={() => setReload((n) => n + 1)}
-              style={{ backgroundColor: theme.color.primary, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 28 }}
+              accessibilityRole="button"
+              style={{ backgroundColor: theme.color.primary, borderRadius: num("app.errorCard.buttonRadius", 999), paddingVertical: 12, paddingHorizontal: 28 }}
             >
               <Text style={[typeRole(theme, "errorAction", { fontWeight: "700" }), { color: theme.color.bg }]}>
-                {boot?.labels?.["action.retry"] ?? "Retry"}
+                {txt("action.retry", "Retry")}
               </Text>
             </Pressable>
           </View>
@@ -1788,12 +1859,12 @@ export default function SduiApp() {
             onPress={() => setReload((n) => n + 1)}
             style={{
               position: "absolute", top: 0, left: 0, right: 0,
-              backgroundColor: theme.color.errorBanner ?? "#3a1417",
+              backgroundColor: theme.color.errorBanner ?? color("app.color.errorBanner", "#3a1417"),
               paddingVertical: 10, alignItems: "center",
             }}
           >
-            <Text style={[typeRole(theme, "banner", { fontWeight: "600" }), { color: theme.color.errorBannerText ?? "#fff" }]}>
-              {boot?.labels?.["error.refreshBanner"] ?? "Couldn't refresh — tap to retry"}
+            <Text style={[typeRole(theme, "banner", { fontWeight: "600" }), { color: theme.color.errorBannerText ?? color("app.color.errorBannerText", "#FFFFFF") }]}>
+              {txt("error.refreshBanner", "Couldn't refresh — tap to retry")}
             </Text>
           </Pressable>
         )}
@@ -1817,18 +1888,18 @@ export default function SduiApp() {
           //
           // The colours still come from the theme, so a future ground that
           // needs the separation can have it back by sending one.
-          backgroundColor: theme.color.tabBar ?? "transparent",
-          borderTopColor: theme.color.tabBarBorder ?? "transparent",
+          backgroundColor: theme.color.tabBar ?? color("app.color.tabBar", "transparent"),
+          borderTopColor: theme.color.tabBarBorder ?? color("app.color.tabBarBorder", "transparent"),
           borderTopWidth: theme.color.tabBarBorder ? StyleSheet.hairlineWidth : 0,
           // Lift the row clear of the system gesture area on BOTH platforms.
           // There was no inset at all, so the tabs sat directly against the
           // home indicator on iPhone and the gesture bar on Android — a tap
           // near the bottom of a tab went to the OS, not to us. The floor keeps
           // a comfortable strip on hardware with no inset to report.
-          paddingBottom: Math.max(insets.bottom, 12) + (dock?.lift ?? 6),
+          paddingBottom: Math.max(insets.bottom, num("app.tabs.minBottomInset", 12)) + (dock?.lift ?? num("app.tabs.lift", 6)),
           // A DOCK IS CENTRED; A BAR IS SPREAD. The tabs themselves carry no
           // flex when docked, so the row has to be the thing that gathers them.
-          ...(dock ? { justifyContent: "center" as const, paddingTop: 10 } : null),
+          ...(dock ? { justifyContent: "center" as const, paddingTop: num("app.tabs.dockPaddingTop", 10) } : null),
         }]}
         onLayout={(e) => setTabsWidth(e.nativeEvent.layout.width)}>
           {/* The thread that makes the row one object rather than three icons.
@@ -1892,12 +1963,14 @@ export default function SduiApp() {
 
       {toast && (
         <View style={[styles.toast, {
+          bottom: num("app.toast.bottom", 76),
+          borderRadius: num("app.toast.radius", 10),
           backgroundColor:
-            toast.tone === "error"   ? (theme.color.toastError   ?? "#3a1417")
-          : toast.tone === "success" ? (theme.color.toastSuccess ?? "#13301a")
-          :                            (theme.color.toastInfo    ?? "#1c1c25"),
-        }]}>
-          <Text style={[typeRole(theme, "toast"), { color: theme.color.toastText ?? "#fff" }]}>{toast.message}</Text>
+            toast.tone === "error"   ? (theme.color.toastError   ?? color("app.color.toastError", "#3a1417"))
+          : toast.tone === "success" ? (theme.color.toastSuccess ?? color("app.color.toastSuccess", "#13301a"))
+          :                            (theme.color.toastInfo    ?? color("app.color.toastInfo", "#1c1c25")),
+        }]} accessibilityLiveRegion="polite">
+          <Text style={[typeRole(theme, "toast"), { color: theme.color.toastText ?? color("app.color.toastText", "#FFFFFF") }]}>{toast.message}</Text>
         </View>
       )}
 
@@ -1935,7 +2008,7 @@ export default function SduiApp() {
               setStack([{ screenId: next.screenId, params: next.params }]);
             }
           }}
-          mediaUri={typeof boot?.flags?.["profileCard.media"] === "string" ? (boot.flags["profileCard.media"] as string) : undefined}
+          mediaUri={str("profileCard.media", "") || undefined}
           theme={theme}
         />
       )}
@@ -2017,15 +2090,15 @@ function LaunchCardOverlay({
         alignItems: "center", justifyContent: "center", padding: 24,
       }]}>
         <Pressable
-          style={[StyleSheet.absoluteFill, { backgroundColor: card.backdrop ?? "rgba(4,4,6,0.72)" }]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: card.backdrop ?? color("app.launchCard.backdrop", "rgba(4,4,6,0.72)") }]}
           onPress={card.dismissOnBackdrop === false ? undefined : onClose}
           accessibilityRole="button"
-          accessibilityLabel={labels["action.dismiss"] ?? "Dismiss"}
+          accessibilityLabel={txt("action.dismiss", "Dismiss")}
         />
         <View style={[
           {
             backgroundColor: theme.color.card, borderRadius: theme.radius.card,
-            padding: 24, width: "100%", maxWidth: 360,
+            padding: num("app.launchCard.padding", 24), width: "100%", maxWidth: num("app.launchCard.maxWidth", 360),
           },
           card.sheet as any,
         ]}>
@@ -2041,15 +2114,14 @@ function LaunchCardOverlay({
  * Whether the ProfileGate overlay should render given the current screen.
  * Backend controls via `flags["profileGate.screenIds"]` (array of screen
  * ids). When unset, falls back to only "home" so old backends still work.
+ * (`flags` is kept for the callers; the knob reads the same bootstrap.)
  */
 function shouldShowProfileGate(
   currentScreenId: string | undefined,
-  flags: Record<string, unknown> | undefined,
+  _flags?: Record<string, unknown> | undefined,
 ): boolean {
   if (!currentScreenId) return false;
-  const allowed = flags?.["profileGate.screenIds"];
-  if (Array.isArray(allowed)) return allowed.includes(currentScreenId);
-  return currentScreenId === "home";
+  return list<string>("profileGate.screenIds", ["home"]).includes(currentScreenId);
 }
 
 function cmpVersion(a: string, b: string): number {
@@ -2079,27 +2151,28 @@ function UpdateGateOverlay({
   const storeUrl = info.url?.[Platform.OS === "ios" ? "ios" : "android"] ?? info.url?.default;
   return (
     <View style={[StyleSheet.absoluteFill, {
-      backgroundColor: theme.color.updateOverlay ?? "rgba(8,8,12,0.96)",
+      backgroundColor: theme.color.updateOverlay ?? color("app.color.updateOverlay", "rgba(8,8,12,0.96)"),
       alignItems: "center", justifyContent: "center", padding: 28,
     }]}>
       <Text style={typeRole(theme, "updateTitle", { color: theme.color.text, fontSize: 22, fontWeight: "800", textAlign: "center", marginBottom: 10 })}>
-        {info.title ?? labels["updateGate.title"] ?? "Update available"}
+        {info.title ?? txt("updateGate.title", "Update available")}
       </Text>
       <Text style={typeRole(theme, "updateBody", { color: theme.color.muted, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 22 })}>
-        {info.message ?? labels["updateGate.message"] ?? "A new version is available."}
+        {info.message ?? txt("updateGate.message", "A new version is available.")}
       </Text>
       <Pressable
         onPress={() => storeUrl && Linking.openURL(storeUrl)}
-        style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: 200, alignItems: "center" }}
+        accessibilityRole="button"
+        style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: num("app.updateGate.buttonMinWidth", 200), alignItems: "center" }}
       >
-        <Text style={[typeRole(theme, "updateAction", { fontWeight: "700", fontSize: 15 }), { color: theme.color.primaryText ?? "#fff" }]}>
-          {info.cta ?? labels["updateGate.cta"] ?? "Update now"}
+        <Text style={[typeRole(theme, "updateAction", { fontWeight: "700", fontSize: 15 }), { color: theme.color.primaryText ?? color("app.color.primaryText", "#FFFFFF") }]}>
+          {info.cta ?? txt("updateGate.cta", "Update now")}
         </Text>
       </Pressable>
       {!forced && (
         <Pressable onPress={onDismiss} style={{ marginTop: 14 }}>
           <Text style={typeRole(theme, "updateLater", { color: theme.color.muted })}>
-            {labels["updateGate.dismiss"] ?? "Not now"}
+            {txt("updateGate.dismiss", "Not now")}
           </Text>
         </Pressable>
       )}
@@ -2170,7 +2243,7 @@ function ScreenHost({
       })();
     };
     sync();
-    iv = setInterval(() => { if (!stop) sync(); }, 1500);
+    iv = setInterval(() => { if (!stop) sync(); }, num("device.signalsPollMs", 1500));
     const subAS = AppState.addEventListener("change", (st) => { if (st === "active") sync(); });
     return () => { disposed = true; if (iv) clearInterval(iv); subAS.remove(); };
   }, [store]);
@@ -2198,13 +2271,14 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   }, []);
 
   async function test() {
-    setStatus("Checking…");
+    setStatus(txt("dev.connection.checking", "Checking…"));
     try {
       await setBaseUrl(url);
       const h = await api.health();
-      setStatus(`OK — ${h.service} v${h.version}`);
+      setStatus(txt("dev.connection.ok", "OK — {service} v{version}", { service: h.service, version: h.version }));
     } catch (e: any) {
-      setStatus("Cannot reach backend: " + e.message);
+      // A developer screen: the raw detail IS the useful answer here.
+      setStatus(txt("dev.connection.failed", "Cannot reach backend: {detail}", { detail: errorDetail(e) }));
     }
   }
 
@@ -2227,33 +2301,33 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
 
   return (
     <View style={[styles.app, { backgroundColor: "#0e0e12", padding: 16, paddingTop: 64 }]}>
-      <Text style={[styles.brand, { color: "#fff", marginBottom: 16 }]}>Connection</Text>
-      <Text style={{ color: "#cfcfe0", marginBottom: 6 }}>Backend URL</Text>
+      <Text style={[styles.brand, { color: "#fff", marginBottom: 16 }]}>{txt("dev.connection.title", "Connection")}</Text>
+      <Text style={{ color: "#cfcfe0", marginBottom: 6 }}>{txt("dev.connection.urlLabel", "Backend URL")}</Text>
       <TextInput
         value={loaded ? url : ""}
         onChangeText={setUrl}
         autoCapitalize="none"
         autoCorrect={false}
-        placeholder="http://10.0.2.2:8770 or https://your-vps"
+        placeholder={txt("dev.connection.urlPlaceholder", "http://10.0.2.2:8770 or https://your-vps")}
         placeholderTextColor="#8a8a96"
         style={styles.input}
       />
       <Text style={{ color: "#8a8a96", fontSize: 13, marginTop: 8 }}>
-        Emulator → your PC = http://10.0.2.2:8770. Physical phone → your PC's LAN IP, or your VPS URL.
+        {txt("dev.connection.help", "Emulator → your PC = http://10.0.2.2:8770. Physical phone → your PC's LAN IP, or your VPS URL.")}
       </Text>
       <View style={{ height: 16 }} />
       <Pressable style={[styles.btn, { backgroundColor: "#FFFFFF" }]} onPress={connect}>
-        <Text style={[styles.btnText, { color: "#000000" }]}>Connect</Text>
+        <Text style={[styles.btnText, { color: "#000000" }]}>{txt("dev.connection.connect", "Connect")}</Text>
       </Pressable>
       <View style={{ height: 8 }} />
       <Pressable style={[styles.btn, { backgroundColor: "#3a3a44" }]} onPress={test}>
-        <Text style={styles.btnText}>Test connection</Text>
+        <Text style={styles.btnText}>{txt("dev.connection.test", "Test connection")}</Text>
       </Pressable>
       {onCancel && (
         <>
           <View style={{ height: 8 }} />
           <Pressable style={[styles.btn, { backgroundColor: "transparent" }]} onPress={onCancel}>
-            <Text style={[styles.btnText, { color: "#8a8a96" }]}>Cancel</Text>
+            <Text style={[styles.btnText, { color: "#8a8a96" }]}>{txt("dev.connection.cancel", "Cancel")}</Text>
           </Pressable>
         </>
       )}
@@ -2263,7 +2337,7 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
         <>
           <View style={{ height: 24, borderBottomWidth: 1, borderBottomColor: "#2a2a36" }} />
           <Text style={{ color: "#cfcfe0", marginTop: 20, marginBottom: 6, fontWeight: "600" }}>
-            Subscription
+            {txt("dev.connection.subscription", "Subscription")}
           </Text>
           <Pressable
             style={[styles.btn, { backgroundColor: "#2a2a36" }]}
@@ -2271,12 +2345,14 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
             disabled={restoreState === "running"}
           >
             <Text style={styles.btnText}>
-              {restoreState === "running" ? "Restoring…" : "Restore Purchases"}
+              {restoreState === "running"
+                ? txt("iap.restore.running", "Restoring…")
+                : txt("iap.restore.action", "Restore Purchases")}
             </Text>
           </Pressable>
           {restoreState === "done" && (
             <Text style={{ color: "#9b9bd0", marginTop: 10, fontSize: 13 }}>
-              Restore complete. If your subscription was on this Apple ID, it's active again.
+              {txt("iap.restore.done", "Restore complete. If your subscription was on this Apple ID, it's active again.")}
             </Text>
           )}
         </>
@@ -2291,15 +2367,22 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
  * than like a thread. Derived, not typed twice: the rail sits where the icon
  * centreline sits.
  */
-const TAB_PAD_TOP = 12;
-const TAB_PAD_V = 6;
-const TAB_ICON = 26;
+// Module scope: the StyleSheet is built once, after App.tsx has pointed the
+// knobs at the last bootstrap on disk.
+const TAB_PAD_TOP = num("app.tabs.paddingTop", 12);
+const TAB_PAD_V = num("app.tabs.paddingV", 6);
+const TAB_ICON = num("app.tabs.iconSize", 26);
 const TAB_RAIL_TOP = TAB_PAD_TOP + TAB_PAD_V + (TAB_ICON - THREAD_RAIL_HEIGHT) / 2;
 
 const styles = StyleSheet.create({
   app: { flex: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  header: { flexDirection: "row", alignItems: "center", paddingTop: 56, paddingBottom: 12, paddingHorizontal: 16 },
+  header: {
+    flexDirection: "row", alignItems: "center",
+    paddingTop: num("app.header.paddingTop", 56),
+    paddingBottom: num("app.header.paddingBottom", 12),
+    paddingHorizontal: num("app.header.paddingX", 16),
+  },
   brand: { fontSize: 22, fontWeight: "800" },
   // 44 square is the target; the negative margins are what keep the chevron
   // where it was and stop the taller box growing the header row.
@@ -2316,7 +2399,7 @@ const styles = StyleSheet.create({
   chip: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
   tabUnderline: { height: 2, width: 28, borderRadius: 2, marginTop: 6 },
   loadingOverlay: { position: "absolute", top: 8, right: 16 },
-  toast: { position: "absolute", left: 16, right: 16, bottom: 76, padding: 14, borderRadius: 10 },
+  toast: { position: "absolute", left: 16, right: 16, padding: 14 },
   input: {
     backgroundColor: "#1c1c25", color: "#fff", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
     minHeight: 44, borderWidth: 1, borderColor: "#2a2a36",
