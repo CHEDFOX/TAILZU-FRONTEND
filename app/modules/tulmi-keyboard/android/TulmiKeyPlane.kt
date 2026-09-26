@@ -466,18 +466,37 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
 
     private fun armLongPress(o: Any) {
         cancelArmedLongPress()
-        val k = o as? DrawnKey ?: return
-        val action = k.onLongPress ?: return
+        val hold: Pair<Long, () -> Unit> = when (o) {
+            is DrawnKey -> {
+                val action = o.onLongPress ?: return
+                (if (o.longPressMs > 0L) o.longPressMs else LONG_PRESS_MS) to action
+            }
+            is View -> viewHolds[o] ?: return
+            else -> return
+        }
         val r = Runnable {
             armedLongPress = null
             // The key is consumed by the long-press: clear it so the lift
             // that follows does not ALSO type the character.
-            for (i in 0 until MAX_POINTERS) if (owners[i] === k) owners[i] = null
-            setPressed(k, false)
-            action()
+            for (i in 0 until MAX_POINTERS) if (owners[i] === o) owners[i] = null
+            setPressed(o, false)
+            hold.second()
         }
         armedLongPress = r
-        longPressHandler.postDelayed(r, if (k.longPressMs > 0L) k.longPressMs else LONG_PRESS_MS)
+        longPressHandler.postDelayed(r, hold.first)
+    }
+
+    /**
+     * Holds for BUILT keys. The plane commits a view key with performClick(),
+     * which never fires an OnLongClickListener — so a key whose hold means
+     * something (shift → caps lock, the tone pill → its sheet) registers it
+     * here, and keeps everything else the plane gives it: gap filling, drift
+     * tolerance, and rolling presses with the keys around it.
+     */
+    private val viewHolds = java.util.WeakHashMap<View, Pair<Long, () -> Unit>>()
+
+    fun setHold(v: View, holdMs: Long, action: () -> Unit) {
+        viewHolds[v] = holdMs.coerceAtLeast(50L) to action
     }
 
     private fun cancelArmedLongPress() {

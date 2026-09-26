@@ -61,24 +61,25 @@ class Stream(
      * over cap (iOS drops newest too), and log the first drop only so a bad
      * network doesn't flood logcat.
      */
-    private val sendCapBytes = 2 * 1024 * 1024
+    private val sendCapBytes = knobInt("kb.stream.sendCapBytes", 2097152)
     @Volatile private var dropLogged = false
 
+    /** Capture rate, told to the server in the start frame so both agree. */
+    private val sampleRate = knobInt("kb.stream.sampleRate", 16000)
+
     fun start(targetApp: String, language: String) {
-        val req = Request.Builder()
-            .url(Net.streamUrl())
-            .addHeader("Authorization", "Bearer ${Net.bearer()}")
-            .build()
+        // Token (when signed in) + the build header, like every Net call.
+        val req = Net.authorize(Request.Builder().url(Net.streamUrl())).build()
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val start = JSONObject()
                     .put("type", "start")
-                    .put("token", Net.bearer())
                     .put("targetApp", targetApp)
                     .put("language", language)
-                    .put("sampleRate", 16000)
+                    .put("sampleRate", sampleRate)
                     .put("encoding", "pcm_s16le")
                     .put("channels", 1)
+                if (Net.bearer().isNotEmpty()) start.put("token", Net.bearer())
                 webSocket.send(start.toString())
                 startCapture(webSocket)
             }
@@ -90,7 +91,7 @@ class Stream(
                 if (closed) return
                 closed = true
                 stopCapture()
-                onError(t.message ?: "stream failed")
+                onError(t.message ?: knobLabel("stream_failed", "stream failed"))
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -127,7 +128,7 @@ class Stream(
                     closed = true
                     stopCapture()
                     try { ws?.cancel() } catch (_: Exception) {}
-                    onError(o.optString("message", "stream error"))
+                    onError(o.optString("message", knobLabel("stream_error", "stream error")))
                 }
             }
         } catch (_: Exception) { /* ignore malformed frames */ }
@@ -135,27 +136,27 @@ class Stream(
 
     private fun startCapture(webSocket: WebSocket) {
         val minBuf = AudioRecord.getMinBufferSize(
-            16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufSize = maxOf(minBuf, 4096)
+        val bufSize = maxOf(minBuf, knobInt("kb.stream.minBufferBytes", 4096))
         val rec = try {
             AudioRecord(
                 // VOICE_RECOGNITION applies the OS's STT-tuned front-end
                 // (less aggressive than VOICE_COMMUNICATION's call AEC) and is
                 // the recommended source for dictation.
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                16000,
+                sampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
                 bufSize * 2,
             )
         } catch (e: SecurityException) {
-            onError("Microphone permission denied")
+            onError(knobLabel("mic_denied", "Microphone permission denied"))
             return
         }
         if (rec.state != AudioRecord.STATE_INITIALIZED) {
             rec.release()
-            onError("Mic unavailable")
+            onError(knobLabel("mic_unavailable", "Mic unavailable"))
             return
         }
         record = rec
@@ -259,9 +260,10 @@ class Stream(
         stopCapture()
         val socket = ws ?: run { finishClose(); return }
         socket.send("{\"type\":\"stop\"}")
+        // How long the server gets to flush the tail and say "done".
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try { ws?.close(1000, null) } catch (_: Exception) {}
-        }, 2500)
+        }, knobLong("kb.stream.tailWaitMs", 2500L))
     }
 
     /** Abort immediately (keyboard dismissed, error). */

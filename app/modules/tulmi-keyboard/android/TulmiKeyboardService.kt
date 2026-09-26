@@ -330,6 +330,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val typed = before.takeLastWhile { !it.isWhitespace() }
         if (typed.isEmpty()) return
+        // Only a candidate computed for exactly this word.
+        if (corrections?.topCandidateFor != typed.trim()) return
         if (!TulmiAutocorrect.accepts(typed, candidate)) return
 
         ic.deleteSurroundingText(typed.length, 0)
@@ -418,8 +420,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * config opts out of SDUI (the server's call) or nothing parses at all.
      */
     private fun pickStartupConfig(): Pair<String, KBConfig>? {
-        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
-        for (raw in listOfNotNull(prefs.getString("config_json", null), bundledConfig())) {
+        for (raw in configCandidates()) {
             if (!isUsableConfig(raw)) continue
             if (!SDUIRenderer.isSDUI(raw)) return null
             val cfg = try { SDUIRenderer.parseKBConfig(raw) } catch (_: Throwable) { continue }
@@ -428,10 +429,19 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         return null
     }
 
-    /** Parses, and is a keyboard config at all (not an error page or `{}`). */
+    /** The cached config, then the bundled one — the bundle is only read from
+     *  resources when the cache is missing or unusable. */
+    private fun configCandidates(): Sequence<String> = sequence {
+        getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE).getString("config_json", null)?.let { yield(it) }
+        bundledConfig()?.let { yield(it) }
+    }
+
+    /** Parses, and is a keyboard config at all (not an error page or `{}`).
+     *  parseKBConfig reads everything with opt*, so well-formed JSON is the
+     *  only thing it can fail on — one parse here is the whole check. */
     private fun isUsableConfig(raw: String): Boolean = try {
         val o = org.json.JSONObject(raw)
-        (o.has("root") || o.has("theme")) && run { SDUIRenderer.parseKBConfig(raw); true }
+        o.has("root") || o.has("theme")
     } catch (_: Throwable) { false }
 
     /**
@@ -587,9 +597,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         // Apply last-known config immediately so the keyboard never waits on
         // the network — the cached one when it is usable, else the bundled one.
-        listOfNotNull(prefs.getString("config_json", null), bundledConfig())
-            .firstOrNull { isUsableConfig(it) }
-            ?.let { applyRawJson(it) }
+        configCandidates().firstOrNull { isUsableConfig(it) }?.let { applyRawJson(it) }
         // Refresh in the background; cache the result for next time.
         Thread {
             try {
@@ -1533,17 +1541,29 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private fun refreshReturnKeyLabel(info: android.view.inputmethod.EditorInfo?) {
         val opts = info?.imeOptions ?: 0
         val action = opts and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
-        val fallback = when (action) {
-            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH -> "Search"
-            android.view.inputmethod.EditorInfo.IME_ACTION_SEND -> "Send"
-            android.view.inputmethod.EditorInfo.IME_ACTION_GO -> "Go"
-            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT -> "Next"
-            android.view.inputmethod.EditorInfo.IME_ACTION_DONE -> "Done"
-            else -> "Return"
+        // What Return DOES here: the field's action, unless the field says
+        // Enter must stay a newline (IME_FLAG_NO_ENTER_ACTION — every
+        // multi-line editor sets it) or has no action at all.
+        val noEnterAction = (opts and android.view.inputmethod.EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+        kbState.returnAction = when (action) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH,
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND,
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO,
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT,
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE,
+            android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> if (noEnterAction) 0 else action
+            else -> 0
         }
-        val key = "return.${fallback.lowercase()}"
-        val labelText = kbConfig?.labels?.get(key) ?: fallback
-        kbState.returnLabel = labelText
+        // …and what it SAYS: the server's label for that action.
+        kbState.returnLabel = when (kbState.returnAction) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH -> label("return.search", "Search")
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND -> label("return.send", "Send")
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO -> label("return.go", "Go")
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT -> label("return.next", "Next")
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE -> label("return.done", "Done")
+            android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> label("return.previous", "Previous")
+            else -> label("return", "return")
+        }
 
         // Does the globe key have anywhere to go?
         //
@@ -1562,11 +1582,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // Follow the system appearance. Read here rather than once at create:
         // the user can flip dark/light while the keyboard is open, and the IME
         // is not recreated for it.
-        kbState.appearance = if (
-            (resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-                android.content.res.Configuration.UI_MODE_NIGHT_YES
-        ) "dark" else "light"
+        refreshAppearance()
 
         // A field that only takes numbers gets the number pad, not QWERTY.
         //
@@ -1605,49 +1621,18 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (numericField) {
             kbState.layoutId = "num"
         } else if (kbState.layoutId == "num") {
-            kbState.layoutId = "en"
+            // Back to the server's letter layer (kb.layer.lettersId).
+            kbState.layoutId = knobString("kb.layer.lettersId", "en")
         }
 
         sduiRenderer?.stateChanged()
     }
 
     // ---------------------------------------------------------------------
-    // Gesture layer. Backspace acceleration + space cursor-drag are wired
-    // as touch listeners on whichever concrete views the renderer creates
-    // — we look them up by tag on every remount so hot-swaps of the tree
-    // don't leave stale references.
+    // Gesture layer. Space cursor-drag and accent menus for the legacy
+    // keyboard. (Backspace hold-to-repeat lives in the renderer, on the key
+    // itself, tuned by kb.delete.*.)
     // ---------------------------------------------------------------------
-
-    /** Attach hold-to-repeat + acceleration to a backspace button. */
-    fun bindBackspaceAcceleration(view: View) {
-        view.setOnTouchListener { v, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    backspaceTickIndex = 0
-                    val r = object : Runnable {
-                        override fun run() {
-                            currentInputConnection?.deleteSurroundingText(1, 0)
-                            val idx = backspaceTickIndex.coerceAtMost(backspaceTicks.lastIndex)
-                            val delay = backspaceTicks[idx]
-                            backspaceTickIndex = (backspaceTickIndex + 1).coerceAtMost(backspaceTicks.lastIndex)
-                            main.postDelayed(this, delay)
-                        }
-                    }
-                    backspaceRunnable = r
-                    main.postDelayed(r, backspaceTicks[0])
-                    false
-                }
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    backspaceRunnable?.let { main.removeCallbacks(it) }
-                    backspaceRunnable = null
-                    v.performClick()
-                    true
-                }
-                else -> false
-            }
-        }
-    }
 
     /**
      * Attach space long-press → cursor drag. During the drag the space
@@ -1761,10 +1746,15 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     private fun openAppForWords() {
         val screen = kbConfig?.quotaScreenId ?: "words_out"
-        setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."), actionable = true)
+        // kb.quota.status is the server's message for this moment; the label is
+        // the fallback when it sends none.
+        val message = knobString("kb.quota.status", "").ifBlank {
+            label("words_out_status", "Out of free words — open Tailzu to get more.")
+        }
+        setStatus(message, actionable = true)
         try {
             startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse("tulmi://screen/$screen"))
+                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(screen)))
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         } catch (t: Throwable) {

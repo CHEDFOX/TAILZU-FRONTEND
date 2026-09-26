@@ -53,11 +53,14 @@ object TulmiImageLoader {
      * an evicted image comes back without a network round trip.
      */
     private val order = java.util.Collections.synchronizedList(mutableListOf<String>())
-    private const val MEMORY_LIMIT = 12
+
+    /** How many decoded images stay in memory (kb.media.memoryLimit). */
+    private fun memoryLimit(): Int = knobInt("kb.media.memoryLimit", 12).coerceAtLeast(1)
 
     private fun remember(url: String, drawable: Drawable) {
         if (memory.put(url, drawable) == null) order.add(url)
-        while (order.size > MEMORY_LIMIT) {
+        val limit = memoryLimit()
+        while (order.size > limit) {
             val oldest = synchronized(order) { if (order.isEmpty()) null else order.removeAt(0) }
                 ?: break
             memory.remove(oldest)
@@ -156,8 +159,8 @@ object TulmiImageLoader {
     private fun downloadBytes(url: String): ByteArray? {
         return try {
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 10_000
+                connectTimeout = knobInt("kb.media.connectTimeoutMs", 5000)
+                readTimeout = knobInt("kb.media.readTimeoutMs", 10000)
             }
             conn.inputStream.use { input ->
                 val out = ByteArrayOutputStream()

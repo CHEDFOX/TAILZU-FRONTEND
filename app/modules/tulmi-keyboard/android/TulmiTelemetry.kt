@@ -53,10 +53,13 @@ object TulmiTelemetry {
 
     /** Persist at most this often. Typing bursts hundreds of events; writing
      *  each one would put a disk commit on the keystroke path. */
-    private const val PERSIST_THROTTLE_MS = 20_000L
+    private fun persistThrottleMs(): Long = knobLong("kb.telemetry.persistThrottleMs", 20000L)
     /** Don't upload more often than this — config refreshes on every keyboard
      *  open, which for a heavy user is dozens of times an hour. */
-    private const val UPLOAD_INTERVAL_MS = 30L * 60_000L
+    private fun uploadIntervalMs(): Long = knobLong("kb.telemetry.uploadIntervalMs", 1800000L)
+
+    /** The server's off switch: counting and uploading both stop. */
+    private fun enabled(): Boolean = knobBool("kb.telemetry.enabled", true)
 
     private val lock = Any()
     private val counters = HashMap<String, Int>()
@@ -85,6 +88,7 @@ object TulmiTelemetry {
 
     /** Increment one counter. The only way anything gets in here. */
     fun bump(name: String, by: Int = 1) {
+        if (!enabled()) return
         synchronized(lock) { counters[name] = (counters[name] ?: 0) + by }
     }
 
@@ -93,7 +97,7 @@ object TulmiTelemetry {
     fun persist(ctx: Context, force: Boolean = false) {
         synchronized(lock) {
             val now = System.currentTimeMillis()
-            if (!force && now - lastPersist < PERSIST_THROTTLE_MS) return
+            if (!force && now - lastPersist < persistThrottleMs()) return
             lastPersist = now
             val obj = JSONObject()
             for ((k, v) in counters) obj.put(k, v)
@@ -111,11 +115,12 @@ object TulmiTelemetry {
      * succeeded.
      */
     fun pendingUpload(ctx: Context): Pair<JSONObject, Long>? {
+        if (!enabled()) return null
         load(ctx)
         synchronized(lock) {
             val now = System.currentTimeMillis()
             val windowMs = now - windowStart
-            if (windowMs < UPLOAD_INTERVAL_MS) return null
+            if (windowMs < uploadIntervalMs()) return null
             if (counters.isEmpty()) return null
             val obj = JSONObject()
             for ((k, v) in counters) if (v > 0) obj.put(k, v)
