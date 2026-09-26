@@ -582,9 +582,8 @@ const Icon = ({ props, style }: CompProps) => {
 
 // The brand accent — the warm amber the keyboard flashes on every key press.
 // Buttons app-wide flash it on tap ("typing has our color" carried into the
-// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED. Read
-// through the ui.Button.flashColor / ui.Chip.flashColor knobs at each press.
-export const BRAND_ACCENT = "#E8A23C";
+// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED. It is the
+// ui.Button.flashColor / ui.Chip.flashColor knobs now, read at each press.
 
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
@@ -876,6 +875,13 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   });
   const wantLive = props.live === true && isStreamAvailable();
 
+  // What a failure says. The node's words first, then the ui.VoiceButton.*
+  // knobs, then these.
+  const errPermission = String(props.errorPermission ?? K.txt("ui.VoiceButton.errorPermission", "Microphone permission denied"));
+  const errMic = String(props.errorMic ?? K.txt("ui.VoiceButton.errorMic", "mic error"));
+  const errNoAudio = String(props.errorNoAudio ?? K.txt("ui.VoiceButton.errorNoAudio", "No audio captured"));
+  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceButton.errorTranscribe", "transcription failed"));
+
   // Stop the recorder + live stream on unmount if we're still recording, so a
   // tab switch / navigation / SDUI refetch mid-dictation doesn't leak the mic
   // or the streaming WebSocket. Mirrors VoiceToggle's teardown (morphControls).
@@ -895,7 +901,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        fire("onError", "Microphone permission denied");
+        fire("onError", errPermission);
         return;
       }
       const { url, token } = await api.streamConfig();
@@ -942,7 +948,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         },
       );
     } catch (e: any) {
-      fire("onError", e?.message ?? "mic error");
+      fire("onError", e?.message ?? errMic);
       endLive();
     }
   }
@@ -962,7 +968,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        fire("onError", "Microphone permission denied");
+        fire("onError", errPermission);
         return;
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
@@ -970,7 +976,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
       recorder.record();
       setRecording(true);
     } catch (e: any) {
-      fire("onError", e?.message ?? "mic error");
+      fire("onError", e?.message ?? errMic);
     }
   }
 
@@ -980,7 +986,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri) throw new Error("No audio captured");
+      if (!uri) throw new Error(errNoAudio);
       const { cleanedText } = await api.transcribeClean(uri, {
         targetApp: props.targetApp,
         language: props.language,
@@ -992,18 +998,18 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         fire("onChange", cleanedText);
       }
     } catch (e: any) {
-      fire("onError", e?.message ?? "transcription failed");
+      fire("onError", e?.message ?? errTranscribe);
     } finally {
       setBusy(false);
     }
   }
 
   const label = busy
-    ? (props.transcribingLabel ?? "Transcribing…")
+    ? (props.transcribingLabel ?? K.txt("ui.VoiceButton.transcribingLabel", "Transcribing…"))
     : recording
-    ? (props.stopLabel ?? "■ Stop & transcribe")
-    : (props.label ?? "🎙️ Record");
-  const bg = recording ? theme.color.danger : theme.color.primary;
+    ? (props.stopLabel ?? K.txt("ui.VoiceButton.stopLabel", "■ Stop & transcribe"))
+    : (props.label ?? K.txt("ui.VoiceButton.label", "🎙️ Record"));
+  const bg = recording ? (props.recordingBackground ?? theme.color.danger) : (props.background ?? theme.color.primary);
 
   const onPress = wantLive
     ? recording
@@ -1018,11 +1024,17 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
       onPress={onPress}
       disabled={busy}
       style={[
-        { backgroundColor: bg, borderRadius: theme.radius.md, paddingVertical: 13, alignItems: "center", opacity: busy ? 0.6 : 1 },
+        {
+          backgroundColor: bg,
+          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.md ?? K.num("ui.VoiceButton.radius", 13),
+          paddingVertical: Number(props.paddingVertical ?? K.num("ui.VoiceButton.paddingVertical", 13)),
+          alignItems: "center",
+          opacity: busy ? Number(props.busyOpacity ?? K.num("ui.VoiceButton.busyOpacity", 0.6)) : 1,
+        },
         style,
       ]}
     >
-      <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? "#fff" : readableOn(theme.color.primary) }]}>{label}</Text>
+      <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? String(props.recordingColor ?? K.color("ui.VoiceButton.recordingColor", "#fff")) : readableOn(String(props.background ?? theme.color.primary)) }]}>{label}</Text>
     </Pressable>
   );
 };
@@ -1038,7 +1050,7 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
  * `onSubmit` lets a tap proceed immediately (like Plutto); omit it to keep a
  * separate Continue button. Falls back to a built-in list if items is absent.
  */
-const LANG_GREETINGS_FALLBACK = [
+const langGreetingsFallback = () => K.list<{ value: string; label: string; greeting?: string }>("ui.LanguageGreetingGrid.items", [
   { value: "en", label: "English", greeting: "Hello" },
   { value: "hi", label: "Hindi", greeting: "नमस्ते" },
   { value: "hinglish", label: "Hinglish", greeting: "Namaste" },
@@ -1047,33 +1059,39 @@ const LANG_GREETINGS_FALLBACK = [
   { value: "ar", label: "Arabic", greeting: "مرحبا" },
   { value: "pt", label: "Portuguese", greeting: "Olá" },
   { value: "auto", label: "Auto-detect", greeting: "Welcome" },
-];
+]);
 
 const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
   const theme = useTheme();
   const items: Array<{ value: string; label: string; greeting?: string }> =
-    Array.isArray(props.items) && props.items.length ? props.items : LANG_GREETINGS_FALLBACK;
+    Array.isArray(props.items) && props.items.length ? props.items : langGreetingsFallback();
   const bindPath = node.bind?.value;
   const greetings = items.map((i) => i.greeting).filter(Boolean) as string[];
 
   const [gi, setGi] = useState(0);
   const fade = useRef(new Animated.Value(0)).current;
+  // The rhythm: the first fade in, each swap's fade, and how long a greeting
+  // holds — the node's props, then the ui.LanguageGreetingGrid.* knobs.
+  const enterMs = Number(props.enterMs ?? K.num("ui.LanguageGreetingGrid.enterMs", 600));
+  const swapMs = Number(props.swapMs ?? K.num("ui.LanguageGreetingGrid.swapMs", 280));
+  const intervalMs = Number(props.intervalMs ?? K.num("ui.LanguageGreetingGrid.intervalMs", 2500));
 
   useEffect(() => {
-    Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+    Animated.timing(fade, { toValue: 1, duration: enterMs, useNativeDriver: true }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fade]);
 
   useEffect(() => {
     if (greetings.length < 2) return;
     const id = setInterval(() => {
-      Animated.timing(fade, { toValue: 0, duration: 280, useNativeDriver: true }).start(({ finished }) => {
+      Animated.timing(fade, { toValue: 0, duration: swapMs, useNativeDriver: true }).start(({ finished }) => {
         if (!finished) return;
         setGi((p) => (p + 1) % greetings.length);
-        Animated.timing(fade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+        Animated.timing(fade, { toValue: 1, duration: swapMs, useNativeDriver: true }).start();
       });
-    }, 2500);
+    }, intervalMs);
     return () => clearInterval(id);
-  }, [greetings.length, fade]);
+  }, [greetings.length, fade, swapMs, intervalMs]);
 
   const select = (value: string) => {
     if (bindPath) store.set(bindPath, value);
@@ -1081,11 +1099,18 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
     fire("onSubmit", value); // backend may map → save + navigate (Plutto proceeds on tap)
   };
 
-  const white = theme.color.text ?? "rgba(255,255,255,0.96)";
-  const hair = theme.color.hairline ?? "rgba(255,255,255,0.12)";
+  const white = props.color ?? theme.color.text ?? K.color("ui.LanguageGreetingGrid.color", "rgba(255,255,255,0.96)");
+  const hair = props.pillBorderColor ?? theme.color.hairline ?? K.color("ui.LanguageGreetingGrid.pillBorderColor", "rgba(255,255,255,0.12)");
+  /** The pills — ui.LanguageGreetingGrid.pill, with the node's `pill` over it. */
+  const pill = {
+    ...K.obj("ui.LanguageGreetingGrid.pill", {
+      minWidth: 104, height: 52, radius: 26, borderWidth: 0.5, paddingHorizontal: 18, pressedOpacity: 0.55, gap: 12
+    }),
+    ...(props.pill ?? {}),
+  };
 
   return (
-    <View style={{ alignItems: "center", paddingVertical: 28 }}>
+    <View style={{ alignItems: "center", paddingVertical: Number(props.paddingVertical ?? K.num("ui.LanguageGreetingGrid.paddingVertical", 28)) }}>
       <Animated.Text
         style={[
           typeRole(theme, "greeting", {
@@ -1095,17 +1120,18 @@ const LanguageGreetingGrid = ({ node, props, store, fire }: CompProps) => {
           { color: white, opacity: fade },
         ]}
       >
-        {greetings.length ? greetings[gi % greetings.length] : "Hello"}
+        {greetings.length ? greetings[gi % greetings.length] : String(props.fallbackGreeting ?? K.txt("ui.LanguageGreetingGrid.fallbackGreeting", "Hello"))}
       </Animated.Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: Number(pill.gap) }}>
         {items.map((l) => (
           <Pressable
             key={l.value}
             onPress={() => select(l.value)}
             style={({ pressed }) => ({
-              minWidth: 104, height: 52, borderRadius: 26, borderWidth: 0.5, borderColor: hair,
-              alignItems: "center", justifyContent: "center", paddingHorizontal: 18,
-              opacity: pressed ? 0.55 : 1,
+              minWidth: Number(pill.minWidth), height: Number(pill.height), borderRadius: Number(pill.radius),
+              borderWidth: Number(pill.borderWidth), borderColor: hair,
+              alignItems: "center", justifyContent: "center", paddingHorizontal: Number(pill.paddingHorizontal),
+              opacity: pressed ? Number(pill.pressedOpacity) : 1,
             })}
           >
             <Text style={[typeRole(theme, "greetingPill", { fontSize: 15, fontWeight: "300", letterSpacing: 0.5 }), { color: white }]}>{l.label}</Text>
@@ -1146,8 +1172,14 @@ const FlipText = ({ props, style }: CompProps) => {
   const words: string[] = Array.isArray(props.words)
     ? props.words.map((w: unknown) => String(w ?? "")).filter(Boolean)
     : [];
-  const intervalMs = Number(props.intervalMs) > 0 ? Number(props.intervalMs) : 2600;
-  const flipMs = Number(props.flipMs) > 0 ? Number(props.flipMs) : 620;
+  const intervalMs = Number(props.intervalMs) > 0 ? Number(props.intervalMs) : K.num("ui.FlipText.intervalMs", 2600);
+  const flipMs = Number(props.flipMs) > 0 ? Number(props.flipMs) : K.num("ui.FlipText.flipMs", 620);
+  /** The turn's lens (lower is a stronger turn), and how far each half goes. */
+  const perspective = Number(props.perspective ?? K.num("ui.FlipText.perspective", 400));
+  const turnDeg = Number(props.turnDegrees ?? K.num("ui.FlipText.turnDegrees", 90));
+  /** The shortest half-turn, and the least gap left between two flips. */
+  const minHalfMs = K.num("ui.FlipText.minHalfMs", 80);
+  const restMs = K.num("ui.FlipText.minRestMs", 200);
 
   /**
    * HOW ONE WORD BECOMES THE NEXT — and it is the backend's call, because it
@@ -1166,7 +1198,7 @@ const FlipText = ({ props, style }: CompProps) => {
    * Defaults to fade: it is the one that is safe everywhere, and a caption
    * that quietly changes language does not need the more expensive gesture.
    */
-  const flip = String(props.flip ?? "fade").toLowerCase();
+  const flip = String(props.flip ?? K.str("ui.FlipText.flip", "fade")).toLowerCase();
 
   const [i, setI] = useState(0);
   const [flat, setFlat] = useState(false);
@@ -1182,7 +1214,7 @@ const FlipText = ({ props, style }: CompProps) => {
 
   useEffect(() => {
     if (words.length < 2) return;
-    const half = Math.max(80, flipMs / 2);
+    const half = Math.max(minHalfMs, flipMs / 2);
     const id = setInterval(() => {
       Animated.timing(turn, {
         toValue: 1,
@@ -1202,14 +1234,14 @@ const FlipText = ({ props, style }: CompProps) => {
           useNativeDriver: true,
         }).start();
       });
-    }, Math.max(intervalMs, flipMs + 200));
+    }, Math.max(intervalMs, flipMs + restMs));
     return () => clearInterval(id);
-  }, [words.length, intervalMs, flipMs, turn]);
+  }, [words.length, intervalMs, flipMs, turn, minHalfMs, restMs]);
 
   const opacity = turn.interpolate({ inputRange: [-1, 0, 1], outputRange: [0, 1, 0] });
   const rotateX = turn.interpolate({
     inputRange: [-1, 0, 1],
-    outputRange: ["90deg", "0deg", "-90deg"],
+    outputRange: [`${turnDeg}deg`, "0deg", `${-turnDeg}deg`],
   });
 
   return (
@@ -1217,7 +1249,7 @@ const FlipText = ({ props, style }: CompProps) => {
       style={[
         typeRole(theme, String(props.variant ?? "body"), legacyVariant(props.variant, theme)),
         style,
-        crossfade ? { opacity } : { opacity, transform: [{ perspective: 400 }, { rotateX }] },
+        crossfade ? { opacity } : { opacity, transform: [{ perspective }, { rotateX }] },
       ]}
       // The word is decorative motion around one piece of information; a
       // screen reader should hear the greeting once, not on every turn.
@@ -1247,15 +1279,15 @@ const Row = ({ props, style, node, fire }: CompProps) => {
     <Pressable
       onPress={() => fire("onPress")}
       onLongPress={hasLongPress ? () => fire("onLongPress") : undefined}
-      delayLongPress={Number(props.longPressMs) > 0 ? Number(props.longPressMs) : 400}
+      delayLongPress={Number(props.longPressMs) > 0 ? Number(props.longPressMs) : K.num("ui.Row.longPressMs", 400)}
       style={({ pressed }) => [
         {
           flexDirection: "row",
           alignItems: "center",
-          paddingVertical: 17,
-          borderBottomWidth: props.divider === false ? 0 : StyleSheet.hairlineWidth,
-          borderBottomColor: theme.color.border,
-          opacity: pressed ? 0.55 : 1,
+          paddingVertical: Number(props.paddingVertical ?? K.num("ui.Row.paddingVertical", 17)),
+          borderBottomWidth: props.divider === false ? 0 : Number(props.dividerWidth ?? StyleSheet.hairlineWidth),
+          borderBottomColor: props.dividerColor ?? theme.color.border,
+          opacity: pressed ? Number(props.pressedOpacity ?? K.num("ui.Row.pressedOpacity", 0.55)) : 1,
         },
         style,
       ]}
@@ -1263,8 +1295,12 @@ const Row = ({ props, style, node, fire }: CompProps) => {
       <Text style={[typeRole(theme, "row", { color: theme.color.text, fontSize: 16, fontWeight: "400" }), { flex: 1 }, danger ? { color: theme.color.danger } : null]}>
         {props.label}
       </Text>
-      {props.value ? <Text style={[typeRole(theme, "rowValue", { color: theme.color.muted, fontSize: 15 }), { marginRight: showChevron ? 8 : 0 }]}>{props.value}</Text> : null}
-      {showChevron ? <Text style={[typeRole(theme, "rowChevron", { color: theme.color.muted, fontSize: 20 }), { marginTop: -2 }]}>›</Text> : null}
+      {props.value ? <Text style={[typeRole(theme, "rowValue", { color: theme.color.muted, fontSize: 15 }), { marginRight: showChevron ? Number(props.valueGap ?? K.num("ui.Row.valueGap", 8)) : 0 }]}>{props.value}</Text> : null}
+      {showChevron ? (
+        <Text style={[typeRole(theme, "rowChevron", { color: theme.color.muted, fontSize: 20 }), { marginTop: Number(props.chevronOffset ?? K.num("ui.Row.chevronOffset", -2)) }]}>
+          {String(props.chevronGlyph ?? K.txt("ui.Row.chevron", "›"))}
+        </Text>
+      ) : null}
     </Pressable>
   );
 };
@@ -1280,8 +1316,20 @@ const Pager = ({ children, props }: CompProps) => {
   const ref = useRef<ScrollView>(null);
   const [idx, setIdx] = useState(0);
   const pages = React.Children.toArray(children);
-  const hint = props.hint !== false && pages.length > 1;
-  const peek = Number(props.peek) || 42;
+  const hint = (props.hint !== undefined ? props.hint !== false : K.bool("ui.Pager.hint", true)) && pages.length > 1;
+  const peek = Number(props.peek) || K.num("ui.Pager.peek", 42);
+  /** The nudge: out on one spring, home on a softer one, a beat after arrival. */
+  const nudgeLook = {
+    ...K.obj("ui.Pager.nudge", { outFriction: 6, outTension: 70, backFriction: 7, backTension: 55, delayMs: 650 }),
+    ...(props.nudge ?? {}),
+  };
+  const nudgeRef = useRef(nudgeLook);
+  nudgeRef.current = nudgeLook;
+  /** The page dots — ui.Pager.dots, with the node's `dots` over it. */
+  const dots = {
+    ...K.obj("ui.Pager.dots", { active: "#fff", idle: "rgba(255,255,255,0.28)", size: 6, radius: 3, gap: 7, bottom: 12 }),
+    ...(props.dots ?? {}),
+  };
   // A real spring-driven nudge (not a flat scroll): the page physically slides a
   // little to reveal the next section, then settles back with a soft bounce —
   // so the swipe is discoverable. Drives the ScrollView offset via a listener.
@@ -1290,12 +1338,13 @@ const Pager = ({ children, props }: CompProps) => {
   useEffect(() => {
     if (!hint) return;
     const sub = nudge.addListener(({ value }) => ref.current?.scrollTo({ x: value, animated: false }));
+    const n = nudgeRef.current;
     const t = setTimeout(() => {
       Animated.sequence([
-        Animated.spring(nudge, { toValue: peek, friction: 6, tension: 70, useNativeDriver: false }),
-        Animated.spring(nudge, { toValue: 0, friction: 7, tension: 55, useNativeDriver: false }),
+        Animated.spring(nudge, { toValue: peek, friction: Number(n.outFriction), tension: Number(n.outTension), useNativeDriver: false }),
+        Animated.spring(nudge, { toValue: 0, friction: Number(n.backFriction), tension: Number(n.backTension), useNativeDriver: false }),
       ]).start(() => nudge.removeListener(sub));
-    }, 650);
+    }, Number(n.delayMs));
     return () => { clearTimeout(t); nudge.removeListener(sub); };
   }, [hint, peek, nudge]);
 
@@ -1314,9 +1363,12 @@ const Pager = ({ children, props }: CompProps) => {
         ))}
       </ScrollView>
       {pages.length > 1 && (
-        <View style={styles_dots.row} pointerEvents="none">
+        <View style={[styles_dots.row, { bottom: Number(dots.bottom), gap: Number(dots.gap) }]} pointerEvents="none">
           {pages.map((_, i) => (
-            <View key={i} style={[styles_dots.dot, { backgroundColor: i === idx ? "#fff" : "rgba(255,255,255,0.28)" }]} />
+            <View key={i} style={{
+              width: Number(dots.size), height: Number(dots.size), borderRadius: Number(dots.radius),
+              backgroundColor: String(i === idx ? dots.active : dots.idle),
+            }} />
           ))}
         </View>
       )}
@@ -1325,8 +1377,7 @@ const Pager = ({ children, props }: CompProps) => {
 };
 
 const styles_dots = {
-  row: { position: "absolute" as const, bottom: 12, left: 0, right: 0, flexDirection: "row" as const, justifyContent: "center" as const, gap: 7 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
+  row: { position: "absolute" as const, left: 0, right: 0, flexDirection: "row" as const, justifyContent: "center" as const },
 };
 
 import { REGISTRY_V3 } from "./componentsV3";
@@ -1348,7 +1399,13 @@ import { NeuralField } from "./NeuralField";
 import { AuroraOrb } from "./AuroraOrb";
 import { PieChart } from "./PieChart";
 
+// V3 FIRST, so every name registered below wins a collision. The one that
+// mattered is PieChart: V3's donut (which reads `data`) used to be spread LAST
+// and shadowed ./PieChart (which reads the `slices` the catalog sends), so
+// every Stats ring drew empty. V3's is registered only as DonutChart now; the
+// order is the belt to that brace.
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
+  ...REGISTRY_V3,
   Screen, Stack, Spacer, Text: TextC, Image: ImageC, Icon, Button,
   TextField, Chip, Card, Divider, ProgressBar, List: ListPlaceholder, VoiceButton,
   Overline, Heading, Paragraph, Quote, Badge, KeyValue, Hero,
@@ -1357,5 +1414,4 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
-  ...REGISTRY_V3,
 };

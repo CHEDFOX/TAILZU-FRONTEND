@@ -37,6 +37,7 @@ import { registerForPushToken } from "../notifications/push";
 import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession, endFlowSession } from "../../modules/tulmi-bridge";
 import { getSupabaseAccessToken } from "../auth/supabaseClient";
 import { setLanguage, getBaseUrl, getLanguage } from "../storage";
+import { flowArmOptions } from "../widgets/flow";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -719,7 +720,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         getSupabaseAccessToken(),
         getLanguage(),
       ]);
-      armFlowSession(base, tok ?? "dev", lang || "auto", idleTimeoutMs, action.oneShot === true);
+      // No session, no token: the native side skips auth rather than sending
+      // a made-up one. The session's timings are the server's (flowArmOptions).
+      armFlowSession(base, tok ?? "", lang || "auto", idleTimeoutMs, action.oneShot === true, flowArmOptions());
       await runAction(action.onSuccess, ctx);
       break;
     }
