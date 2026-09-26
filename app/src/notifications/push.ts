@@ -77,9 +77,37 @@ export async function registerForPushToken(): Promise<string | null> {
   }
 }
 
-/** Handler for when the user taps a notification. Called once wired in SduiApp. */
+// Taps already acted on, so the launch tap and the listener never both open it.
+const handledTaps = new Set<string>();
+
+function onTap(res: Notifications.NotificationResponse, handler: (data: any) => void) {
+  const id = res?.notification?.request?.identifier;
+  if (id) {
+    if (handledTaps.has(id)) return;
+    handledTaps.add(id);
+  }
+  handler(res?.notification?.request?.content?.data ?? {});
+}
+
+/**
+ * Handler for when the user taps a notification. Called once wired in SduiApp.
+ *
+ * A tap that launches the app from closed can be delivered before this
+ * listener exists, so the launch tap is also asked for once, and cleared so a
+ * reload does not open it again. The push's data becomes the screen's params,
+ * which is how the server learns the push was answered (data.pushId).
+ */
 export function addNotificationResponseListener(handler: (data: any) => void) {
-  return Notifications.addNotificationResponseReceivedListener((res) => {
-    try { handler(res.notification.request.content.data ?? {}); } catch { /* no-op */ }
+  const sub = Notifications.addNotificationResponseReceivedListener((res) => {
+    try { onTap(res, handler); } catch { /* no-op */ }
   });
+  Notifications.getLastNotificationResponseAsync()
+    .then((res) => {
+      if (!res) return;
+      try { onTap(res, handler); } catch { /* no-op */ }
+      void (Notifications as unknown as { clearLastNotificationResponseAsync?: () => Promise<void> })
+        .clearLastNotificationResponseAsync?.()?.catch?.(() => {});
+    })
+    .catch(() => { /* no launch tap */ });
+  return sub;
 }
