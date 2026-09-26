@@ -54,8 +54,9 @@ object TulmiImageLoader {
      */
     private val order = java.util.Collections.synchronizedList(mutableListOf<String>())
 
-    /** How many decoded images stay in memory (kb.media.memoryLimit). */
-    private fun memoryLimit(): Int = knobInt("kb.media.memoryLimit", 12).coerceAtLeast(1)
+    /** How many decoded images stay in memory — the server's number, the one
+     *  iOS reads (kb.images.memoryCap); 12 until a config says otherwise. */
+    private fun memoryLimit(): Int = knobInt("kb.images.memoryCap", 12).coerceAtLeast(0)
 
     private fun remember(url: String, drawable: Drawable) {
         if (memory.put(url, drawable) == null) order.add(url)
@@ -158,10 +159,26 @@ object TulmiImageLoader {
 
     private fun downloadBytes(url: String): ByteArray? {
         return try {
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = knobInt("kb.media.connectTimeoutMs", 5000)
-                readTimeout = knobInt("kb.media.readTimeoutMs", 10000)
-            }
+            // A GET, so it takes the backend client's retry policy
+            // (kb.network.retries — none by default, the single attempt this
+            // always made). This runs on the io pool, never the main thread.
+            val (code, bytes) = Net.getWithRetry { downloadOnce(url) }
+            if (code in 200..299) bytes else null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** One attempt: the status, and the body when it succeeded. Throws an
+     *  IOException when there was no answer at all, so it can be retried. */
+    private fun downloadOnce(url: String): Pair<Int, ByteArray?> {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = knobInt("kb.media.connectTimeoutMs", 5000)
+            readTimeout = knobInt("kb.media.readTimeoutMs", 10000)
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) return code to null
             conn.inputStream.use { input ->
                 val out = ByteArrayOutputStream()
                 val buf = ByteArray(16 * 1024)
@@ -170,20 +187,46 @@ object TulmiImageLoader {
                     if (n <= 0) break
                     out.write(buf, 0, n)
                 }
-                out.toByteArray()
+                return code to out.toByteArray()
             }
-        } catch (_: Throwable) {
-            null
+        } finally {
+            conn.disconnect()
         }
     }
 
-    private fun decode(context: Context, bytes: ByteArray): Drawable? {
+    /**
+     * Longest edge any decoded image is scaled down to, in px: the server's
+     * number in dp (kb.images.maxEdgePx, the iOS knob, which iOS multiplies by
+     * the screen scale the same way), 256 until a config says otherwise and
+     * never above 2048. The mic art is the largest thing drawn from here and
+     * is far smaller; a full-size frame of an animation is megabytes the IME
+     * would hold for nothing.
+     */
+    private fun maxEdgePx(context: Context): Int {
+        val v = knobFloat("kb.images.maxEdgePx", 256f)
+        val edge = if (v > 0f) v.coerceAtMost(2048f) else 256f
+        return Math.round(edge * context.resources.displayMetrics.density).coerceAtLeast(1)
+    }
+
+    private fun decode(context: Context, raw: ByteArray): Drawable? {
+        val bytes = withFrameDelays(raw)
         // SDK 28+: ImageDecoder handles GIF + APNG natively, returning
         // AnimatedImageDrawable which starts + loops on its own once shown.
         if (Build.VERSION.SDK_INT >= 28) {
             return try {
                 val src = ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))
-                ImageDecoder.decodeDrawable(src)
+                val max = maxEdgePx(context)
+                ImageDecoder.decodeDrawable(src) { decoder, info, _ ->
+                    // Scaled while decoding, every frame of an animation too, so
+                    // the full-size image is never held at all.
+                    val w = info.size.width
+                    val h = info.size.height
+                    val long = maxOf(w, h)
+                    if (long > max) {
+                        val s = max.toFloat() / long
+                        decoder.setTargetSize(Math.round(w * s).coerceAtLeast(1), Math.round(h * s).coerceAtLeast(1))
+                    }
+                }
             } catch (_: Throwable) {
                 // Fall through to static decode.
                 staticBitmap(context, bytes)
@@ -198,8 +241,118 @@ object TulmiImageLoader {
     }
 
     private fun staticBitmap(context: Context, bytes: ByteArray): Drawable? {
-        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        return BitmapDrawable(context.resources, bmp)
+        // Same ceiling as the animated path: sample down by powers of two while
+        // decoding, then scale the rest of the way.
+        val max = maxEdgePx(context)
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val srcLong = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (srcLong / (sample * 2) >= max) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
+        val long = maxOf(bmp.width, bmp.height)
+        val out = if (long > max) {
+            val s = max.toFloat() / long
+            android.graphics.Bitmap.createScaledBitmap(
+                bmp, Math.round(bmp.width * s).coerceAtLeast(1), Math.round(bmp.height * s).coerceAtLeast(1), true,
+            )
+        } else bmp
+        return BitmapDrawable(context.resources, out)
+    }
+
+    // -- Frame delays -------------------------------------------------------
+
+    /**
+     * A frame whose file gives it no delay (0) plays for
+     * kb.images.fallbackFrameDelaySec instead — 100ms until a config arrives,
+     * which is what iOS gives it and how browsers play an "instant" gif — rather
+     * than for however long this device's decoder decides. Android's decoders
+     * take no default, so the number is written into a copy of the file before
+     * it is decoded. Only GIF and APNG carry per-frame delays; anything else,
+     * or a file this cannot walk, is decoded exactly as it came.
+     */
+    private fun withFrameDelays(bytes: ByteArray): ByteArray = try {
+        val v = knobFloat("kb.images.fallbackFrameDelaySec", 0.1f)
+        val sec = if (v > 0f) v else 0.1f
+        when {
+            bytes.size >= 13 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() ->
+                gifDelays(bytes, Math.round(sec * 100f).coerceIn(1, 65535))
+            bytes.size >= 8 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() && bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte() ->
+                apngDelays(bytes, Math.round(sec * 1000f).coerceIn(1, 65535))
+            else -> bytes
+        }
+    } catch (_: Throwable) { bytes }
+
+    /** GIF: every Graphic Control Extension with a zero delay gets [centis]. */
+    private fun gifDelays(src: ByteArray, centis: Int): ByteArray {
+        val b = src.copyOf()
+        fun u8(i: Int) = b[i].toInt() and 0xff
+        // Sub-blocks run until a zero-length one; returns the index after it.
+        fun skipBlocks(start: Int): Int {
+            var j = start
+            while (j < b.size) {
+                val n = u8(j)
+                j += 1
+                if (n == 0) return j
+                j += n
+            }
+            return b.size
+        }
+        var i = 13
+        if (u8(10) and 0x80 != 0) i += 3 * (1 shl ((u8(10) and 7) + 1))
+        var changed = false
+        while (i + 1 < b.size) {
+            when (u8(i)) {
+                0x21 -> {
+                    if (u8(i + 1) == 0xF9 && i + 5 < b.size && u8(i + 2) == 4 && u8(i + 4) == 0 && u8(i + 5) == 0) {
+                        b[i + 4] = (centis and 0xff).toByte()
+                        b[i + 5] = (centis shr 8).toByte()
+                        changed = true
+                    }
+                    i = skipBlocks(i + 2)
+                }
+                0x2C -> {
+                    if (i + 9 >= b.size) break
+                    val packed = u8(i + 9)
+                    i += 10
+                    if (packed and 0x80 != 0) i += 3 * (1 shl ((packed and 7) + 1))
+                    i = skipBlocks(i + 1) // past the LZW code size, then the data
+                }
+                else -> break // the trailer, or bytes this does not understand
+            }
+        }
+        return if (changed) b else src
+    }
+
+    /** APNG: every fcTL chunk with a zero delay_num gets [ms]/1000, CRC redone. */
+    private fun apngDelays(src: ByteArray, ms: Int): ByteArray {
+        val b = src.copyOf()
+        fun u32(i: Int) = ((b[i].toInt() and 0xff) shl 24) or ((b[i + 1].toInt() and 0xff) shl 16) or
+            ((b[i + 2].toInt() and 0xff) shl 8) or (b[i + 3].toInt() and 0xff)
+        var i = 8
+        var changed = false
+        while (i + 12 <= b.size) {
+            val len = u32(i)
+            if (len < 0 || i + 12 + len > b.size) break
+            val type = String(b, i + 4, 4, Charsets.US_ASCII)
+            val data = i + 8
+            if (type == "fcTL" && len >= 26 && b[data + 20].toInt() == 0 && b[data + 21].toInt() == 0) {
+                b[data + 20] = (ms shr 8).toByte()
+                b[data + 21] = (ms and 0xff).toByte()
+                b[data + 22] = (1000 shr 8).toByte()
+                b[data + 23] = (1000 and 0xff).toByte()
+                val crc = CRC32().apply { update(b, i + 4, 4 + len) }.value
+                b[data + len] = (crc shr 24).toByte()
+                b[data + len + 1] = (crc shr 16).toByte()
+                b[data + len + 2] = (crc shr 8).toByte()
+                b[data + len + 3] = crc.toByte()
+                changed = true
+            }
+            if (type == "IEND") break
+            i = data + len + 4
+        }
+        return if (changed) b else src
     }
 
     // -- Disk cache ---------------------------------------------------------
@@ -215,10 +368,17 @@ object TulmiImageLoader {
         return File(cacheDir(context), "$crc.bin")
     }
 
+    /** A cached file older than kb.images.maxAgeSec is dropped and fetched
+     *  again. 0 (the default) = never expire, which is how this always behaved. */
     private fun readDisk(context: Context, url: String): Drawable? {
         return try {
             val f = cacheFile(context, url)
             if (!f.exists()) return null
+            val maxAge = knobFloat("kb.images.maxAgeSec", 0f)
+            if (maxAge > 0f && System.currentTimeMillis() - f.lastModified() > maxAge.toDouble() * 1000.0) {
+                f.delete()
+                return null
+            }
             val bytes = f.readBytes()
             decode(context, bytes)
         } catch (_: Throwable) {

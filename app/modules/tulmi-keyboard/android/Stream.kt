@@ -68,8 +68,15 @@ class Stream(
     private val sampleRate = knobInt("kb.stream.sampleRate", 16000)
 
     fun start(targetApp: String, language: String) {
-        // Token (when signed in) + the build header, like every Net call.
-        val req = Net.authorize(Request.Builder().url(Net.streamUrl())).build()
+        // Token (when signed in) + the build header, like every Net call. A base
+        // URL OkHttp cannot parse is a failed stream, not a crash of the IME.
+        val req = try {
+            Net.authorize(Request.Builder().url(Net.streamUrl())).build()
+        } catch (e: IllegalArgumentException) {
+            closed = true
+            onError(knobLabel("stream_failed", "stream failed"))
+            return
+        }
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val start = JSONObject()
@@ -138,7 +145,12 @@ class Stream(
         val minBuf = AudioRecord.getMinBufferSize(
             sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufSize = maxOf(minBuf, knobInt("kb.stream.minBufferBytes", 4096))
+        // Frames per read — the server's (kb.stream.tapFrames), the same number
+        // iOS hands its input tap. 16-bit mono is two bytes a frame, so the
+        // default 2048 is the 4096-byte read this always did. Capped: the
+        // buffer is allocated from it, and a console typo must not be an OOM.
+        val tapBytes = knobInt("kb.stream.tapFrames", 2048).coerceIn(1, 65536) * 2
+        val bufSize = maxOf(minBuf, tapBytes)
         val rec = try {
             AudioRecord(
                 // VOICE_RECOGNITION applies the OS's STT-tuned front-end
@@ -163,8 +175,10 @@ class Stream(
         // Attach OS noise-suppression / echo-cancel / AGC to this capture
         // session. AudioRecord exposes a real session id (MediaRecorder does
         // not), so effects actually bind here. Each is guarded by isAvailable()
-        // inside the helper; released in stopCapture().
-        audioFx = try { TulmiAudioFx.attach(rec.audioSessionId) } catch (_: Throwable) { null }
+        // inside the helper; released in stopCapture(). kb.audio.voiceProcessing
+        // off leaves the input raw, as iOS then skips its voice-processing unit.
+        audioFx = if (!TulmiAudioFx.voiceProcessing()) null
+            else try { TulmiAudioFx.attach(rec.audioSessionId) } catch (_: Throwable) { null }
         capturing = true
         rec.startRecording()
         captureThread = thread(name = "tulmi-mic") {
@@ -260,10 +274,11 @@ class Stream(
         stopCapture()
         val socket = ws ?: run { finishClose(); return }
         socket.send("{\"type\":\"stop\"}")
-        // How long the server gets to flush the tail and say "done".
+        // How long the server gets to flush the tail and say "done"
+        // (kb.stream.finishTimeoutMs, the watchdog iOS arms for the same wait).
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try { ws?.close(1000, null) } catch (_: Exception) {}
-        }, knobLong("kb.stream.tailWaitMs", 2500L))
+        }, knobLong("kb.stream.finishTimeoutMs", 2500L))
     }
 
     /** Abort immediately (keyboard dismissed, error). */

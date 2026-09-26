@@ -109,6 +109,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         const val CODE_SPACE = 32
         const val CODE_MIC = -100
         const val CODE_REFINE = -101
+        /** Hand-built keyboard: letters ↔ numbers, and numbers ↔ symbols. */
+        const val CODE_PAGE = -2
+        const val CODE_SYMBOLS = -3
+        private const val PAGE_LETTERS = 0
+        private const val PAGE_NUMBERS = 1
+        private const val PAGE_SYMBOLS = 2
     }
 
     /** Fills the suggestion bar. Null when the device has no spell checker. */
@@ -478,6 +484,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         sduiActive = true
         // Knobs and the tone pick see this config before the first frame draws.
         KbKnobs.update(rawJson)
+        appliedConfigJson = rawJson
         sduiConfig = cfg
         TulmiTone.sync(this, cfg.flags)
         try {
@@ -508,6 +515,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         statusView = root.findViewById(resources.getIdentifier("status", "id", packageName))
         val kb = Keyboard(this, resources.getIdentifier("qwerty", "xml", packageName))
         keyboard = kb
+        legacyPage = PAGE_LETTERS
+        labelLegacyKeys(kb)
         kv.keyboard = kb
         kv.setOnKeyboardActionListener(this)
         rootView = root
@@ -523,6 +532,47 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
         loadAndApplyConfig()
         return root
+    }
+
+    // --- pages (legacy XML keyboard) -----------------------------------------
+    //
+    // Letters, numbers and symbols, as on the iOS hand-built keyboard. The page
+    // keys and the space bar say what the server's labels say (legacy_*), so
+    // they can be translated or renamed without a build.
+
+    private var legacyPage = PAGE_LETTERS
+
+    private fun showLegacyPage(page: Int) {
+        val kv = keyboardView ?: return
+        val name = when (page) {
+            PAGE_NUMBERS -> "legacy_numbers"
+            PAGE_SYMBOLS -> "legacy_symbols"
+            else -> "qwerty"
+        }
+        val id = resources.getIdentifier(name, "xml", packageName)
+        if (id == 0) return
+        val kb = try { Keyboard(this, id) } catch (_: Throwable) { return }
+        legacyPage = page
+        kb.isShifted = caps && page == PAGE_LETTERS
+        labelLegacyKeys(kb)
+        keyboard = kb
+        kv.keyboard = kb
+    }
+
+    /** The server's words on the page keys and the space bar; every other key
+     *  without a label shows the character it types. */
+    private fun labelLegacyKeys(kb: Keyboard) {
+        for (k in kb.keys) {
+            val code = k.codes?.firstOrNull() ?: continue
+            when {
+                code == CODE_PAGE -> k.label =
+                    if (legacyPage == PAGE_LETTERS) label("legacy_numbers", "123") else label("legacy_letters", "ABC")
+                code == CODE_SYMBOLS -> k.label =
+                    if (legacyPage == PAGE_SYMBOLS) label("legacy_numbers", "123") else label("legacy_symbols", "#+=")
+                code == CODE_SPACE -> k.label = label("legacy_space", "Tailzu")
+                code > 32 && k.label == null && k.icon == null -> k.label = String(Character.toChars(code))
+            }
+        }
     }
 
     // --- tone pill / command palette (legacy XML keyboard) ------------------
@@ -541,9 +591,26 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     /** The flags of the last config applied, whichever keyboard is showing. */
     private fun flags(): Map<String, Any?> = sduiConfig?.flags ?: emptyMap()
 
+    /**
+     * The hand-built pill's own tones, for when the server sends no voices or
+     * tones: kb.legacy.tones, starting on kb.legacy.defaultTone — what the iOS
+     * hand-built keyboard's pill offers. As there, a pick here only changes
+     * what the pill says; refine goes by the server's saved tone.
+     */
+    private var legacyTone: String? = null
+
+    private fun legacyTones(): List<String> =
+        knobStrings("kb.legacy.tones", listOf("Formal", "Casual", "Very Casual", "Excited"))
+
+    /** What the hand-built pill says: the server's voice or tone, else the
+     *  legacy tone, else the tone_pill label. */
+    private fun legacyPillText(): String = TulmiTone.label(this, flags()).ifEmpty {
+        (legacyTone ?: knobString("kb.legacy.defaultTone", "Formal")).ifEmpty { label("tone_pill", "Tone") }
+    }
+
     private fun setupTonePill() {
         val pill = tonePill ?: return
-        pill.text = TulmiTone.label(this, flags()).ifEmpty { label("tone_pill", "Tone") }
+        pill.text = legacyPillText()
         // Rounded background built at runtime so we don't need a new drawable
         // resource file. Corner radius = half the pill height for a full pill.
         val bg = GradientDrawable().apply {
@@ -566,7 +633,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         items.forEachIndexed { i, t ->
             menu.add(0, i + 1, i, if (t == current) "${t.label} \u2713" else t.label)
         }
-        val base = items.size
+        // No voices or tones from the server: the legacy tones take their place.
+        val legacy = if (items.isEmpty()) legacyTones() else emptyList()
+        val shown = legacyPillText()
+        legacy.forEachIndexed { i, t ->
+            menu.add(0, i + 1, i, if (t == shown) "$t \u2713" else t)
+        }
+        val base = items.size + legacy.size
         val emojiLabel = if (emojiOn) label("tone_menu_emoji_on", "Emoji: On \u2713") else label("tone_menu_emoji_off", "Emoji: Off")
         menu.add(0, base + 1, base, emojiLabel)
         menu.add(0, base + 2, base + 1, label("tone_menu_shorter", "Shorter"))
@@ -576,8 +649,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             val id = item.itemId
             when {
                 id in 1..base -> {
-                    TulmiTone.select(this, flags(), items[id - 1])
-                    tonePill?.text = TulmiTone.label(this, flags())
+                    if (legacy.isNotEmpty()) {
+                        legacyTone = legacy[id - 1]
+                    } else {
+                        TulmiTone.select(this, flags(), items[id - 1])
+                    }
+                    tonePill?.text = legacyPillText()
                 }
                 id == base + 1 -> {
                     emojiOn = !emojiOn
@@ -615,33 +692,74 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     // --- server-driven config (theme/labels/flags), cached for offline -------
 
     private fun loadAndApplyConfig() {
-        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         // Apply last-known config immediately so the keyboard never waits on
         // the network — the cached one when it is usable, else the bundled one.
         configCandidates().firstOrNull { parsedKeyboard(it) != null }?.let { applyRawJson(it) }
-        // Refresh in the background; cache the result for next time.
-        Thread {
-            try {
-                val json = Net.getKeyboardConfigJson()
-                // Only a config that draws the keyboard replaces the last good
-                // one. A truncated body or a proxy's error page used to be
-                // cached as is, and every open after that fell back to the
-                // legacy layout.
-                if (parsedKeyboard(json) != null) {
-                    prefs.edit().putString("config_json", json).apply()
-                    main.post { applyRawJson(json) }
+        refreshConfig()
+    }
+
+    /** The raw config last applied, so a refetch of the same bytes is a no-op
+     *  rather than a rebuild of the whole keyboard on every open. */
+    @Volatile private var appliedConfigJson: String? = null
+
+    /** When the last refresh started (elapsedRealtime), and whether one is out. */
+    private var lastConfigFetchAt = 0L
+    private val configFetching = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Fetch the latest config in the background and apply it live.
+     *
+     * Runs when the view is built AND every time the keyboard is shown, as iOS
+     * does on every appearance, so a backend change lands the next time the
+     * keyboard comes up — not whenever the system happens to recreate the IME.
+     * kb.config.minRefetchMs (3s) keeps an open that fires both paths to one
+     * request; clamped to an hour, so a typo cannot stop the keyboard ever
+     * fetching again. Never on the main thread, and never more than one at a
+     * time: a slow network is a stale config, not a stuck keyboard.
+     */
+    private fun refreshConfig() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val minGap = knobLong("kb.config.minRefetchMs", 3000L).coerceIn(0L, 3_600_000L)
+        if (lastConfigFetchAt != 0L && now - lastConfigFetchAt <= minGap) return
+        if (!configFetching.compareAndSet(false, true)) return
+        lastConfigFetchAt = now
+        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        try {
+            Thread {
+                try {
+                    try {
+                        val json = Net.getKeyboardConfigJson()
+                        // Only a config that draws the keyboard replaces the last
+                        // good one. A truncated body or a proxy's error page used
+                        // to be cached as is, and every open after that fell back
+                        // to the legacy layout. The same bytes again change nothing.
+                        if (json != appliedConfigJson && parsedKeyboard(json) != null) {
+                            prefs.edit().putString("config_json", json).apply()
+                            main.post { applyRawJson(json) }
+                        }
+                    } catch (_: Exception) { /* offline → keep cached/defaults */ }
+                    // Piggyback the batch on the trip we were already making.
+                    // Counters are cleared only once the POST succeeded, so a
+                    // failed upload costs a window's delay rather than the data.
+                    try {
+                        TulmiTelemetry.pendingUpload(this)?.let { (counters, windowMs) ->
+                            Net.postTelemetry(counters, windowMs, SDUIRenderer.BUILD_STAMP)
+                            TulmiTelemetry.commitUpload(this, counters)
+                        }
+                    } catch (_: Exception) { /* keep the counters for the next window */ }
+                } finally {
+                    configFetching.set(false)
                 }
-            } catch (_: Exception) { /* offline → keep cached/defaults */ }
-            // Piggyback the batch on the trip we were already making. Counters
-            // are cleared only once the POST succeeded, so a failed upload
-            // costs a window's delay rather than the data.
-            try {
-                TulmiTelemetry.pendingUpload(this)?.let { (counters, windowMs) ->
-                    Net.postTelemetry(counters, windowMs, SDUIRenderer.BUILD_STAMP)
-                    TulmiTelemetry.commitUpload(this, counters)
-                }
-            } catch (_: Exception) { /* keep the counters for the next window */ }
-        }.start()
+            }.start()
+        } catch (_: Throwable) {
+            // No thread to be had: the next show tries again.
+            configFetching.set(false)
+        }
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+        refreshConfig()
     }
 
     /**
@@ -660,6 +778,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         } ?: return
         // Every non-renderer file reads its server values through KbKnobs.
         KbKnobs.update(json)
+        appliedConfigJson = json
         // Parsed first, so applyConfig below reads THIS config's flags rather
         // than the previous one's.
         sduiConfig = parsed
@@ -675,7 +794,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 android.util.Log.w("SDUI", "config apply failed: ${t.message}")
             }
         } else {
-            tonePill?.text = TulmiTone.label(this, parsed.flags).ifEmpty { label("tone_pill", "Tone") }
+            tonePill?.text = legacyPillText()
         }
     }
 
@@ -704,6 +823,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // fallback views — skip the legacy color-apply and let the SDUI path
         // pick up the fresh JSON (see applyRawJson below).
         if (sduiActive) return
+        // The page keys and the space bar take this config's labels.
+        keyboard?.let { labelLegacyKeys(it); keyboardView?.invalidateAllKeys() }
         try {
             val bg = Color.parseColor(cfg.background)
             rootView?.setBackgroundColor(bg)
@@ -759,6 +880,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 sduiRenderer?.stateChanged()
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
+            CODE_PAGE -> showLegacyPage(if (legacyPage == PAGE_LETTERS) PAGE_NUMBERS else PAGE_LETTERS)
+            CODE_SYMBOLS -> showLegacyPage(if (legacyPage == PAGE_SYMBOLS) PAGE_NUMBERS else PAGE_SYMBOLS)
             CODE_SPACE -> {
                 if (!expandAtBoundary()) autocorrectAtBoundary()
                 ic.commitText(" ", 1)
@@ -817,16 +940,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             == PackageManager.PERMISSION_GRANTED
         ) return true
         setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true, blocking = true)
-        try {
-            startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(knobString("kb.mic.permissionScreenId", "onboarding"))))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        } catch (t: Throwable) {
-            // Nothing else to try. The keyboard stays usable for typing, which
-            // is the right failure: a keyboard that cannot dictate is still a
-            // keyboard.
-        }
+        // If nothing opens there is nothing else to try. The keyboard stays
+        // usable for typing, which is the right failure: a keyboard that cannot
+        // dictate is still a keyboard.
+        TulmiLinks.openOwn(this, TulmiLinks.appUrl(knobString("kb.mic.permissionScreenId", "onboarding")))
         return false
     }
 
@@ -845,6 +962,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         kbState.dictating = true
         sduiRenderer?.stateChanged()
         setStatus(label("listening", "Listening…"))
+        holdAudioFocus()
         val target = targetAppName()
         stream = Stream(
             onReady = { main.post { setStatus(label("listening", "Listening…")) } },
@@ -863,6 +981,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 // user to reopen the app (which re-shares a fresh one).
                 if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
                     setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true, blocking = true)
+                else if (!dictatedSomething && pendingPartial.isEmpty())
+                    // The stream was lost before a single word landed — iOS
+                    // points at the app here. Opening it re-shares the backend
+                    // URL and a fresh token, the usual reasons a stream will
+                    // not come up at all.
+                    setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable = true)
                 else
                     setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
                 endStreaming()
@@ -927,9 +1051,6 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     /** How much of the draft before the caret refine is given as context. */
     private fun refineContextChars(): Int = knobInt("kb.refine.contextChars", 4000).coerceAtLeast(0)
 
-    /** An app screen as a deep link: kb.deeplink.base + the screen id. */
-    private fun deepLink(screenId: String): String = knobString("kb.deeplink.base", "tulmi://screen/") + screenId
-
     /**
      * Commit a finalized segment (keep it) and reset the interim tracker.
      *
@@ -992,11 +1113,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         finishing = true
         setStatus(label("finishing", "Finishing…"))
         s.finish()
+        // The mic is closed now; other apps' audio need not wait for the tail.
+        releaseAudioFocus()
     }
 
     private fun endStreaming() {
         finishing = false
         streaming = false
+        releaseAudioFocus()
         // Terminal path: cancel the stream so the mic/socket/capture thread are
         // released here too (the error path used to just null the ref, leaving
         // the mic hot until the IME died). cancel() is idempotent + safe on an
@@ -1065,8 +1189,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             // VOICE_COMMUNICATION activates the OS voice-processing pipeline
             // (AEC + NS + AGC where the vendor implements it) — matches the
             // iOS AVAudioSession .voiceChat mode, which is what makes the
-            // background-voice + hiss rejection possible.
-            rec.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            // background-voice + hiss rejection possible. kb.audio.voiceProcessing
+            // off asks for the plain speech source instead, as iOS then drops
+            // .voiceChat for the default mode.
+            val processed = TulmiAudioFx.voiceProcessing()
+            rec.setAudioSource(
+                if (processed) MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                else MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            )
             rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             rec.setAudioSamplingRate(16000)
@@ -1078,7 +1208,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             // application-level AEC/NS/AGC. audioSessionId isn't exposed on
             // MediaRecorder, but the global session (id 0) accepts effects
             // that apply to any active input on this app.
-            audioFx = TulmiAudioFx.attach(audioSessionId = 0)
+            audioFx = if (processed) TulmiAudioFx.attach(audioSessionId = 0) else null
+            holdAudioFocus()
             recorder = rec
             audioFile = file
             recording = true
@@ -1086,6 +1217,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             sduiRenderer?.stateChanged()
             startMicLevelPolling()
             setStatus(label("listening_tap_stop", "Listening… tap mic to stop"))
+        } catch (e: SecurityException) {
+            // The system refused the microphone although the permission check
+            // passed (revoked a moment ago, say). Voice stays off until it is
+            // allowed again in Settings — the same words iOS uses for a denial.
+            setStatus(label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable = true, blocking = true)
+            cleanupRecorder()
         } catch (e: Exception) {
             setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
             cleanupRecorder()
@@ -1097,6 +1234,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         kbState.dictating = false
         sduiRenderer?.stateChanged()
         stopMicLevelPolling()
+        releaseAudioFocus()
         // Detach the recorder/fx/file on the MAIN thread so a quick restart gets
         // fresh instances, then do the BLOCKING teardown off-thread.
         val file = audioFile
@@ -1122,6 +1260,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             try {
                 val cleaned = Net.transcribeClean(file, target, draftBefore)
                 main.post {
+                    // No words came back: nothing to insert, count, or refine —
+                    // and no one-shot command to strand in the field. iOS says
+                    // the same when an utterance is lost, for a moment.
+                    if (cleaned.isBlank()) {
+                        setTransientStatus(label("dictation_failed", "Couldn't hear that — try again"))
+                        return@post
+                    }
                     // Drop a conversational refusal/clarification instead of
                     // committing it (mirrors the streaming commitFinal guard);
                     // there's nothing to refine in that case either.
@@ -1189,7 +1334,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         recorder = null
         try { audioFx?.close() } catch (_: Throwable) {}
         audioFx = null
+        releaseAudioFocus()
         stopMicLevelPolling()
+    }
+
+    /** Other apps' audio, lowered or paused while the mic is open
+     *  (kb.audio.duckOthers, see TulmiAudioFocus). One hold at a time. */
+    private var audioFocus: TulmiAudioFocus? = null
+
+    private fun holdAudioFocus() {
+        if (audioFocus == null) audioFocus = TulmiAudioFocus.request(this)
+    }
+
+    private fun releaseAudioFocus() {
+        audioFocus?.close()
+        audioFocus = null
     }
 
     // ---------------------------------------------------------------------
@@ -1467,6 +1626,17 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (sduiActive) sduiRenderer?.stateChanged()
     }
 
+    /**
+     * A one-off status that clears itself after kb.status.transientMs (2.5s),
+     * unless something else has been said since. Whether it shows at all is
+     * still setStatus's call.
+     */
+    private fun setTransientStatus(text: String) {
+        setStatus(text)
+        val ms = knobLong("kb.status.transientMs", 2500L).coerceAtLeast(0L)
+        main.postDelayed({ if (kbState.status == text) setStatus("") }, ms)
+    }
+
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         // The system asking for memory back is the one moment it is worth
@@ -1509,6 +1679,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // nothing leaks or fires against a torn-down view. Idempotent.
         try { if (recording) cleanupRecorder() } catch (_: Exception) {}
         try { stream?.cancel() } catch (_: Exception) {}
+        releaseAudioFocus()
         recording = false
         streaming = false
         // Last chance to keep the counters — the throttle means the most recent
@@ -1840,16 +2011,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             label("words_out_status", "Out of free words — open Tailzu to get more.")
         }
         setStatus(message, actionable = true, blocking = true)
-        try {
-            startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(screen)))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            )
-        } catch (t: Throwable) {
-            // Nothing else to try, and the status line above already says what
-            // happened. The keyboard stays usable for typing, which is the
-            // right failure: a keyboard that cannot dictate is still a keyboard.
-        }
+        // If nothing opens there is nothing else to try, and the status line
+        // above already says what happened. The keyboard stays usable for
+        // typing, which is the right failure: a keyboard that cannot dictate is
+        // still a keyboard.
+        TulmiLinks.openOwn(this, TulmiLinks.appUrl(screen))
     }
 
     override fun stopDictation() {
@@ -1880,9 +2046,41 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         sduiRenderer?.stateChanged()
     }
 
+    /**
+     * The tree's showLanguageMenu: the config's layouts to pick from, under the
+     * server's "language" heading and ending in its "cancel" — the sheet iOS
+     * shows for the same action. A config with no layouts has nothing to list,
+     * so the system's keyboard picker stands in, as it always did here.
+     */
     override fun showLanguageMenu() {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-        imm?.showInputMethodPicker()
+        val layouts = sduiConfig?.layouts.orEmpty()
+        val anchor = rootView
+        if (layouts.isEmpty() || anchor == null) {
+            showInputMethodPickerSafely()
+            return
+        }
+        try {
+            val popup = PopupMenu(this, anchor)
+            popup.menu.add(0, android.view.Menu.NONE, 0, label("language", "Language")).isEnabled = false
+            layouts.forEachIndexed { i, l ->
+                val title = l.displayName?.takeIf { it.isNotBlank() } ?: l.language
+                popup.menu.add(0, i + 1, i + 1, if (l.language == kbState.layoutId) "$title \u2713" else title)
+            }
+            popup.menu.add(0, layouts.size + 1, layouts.size + 1, label("cancel", "Cancel"))
+            popup.setOnMenuItemClickListener { item ->
+                layouts.getOrNull(item.itemId - 1)?.let { switchLayout(it.language) }
+                true
+            }
+            popup.show()
+        } catch (t: Throwable) {
+            showInputMethodPickerSafely()
+        }
+    }
+
+    private fun showInputMethodPickerSafely() {
+        try {
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showInputMethodPicker()
+        } catch (_: Throwable) {}
     }
 
     override fun state(): KBState = kbState
