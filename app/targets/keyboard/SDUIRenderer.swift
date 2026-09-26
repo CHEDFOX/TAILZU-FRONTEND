@@ -6804,7 +6804,7 @@ final class SDUIRenderer: NSObject {
     lastKeyInsert = nil
     KeyboardTelemetry.bump(.trayRetracted)
     for _ in 0..<inserted.count {
-      proxy?.deleteBackward()
+      host?.hostTextDocumentProxy.deleteBackward()
       noteDeletedBackward()
     }
     if !state.capsLock, !state.shift, inserted.count == 1,
