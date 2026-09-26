@@ -21,7 +21,7 @@
   "dynamic": {
     "app.boot.watchdogMs": {
       "kind": "num",
-      "at": "app/src/sdui/SduiApp.tsx:694"
+      "at": "app/src/sdui/SduiApp.tsx:695"
     },
     "app.offline.accent": {
       "kind": "color",
