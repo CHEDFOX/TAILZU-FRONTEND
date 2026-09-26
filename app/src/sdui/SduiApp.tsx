@@ -31,6 +31,8 @@ import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
 import type { ActionSpec, BootstrapResponse, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
+import { setKnobs, txt, num, bool, str, color } from "./knobs";
+import OfflineScreen from "./OfflineScreen";
 import { hasSeenCard, markCardSeen } from "./launchCard";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
@@ -207,6 +209,9 @@ function firstRemoteImage(node: unknown): string | null {
 
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
+  // Every knob (labels, flags) reads from the bootstrap in hand. Set during
+  // render, before any child reads one, so nothing draws with a stale value.
+  setKnobs(boot);
   // HOOKS BELONG HERE, above every early return.
   //
   // These two sat further down, past the `auth` / `language` / `connect`
@@ -682,7 +687,7 @@ export default function SduiApp() {
     // wins — commitBoot sets "ready" and the card is replaced.
     const watchdog = setTimeout(() => {
       setPhase((p) => (p === "loading" ? "connect" : p));
-    }, BOOT_WATCHDOG_MS);
+    }, num("app.boot.watchdogMs", BOOT_WATCHDOG_MS));
     let paintedFromDisk = false;
     try {
       const cached = await peekBootstrap();
@@ -1556,11 +1561,24 @@ export default function SduiApp() {
     );
   }
 
-  if (phase === "connect" || showConnection) {
+  if (showConnection) {
     return (
       <ConnectionScreen
         onDone={loadBoot}
-        onCancel={boot ? () => setShowConnection(false) : undefined}
+        onCancel={() => setShowConnection(false)}
+      />
+    );
+  }
+
+  // No server and nothing cached: the offline card, which keeps retrying.
+  // The developer's connection screen sits behind a long press on its title,
+  // where the server's app.offline.devConnection flag (or a dev build) allows.
+  if (phase === "connect") {
+    return (
+      <OfflineScreen
+        theme={boot?.theme}
+        onRetry={loadBoot}
+        onDev={() => setShowConnection(true)}
       />
     );
   }
