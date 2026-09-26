@@ -344,6 +344,10 @@ final class KeyPlaneView: UIView {
     /// the touch stays tracked (for hasActiveTouches) but must not commit or
     /// re-target again.
     var committed = false
+    /// True when the char was typed on touch-down (K39). Such a track is
+    /// committed, but its accent hold still stands: if the tray opens the
+    /// renderer takes the typed char back and the release decides again.
+    var downCommitted = false
     /// Where the touch started, for the hold-vs-roll accent-tray decision.
     var startPoint: CGPoint = .zero
     /// When the touch started — lets touchesCancelled tell a quick tap the
@@ -984,6 +988,7 @@ final class KeyPlaneView: UIView {
     flushPendingCommits()
     for t in touches {
       let p = t.location(in: self)
+      KeyboardTelemetry.bump(.planeTouches)
       // Shift / layer-switch keys first — their rects are vetoed out of
       // keyAt, so the checks are disjoint.
       if let role = roleKeyAt(p) {
@@ -1032,6 +1037,7 @@ final class KeyPlaneView: UIView {
       // differ. Key centres agree always, which is exactly the shape of the
       // bug as reported — centres perfect, gaps dead.
       let hit = keyAt(p) ?? (totalResolve ? nearestKey(to: p) : nil)
+      if hit == nil { KeyboardTelemetry.bump(.planeMissed) }
       let track = Track(hit?.button, hit?.char)
       track.startPoint = p
       // Seed the swipe path with the STARTING key — sweptChars otherwise only
@@ -1042,13 +1048,18 @@ final class KeyPlaneView: UIView {
       if let b = hit?.button { renderer?.planeDown(b); track.pressed = true }
       // THE LETTER, NOW, WHILE THE FINGER IS STILL ON IT.
       //
-      // Only a plain character, and only one with no accent tray behind it —
-      // on those the hold has to be ruled out before anything can be typed.
-      // Action keys are excluded too: backspace's repeat and space's cursor
-      // slide are gestures that begin, not events that happen.
-      if commitOnDown, let ch = hit?.char, !ch.isEmpty, !track.committed,
-         !(accentTraysEnabled && renderer?.planeHasAccents(ch) == true) {
+      // Every character, accent tray or not (K39). Half the alphabet carries
+      // a tray — a e i o u c n s y z l d h — and waiting for the lift on those
+      // was where fast typing fell behind: a thumb that lifts late, drifts, or
+      // gets its touch cancelled loses the letter, and it is exactly the
+      // common letters. Now the char is typed on contact, and if the hold
+      // turns into a tray the renderer takes it back (planeRetractDownCommit)
+      // so the release can choose the accent. Action keys stay excluded:
+      // backspace's repeat and space's cursor slide are gestures that begin,
+      // not events that happen.
+      if commitOnDown, let ch = hit?.char, !ch.isEmpty, !track.committed {
         track.committed = true
+        track.downCommitted = true
         commit(track)
       }
       // Arm the accent-tray hold for this finger. Fires only if the finger is
@@ -1059,9 +1070,13 @@ final class KeyPlaneView: UIView {
         let timer = Timer(timeInterval: trayLongPressMs / 1000.0, repeats: false) {
           [weak self, weak track] _ in
           guard let self = self, let track = track,
-                !track.committed, !track.trayActive, !track.swipeMode else { return }
+                !track.committed || track.downCommitted,
+                !track.trayActive, !track.swipeMode else { return }
           if self.renderer?.planeTryPresentAccentTray(for: track.button, char: track.char) == true {
             track.trayActive = true
+            // The char went in on touch-down; the tray now offers its
+            // alternatives, so take it back and let the release decide.
+            if track.downCommitted { self.renderer?.planeRetractDownCommit() }
           }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -1072,13 +1087,23 @@ final class KeyPlaneView: UIView {
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
     for t in touches {
-      guard let track = tracks[ObjectIdentifier(t)], !track.committed else { continue }
+      guard let track = tracks[ObjectIdentifier(t)] else { continue }
       let p = t.location(in: self)
       if track.trayActive {
         // The finger is driving the accent tray now — slide highlights chips;
         // no key re-targeting. Plane and mount container share identical
         // frames (both pinned to the same edges), so plane coords pass through.
         renderer?.planeUpdateAccentTray(at: p)
+        continue
+      }
+      if track.committed {
+        // Already typed. The one thing a moving finger can still decide is
+        // whether the hold was meant: a drift is a roll, and rolls never
+        // open trays.
+        if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > 12 {
+          track.trayTimer?.invalidate()
+          track.trayTimer = nil
+        }
         continue
       }
       if track.swipeMode {
@@ -1244,7 +1269,9 @@ final class KeyPlaneView: UIView {
         if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
         track.pressed = false
       }
-      if track.committed { continue }   // already typed by press-order rollover
+      // Typed on touch-down or by press-order rollover — unless this finger
+      // is driving a tray, whose release still has a choice to make.
+      if track.committed, !track.trayActive { continue }
       if track.swipeMode {
         fadeTrail()
         // Pivots are the shape information the old decoder threw away — see
@@ -1297,7 +1324,12 @@ final class KeyPlaneView: UIView {
       guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
       dbgCancelled += 1
       track.trayTimer?.invalidate()
-      if track.trayActive { renderer?.planeDismissAccentTray() }
+      if track.trayActive {
+        renderer?.planeDismissAccentTray()
+        // The base char was taken back when the tray opened; a system
+        // cancel must not eat it.
+        if track.downCommitted, let ch = track.char { renderer?.planeCommit(char: ch) }
+      }
       if track.swipeMode { fadeTrail() }
       if track.pressed {
         if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
@@ -3793,6 +3825,9 @@ final class SDUIRenderer: NSObject {
     layerKeyRegistry.removeAll(keepingCapacity: true)
     actionKeyRegistry.removeAll(keepingCapacity: true)
     weakShiftButton = nil
+    liftActions.removeAll(keepingCapacity: true)
+    liftDownAt.removeAll()
+    KeyboardTelemetry.bump(.remounts)
     let v = render(node: root)
     v.translatesAutoresizingMaskIntoConstraints = false
     container.addSubview(v)
@@ -3987,7 +4022,7 @@ final class SDUIRenderer: NSObject {
   /// first-key seeding, press-balance across peek remounts, nearest-role
   /// resolution, async remounts off button callbacks, multi-language-safe
   /// layer auto-return.
-  static let buildStamp = "K38"
+  static let buildStamp = "K39"
 
   /// The bundled brand mark.
   ///
@@ -5301,10 +5336,10 @@ final class SDUIRenderer: NSObject {
     }
     btn.setTitle(label, for: .normal)
     btn.titleLabel?.font = .systemFont(ofSize: 15)
-    // Single-tap insertion is deferred to touchUpInside so slide-off cancels
-    // cleanly (Apple's slide-off pattern) — see bindTap.
-    let action = UIAction { [weak self] _ in self?.handleSpaceTap() }
-    btn.addAction(action, for: .touchUpInside)
+    // Single-tap insertion fires on lift so slide-off cancels cleanly
+    // (Apple's slide-off pattern); a near lift and a cancelled short tap
+    // still count — see bindLift.
+    bindLift(btn) { [weak self] in self?.handleSpaceTap() }
 
     // Backend flags:
     //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
@@ -6749,7 +6784,35 @@ final class SDUIRenderer: NSObject {
   /// insertKey path a button tap uses, so live shift / capsLock casing applies.
   fileprivate func planeCommit(char: String) {
     KeyboardTelemetry.bump(.keystrokes)
+    // Timed: keyMs / keystrokes is what a letter waits before it shows, and
+    // slowKeys says how often that wait crossed a frame and a half. A slow
+    // keyboard and a dropping keyboard feel the same from the outside.
+    let t0 = CACurrentMediaTime()
     run(.inline(.insertKey(char: char)))
+    let ms = (CACurrentMediaTime() - t0) * 1000
+    KeyboardTelemetry.bump(.keyMs, by: Int(ms.rounded()))
+    if ms > 24 { KeyboardTelemetry.bump(.slowKeys) }
+  }
+
+  /// Take back the char planeCommit typed on touch-down: the finger held on,
+  /// and the accent tray that opens now offers alternatives to it. Deletes
+  /// exactly what insertKey inserted and rewinds the word tracker with it, so
+  /// the chip (or the base char, re-inserted on release) lands clean. A
+  /// one-shot shift went with the letter; it is given back for the accent.
+  fileprivate func planeRetractDownCommit() {
+    guard let inserted = lastKeyInsert, !inserted.isEmpty else { return }
+    lastKeyInsert = nil
+    KeyboardTelemetry.bump(.trayRetracted)
+    for _ in 0..<inserted.count {
+      proxy?.deleteBackward()
+      noteDeletedBackward()
+    }
+    if !state.capsLock, !state.shift, inserted.count == 1,
+       let c = inserted.first, c.isUppercase {
+      state.shift = true
+      stateChanged()
+    }
+    updateAutoCap()
   }
 
   /// Selection-changed haptic on every key. Requires Full Access to fire; the
@@ -7039,10 +7102,8 @@ final class SDUIRenderer: NSObject {
   /// back keeps the gesture that lets a finger slide off and cancel.
   private func bindTap(_ btn: UIButton, node: KBNode, defaultAction: KBActionSpec?,
                        onDown: Bool = false) {
-    let event: UIControl.Event = onDown ? .touchDown : .touchUpInside
     if let ref = node.on?["onPress"] {
-      let action = UIAction { [weak self] _ in self?.run(ref) }
-      btn.addAction(action, for: .touchUpInside)
+      bindLift(btn) { [weak self] in self?.run(ref) }
       // Layer-switch keys register for the plane's layer-peek handling (press
       // → instant switch; press-slide-release → peek). Detected here in the
       // SHARED tap binder — not in buildLetterKey — so a "123" shipped as an
@@ -7052,9 +7113,68 @@ final class SDUIRenderer: NSObject {
         layerKeyRegistry.append((btn, target))
       }
     } else if let def = defaultAction {
-      let action = UIAction { [weak self] _ in self?.run(.inline(def)) }
-      btn.addAction(action, for: event)
+      if onDown {
+        let action = UIAction { [weak self] _ in self?.run(.inline(def)) }
+        btn.addAction(action, for: .touchDown)
+      } else {
+        bindLift(btn) { [weak self] in self?.run(.inline(def)) }
+      }
     }
+  }
+
+  // MARK: - Lift keys (K39)
+  //
+  // Space, return and every onPress key fire on lift, so slide-off cancels
+  // (Apple's pattern). Two things a fast thumb does broke that. It lifts a
+  // few points outside the key it pressed — .touchUpOutside, and the tap was
+  // dropped, "helloworld". And near the home indicator iOS cancels the touch
+  // outright — .touchCancel, dropped too. The system keyboard types both. So
+  // does this: a lift within kb.key.liftSlop of the key fires, and a
+  // cancelled touch fires if it was a short, still tap that no gesture (the
+  // space trackpad) took. Handlers are target/action, not UIAction, because
+  // only those receive the UIEvent that says where the finger was.
+  private var liftActions: [ObjectIdentifier: () -> Void] = [:]
+  private var liftDownAt: [ObjectIdentifier: CFTimeInterval] = [:]
+
+  private func bindLift(_ btn: UIButton, _ fire: @escaping () -> Void) {
+    liftActions[ObjectIdentifier(btn)] = fire
+    btn.addTarget(self, action: #selector(liftDown(_:)), for: .touchDown)
+    btn.addTarget(self, action: #selector(liftInside(_:)), for: .touchUpInside)
+    btn.addTarget(self, action: #selector(liftOutside(_:event:)), for: .touchUpOutside)
+    btn.addTarget(self, action: #selector(liftCancelled(_:event:)), for: .touchCancel)
+  }
+
+  @objc private func liftDown(_ btn: UIButton) {
+    liftDownAt[ObjectIdentifier(btn)] = CACurrentMediaTime()
+  }
+
+  @objc private func liftInside(_ btn: UIButton) {
+    liftDownAt[ObjectIdentifier(btn)] = nil
+    liftActions[ObjectIdentifier(btn)]?()
+  }
+
+  private func liftNear(_ btn: UIButton, _ event: UIEvent?) -> Bool {
+    let slop = flagCGFloat("kb.key.liftSlop", 14)
+    guard slop > 0 else { return false }
+    guard let p = event?.touches(for: btn)?.first?.location(in: btn) else { return false }
+    return btn.bounds.insetBy(dx: -slop, dy: -slop).contains(p)
+  }
+
+  @objc private func liftOutside(_ btn: UIButton, event: UIEvent?) {
+    liftDownAt[ObjectIdentifier(btn)] = nil
+    guard liftNear(btn, event) else { return }
+    KeyboardTelemetry.bump(.liftRescued)
+    liftActions[ObjectIdentifier(btn)]?()
+  }
+
+  @objc private func liftCancelled(_ btn: UIButton, event: UIEvent?) {
+    let down = liftDownAt.removeValue(forKey: ObjectIdentifier(btn))
+    guard !state.trackpadActive, let down = down else { return }
+    let maxMs = flagDouble("kb.key.cancelMs", 250)
+    guard maxMs > 0, (CACurrentMediaTime() - down) * 1000 < maxMs else { return }
+    guard liftNear(btn, event) else { return }
+    KeyboardTelemetry.bump(.cancelRescued)
+    liftActions[ObjectIdentifier(btn)]?()
   }
 
   // MARK: - Action interpreter
@@ -7100,6 +7220,7 @@ final class SDUIRenderer: NSObject {
         }
       }
       proxy?.insertText(inserted)
+      lastKeyInsert = inserted
       // A character between two shift taps breaks the double-tap-caps chain, so
       // clear the timer — otherwise "shift, type a, shift" wrongly engaged caps.
       lastShiftTapTime = 0
@@ -7708,6 +7829,10 @@ final class SDUIRenderer: NSObject {
   /// Typing terminal punctuation next pulls that space back ("word ," →
   /// "word, ") — the native auto-space pull-back.
   private var pendingAutoSpace = false
+  /// What the last insertKey actually put in the document — the cased,
+  /// smart-punctuated string — so a touch-down commit can be taken back
+  /// exactly when its accent tray opens (planeRetractDownCommit).
+  private var lastKeyInsert: String?
   /// Last applied correction, kept so the suggestion bar can offer the typed
   /// original as a one-tap revert (native behavior), and so a backspace right
   /// after the correction undoes it (kb.autocorrect.backspaceRevert).
