@@ -64,6 +64,8 @@ final class SDUIRenderer: NSObject {
   func flagDouble(_ k: String, _ d: Double) -> Double { FLAG_NUM[k] ?? d }
   func flagCGFloat(_ k: String, _ d: CGFloat) -> CGFloat { CGFloat(FLAG_NUM[k] ?? Double(d)) }
   func flagColor(_ k: String, _ d: String) -> UIColor { .white }
+  /// String flags are not in the snapshot tables: the shipped default.
+  func flagString(_ k: String, _ d: String) -> String { d }
 
   // ---- word tracking and auto-cap: off the text path in this simulation
   // (the host field reports no auto-capitalisation), so they do nothing.
@@ -360,6 +362,19 @@ extension SDUIRenderer {
     plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
     #if HAS_ROLEREACH
     plane.roleReach = flagCGFloat("kb.touch.roleReach", 20)
+    #endif
+    #if HAS_PLANEKNOBS
+    plane.keyHeightCap = flagCGFloat("kb.touch.maxKeyHeight", 64)
+    plane.rowTolerance = flagCGFloat("kb.touch.rowTolerance", 8)
+    plane.sideReachExtra = flagCGFloat("kb.touch.sideReach", 6)
+    plane.trayCancelDrift = flagCGFloat("kb.accentTray.cancelDriftPt", 12)
+    let pathCap = max(8, Int(flagDouble("kb.swipe.pathCap", 128)))
+    plane.swipePathCap = pathCap
+    plane.swipePathTrim = max(1, min(pathCap, Int(flagDouble("kb.swipe.pathTrim", 64))))
+    plane.pivotWindow = max(1, Int(flagDouble("kb.swipe.pivot.window", 3)))
+    plane.pivotMinTravel = flagCGFloat("kb.swipe.pivot.minTravelPt", 8)
+    plane.pivotMaxCos = flagCGFloat("kb.swipe.pivot.maxCos", 0.57)
+    plane.trailMaxPoints = max(2, Int(flagDouble("kb.swipe.trail.maxPoints", 40)))
     #endif
     plane.frame = container.bounds
     container.addSubview(plane)   // topmost — intercepts plane-key touches only

@@ -119,6 +119,8 @@ if lk >= 0:
 have["KEYDOWN_ROLLOVER"] = "fileprivate func keyDownRollover(_ btn: UIButton)" in src
 
 have["ROLEREACH"] = "var roleReach: CGFloat" in src
+# Geometry / swipe constants that became plane properties (kb.touch.maxKeyHeight…).
+have["PLANEKNOBS"] = "var keyHeightCap: CGFloat" in src
 
 counter = re.search(r"  enum Counter: String \{.*?\n  \}\n", tel, re.S).group(0)
 
