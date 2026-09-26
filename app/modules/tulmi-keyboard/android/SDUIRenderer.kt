@@ -973,6 +973,11 @@ class SDUIRenderer(
         }
         // Held keys: the accent tray, the space-bar trackpad, and the pop-up.
         configureHolds(ll)
+        // The press colour, for built keys as well as drawn ones. It was only
+        // ever set on the drawn path, which is off by default — so on Android
+        // a pressed key changed colour for nobody, and the theme's keyPressed
+        // did nothing.
+        ll.pressedFill = parseHex(theme.keyPressed)
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
@@ -1122,6 +1127,7 @@ class SDUIRenderer(
                 onPressStart = { pressStart?.invoke() },
                 onPressEnd = { pressEnd?.invoke() },
                 longPressMs = if (c.type == "ShiftKey") flagFloat("kb.shift.longPressMs", 500f).toLong() else 0L,
+                pressedFill = (c.style["pressedBg"] as? String)?.takeIf { it.isNotBlank() }?.let { parseHex(it) } ?: 0,
             )
 
             // Backspace repeats while held. Wired through press start/end
@@ -2406,6 +2412,10 @@ class SDUIRenderer(
         style: Map<String, Any?>,
         isRow: Boolean,
     ) {
+        // style.pressedBg: this key's own press colour, over the theme's (as on iOS).
+        (style["pressedBg"] as? String)?.takeIf { it.isNotBlank() }?.let { hex ->
+            (parent as? TulmiKeyPlane)?.setPressedColor(v, parseHex(hex))
+        }
         val w = dimenFromStyle(style["width"]) ?: ViewGroup.LayoutParams.WRAP_CONTENT
         val h = dimenFromStyle(style["height"]) ?: ViewGroup.LayoutParams.WRAP_CONTENT
         val flex = numFromStyle(style["flex"]) ?: 0f
