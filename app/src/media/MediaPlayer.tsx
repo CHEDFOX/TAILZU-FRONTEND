@@ -36,6 +36,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Image as RNImage, Text, View, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import { Image as ExpoImage, ImageContentFit } from "expo-image";
 import { resolveMedia, MediaSpec } from "./resolveMedia";
+import * as K from "../sdui/knobs";
 
 // Lottie + video are heavy — require them lazily so a bundle that never plays
 // either type doesn't pay the cost. `require` is used instead of `import`
@@ -195,7 +196,9 @@ export function MediaPlayer(p: Props): React.ReactElement | null {
       testID={testID}
       accessibilityLabel={accessibilityLabel}
       cachePolicy="disk"
-      transition={120}
+      // The cross-fade as an image arrives. A knob, so the server decides how
+      // soft the app's media land (0 = cut).
+      transition={K.num("media.transitionMs", 120)}
     />
   );
 }

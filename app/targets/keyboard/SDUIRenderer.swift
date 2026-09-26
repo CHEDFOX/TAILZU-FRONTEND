@@ -224,6 +224,28 @@ final class KeyPlaneView: UIView {
   /// kb.touch.roleReach — how far past its painted rect shift / 123 claim a
   /// touch, and only where they are nearer than any other key (roleKeyAt).
   var roleReach: CGFloat = 20
+  /// kb.touch.maxKeyHeight — the tallest a key's geometry may be before it is
+  /// clamped (see maxKeyHeight, which stays the shipped default).
+  var keyHeightCap: CGFloat = KeyPlaneView.maxKeyHeight
+  /// kb.touch.rowTolerance — keys whose vertical centres sit this close are
+  /// one row.
+  var rowTolerance: CGFloat = 8
+  /// kb.touch.sideReach — how far past half its own width a key's ownership
+  /// box reaches sideways.
+  var sideReachExtra: CGFloat = 6
+  /// kb.accentTray.cancelDriftPt — drift that turns a hold into a roll and
+  /// disarms the accent tray.
+  var trayCancelDrift: CGFloat = 12
+  /// kb.swipe.pathCap / kb.swipe.pathTrim — the swipe path is trimmed by
+  /// pathTrim points whenever it grows past pathCap.
+  var swipePathCap = 128
+  var swipePathTrim = 64
+  /// kb.swipe.pivot.* — the corner detector in pivotChars().
+  var pivotWindow = 3
+  var pivotMinTravel: CGFloat = 8
+  var pivotMaxCos: CGFloat = 0.57
+  /// kb.swipe.trail.maxPoints — how many path points the ink trail draws.
+  var trailMaxPoints = 40
 
   /// Live, enabled controls elsewhere in the tree (shift / delete / space /
   /// return / mic / tone / suggestion chips). Their rects VETO plane
@@ -289,8 +311,8 @@ final class KeyPlaneView: UIView {
       // A plane-owned key vetoes only what it draws — see the same clamp in
       // refreshFrames. Without this a stretched space or return button
       // vetoed a column of the keyboard from its row to the screen's edge.
-      if planeOwnedIds.contains(ObjectIdentifier(v)), r.height > KeyPlaneView.maxKeyHeight {
-        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: KeyPlaneView.maxKeyHeight)
+      if planeOwnedIds.contains(ObjectIdentifier(v)), r.height > keyHeightCap {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: keyHeightCap)
       }
       // Action keys (space, return, backspace) are the exception: they veto
       // only their PAINTED rect. The halo is what made the gaps around them
@@ -662,8 +684,8 @@ final class KeyPlaneView: UIView {
       // screen — one did, at ~570pt. Its box, the band and its veto were all
       // derived from that. Clamp to the tallest plausible key so the geometry
       // follows what the key draws, not what its view was stretched to.
-      if r.height > KeyPlaneView.maxKeyHeight {
-        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: KeyPlaneView.maxKeyHeight)
+      if r.height > keyHeightCap {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: keyHeightCap)
       }
       switch k.role {
       case .character(let ch): raw.append((b, ch, r))
@@ -678,7 +700,7 @@ final class KeyPlaneView: UIView {
     // Cluster keys into rows by vertical center (rows sit ~54pt apart; 8pt
     // tolerance absorbs any per-key constraint rounding).
     var rowYs: [CGFloat] = []
-    for (_, _, r) in raw where !rowYs.contains(where: { abs($0 - r.midY) < 8 }) {
+    for (_, _, r) in raw where !rowYs.contains(where: { abs($0 - r.midY) < rowTolerance }) {
       rowYs.append(r.midY)
     }
     rowYs.sort()
@@ -688,7 +710,7 @@ final class KeyPlaneView: UIView {
     // read the answer.
     var rowOf = [Int](repeating: 0, count: raw.count)
     for (n, entry) in raw.enumerated() {
-      rowOf[n] = rowYs.firstIndex(where: { abs($0 - entry.2.midY) < 8 }) ?? 0
+      rowOf[n] = rowYs.firstIndex(where: { abs($0 - entry.2.midY) < rowTolerance }) ?? 0
     }
     // Per-row horizontal extremes → which keys are the row's outermost.
     var minXByRow: [Int: CGFloat] = [:], maxXByRow: [Int: CGFloat] = [:]
@@ -706,7 +728,7 @@ final class KeyPlaneView: UIView {
       let i = rowOf[n]
       let up = i == 0 ? topRowUpSlop : vSlop
       let down = i == lastRow ? bottomRowDownSlop : vSlop
-      let sideReach = r.width / 2 + 6
+      let sideReach = r.width / 2 + sideReachExtra
       var left = r.minX - sideReach
       var right = r.maxX + sideReach
       if edgeToMargin {
@@ -1126,7 +1148,7 @@ final class KeyPlaneView: UIView {
         // Already typed. The one thing a moving finger can still decide is
         // whether the hold was meant: a drift is a roll, and rolls never
         // open trays.
-        if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > 12 {
+        if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > trayCancelDrift {
           track.trayTimer?.invalidate()
           track.trayTimer = nil
         }
@@ -1134,7 +1156,9 @@ final class KeyPlaneView: UIView {
       }
       if track.swipeMode {
         track.pathPoints.append(p)
-        if track.pathPoints.count > 128 { track.pathPoints.removeFirst(64) }
+        if track.pathPoints.count > swipePathCap {
+          track.pathPoints.removeFirst(min(swipePathTrim, track.pathPoints.count))
+        }
         if let ch = keyAt(p)?.char, ch != track.sweptChars.last {
           track.sweptChars.append(ch)
         }
@@ -1142,7 +1166,7 @@ final class KeyPlaneView: UIView {
         continue
       }
       // A hold that drifts is a roll, not a long-press — disarm the tray.
-      if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > 12 {
+      if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > trayCancelDrift {
         track.trayTimer?.invalidate()
         track.trayTimer = nil
       }
@@ -1184,7 +1208,9 @@ final class KeyPlaneView: UIView {
         track.pathPoints.append(p)
         // Bounded: only the trail tail + decode use these, and a long jittery
         // hold must not grow memory inside a jetsam-capped extension.
-        if track.pathPoints.count > 128 { track.pathPoints.removeFirst(64) }
+        if track.pathPoints.count > swipePathCap {
+          track.pathPoints.removeFirst(min(swipePathTrim, track.pathPoints.count))
+        }
       }
       // Promote to a QuickPath swipe: a single finger gliding across ≥N
       // distinct keys is a word-shape, not a roll. Roll semantics stay for
@@ -1217,7 +1243,7 @@ final class KeyPlaneView: UIView {
   /// the finger did.
   func pivotChars(_ points: [CGPoint]) -> [String] {
     guard points.count >= 2 else { return [] }
-    let window = 3
+    let window = max(1, pivotWindow)
     var pivotPoints: [CGPoint] = [points.first!]
     var i = window
     while i < points.count - window {
@@ -1228,10 +1254,10 @@ final class KeyPlaneView: UIView {
       let m1 = hypot(v1.dx, v1.dy), m2 = hypot(v2.dx, v2.dy)
       // Ignore jitter: a turn only means something if the finger actually
       // travelled far enough on both sides of it.
-      if m1 > 8, m2 > 8 {
+      if m1 > pivotMinTravel, m2 > pivotMinTravel {
         let cosA = (v1.dx * v2.dx + v1.dy * v2.dy) / (m1 * m2)
         // ~55°+ of turn. Gentle arcs through a key are pass-throughs, not stops.
-        if cosA < 0.57 {
+        if cosA < pivotMaxCos {
           pivotPoints.append(p)
           i += window   // one corner, not a cluster of adjacent samples
         }
@@ -1259,7 +1285,7 @@ final class KeyPlaneView: UIView {
     guard points.count > 1 else { return }
     trailGeneration += 1
     trailLayer.removeAnimation(forKey: "fade")
-    let tail = points.suffix(40)
+    let tail = points.suffix(max(2, trailMaxPoints))
     let path = UIBezierPath()
     path.move(to: tail.first!)
     for pt in tail.dropFirst() { path.addLine(to: pt) }
@@ -1463,6 +1489,15 @@ final class KeyCalloutView: UIView {
   private let shape = CAShapeLayer()
   private let label = UILabel()
 
+  /// kb.callout.* geometry — set by the renderer when it creates the balloon.
+  /// The defaults are the shipped shape.
+  var headExtraWidth: CGFloat = 28
+  var headMinWidth: CGFloat = 44
+  var headExtraHeight: CGFloat = 8
+  var neckHeight: CGFloat = 10
+  var headRadius: CGFloat = 7
+  var edgeClamp: CGFloat = 3
+
   override init(frame: CGRect) {
     super.init(frame: frame)
     isUserInteractionEnabled = false
@@ -1476,17 +1511,25 @@ final class KeyCalloutView: UIView {
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
 
+  /// kb.callout.shadow* — the balloon's soft shadow.
+  func setShadow(color: UIColor, opacity: Float, radius: CGFloat, offset: CGSize) {
+    shape.shadowColor = color.cgColor
+    shape.shadowOpacity = opacity
+    shape.shadowRadius = radius
+    shape.shadowOffset = offset
+  }
+
   /// Position + draw the balloon for `keyRect` (in `parent`'s coords), showing
   /// `char`. `bg`/`text` are the balloon fill + glyph colors.
   func present(keyRect: CGRect, char: String, in parent: UIView,
                bg: UIColor, text: UIColor, glyphSize: CGFloat) {
-    let headW = max(keyRect.width + 28, 44)
-    let headH = keyRect.height + 8
-    let neckH: CGFloat = 10
-    let r: CGFloat = 7
+    let headW = max(keyRect.width + headExtraWidth, headMinWidth)
+    let headH = keyRect.height + headExtraHeight
+    let neckH: CGFloat = neckHeight
+    let r: CGFloat = headRadius
     // Center the head over the key, clamped inside the parent.
     var headX = keyRect.midX - headW / 2
-    headX = max(3, min(headX, parent.bounds.width - headW - 3))
+    headX = max(edgeClamp, min(headX, parent.bounds.width - headW - edgeClamp))
     let topY = keyRect.minY - neckH - headH
     frame = CGRect(x: headX, y: topY, width: headW, height: headH + neckH + 1)
 
@@ -2680,6 +2723,17 @@ final class MicParticleView: UIView {
   private let color: UIColor
   private let sourceImage: UIImage?   // the brand mark the dots disperse FROM
 
+  /// kb.mic.particles.* physics — set by the renderer right after init. The
+  /// defaults are the shipped feel.
+  var burstMin: CGFloat = 55            // outward kick, points / second
+  var burstMax: CGFloat = 110
+  var drag: CGFloat = 0.99              // per-frame velocity bleed while recording
+  var minSpeed: CGFloat = 24            // the swarm never slows below this
+  var stiffness: CGFloat = 26           // reassembly spring pull toward home
+  var damping: CGFloat = 0.80           // reassembly bounce killer
+  var settleDistance: CGFloat = 0.8     // landed when every dot is this close…
+  var settleTimeout: CGFloat = 0.6      // …or after this many seconds
+
   init(count: Int, dotRadius: CGFloat, color: UIColor, sourceImage: UIImage?) {
     self.count = max(2, count)
     self.dotRadius = max(0.5, dotRadius)
@@ -2752,7 +2806,7 @@ final class MicParticleView: UIView {
     else { let a = CGFloat.random(in: 0 ..< (2 * .pi)); dx = cos(a); dy = sin(a) }
     let j = CGFloat.random(in: -0.5...0.5)
     let rx = dx * cos(j) - dy * sin(j), ry = dx * sin(j) + dy * cos(j)
-    let burst = CGFloat.random(in: 55...110)                 // points / second
+    let burst = CGFloat.random(in: min(burstMin, burstMax)...max(burstMin, burstMax))   // points / second
     return CGVector(dx: rx * burst, dy: ry * burst)
   }
 
@@ -2848,8 +2902,6 @@ final class MicParticleView: UIView {
     // Bleed the initial burst off (drag) but floor the speed HIGH, so the swarm
     // never settles — it keeps zipping and colliding off the wall and each other
     // for the whole recording instead of drifting to a near-stop.
-    let drag: CGFloat = 0.99
-    let minSpeed: CGFloat = 24
     for i in dots.indices {
       dots[i].v.dx *= drag; dots[i].v.dy *= drag
       let s = (dots[i].v.dx * dots[i].v.dx + dots[i].v.dy * dots[i].v.dy).squareRoot()
@@ -2867,8 +2919,6 @@ final class MicParticleView: UIView {
   /// off to `onReassembleDone` so the renderer can show the static mark.
   private func stepReassemble(_ dt: CGFloat) {
     reassembleElapsed += dt
-    let stiffness: CGFloat = 26                               // spring pull toward home
-    let damping: CGFloat = 0.80                               // kills the bounce
     var maxDist: CGFloat = 0
     for i in dots.indices {
       let t = targets.isEmpty ? mid : targets[i % targets.count]
@@ -2882,7 +2932,7 @@ final class MicParticleView: UIView {
     }
     setNeedsDisplay()
 
-    if !reassembleFinished, maxDist < 0.8 || reassembleElapsed > 0.6 {
+    if !reassembleFinished, maxDist < settleDistance || reassembleElapsed > settleTimeout {
       // Snap home so the last frame is exactly the mark, then hand off.
       for i in dots.indices { dots[i].p = targets.isEmpty ? mid : targets[i % targets.count] }
       setNeedsDisplay()
@@ -2997,6 +3047,19 @@ protocol KBHostControllerProtocol: AnyObject {
   /// Group) merged with the iOS supplementary lexicon (contact names, system
   /// text replacements). nil when no trigger matches.
   func hostExpansion(for word: String) -> String?
+  /// Forward a globe-key touch to UIInputViewController.handleInputModeList
+  /// (from:with:) — a tap switches keyboards, a hold shows the system picker,
+  /// exactly like Apple's own globe.
+  func hostHandleInputModeList(from view: UIView, with event: UIEvent)
+  /// Open a URL through the host's app-opening path (the one the mic uses to
+  /// reach the containing app). A keyboard cannot call UIApplication.open
+  /// itself.
+  func hostOpenURL(_ url: URL)
+  /// The field's keyboardType, by its UIKit name ("default", "numberPad",
+  /// "emailAddress", …) — for field.keyboardType in conditions.
+  func hostKeyboardTypeName() -> String
+  /// True when the field is a secure (password) entry.
+  func hostIsSecureField() -> Bool
 }
 
 // MARK: - Polymorphic JSON value (for props / style bags)
@@ -3073,6 +3136,7 @@ struct KBFeatures: Decodable {
   let refine: Bool?
   let streaming: Bool?
   let sdui: Bool?
+  let liveVoice: Bool?
 }
 
 struct KBTheme: Decodable {
@@ -3813,10 +3877,11 @@ final class SDUIRenderer: NSObject {
   private func remountWhenIdle() {
     // Also hold off while the space-bar trackpad is scrubbing: rebuilding the
     // tree destroys the space key mid-gesture and cancels the cursor drag.
+    // kb.remount.maxRetries × kb.remount.retryMs bounds the wait.
     if (keyPlane?.hasActiveTouches == true || state.trackpadActive),
-       pendingRemountRetries < 20 {
+       pendingRemountRetries < Int(flagDouble("kb.remount.maxRetries", 20)) {
       pendingRemountRetries += 1
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+      DispatchQueue.main.asyncAfter(deadline: .now() + flagDouble("kb.remount.retryMs", 250) / 1000.0) { [weak self] in
         self?.remountWhenIdle()
       }
       return
@@ -3966,6 +4031,18 @@ final class SDUIRenderer: NSObject {
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
         plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
         plane.roleReach = flagCGFloat("kb.touch.roleReach", 20)
+        // Geometry and swipe constants that used to be compiled in.
+        plane.keyHeightCap = flagCGFloat("kb.touch.maxKeyHeight", 64)
+        plane.rowTolerance = flagCGFloat("kb.touch.rowTolerance", 8)
+        plane.sideReachExtra = flagCGFloat("kb.touch.sideReach", 6)
+        plane.trayCancelDrift = flagCGFloat("kb.accentTray.cancelDriftPt", 12)
+        let pathCap = max(8, Int(flagDouble("kb.swipe.pathCap", 128)))
+        plane.swipePathCap = pathCap
+        plane.swipePathTrim = max(1, min(pathCap, Int(flagDouble("kb.swipe.pathTrim", 64))))
+        plane.pivotWindow = max(1, Int(flagDouble("kb.swipe.pivot.window", 3)))
+        plane.pivotMinTravel = flagCGFloat("kb.swipe.pivot.minTravelPt", 8)
+        plane.pivotMaxCos = flagCGFloat("kb.swipe.pivot.maxCos", 0.57)
+        plane.trailMaxPoints = max(2, Int(flagDouble("kb.swipe.trail.maxPoints", 40)))
         if plane.superview !== container {
           plane.translatesAutoresizingMaskIntoConstraints = false
           container.addSubview(plane)   // topmost — intercepts plane-key touches only
@@ -4215,7 +4292,7 @@ final class SDUIRenderer: NSObject {
   /// in-place mutations on live views — the space key and its long-press
   /// gesture survive untouched.
   private func applyTrackpadVisual(active: Bool) {
-    let alpha: CGFloat = active ? 0.35 : 1
+    let alpha: CGFloat = active ? flagCGFloat("kb.trackpad.dimAlpha", 0.35) : 1
     for (_, btn) in letterButtonsByChar { btn.alpha = alpha }
     weakShiftButton?.alpha = alpha
     for entry in layerKeyRegistry { entry.btn.alpha = alpha }
@@ -4308,11 +4385,49 @@ final class SDUIRenderer: NSObject {
     case "StatusLabel":          v = buildStatusLabel(node: node)
     case "Divider":              v = buildDivider(node: node)
     case "BlurBackdrop":         v = buildBlurBackdrop(node: node)
-    default:                     v = buildUnknown(type: node.type)
+    default:
+      // A type this build doesn't know is the server being ahead of the
+      // binary, not an error the user should look at. The red "?" tile is a
+      // debugging aid: kb.render.unknownNode = "debug" brings it back.
+      guard flagString("kb.render.unknownNode", "hide") == "debug" else {
+        NSLog("unknown kb component (hidden): %@", node.type)
+        let empty = UIView()
+        empty.isHidden = true
+        return empty
+      }
+      v = buildUnknown(type: node.type)
     }
     applyStyle(node: node, to: v)
     applyEffectIfChildlessBackdrop(node: node, view: v)
+    // The return key's action accent (Go / Send / Search…) is applied AFTER
+    // the node's style, or style.bg / style.fg would paint over it.
+    if node.type == "ReturnKey" { applyReturnAccent(node: node, to: v) }
+    // The id the haptics picker knows this key by (kb.haptics.keys).
+    if let b = v as? UIButton, let hid = hapticId(for: node) {
+      objc_setAssociatedObject(b, &Self.keyHapticIdKey, hid, .OBJC_ASSOCIATION_RETAIN)
+    }
     return v
+  }
+
+  private static var keyHapticIdKey: UInt8 = 0
+
+  /// The name a key is known by in kb.haptics.keys: props.hapticId, else the
+  /// node's id, else its role — the same names Android's hapticIdFor uses.
+  /// nil means "use the title": a letter or punctuation key IS what it types,
+  /// which is what the picker writes. BackspaceKey fires its own "backspace"
+  /// haptic in deleteDown, so it gets no role id here (it would buzz twice).
+  private func hapticId(for node: KBNode) -> String? {
+    if let h = node.props?["hapticId"]?.asString, !h.isEmpty { return h }
+    if node.type != "LetterKey", let id = node.id, !id.isEmpty { return id }
+    switch node.type {
+    case "ShiftKey":  return "shift"
+    case "SpaceKey":  return "space"
+    case "ReturnKey": return "return"
+    case "GlobeKey":  return "globe"
+    case "MicKey":    return "mic"
+    case "RefineKey": return "refine"
+    default:          return nil
+    }
   }
 
   // MARK: - Components
@@ -5671,17 +5786,29 @@ final class SDUIRenderer: NSObject {
     let btn = makeKeyButton()
     let rt = host?.hostReturnKeyType() ?? .default
     btn.setTitle(returnKeyLabel(for: rt), for: .normal)
-    if returnKeyIsAction(rt) {
-      // Backend flags:
-      //   kb.returnKey.actionBg   (default "#007AFF") — accent for Go/Send/Search/Done
-      //   kb.returnKey.actionFg   (default "#FFFFFF")
-      let accent = flagColor("kb.returnKey.actionBg", "#007AFF")
-      btn.backgroundColor = accent
-      btn.setTitleColor(flagColor("kb.returnKey.actionFg", "#FFFFFF"), for: .normal)
-      objc_setAssociatedObject(btn, &Self.keyBaseColorKey, accent, .OBJC_ASSOCIATION_RETAIN)
-    }
+    // The action accent (Go / Send / Search / Done) is painted by
+    // applyReturnAccent, which render() runs AFTER applyStyle — painting it
+    // here let the node's style.bg / style.fg overwrite it every time.
     bindTap(btn, node: node, defaultAction: .returnKey)
     return btn
+  }
+
+  /// The action accent for Go / Send / Search / Done… returns.
+  ///   node style.actionBg / style.actionFg — this key's own accent
+  ///   kb.returnKey.actionBg   (default "#007AFF") — else, every return key
+  ///   kb.returnKey.actionFg   (default "#FFFFFF")
+  /// Stored as the key's resting colour so a press restores the accent.
+  private func applyReturnAccent(node: KBNode, to view: UIView) {
+    guard let btn = view as? UIButton else { return }
+    let rt = host?.hostReturnKeyType() ?? .default
+    guard returnKeyIsAction(rt) else { return }
+    let accent = node.style?["actionBg"]?.asString.map { UIColor(tulmiHex: $0) }
+      ?? flagColor("kb.returnKey.actionBg", "#007AFF")
+    let fg = node.style?["actionFg"]?.asString.map { UIColor(tulmiHex: $0) }
+      ?? flagColor("kb.returnKey.actionFg", "#FFFFFF")
+    btn.backgroundColor = accent
+    btn.setTitleColor(fg, for: .normal)
+    objc_setAssociatedObject(btn, &Self.keyBaseColorKey, accent, .OBJC_ASSOCIATION_RETAIN)
   }
 
   /// Localized label for a UIReturnKeyType. Values pulled from Apple's own
@@ -6515,7 +6642,20 @@ final class SDUIRenderer: NSObject {
       view.clipsToBounds = true
     }
     if let bg = style["bg"]?.asString {
-      view.backgroundColor = UIColor(tulmiHex: bg)
+      let c = UIColor(tulmiHex: bg)
+      view.backgroundColor = c
+      // A key's resting colour is ITS OWN style.bg, not the theme's key fill:
+      // keyTouchUp restores whatever is stored here, and restoring theme.key
+      // turned shift, ⌫, 123, the mic and the tone pill into letter keys
+      // after their first tap.
+      if view is UIButton {
+        objc_setAssociatedObject(view, &Self.keyBaseColorKey, c, .OBJC_ASSOCIATION_RETAIN)
+      }
+    }
+    // style.pressedBg — this key's own press colour (else theme.keyPressed).
+    if let pressed = style["pressedBg"]?.asString, view is UIButton {
+      objc_setAssociatedObject(view, &Self.keyPressedOverrideKey, UIColor(tulmiHex: pressed),
+                               .OBJC_ASSOCIATION_RETAIN)
     }
     // Opacity / border / shadow — all backend-controllable style knobs. Kept
     // ignored when unset so old backend trees don't accidentally change look.
@@ -6607,7 +6747,12 @@ final class SDUIRenderer: NSObject {
     guard let effect = node.effect else { return }
     switch effect {
     case .solid(let color):
-      view.backgroundColor = UIColor(tulmiHex: color)
+      let c = UIColor(tulmiHex: color)
+      view.backgroundColor = c
+      // Same as style.bg: a key restores its own fill after a press.
+      if view is UIButton {
+        objc_setAssociatedObject(view, &Self.keyBaseColorKey, c, .OBJC_ASSOCIATION_RETAIN)
+      }
     case .gradient(let colors, let direction):
       // Wrap in the GradientView subclass (same one used by makeEffectBackdrop)
       // so the CAGradientLayer resizes via layoutSubviews. Raw CALayer
@@ -6732,13 +6877,17 @@ final class SDUIRenderer: NSObject {
                 for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
     // Remember the resting background so touchUp can restore it after the
     // inversion swap. Uses associated object so per-instance color survives
-    // across renderer rebuilds.
-    objc_setAssociatedObject(b, &Self.keyBaseColorKey, base, .OBJC_ASSOCIATION_RETAIN)
+    // across renderer rebuilds. The RESOLVED fill — clear over a keyEffect
+    // blur, not theme.key painted over the blur after the first tap. A node's
+    // style.bg / solid effect / return accent overwrite this later.
+    objc_setAssociatedObject(b, &Self.keyBaseColorKey, b.backgroundColor ?? base, .OBJC_ASSOCIATION_RETAIN)
     return b
   }
 
   private static var keyBaseColorKey: UInt8 = 0
   private static var keyPressedColorKey: UInt8 = 0
+  /// A node's own style.pressedBg, stored by applyStyle.
+  private static var keyPressedOverrideKey: UInt8 = 0
 
   @objc private func keyTouchDown(_ btn: UIButton) {
     // A real (non-plane) key going down flushes any still-held plane letters
@@ -6750,11 +6899,15 @@ final class SDUIRenderer: NSObject {
     // Apple's inversion: letter keys press to function color, function keys
     // press to letter color. We don't know which side a key is on, so use
     // theme.keyPressed if present, else lighten the base color.
+    // A node's style.pressedBg wins over the theme for that one key.
     let pressed: UIColor
-    if let hex = theme?.keyPressed {
+    if let own = objc_getAssociatedObject(btn, &Self.keyPressedOverrideKey) as? UIColor {
+      pressed = own
+    } else if let hex = theme?.keyPressed {
       pressed = UIColor(tulmiHex: hex)
     } else {
-      pressed = UIColor(white: 0.5, alpha: 0.3)
+      let hex = flagString("kb.press.fallbackColor", "")
+      pressed = hex.isEmpty ? UIColor(white: 0.5, alpha: 0.3) : UIColor(tulmiHex: hex)
     }
     objc_setAssociatedObject(btn, &Self.keyPressedColorKey, pressed, .OBJC_ASSOCIATION_RETAIN)
     // Instant background swap on touch-down (Apple's key press is instant on
@@ -6765,10 +6918,13 @@ final class SDUIRenderer: NSObject {
     // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
     // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
     UIDevice.current.playInputClick()
-    // The title IS the key id for a letter or a punctuation key — matching
-    // what the picker writes and what Android reads. Lowercased inside
-    // hapticsOn, so a shifted "Q" and a picked "q" are the same key.
-    fireKeyHaptic(btn.title(for: .normal))
+    // The key's id: props.hapticId / node id / role ("space", "return",
+    // "mic"…) stored at render — see hapticId(for:). A letter or punctuation
+    // key has none, and its title IS its id, matching what the picker writes
+    // and what Android reads. Lowercased inside hapticsOn, so a shifted "Q"
+    // and a picked "q" are the same key.
+    let hid = (objc_getAssociatedObject(btn, &Self.keyHapticIdKey) as? String) ?? btn.title(for: .normal)
+    fireKeyHaptic(hid)
     showKeyCallout(for: btn)
   }
 

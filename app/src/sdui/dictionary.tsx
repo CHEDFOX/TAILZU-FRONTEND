@@ -17,6 +17,7 @@ import type { CompProps } from "./components";
 import { useTheme } from "./components";
 import { callEndpoint } from "./client";
 import { setKeyboardDictionary } from "../../modules/tulmi-bridge";
+import * as K from "./knobs";
 
 interface Entry { word: string; replacement: string }
 
@@ -67,7 +68,7 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
       fire("onChange", clean);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     } catch (e: any) {
-      fire("onError", String(props.errorMessage ?? "Couldn't save the dictionary"));
+      fire("onError", String(props.errorMessage ?? K.txt("ui.DictionaryEditor.errorMessage", "Couldn't save the dictionary")));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setSaving(false);
@@ -83,42 +84,54 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
    * black ground on one screen, boxed inputs on a card on another. That is not
    * something a style on the node can reach: these are inputs INSIDE a
    * component, and a node style lands on the box around them.
+   *
+   * Prop first, then the ui.DictionaryEditor.* knob (every editor at once),
+   * then the literal it always was.
    */
-  const num = (v: unknown, d: number) => (v === undefined ? d : Number(v));
-  const str = (v: unknown, d: string) => (v === undefined ? d : String(v));
+  const pn = (v: unknown, d: number) => (v === undefined ? d : Number(v));
+  const ps = (v: unknown, d: string) => (v === undefined ? d : String(v));
 
   const cell = {
-    backgroundColor: str(props.cellBackground, theme.color.inputBg),
-    color: str(props.cellColor, theme.color.text),
-    borderRadius: num(props.cellRadius, 10),
-    borderWidth: num(props.cellBorderWidth, StyleSheet.hairlineWidth),
-    borderColor: str(props.cellBorderColor, theme.color.border),
-    paddingHorizontal: num(props.cellPaddingHorizontal, 12),
-    paddingVertical: num(props.cellPaddingVertical, 10),
-    fontSize: num(props.cellFontSize, 14),
+    backgroundColor: ps(props.cellBackground, theme.color.inputBg),
+    color: ps(props.cellColor, theme.color.text),
+    borderRadius: pn(props.cellRadius, K.num("ui.DictionaryEditor.cellRadius", 10)),
+    borderWidth: pn(props.cellBorderWidth, K.num("ui.DictionaryEditor.cellBorderWidth", StyleSheet.hairlineWidth)),
+    borderColor: ps(props.cellBorderColor, theme.color.border),
+    paddingHorizontal: pn(props.cellPaddingHorizontal, K.num("ui.DictionaryEditor.cellPaddingHorizontal", 12)),
+    paddingVertical: pn(props.cellPaddingVertical, K.num("ui.DictionaryEditor.cellPaddingVertical", 10)),
+    fontSize: pn(props.cellFontSize, K.num("ui.DictionaryEditor.cellFontSize", 14)),
     flex: 1,
   } as const;
-  const placeholderColor = str(props.placeholderColor, theme.color.muted);
+  const placeholderColor = ps(props.placeholderColor, theme.color.muted);
   /** Between the two fields of one pair, and between one pair and the next. */
-  const cellGap = num(props.gap, 10);
-  const rowGap = num(props.rowGap, 10);
-  const removeColor = str(props.removeColor, theme.color.muted);
+  const cellGap = pn(props.gap, K.num("ui.DictionaryEditor.gap", 10));
+  const rowGap = pn(props.rowGap, K.num("ui.DictionaryEditor.rowGap", 10));
+  const removeColor = ps(props.removeColor, theme.color.muted);
+  const removeGlyph = ps(props.removeGlyph, K.txt("ui.DictionaryEditor.removeGlyph", "×"));
+  const removeSize = pn(props.removeSize, K.num("ui.DictionaryEditor.removeSize", 20));
+  const removeWidth = pn(props.removeWidth, K.num("ui.DictionaryEditor.removeWidth", 26));
+  const removeHitSlop = pn(props.removeHitSlop, K.num("ui.DictionaryEditor.removeHitSlop", 8));
   /** Column headings. Two words over two fields that already say what they are. */
   const showLabels = props.showLabels !== false;
+  const headerMarginBottom = pn(props.headerMarginBottom, K.num("ui.DictionaryEditor.headerMarginBottom", 8));
+  const headerSize = pn(props.headerSize, K.num("ui.DictionaryEditor.headerSize", 12));
+  const headerWeight = ps(props.headerWeight, K.str("ui.DictionaryEditor.headerWeight", "600")) as "600";
+  const headerTracking = pn(props.headerTracking, K.num("ui.DictionaryEditor.headerTracking", 0.4));
+  const headerColor = ps(props.headerColor, theme.color.label);
 
-  const wordLabel = String(props.wordLabel ?? "Word");
-  const replaceLabel = String(props.replaceLabel ?? "Replace With");
-  const wordPlaceholder = String(props.wordPlaceholder ?? "omw");
-  const replacePlaceholder = String(props.replacePlaceholder ?? "On My Way");
-  const saveLabel = String(props.saveLabel ?? "Save");
-  const savingLabel = String(props.savingLabel ?? "…");
+  const wordLabel = String(props.wordLabel ?? K.txt("ui.DictionaryEditor.wordLabel", "Word"));
+  const replaceLabel = String(props.replaceLabel ?? K.txt("ui.DictionaryEditor.replaceLabel", "Replace With"));
+  const wordPlaceholder = String(props.wordPlaceholder ?? K.txt("ui.DictionaryEditor.wordPlaceholder", "omw"));
+  const replacePlaceholder = String(props.replacePlaceholder ?? K.txt("ui.DictionaryEditor.replacePlaceholder", "On My Way"));
+  const saveLabel = String(props.saveLabel ?? K.txt("ui.DictionaryEditor.saveLabel", "Save"));
+  const savingLabel = String(props.savingLabel ?? K.txt("ui.DictionaryEditor.savingLabel", "…"));
 
   return (
     <View>
       {showLabels ? (
-        <View style={s.headerRow}>
-          <Text style={[s.col, { color: theme.color.label }]}>{wordLabel}</Text>
-          <Text style={[s.col, { color: theme.color.label }]}>{replaceLabel}</Text>
+        <View style={[s.headerRow, { marginBottom: headerMarginBottom }]}>
+          <Text style={[s.col, { color: headerColor, fontSize: headerSize, fontWeight: headerWeight, letterSpacing: headerTracking }]}>{wordLabel}</Text>
+          <Text style={[s.col, { color: headerColor, fontSize: headerSize, fontWeight: headerWeight, letterSpacing: headerTracking }]}>{replaceLabel}</Text>
         </View>
       ) : null}
       {rows.map((r, i) => (
@@ -134,8 +147,8 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
             placeholder={replacePlaceholder} placeholderTextColor={placeholderColor}
           />
           {full ? (
-            <Pressable onPress={() => removeRow(i)} hitSlop={8} style={s.remove}>
-              <Text style={{ color: removeColor, fontSize: 20 }}>×</Text>
+            <Pressable onPress={() => removeRow(i)} hitSlop={removeHitSlop} style={[s.remove, { width: removeWidth }]}>
+              <Text style={{ color: removeColor, fontSize: removeSize }}>{removeGlyph}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -147,14 +160,17 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
         style={[
           s.save,
           {
-            backgroundColor: str(props.saveBackground, theme.color.primary),
-            borderRadius: num(props.saveRadius, 23),
-            height: num(props.saveHeight, 46),
+            backgroundColor: ps(props.saveBackground, theme.color.primary),
+            borderRadius: pn(props.saveRadius, K.num("ui.DictionaryEditor.saveRadius", 23)),
+            height: pn(props.saveHeight, K.num("ui.DictionaryEditor.saveHeight", 46)),
+            minWidth: pn(props.saveMinWidth, K.num("ui.DictionaryEditor.saveMinWidth", 110)),
+            paddingHorizontal: pn(props.savePaddingHorizontal, K.num("ui.DictionaryEditor.savePaddingHorizontal", 32)),
+            marginTop: pn(props.saveMarginTop, K.num("ui.DictionaryEditor.saveMarginTop", 8)),
             // A save that spans the column reads as the end of the form; one
             // centred in it reads as a button that happens to be there. Which
             // is right depends on the screen, so the screen says.
             alignSelf: props.saveFullWidth ? "stretch" : "center",
-            opacity: saving ? 0.5 : 1,
+            opacity: saving ? pn(props.savingOpacity, K.num("ui.DictionaryEditor.savingOpacity", 0.5)) : 1,
           },
         ]}
       >
@@ -162,9 +178,10 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
           style={[
             s.saveText,
             {
-              color: str(props.saveColor, theme.color.primaryText ?? theme.color.bg),
-              fontSize: num(props.saveFontSize, 15),
-              letterSpacing: num(props.saveTracking, 0),
+              color: ps(props.saveColor, theme.color.primaryText ?? theme.color.bg),
+              fontSize: pn(props.saveFontSize, K.num("ui.DictionaryEditor.saveFontSize", 15)),
+              fontWeight: ps(props.saveWeight, K.str("ui.DictionaryEditor.saveWeight", "700")) as "700",
+              letterSpacing: pn(props.saveTracking, K.num("ui.DictionaryEditor.saveTracking", 0)),
             },
           ]}
         >
@@ -181,30 +198,42 @@ export const WordChips = ({ node, props, store, fire }: CompProps) => {
   const raw = bindPath ? store.get(bindPath) : props.words;
   const words: string[] = Array.isArray(raw) ? raw.map(String) : [];
   if (!words.length) {
-    return <Text style={{ color: theme.color.muted, fontSize: 13 }}>{props.empty ?? "We'll learn your words as you write."}</Text>;
+    return (
+      <Text style={{ color: props.emptyColor ?? theme.color.muted, fontSize: Number(props.emptySize ?? K.num("ui.WordChips.emptySize", 13)) }}>
+        {props.empty ?? K.txt("ui.WordChips.empty", "We'll learn your words as you write.")}
+      </Text>
+    );
   }
+  const chip = {
+    paddingHorizontal: Number(props.chipPaddingHorizontal ?? K.num("ui.WordChips.chipPaddingHorizontal", 14)),
+    paddingVertical: Number(props.chipPaddingVertical ?? K.num("ui.WordChips.chipPaddingVertical", 8)),
+    borderRadius: Number(props.chipRadius ?? K.num("ui.WordChips.chipRadius", 999)),
+    borderWidth: Number(props.chipBorderWidth ?? K.num("ui.WordChips.chipBorderWidth", 1)),
+    borderColor: String(props.chipBorderColor ?? theme.color.border),
+  };
   return (
-    <View style={s.chips}>
+    <View style={[s.chips, { gap: Number(props.gap ?? K.num("ui.WordChips.gap", 9)) }]}>
       {words.map((w, i) => (
         <Pressable
           key={`${w}-${i}`}
           onPress={() => { Haptics.selectionAsync().catch(() => {}); fire("onPress", w); }}
-          style={[s.chip, { borderColor: theme.color.border }]}
+          style={chip}
         >
-          <Text style={{ color: theme.color.body ?? theme.color.text, fontSize: 14 }}>{w}</Text>
+          <Text style={{ color: props.chipTextColor ?? theme.color.body ?? theme.color.text, fontSize: Number(props.chipFontSize ?? K.num("ui.WordChips.chipFontSize", 14)) }}>{w}</Text>
         </Pressable>
       ))}
     </View>
   );
 };
 
+// Layout only. Every size, colour and weight is applied per render above,
+// from props and knobs, so none of them is fixed at module load.
 const s = StyleSheet.create({
-  headerRow: { flexDirection: "row", marginBottom: 8 },
-  col: { flex: 1, fontSize: 12, fontWeight: "600", letterSpacing: 0.4 },
+  headerRow: { flexDirection: "row" },
+  col: { flex: 1 },
   row: { flexDirection: "row", alignItems: "center" },
-  remove: { width: 26, alignItems: "center", justifyContent: "center" },
-  save: { alignSelf: "center", minWidth: 110, height: 46, borderRadius: 23, paddingHorizontal: 32, alignItems: "center", justifyContent: "center", marginTop: 8 },
-  saveText: { fontSize: 15, fontWeight: "700" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
+  remove: { alignItems: "center", justifyContent: "center" },
+  save: { alignSelf: "center", alignItems: "center", justifyContent: "center" },
+  saveText: {},
+  chips: { flexDirection: "row", flexWrap: "wrap" },
 });

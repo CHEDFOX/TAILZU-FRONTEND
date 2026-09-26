@@ -18,13 +18,25 @@
 import React, { useCallback, useRef } from "react";
 import { Animated, Pressable, StyleProp, StyleSheet, ViewStyle, PressableProps } from "react-native";
 import * as Haptics from "expo-haptics";
+import * as K from "./knobs";
 
 // Tuned to feel snappy but never abrupt. Spring, not linear — a linear
 // scale reads as digital / cheap. Values chosen after eyeballing Grammarly
 // + iOS system buttons on device; ~250ms round trip end-to-end.
-const PRESS_SCALE = 0.94;
-const SPRING_DOWN = { friction: 8, tension: 300, useNativeDriver: true };
-const SPRING_UP   = { friction: 6, tension: 220, useNativeDriver: true };
+//
+// Every number is a knob (motion.*), read at the moment of the press so a new
+// bootstrap retunes the whole app's feel without a remount. The literals are
+// only what draws before the first bootstrap has ever arrived.
+const springDown = () => ({
+  friction: K.num("motion.springDown.friction", 8),
+  tension: K.num("motion.springDown.tension", 300),
+  useNativeDriver: true,
+});
+const springUp = () => ({
+  friction: K.num("motion.springUp.friction", 6),
+  tension: K.num("motion.springUp.tension", 220),
+  useNativeDriver: true,
+});
 
 export type SpringPressableProps = {
   onPress?: () => void;
@@ -32,7 +44,7 @@ export type SpringPressableProps = {
   disabled?: boolean;
   hitSlop?: PressableProps["hitSlop"];
   style?: StyleProp<ViewStyle>;
-  /** Scale target on press-in. Default 0.94; use 0.98 for large cards. */
+  /** Scale target on press-in. Default motion.pressScale (0.94); 0.98 for large cards. */
   pressScale?: number;
   /** Emit a selection haptic on press-down. Default true. */
   haptic?: boolean;
@@ -63,7 +75,7 @@ const LAYOUT_KEYS = new Set([
 export function SpringPressable(props: SpringPressableProps): React.ReactElement {
   const {
     onPress, onLongPress, disabled, hitSlop, style,
-    pressScale = PRESS_SCALE, haptic = true, impactOnRelease = false,
+    pressScale, haptic = true, impactOnRelease = false,
     flashColor,
     children,
   } = props;
@@ -74,17 +86,17 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
   const pressIn = useCallback(() => {
     if (disabled) return;
     if (haptic) Haptics.selectionAsync().catch(() => {});
-    Animated.spring(scale, { toValue: pressScale, ...SPRING_DOWN }).start();
+    Animated.spring(scale, { toValue: pressScale ?? K.num("motion.pressScale", 0.94), ...springDown() }).start();
     if (flashColor) {
-      Animated.timing(flash, { toValue: 1, duration: 60, useNativeDriver: true }).start();
+      Animated.timing(flash, { toValue: 1, duration: K.num("motion.flashInMs", 60), useNativeDriver: true }).start();
     }
   }, [disabled, haptic, pressScale, scale, flashColor, flash]);
 
   const pressOut = useCallback(() => {
     if (disabled) return;
-    Animated.spring(scale, { toValue: 1, ...SPRING_UP }).start();
+    Animated.spring(scale, { toValue: 1, ...springUp() }).start();
     if (flashColor) {
-      Animated.timing(flash, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+      Animated.timing(flash, { toValue: 0, duration: K.num("motion.flashOutMs", 280), useNativeDriver: true }).start();
     }
     if (impactOnRelease) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -137,40 +149,5 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
         {children}
       </Animated.View>
     </Pressable>
-  );
-}
-
-/**
- * Motion values every screen can share for entrance animations. Wrap a
- * card in `FadeInUp` and it eases up 12px + fades in over 320ms on mount.
- * Cheap on the native driver so lists can use it too.
- */
-export function FadeInUp({
-  delayMs = 0,
-  distance = 12,
-  durationMs = 320,
-  style,
-  children,
-}: {
-  delayMs?: number;
-  distance?: number;
-  durationMs?: number;
-  style?: StyleProp<ViewStyle>;
-  children?: React.ReactNode;
-}): React.ReactElement {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translate = useRef(new Animated.Value(distance)).current;
-
-  React.useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: durationMs, delay: delayMs, useNativeDriver: true }),
-      Animated.timing(translate, { toValue: 0, duration: durationMs, delay: delayMs, useNativeDriver: true }),
-    ]).start();
-  }, [delayMs, durationMs, opacity, translate]);
-
-  return (
-    <Animated.View style={[{ opacity, transform: [{ translateY: translate }] }, style]}>
-      {children}
-    </Animated.View>
   );
 }

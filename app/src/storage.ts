@@ -64,6 +64,10 @@ export async function isFreshInstall(): Promise<boolean> {
 }
 
 // Whether the user has seen onboarding (so we show it only on first run).
+//
+// The SERVER is the authority now (bootstrap flag boot.firstRun); this is the
+// offline fallback. SduiApp sets it the first time the user stands on the tab
+// shell, which is what "done with onboarding" looks like from the device.
 const KEY_ONBOARDED = "tulmi.onboarded";
 
 export async function getOnboarded(): Promise<boolean> {
@@ -164,4 +168,58 @@ export async function getPushAsked(key: string): Promise<boolean> {
 }
 export async function setPushAsked(key: string): Promise<void> {
   await AsyncStorage.setItem(`tulmi.pushAsked.${key}`, "1");
+}
+
+/**
+ * THE LAST BOOTSTRAP'S KNOBS, READABLE SYNCHRONOUSLY.
+ *
+ * Every knob (src/sdui/knobs.ts) reads the bootstrap in hand, and before the
+ * first one of a launch lands there is none — so the code that runs earliest
+ * (the boot-failure card, module-scope sizes on the sign-in screen, the error
+ * boundary) could only ever use the values compiled into the app. AsyncStorage
+ * is asynchronous and arrives too late for any of that.
+ *
+ * MMKV answers synchronously, so App.tsx points the knobs at the last server's
+ * labels + flags before it loads the rest of the app. Optional in every
+ * direction: a binary without the native module, an unreadable store or a
+ * malformed row all read as "no snapshot", and the fallbacks apply exactly as
+ * they did before this existed.
+ */
+type KnobSnapshot = { labels: Record<string, string>; flags: Record<string, unknown> };
+const KEY_KNOBS = "tulmi.knobs.snapshot";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let kv: any = undefined;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function syncStore(): any {
+  if (kv !== undefined) return kv;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createMMKV } = require("react-native-mmkv");
+    kv = createMMKV({ id: "tailzu.knobs" });
+  } catch {
+    kv = null;   // not in this binary — the fallbacks stand
+  }
+  return kv;
+}
+
+export function saveKnobSnapshot(snap: { labels?: Record<string, string>; flags?: Record<string, unknown> }): void {
+  try {
+    syncStore()?.set(KEY_KNOBS, JSON.stringify({ labels: snap.labels ?? {}, flags: snap.flags ?? {} }));
+  } catch { /* a snapshot is a convenience, never a requirement */ }
+}
+
+export function readKnobSnapshotSync(): KnobSnapshot | null {
+  try {
+    const raw: string | undefined = syncStore()?.getString(KEY_KNOBS);
+    if (!raw) return null;
+    const o = JSON.parse(raw) as Partial<KnobSnapshot> | null;
+    if (!o || typeof o !== "object") return null;
+    return {
+      labels: o.labels && typeof o.labels === "object" ? o.labels : {},
+      flags: o.flags && typeof o.flags === "object" ? o.flags : {},
+    };
+  } catch {
+    return null;
+  }
 }

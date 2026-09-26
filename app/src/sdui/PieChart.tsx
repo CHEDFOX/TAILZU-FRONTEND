@@ -29,16 +29,20 @@ import { View, Text } from "react-native";
 import Svg, { Circle, G } from "react-native-svg";
 import { useTheme, typeRole } from "./components";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
-/**
- * The smallest arc a non-zero slice may take, in degrees.
+/*
+ * THE SMALLEST ARC a non-zero slice may take, in degrees — props.minSweep,
+ * else the ui.PieChart.minSweep knob (2.2).
  *
  * A slice worth 0.2% of the total rounds to nothing and disappears, which
  * tells the reader it does not exist rather than that it is small. Anything
  * present gets a sliver you can see; the rest of the ring absorbs the
  * difference proportionally, so the arcs still sum to the circle.
+ *
+ * Every other number below is the same: the node's prop first, then a knob
+ * the server sends for every ring at once, then what this drew before.
  */
-const MIN_SWEEP = 2.2;
 
 interface Slice { label: string; value: number; color: string }
 
@@ -54,10 +58,19 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
         .filter((s: Slice) => s.value > 0)
     : [];
 
-  const size = Number(props.size) || 104;
-  const thickness = Number(props.thickness) || 14;
-  const gap = Number(props.gap) || 2;
+  const size = Number(props.size) || K.num("ui.PieChart.size", 104);
+  const thickness = Number(props.thickness) || K.num("ui.PieChart.thickness", 14);
+  const gap = Number(props.gap) || K.num("ui.PieChart.gap", 2);
   const showLegend = props.legend !== false;
+  const MIN_SWEEP = Number(props.minSweep ?? K.num("ui.PieChart.minSweep", 2.2));
+  const minArc = Number(props.minArc ?? K.num("ui.PieChart.minArc", 0.5));
+  const startAngle = Number(props.startAngle ?? K.num("ui.PieChart.startAngle", -90));
+  const linecap = String(props.linecap ?? K.str("ui.PieChart.linecap", "butt")) as "butt" | "round" | "square";
+  const legendMarginTop = Number(props.legendMarginTop ?? K.num("ui.PieChart.legendMarginTop", 10));
+  const legendGap = Number(props.legendGap ?? K.num("ui.PieChart.legendGap", 5));
+  const legendRowGap = Number(props.legendRowGap ?? K.num("ui.PieChart.legendRowGap", 7));
+  const dotSize = Number(props.dotSize ?? K.num("ui.PieChart.dotSize", 7));
+  const dotRadius = Number(props.dotRadius ?? K.num("ui.PieChart.dotRadius", 4));
 
   const total = raw.reduce((sum, s) => sum + s.value, 0);
 
@@ -68,7 +81,7 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
     return (
       <View style={[{ alignItems: "center", justifyContent: "center", height: size }, style]}>
         <Text style={typeRole(theme, "caption", { fontSize: 12, color: theme.color.muted })}>
-          {String(props.emptyLabel ?? "Nothing yet")}
+          {String(props.emptyLabel ?? K.txt("ui.PieChart.emptyLabel", "Nothing yet"))}
         </Text>
       </View>
     );
@@ -91,13 +104,13 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
         <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           {/* -90° so the first slice starts at twelve o'clock, where a reader
               expects a ring to begin. */}
-          <G rotation={-90} originX={size / 2} originY={size / 2}>
+          <G rotation={startAngle} originX={size / 2} originY={size / 2}>
             {raw.map((s, i) => {
               const sweep = sweeps[i]!;
               const arc = (sweep / 360) * circumference;
               // The gap is taken OUT of each slice rather than added between
               // them, so the ring stays closed however many slices there are.
-              const drawn = Math.max(0.5, arc - gap);
+              const drawn = Math.max(minArc, arc - gap);
               const el = (
                 <Circle
                   key={`${s.label}-${i}`}
@@ -106,7 +119,7 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
                   r={r}
                   stroke={s.color}
                   strokeWidth={thickness}
-                  strokeLinecap="butt"
+                  strokeLinecap={linecap}
                   fill="none"
                   strokeDasharray={`${drawn} ${circumference - drawn}`}
                   strokeDashoffset={-(angle / 360) * circumference}
@@ -143,11 +156,11 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
       </View>
 
       {showLegend && (
-        <View style={{ marginTop: 10, alignSelf: "stretch", gap: 5 }}>
+        <View style={{ marginTop: legendMarginTop, alignSelf: "stretch", gap: legendGap }}>
           {raw.map((s, i) => (
             <View key={`${s.label}-legend-${i}`}
-                  style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: s.color }} />
+                  style={{ flexDirection: "row", alignItems: "center", gap: legendRowGap }}>
+              <View style={{ width: dotSize, height: dotSize, borderRadius: dotRadius, backgroundColor: s.color }} />
               <Text
                 numberOfLines={1}
                 style={[
@@ -161,7 +174,7 @@ export const PieChart = ({ props, style }: CompProps): React.ReactElement => {
                 typeRole(theme, "chartLegendValue", { fontSize: 11.5, fontWeight: "600" }),
                 { color: props.legendColor ? String(props.legendColor) : theme.color.text },
               ]}>
-                {Math.round((s.value / total) * 100)}%
+                {K.txt("ui.PieChart.percent", "{pct}%", { pct: Math.round((s.value / total) * 100) })}
               </Text>
             </View>
           ))}
