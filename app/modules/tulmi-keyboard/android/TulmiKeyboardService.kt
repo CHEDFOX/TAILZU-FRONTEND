@@ -465,6 +465,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * renderer via `updateConfig` (which triggers a cheap re-render).
      */
     private fun applyRawJson(json: String) {
+        // Every non-renderer file reads its server values through KbKnobs.
+        KbKnobs.update(json)
         // Fallback theme/labels always parsed — used for label() lookups and
         // for the tone pill even when SDUI is driving the tree.
         try { applyConfig(Net.parseConfig(json)) } catch (_: Exception) {}
