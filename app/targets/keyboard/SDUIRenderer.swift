@@ -3628,7 +3628,7 @@ final class KBState {
   var suggestionKind: String = "candidates"
   /// Tone the tools-bar pill cycles through. Values chosen server-side via
   /// config.flags["kb.tones"] or the default set below when unset.
-  var tone: String = "Neutral"
+  var tone: String = "ZU"
   /// True while space is held long enough to enter trackpad-cursor mode. When
   /// true, other keys visually dim and touch tracking on space becomes cursor
   /// movement instead of insertion.
@@ -3865,39 +3865,76 @@ final class SDUIRenderer: NSObject {
   /// id (a stale echo, or our own PUT landing), the local pick wins; only a
   /// genuinely NEW app-side selection overrides it.
   private func syncToneFromConfig() {
-    guard let activeId = config.flags?["kb.personality.activeTone"]?.asString else { return }
-    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
-    if let pick = ud?.string(forKey: "tulmi.kb.tone"), !pick.isEmpty,
-       ud?.string(forKey: "tulmi.kb.tone.baseline") == activeId,
-       let match = configuredTones().first(where: { $0.id == pick }) {
-      state.tone = match.label
-      return
-    }
-    if let match = configuredTones().first(where: { $0.id == activeId }) {
-      state.tone = match.label
-      // The app-side tone is authoritative here — refresh the mirror so the
-      // refine pipeline sends the same id the pill now shows.
-      ud?.set(activeId, forKey: "tulmi.kb.tone")
-      ud?.set(activeId, forKey: "tulmi.kb.tone.baseline")
-    }
+    // The pill shows the item it is on, and refine writes in that item's tone.
+    guard let cur = currentPillItem() else { return }
+    state.tone = cur.label
+    UserDefaults(suiteName: TulmiFlow.appGroup)?.set(cur.tone, forKey: "tulmi.kb.tone")
   }
 
-  /// The user picked a tone ON THE KEYBOARD (tap-cycle or the hold sheet).
-  /// Three writes make it actually take effect:
-  ///   • App Group `tulmi.kb.tone` — the picked ID; the host sends it
-  ///     explicitly with every /v1/refine call so the very next refine uses
-  ///     it even before the server save lands.
-  ///   • App Group `tulmi.kb.tone.baseline` — the app-side activeTone the
-  ///     pick was made against (see syncToneFromConfig).
-  ///   • Server `PUT /v1/personality {activeTone}` (fire-and-forget partial
-  ///     merge) — the app's Voice screen and future sessions agree with the
-  ///     pill instead of silently reverting it.
-  private func persistTonePick(id: String) {
-    KeyboardTelemetry.bump(.toneChanged)
+  /// One stop on the tone pill: a voice the user put on the keyboard (Zu
+  /// first, always), or — only when the server turns the tone list on
+  /// (kb.personality.keyboardTones) — a tone.
+  private struct PillItem {
+    let kind: String   // "voice" | "tone"
+    let id: String
+    let label: String
+    let tone: String
+    var key: String { "\(kind):\(id)" }
+  }
+
+  /// WHAT THE PILL OFFERS: Zu and the voices the user added on the Voices
+  /// screen — nothing else. It used to cycle the server's whole tone list
+  /// (Formal, Casual, Very Casual, Excited), so a user who had added nothing
+  /// still had four options they never chose.
+  private func pillItems() -> [PillItem] {
+    var out = pinnedKeyboardVoices().map { PillItem(kind: "voice", id: $0.id, label: $0.label, tone: $0.tone) }
+    if flagBool("kb.personality.keyboardTones", false) {
+      out += configuredTones().map { PillItem(kind: "tone", id: $0.id, label: $0.label, tone: $0.id) }
+    }
+    return out
+  }
+
+  /// What the server says is active, as one string, so a pick can tell a new
+  /// choice in the app from an echo of the state it was made against.
+  private func serverPillKey() -> String {
+    let voice = config.flags?["kb.personality.activeId"]?.asString ?? ""
+    let tone = config.flags?["kb.personality.activeTone"]?.asString ?? ""
+    return "\(voice)|\(tone)"
+  }
+
+  /// The item the pill is on: a keyboard pick, until the app chooses
+  /// something new; else the server's active voice; else Zu.
+  private func currentPillItem() -> PillItem? {
+    let items = pillItems()
+    guard let first = items.first else { return nil }
     let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
-    ud?.set(id, forKey: "tulmi.kb.tone")
+    if let pick = ud?.string(forKey: "tulmi.kb.pill"),
+       ud?.string(forKey: "tulmi.kb.pill.baseline") == serverPillKey(),
+       let hit = items.first(where: { $0.key == pick }) {
+      return hit
+    }
+    if let active = config.flags?["kb.personality.activeId"]?.asString,
+       let hit = items.first(where: { $0.kind == "voice" && $0.id == active }) {
+      return hit
+    }
+    return first
+  }
+
+  /// The user picked on the keyboard (a tap on the pill, or the hold sheet).
+  /// The pick shows at once, refine writes in its tone from the very next
+  /// call (App Group), and the server saves it so the app agrees.
+  private func pickPill(_ item: PillItem) {
+    KeyboardTelemetry.bump(item.kind == "voice" ? .voiceChanged : .toneChanged)
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    ud?.set(item.key, forKey: "tulmi.kb.pill")
+    ud?.set(serverPillKey(), forKey: "tulmi.kb.pill.baseline")
+    ud?.set(item.tone, forKey: "tulmi.kb.tone")
     ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
-    TulmiBackend.putPersonalityQuick(body: ["activeTone": id]) { _ in }
+    state.tone = item.label
+    var body: [String: Any] = [:]
+    if item.kind == "voice" { body["activePresetId"] = item.id }
+    if !item.tone.isEmpty { body["activeTone"] = item.tone }
+    if !body.isEmpty { TulmiBackend.putPersonalityQuick(body: body) { _ in } }
   }
 
   /// Swap in a freshly-fetched config and rebuild the tree in place. This is the
@@ -5073,17 +5110,16 @@ final class SDUIRenderer: NSObject {
 
   private weak var toneSheetOverlay: UIView?
   private weak var toneSheetBlur: UIVisualEffectView?
-  /// Voice picked on the keyboard this session — keeps the sheet's checkmark
-  /// right before the next config refetch echoes kb.personality.activeId back.
-  private var localActiveVoiceId: String?
-
   /// The user's keyboard voice set (kb.personality.pinned — managed from the
   /// app's Voice screen "Keyboard voices" card). Empty when nothing is pinned.
-  private func pinnedKeyboardVoices() -> [(id: String, name: String, tone: String)] {
+  private func pinnedKeyboardVoices() -> [(id: String, name: String, label: String, tone: String)] {
     guard case .array(let arr)? = config.flags?["kb.personality.pinned"] else { return [] }
     return arr.compactMap { item in
       guard case .object(let o) = item, let id = o["id"]?.asString, !id.isEmpty else { return nil }
-      return (id, o["name"]?.asString ?? id.capitalized, o["tone"]?.asString ?? "")
+      let name = o["name"]?.asString ?? id.capitalized
+      // `label` is what the pill shows (ZU for Zu); older servers sent none.
+      let label = o["label"]?.asString.flatMap { $0.isEmpty ? nil : $0 } ?? name
+      return (id, name, label, o["tone"]?.asString ?? "")
     }
   }
 
@@ -5187,40 +5223,30 @@ final class SDUIRenderer: NSObject {
     // `host` is shadowed by the mount container in this function.
     let copy = self.host
 
-    // Keyboard voices first (when the user has pinned any): switch the whole
-    // writing voice right from the keyboard — the app's "Keyboard voices" card
-    // decides what's listed here. Picking one also adopts its tone below.
-    let voices = pinnedKeyboardVoices()
-    if !voices.isEmpty {
-      let activeVoice = localActiveVoiceId ?? config.flags?["kb.personality.activeId"]?.asString
-      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_voices", "Voices") ?? "Voices"))
-      for v in voices {
-        let isActive = v.id == activeVoice
-        let btn = UIButton(type: .system)
-        btn.setTitle(isActive ? "\(v.name)\(check)" : v.name, for: .normal)
-        btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
-        btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
-        btn.contentHorizontalAlignment = .leading
-        let pickedId = v.id, pickedTone = v.tone
-        btn.addAction(UIAction { [weak self] _ in self?.selectVoice(id: pickedId, tone: pickedTone) },
-                      for: .touchUpInside)
-        vstack.addArrangedSubview(btn)
+    // Exactly what the pill offers: Zu and the voices the user put on the
+    // keyboard (and the tone list, only when the server turns it on). Section
+    // headers only when both kinds are there to tell apart.
+    let items = pillItems()
+    let current = currentPillItem()
+    let mixed = items.contains(where: { $0.kind == "voice" }) && items.contains(where: { $0.kind == "tone" })
+    var lastKind = ""
+    for item in items {
+      if mixed, item.kind != lastKind {
+        let title = item.kind == "voice"
+          ? (copy?.hostLabel("tone_sheet_voices", "Voices") ?? "Voices")
+          : (copy?.hostLabel("tone_sheet_tones", "Tones") ?? "Tones")
+        vstack.addArrangedSubview(toneSheetHeader(title))
+        lastKind = item.kind
       }
-      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_tones", "Tones") ?? "Tones"))
-    }
-
-    for tone in configuredTones() {
+      let isActive = item.key == current?.key
       let btn = UIButton(type: .system)
-      let isActive = tone.label.caseInsensitiveCompare(state.tone) == .orderedSame
-      btn.setTitle(isActive ? "\(tone.label)\(check)" : tone.label, for: .normal)
+      btn.setTitle(isActive ? "\(item.label)\(check)" : item.label, for: .normal)
       btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
       btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
       btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
       btn.contentHorizontalAlignment = .leading
-      let pickedId = tone.id, pickedLabel = tone.label
-      btn.addAction(UIAction { [weak self] _ in self?.selectTone(id: pickedId, label: pickedLabel) },
-                    for: .touchUpInside)
+      btn.accessibilityLabel = item.label
+      btn.addAction(UIAction { [weak self] _ in self?.selectPill(item) }, for: .touchUpInside)
       vstack.addArrangedSubview(btn)
     }
 
@@ -5270,35 +5296,11 @@ final class SDUIRenderer: NSObject {
     dismissToneSheet(animated: true)
   }
 
-  private func selectTone(id: String, label: String) {
-    state.tone = label
-    persistTonePick(id: id)
+  private func selectPill(_ item: PillItem) {
+    pickPill(item)
     fireKeyHaptic()
     dismissToneSheet(animated: true)
     stateChanged()   // remount → the tone pill rebinds to the new state.tone
-  }
-
-  /// A keyboard voice was picked from the sheet. Persists server-side (the
-  /// active voice is what /v1/refine writes with) and adopts the voice's own
-  /// tone locally, so the pill + the explicit refine tone don't keep overriding
-  /// the voice with a stale earlier pick.
-  private func selectVoice(id: String, tone: String) {
-    KeyboardTelemetry.bump(.voiceChanged)
-    localActiveVoiceId = id
-    var body: [String: Any] = ["activePresetId": id]
-    if !tone.isEmpty { body["activeTone"] = tone }
-    TulmiBackend.putPersonalityQuick(body: body) { _ in }
-    if !tone.isEmpty {
-      let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
-      ud?.set(tone, forKey: "tulmi.kb.tone")
-      ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
-      if let match = configuredTones().first(where: { $0.id == tone }) {
-        state.tone = match.label
-      }
-    }
-    fireKeyHaptic()
-    dismissToneSheet(animated: true)
-    stateChanged()
   }
 
   private func dismissToneSheet(animated: Bool) {
@@ -7836,15 +7838,15 @@ final class SDUIRenderer: NSObject {
       stateChanged()
       host?.hostRunRefine()
     case .cycleTone:
-      // Cycle through the backend tone list (kb.personality.tones). The pill
-      // shows the LABEL; persistTonePick carries the ID to the refine
-      // pipeline + server so the choice actually sticks.
-      let tones = configuredTones()
-      let idx = tones.firstIndex(where: { $0.label.caseInsensitiveCompare(state.tone) == .orderedSame }) ?? -1
-      let next = tones[(idx + 1) % max(1, tones.count)]
-      state.tone = next.label
+      // Step to the next thing the pill offers — Zu and the user's voices.
+      // With only Zu there is nowhere to go, and nothing changes. pickPill
+      // saves the pick for refine (App Group) and for the app (the server).
+      let items = pillItems()
+      guard items.count > 1 else { fireKeyHaptic("tone"); break }
+      let idx = items.firstIndex(where: { $0.key == currentPillItem()?.key }) ?? -1
+      let next = items[(idx + 1) % items.count]
+      pickPill(next)
       stateChanged()
-      persistTonePick(id: next.id)
       fireKeyHaptic("tone")
     case .openApp(let screenId):
       // The tombstone in the App Group is the guaranteed half: the app reads

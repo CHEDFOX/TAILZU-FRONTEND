@@ -406,9 +406,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
         refreshAppearance()
 
-        val startup = pickStartupConfig()
-            ?: return buildFallbackInputView()
-        return buildSduiInputView(startup.first, startup.second)
+        // THE KEYBOARD ALWAYS OPENS AS ITSELF: the cached config, else the one
+        // shipped in the app. A candidate that will not render gives way to the
+        // next; the old hand-built layout only if none will, which with the
+        // bundled config means never.
+        for ((raw, cfg) in startupConfigs()) {
+            buildSduiInputView(raw, cfg)?.let { return it }
+        }
+        return buildFallbackInputView()
     }
 
     /**
@@ -422,14 +427,21 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * altogether, over one bad byte in a cache. Null only when a well-formed
      * config opts out of SDUI (the server's call) or nothing parses at all.
      */
-    private fun pickStartupConfig(): Pair<String, KBConfig>? {
-        for (raw in configCandidates()) {
-            if (!isUsableConfig(raw)) continue
-            if (!SDUIRenderer.isSDUI(raw)) return null
-            val cfg = try { SDUIRenderer.parseKBConfig(raw) } catch (_: Throwable) { continue }
-            return raw to cfg
+    private fun startupConfigs(): Sequence<Pair<String, KBConfig>> = sequence {
+        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        prefs.getString("config_json", null)?.let { cached ->
+            val cfg = parsedKeyboard(cached)
+            // A cache that cannot draw the keyboard is no cache: it used to put
+            // the old layout up until the next good fetch.
+            if (cfg != null) yield(cached to cfg) else prefs.edit().remove("config_json").apply()
         }
-        return null
+        bundledConfig()?.let { b -> parsedKeyboard(b)?.let { yield(b to it) } }
+    }
+
+    /** The config parsed, when it draws the keyboard (a tree, SDUI on). */
+    private fun parsedKeyboard(raw: String): KBConfig? {
+        if (!isUsableConfig(raw) || !SDUIRenderer.isSDUI(raw)) return null
+        return try { SDUIRenderer.parseKBConfig(raw) } catch (_: Throwable) { null }
     }
 
     /** The cached config, then the bundled one — the bundle is only read from
@@ -453,7 +465,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * the background config refetch returns, `applyConfig` updates the renderer
      * via `updateConfig` so pushed changes take effect without a keyboard reopen.
      */
-    private fun buildSduiInputView(rawJson: String, cfg: KBConfig): View {
+    /** The SDUI keyboard for this config, or null when it will not render
+     *  (the caller then tries the next config). */
+    private fun buildSduiInputView(rawJson: String, cfg: KBConfig): View? {
         val container = FrameLayout(this)
         // A keyboard is left to right whatever the system language: on an
         // Arabic or Hebrew phone every row would otherwise lay out mirrored
@@ -471,10 +485,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             sduiRenderer = renderer
             cfg.root?.let { renderer.mount(it) }
         } catch (t: Throwable) {
-            android.util.Log.w("SDUI", "render failed, falling back: ${t.message}")
+            android.util.Log.w("SDUI", "render failed, trying the next config: ${t.message}")
             sduiActive = false
             sduiRenderer = null
-            return buildFallbackInputView()
+            return null
         }
 
         // Kick off the background refresh — same policy as fallback.
@@ -604,15 +618,16 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         // Apply last-known config immediately so the keyboard never waits on
         // the network — the cached one when it is usable, else the bundled one.
-        configCandidates().firstOrNull { isUsableConfig(it) }?.let { applyRawJson(it) }
+        configCandidates().firstOrNull { parsedKeyboard(it) != null }?.let { applyRawJson(it) }
         // Refresh in the background; cache the result for next time.
         Thread {
             try {
                 val json = Net.getKeyboardConfigJson()
-                // Only a config that parses replaces the last good one. A
-                // truncated body or a proxy's error page used to be cached as
-                // is, and every open after that fell back to the legacy layout.
-                if (isUsableConfig(json)) {
+                // Only a config that draws the keyboard replaces the last good
+                // one. A truncated body or a proxy's error page used to be
+                // cached as is, and every open after that fell back to the
+                // legacy layout.
+                if (parsedKeyboard(json) != null) {
                     prefs.edit().putString("config_json", json).apply()
                     main.post { applyRawJson(json) }
                 }
@@ -801,7 +816,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED
         ) return true
-        setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true)
+        setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true, blocking = true)
         try {
             startActivity(
                 Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(knobString("kb.mic.permissionScreenId", "onboarding"))))
@@ -847,9 +862,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 // A 401/unauthorized means the shared token expired — tell the
                 // user to reopen the app (which re-shares a fresh one).
                 if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
-                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true)
+                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true, blocking = true)
                 else
-                    setStatus(label("voice_not_listening", "444 : Not Listening"))
+                    setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
                 endStreaming()
             } },
             onClosed = { main.post { onDictationClosed() } },
@@ -1061,7 +1076,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             startMicLevelPolling()
             setStatus(label("listening_tap_stop", "Listening… tap mic to stop"))
         } catch (e: Exception) {
-            setStatus(label("voice_not_listening", "444 : Not Listening"))
+            setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
             cleanupRecorder()
         }
     }
@@ -1088,7 +1103,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             try { rec?.reset(); rec?.release() } catch (_: Exception) {}
             try { fx?.close() } catch (_: Throwable) {}
             if (file == null || !file.exists()) {
-                main.post { setStatus(label("voice_not_listening", "444 : Not Listening")) }
+                main.post { setStatus(label("voice_not_listening", "Not listening — tap the mic to try again.")) }
                 return@Thread
             }
             try {
@@ -1130,7 +1145,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     }
                 }
             } catch (e: Exception) {
-                main.post { setStatus(statusForError(e)) }
+                main.post { setStatus(statusForError(e), blocking = isAuthError(e)) }
             }
         }.start()
     }
@@ -1142,12 +1157,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * session itself, so the fix is to open the app once (which re-shares a
      * fresh token). Everything else is the generic "backend unavailable" copy.
      */
-    private fun statusForError(e: Throwable): String {
+    private fun statusForError(e: Throwable): String =
+        if (isAuthError(e)) label("auth_expired", "Open Tailzu once to sign in again")
+        else label("voice_unavailable", "Voice is unavailable right now — try again soon.")
+
+    /** Signed out: voice cannot work until the app signs in again. */
+    private fun isAuthError(e: Throwable): Boolean {
         val msg = e.message ?: ""
-        return if (msg.contains(" 401") || msg.contains("unauthorized", ignoreCase = true))
-            label("auth_expired", "Open Tailzu once to sign in again")
-        else
-            label("voice_unavailable", "222 : will let you know when we are back")
+        return msg.contains(" 401") || msg.contains("unauthorized", ignoreCase = true)
     }
 
     private fun cleanupRecorder() {
@@ -1257,7 +1274,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
                     TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
-                    setStatus(statusForError(e))
+                    setStatus(statusForError(e), blocking = isAuthError(e))
                 }
             }
         }.start()
@@ -1316,7 +1333,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
                     TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
-                    setStatus(statusForError(e))
+                    setStatus(statusForError(e), blocking = isAuthError(e))
                 }
             }
         }.start()
@@ -1415,14 +1432,20 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
     }
 
-    override fun setStatus(text: String, actionable: Boolean) {
-        // Chatter stays hidden — the 444/222 codes, "Listening…", "Finishing…"
-        // — because the mic animation is the feedback and text over the keys is
-        // noise. ACTIONABLE guidance shows, because the alternative is what
-        // this used to do: suppress everything, including every message that
-        // told the user how to unblock the thing they just tapped. A mic that
-        // refuses silently is indistinguishable from a mic that is broken.
-        val show = actionable && text.isNotEmpty()
+    override fun setStatus(text: String, actionable: Boolean, blocking: Boolean) {
+        // NO TEXT BY THE MIC unless voice cannot work at all. Chatter
+        // ("Listening…", "Finishing…") never showed; now hints and one-off
+        // refusals don't either — the mic, the pill and the keys are the
+        // feedback. What still shows is what blocks voice until the user does
+        // something elsewhere: the microphone permission, signing in again,
+        // running out of words. kb.status.show is the server's switch:
+        // "blocking" (default), "all" (every actionable message, as before),
+        // or "none".
+        val show = text.isNotEmpty() && when (knobString("kb.status.show", "blocking")) {
+            "none" -> false
+            "all" -> actionable || blocking
+            else -> blocking
+        }
         kbState.status = if (show) text else ""
         statusView?.let {
             it.text = kbState.status
@@ -1786,7 +1809,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val message = knobString("kb.quota.status", "").ifBlank {
             label("words_out_status", "Out of free words — open Tailzu to get more.")
         }
-        setStatus(message, actionable = true)
+        setStatus(message, actionable = true, blocking = true)
         try {
             startActivity(
                 Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(screen)))

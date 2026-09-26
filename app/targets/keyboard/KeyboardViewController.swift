@@ -233,13 +233,22 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // The last config fetched, else the server's own config as shipped inside
     // the extension (default-config.json, exported by the backend), so even
     // the very first open draws the server's keyboard, not the hand-built one.
-    let cached = UserDefaults.standard.data(forKey: "tulmi_kb_config")
-    if let data = cached ?? Self.bundledConfig(),
-       let kb = SDUIRenderer.decodeConfig(data),
-       kb.features?.sdui == true, kb.root != nil {
+    // THE KEYBOARD ALWAYS OPENS AS ITSELF. A cached config that cannot draw it
+    // — a truncated body, a portal's HTML page answered with a 200, a value of
+    // the wrong type — is dropped and the config shipped inside the extension
+    // draws instead. Before, the cache was taken as it was, and one bad fetch
+    // put the old hand-built keyboard on screen until the next good one.
+    var startup: Data?
+    if let cached = UserDefaults.standard.data(forKey: "tulmi_kb_config") {
+      if Self.drawsKeyboard(cached) { startup = cached }
+      else { UserDefaults.standard.removeObject(forKey: "tulmi_kb_config") }
+    }
+    let fromCache = startup != nil
+    if startup == nil, let bundled = Self.bundledConfig(), Self.drawsKeyboard(bundled) { startup = bundled }
+    if let data = startup {
       // A cached config has to prove itself on every open: if the keyboard
       // dies with it on screen, the next open forgets it (see the guard below).
-      if cached != nil { markConfigApplying("cache") }
+      if fromCache { markConfigApplying("cache") }
       // The dictation/flow paths mutate these implicitly-unwrapped hand-built
       // controls unconditionally (they've always existed before). Give them
       // detached placeholders — never added to a superview — so every such
@@ -379,6 +388,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
   }
 
+  /// Does this config draw the keyboard: it decodes, and it is a tree.
+  static func drawsKeyboard(_ data: Data) -> Bool {
+    guard let kb = SDUIRenderer.decodeConfig(data) else { return false }
+    return kb.features?.sdui == true && kb.root != nil
+  }
+
   private static func isBadConfig(_ data: Data) -> Bool {
     UserDefaults.standard.string(forKey: badKey) == digest(data)
   }
@@ -460,6 +475,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       guard case .success(let data) = result else { return }
       DispatchQueue.main.async {
         guard let self = self else { return }
+        // Only a config that draws the keyboard is applied or kept. Anything
+        // else — an error page, a half-sent body — is ignored, and the one on
+        // screen stays; it used to be cached and bring up the old keyboard.
+        guard Self.drawsKeyboard(data) else { return }
         // A config that took the keyboard down twice is not applied again;
         // the server's next, different config is.
         if Self.isBadConfig(data) { return }
@@ -1317,11 +1336,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       // Without Full Access the keyboard cannot open its app, so the only
       // honest thing left is to say what happened where they can read it.
       setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
-                actionable: true)
+                actionable: true, blocking: true)
       return
     }
     setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
-              actionable: true)
+              actionable: true, blocking: true)
     attemptOpenApp(appURL(screen: screen)) { [weak self] _, _ in
       self?.resetMicButtonAppearance()
     }
@@ -1749,7 +1768,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // indistinguishable from "the open mechanism is broken".
     guard hasFullAccess else {
       setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."),
-                actionable: true)
+                actionable: true, blocking: true)
       return
     }
     setStatus(label("flow_arming_return", "Turning on Flow — swipe back into your app."), actionable: true)
@@ -1850,7 +1869,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func beginMicHandoff() {
     guard hasFullAccess else {
-      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true, blocking: true)
       return
     }
     let hostBundle = parentBundleIdentifier() ?? ""
@@ -1942,7 +1961,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Without it, requestRecordPermission returns false with no explanation,
     // so we check first and route the user to Settings with a clear message.
     guard self.hasFullAccess else {
-      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true, blocking: true)
       return
     }
     isStartingStream = true
@@ -1951,7 +1970,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingStream = false
         guard granted else {
-          self.setStatus(self.label("mic_denied", "Microphone denied. Allow it in Tailzu settings."), actionable: true)
+          self.setStatus(self.label("mic_denied", "Microphone denied. Allow it in Tailzu settings."), actionable: true, blocking: true)
           return
         }
         self.beginStreaming()
@@ -1999,7 +2018,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       let lower = msg.lowercased()
       if lower.contains("unauthorized") || lower.contains("invalid or missing token") {
         endStreaming()
-        setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable: true)
+        setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable: true, blocking: true)
         return
       }
       // The WebSocket dropped BEFORE we committed a word. The OLD behavior fell
@@ -2013,7 +2032,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable: true)
         return
       }
-      setStatus(label("voice_not_listening", "444 : Not Listening"))
+      setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
       endStreaming()
     case .closed:
       // A partial may still be sitting in the field that never got its
@@ -2165,7 +2184,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // — that's exactly the symptom the user reported: "line-on-orange shows
     // but nothing lands in the field and no POST hits the backend."
     guard self.hasFullAccess else {
-      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true)
+      setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true, blocking: true)
       bailDictating()
       return
     }
@@ -2176,7 +2195,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingRecording = false
         guard granted else {
-          self.setStatus(self.label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable: true)
+          self.setStatus(self.label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable: true, blocking: true)
           self.bailDictating()
           return
         }
@@ -2226,7 +2245,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // throw) yet still fail to provision a mic input — so `record() == false`
     // is a real, recoverable failure, not just a thrown error. The old code
     // only fell back when setCategory THREW, so a non-functional .voiceChat IO
-    // dead-ended at "444 : Not Listening". We also prepareToRecord() to warm
+    // dead-ended at "Not listening — tap the mic to try again.". We also prepareToRecord() to warm
     // the input route (record() right after setActive can otherwise return
     // false before the route settles).
     func tryStart(_ category: AVAudioSession.Category, _ mode: AVAudioSession.Mode) -> AVAudioRecorder? {
@@ -2263,7 +2282,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       NSLog("[Tailzu][kb] beginRecording: both audio routes failed (record()==false) — likely Full Access off / host blocked mic")
       setStatus(
         label("mic_unavailable", "Couldn’t start the mic. Turn on “Allow Full Access” in Settings › General › Keyboard › Keyboards › Tailzu."),
-        actionable: true,
+        actionable: true, blocking: true,
       )
       cleanupRecorder()
       bailDictating()
@@ -2287,7 +2306,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
     guard let url = recordingURL,
           FileManager.default.fileExists(atPath: url.path) else {
-      setStatus(label("voice_not_listening", "444 : Not Listening"))
+      setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
       cleanupRecorder()
       return
     }
@@ -2314,7 +2333,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
             self.setStatus("")
           }
         case .failure(let error):
-          self.setStatus(self.statusForBackendError(error), actionable: true)
+          self.setStatus(self.statusForBackendError(error), actionable: true, blocking: self.isBlockingBackendError(error))
         }
         self.cleanupRecorder()
       }
@@ -2336,6 +2355,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// maps an HTTP code ("401"), a class ("5xx") or "network" (no response at
   /// all) to a label key. A code the map doesn't name shows nothing — the
   /// old "generic hiccup is cosmetic" rule, now the server's to change.
+  /// Signed out or out of words: voice stays blocked until the user acts in
+  /// the app, so the status line may say so.
+  private func isBlockingBackendError(_ error: Error) -> Bool {
+    if case TulmiBackend.BackendError.http(let code, _) = error { return code == 401 || code == 429 }
+    return false
+  }
+
   private func statusForBackendError(_ error: Error) -> String {
     let map: [String: String] = {
       if let raw = kbConfig?.flags["kb.errors.statusByCode"] as? [String: Any] {
@@ -2360,7 +2386,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     case "auth_expired":        return label("auth_expired", "Open Tailzu once to sign in again")
     case "words_out_status":    return label("words_out_status", "Out of free words — open Tailzu to get more.")
     case "voice_unavailable":   return label("voice_unavailable", "Voice is unavailable right now — try again soon.")
-    case "voice_not_listening": return label("voice_not_listening", "444 : Not Listening")
+    case "voice_not_listening": return label("voice_not_listening", "Not listening — tap the mic to try again.")
     case "dictation_failed":    return label("dictation_failed", "Couldn't hear that — try again")
     default:                    return kbConfig?.labels[key] ?? ""
     }
@@ -2415,7 +2441,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
           }
         case .failure(let error):
           KeyboardTelemetry.bump(.refineFailed)
-          self.setStatus(self.statusForBackendError(error), actionable: true)
+          self.setStatus(self.statusForBackendError(error), actionable: true, blocking: self.isBlockingBackendError(error))
         }
         self.sduiRenderer?.reflectRefining(false)
       }
@@ -2505,16 +2531,28 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   // MARK: - Status
 
-  private func setStatus(_ text: String, actionable: Bool = false) {
+  private func setStatus(_ text: String, actionable: Bool = false, blocking: Bool = false) {
     // ALWAYS log to the device console (Console.app / Xcode) — even when the
     // banner is suppressed — so a mic that bails is DIAGNOSABLE. Suppressing
     // every on-screen string made all failures invisible; this keeps the trail.
     if !text.isEmpty { NSLog("[Tailzu][kb] status: %@", text) }
-    // Cosmetic/transient chatter stays hidden — the mic animation is the cue:
-    // the 444/222 codes, "Listening…", "Finishing…". But ACTIONABLE guidance
-    // (Enable Full Access, mic denied, open the app to sign in) MUST show, or a
-    // blocked mic looks completely dead with no way to recover.
-    let show = actionable && !text.isEmpty
+    // NO TEXT BY THE MIC unless voice cannot work at all. Chatter
+    // ("Listening…", "Finishing…") never showed; now hints ("Tap to start
+    // Flow", "Turning on Flow…") and one-off refusals don't either — the mic
+    // and the keys are the feedback, and the mic tap itself opens the app
+    // when that is what it takes. What still shows is what blocks voice until
+    // the user acts somewhere else: Allow Full Access, the microphone
+    // permission, signing in again, running out of words. kb.status.show is
+    // the server's switch: "blocking" (default), "all" (every actionable
+    // message, as before), or "none".
+    let show: Bool = {
+      guard !text.isEmpty else { return false }
+      switch knobString("kb.status.show", "blocking") {
+      case "none": return false
+      case "all":  return actionable || blocking
+      default:     return blocking
+      }
+    }()
     statusLabel.text = show ? text : ""
     statusLabel.isHidden = !show
     sduiRenderer?.reflectStatus(show ? text : "")
@@ -2642,7 +2680,7 @@ extension KeyboardViewController: KBHostControllerProtocol {
       NSLog("[Tailzu] hostStopDictation: neither streaming nor recording — resetting SDUI dictating state.")
       sduiRenderer?.reflectDictating(false)
       if statusLabel.text?.isEmpty ?? true {
-        setStatus(label("voice_not_listening", "444 : Not Listening"))
+        setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
       }
     }
   }
