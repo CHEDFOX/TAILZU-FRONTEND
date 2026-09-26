@@ -11,6 +11,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -33,7 +34,10 @@ class TulmiStreamModule : Module() {
 
     Function("start") { options: Map<String, Any?> ->
       val url = options["url"] as? String ?: ""
-      val token = options["token"] as? String ?: "dev"
+      // No placeholder token: without a real one the request goes out
+      // unauthenticated and the server's 401 says so, instead of a fake
+      // "dev" bearer that could only ever be refused.
+      val token = (options["token"] as? String)?.trim().orEmpty()
       val targetApp = options["targetApp"] as? String ?: "Generic"
       val language = options["language"] as? String ?: "auto"
       streamer?.cancel()
@@ -66,23 +70,31 @@ private class Streamer(
 
   private var ws: WebSocket? = null
   private var record: AudioRecord? = null
+  private var captureThread: Thread? = null
   @Volatile private var capturing = false
+
+  // Backpressure cap — mirrors the keyboard's Stream.kt sendCapBytes. On a poor
+  // uplink an unbounded OkHttp send queue balloons until the process OOMs; we
+  // drop the newest frames once queued bytes exceed the cap and log the first
+  // drop only so a bad network doesn't flood logcat.
+  private val sendCapBytes = 2 * 1024 * 1024
+  @Volatile private var dropLogged = false
 
   fun start(url: String, token: String, targetApp: String, language: String) {
     val req = Request.Builder()
       .url(url)
-      .addHeader("Authorization", "Bearer $token")
+      .apply { if (token.isNotEmpty()) addHeader("Authorization", "Bearer $token") }
       .build()
     ws = client.newWebSocket(req, object : WebSocketListener() {
       override fun onOpen(webSocket: WebSocket, response: Response) {
         val start = JSONObject()
           .put("type", "start")
-          .put("token", token)
           .put("targetApp", targetApp)
           .put("language", language)
           .put("sampleRate", 16000)
           .put("encoding", "pcm_s16le")
           .put("channels", 1)
+        if (token.isNotEmpty()) start.put("token", token)
         webSocket.send(start.toString())
         startCapture(webSocket)
       }
@@ -108,8 +120,15 @@ private class Streamer(
       when (o.optString("type")) {
         "ready" -> emit("onReady", emptyMap())
         "partial" -> emit("onPartial", mapOf("text" to o.optString("text")))
-        "final", "done" -> emit("onFinal", mapOf("text" to o.optString("text")))
-        "error" -> emit("onError", mapOf("message" to o.optString("message", "stream error")))
+        "final" -> emit("onFinal", mapOf("text" to o.optString("text")))
+        // "done" carries no text — it's the terminal marker, not a transcript.
+        "done" -> emit("onClosed", emptyMap())
+        // A mid-stream backend error is terminal: release the mic immediately so
+        // it doesn't stay hot if the JS onError handler forgets to call cancel().
+        "error" -> {
+          stopCapture()
+          emit("onError", mapOf("message" to o.optString("message", "stream error")))
+        }
       }
     } catch (_: Exception) { /* ignore malformed frames */ }
   }
@@ -140,26 +159,60 @@ private class Streamer(
     record = rec
     capturing = true
     rec.startRecording()
-    thread(name = "tulmi-mic") {
+    captureThread = thread(name = "tulmi-mic") {
       val buf = ByteArray(bufSize)
       while (capturing) {
         val n = rec.read(buf, 0, buf.size)
-        if (n > 0) webSocket.send(ByteString.of(buf, 0, n))
+        if (n <= 0) continue
+        // Drop newest frames when the socket is backlogged rather than queuing
+        // forever (the process would OOM on a slow uplink). Matches the keyboard.
+        if (webSocket.queueSize() + n > sendCapBytes) {
+          if (!dropLogged) {
+            dropLogged = true
+            android.util.Log.w(
+              "TulmiStream",
+              "backpressure: dropping audio frames (queueSize=${webSocket.queueSize()}, cap=$sendCapBytes)",
+            )
+          }
+          continue
+        }
+        webSocket.send(buf.toByteString(0, n))
       }
     }
   }
 
+  @Synchronized
   private fun stopCapture() {
+    // Idempotent — finish()/cancel()/onClosed/onError can all land here from
+    // different threads; @Synchronized + this guard stop a double stop/release.
+    if (record == null && captureThread == null) return
     capturing = false
-    try { record?.stop() } catch (_: Exception) {}
-    try { record?.release() } catch (_: Exception) {}
-    record = null
+    // Snapshot + detach so a concurrent caller can't touch the same refs.
+    val t = captureThread; captureThread = null
+    val rec = record; record = null
+    // Release on a teardown thread AFTER an UNBOUNDED join. The mic thread blocks
+    // in rec.read(); it exits only once that read returns (capturing is now
+    // false). The OLD bounded join(700) released the AudioRecord even if the
+    // join timed out — freeing native mic memory out from under an in-flight
+    // read = use-after-free crash. An unbounded join guarantees the read has
+    // returned before release; off the caller thread so stop() doesn't block.
+    thread(name = "tulmi-mic-teardown") {
+      try { t?.join() } catch (_: InterruptedException) {}
+      try { rec?.stop() } catch (_: Exception) {}
+      try { rec?.release() } catch (_: Exception) {}
+    }
   }
 
   fun finish() {
+    // Keep the socket open after "stop" so the engine's flushed tail + "done"
+    // still arrive (closing here truncated the ending). Watchdog force-closes
+    // if "done" never comes.
     stopCapture()
-    ws?.send("{\"type\":\"stop\"}")
-    ws?.close(1000, null)
+    val socket = ws ?: run { emit("onClosed", emptyMap()); return }
+    socket.send("{\"type\":\"stop\"}")
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+      try { ws?.close(1000, null) } catch (_: Exception) {}
+    }, 2500)
   }
 
   fun cancel() {

@@ -1,0 +1,28 @@
+{
+  "about": "iOS keyboard knobs the Android keyboard deliberately does not read, and why. node tools/knobs/extract-keyboard.mjs --parity fails on any iOS knob Android neither reads nor lists here.",
+  "prefixes": {
+    "kb.flow.": "The Flow Session: an iOS keyboard cannot use the microphone, so the app holds it in the background. Android records in the keyboard itself.",
+    "kb.handoff.": "Handing the mic to the app for one recording: the same iOS restriction.",
+    "kb.remount.": "Retries around UIKit replacing the keyboard's input view.",
+    "kb.dictation.dim.ios": "iOS-tuned dim values. Android reads kb.dictation.dim.blurRadius and kb.dictation.dim.keyAlpha."
+  },
+  "keys": {
+    "kb.host.traitRefreshMs": "Throttles UIKit text-trait reads across the extension boundary. Android gets the field once, in EditorInfo.",
+    "kb.mic.stopGlyph": "An SF Symbols name.",
+    "kb.field.numericKeyboardTypes": "UIKit keyboard type names. Android reads the field's inputType class.",
+    "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations."
+  },
+  "labelPrefixes": {
+    "flow_": "The Flow Session (see kb.flow.).",
+    "mic_handoff_": "The mic hand-off (see kb.handoff.)."
+  },
+  "labels": {
+    "full_access_required": "iOS Full Access. Android keyboards have no equivalent switch.",
+    "return.continue": "A UIKit return key type with no Android editor action.",
+    "return.emergency": "A UIKit return key type with no Android editor action.",
+    "return.google": "A UIKit return key type with no Android editor action.",
+    "return.join": "A UIKit return key type with no Android editor action.",
+    "return.route": "A UIKit return key type with no Android editor action.",
+    "return.yahoo": "A UIKit return key type with no Android editor action."
+  }
+}

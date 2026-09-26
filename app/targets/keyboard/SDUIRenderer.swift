@@ -1,0 +1,9615 @@
+import UIKit
+import AVFoundation
+import CoreImage
+
+// =============================================================================
+// KeyRowStackView — a horizontal key row that never wastes a touch.
+//
+// A UIStackView leaves a `spacing` gap between arranged keys; a finger landing
+// in that gap hits the stack itself, not any key, so the tap is lost. During
+// fast typing those near-misses feel like the keyboard "dropped" a key.
+//
+// This subclass divides the whole row among its keys: a touch that misses every
+// key routes to the horizontally nearest key control (each inter-key gap split
+// down the middle). Real hits on a key are untouched — only gap misses are
+// re-routed — so long-press gestures, drag-off cancel, and the press animation
+// all keep working exactly as before. Visuals are identical; only the invisible
+// hit area changes.
+// =============================================================================
+final class KeyRowStackView: UIStackView {
+  /// Backend kill-switch (kb.row.expandHitTargets). When false the row behaves
+  /// like a plain UIStackView, so the gap routing can be turned off remotely
+  /// without a rebuild if it ever misbehaves.
+  var gapRoutingEnabled = true
+
+  /// True when `view` is one of our arranged keys or a descendant of one — as
+  /// opposed to a full-row backdrop (gradient / blur / solid) inserted at
+  /// subview index 0, which also "contains" a gap point but must NOT count as
+  /// a real key hit or it would swallow the touch and defeat gap routing.
+  private func isArrangedKeyHit(_ view: UIView) -> Bool {
+    var cur: UIView? = view
+    while let c = cur, c !== self {
+      if arrangedSubviews.contains(c) { return true }
+      cur = c.superview
+    }
+    return false
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    let hit = super.hitTest(point, with: event)
+    guard gapRoutingEnabled else { return hit }
+    // A real hit on a key (or one of its subviews) wins as-is. A hit on a
+    // backdrop or on the stack itself falls through to nearest-key routing.
+    if let hit, isArrangedKeyHit(hit) { return hit }
+    // The touch missed every key. Only claim points inside the row band.
+    guard isUserInteractionEnabled, !isHidden, alpha > 0.01, bounds.contains(point) else {
+      return hit
+    }
+    // Find the enabled key control whose horizontal span is nearest the touch.
+    // Distance is 0 when the touch x is within a key's x-range, so ties never
+    // happen; each gap is claimed by whichever neighbor is closer (i.e. split
+    // at the gap midpoint).
+    var nearest: UIControl?
+    var bestDX = CGFloat.greatestFiniteMagnitude
+    for sub in arrangedSubviews {
+      guard let key = sub as? UIControl,
+            key.isEnabled, key.isUserInteractionEnabled, !key.isHidden, key.alpha > 0.01
+      else { continue }
+      let f = key.frame
+      let dx: CGFloat = point.x < f.minX ? f.minX - point.x
+                      : point.x > f.maxX ? point.x - f.maxX
+                      : 0
+      if dx < bestDX { bestDX = dx; nearest = key }
+    }
+    guard let key = nearest else { return hit }
+    // Deliver to that key: clamp the point inside its bounds so the key's own
+    // hitTest returns it and its targets / gestures fire normally.
+    let lx = min(max(point.x - key.frame.minX, key.bounds.minX + 0.5), key.bounds.maxX - 0.5)
+    return key.hitTest(CGPoint(x: lx, y: key.bounds.midY), with: event) ?? key
+  }
+}
+
+// =============================================================================
+// KeyHitButton — a key with an expanded touch target (hit slop).
+//
+// A plain UIButton commits on .touchUpInside, which re-checks the button's OWN
+// bounds at LIFT time. So a tap that lands in the ~6pt gap between keys — or a
+// finger that rolls a few points off the key before lifting (normal fast
+// typing) — is outside the bounds, fires .touchUpOutside, and the character is
+// silently dropped. That is the "shows feedback but only a firm, dead-center
+// tap actually types" bug.
+//
+// Expanding point(inside:) fixes BOTH ends: the row's gap-router (above) finds
+// this key on touch-DOWN, and the up-time bounds check now passes for near-key
+// / drifted touches, so the tap commits. Slop is backend-tunable via
+// kb.key.hitSlop.x / kb.key.hitSlop.y (0 = plain bounds). NOTE: must be created
+// with init(frame:) — UIButton.init(type:) does NOT return a subclass instance.
+// =============================================================================
+final class KeyHitButton: UIButton {
+  var hitSlop: UIEdgeInsets = .zero
+  override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+    bounds.inset(by: UIEdgeInsets(
+      top: -hitSlop.top, left: -hitSlop.left, bottom: -hitSlop.bottom, right: -hitSlop.right
+    )).contains(point)
+  }
+}
+
+// =============================================================================
+// KeyPlaneView — optional (kb.keyPlane.enabled) multi-touch layer over the
+// character keys.
+//
+// UIButton + target-action tracks ONE touch per control and can't follow a
+// finger ROLLING from one key to the next — the main fast-typing gap vs the
+// system keyboard. This transparent view sits above the key grid and owns touch
+// for the character keys ONLY (shift / delete / space / mic fall through and
+// keep their own handling). It:
+//   • tracks every simultaneous touch independently (two-thumb + rolling),
+//   • highlights + haptics on touch-DOWN, follows the finger key-to-key on
+//     touch-MOVE, and commits the char under the finger on touch-UP — so a
+//     slide off the grid cancels (native slide-to-cancel),
+//   • routes the gaps between keys to the nearest key.
+//
+// The character keys stay real UIButtons (userInteraction OFF) so every visual,
+// title, fast-shift update and flash-on-refine keeps working untouched — this
+// view centralizes *touch* only; it does not re-implement rendering.
+//
+// v2: accent long-press trays ARE routed through the plane now (per-track hold
+// timer → renderer presents the tray, finger slides to a chip, release commits)
+// so the plane no longer costs the accent feature. Rolling, multi-touch,
+// slide-cancel, press feedback, press-order rollover and LM-biased targeting
+// all live here.
+final class KeyPlaneView: UIView {
+  /// What a plane-managed key does. Characters commit text; shift and
+  /// layer-switch keys are plane-managed too (K7) so a finger can go DOWN on
+  /// them and SLIDE onto a character — the two native gestures (shift→letter
+  /// one-shot capital, 123→symbol layer-peek) that per-button touch handling
+  /// can never express.
+  enum Role {
+    case character(String)
+    case shift
+    case layerSwitch(target: String?)
+    /// A key that is not a character but must still own its share of the
+    /// surface — space, return, backspace. Committing one fires the button's
+    /// own action, so nothing about what it DOES moves into the plane, and its
+    /// painted rect keeps vetoing so a direct touch still reaches its own
+    /// gestures. Only the GAPS around it come here.
+    case action
+  }
+  struct Key { weak var button: UIButton?; let role: Role }
+
+  /// The plane is PERSISTENT across remounts (K7): rebind() swaps the key set
+  /// while live touches keep flowing — that's what lets a layer-peek remount
+  /// happen mid-touch and the same finger continue onto the new layer's keys.
+  private var keys: [Key] = []
+  private weak var renderer: SDUIRenderer?
+
+  /// kb.keyPlane.rolloverCommit — commit an already-held key the moment a NEW
+  /// finger touches down, so overlapped two-thumb presses emit in PRESS order.
+  /// Committing at each finger's own lift (the v1 behavior) inverted pairs when
+  /// the first key was released after the second was pressed ("teh" for "the"),
+  /// which is exactly how fast typists overlap. Matches the system keyboard.
+  var rolloverCommit = true
+  /// kb.keyPlane.commitOnDown — a plain letter is inserted when the finger
+  /// LANDS, not when it lifts.
+  ///
+  /// This is the whole of "the keyboard feels slow". The highlight, the click
+  /// and the haptic all fire in touchesBegan; the character waited for
+  /// touchesEnded. A tap holds the key for 60 to 120 ms, so every letter
+  /// arrived three to seven frames after the key that typed it lit up, and no
+  /// amount of speed anywhere else could close a gap made of the user's own
+  /// finger. The system keyboard commits on down; this is that.
+  ///
+  /// It reuses the state rollover already relies on. A track marked `committed`
+  /// is skipped by touchesMoved, by the tray timer and by the lift path, so
+  /// "already typed, still held" is not a new condition — it is the one two
+  /// overlapping thumbs have always produced.
+  ///
+  /// Keys WITH an accent tray are excluded, because there the press and the
+  /// character are genuinely different events: the letter must not be typed
+  /// until the hold has been ruled out.
+  ///
+  /// Default OFF so the flag decides, and so it can be taken back over the air
+  /// without another build.
+  var commitOnDown = false
+  /// kb.keyPlane.accentTrays — long-press accent trays routed through the plane.
+  var accentTraysEnabled = true
+  /// kb.accentTray.longPressMs — hold threshold before the tray opens.
+  var trayLongPressMs: Double = 500
+  /// kb.touch.lmBias.pt — extra points of gap a "likely next letter" may claim
+  /// (0 = language-model bias off). Only ever shifts AMBIGUOUS touches (gap /
+  /// slop zone); a touch landing inside a key's real bounds is never stolen.
+  var lmBiasPt: CGFloat = 0
+  /// kb.touch.vSlop — vertical reach of every key beyond its rect. The 10pt
+  /// row gaps are fully covered from both sides; nearest-row scoring (see
+  /// keyAt) decides the winner.
+  var vSlop: CGFloat = 8
+  /// kb.touch.topRowUpSlop — extra upward reach for the TOP letter row, so a
+  /// touch that overshoots q..p toward the toolbar still types. Real toolbar
+  /// controls (mic, tone pill, suggestion chips) are obstacle-vetoed.
+  var topRowUpSlop: CGFloat = 12
+  /// kb.touch.bottomRowDownSlop — extra downward reach for the BOTTOM letter
+  /// row toward the space row; the space/return/123 keys themselves are
+  /// obstacle-vetoed so only the true gap is claimed.
+  var bottomRowDownSlop: CGFloat = 10
+  /// kb.touch.edgeToMargin — each row's outermost key owns its side margin
+  /// all the way to the keyboard edge (the dead corners beside "a" and "l"
+  /// on the indented middle row — native types the edge letter there).
+  var edgeToMargin = true
+  /// kb.shift.longPressMs — hold-to-caps-lock threshold for the plane-managed
+  /// shift key (its old gesture recognizer is dead once the plane owns it).
+  var shiftLongPressMs: Double = 350
+  /// kb.swipe.enabled — QuickPath-style glide typing. Engages when a single
+  /// finger traverses ≥ swipeMinKeys distinct character keys.
+  var swipeEnabled = false
+  /// kb.swipe.minKeys — distinct keys a drag must cross before it reads as a
+  /// swipe instead of a roll.
+  var swipeMinKeys = 3
+  /// kb.swipe.trail.* — the fading ink trail behind a swipe.
+  var trailColor: UIColor = UIColor(white: 1, alpha: 0.85)
+  var trailWidth: CGFloat = 7
+  var trailFadeMs: Double = 260
+  /// kb.touch.holdMultiplier — how far a finger may drift off the pressed key
+  /// before the press is CANCELLED, as a multiple of the key's own size.
+  /// Native keeps a key held through a lot of drift; only a deliberate slide
+  /// cancels. Lower = twitchier, higher = stickier. 0 restores the old
+  /// no-hysteresis behavior (any drift onto dead space drops the keystroke).
+  var holdMultiplier: CGFloat = 1.0
+  /// kb.touch.cancelCommit.* — iOS CANCELS touches its system gesture
+  /// recognizer claims, and the home-indicator band overlaps the bottom row,
+  /// so quick light taps there get cancelled rather than ended. A cancelled
+  /// touch this short and this still is treated as a real tap and commits.
+  /// Set maxMs to 0 to stop rescuing cancelled taps entirely.
+  var cancelCommitMaxMs: Double = 300
+  var cancelCommitMaxDrift: CGFloat = 12
+  /// kb.touch.roleReach — how far past its painted rect shift / 123 claim a
+  /// touch, and only where they are nearer than any other key (roleKeyAt).
+  var roleReach: CGFloat = 20
+  /// kb.touch.maxKeyHeight — the tallest a key's geometry may be before it is
+  /// clamped (see maxKeyHeight, which stays the shipped default).
+  var keyHeightCap: CGFloat = KeyPlaneView.maxKeyHeight
+  /// kb.touch.rowTolerance — keys whose vertical centres sit this close are
+  /// one row.
+  var rowTolerance: CGFloat = 8
+  /// kb.touch.sideReach — how far past half its own width a key's ownership
+  /// box reaches sideways.
+  var sideReachExtra: CGFloat = 6
+  /// kb.accentTray.cancelDriftPt — drift that turns a hold into a roll and
+  /// disarms the accent tray.
+  var trayCancelDrift: CGFloat = 12
+  /// kb.swipe.pathCap / kb.swipe.pathTrim — the swipe path is trimmed by
+  /// pathTrim points whenever it grows past pathCap.
+  var swipePathCap = 128
+  var swipePathTrim = 64
+  /// kb.swipe.pivot.* — the corner detector in pivotChars().
+  var pivotWindow = 3
+  var pivotMinTravel: CGFloat = 8
+  var pivotMaxCos: CGFloat = 0.57
+  /// kb.swipe.trail.maxPoints — how many path points the ink trail draws.
+  var trailMaxPoints = 40
+
+  /// Live, enabled controls elsewhere in the tree (shift / delete / space /
+  /// return / mic / tone / suggestion chips). Their rects VETO plane
+  /// ownership: a point inside one is never claimed for a letter, which is
+  /// what makes the generous slops above safe.
+  private struct WeakView { weak var v: UIView? }
+  private var obstacles: [WeakView] = []
+  private var obstacleRects: [CGRect] = []
+  func setObstacles(_ views: [UIView]) {
+    obstacles = views.map { WeakView(v: $0) }
+    obstaclesDirty = false
+    refreshObstacleRects()
+  }
+
+  /// The obstacle VIEW LIST is stale — re-pull it before the next touch
+  /// resolves.
+  ///
+  /// Finding the obstacles means walking the whole mounted hierarchy, and that
+  /// used to run on every suggestion update, i.e. on nearly every keystroke.
+  /// It is now pull-based like the frames: the renderer says "this changed",
+  /// and the walk happens at most once, when a finger actually arrives.
+  ///
+  /// Their RECTS are a separate matter and stay live regardless —
+  /// refreshFrames() re-derives them every time it runs, so chips that merely
+  /// changed width are always measured correctly without re-walking anything.
+  func setObstaclesDirty() { obstaclesDirty = true }
+  private var obstaclesDirty = false
+  private func refreshObstacleRects() {
+    var out: [CGRect] = []
+    for w in obstacles {
+      guard let v = w.v, v.window != nil, !v.isHidden, v.alpha > 0.01 else { continue }
+      // A key the plane fully owns cannot also refuse it. See planeSilentIds.
+      if planeSilentIds.contains(ObjectIdentifier(v)) { continue }
+      var r = convert(v.bounds, from: v)
+      // Veto the control's EXPANDED touch target, not just its painted rect —
+      // special keys are KeyHitButtons with hit slop (y=8/x=2), and a tap in
+      // that slop band must reach them, not be claimed for a nearby letter by
+      // the edge/vertical reach above.
+      if let k = v as? KeyHitButton, !planeOwnedIds.contains(ObjectIdentifier(k)) {
+        r = r.inset(by: UIEdgeInsets(
+          top: -k.hitSlop.top, left: -k.hitSlop.left,
+          bottom: -k.hitSlop.bottom, right: -k.hitSlop.right))
+        // CLIP THE HALO TO WHERE IT CAN ACTUALLY BE TOUCHED.
+        //
+        // Hit slop widens what the button ACCEPTS, not what reaches it. UIKit
+        // only descends into a subview when the point is already inside the
+        // parent, so the part of the slop that falls outside the button's own
+        // row can never be delivered to anything. It was still vetoed, and a
+        // veto is checked before the plane resolves — so those points went to
+        // the button that could not have them and to nothing else.
+        //
+        // It is not a sliver. The mic and the tone pill are 10pt-slopped keys
+        // painted 12pt down a 44pt tools row, so their halo hung 6pt into the
+        // gap above q..p, across more than a third of the keyboard's width.
+        // The globe key's halo covered the entire gap between the z..m row and
+        // the space row, directly under z and x. Those are the two places a
+        // thumb overshoots, which is why the keyboard felt like it had holes
+        // exactly where it did.
+        if let sup = k.superview {
+          r = r.intersection(convert(sup.bounds, from: sup))
+        }
+      }
+      // A plane-owned key vetoes only what it draws — see the same clamp in
+      // refreshFrames. Without this a stretched space or return button
+      // vetoed a column of the keyboard from its row to the screen's edge.
+      if planeOwnedIds.contains(ObjectIdentifier(v)), r.height > keyHeightCap {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: keyHeightCap)
+      }
+      // Action keys (space, return, backspace) are the exception: they veto
+      // only their PAINTED rect. The halo is what made the gaps around them
+      // dead — an obstacle is checked before anything else, so a 10pt band
+      // around every key was refused by the plane and left to that key's own
+      // hit area. Shrinking the veto hands those gaps back to the plane, which
+      // now has these keys in `frames` and can resolve a gap touch to them.
+      //
+      // A DIRECT touch still reaches the button untouched, so backspace's
+      // hold-to-repeat and space's long-press cursor slide keep working —
+      // gestures the plane cannot reproduce, and would silently lose if it
+      // took the whole key.
+      if r.width > 0, r.height > 0 { out.append(r) }
+    }
+    obstacleRects = out
+  }
+
+  /// Buttons the plane resolves to but does NOT take over: their painted rect
+  /// still vetoes, so a direct touch reaches the button and its own gestures.
+  /// Only the gaps AROUND them come to the plane.
+  ///
+  /// Identities, not references — `keys` holds its buttons weakly on purpose
+  /// and a strong second list here would defeat that.
+  private var planeOwnedIds: Set<ObjectIdentifier> = []
+
+  /// Buttons the plane resolves AND takes over completely, so they must not
+  /// veto it at all.
+  ///
+  /// THIS IS WHAT THE PARTITION WAS MISSING. Every letter is a KeyHitButton,
+  /// every KeyHitButton not in `planeOwnedIds` had its rect grown by its own
+  /// hit slop and added to the veto list, and a veto is checked before
+  /// anything else — so a touch anywhere on a letter, or within eight points
+  /// above or below one, was refused by the plane and left to the button.
+  ///
+  /// Which means the partition never applied to the letters. Not to the keys
+  /// and not to the gaps between them: two neighbours' halos meet in the
+  /// middle of the space between their columns, and clipped to the row they
+  /// cover the whole of it vertically. Every fix for the dead gaps — filling
+  /// them, resolving every claimed point, warming the geometry — was written
+  /// for a plane that was handed a few slivers of the keyboard.
+  ///
+  /// Only the action keys veto now, and only their painted rect: backspace's
+  /// hold-to-repeat and space's cursor slide are real gestures on the button
+  /// that the plane cannot reproduce. Shift and the layer switch do not veto
+  /// either — the plane implements their hold itself, and their old gesture
+  /// recognizers are dead under it.
+  private var planeSilentIds: Set<ObjectIdentifier> = []
+
+  /// Per-active-touch state: the key currently under that finger.
+  private final class Track {
+    weak var button: UIButton?
+    var char: String?
+    /// Set once the char has been committed early by press-order rollover —
+    /// the touch stays tracked (for hasActiveTouches) but must not commit or
+    /// re-target again.
+    var committed = false
+    /// True when the char was typed on touch-down (K39). Such a track is
+    /// committed, but its accent hold still stands: if the tray opens the
+    /// renderer takes the typed char back and the release decides again.
+    var downCommitted = false
+    /// Where the touch started, for the hold-vs-roll accent-tray decision.
+    var startPoint: CGPoint = .zero
+    /// When the touch started — lets touchesCancelled tell a quick tap the
+    /// system gesture recognizer stole (commit it) from a real swipe (drop it).
+    let downAt = CACurrentMediaTime()
+    /// Pending accent-tray / shift-hold timer; invalidated on roll/lift/commit.
+    var trayTimer: Timer?
+    /// True while this finger is driving an open accent tray.
+    var trayActive = false
+    /// Non-nil when this touch began on shift or a layer-switch key.
+    var specialRole: Role?
+    /// True while this track owes a planeUp (a planeDown was delivered and
+    /// not yet balanced). Balanced by identity-independent bookkeeping: after
+    /// a layer-peek remount the pressed button is deallocated (weak → nil),
+    /// and skipping the balance leaked planeActiveTouchCount +1 per peek —
+    /// killing key-pop callouts for the rest of the session.
+    var pressed = false
+    /// The layout to return to after a layer-peek commit (nil = plain tap,
+    /// stay on the switched layer).
+    var peekReturn: String?
+    /// True once this touch has been promoted to a QuickPath swipe.
+    var swipeMode = false
+    /// The ordered distinct character keys the swipe has crossed.
+    var sweptChars: [String] = []
+    /// Sampled path points (plane coords) for the trail + decode geometry.
+    var pathPoints: [CGPoint] = []
+    init(_ b: UIButton?, _ c: String?) { button = b; char = c }
+    deinit { trayTimer?.invalidate() }
+  }
+  private var tracks: [ObjectIdentifier: Track] = [:]
+
+  /// True while any finger is down on the plane. The renderer defers config
+  /// remounts on this — swapping the tree mid-touch dropped the keystroke.
+  var hasActiveTouches: Bool { !tracks.isEmpty }
+
+  /// The tallest a key can be. Rows are 44pt; 64 leaves headroom for larger
+  /// layouts and still rejects a button stretched to fill a container.
+  static let maxKeyHeight: CGFloat = 64
+
+  /// Key frames in this view's coordinate space, refreshed on layout.
+  /// `rect` is the key's real frame; `own` is its OWNERSHIP box — rect grown
+  /// by the row-aware slops and (for a row's outermost keys) out to the
+  /// keyboard edge. A touch must land inside `own` to be a candidate; the
+  /// nearest `rect` (both axes) then wins.
+  private var frames: [(button: UIButton, char: String, rect: CGRect, own: CGRect)] = []
+  /// Shift / layer-switch key frames — separate from the character grid:
+  /// they're touch-DOWN anchors (a finger can begin here and slide onto a
+  /// character), never roll targets.
+  private var roleFrames: [(button: UIButton, role: Role, rect: CGRect)] = []
+  /// The swipe ink trail.
+  private let trailLayer = CAShapeLayer()
+  /// Union of every key's ownership box — the region where a tap must ALWAYS
+  /// resolve to a key rather than falling through to nothing.
+  private var gridBand: CGRect = .zero
+  /// kb.touch.fillGaps — claim every point inside the letter grid for its
+  /// nearest key. Off restores the old behaviour where a point outside every
+  /// ownership box was simply dropped.
+  var fillGaps = true
+
+  init(renderer: SDUIRenderer) {
+    self.renderer = renderer
+    super.init(frame: .zero)
+    isMultipleTouchEnabled = true
+    isUserInteractionEnabled = true
+    backgroundColor = .clear
+    isOpaque = false
+    trailLayer.fillColor = nil
+    trailLayer.lineCap = .round
+    trailLayer.lineJoin = .round
+    layer.addSublayer(trailLayer)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// Swap the key set after a remount. Live touches keep their Track state —
+  /// stale weak buttons resolve to nil and re-target against the fresh
+  /// geometry on the next move (this is what layer-peek rides on).
+  func rebind(keys: [Key]) {
+    self.keys = keys
+    planeOwnedIds = Set(keys.compactMap { $0.button.map(ObjectIdentifier.init) })
+    planeSilentIds = Set(keys.compactMap { k -> ObjectIdentifier? in
+      if case .action = k.role { return nil }
+      return k.button.map(ObjectIdentifier.init)
+    })
+    frames = []
+    roleFrames = []
+    framesDirty = true
+    // ASK FOR A LAYOUT PASS. This is what the debug overlay was really doing.
+    //
+    // The plane is persistent with constant bounds, so nothing invalidates its
+    // layout after a remount — and alwaysRefreshGeometry lives in
+    // layoutSubviews, which therefore never ran. The flag meant to keep the
+    // geometry warm was a no-op in the one situation it was written for, and
+    // the frames stayed empty until the first finger landed and paid for
+    // rebuilding them against a tree that had not settled. That is the dead
+    // gap: not a wrong rect, a missing one.
+    //
+    // The green sheet hid it by accident. `setNeedsDisplay()` made draw() run
+    // at the next display pass, and draw() called ensureFrames() — so the
+    // geometry was always warm before a touch, purely as a side effect of
+    // painting. Turning the paint off turned the warming off with it, which is
+    // why the gaps came back and why they seemed to be about a debug flag.
+    //
+    // setNeedsLayout() schedules layoutSubviews even with bounds unchanged, so
+    // the refresh happens at a frame boundary, after the container has laid its
+    // keys out, before any touch. Same moment the overlay got for free, now on
+    // purpose and with nothing drawn.
+    setNeedsLayout()
+    if debugRects || sheet { setNeedsDisplay() }
+  }
+
+  /// kb.debug.showTouchRects — paint what the plane actually owns.
+  ///
+  /// Four sessions of reasoning about this geometry produced four wrong
+  /// answers, because "it feels dead here" and "the rect does not cover here"
+  /// cannot be matched up by argument. This draws the answer: every key's
+  /// ownership box, the obstacle rects that veto them, and the grid band. A
+  /// dead zone is then simply a place with no colour on it.
+  ///
+  /// Off by default and backend-flippable, so it can be turned on against a
+  /// real device and off again without a build.
+  /// kb.touch.alwaysRefresh — rebuild key geometry on every layout pass.
+  ///
+  /// ON is the K30 behaviour and the fix. It exists as a flag only so that if
+  /// it ever costs more than it buys, that can be found out by changing a
+  /// backend value rather than by shipping another build — this problem has
+  /// already cost six.
+  var alwaysRefreshGeometry = true
+
+  /// kb.touch.totalResolve — a point the plane claimed always resolves to a
+  /// key. OFF restores the old behaviour, where a claimed point the resolver
+  /// could not place was silently dropped. Same reason: reversible without a
+  /// build.
+  var totalResolve = true
+
+  var debugRects = false {
+    didSet { if debugRects != oldValue { setNeedsDisplay() } }
+  }
+
+  /// kb.keyPlane.sheet — everything the debug sheet does at runtime, and none
+  /// of what it paints.
+  ///
+  /// The measurement, from the hand and not from the source: with
+  /// kb.debug.showTouchRects on, the keyboard has worked every time it was
+  /// tried. With it off, some spots stay dead. K34 read that as geometry
+  /// warming and moved the warming into rebind() and layoutSubviews(); the
+  /// difference survived that, so the reading was wrong or not the whole of
+  /// it. Every explanation of this keyboard produced by reading the source has
+  /// been wrong at least once, and this one was too.
+  ///
+  /// So this keeps the sheet's side effects wholesale and stops choosing among
+  /// them. The sheet asks for a display pass after every hit test, every
+  /// layout and every rebind, and runs ensureFrames() at that pass, when the
+  /// tree has settled and no finger is being resolved; the backing store is
+  /// re-committed with it. All of that still happens. The fills do not. One
+  /// more display pass after every commit as well, because the build stamp
+  /// refreshed there and it was on whenever the sheet was.
+  ///
+  /// Off restores the K34 path exactly, over the air, so if the sheet's cure
+  /// turns out to have been coincidence that costs a flag and not a build.
+  var sheet = true
+
+  override func draw(_ rect: CGRect) {
+    super.draw(rect)
+    guard sheet || debugRects else { return }
+    // At the display pass, after layout has settled and before the next
+    // finger — the moment the sheet always got for free.
+    ensureFrames()
+    guard debugRects, let ctx = UIGraphicsGetCurrentContext() else { return }
+    // Ownership boxes — overlapping fills, so a well-covered gap reads DARKER
+    // than a thinly covered one and a dead one reads as bare.
+    ctx.setFillColor(UIColor.systemGreen.withAlphaComponent(0.16).cgColor)
+    for f in frames { ctx.fill(f.own) }
+    // The keys themselves, so the boxes can be read against what they belong to.
+    ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.5).cgColor)
+    ctx.setLineWidth(1)
+    for f in frames { ctx.stroke(f.rect) }
+    // Vetoes: anywhere red sits, a letter can never win the touch.
+    ctx.setFillColor(UIColor.systemRed.withAlphaComponent(0.22).cgColor)
+    for o in obstacleRects { ctx.fill(o) }
+    // Role keys (shift / layer) with their own slop.
+    ctx.setStrokeColor(UIColor.systemOrange.withAlphaComponent(0.9).cgColor)
+    for f in roleFrames { ctx.stroke(f.rect) }
+    // The band outside which keyAt refuses everything.
+    ctx.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.8).cgColor)
+    ctx.setLineWidth(2)
+    ctx.stroke(gridBand)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    if debugRects || sheet { setNeedsDisplay() }
+    // REBUILD, every layout. Not "only when our own bounds changed".
+    //
+    // The old rule rested on the witness catching everything else, and the
+    // witness is one key out of thirty-one, taken from a Dictionary — so which
+    // key it is varies run to run, and it can only speak for the row it sits
+    // in. The rows are separate stacks: one can move while the witness's row
+    // does not, and then every rect in the moved row stays stale with the
+    // grid reporting itself unchanged.
+    //
+    // This is why the debug overlay "fixed" the keyboard, twice, and why that
+    // was never a coincidence. Its draw() calls ensureFrames(), and
+    // layoutSubviews marks it for redraw — so with the overlay on the geometry
+    // was rebuilt on every layout and the witness never got a chance to be
+    // wrong. The overlay does strictly MORE work than this (it paints a
+    // full-keyboard bitmap as well) and the keyboard felt better with it on.
+    // That is the measurement; this is it without the paint.
+    //
+    // The cost objection does not survive contact with where the cost lands.
+    // The rebuild happens HERE, inside layoutSubviews, at a frame boundary
+    // where convert() is cheap because the tree has settled — not on the next
+    // touch. Nothing is added to the path between a finger landing and a
+    // character appearing.
+    if alwaysRefreshGeometry { framesDirty = true }
+    // Then bring the geometry up to date HERE, while the user is not touching
+    // anything, rather than leaving it for the first touch to pay for.
+    //
+    // This is what the debug overlay was accidentally doing: its draw() called
+    // ensureFrames() every frame, so the rects were always warm before a
+    // finger arrived — and the keyboard measurably felt better with it on.
+    // Turning it off removed the warming along with the paint.
+    //
+    // It matters because convert(_:from:) is only cheap against a settled
+    // layer tree. Called with layout still pending it resolves that layout
+    // first, so the first touch after any change was paying for the tree as
+    // well as the geometry, at exactly the wrong moment. layoutSubviews runs
+    // at frame boundaries, where that cost is free.
+    //
+    // Cheap by construction: with nothing moved this is the witness check and
+    // returns after one convert.
+    ensureFrames()
+  }
+
+  /// True when the cached rects may no longer match the screen.
+  ///
+  /// The keys are NOT subviews of the plane (it converts their bounds in from
+  /// the mount container), so the plane's own layoutSubviews is not a reliable
+  /// signal on its own — the container can re-lay-out its keys while the
+  /// plane's bounds never change. So a new touch SEQUENCE also marks dirty,
+  /// which keeps the "always resolve against live geometry" guarantee that
+  /// made hard-press-only typing go away, while collapsing the several
+  /// refreshes UIKit used to force per finger-down into exactly one.
+  private var framesDirty = true
+
+  /// One key's converted rect, kept as the witness for "has the grid moved?".
+  ///
+  /// The guarantee this class needs is that a touch resolves against LIVE
+  /// geometry — stale rects are what made only hard, dead-centre taps type.
+  /// It used to buy that by rebuilding everything on every hit test: ~31 keys
+  /// plus every obstacle, converted one by one. UIKit hit-tests a view
+  /// repeatedly per touch and touchesBegan then did it again, so a single
+  /// finger-down cost that rebuild several times over, on the main thread,
+  /// between the finger landing and anything appearing.
+  ///
+  /// That is a lag the user feels as dropped taps: while the main thread is
+  /// converting rectangles it is not accepting touches, and light quick taps
+  /// are the ones that fall in the gap.
+  ///
+  /// The keys live in a stack — if the grid moves, every key moves with it —
+  /// so ONE key's rect answers the question. Checking it costs a single
+  /// convert; only when it disagrees does the full rebuild run. Same
+  /// guarantee, a thirtieth of the work.
+  /// One key per row, and the rect it had when the grid was last rebuilt.
+  ///
+  /// Weak, like `keys`, and for the same reason: a witness that kept a button
+  /// alive would let the cheap check pass on a view that has already left the
+  /// hierarchy — the one state it exists to catch. A tuple cannot hold a weak
+  /// member, so this is a struct.
+  private struct Witness {
+    weak var button: UIButton?
+    let rect: CGRect
+  }
+  private var witnesses: [Witness] = []
+  private var geoBounds: CGRect = .null
+
+  private func ensureFrames() {
+    if obstaclesDirty, let r = renderer {
+      obstaclesDirty = false
+      obstacles = r.planeObstacleViews().map { WeakView(v: $0) }
+      framesDirty = true
+    }
+    if framesDirty || frames.isEmpty { refreshFrames(); return }
+    // Cheap check: has anything actually moved since the last rebuild?
+    //
+    // One witness PER ROW, because the rows are separate stacks and a single
+    // witness can only answer for its own. Three or four converts instead of
+    // one, still a tenth of a full rebuild, and it cannot report a grid
+    // unchanged while a row it does not sit in has moved.
+    guard !witnesses.isEmpty, bounds.equalTo(geoBounds) else { refreshFrames(); return }
+    for w in witnesses {
+      guard let b = w.button, b.window != nil else { refreshFrames(); return }
+      if !convert(b.bounds, from: b).equalTo(w.rect) { refreshFrames(); return }
+    }
+  }
+
+  private func refreshFrames() {
+    framesDirty = false
+    defer { geoBounds = bounds }
+    var raw: [(UIButton, String, CGRect)] = []
+    var roles: [(UIButton, Role, CGRect)] = []
+    for k in keys {
+      guard let b = k.button, b.window != nil else { continue }
+      var r = convert(b.bounds, from: b)
+      if r.width <= 0 || r.height <= 0 { continue }
+      // A key is never taller than its row. The container can be far taller
+      // than the visible keyboard (the input view is screen-height until the
+      // system settles it), and a button in the last row that a stack has
+      // stretched to fill that reports a rect running off the bottom of the
+      // screen — one did, at ~570pt. Its box, the band and its veto were all
+      // derived from that. Clamp to the tallest plausible key so the geometry
+      // follows what the key draws, not what its view was stretched to.
+      if r.height > keyHeightCap {
+        r = CGRect(x: r.minX, y: r.minY, width: r.width, height: keyHeightCap)
+      }
+      switch k.role {
+      case .character(let ch): raw.append((b, ch, r))
+      // "" marks an action key. It takes part in the partition exactly like a
+      // letter — same ownership box, same gap filling, same nearest-key
+      // fallback — and only differs at the moment of commit.
+      case .action: raw.append((b, "", r))
+      case .shift, .layerSwitch: roles.append((b, k.role, r))
+      }
+    }
+    roleFrames = roles
+    // Cluster keys into rows by vertical center (rows sit ~54pt apart; 8pt
+    // tolerance absorbs any per-key constraint rounding).
+    var rowYs: [CGFloat] = []
+    for (_, _, r) in raw where !rowYs.contains(where: { abs($0 - r.midY) < rowTolerance }) {
+      rowYs.append(r.midY)
+    }
+    rowYs.sort()
+    // Resolve each key's row ONCE. This used to be a closure called inside two
+    // further loops, each doing its own linear scan of rowYs — quadratic work
+    // rebuilt on every hit test. Now it is a single pass, and the loops below
+    // read the answer.
+    var rowOf = [Int](repeating: 0, count: raw.count)
+    for (n, entry) in raw.enumerated() {
+      rowOf[n] = rowYs.firstIndex(where: { abs($0 - entry.2.midY) < rowTolerance }) ?? 0
+    }
+    // Per-row horizontal extremes → which keys are the row's outermost.
+    var minXByRow: [Int: CGFloat] = [:], maxXByRow: [Int: CGFloat] = [:]
+    for (n, entry) in raw.enumerated() {
+      let i = rowOf[n]
+      let r = entry.2
+      minXByRow[i] = min(minXByRow[i] ?? r.minX, r.minX)
+      maxXByRow[i] = max(maxXByRow[i] ?? r.maxX, r.maxX)
+    }
+    let lastRow = rowYs.count - 1
+    var out: [(UIButton, String, CGRect, CGRect)] = []
+    out.reserveCapacity(raw.count)
+    for (n, entry) in raw.enumerated() {
+      let (b, ch, r) = entry
+      let i = rowOf[n]
+      let up = i == 0 ? topRowUpSlop : vSlop
+      let down = i == lastRow ? bottomRowDownSlop : vSlop
+      let sideReach = r.width / 2 + sideReachExtra
+      var left = r.minX - sideReach
+      var right = r.maxX + sideReach
+      if edgeToMargin {
+        if r.minX <= (minXByRow[i] ?? r.minX) + 0.5 { left = bounds.minX }
+        if r.maxX >= (maxXByRow[i] ?? r.maxX) - 0.5 { right = bounds.maxX }
+      }
+      let own = CGRect(x: left, y: r.minY - up,
+                       width: right - left, height: r.height + up + down)
+      out.append((b, ch, r, own))
+    }
+    frames = out
+    // One witness per row, chosen from the keys just measured. Rows are
+    // separate stacks and move independently, so a single witness could report
+    // the grid unchanged while a row it does not belong to had moved — and
+    // every rect in that row would then resolve touches against where it used
+    // to be.
+    var seenRow = Set<Int>()
+    witnesses = []
+    for (n, entry) in raw.enumerated() where !seenRow.contains(rowOf[n]) {
+      seenRow.insert(rowOf[n])
+      witnesses.append(Witness(button: entry.0, rect: entry.2))
+    }
+    // The key area. Every point in it belongs to SOME key — see owns() and
+    // keyAt's fallback — and nothing outside it (the tools row, the
+    // suggestion strip) is ever claimed.
+    //
+    // Built from the keys' REAL rects, not their ownership boxes, and only
+    // from keys that are actually on the plane. A key whose rect converts to
+    // somewhere off the keyboard — one did, and made this band three times
+    // the keyboard's height — cannot stretch it any more. Full width: the
+    // margins beside the outer keys are theirs too.
+    var span = CGRect.null
+    for f in out where f.2.intersects(bounds) { span = span.union(f.2) }
+    if span.isNull {
+      gridBand = .zero
+    } else {
+      gridBand = CGRect(x: bounds.minX, y: span.minY - topRowUpSlop,
+                        width: bounds.width,
+                        height: span.height + topRowUpSlop + bottomRowDownSlop)
+    }
+    refreshObstacleRects()
+  }
+
+  /// The character key nearest `point`, but only when `point` genuinely lands
+  /// on the character grid (same row band + within a half-key horizontal
+  /// reach). Returns nil for the special-key columns and other rows so those
+  /// touches fall through to the controls beneath.
+  private func keyAt(_ point: CGPoint) -> (button: UIButton, char: String)? {
+    ensureFrames()
+    // A point inside a REAL control (delete / space / return / mic / tone /
+    // suggestion chip) is never a character's — it falls through to that
+    // control. Same for the plane-managed shift/layer keys: they're role
+    // anchors, and the letter rows' edge-to-margin reach must not swallow
+    // them. This veto is what lets the ownership boxes be generous.
+    for o in obstacleRects where o.contains(point) { return nil }
+    if roleKeyAt(point) != nil { return nil }
+    // Language-model bias: the set of letters likely to follow the last typed
+    // character (backend bigram table). A likely key's score for an AMBIGUOUS
+    // touch shrinks by lmBiasPt — the cheap version of the system keyboard's
+    // dynamic hit-target resizing. Direct in-bounds hits score 0 and always
+    // win (see the max(0.01, …) clamp).
+    let likely: Set<String> = lmBiasPt > 0 ? (renderer?.lmLikelyNext() ?? []) : []
+    var best: (button: UIButton, char: String, score: CGFloat)?
+    for f in frames {
+      guard f.own.contains(point) else { continue }
+      // Distance from the point to the key's REAL rect, both axes (0 inside).
+      // Scoring dx+dy makes a touch in the vertical row gap resolve to the
+      // NEAREST row — the old single-axis check resolved between-row touches
+      // by iteration order, i.e. arbitrarily.
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      var score = dx + dy
+      if score > 0, !likely.isEmpty, likely.contains(f.char) {
+        score = max(0.01, score - lmBiasPt)
+      }
+      if best == nil || score < best!.score { best = (f.button, f.char, score) }
+    }
+    if let b = best { return (b.button, b.char) }
+
+    // NO ownership box claimed the point — so give it to the nearest key,
+    // full stop.
+    //
+    // gridBand still bounds this, but it is no longer the LETTER grid's box:
+    // it is the union of every key that takes part in the partition, and space,
+    // return and backspace are now among them. So the band reaches the bottom
+    // of the keyboard, and the gaps that used to fall outside it — the whole
+    // bottom row, and the space between its keys — are inside and get the
+    // nearest key. That was the dead zone: those points fell back to each
+    // button's own hit area, the key plus a few points of slop, and a tap
+    // anywhere else did nothing.
+    //
+    // Keeping the bound matters. Without it the strip ABOVE the top row would
+    // also resolve to the nearest letter, and a near-miss on the suggestion bar
+    // would type instead of doing nothing.
+    guard fillGaps, gridBand.contains(point) else { return nil }
+    var nearest: (button: UIButton, char: String, d: CGFloat)?
+    // Only keys actually on the plane. One that converts to somewhere off the
+    // keyboard is never the right answer, however the distances work out.
+    for f in frames where f.rect.intersects(bounds) {
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if nearest == nil || d < nearest!.d { nearest = (f.button, f.char, d) }
+    }
+    guard let n = nearest else { return nil }
+    return (n.button, n.char)
+  }
+
+  /// The nearest key on the plane, with no gate of any kind.
+  ///
+  /// The last resort for a point the plane has already taken ownership of.
+  /// Deliberately unconditional — the band, the ownership boxes and the
+  /// obstacle veto have all had their say by the time this runs, and the one
+  /// answer that is never right here is "nothing".
+  private func nearestKey(to point: CGPoint) -> (button: UIButton, char: String)? {
+    var best: (button: UIButton, char: String, d: CGFloat)?
+    for f in frames where f.rect.intersects(bounds) {
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if best == nil || d < best!.d { best = (f.button, f.char, d) }
+    }
+    return best.map { ($0.button, $0.char) }
+  }
+
+  /// The shift / layer key whose rect (+ its OWN hit slop) contains the
+  /// point — NEAREST wins when slop bands overlap (shift and "123" sit in
+  /// adjacent rows; first-match order made shift swallow taps aimed at 123).
+  private func roleKeyAt(_ point: CGPoint) -> (button: UIButton, role: Role)? {
+    var best: (button: UIButton, role: Role, dist: CGFloat)?
+    for f in roleFrames {
+      let slop = (f.button as? KeyHitButton)?.hitSlop
+        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+      let expanded = f.rect.inset(by: UIEdgeInsets(
+        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+      let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
+      let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
+      let d = dx + dy
+      if !expanded.contains(point) {
+        // HALF THE GAP IS SHIFT'S. Every other key owns the space around it
+        // up to the midpoint with its neighbour; shift and 123 owned only
+        // their painted rect, so the 19pt between shift and z typed z all the
+        // way to shift's edge, and a thumb landing a hair right of shift got
+        // a letter instead of a capital. A point nearer to a role key than to
+        // any key in `frames`, within kb.touch.roleReach, is the role key's.
+        // Nearer to a real button (the globe beside 123) is that button's
+        // side of the gap, not the role key's.
+        guard roleReach > 0, d <= roleReach, gridBand.contains(point) else { continue }
+        func l1(_ r: CGRect) -> CGFloat {
+          max(0, max(r.minX - point.x, point.x - r.maxX)) + max(0, max(r.minY - point.y, point.y - r.maxY))
+        }
+        if frames.contains(where: { l1($0.rect) <= d }) || obstacleRects.contains(where: { l1($0) <= d }) {
+          continue
+        }
+      }
+      if best == nil || d < best!.dist { best = (f.button, f.role, d) }
+    }
+    return best.map { ($0.button, $0.role) }
+  }
+
+  override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+    // Geometry must be live before deciding ownership — deciding on stale
+    // frames/obstacles (e.g. suggestion chips that appeared since the last
+    // layout) would claim a touch that keyAt then refuses, silently
+    // swallowing it.
+    //
+    // ALWAYS re-derive. hitTest decides OWNERSHIP, and it runs before
+    // touchesBegan — so stale rects here mean the touch is declined outright
+    // and never reaches the resolve at all.
+    //
+    // This was gated on `tracks.isEmpty` to avoid repeat work within one
+    // finger-down. That gate is exactly wrong while typing fast: touches
+    // overlap, tracks is never empty, and the whole burst resolves against
+    // rects derived before it started. Dead touches, only at speed.
+    //
+    // Affordable because refreshFrames is no longer quadratic — it resolves
+    // each key's row once instead of rescanning inside two nested loops. A
+    // handful of convert() calls per finger-down is a price worth paying to
+    // never decline a real touch.
+    // No forced rebuild: ensureFrames checks the witness and rebuilds only if
+    // the grid has actually moved. Forcing it here — and again in
+    // touchesBegan — meant every finger-down paid for the full geometry twice
+    // over before a character could appear.
+    ensureFrames()
+    // Own the character grid + the plane-managed shift/layer keys; else nil
+    // so delete / space / return / mic below receive the touch normally.
+    let owned = owns(point)
+    if debugRects || onDebugHit != nil {
+      lastHit = (point, owned)
+      onDebugHit?()
+    }
+    // A display pass after every hit test — the sheet's, kept. See `sheet`.
+    if debugRects || sheet { setNeedsDisplay() }
+    return owned ? self : nil
+  }
+
+  /// What the plane actually holds right now, for the build stamp.
+  ///
+  /// Every question asked about this keyboard so far — is the plane installed,
+  /// does it own the bottom row, how much of the surface do the obstacles veto
+  /// — was answered by reading the source and guessing. Five times, wrongly.
+  /// These are the same facts, measured on the device.
+  var partitionReport: (keys: Int, actions: Int, roles: Int, obstacles: Int, band: CGRect,
+                        planeH: CGFloat, outlier: String) {
+    ensureFrames()
+    let actions = frames.filter { $0.char.isEmpty }.count
+    // The TALLEST key, measured from the view's real bounds rather than the
+    // clamped rect, so the stamp reports what the view actually is. The first
+    // readout used distance-from-centre and named the wrong key.
+    var worst: (label: String, top: CGFloat, bottom: CGFloat, h: CGFloat) = ("-", 0, 0, -1)
+    for f in frames {
+      let raw = convert(f.button.bounds, from: f.button)
+      if raw.height > worst.h {
+        let label = f.char.isEmpty ? (f.button.accessibilityIdentifier ?? "act") : f.char
+        worst = (label, raw.minY, raw.maxY, raw.height)
+      }
+    }
+    return (frames.count, actions, roleFrames.count, obstacleRects.count, gridBand,
+            bounds.height, "\(worst.label)\(Int(worst.top))-\(Int(worst.bottom))")
+  }
+
+  /// Debug only: the last point hitTest was asked about, and its answer.
+  /// "Y" means the plane took the touch and will resolve it; "N" means it
+  /// declined and the touch fell through to whatever is beneath. A dead gap
+  /// with N is an ownership bug; with Y it is a commit bug. Nothing else
+  /// separates those two.
+  private(set) var lastHit: (point: CGPoint, owned: Bool)?
+  var onDebugHit: (() -> Void)?
+
+  /// Debug counters for the stamp. `cancelled` is every touch iOS took back
+  /// instead of ending; `rescued` those the short-and-still rule committed
+  /// anyway; `committed` every character the plane typed. On a keyboard that
+  /// owns its whole surface these are the only numbers that separate "the
+  /// tap never reached release" from "it did and typed": cancelled close to
+  /// committed means iOS is taking the taps, and the rescue's bounds are
+  /// what to tune.
+  private(set) var dbgCancelled = 0
+  private(set) var dbgRescued = 0
+  private(set) var dbgCommitted = 0
+
+  /// Ownership only — same accept/reject decision as
+  /// `keyAt(point) != nil || roleKeyAt(point) != nil`, without resolving WHICH
+  /// key or consulting the language model.
+  ///
+  /// hitTest only ever needed the yes/no. Running the full scored resolve
+  /// there meant every ambiguity computation — distance scoring across every
+  /// key, the bigram lookup — was performed and thrown away, several times per
+  /// keypress, before the real resolve in touchesBegan did it again.
+  private func owns(_ point: CGPoint) -> Bool {
+    for o in obstacleRects where o.contains(point) { return false }
+    for f in roleFrames {
+      let slop = (f.button as? KeyHitButton)?.hitSlop
+        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+      let expanded = f.rect.inset(by: UIEdgeInsets(
+        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+      if expanded.contains(point) { return true }
+    }
+    if frames.isEmpty { return false }
+    // The whole rule, when gaps are filled: inside the key area and not on a
+    // control means it is ours, and keyAt gives it to the nearest key. It
+    // used to also require the point to fall inside some key's ownership
+    // box, which made "is this ours" depend on per-key reach, slops, and a
+    // band computed from those — three things that each had to be right, and
+    // that could not be told apart from the outside when one was not.
+    if fillGaps { return gridBand.contains(point) }
+    for f in frames where f.own.contains(point) { return true }
+    return false
+  }
+
+  // MARK: - Multi-touch
+
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    // Re-derive key rects at the START of every touch sequence. layoutSubviews
+    // caches them too, but if the grid's layout settled AFTER that cache (or the
+    // cache was taken mid-animation), keyAt would match every finger against
+    // stale positions — mis-detecting keys and dropping all but dead-center taps.
+    // This is the fix for "the keyboard only responds to a hard touch on the key"
+    // AND poor fast-typing: detection is now always against live geometry.
+    // EVERY finger-down re-derives, not once per sequence.
+    //
+    // hitTest only marks dirty when `tracks` is empty. Typing fast means
+    // touches overlap, so tracks is never empty and the frames derived at the
+    // start of a burst were reused for its whole duration. The keys are not
+    // subviews of the plane — it converts their bounds in — so the plane's own
+    // layoutSubviews does not reliably fire when they move, and a remount
+    // mid-burst left the cache holding weak refs to buttons that no longer
+    // exist. A touch resolving to a dead button does nothing at all: a dead
+    // touch, and only ever while typing fast.
+    //
+    // hitTest ran microseconds ago and already brought the geometry up to
+    // date, so this is the witness check and nothing more — one convert.
+    // Forcing the rebuild here as well made every finger-down pay for the
+    // whole grid twice, on the main thread, before a character appeared.
+    ensureFrames()
+    // Press-order rollover: a NEW finger down commits every still-held key
+    // right now, so overlapped presses land in the order they were pressed —
+    // not the order the fingers happened to lift.
+    //
+    // Space and return first. They are real buttons that type on LIFT, and
+    // letters type on contact, so a letter landing while the other thumb
+    // still held space went in ahead of it: "hellow orld". Measured in the
+    // simulator (tools/keyboard-sim) at 80 wpm it was two sentences in
+    // three, and every error was that one.
+    cancelHeldTrays()
+    renderer?.planeFlushHeldLifts()
+    flushPendingCommits()
+    for t in touches {
+      let p = t.location(in: self)
+      KeyboardTelemetry.bump(.planeTouches)
+      // Shift / layer-switch keys first — their rects are vetoed out of
+      // keyAt, so the checks are disjoint.
+      if let role = roleKeyAt(p) {
+        let track = Track(role.button, nil)
+        track.startPoint = p
+        track.specialRole = role.role
+        tracks[ObjectIdentifier(t)] = track
+        renderer?.planeDown(role.button)
+        track.pressed = true
+        switch role.role {
+        case .shift:
+          renderer?.planeShiftDown()
+          // Hold → caps lock (the button's old gesture recognizer is dead
+          // under the plane). .common mode — .default timers pause mid-touch.
+          let timer = Timer(timeInterval: shiftLongPressMs / 1000.0, repeats: false) {
+            [weak self, weak track] _ in
+            // Still a pure hold (never slid onto a character) → caps lock.
+            guard let self = self, let track = track, track.char == nil else { return }
+            self.renderer?.planeShiftLongPress()
+          }
+          RunLoop.main.add(timer, forMode: .common)
+          track.trayTimer = timer
+        case .layerSwitch(let target):
+          // Layer-peek: switch NOW (touch-down, like native) — the renderer
+          // remounts synchronously and rebinds this persistent plane, so THIS
+          // touch keeps flowing and can slide onto the new layer's keys.
+          // peekReturn remembers where to bounce back to after a slide-commit;
+          // a plain tap (no slide) stays on the switched layer.
+          track.peekReturn = renderer?.planePeekBegan(target: target)
+        // Neither reaches roleKeyAt: characters and action keys live in
+        // `frames`, not `roles`. Listed so the switch stays exhaustive and a
+        // future role cannot be silently forgotten here.
+        case .character, .action:
+          break
+        }
+        continue
+      }
+      // A point the plane CLAIMED must resolve to something.
+      //
+      // hitTest and this line answer two different questions with two
+      // different rules — "is it mine?" is generous, "which key?" is not — and
+      // where they disagree the touch is already the plane's, so it never
+      // falls through to the button underneath. It just stops: the Track holds
+      // no char and commit() returns on its first line. Silent, and only ever
+      // in the gaps, because the gaps are the only place the two rules can
+      // differ. Key centres agree always, which is exactly the shape of the
+      // bug as reported — centres perfect, gaps dead.
+      let hit = keyAt(p) ?? (totalResolve ? nearestKey(to: p) : nil)
+      if hit == nil { KeyboardTelemetry.bump(.planeMissed) }
+      let track = Track(hit?.button, hit?.char)
+      track.startPoint = p
+      // Seed the swipe path with the STARTING key — sweptChars otherwise only
+      // gains keys on roll-off, so every swipe decoded anchored one key late
+      // ("hello" swiped h→o arrived as e-l-o and matched nothing).
+      if let ch = hit?.char { track.sweptChars = [ch] }
+      tracks[ObjectIdentifier(t)] = track
+      if let b = hit?.button { renderer?.planeDown(b); track.pressed = true }
+      // THE LETTER, NOW, WHILE THE FINGER IS STILL ON IT.
+      //
+      // Every character, accent tray or not (K39). Half the alphabet carries
+      // a tray — a e i o u c n s y z l d h — and waiting for the lift on those
+      // was where fast typing fell behind: a thumb that lifts late, drifts, or
+      // gets its touch cancelled loses the letter, and it is exactly the
+      // common letters. Now the char is typed on contact, and if the hold
+      // turns into a tray the renderer takes it back (planeRetractDownCommit)
+      // so the release can choose the accent. Action keys stay excluded:
+      // backspace's repeat and space's cursor slide are gestures that begin,
+      // not events that happen.
+      if commitOnDown, let ch = hit?.char, !ch.isEmpty, !track.committed {
+        track.committed = true
+        track.downCommitted = true
+        commit(track)
+      }
+      // Arm the accent-tray hold for this finger. Fires only if the finger is
+      // still down, hasn't rolled/committed, and the key actually has accents
+      // (the renderer decides that when presenting). Timer goes to .common —
+      // .default-mode timers pause while a finger is on screen.
+      if accentTraysEnabled, hit != nil {
+        let timer = Timer(timeInterval: trayLongPressMs / 1000.0, repeats: false) {
+          [weak self, weak track] _ in
+          guard let self = self, let track = track,
+                !track.committed || track.downCommitted,
+                !track.trayActive, !track.swipeMode else { return }
+          if track.downCommitted {
+            // The char went in on touch-down; the tray offers alternatives
+            // to it, so take it back and let the release decide. BEFORE the
+            // tray is built: the take-back returns a one-shot shift, and the
+            // chips are cased from it (É, not é). Only while this key's char
+            // is still the last thing typed — never someone else's.
+            guard self.renderer?.planeCanRetract(char: track.char, button: track.button) == true else { return }
+            self.renderer?.planeRetractDownCommit()
+          }
+          if self.renderer?.planeTryPresentAccentTray(for: track.button, char: track.char) == true {
+            track.trayActive = true
+          } else if track.downCommitted {
+            // Nothing opened after all: the char goes back where it was.
+            self.renderer?.planeRestoreRetracted()
+          }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        track.trayTimer = timer
+      }
+    }
+  }
+
+  override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks[ObjectIdentifier(t)] else { continue }
+      let p = t.location(in: self)
+      if track.trayActive {
+        // The finger is driving the accent tray now — slide highlights chips;
+        // no key re-targeting. Plane and mount container share identical
+        // frames (both pinned to the same edges), so plane coords pass through.
+        renderer?.planeUpdateAccentTray(at: p)
+        continue
+      }
+      if track.committed {
+        // Already typed. The one thing a moving finger can still decide is
+        // whether the hold was meant: a drift is a roll, and rolls never
+        // open trays.
+        if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > trayCancelDrift {
+          track.trayTimer?.invalidate()
+          track.trayTimer = nil
+        }
+        continue
+      }
+      if track.swipeMode {
+        track.pathPoints.append(p)
+        if track.pathPoints.count > swipePathCap {
+          track.pathPoints.removeFirst(min(swipePathTrim, track.pathPoints.count))
+        }
+        if let ch = keyAt(p)?.char, ch != track.sweptChars.last {
+          track.sweptChars.append(ch)
+        }
+        updateTrail(with: track.pathPoints)
+        continue
+      }
+      // A hold that drifts is a roll, not a long-press — disarm the tray.
+      if track.trayTimer != nil, hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) > trayCancelDrift {
+        track.trayTimer?.invalidate()
+        track.trayTimer = nil
+      }
+      let hit = keyAt(p)
+      if track.button !== hit?.button {
+        // NATIVE HYSTERESIS: a light, glancing touch drifts through DEAD
+        // slivers — an obstacle's edge, a point past the slop bands — at
+        // exactly the moment of lift, and clearing the key there dropped the
+        // keystroke ("only a hard touch registers"). Like the system
+        // keyboard: leaving the pressed key's zone does NOT release it; only
+        // entering ANOTHER key retargets, and only a deliberate slide (a
+        // full key-size beyond the pressed key's rect) cancels.
+        if hit == nil,
+           holdMultiplier > 0,
+           let curBtn = track.button,
+           let cur = frames.first(where: { $0.button === curBtn }),
+           cur.rect.insetBy(dx: -cur.rect.width * holdMultiplier,
+                            dy: -cur.rect.height * holdMultiplier).contains(p) {
+          // Jitter, not a slide — keep the key held.
+        } else {
+          track.trayTimer?.invalidate()   // rolled onto another key — no tray/lock
+          track.trayTimer = nil
+          if track.pressed {
+            // Balance the outstanding down even if the pressed button was
+            // deallocated by a peek remount (weak → nil).
+            if let old = track.button { renderer?.planeUp(old) } else { renderer?.planeUpLost() }
+            track.pressed = false
+          }
+          if let nw = hit?.button { renderer?.planeDown(nw); track.pressed = true }
+          track.button = hit?.button
+          track.char = hit?.char
+          // Record traversal for swipe promotion (character tracks only).
+          if track.specialRole == nil, let ch = hit?.char, ch != track.sweptChars.last {
+            track.sweptChars.append(ch)
+          }
+        }
+      }
+      if swipeEnabled {
+        track.pathPoints.append(p)
+        // Bounded: only the trail tail + decode use these, and a long jittery
+        // hold must not grow memory inside a jetsam-capped extension.
+        if track.pathPoints.count > swipePathCap {
+          track.pathPoints.removeFirst(min(swipePathTrim, track.pathPoints.count))
+        }
+      }
+      // Promote to a QuickPath swipe: a single finger gliding across ≥N
+      // distinct keys is a word-shape, not a roll. Roll semantics stay for
+      // short drifts and for role (shift/layer) slides.
+      if swipeEnabled, track.specialRole == nil, !track.swipeMode,
+         tracks.values.filter({ !$0.committed }).count == 1,
+         track.sweptChars.count >= swipeMinKeys,
+         renderer?.planeCanSwipe() == true {
+        track.swipeMode = true
+        track.trayTimer?.invalidate()
+        track.trayTimer = nil
+        if let b = track.button { renderer?.planeUp(b) }   // no held-key visual mid-swipe
+        renderer?.planeSwipeEngaged()
+        updateTrail(with: track.pathPoints)
+      }
+    }
+  }
+
+  /// The keys the finger actually TURNED on.
+  ///
+  /// A swipe crosses many keys incidentally, but it changes direction at the
+  /// letters that matter — that corner is the strongest signal in swipe
+  /// decoding and the old decoder ignored it completely, using only the set of
+  /// crossed keys. Any word whose letters appeared in order among those keys
+  /// scored, so a long glide matched almost anything.
+  ///
+  /// Detection: walk the path with a lookaround window, measure the turn angle
+  /// between the incoming and outgoing direction, and treat a sharp turn as a
+  /// deliberate stop. Endpoints always count — a word starts and ends where
+  /// the finger did.
+  func pivotChars(_ points: [CGPoint]) -> [String] {
+    guard points.count >= 2 else { return [] }
+    let window = max(1, pivotWindow)
+    var pivotPoints: [CGPoint] = [points.first!]
+    var i = window
+    while i < points.count - window {
+      let p = points[i]
+      let a = points[i - window], b = points[i + window]
+      let v1 = CGVector(dx: p.x - a.x, dy: p.y - a.y)
+      let v2 = CGVector(dx: b.x - p.x, dy: b.y - p.y)
+      let m1 = hypot(v1.dx, v1.dy), m2 = hypot(v2.dx, v2.dy)
+      // Ignore jitter: a turn only means something if the finger actually
+      // travelled far enough on both sides of it.
+      if m1 > pivotMinTravel, m2 > pivotMinTravel {
+        let cosA = (v1.dx * v2.dx + v1.dy * v2.dy) / (m1 * m2)
+        // ~55°+ of turn. Gentle arcs through a key are pass-throughs, not stops.
+        if cosA < pivotMaxCos {
+          pivotPoints.append(p)
+          i += window   // one corner, not a cluster of adjacent samples
+        }
+      }
+      i += 1
+    }
+    pivotPoints.append(points.last!)
+
+    var out: [String] = []
+    for p in pivotPoints {
+      guard let ch = keyAt(p)?.char else { continue }
+      if ch != out.last { out.append(ch) }
+    }
+    return out
+  }
+
+  // MARK: - Swipe trail
+
+  /// Invalidates a pending fade-cleanup when a NEW swipe starts within
+  /// trailFadeMs of the previous one (the stale asyncAfter used to nil the
+  /// fresh trail's path, and the lingering fade animation pinned opacity 0).
+  private var trailGeneration = 0
+
+  private func updateTrail(with points: [CGPoint]) {
+    guard points.count > 1 else { return }
+    trailGeneration += 1
+    trailLayer.removeAnimation(forKey: "fade")
+    let tail = points.suffix(max(2, trailMaxPoints))
+    let path = UIBezierPath()
+    path.move(to: tail.first!)
+    for pt in tail.dropFirst() { path.addLine(to: pt) }
+    trailLayer.strokeColor = trailColor.cgColor
+    trailLayer.lineWidth = trailWidth
+    trailLayer.opacity = 1
+    trailLayer.path = path.cgPath
+  }
+
+  private func fadeTrail() {
+    trailGeneration += 1
+    let gen = trailGeneration
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.toValue = 0
+    fade.duration = trailFadeMs / 1000.0
+    fade.fillMode = .forwards
+    fade.isRemovedOnCompletion = false
+    trailLayer.add(fade, forKey: "fade")
+    DispatchQueue.main.asyncAfter(deadline: .now() + trailFadeMs / 1000.0) { [weak self] in
+      guard let self = self, self.trailGeneration == gen else { return }
+      self.trailLayer.path = nil
+      self.trailLayer.removeAnimation(forKey: "fade")
+      self.trailLayer.opacity = 0
+    }
+  }
+
+  override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      track.trayTimer?.invalidate()
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
+      // Typed on touch-down or by press-order rollover — unless this finger
+      // is driving a tray, whose release still has a choice to make.
+      if track.committed, !track.trayActive { continue }
+      if track.swipeMode {
+        fadeTrail()
+        // Pivots are the shape information the old decoder threw away — see
+        // pivotChars(). Without them any word whose letters merely appear in
+        // order among the crossed keys matched, which is why long swipes
+        // returned near-random words.
+        renderer?.planeSwipeCommit(sweptChars: track.sweptChars,
+                                   pivots: pivotChars(track.pathPoints))
+        continue
+      }
+      if track.trayActive {
+        let p = t.location(in: self)
+        // Released on a chip → that accent; still on the key below the tray →
+        // the base char (matching iOS); slid anywhere else → nothing. If the
+        // tray itself was destroyed under this finger (peek remount from a
+        // second touch), the held key must STILL type — lostTrayFallback.
+        let stillOnKey = keyAt(p)?.char == track.char
+        renderer?.planeCommitAccentTray(at: p,
+                                        fallbackChar: stillOnKey ? track.char : nil,
+                                        lostTrayFallback: track.char)
+        continue
+      }
+      if let role = track.specialRole {
+        switch role {
+        case .shift:
+          // Slid from shift onto a letter → one-shot capital commits here;
+          // a plain shift tap already armed on touch-down.
+          commit(track)
+        case .layerSwitch:
+          if track.char != nil {
+            // Layer-peek: press 123/#+=/ABC, slide to a key, release — the
+            // key commits and the layer bounces back to where the peek began.
+            commit(track)
+            if let back = track.peekReturn { renderer?.planePeekReturn(to: back) }
+          }
+          // No slide → plain tap: stay on the switched layer.
+        case .character, .action:
+          break
+        }
+        continue
+      }
+      // Commit the char under the finger at release. If it slid off the grid
+      // (button == nil) nothing commits — native slide-to-cancel.
+      commit(track)
+    }
+  }
+
+  override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    for t in touches {
+      guard let track = tracks.removeValue(forKey: ObjectIdentifier(t)) else { continue }
+      dbgCancelled += 1
+      track.trayTimer?.invalidate()
+      if track.trayActive {
+        renderer?.planeDismissAccentTray()
+        // The base char was taken back when the tray opened; a system
+        // cancel must not eat it.
+        if track.downCommitted, let ch = track.char { renderer?.planeCommit(char: ch) }
+      }
+      if track.swipeMode { fadeTrail() }
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
+      // iOS CANCELS (not ends) touches its system-gesture recognizer claims,
+      // and the home-indicator band overlaps the keyboard's bottom rows —
+      // quick LIGHT taps there are its favorite prey. The system keyboard
+      // still types those; silently dropping them read as "only hard touches
+      // register". Commit when the cancelled touch was a plain short tap that
+      // never really moved; a cancelled real gesture (control-center swipe)
+      // has drift/duration and still dies here. No double-type risk: UIKit
+      // never delivers touchesEnded for a cancelled touch.
+      if cancelCommitMaxMs > 0,
+         !track.committed, !track.trayActive, !track.swipeMode,
+         track.specialRole == nil, track.char != nil,
+         (CACurrentMediaTime() - track.downAt) * 1000 < cancelCommitMaxMs {
+        let p = t.location(in: self)
+        if hypot(p.x - track.startPoint.x, p.y - track.startPoint.y) < cancelCommitMaxDrift {
+          // Counts how often iOS stole a real tap and we rescued it — the
+          // measure of whether the K11 fix is doing anything in the field.
+          KeyboardTelemetry.bump(.touchesCancelledRescued)
+          dbgRescued += 1
+          commit(track)
+        }
+      }
+    }
+  }
+
+  /// Commit every still-held, uncommitted letter NOW (press-order rollover).
+  /// Runs when another plane touch begins, and — via the renderer — when a
+  /// NON-plane key (space / return / shift / delete) goes down, so
+  /// letter→special-key overlaps keep press order exactly like letter→letter.
+  /// A finger driving an open accent tray is exempt: committing its base char
+  /// behind the tray would type behind the user's back.
+  /// Commit a track: a character inserts, an action key fires its own button.
+  ///
+  /// Action keys carry "" as their char so they can share the partition with
+  /// letters. Routing every commit through here is what stops that sentinel
+  /// leaking — an empty insert would type nothing and look exactly like the
+  /// dead touch this change exists to remove.
+  private func commit(_ track: Track) {
+    guard let ch = track.char else { return }
+    if ch.isEmpty {
+      // Both events, in order. Backspace arms its delete on .touchDown and
+      // cancels the auto-repeat on .touchUpInside, so sending only the second
+      // would cancel a delete that never happened and erase nothing.
+      track.button?.sendActions(for: .touchDown)
+      track.button?.sendActions(for: .touchUpInside)
+    } else {
+      dbgCommitted += 1
+      renderer?.planeCommit(char: ch)
+    }
+    onDebugHit?()
+    if sheet { setNeedsDisplay() }
+  }
+
+  /// Guards the flush against itself. commit() fires a button's actions
+  /// SYNCHRONOUSLY, keyTouchDown flushes on any interaction-enabled key going
+  /// down, and an action key in the plane's partition is both — so the flush
+  /// called itself, forever, through UIKit.
+  private var flushing = false
+
+  /// Another key is going down: a key already typed on contact is being
+  /// rested on while the other hand types, not held for its tray. Opening it
+  /// now would take back a char that is no longer the last one typed.
+  private func cancelHeldTrays() {
+    for (_, t) in tracks where t.downCommitted && !t.trayActive {
+      t.trayTimer?.invalidate()
+      t.trayTimer = nil
+    }
+  }
+
+  func flushPendingCommits() {
+    cancelHeldTrays()
+    guard rolloverCommit, !flushing else { return }
+    flushing = true
+    defer { flushing = false }
+    for (_, track) in tracks
+    where !track.committed && !track.trayActive && !track.swipeMode && track.specialRole == nil {
+      track.trayTimer?.invalidate()
+      track.trayTimer = nil
+      if track.pressed {
+        if let b = track.button { renderer?.planeUp(b) } else { renderer?.planeUpLost() }
+        track.pressed = false
+      }
+      // MARK BEFORE FIRING.
+      //
+      // commit() on an action key sends .touchDown / .touchUpInside on its
+      // button, right here, on this stack. keyTouchDown answers that by
+      // flushing again — and the track it just committed was still unmarked,
+      // because the mark came after the call. So it committed the same key
+      // again, and again: 740 frames deep, EXC_BAD_ACCESS in the stack guard,
+      // and iOS swapping in the system keyboard mid-sentence.
+      //
+      // The `flushing` guard above closes the same door structurally. This one
+      // is the reason the door was open.
+      track.committed = true
+      commit(track)
+      track.button = nil
+    }
+  }
+}
+
+// =============================================================================
+// KeyCalloutView — the native "key pop" balloon shown above a pressed letter.
+//
+// The single biggest tell of a non-native keyboard is the absence of the
+// magnified character bubble that iOS floats over the key you're pressing. This
+// draws that exact shape: a rounded-rect head, wider than the key, joined to the
+// key's top edge by a tapering neck — one filled bezier with a soft shadow, and
+// the character drawn large in the head. It's a passive overlay (userInteraction
+// off); the renderer positions it on touch-down and hides it on release, so it
+// follows the finger during a rolling multi-touch slide for free.
+final class KeyCalloutView: UIView {
+  private let shape = CAShapeLayer()
+  private let label = UILabel()
+
+  /// kb.callout.* geometry — set by the renderer when it creates the balloon.
+  /// The defaults are the shipped shape.
+  var headExtraWidth: CGFloat = 28
+  var headMinWidth: CGFloat = 44
+  var headExtraHeight: CGFloat = 8
+  var neckHeight: CGFloat = 10
+  var headRadius: CGFloat = 7
+  var edgeClamp: CGFloat = 3
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    isUserInteractionEnabled = false
+    shape.shadowColor = UIColor.black.cgColor
+    shape.shadowOpacity = 0.18
+    shape.shadowRadius = 5
+    shape.shadowOffset = CGSize(width: 0, height: 2)
+    layer.addSublayer(shape)
+    label.textAlignment = .center
+    addSubview(label)
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// kb.callout.shadow* — the balloon's soft shadow.
+  func setShadow(color: UIColor, opacity: Float, radius: CGFloat, offset: CGSize) {
+    shape.shadowColor = color.cgColor
+    shape.shadowOpacity = opacity
+    shape.shadowRadius = radius
+    shape.shadowOffset = offset
+  }
+
+  /// Position + draw the balloon for `keyRect` (in `parent`'s coords), showing
+  /// `char`. `bg`/`text` are the balloon fill + glyph colors.
+  func present(keyRect: CGRect, char: String, in parent: UIView,
+               bg: UIColor, text: UIColor, glyphSize: CGFloat) {
+    let headW = max(keyRect.width + headExtraWidth, headMinWidth)
+    let headH = keyRect.height + headExtraHeight
+    let neckH: CGFloat = neckHeight
+    let r: CGFloat = headRadius
+    // Center the head over the key, clamped inside the parent.
+    var headX = keyRect.midX - headW / 2
+    headX = max(edgeClamp, min(headX, parent.bounds.width - headW - edgeClamp))
+    let topY = keyRect.minY - neckH - headH
+    frame = CGRect(x: headX, y: topY, width: headW, height: headH + neckH + 1)
+
+    // Neck attach points, in local coords, clamped so the shoulders never cross.
+    let keyMinX = keyRect.minX - headX
+    let keyMaxX = keyRect.maxX - headX
+    let hw = headW, hh = headH
+    let rightShoulder = min(keyMaxX + 4, hw - r)
+    let leftShoulder = max(keyMinX - 4, r)
+
+    let p = UIBezierPath()
+    p.move(to: CGPoint(x: 0, y: r))
+    p.addQuadCurve(to: CGPoint(x: r, y: 0), controlPoint: CGPoint(x: 0, y: 0))            // head TL
+    p.addLine(to: CGPoint(x: hw - r, y: 0))
+    p.addQuadCurve(to: CGPoint(x: hw, y: r), controlPoint: CGPoint(x: hw, y: 0))          // head TR
+    p.addLine(to: CGPoint(x: hw, y: hh - r))
+    p.addQuadCurve(to: CGPoint(x: hw - r, y: hh), controlPoint: CGPoint(x: hw, y: hh))    // head BR
+    p.addLine(to: CGPoint(x: rightShoulder, y: hh))                                        // right shoulder
+    p.addQuadCurve(to: CGPoint(x: keyMaxX, y: hh + neckH),
+                   controlPoint: CGPoint(x: keyMaxX + 2, y: hh + neckH * 0.5))             // neck → key R
+    p.addLine(to: CGPoint(x: keyMinX, y: hh + neckH))                                      // key top edge
+    p.addQuadCurve(to: CGPoint(x: leftShoulder, y: hh),
+                   controlPoint: CGPoint(x: keyMinX - 2, y: hh + neckH * 0.5))             // neck → head L
+    p.addLine(to: CGPoint(x: r, y: hh))                                                    // left shoulder
+    p.addQuadCurve(to: CGPoint(x: 0, y: hh - r), controlPoint: CGPoint(x: 0, y: hh))       // head BL
+    p.close()
+
+    shape.path = p.cgPath
+    shape.fillColor = bg.cgColor
+    shape.shadowPath = p.cgPath
+    label.text = char
+    label.textColor = text
+    label.font = .systemFont(ofSize: glyphSize, weight: .regular)
+    label.frame = CGRect(x: 0, y: 0, width: hw, height: hh)
+
+    if superview !== parent { removeFromSuperview(); parent.addSubview(self) }
+    parent.bringSubviewToFront(self)
+    isHidden = false
+  }
+}
+
+// =============================================================================
+// MicParticleView — the recording-state mic visual.
+//
+// Idle, the mic button shows the Tailzu brand mark ("the structure"). When
+// recording starts, the structure gives way to a few very tiny dots that wander
+// inside the round button, bouncing off the circular wall and off each other —
+// a fully physics-based little sim. Deliberately lightweight (a handful of dots,
+// one CADisplayLink, plain Core Graphics fills) so it's safe inside the keyboard
+// extension's tight memory/CPU budget.
+//
+// It self-manages its display link off window attachment, so the renderer just
+// adds/removes it with the rest of the tree — no manual start/stop, no leaked
+// CADisplayLink (which would otherwise retain the view and keep ticking).
+// =============================================================================
+
+// =============================================================================
+// MARK: - The motion language
+//
+// The mic key's program is written in a small language of numbers: arithmetic,
+// comparisons, && || !, ?:, built-in functions, the program's own functions,
+// and names looked up in a context. The same evaluator runs on Android and in
+// the backend's tests. Anything unknown or non-finite is 0: a bad program is
+// a still mark, never a crash.
+// =============================================================================
+/// A server number as a count or index: clamped BEFORE the conversion, so no
+/// value — huge, negative, NaN — can trap Int(_:).
+func clampInt(_ v: Double, _ lo: Int, _ hi: Int) -> Int {
+  guard v.isFinite else { return lo }
+  return Int(min(Double(hi), max(Double(lo), v.rounded(.towardZero))))
+}
+
+indirect enum MotionAST {
+  case num(Double), name(String), call(String, [MotionAST]), neg(MotionAST), not(MotionAST)
+  case tern(MotionAST, MotionAST, MotionAST), bin(String, MotionAST, MotionAST)
+}
+
+/// A context: names to numbers, a few lent functions, and a parent to fall back on.
+final class MotionCtx {
+  var v: [String: Double] = [:]
+  var fn: [String: ([Double]) -> Double] = [:]
+  let parent: MotionCtx?
+  init(_ parent: MotionCtx? = nil) { self.parent = parent }
+  func get(_ k: String) -> Double? { if let x = v[k] { return x }; return parent?.get(k) }
+  func lent(_ k: String) -> (([Double]) -> Double)? { if let f = fn[k] { return f }; return parent?.lent(k) }
+}
+
+struct MotionFunc { let args: [String]; let ast: MotionAST }
+
+enum MotionLang {
+  private enum Tok: Equatable { case num(Double), id(String), op(String) }
+
+  private static func tokenize(_ src: String) throws -> [Tok] {
+    var out: [Tok] = [], chars = Array(src), i = 0
+    let two = ["||", "&&", "==", "!=", "<=", ">="], one = Set("-+*/%^<>!?:(),")
+    while i < chars.count {
+      let c = chars[i]
+      if c.isWhitespace { i += 1; continue }
+      if c.isNumber || (c == "." && i + 1 < chars.count && chars[i + 1].isNumber) {
+        var j = i
+        while j < chars.count, chars[j].isNumber || chars[j] == "." { j += 1 }
+        if j < chars.count, chars[j] == "e" || chars[j] == "E" {
+          var k = j + 1
+          if k < chars.count, chars[k] == "+" || chars[k] == "-" { k += 1 }
+          if k < chars.count, chars[k].isNumber { j = k; while j < chars.count, chars[j].isNumber { j += 1 } }
+        }
+        out.append(.num(Double(String(chars[i..<j])) ?? 0)); i = j; continue
+      }
+      if c.isLetter || c == "_" {
+        var j = i
+        while j < chars.count, chars[j].isLetter || chars[j].isNumber || chars[j] == "_" || chars[j] == "." { j += 1 }
+        out.append(.id(String(chars[i..<j]))); i = j; continue
+      }
+      if i + 1 < chars.count, two.contains(String(chars[i...i + 1])) { out.append(.op(String(chars[i...i + 1]))); i += 2; continue }
+      if one.contains(c) { out.append(.op(String(c))); i += 1; continue }
+      throw NSError(domain: "motion", code: 1, userInfo: [NSLocalizedDescriptionKey: "bad character \(c)"])
+    }
+    return out
+  }
+
+  private final class Parser {
+    let toks: [Tok]; var pos = 0
+    init(_ t: [Tok]) { toks = t }
+    func isOp(_ v: String) -> Bool { pos < toks.count && toks[pos] == .op(v) }
+    func take(_ v: String) throws { guard isOp(v) else { throw NSError(domain: "motion", code: 2, userInfo: [NSLocalizedDescriptionKey: "expected \(v)"]) }; pos += 1 }
+    func opValue() -> String { if case .op(let v) = toks[pos] { pos += 1; return v }; return "" }
+    func ternary() throws -> MotionAST { let c = try or(); if isOp("?") { pos += 1; let a = try ternary(); try take(":"); let b = try ternary(); return .tern(c, a, b) }; return c }
+    func or() throws -> MotionAST { var l = try and(); while isOp("||") { pos += 1; l = .bin("||", l, try and()) }; return l }
+    func and() throws -> MotionAST { var l = try eq(); while isOp("&&") { pos += 1; l = .bin("&&", l, try eq()) }; return l }
+    func eq() throws -> MotionAST { var l = try rel(); while isOp("==") || isOp("!=") { let o = opValue(); l = .bin(o, l, try rel()) }; return l }
+    func rel() throws -> MotionAST { var l = try add(); while isOp("<") || isOp("<=") || isOp(">") || isOp(">=") { let o = opValue(); l = .bin(o, l, try add()) }; return l }
+    func add() throws -> MotionAST { var l = try mul(); while isOp("+") || isOp("-") { let o = opValue(); l = .bin(o, l, try mul()) }; return l }
+    func mul() throws -> MotionAST { var l = try unary(); while isOp("*") || isOp("/") || isOp("%") { let o = opValue(); l = .bin(o, l, try unary()) }; return l }
+    func unary() throws -> MotionAST { if isOp("-") { pos += 1; return .neg(try unary()) }; if isOp("!") { pos += 1; return .not(try unary()) }; return try power() }
+    func power() throws -> MotionAST { let b = try primary(); if isOp("^") { pos += 1; return .bin("^", b, try unary()) }; return b }
+    func primary() throws -> MotionAST {
+      guard pos < toks.count else { throw NSError(domain: "motion", code: 3, userInfo: [NSLocalizedDescriptionKey: "unexpected end"]) }
+      switch toks[pos] {
+      case .num(let v): pos += 1; return .num(v)
+      case .id(let name):
+        pos += 1
+        if isOp("(") {
+          pos += 1; var args: [MotionAST] = []
+          if !isOp(")") { args.append(try ternary()); while isOp(",") { pos += 1; args.append(try ternary()) } }
+          try take(")"); return .call(name, args)
+        }
+        return .name(name)
+      case .op(let v):
+        if v == "(" { pos += 1; let e = try ternary(); try take(")"); return e }
+        throw NSError(domain: "motion", code: 4, userInfo: [NSLocalizedDescriptionKey: "unexpected \(v)"])
+      }
+    }
+  }
+
+  static func parse(_ src: String) throws -> MotionAST {
+    let p = Parser(try tokenize(src)); let ast = try p.ternary()
+    guard p.pos == p.toks.count else { throw NSError(domain: "motion", code: 5, userInfo: [NSLocalizedDescriptionKey: "trailing input"]) }
+    return ast
+  }
+
+  private static func fin(_ x: Double) -> Double { x.isFinite ? x : 0 }
+  private static func a(_ v: [Double], _ i: Int) -> Double { i < v.count ? v[i] : 0 }
+  static let builtins: [String: ([Double]) -> Double] = [
+    "sin": { sin(a($0, 0)) }, "cos": { cos(a($0, 0)) }, "tan": { tan(a($0, 0)) }, "abs": { abs(a($0, 0)) },
+    "sqrt": { a($0, 0) < 0 ? 0 : sqrt(a($0, 0)) }, "floor": { floor(a($0, 0)) }, "ceil": { ceil(a($0, 0)) }, "round": { (a($0, 0)).rounded() },
+    "exp": { exp(a($0, 0)) }, "log": { a($0, 0) > 0 ? log(a($0, 0)) : 0 }, "atan2": { atan2(a($0, 0), a($0, 1)) },
+    "min": { $0.min() ?? 0 }, "max": { $0.max() ?? 0 },
+    "pow": { a($0, 0) < 0 && a($0, 1) != floor(a($0, 1)) ? 0 : pow(a($0, 0), a($0, 1)) }, "hypot": { hypot(a($0, 0), a($0, 1)) },
+    "clamp": { min(max(a($0, 0), a($0, 1)), a($0, 2)) },
+    "smooth": { let lo = a($0, 0), hi = a($0, 1), x = a($0, 2); let u = hi == lo ? (x >= hi ? 1.0 : 0.0) : min(1, max(0, (x - lo) / (hi - lo))); return u * u * (3 - 2 * u) },
+    "lerp": { a($0, 0) + (a($0, 1) - a($0, 0)) * a($0, 2) },
+    "crest": { let s = sin(a($0, 0)); return s > 0 ? pow(s, 1.6) : 0 },
+    "ramp": { let x = a($0, 0), at = a($0, 1), len = a($0, 2); let e = $0.count > 3 && a($0, 3) > 0 ? a($0, 3) : 0.06
+      return x < at ? 0 : x < at + e ? (x - at) / e : x < at + len ? 1 : x < at + len + e ? 1 - (x - at - len) / e : 0 },
+    "run": { let f = a($0, 0), x = a($0, 1), at = a($0, 2), dur = a($0, 3), width = a($0, 4); let u = dur == 0 ? -1 : (x - at) / dur
+      if u < 0 || u > 1 { return 0 }; let half = width / 2; if half <= 0 { return 0 }; let c = u * (1 + width) - half, q = abs(f - c) / half
+      return q >= 1 ? 0 : 0.5 + 0.5 * cos(.pi * q) },
+    "noise": { sin(a($0, 0) * 1.7) * sin(a($0, 0) * 0.61 + 2.1) },
+  ]
+
+  static func eval(_ n: MotionAST, _ ctx: MotionCtx, _ funcs: [String: MotionFunc], _ depth: Int = 0) -> Double {
+    switch n {
+    case .num(let v): return fin(v)
+    case .name(let k): return fin(ctx.get(k) ?? 0)
+    case .neg(let x): return -eval(x, ctx, funcs, depth)
+    case .not(let x): return eval(x, ctx, funcs, depth) != 0 ? 0 : 1
+    case .tern(let c, let x, let y): return eval(c, ctx, funcs, depth) != 0 ? eval(x, ctx, funcs, depth) : eval(y, ctx, funcs, depth)
+    case .call(let name, let args):
+      if let f = funcs[name] {
+        if depth > 8 { return 0 }
+        let c2 = MotionCtx(ctx)
+        for (i, an) in f.args.enumerated() { c2.v[an] = i < args.count ? eval(args[i], ctx, funcs, depth) : 0 }
+        return fin(eval(f.ast, c2, funcs, depth + 1))
+      }
+      let vals = args.map { eval($0, ctx, funcs, depth) }
+      if let b = builtins[name] { return fin(b(vals)) }
+      if let l = ctx.lent(name) { return fin(l(vals)) }
+      return 0
+    case .bin(let op, let l, let r):
+      if op == "||" { return (eval(l, ctx, funcs, depth) != 0 || eval(r, ctx, funcs, depth) != 0) ? 1 : 0 }
+      if op == "&&" { return (eval(l, ctx, funcs, depth) != 0 && eval(r, ctx, funcs, depth) != 0) ? 1 : 0 }
+      let x = eval(l, ctx, funcs, depth), y = eval(r, ctx, funcs, depth)
+      switch op {
+      // Finite in, finite out: 1e308 * 10 is infinity, and infinity minus
+      // itself is NaN, which CoreAnimation throws on.
+      case "+": return fin(x + y)
+      case "-": return fin(x - y)
+      case "*": return fin(x * y)
+      case "/": return y == 0 ? 0 : fin(x / y)
+      case "%": return y == 0 ? 0 : fin(x - floor(x / y) * y)
+      case "^": return fin(pow(x, y))
+      case "<": return x < y ? 1 : 0
+      case "<=": return x <= y ? 1 : 0
+      case ">": return x > y ? 1 : 0
+      case ">=": return x >= y ? 1 : 0
+      case "==": return x == y ? 1 : 0
+      case "!=": return x != y ? 1 : 0
+      default: return 0
+      }
+    }
+  }
+}
+
+/// A program, compiled: every expression parsed once. What fails to parse is 0.
+struct MotionProgram {
+  struct Spring { let shapeScoped: Bool; let rest: Double; let target: MotionAST; let rate: MotionAST; let damp: MotionAST }
+  struct ShapeProg { let vars: [String: Double]; let props: [String: MotionAST] }
+  struct Emit {
+    let attach: String; let kind: String; let repeats: [MotionAST]; let names: [String]; let signal: Bool
+    let opacity: MotionAST; let width: MotionAST
+    let points: [(MotionAST, MotionAST)]?
+    let gen: (count: MotionAST, name: String, x: MotionAST, y: MotionAST)?
+    let fields: [String: MotionAST]
+  }
+  let vars: [String: Double]; let funcs: [String: MotionFunc]; let springs: [String: Spring]
+  let mark: [String: MotionAST]; let shapes: [String: ShapeProg]; let emit: [Emit]
+  let fpsIdle: Int; let fpsRec: Int; let signal: UIColor; let eps: Double; let timeout: Double
+
+  static func compile(_ spec: [String: KBJSON]) -> MotionProgram? {
+    guard spec["version"]?.asDouble ?? 0 >= 1 else { return nil }
+    func X(_ v: KBJSON?, _ fallback: String) -> MotionAST { (try? MotionLang.parse(v?.asString ?? fallback)) ?? .num(0) }
+    var vars: [String: Double] = [:]
+    for (k, v) in spec["vars"]?.asObject ?? [:] { if let d = v.asDouble { vars[k] = d } }
+    var funcs: [String: MotionFunc] = [:]
+    for (k, f) in spec["funcs"]?.asObject ?? [:] {
+      guard let fo = f.asObject else { continue }
+      funcs[k] = MotionFunc(args: fo["args"]?.asArray?.compactMap { $0.asString } ?? [], ast: X(fo["expr"], "0"))
+    }
+    var springs: [String: Spring] = [:]
+    for (k, sv) in spec["springs"]?.asObject ?? [:] {
+      guard let so = sv.asObject else { continue }
+      springs[k] = Spring(shapeScoped: so["scope"]?.asString == "shape", rest: so["rest"]?.asDouble ?? 0,
+                          target: X(so["target"], "0"), rate: X(so["rate"], "8"), damp: X(so["damp"], "1"))
+    }
+    var mark: [String: MotionAST] = [:]
+    for (k, v) in spec["mark"]?.asObject ?? [:] { mark[k] = X(v, "0") }
+    var shapes: [String: ShapeProg] = [:]
+    for (id, sv) in spec["shapes"]?.asObject ?? [:] {
+      guard let so = sv.asObject else { continue }
+      var sh: [String: Double] = [:], props: [String: MotionAST] = [:]
+      for (k, v) in so { if k == "vars" { for (vk, vv) in v.asObject ?? [:] { if let d = vv.asDouble { sh[vk] = d } } } else { props[k] = X(v, "0") } }
+      shapes[id] = ShapeProg(vars: sh, props: props)
+    }
+    var emit: [Emit] = []
+    for ev in spec["emit"]?.asArray ?? [] {
+      guard let e = ev.asObject, let attach = e["attach"]?.asString else { continue }
+      var points: [(MotionAST, MotionAST)]? = nil, gen: (count: MotionAST, name: String, x: MotionAST, y: MotionAST)? = nil
+      if let arr = e["points"]?.asArray { points = arr.compactMap { p in p.asArray.flatMap { $0.count >= 2 ? (X($0[0], "0"), X($0[1], "0")) : nil } } }
+      else if let g = e["points"]?.asObject { gen = (X(g["count"], "0"), g["as"]?.asString ?? "i", X(g["x"], "0"), X(g["y"], "0")) }
+      var fields: [String: MotionAST] = [:]
+      for k in ["x1", "y1", "x2", "y2", "cx", "cy", "r"] { if let v = e[k] { fields[k] = X(v, "0") } }
+      emit.append(Emit(attach: attach, kind: e["kind"]?.asString ?? "polyline", repeats: e["repeat"]?.asArray?.map { X($0, "1") } ?? [],
+                       names: e["as"]?.asArray?.compactMap { $0.asString } ?? [], signal: e["color"]?.asString == "signal",
+                       opacity: X(e["opacity"], "1"), width: X(e["width"], "1"), points: points, gen: gen, fields: fields))
+    }
+    let fps = spec["fps"]?.asObject, settle = spec["settle"]?.asObject
+    return MotionProgram(vars: vars, funcs: funcs, springs: springs, mark: mark, shapes: shapes, emit: emit,
+                         fpsIdle: clampInt(fps?["idle"]?.asDouble ?? 24, 1, 60), fpsRec: clampInt(fps?["rec"]?.asDouble ?? 60, 1, 120),
+                         signal: UIColor(tulmiHex: spec["colors"]?.asObject?["signal"]?.asString ?? "#F4F1EA"),
+                         eps: max(1e-5, settle?["eps"]?.asDouble ?? 0.002), timeout: max(0.1, settle?["timeout"]?.asDouble ?? 1.4))
+  }
+}
+
+// MARK: - The mark, drawn from the server's geometry
+
+/// THE MARK ON THE MIC KEY, REDRAWN FROM THE BACKEND.
+///
+/// The server sends the brand mark as shapes — three squares, the hatched
+/// link, the line up to the dot — with the motion each may have, and this
+/// draws them with CoreAnimation: the same picture the bundled TailzuMark
+/// asset held, but resized, recoloured or set moving by a deploy rather than a
+/// store build. Geometry is all it accepts. A bitmap, animated or not, cannot
+/// stand here, which keeps the rule that pushed media never replaces the mark.
+final class TulmiMarkView: UIView {
+  struct Shape {
+    let id: String?; let kind: String; let n: [String: CGFloat]
+    let dash: [CGFloat]; let cap: String; let color: UIColor?
+    let heights: [CGFloat]                 // bars: each bar's length across the line
+    let swellThick: CGFloat, swellHeight: CGFloat   // bars: what a bar becomes under the bright cluster
+    /// A bar's ends, for the bar at fraction `t` along the line, `grow` taller than drawn.
+    func bar(at t: CGFloat, height h: CGFloat) -> (CGPoint, CGPoint) {
+      let x1 = n["x1"] ?? 0, y1 = n["y1"] ?? 0, dx = (n["x2"] ?? 0) - x1, dy = (n["y2"] ?? 0) - y1
+      let L = max(1e-6, hypot(dx, dy)), nx = -dy / L, ny = dx / L, cx = x1 + dx * t, cy = y1 + dy * t
+      return (CGPoint(x: cx - nx * h / 2, y: cy - ny * h / 2), CGPoint(x: cx + nx * h / 2, y: cy + ny * h / 2))
+    }
+  }
+  private let shapes: [Shape]
+  private let viewBox: CGRect
+  private let circle: Bool
+  private let tint: UIColor?
+  private let motion: [[String: KBJSON]]
+  private var layers: [CAShapeLayer] = []
+  private var extras: [CALayer] = []     // overlays the motion adds; rebuilt with the layers
+  private var laidOut: CGSize = .zero
+  private var fitted: (scale: CGFloat, origin: CGPoint) = (1, .zero)
+  /// Holds every shape, under the view's own layer, which carries the breath.
+  private let root = CALayer()
+
+  // MARK: The dispersal — only the wave stays while the microphone is open
+  //
+  // The squares, the plain lines and the dot are the parts. At the start of
+  // a recording the whole gathers inward a touch, then each part leaves in
+  // turn, a beat after the last, along an arc — out past the rim, shrinking
+  // and fading as it crosses it, turning as it goes. Once they are away the
+  // kept shape, the dashed link between the blocks, glides to the middle and
+  // grows: the wave, a sea with depth. Stop is a throw: the wave settles
+  // back into the link, and the parts are hurled in from outside in cascade,
+  // tumbling, buffeted by a turbulence that dies as they close in, each
+  // overshooting the core a touch and snapping onto it; then the layers are
+  // rebuilt crisp so the idle signal resumes. Every part follows one
+  // number, its progress from home to away — critically damped out,
+  // underdamped in — so a stop mid-flight simply turns it around: nothing
+  // ever jumps. The numbers are the server's, from motion.recording.
+  struct Disperse {
+    let keep: String
+    let out, spin, arc, shrink, gather, stagger, settle, lift, wait, tidePeriod, tideLength, tideRise, tideDepth, tideLean, tideSkew, tideMess: Double
+    let backSpeed, backBounce, backTurbulence, backTumble, backStagger: Double
+    let tideRows: Int
+    let centre: Bool
+  }
+  private struct Part {
+    let layer: Int; let c: CGPoint; let ux: Double; let uy: Double; let sign: Double
+    var k = 0                                   // its turn: nearest the wave leaves first, comes back last
+    var p = 0.0, v = 0.0, t = 0.0               // progress from home (0) to away (1), its speed, its target
+  }
+  private struct Wave {
+    let layer: Int; let mid: CGPoint; let width: CGFloat
+    var q = 0.0, v = 0.0, t = 0.0               // progress from the link (0) to the wave (1)
+  }
+  let disperseSpec: Disperse?
+  /// THE PROGRAM. Present, it is what the key does, idle and recording alike:
+  /// the legacy `motion` and dispersal below are ignored. See the runtime at
+  /// the end of this class.
+  let program: MotionProgram?
+  private var parts: [Part] = []
+  private var wave: Wave?
+  private var bars: [(layer: CAShapeLayer, f: Double)] = []   // the kept line's bars or dashes, one layer each
+  private var barLit: CGColor = UIColor.white.cgColor          // what a lit dash wears: the signal's colour; a bar's own ink
+  private var sea: (rows: [CAShapeLayer], facets: [[CAShapeLayer]])?   // the surface behind the bars, while the microphone is open
+  private var playing = false, settling = false
+  private var clock = 0.0, startAt = 0.0, stopAt = 0.0, settleAt = 0.0
+  private var lastTick: CFTimeInterval = 0
+  private var display: CADisplayLink?
+  private var onSettled: (() -> Void)?
+  /// The live microphone level, 0…1. The renderer points this at its state.
+  var level: () -> CGFloat = { 0 }
+  var isPlaying: Bool { playing || settling || progRec == 1 || progSettling }
+
+  // MARK: The program's runtime state
+  private var progT = 0.0, progRec = 0.0, progFlipped = 0.0
+  private var progSettling = false
+  private var progSprings: [String: (v: Double, vel: Double, prev: Double)] = [:]
+  private var progCtx: (global: MotionCtx, shapes: [MotionCtx])?
+  private var progBars: [Int: [(layer: CAShapeLayer, f: Double)]] = [:]
+  private var progEmitPools: [[CAShapeLayer]] = []
+
+  init?(spec: [String: KBJSON], motion: [String: KBJSON]?, program: [String: KBJSON]? = nil, tint: UIColor) {
+    guard let parsed = TulmiMarkView.parse(spec) else { return nil }
+    shapes = parsed.shapes
+    viewBox = parsed.viewBox
+    circle = TulmiMarkView.isCircle(spec)
+    self.tint = (spec["tint"]?.asBool ?? true) ? tint : nil
+    self.motion = motion?["idle"]?.asArray?.compactMap { $0.asObject } ?? []
+    disperseSpec = TulmiMarkView.disperse(from: motion)
+    self.program = program.flatMap { MotionProgram.compile($0) }
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    isOpaque = false
+    backgroundColor = .clear
+    layer.addSublayer(root)
+    if disperseSpec != nil { tie() }
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  /// What the key does while the microphone is open: "disperse", "particles"
+  /// or "none". A backend before the dispersal sent a name; now it sends the
+  /// numbers under `kind`. Absent, the particles — what older builds do.
+  static func recordingKind(_ motion: [String: KBJSON]?, program: [String: KBJSON]? = nil) -> String {
+    if let p = program, (p["version"]?.asDouble ?? 0) >= 1 { return "program" }
+    let r = motion?["recording"]
+    return r?.asObject?["kind"]?.asString ?? r?.asString ?? "particles"
+  }
+  static func disperse(from motion: [String: KBJSON]?) -> Disperse? {
+    guard let r = motion?["recording"]?.asObject, r["kind"]?.asString == "disperse" else { return nil }
+    let w = r["wave"]?.asObject
+    return Disperse(keep: r["keep"]?.asString ?? "link",
+                    out: max(1, r["out"]?.asDouble ?? 1.9), spin: r["spin"]?.asDouble ?? 40,
+                    arc: max(0, r["arc"]?.asDouble ?? 0.22), shrink: min(0.95, max(0, r["shrink"]?.asDouble ?? 0.45)),
+                    gather: max(0, r["gather"]?.asDouble ?? 0.05), stagger: max(0, r["stagger"]?.asDouble ?? 0.07),
+                    settle: max(0.1, r["settle"]?.asDouble ?? 1.2),
+                    lift: max(0.5, w?["lift"]?.asDouble ?? 2), wait: max(0, w?["wait"]?.asDouble ?? 0.25),
+                    tidePeriod: max(0.2, w?["tide"]?.asObject?["period"]?.asDouble ?? 1.2),
+                    tideLength: max(0.1, w?["tide"]?.asObject?["length"]?.asDouble ?? 0.6),
+                    tideRise: min(1, max(0, w?["tide"]?.asObject?["rise"]?.asDouble ?? 1)),
+                    tideDepth: max(0, w?["tide"]?.asObject?["depth"]?.asDouble ?? 14),
+                    tideLean: max(0, w?["tide"]?.asObject?["lean"]?.asDouble ?? 0.55),
+                    tideSkew: w?["tide"]?.asObject?["skew"]?.asDouble ?? 0.09,
+                    tideMess: min(1, max(0, w?["tide"]?.asObject?["mess"]?.asDouble ?? 0.7)),
+                    backSpeed: max(2, r["back"]?.asObject?["speed"]?.asDouble ?? 12),
+                    backBounce: min(1, max(0.1, r["back"]?.asObject?["bounce"]?.asDouble ?? 0.6)),
+                    backTurbulence: max(0, r["back"]?.asObject?["turbulence"]?.asDouble ?? 0.14),
+                    backTumble: max(0, r["back"]?.asObject?["tumble"]?.asDouble ?? 1),
+                    backStagger: max(0, r["back"]?.asObject?["stagger"]?.asDouble ?? 0.05),
+                    tideRows: clampInt(w?["tide"]?.asObject?["rows"]?.asDouble ?? 5, 1, 8),
+                    centre: w?["centre"]?.asBool ?? true)
+  }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil { stopDisplay(); return }
+    // Under a new key (the tree remounts on every state change) the layers
+    // come without their animations, so they are rebuilt; the dispersal's
+    // state lives in `parts` and `wave` — and the program's in its springs
+    // and clock — and carries straight on.
+    if !layers.isEmpty { laidOut = .zero; setNeedsLayout() }
+    if isPlaying || (program != nil && !UIAccessibility.isReduceMotionEnabled) { startDisplay() }
+  }
+
+  // The artboard's middle, in its own units. (`center` is UIView's.)
+  private var mid: (x: Double, y: Double) { (Double(viewBox.midX), Double(viewBox.midY)) }
+  private var unit: Double { Double(min(viewBox.width, viewBox.height)) }
+  private var rim: Double { Double(hypot(viewBox.width, viewBox.height)) / 2 }
+
+  /// The parts and the wave, once, from the geometry; and the order the
+  /// parts leave in — nearest the wave first, so the structure opens from
+  /// the middle out; they come back in the opposite order.
+  private func tie() {
+    parts = []; wave = nil
+    let C = mid
+    for (i, sh) in shapes.enumerated() {
+      let c: CGPoint
+      switch sh.kind {
+      case "rect": c = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
+      case "circle": c = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
+      default: c = CGPoint(x: ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2, y: ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2)
+      }
+      if sh.id == disperseSpec?.keep, sh.kind == "bars" || (sh.kind == "line" && !sh.dash.isEmpty) {
+        wave = Wave(layer: i, mid: c, width: sh.n["width"] ?? sh.n["thick"] ?? 1)
+        continue
+      }
+      let dx = Double(c.x) - C.x, dy = Double(c.y) - C.y, len = max(1e-6, hypot(dx, dy))
+      parts.append(Part(layer: i, c: c, ux: dx / len, uy: dy / len, sign: parts.count % 2 == 1 ? -1 : 1))
+    }
+    guard let w = wave else { return }
+    let order = parts.indices.sorted { hypot(parts[$0].c.x - w.mid.x, parts[$0].c.y - w.mid.y) < hypot(parts[$1].c.x - w.mid.x, parts[$1].c.y - w.mid.y) }
+    for (k, i) in order.enumerated() { parts[i].k = k }
+  }
+
+  /// One layer per bar of a row of bars — drawn over its bar at rest, in the
+  /// same ink, so it shows only as it rises; it carries its rest and peak
+  /// path and width — or per dash of a dashed line, in the signal colour and
+  /// hidden. Each knows its place along the line. The run drives them on
+  /// their cue; while the microphone is open they are the wave's.
+  private func dashLayers(for li: Int, color: CGColor, scale s: CGFloat, origin o: CGPoint) -> [(CAShapeLayer, Double)] {
+    let sh = shapes[li], sub = layers[li]
+    var out: [(CAShapeLayer, Double)] = []
+    barLit = color
+    func path(_ a: CGPoint, _ b: CGPoint) -> CGPath {
+      let p = UIBezierPath()
+      p.move(to: CGPoint(x: o.x + a.x * s - sub.position.x, y: o.y + a.y * s - sub.position.y))
+      p.addLine(to: CGPoint(x: o.x + b.x * s - sub.position.x, y: o.y + b.y * s - sub.position.y))
+      return p.cgPath
+    }
+    func add(_ a: CGPoint, _ b: CGPoint, width: CGFloat, at f: Double) -> CAShapeLayer {
+      let d = CAShapeLayer()
+      d.path = path(a, b); d.position = sub.position
+      d.fillColor = nil; d.strokeColor = color; d.lineWidth = width; d.lineCap = .butt
+      d.opacity = 0
+      root.insertSublayer(d, above: sub)
+      extras.append(d)
+      out.append((d, f))
+      return d
+    }
+    if sh.kind == "bars" {
+      let thick = (sh.n["thick"] ?? 6) * s
+      for (i, h) in sh.heights.enumerated() {
+        let t = (CGFloat(i) + 0.5) / CGFloat(sh.heights.count)
+        let (a, b) = sh.bar(at: t, height: h), (pa, pb) = sh.bar(at: t, height: h * sh.swellHeight)
+        let d = add(a, b, width: thick, at: Double(t))
+        d.setValue([d.path!, thick], forKey: "rest")
+        d.setValue([path(pa, pb), thick * sh.swellThick], forKey: "peak")
+        d.setValue([a.x, a.y, b.x, b.y, pa.x, pa.y, pb.x, pb.y], forKey: "ends")
+      }
+      return out
+    }
+    let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
+    let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash.first ?? 0), off = Double(sh.dash.count > 1 ? sh.dash[1] : (sh.dash.first ?? 0))
+    var pos = 0.0
+    // A dash that never advances (a negative gap) or one so fine it would make
+    // thousands of layers is not drawn: a bad spec is a plain line, not a hang.
+    guard on > 0, on + off > 0, L / (on + off) <= 256 else { return out }
+    while pos < L {
+      let f0 = pos / L, f1 = min(L, pos + on) / L
+      add(CGPoint(x: a.x + (b.x - a.x) * CGFloat(f0), y: a.y + (b.y - a.y) * CGFloat(f0)),
+          CGPoint(x: a.x + (b.x - a.x) * CGFloat(f1), y: a.y + (b.y - a.y) * CGFloat(f1)), width: sub.lineWidth, at: (f0 + f1) / 2)
+      pos += on + off
+    }
+    return out
+  }
+
+  /// The microphone opened: the parts leave, the wave stays — or, with a
+  /// program, `rec` flips to 1 and the program does what it says. A no-op
+  /// without either from the server, so a still or particle mark is unaffected.
+  func beginPlay() {
+    if let pg = program {
+      guard progRec == 0 else { return }
+      progRec = 1; progFlipped = progT; progSettling = false; onSettled = nil
+      display?.preferredFramesPerSecond = pg.fpsRec
+      startDisplay()
+      return
+    }
+    guard disperseSpec != nil, wave != nil else { return }
+    playing = true; settling = false; onSettled = nil; settleAt = 0; startAt = clock
+    restSignal()
+    startDisplay()
+  }
+  /// The microphone closed: everything comes home, then `onDone`.
+  func settle(_ onDone: @escaping () -> Void) {
+    if let pg = program {
+      guard progRec == 1 else { onDone(); return }
+      progRec = 0; progFlipped = progT; progSettling = true; onSettled = onDone
+      display?.preferredFramesPerSecond = pg.fpsIdle
+      if UIAccessibility.isReduceMotionEnabled { progSettling = false; onSettled = nil; onDone() }
+      return
+    }
+    guard playing else { onDone(); return }
+    playing = false; settling = true; settleAt = 0; onSettled = onDone; stopAt = clock
+    startDisplay()
+  }
+  private func startDisplay() {
+    guard display == nil, window != nil else { return }
+    lastTick = 0
+    let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
+    if let pg = program { l.preferredFramesPerSecond = progRec == 1 ? pg.fpsRec : pg.fpsIdle }
+    l.add(to: .main, forMode: .common)
+    display = l
+  }
+  private func stopDisplay() { display?.invalidate(); display = nil }
+  /// The signal rests while the parts are away: a square's overlay would not
+  /// follow it, and the run's dashes are the wave's bars for now.
+  private func restSignal() {
+    for l in layers { l.removeAnimation(forKey: "signal") }
+    for e in extras { e.removeAllAnimations(); e.isHidden = true }
+  }
+  private func home() {
+    stopDisplay()
+    settling = false; playing = false
+    for i in parts.indices { parts[i].p = 0; parts[i].v = 0; parts[i].t = 0 }
+    if wave != nil { wave!.q = 0; wave!.v = 0; wave!.t = 0 }
+    root.transform = CATransform3DIdentity
+    laidOut = .zero; setNeedsLayout()      // rebuilt crisp; the idle motion from the top
+    let done = onSettled; onSettled = nil; done?()
+  }
+
+  private static func smooth(_ a: Double, _ b: Double, _ x: Double) -> Double {
+    let t = min(1, max(0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+  }
+
+  @objc private func tick(_ l: CADisplayLink) {
+    let dt = min(1.0 / 20, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
+    lastTick = l.timestamp
+    if program != nil { runProgram(dt: dt); return }
+    guard let sp = disperseSpec, wave != nil else { return }
+    let U = unit
+    clock += dt
+    let out = sp.out * rim, n = parts.count, tau = clock - startAt, sigma = clock - stopAt
+    var far = 0.0, fast = 0.0
+    // Out on a critically damped spring; in on a fast underdamped one, so a
+    // part arrives like something thrown, overshoots the core and snaps on.
+    let w0 = playing ? 6.5 : sp.backSpeed, c0 = playing ? 2 * w0 : 2 * sp.backBounce * w0
+    for i in parts.indices {
+      var p = parts[i]
+      // Its cue: out after its turn — a touch inward first, the gather —
+      // and back after the opposite turn, once the wave has begun to settle.
+      let lead = Double(p.k) * sp.stagger
+      if playing { p.t = tau < lead ? 0 : tau < lead + 0.1 ? -sp.gather : 1 }
+      else if sigma >= Double(n - 1 - p.k) * sp.backStagger + 0.12 { p.t = 0 }
+      p.v += (p.t - p.p) * w0 * w0 * dt - c0 * p.v * dt; p.p += p.v * dt
+      far = max(far, abs(p.p) * out); fast = max(fast, abs(p.v) * out)
+      parts[i] = p
+    }
+    var w = wave!
+    w.t = playing ? (tau >= sp.wait ? 1 : 0) : 0
+    let w1 = 7.0, c1 = 2 * w1
+    w.v += (w.t - w.q) * w1 * w1 * dt - c1 * w.v * dt; w.q += w.v * dt
+    far = max(far, abs(w.q) * U); fast = max(fast, abs(w.v) * U)
+    wave = w
+    draw()
+    if settling {
+      settleAt += dt
+      if (far < U * 0.002 && fast < U * 0.02) || settleAt > sp.settle { home() }
+    }
+  }
+
+  /// The layers as the dispersal has them: each part along its arc, turned,
+  /// shrunk and faded by its progress; the wave glided and grown by its own,
+  /// its bars over the link's dashes.
+  private func draw() {
+    guard let sp = disperseSpec, let w = wave, layers.count == shapes.count else { return }
+    let (s, o) = fitted
+    let C = mid, out = sp.out * rim, arc = sp.arc * rim, spin = sp.spin * .pi / 180
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    let turb = sp.backTurbulence * rim
+    for (idx, p) in parts.enumerated() {
+      let l = layers[p.layer]
+      let e = p.p, c = min(1, max(0, e)), sc = 1 - sp.shrink * c, op = 1 - TulmiMarkView.smooth(0.55, 1, c)
+      // Turning as it goes; thrown in, it tumbles a whole turn more.
+      let rot = (spin + (playing ? 0 : sp.backTumble * 2 * .pi)) * e * p.sign
+      // Out along an arc: the straight line from the middle, bent sideways
+      // most at the midpoint, so it swings rather than shoots. Thrown in, it
+      // is buffeted as well — a turbulence that dies as it closes in.
+      let tb = playing ? 0 : turb * abs(e) * (0.6 * sin(clock * 11 + Double(idx) * 2.1) + 0.4 * sin(clock * 17 + Double(idx) * 0.7))
+      let tr = playing ? 0 : turb * 0.5 * abs(e) * sin(clock * 13 + Double(idx) * 1.3)
+      let bend = arc * sin(.pi * c) * p.sign + tb
+      let dx = p.ux * (out * e + tr) - p.uy * bend, dy = p.uy * (out * e + tr) + p.ux * bend
+      l.position = CGPoint(x: o.x + (p.c.x + CGFloat(dx)) * s, y: o.y + (p.c.y + CGFloat(dy)) * s)
+      l.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot), 0, 0, 1))
+      l.opacity = Float(op)
+    }
+    // THE WAVE IS WATER. Two crests travel the bars, a long slow one and a
+    // shorter quicker one riding it; where they add, a tide forms — each bar
+    // rising under the crest and collapsing behind it — and where they
+    // cancel, it goes flat. Crests are peaked and troughs are flat, the way
+    // water is. All in the mark's own ink; nothing lights. A dashed line,
+    // kept instead, lights its dashes under the crests.
+    let link = layers[w.layer]
+    let q = min(1, max(0, w.q)), k = 1 + (sp.lift - 1) * w.q
+    let pos = CGPoint(x: o.x + (w.mid.x + CGFloat((sp.centre ? C.x - Double(w.mid.x) : 0) * w.q)) * s,
+                      y: o.y + (w.mid.y + CGFloat((sp.centre ? C.y - Double(w.mid.y) : 0) * w.q)) * s)
+    link.position = pos
+    link.transform = CATransform3DMakeScale(CGFloat(k), CGFloat(k), 1)
+    // Two crests, a long slow one and a quicker one riding it; a row meets
+    // them a little later than the row before, so they run diagonally.
+    // Messy by `mess`: a third crest runs against the other two, a chop of
+    // short ripples crosses all of them, and a slow noise lifts and drops
+    // patches of the surface, so no two tides are alike.
+    func tide(_ f: Double, _ r: Int) -> Double {
+      let rr = Double(r)
+      let a = max(0, sin(2 * .pi * (f / sp.tideLength - clock / sp.tidePeriod + rr * sp.tideSkew)))
+      let b = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.55) - clock / (sp.tidePeriod * 0.7) + 0.3 + rr * sp.tideSkew)))
+      let c = max(0, sin(2 * .pi * (f / (sp.tideLength * 0.8) + clock / (sp.tidePeriod * 1.3) - rr * sp.tideSkew * 1.5)))
+      let chop = sin(2 * .pi * (f * 6.5 - clock * 2.3 + rr * 0.37)) * sin(2 * .pi * (f * 3.1 + clock * 1.7))
+      let noise = sin(clock * 3.7 + rr * 2.1 + f * 11) * sin(clock * 2.3 - f * 7 + rr)
+      let v = pow(a, 1.6) + 0.45 * pow(b, 1.6) + sp.tideMess * (0.35 * pow(c, 1.4) + 0.18 * chop + 0.15 * noise)
+      return min(1, max(0, v * sp.tideRise))
+    }
+    let home = CGPoint(x: o.x + w.mid.x * s, y: o.y + w.mid.y * s)
+    let sh = shapes[w.layer]
+    if sh.kind == "bars", !bars.isEmpty {
+      // THE SEA. The bars are its front; rows of surface rise behind them,
+      // each higher, smaller and fainter, joined by contour lines, the water
+      // between them facets of ink, deeper where the crest stands. Under a
+      // crest the surface rises and its top leans forward, the curl of a
+      // breaking wave; it collapses behind. Rows grow out of the bars as the
+      // wave opens (`q`) and sink back into them as it closes.
+      let x1 = Double(sh.n["x1"] ?? 0), y1 = Double(sh.n["y1"] ?? 0), ddx = Double(sh.n["x2"] ?? 0) - x1, ddy = Double(sh.n["y2"] ?? 0) - y1
+      let L = max(1e-6, hypot(ddx, ddy)), dx = ddx / L, dy = ddy / L, nx = -dy, ny = dx
+      var ux = -nx * 0.85 - dx * 0.35, uy = -ny * 0.85 - dy * 0.35
+      let ul = max(1e-6, hypot(ux, uy)); ux /= ul; uy /= ul
+      let rows = sp.tideRows, cols = bars.count, ink = link.strokeColor ?? UIColor.black.cgColor, thick = (sh.n["thick"] ?? 6) * s
+      if sea == nil || sea!.rows.count != rows || (sea!.facets.first?.count ?? 0) != max(0, cols - 1) {
+        sea?.rows.forEach { $0.removeFromSuperlayer() }; sea?.facets.forEach { $0.forEach { $0.removeFromSuperlayer() } }
+        var rl: [CAShapeLayer] = [], fl: [[CAShapeLayer]] = []
+        for _ in 0..<rows {
+          let l = CAShapeLayer(); l.fillColor = nil; l.strokeColor = ink; l.lineWidth = thick * 0.35; l.lineJoin = .round; l.opacity = 0
+          root.insertSublayer(l, below: link); extras.append(l); rl.append(l)
+        }
+        for _ in 0..<max(0, rows - 1) {
+          var band: [CAShapeLayer] = []
+          for _ in 0..<max(0, cols - 1) {
+            let l = CAShapeLayer(); l.fillColor = ink; l.strokeColor = nil; l.opacity = 0
+            root.insertSublayer(l, below: link); extras.append(l); band.append(l)
+          }
+          fl.append(band)
+        }
+        sea = (rl, fl)
+      }
+      func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: o.x + CGFloat(x) * s - home.x, y: o.y + CGFloat(y) * s - home.y) }
+      var tops: [[(Double, Double)]] = [], ks: [[Double]] = []
+      for r in 0..<rows {
+        let scale = 1 - 0.12 * Double(r), off = sp.tideDepth * Double(r) * q * (1 + sp.tideMess * 0.12 * sin(clock * 1.3 + Double(r) * 1.9))
+        var pts: [(Double, Double)] = [], kr: [Double] = []
+        for (i, h0) in sh.heights.enumerated() where i < cols {
+          let f = (Double(i) + 0.5) / Double(cols), k = tide(f, r)
+          let h = Double(h0) * (1 + (Double(sh.swellHeight) - 1) * k * q) * scale
+          let cx = x1 + ddx * f + ux * off, cy = y1 + ddy * f + uy * off
+          let tx = cx + nx * h / 2 + dx * sp.tideLean * h * k * q, ty = cy + ny * h / 2 + dy * sp.tideLean * h * k * q
+          pts.append((tx, ty)); kr.append(k)
+          if r == 0 {
+            // The bar itself, k of the way up, its top leaning with the crest.
+            let bar = bars[i].layer, p = UIBezierPath()
+            let hh = Double(h0) * (1 + (Double(sh.swellHeight) - 1) * k * q)
+            p.move(to: px(x1 + ddx * f - nx * hh / 2, y1 + ddy * f - ny * hh / 2))
+            p.addLine(to: px(x1 + ddx * f + nx * hh / 2 + dx * sp.tideLean * hh * k * q, y1 + ddy * f + ny * hh / 2 + dy * sp.tideLean * hh * k * q))
+            bar.isHidden = false; bar.position = pos; bar.transform = link.transform
+            bar.path = p.cgPath; bar.lineWidth = thick * (1 + (Double(sh.swellThick) - 1) * k * q); bar.strokeColor = ink; bar.opacity = 1
+          }
+        }
+        tops.append(pts); ks.append(kr)
+        let rp = UIBezierPath()
+        for (i, t) in pts.enumerated() { if i == 0 { rp.move(to: px(t.0, t.1)) } else { rp.addLine(to: px(t.0, t.1)) } }
+        let row = sea!.rows[r]
+        row.position = pos; row.transform = link.transform; row.path = rp.cgPath
+        row.opacity = Float(q * (r == 0 ? 0.85 : 0.6 - 0.1 * Double(r)))
+      }
+      for r in 0..<max(0, rows - 1) {
+        for i in 0..<max(0, cols - 1) {
+          let fp = UIBezierPath()
+          fp.move(to: px(tops[r][i].0, tops[r][i].1)); fp.addLine(to: px(tops[r][i + 1].0, tops[r][i + 1].1))
+          fp.addLine(to: px(tops[r + 1][i + 1].0, tops[r + 1][i + 1].1)); fp.addLine(to: px(tops[r + 1][i].0, tops[r + 1][i].1)); fp.close()
+          let facet = sea!.facets[r][i], kavg = (ks[r][i] + ks[r][i + 1] + ks[r + 1][i] + ks[r + 1][i + 1]) / 4
+          facet.position = pos; facet.transform = link.transform; facet.path = fp.cgPath
+          facet.opacity = Float(q * (0.09 + 0.3 * kavg) * (1 - 0.12 * Double(r)))
+        }
+      }
+    } else {
+      // A dashed line kept instead: its dashes light under the crests.
+      for bar in bars {
+        let k = tide(bar.f, 0) * q
+        bar.layer.isHidden = false; bar.layer.position = pos; bar.layer.transform = link.transform
+        bar.layer.strokeColor = barLit; bar.layer.opacity = Float(k)
+      }
+    }
+    CATransaction.commit()
+  }
+
+
+  // MARK: The program's runtime — the mark performs what the server wrote
+  //
+  // Each frame: the clock, then the global springs, then for every shape its
+  // springs and its expressions — offset, turn, scale, opacity, colour mix,
+  // and for bars each bar's rise and lean — then what the program draws
+  // around the shapes. Nothing about the recording state is known here
+  // beyond `rec`, the seconds `since` it flipped, and the voice `level`.
+
+  /// The contexts, built once per layout: geometry and the shapes' own numbers.
+  private func programContexts(_ pg: MotionProgram) -> (global: MotionCtx, shapes: [MotionCtx]) {
+    let G = MotionCtx()
+    for (k, v) in pg.vars { G.v[k] = v }
+    G.v["pi"] = .pi; G.v["tau"] = 2 * .pi; G.v["e"] = M_E
+    G.v["cx"] = Double(viewBox.midX); G.v["cy"] = Double(viewBox.midY); G.v["U"] = unit; G.v["R"] = rim
+    G.v["vbw"] = Double(viewBox.width); G.v["vbh"] = Double(viewBox.height)
+    var ctxs: [MotionCtx] = []
+    for sh in shapes {
+      let c = MotionCtx(G)
+      var hx = 0.0, hy = 0.0
+      switch sh.kind {
+      case "rect":
+        hx = Double((sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2); hy = Double((sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
+        c.v["w"] = Double(sh.n["w"] ?? 0); c.v["h"] = Double(sh.n["h"] ?? 0)
+      case "circle":
+        hx = Double(sh.n["cx"] ?? 0); hy = Double(sh.n["cy"] ?? 0); c.v["r"] = Double(sh.n["r"] ?? 0)
+      default:
+        let x1 = Double(sh.n["x1"] ?? 0), y1 = Double(sh.n["y1"] ?? 0), x2 = Double(sh.n["x2"] ?? 0), y2 = Double(sh.n["y2"] ?? 0)
+        hx = (x1 + x2) / 2; hy = (y1 + y2) / 2
+        let dx = x2 - x1, dy = y2 - y1, L = max(1e-6, hypot(dx, dy))
+        c.v["x1"] = x1; c.v["y1"] = y1; c.v["x2"] = x2; c.v["y2"] = y2; c.v["L"] = L
+        c.v["lx"] = dx / L; c.v["ly"] = dy / L; c.v["nx"] = -dy / L; c.v["ny"] = dx / L
+        let bx = dy / L * 0.85 - dx / L * 0.35, by = -dx / L * 0.85 - dy / L * 0.35, bl = max(1e-6, hypot(bx, by))
+        c.v["bx"] = bx / bl; c.v["by"] = by / bl
+        c.v["width"] = Double(sh.n["width"] ?? 1)
+        if sh.kind == "bars" {
+          c.v["thick"] = Double(sh.n["thick"] ?? 6); c.v["cols"] = Double(sh.heights.count)
+          c.v["swh"] = Double(sh.swellHeight); c.v["swt"] = Double(sh.swellThick)
+          let hs = sh.heights.map { Double($0) }
+          c.fn["height"] = { args in let i = clampInt((args.first ?? 0).rounded(), 0, max(0, hs.count - 1)); return hs.isEmpty ? 0 : hs[i] }
+        }
+      }
+      c.v["home.x"] = hx; c.v["home.y"] = hy
+      let ddx = hx - Double(viewBox.midX), ddy = hy - Double(viewBox.midY), dl = max(1e-6, hypot(ddx, ddy))
+      c.v["dir.x"] = ddx / dl; c.v["dir.y"] = ddy / dl
+      if let id = sh.id, let sp = pg.shapes[id] { for (k, v) in sp.vars { c.v[k] = v } }
+      ctxs.append(c)
+    }
+    return (G, ctxs)
+  }
+
+  private func mixColor(_ a: CGColor, _ b: CGColor, _ k: Double) -> CGColor {
+    let kk = CGFloat(min(1, max(0, k)))
+    var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0, r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+    UIColor(cgColor: a).getRed(&r1, green: &g1, blue: &b1, alpha: &a1); UIColor(cgColor: b).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+    return UIColor(red: r1 + (r2 - r1) * kk, green: g1 + (g2 - g1) * kk, blue: b1 + (b2 - b1) * kk, alpha: a1 + (a2 - a1) * kk).cgColor
+  }
+
+  private func runProgram(dt: Double) {
+    guard let pg = program, layers.count == shapes.count else { return }
+    if progCtx == nil { progCtx = programContexts(pg) }
+    guard let ctx = progCtx else { return }
+    let G = ctx.global, (s, o) = fitted
+    progT += dt
+    G.v["t"] = progT; G.v["rec"] = progRec; G.v["since"] = progT - progFlipped
+    G.v["level"] = Double(max(0, min(1, level())))
+    var quiet = true
+    func step(_ name: String, _ spec: MotionProgram.Spring, _ key: String, _ c: MotionCtx) {
+      var st = progSprings[key] ?? (v: spec.rest, vel: 0, prev: spec.rest)
+      c.v["prev"] = st.prev
+      let target = MotionLang.eval(spec.target, c, pg.funcs)
+      let w = min(1000, max(0.1, MotionLang.eval(spec.rate, c, pg.funcs))), z = min(100, max(0, MotionLang.eval(spec.damp, c, pg.funcs)))
+      st.prev = target
+      // One step is stable while w·dt and 2·z·w·dt stay small; a stiff spring
+      // on a long frame is not, and diverges to NaN. Sub-step instead — the
+      // shipped springs need one step at 60 fps, exactly as before.
+      let stiff = max(w, 2 * z * w) * dt
+      let n = clampInt((stiff / 0.5).rounded(.up), 1, 64), h = dt / Double(n)
+      for _ in 0..<n { st.vel += (target - st.v) * w * w * h - 2 * z * w * st.vel * h; st.v += st.vel * h }
+      if !st.v.isFinite || !st.vel.isFinite || abs(st.v) > 1e6 { st = (v: target, vel: 0, prev: target) }
+      progSprings[key] = st; c.v[name] = st.v
+      if abs(st.v - target) > pg.eps || abs(st.vel) > pg.eps * 10 { quiet = false }
+    }
+    for (name, spec) in pg.springs where !spec.shapeScoped { step(name, spec, name, G) }
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    // The whole mark.
+    let ms = pg.mark["scale"].map { MotionLang.eval($0, G, pg.funcs) } ?? 1, mr = pg.mark["rot"].map { MotionLang.eval($0, G, pg.funcs) } ?? 0
+    root.transform = CATransform3DConcat(CATransform3DMakeScale(CGFloat(ms), CGFloat(ms), 1), CATransform3DMakeRotation(CGFloat(mr) * .pi / 180, 0, 0, 1))
+    if let op = pg.mark["opacity"] { root.opacity = Float(min(1, max(0, MotionLang.eval(op, G, pg.funcs)))) }
+    // Every shape.
+    let sig = pg.signal.cgColor
+    var homes: [Int: CGPoint] = [:], placed: [Int: (pos: CGPoint, tf: CATransform3D, op: Float)] = [:]
+    for (i, sh) in shapes.enumerated() {
+      let c = ctx.shapes[i], l = layers[i]
+      for (name, spec) in pg.springs where spec.shapeScoped { step(name, spec, "\(name)@\(i)", c) }
+      let hx = CGFloat(c.v["home.x"] ?? 0), hy = CGFloat(c.v["home.y"] ?? 0)
+      let home = CGPoint(x: o.x + hx * s, y: o.y + hy * s); homes[i] = home
+      guard let id = sh.id, let sp = pg.shapes[id] else { continue }
+      let pr = sp.props
+      let dx = pr["dx"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, dy = pr["dy"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0
+      let rot = pr["rot"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, sc = pr["scale"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1
+      let op = Float(min(1, max(0, pr["opacity"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1)))
+      let pos = CGPoint(x: home.x + CGFloat(dx) * s, y: home.y + CGFloat(dy) * s)
+      let tf = CATransform3DConcat(CATransform3DMakeScale(CGFloat(sc), CGFloat(sc), 1), CATransform3DMakeRotation(CGFloat(rot) * .pi / 180, 0, 0, 1))
+      l.position = pos; l.transform = tf; l.opacity = op
+      placed[i] = (pos, tf, op)
+      let ink = (tint ?? sh.color ?? UIColor.black).cgColor
+      if let mx = pr["mix"] {
+        let col = mixColor(ink, sig, MotionLang.eval(mx, c, pg.funcs))
+        if sh.kind == "line" || sh.kind == "bars" { l.strokeColor = col } else { l.fillColor = col }
+        if let bars = progBars[i] { for (bl, _) in bars { bl.strokeColor = col } }
+      }
+      if sh.kind == "bars", let bars = progBars[i] {
+        // Each bar, its rise and its lean, from the program.
+        let x1 = c.v["x1"] ?? 0, y1 = c.v["y1"] ?? 0, x2 = c.v["x2"] ?? 0, y2 = c.v["y2"] ?? 0
+        let lx = c.v["lx"] ?? 0, ly = c.v["ly"] ?? 0, nx = c.v["nx"] ?? 0, ny = c.v["ny"] ?? 0
+        let thick = Double(sh.n["thick"] ?? 6), swh = Double(sh.swellHeight), swt = Double(sh.swellThick)
+        for (j, bar) in bars.enumerated() where j < sh.heights.count {
+          let bc = MotionCtx(c); bc.v["i"] = Double(j); bc.v["f"] = bar.f; bc.v["hgt"] = Double(sh.heights[j])
+          let rise = min(1, max(0, pr["rise"].map { MotionLang.eval($0, bc, pg.funcs) } ?? 0)); bc.v["rise"] = rise
+          let lean = pr["lean"].map { MotionLang.eval($0, bc, pg.funcs) } ?? 0
+          let h = Double(sh.heights[j]) * (1 + (swh - 1) * rise), cxb = x1 + (x2 - x1) * bar.f, cyb = y1 + (y2 - y1) * bar.f
+          let p = UIBezierPath()
+          p.move(to: CGPoint(x: o.x + CGFloat(cxb - nx * h / 2) * s - home.x, y: o.y + CGFloat(cyb - ny * h / 2) * s - home.y))
+          p.addLine(to: CGPoint(x: o.x + CGFloat(cxb + nx * h / 2 + lx * lean * h) * s - home.x, y: o.y + CGFloat(cyb + ny * h / 2 + ly * lean * h) * s - home.y))
+          bar.layer.path = p.cgPath; bar.layer.lineWidth = CGFloat(thick * (1 + (swt - 1) * rise)) * s
+          bar.layer.position = pos; bar.layer.transform = tf; bar.layer.opacity = op; bar.layer.isHidden = false
+        }
+      }
+    }
+    // What the program draws around the shapes: pooled layers, behind the shape they attach to.
+    while progEmitPools.count < pg.emit.count { progEmitPools.append([]) }
+    for (n, e) in pg.emit.enumerated() {
+      guard let hi = shapes.firstIndex(where: { $0.id == e.attach }), let home = homes[hi], let place = placed[hi] else { continue }
+      let base = ctx.shapes[hi], host = layers[hi]
+      let counts = e.repeats.map { clampInt(MotionLang.eval($0, base, pg.funcs), 0, 64) }
+      let n0 = counts.count > 0 ? counts[0] : 1, n1 = counts.count > 1 ? counts[1] : 1
+      let color = e.signal ? sig : (tint ?? shapes[hi].color ?? UIColor.black).cgColor
+      var used = 0
+      for a in 0..<n0 { for b in 0..<n1 {
+        let c = MotionCtx(base)
+        if e.names.count > 0 { c.v[e.names[0]] = Double(a) }; if e.names.count > 1 { c.v[e.names[1]] = Double(b) }
+        // Opacity first: an invisible element costs nothing else. At rest the
+        // shipped program's 42 emitted lines are all at zero, and building
+        // their paths anyway was most of the mark's work on every idle frame.
+        // (A generated shape may read its own counter in its opacity, so it
+        // keeps the original order.)
+        let alpha = Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
+        if e.gen == nil, alpha <= 0.001 { continue }
+        if used >= progEmitPools[n].count {
+          let l = CAShapeLayer(); l.lineJoin = .round
+          root.insertSublayer(l, below: host); extras.append(l); progEmitPools[n].append(l)
+        }
+        let l = progEmitPools[n][used]; used += 1
+        func px(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: o.x + CGFloat(x) * s - home.x, y: o.y + CGFloat(y) * s - home.y) }
+        let p = UIBezierPath()
+        if e.kind == "line" {
+          p.move(to: px(e.fields["x1"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, e.fields["y1"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0))
+          p.addLine(to: px(e.fields["x2"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, e.fields["y2"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0))
+          l.fillColor = nil; l.strokeColor = color; l.lineWidth = CGFloat(MotionLang.eval(e.width, c, pg.funcs)) * s
+        } else if e.kind == "circle" {
+          let cxe = e.fields["cx"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0, cye = e.fields["cy"].map { MotionLang.eval($0, c, pg.funcs) } ?? 0
+          let r = max(0, e.fields["r"].map { MotionLang.eval($0, c, pg.funcs) } ?? 1)
+          let ctr = px(cxe, cye)
+          p.append(UIBezierPath(ovalIn: CGRect(x: ctr.x - CGFloat(r) * s, y: ctr.y - CGFloat(r) * s, width: CGFloat(r) * 2 * s, height: CGFloat(r) * 2 * s)))
+          l.fillColor = color; l.strokeColor = nil
+        } else {
+          var first = true
+          func add(_ x: Double, _ y: Double) { let q = px(x, y); if first { p.move(to: q); first = false } else { p.addLine(to: q) } }
+          if let pts = e.points { for (xa, ya) in pts { add(MotionLang.eval(xa, c, pg.funcs), MotionLang.eval(ya, c, pg.funcs)) } }
+          else if let g = e.gen { let cnt = clampInt(MotionLang.eval(g.count, c, pg.funcs), 0, 64); for j in 0..<cnt { c.v[g.name] = Double(j); add(MotionLang.eval(g.x, c, pg.funcs), MotionLang.eval(g.y, c, pg.funcs)) } }
+          if e.kind == "polygon" { p.close(); l.fillColor = color; l.strokeColor = nil }
+          else { l.fillColor = nil; l.strokeColor = color; l.lineWidth = CGFloat(MotionLang.eval(e.width, c, pg.funcs)) * s }
+        }
+        l.path = p.cgPath; l.position = place.pos; l.transform = place.tf; l.isHidden = false
+        l.opacity = e.gen == nil ? alpha : Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
+      } }
+      for u in used..<progEmitPools[n].count { progEmitPools[n][u].isHidden = true }
+    }
+    CATransaction.commit()
+    // Home: the recording is over and every spring is at rest, or its time is up.
+    if progSettling, quiet || (progT - progFlipped) > pg.timeout {
+      for k in progSprings.keys { progSprings[k]!.vel = 0 }
+      progSettling = false
+      let done = onSettled; onSettled = nil; done?()
+    }
+  }
+
+  /// Shapes of a kind this build draws; anything else is skipped, not shown.
+  static func parse(_ spec: [String: KBJSON]) -> (shapes: [Shape], viewBox: CGRect)? {
+    guard let vb = spec["viewBox"]?.asArray?.compactMap({ $0.asCGFloat }), vb.count == 4, vb[2] > 0, vb[3] > 0,
+          let raw = spec["shapes"]?.asArray else { return nil }
+    var out: [Shape] = []
+    for item in raw {
+      guard let o = item.asObject, let kind = o["kind"]?.asString,
+            ["rect", "line", "circle", "bars"].contains(kind) else { continue }
+      var n: [String: CGFloat] = [:]
+      for (k, v) in o { if let d = v.asCGFloat { n[k] = d } }
+      let dash = o["dash"]?.asArray?.compactMap { $0.asCGFloat } ?? []
+      let heights = o["heights"]?.asArray?.compactMap { $0.asCGFloat } ?? []
+      if kind == "bars", heights.isEmpty { continue }
+      let swell = o["swell"]?.asObject
+      let color = o["color"]?.asString.map { UIColor(tulmiHex: $0) }
+      out.append(Shape(id: o["id"]?.asString, kind: kind, n: n, dash: dash,
+                       cap: o["cap"]?.asString ?? "butt", color: color, heights: heights,
+                       swellThick: swell?["thick"]?.asCGFloat ?? 1.5, swellHeight: swell?["height"]?.asCGFloat ?? 1.07))
+    }
+    return out.isEmpty ? nil : (out, CGRect(x: vb[0], y: vb[1], width: vb[2], height: vb[3]))
+  }
+
+  /// Where the artboard lands in `size`, centred. A round key fits the
+  /// artboard by its DIAGONAL, so its corners touch the circle and no square
+  /// is cut off at the rim; `fit: "box"` fits the sides instead.
+  private static func fit(_ viewBox: CGRect, in size: CGSize, circle: Bool) -> (scale: CGFloat, origin: CGPoint) {
+    let s = circle
+      ? min(size.width, size.height) / hypot(viewBox.width, viewBox.height)
+      : min(size.width / viewBox.width, size.height / viewBox.height)
+    return (s, CGPoint(x: (size.width - viewBox.width * s) / 2 - viewBox.minX * s,
+                       y: (size.height - viewBox.height * s) / 2 - viewBox.minY * s))
+  }
+  private static func isCircle(_ spec: [String: KBJSON]) -> Bool { (spec["fit"]?.asString ?? "circle") != "box" }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard bounds.size != laidOut, bounds.width > 1, bounds.height > 1 else { return }
+    laidOut = bounds.size
+    (layers + extras).forEach { $0.removeFromSuperlayer() }
+    layers = []; extras = []; bars = []; sea = nil
+    CATransaction.begin(); CATransaction.setDisableActions(true)
+    root.frame = bounds
+    CATransaction.commit()
+    let (s, o) = TulmiMarkView.fit(viewBox, in: bounds.size, circle: circle)
+    fitted = (s, o)
+    let reduce = UIAccessibility.isReduceMotionEnabled
+    for sh in shapes {
+      let l = CAShapeLayer()
+      let color = (tint ?? sh.color ?? UIColor.black).cgColor
+      let p = UIBezierPath()
+      // Every path is built about its own centre and placed by `position`, so
+      // a scale animates the shape in place instead of about the view's corner.
+      var center = CGPoint.zero
+      switch sh.kind {
+      case "rect":
+        let r = CGRect(x: o.x + (sh.n["x"] ?? 0) * s, y: o.y + (sh.n["y"] ?? 0) * s,
+                       width: (sh.n["w"] ?? 0) * s, height: (sh.n["h"] ?? 0) * s)
+        center = CGPoint(x: r.midX, y: r.midY)
+        p.append(UIBezierPath(roundedRect: CGRect(x: -r.width / 2, y: -r.height / 2, width: r.width, height: r.height),
+                              cornerRadius: (sh.n["rx"] ?? 0) * s))
+        l.fillColor = color
+      case "circle":
+        center = CGPoint(x: o.x + (sh.n["cx"] ?? 0) * s, y: o.y + (sh.n["cy"] ?? 0) * s)
+        let r = (sh.n["r"] ?? 0) * s
+        p.append(UIBezierPath(ovalIn: CGRect(x: -r, y: -r, width: r * 2, height: r * 2)))
+        l.fillColor = color
+      case "bars":
+        // The wave of the icon: bars across the line, uneven, one path.
+        center = CGPoint(x: o.x + ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2 * s, y: o.y + ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2 * s)
+        for (i, h) in sh.heights.enumerated() {
+          let (a, b) = sh.bar(at: (CGFloat(i) + 0.5) / CGFloat(sh.heights.count), height: h)
+          p.move(to: CGPoint(x: o.x + a.x * s - center.x, y: o.y + a.y * s - center.y))
+          p.addLine(to: CGPoint(x: o.x + b.x * s - center.x, y: o.y + b.y * s - center.y))
+        }
+        l.fillColor = nil
+        l.strokeColor = color
+        l.lineWidth = (sh.n["thick"] ?? 6) * s
+        l.lineCap = .butt
+      default:
+        let a = CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s)
+        let b = CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s)
+        center = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        p.move(to: CGPoint(x: a.x - center.x, y: a.y - center.y))
+        p.addLine(to: CGPoint(x: b.x - center.x, y: b.y - center.y))
+        l.fillColor = nil
+        l.strokeColor = color
+        l.lineWidth = (sh.n["width"] ?? 1) * s
+        l.lineCap = sh.cap == "round" ? .round : .butt
+        if !sh.dash.isEmpty { l.lineDashPattern = sh.dash.map { NSNumber(value: Double($0 * s)) } }
+      }
+      l.path = p.cgPath
+      l.position = center
+      root.addSublayer(l)
+      layers.append(l)
+      if !reduce, program == nil, let id = sh.id { animate(l, id: id, scale: s, dash: sh.dash) }
+    }
+    // Motion on the whole mark: the view's own layer, about its centre.
+    layer.removeAllAnimations()
+    if !reduce, program == nil { animate(layer, id: "mark", scale: s, dash: []) }
+    if program != nil {
+      // The program draws every bar itself, one layer each; the emits are
+      // pooled as they are first needed. Then it paints this frame.
+      progBars = [:]; progEmitPools = []; progCtx = nil
+      for (i, sh) in shapes.enumerated() where sh.kind == "bars" {
+        layers[i].isHidden = true
+        progBars[i] = dashLayers(for: i, color: (tint ?? sh.color ?? UIColor.black).cgColor, scale: s, origin: o).map { ($0.0, $0.1) }
+        for (l, _) in progBars[i]! { l.opacity = 1 }
+      }
+      runProgram(dt: 0)
+      return
+    }
+    // The wave's bars, if the signal did not already make them.
+    if let w = wave, bars.isEmpty || bars[0].layer.superlayer == nil {
+      bars = dashLayers(for: w.layer, color: (tint ?? shapes[w.layer].color ?? UIColor.black).cgColor, scale: s, origin: o)
+    }
+    // Mid-dispersal (a remount, a resize): the new layers take up where the old left off.
+    if isPlaying { restSignal(); draw() }
+  }
+
+  private func animate(_ l: CALayer, id: String, scale s: CGFloat, dash: [CGFloat]) {
+    for m in motion where m["on"]?.asString == id {
+      let period = max(0.2, m["period"]?.asDouble ?? 2.6)
+      switch m["kind"]?.asString {
+      case "signal":
+        // THE SPLASH'S SIGNAL, ON A LOOP. Each step names a shape and the
+        // second of the period it lights: a square (or a plain line) wears
+        // the signal colour for `hold`; a dashed line has a run of light
+        // travel its length for `run`, dash by dash, in step with its hatch.
+        // Runs on the whole-mark entry and hands each named sublayer its own
+        // animation, so every shape keeps the one clock.
+        guard let steps = m["steps"]?.asArray?.compactMap({ $0.asObject }), !steps.isEmpty else { continue }
+        let sig = (m["color"]?.asString.map { UIColor(tulmiHex: $0) }
+                   ?? UIColor(tulmiHex: tint != nil ? "#F4F1EA" : "#E8A23C")).cgColor
+        for st in steps {
+          guard let sid = st["on"]?.asString, let i = shapes.firstIndex(where: { $0.id == sid }) else { continue }
+          let sub = layers[i], sh = shapes[i]
+          let at = min(period, max(0, st["at"]?.asDouble ?? 0))
+          if (sh.kind == "line" && !sh.dash.isEmpty) || sh.kind == "bars", let run = st["run"]?.asDouble, run > 0 {
+            // THE RUN BETWEEN THE BLOCKS. The bars or dashes stay where they
+            // are and a crest — `width` of the line, full at its core and soft
+            // at its edges — travels from end to end in `run` seconds. A bar
+            // rises under it and collapses behind it, in its own ink; a dash
+            // lights in the signal colour. One layer per bar, on its own cue.
+            let width = min(0.9, max(0.05, st["width"]?.asDouble ?? 0.3)), half = width / 2
+            let linear = CAMediaTimingFunction(name: .linear), ease = CAMediaTimingFunction(name: .easeInEaseOut)
+            let dashes = dashLayers(for: i, color: sh.kind == "bars" ? (tint ?? sh.color ?? UIColor.black).cgColor : sig, scale: s, origin: fitted.origin)
+            if sh.id == disperseSpec?.keep { bars = dashes }
+            for (d, f) in dashes {
+              // Its cue: the crest's centre passes at `tf`, the whole crest in `2 * edge`.
+              let tf = at + run * (f + half) / (1 + width), edge = run * half / (1 + width)
+              if sh.kind == "bars", let rest = d.value(forKey: "rest") as? [Any], let peak = d.value(forKey: "peak") as? [Any] {
+                let up = CAKeyframeAnimation(keyPath: "path")
+                up.values = [rest[0], rest[0], peak[0], rest[0], rest[0]]
+                up.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf, tf + edge, period], period)
+                up.timingFunctions = [linear, ease, ease, linear]
+                let wide = CAKeyframeAnimation(keyPath: "lineWidth")
+                wide.values = [rest[1], rest[1], peak[1], rest[1], rest[1]]
+                wide.keyTimes = up.keyTimes; wide.timingFunctions = up.timingFunctions
+                let g = CAAnimationGroup(); g.animations = [up, wide]; g.duration = period; g.repeatCount = .infinity
+                d.opacity = 1
+                d.add(g, forKey: "signal")
+              } else {
+                let core = edge * 0.5
+                let an = CAKeyframeAnimation(keyPath: "opacity")
+                an.values = [0, 0, 1, 1, 0, 0]
+                an.keyTimes = TulmiMarkView.keyTimes([0, tf - edge, tf - core, tf + core, tf + edge, period], period)
+                an.timingFunctions = [linear, ease, linear, ease, linear]
+                an.duration = period; an.repeatCount = .infinity
+                d.add(an, forKey: "signal")
+              }
+            }
+          } else {
+            // On in sixty milliseconds, off in sixty: a swap, not a flicker.
+            let hold = max(0.05, st["hold"]?.asDouble ?? 0.4)
+            let stroke = sh.kind == "line"
+            guard let base = stroke ? sub.strokeColor : sub.fillColor else { continue }
+            let a = CAKeyframeAnimation(keyPath: stroke ? "strokeColor" : "fillColor")
+            a.values = [base, base, sig, sig, base, base]
+            a.keyTimes = TulmiMarkView.keyTimes([0, at, at + 0.06, at + hold, at + hold + 0.06, period], period)
+            a.duration = period; a.repeatCount = .infinity; a.calculationMode = .linear
+            sub.add(a, forKey: "signal")
+          }
+        }
+      case "hatch":
+        // One pattern length per period, the way the header runs it.
+        let len = dash.reduce(0, +) * s
+        guard len > 0, l is CAShapeLayer else { continue }
+        let a = CABasicAnimation(keyPath: "lineDashPhase")
+        a.fromValue = 0; a.toValue = -len; a.duration = period; a.repeatCount = .infinity
+        l.add(a, forKey: "hatch")
+      case "breathe":
+        let sc = CAKeyframeAnimation(keyPath: "transform.scale")
+        sc.values = [1, m["scale"]?.asDouble ?? 1.45, 1]; sc.keyTimes = [0, 0.5, 1]
+        sc.timingFunctions = [CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
+        let op = CAKeyframeAnimation(keyPath: "opacity")
+        op.values = [1, m["opacity"]?.asDouble ?? 0.72, 1]; op.keyTimes = [0, 0.5, 1]
+        let g = CAAnimationGroup()
+        g.animations = [sc, op]; g.duration = period; g.repeatCount = .infinity
+        l.add(g, forKey: "breathe")
+      default:
+        continue
+      }
+    }
+  }
+
+  /// Seconds into a period as keyframe times: clamped to the period and kept
+  /// strictly rising, which is what Core Animation asks of them.
+  private static func keyTimes(_ secs: [Double], _ period: Double) -> [NSNumber] {
+    var last = -1.0
+    return secs.map { s in
+      let t = max(last + 0.0005, min(1, max(0, s / period)))
+      last = min(t, 1)
+      return NSNumber(value: last)
+    }
+  }
+
+  /// The mark as a picture, for the particle sim to burst from. The sim
+  /// samples opaque pixels, so the colour is beside the point.
+  static func image(spec: [String: KBJSON], tint: UIColor, size: CGSize) -> UIImage? {
+    guard let parsed = parse(spec) else { return nil }
+    let (s, o) = fit(parsed.viewBox, in: size, circle: isCircle(spec))
+    return UIGraphicsImageRenderer(size: size).image { ctx in
+      let c = ctx.cgContext
+      c.setFillColor(tint.cgColor)
+      c.setStrokeColor(tint.cgColor)
+      for sh in parsed.shapes {
+        switch sh.kind {
+        case "rect":
+          let r = CGRect(x: o.x + (sh.n["x"] ?? 0) * s, y: o.y + (sh.n["y"] ?? 0) * s,
+                         width: (sh.n["w"] ?? 0) * s, height: (sh.n["h"] ?? 0) * s)
+          c.addPath(UIBezierPath(roundedRect: r, cornerRadius: (sh.n["rx"] ?? 0) * s).cgPath)
+          c.fillPath()
+        case "circle":
+          let r = (sh.n["r"] ?? 0) * s
+          c.fillEllipse(in: CGRect(x: o.x + (sh.n["cx"] ?? 0) * s - r, y: o.y + (sh.n["cy"] ?? 0) * s - r,
+                                   width: r * 2, height: r * 2))
+        case "bars":
+          c.setLineWidth((sh.n["thick"] ?? 6) * s)
+          c.setLineCap(.butt)
+          for (i, h) in sh.heights.enumerated() {
+            let (a, b) = sh.bar(at: (CGFloat(i) + 0.5) / CGFloat(sh.heights.count), height: h)
+            c.move(to: CGPoint(x: o.x + a.x * s, y: o.y + a.y * s))
+            c.addLine(to: CGPoint(x: o.x + b.x * s, y: o.y + b.y * s))
+            c.strokePath()
+          }
+        default:
+          c.setLineWidth((sh.n["width"] ?? 1) * s)
+          c.setLineCap(sh.cap == "round" ? .round : .butt)
+          c.setLineDash(phase: 0, lengths: sh.dash.map { $0 * s })
+          c.move(to: CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s))
+          c.addLine(to: CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s))
+          c.strokePath()
+          c.setLineDash(phase: 0, lengths: [])
+        }
+      }
+    }
+  }
+}
+
+final class MicParticleView: UIView {
+  private struct Dot { var p: CGPoint; var v: CGVector }
+  private var dots: [Dot] = []
+  private var link: CADisplayLink?
+  private var seeded = false
+
+  // Two physics modes drive the whole idle⇄recording round trip:
+  //   • .disperse   — recording: the mark bursts apart and the dots wander,
+  //                   bouncing off the wall and each other (perpetual).
+  //   • .reassemble — stopping: each dot springs back to its home point on the
+  //                   mark, settles, and hands off to the crisp static mark.
+  // The SAME instance carries its dots across the stop remount (the renderer
+  // holds a strong ref), so wander → converge is one unbroken motion.
+  private enum Mode { case disperse, reassemble }
+  private var mode: Mode = .disperse
+  private var targets: [CGPoint] = []          // home points during .reassemble
+  private var reassembleElapsed: CGFloat = 0
+  private var reassembleFinished = false
+  private var onReassembleDone: (() -> Void)?
+
+  private let count: Int
+  private let dotRadius: CGFloat
+  private let color: UIColor
+  private let sourceImage: UIImage?   // the brand mark the dots disperse FROM
+
+  /// kb.mic.particles.* physics — set by the renderer right after init. The
+  /// defaults are the shipped feel.
+  var burstMin: CGFloat = 55            // outward kick, points / second
+  var burstMax: CGFloat = 110
+  var drag: CGFloat = 0.99              // per-frame velocity bleed while recording
+  var minSpeed: CGFloat = 24            // the swarm never slows below this
+  var stiffness: CGFloat = 26           // reassembly spring pull toward home
+  var damping: CGFloat = 0.80           // reassembly bounce killer
+  var settleDistance: CGFloat = 0.8     // landed when every dot is this close…
+  var settleTimeout: CGFloat = 0.6      // …or after this many seconds
+
+  init(count: Int, dotRadius: CGFloat, color: UIColor, sourceImage: UIImage?) {
+    self.count = max(2, count)
+    self.dotRadius = max(0.5, dotRadius)
+    self.color = color
+    self.sourceImage = sourceImage
+    super.init(frame: .zero)
+    backgroundColor = .clear
+    isOpaque = false
+    isUserInteractionEnabled = false
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unavailable") }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    if window == nil { stop() } else { start() }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    if !seeded && bounds.width > 4 { seed() }
+  }
+
+  private var radius: CGFloat { min(bounds.width, bounds.height) / 2 }
+  private var mid: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY) }
+
+  private func start() {
+    guard link == nil else { return }
+    if !seeded && bounds.width > 4 { seed() }
+    let l = CADisplayLink(target: self, selector: #selector(step(_:)))
+    l.add(to: .main, forMode: .common)
+    link = l
+  }
+
+  private func stop() {
+    link?.invalidate()
+    link = nil
+  }
+
+  // Seed the dots AS THE STRUCTURE: sample the brand mark's shape for their
+  // starting positions (so frame 0 still reads as the mark), then give each an
+  // outward burst so the structure visibly bursts apart into particles. Falls
+  // back to a random spread if the mark can't be sampled.
+  private func seed() {
+    seeded = true
+    dots.removeAll()
+    let starts = sourceImage.map { markPoints($0, want: count) } ?? []
+    let c = mid
+    let r = max(1, radius - dotRadius)
+    for i in 0..<count {
+      let p: CGPoint
+      if i < starts.count {
+        p = starts[i]
+      } else {
+        let ang = CGFloat.random(in: 0 ..< (2 * .pi))
+        let rad = r * sqrt(CGFloat.random(in: 0...1))        // uniform in the disc
+        p = CGPoint(x: c.x + cos(ang) * rad, y: c.y + sin(ang) * rad)
+      }
+      dots.append(Dot(p: p, v: burstVelocity(from: p)))
+    }
+  }
+
+  /// An outward kick from the centre through `p` (so the mark bursts apart),
+  /// with a small angular jitter so dots at the same radius don't move in
+  /// lockstep. Reused by `seed()` and by a re-burst on record-restart.
+  private func burstVelocity(from p: CGPoint) -> CGVector {
+    let c = mid
+    var dx = p.x - c.x, dy = p.y - c.y
+    let len = (dx * dx + dy * dy).squareRoot()
+    if len > 0.5 { dx /= len; dy /= len }
+    else { let a = CGFloat.random(in: 0 ..< (2 * .pi)); dx = cos(a); dy = sin(a) }
+    let j = CGFloat.random(in: -0.5...0.5)
+    let rx = dx * cos(j) - dy * sin(j), ry = dx * sin(j) + dy * cos(j)
+    let burst = CGFloat.random(in: min(burstMin, burstMax)...max(burstMin, burstMax))   // points / second
+    return CGVector(dx: rx * burst, dy: ry * burst)
+  }
+
+  // MARK: Mode transitions (driven by the renderer's reflectDictating)
+
+  /// Enter / re-enter the recording wander. If the dots are mid-reassembly
+  /// (user tapped record again before the structure fully re-formed), give them
+  /// a fresh outward burst so they scatter instead of finishing their homing.
+  func beginRecording() {
+    let wasReassembling = mode == .reassemble
+    mode = .disperse
+    targets = []
+    reassembleElapsed = 0
+    reassembleFinished = false
+    onReassembleDone = nil
+    if wasReassembling {
+      for i in dots.indices { dots[i].v = burstVelocity(from: dots[i].p) }
+    }
+    start()
+  }
+
+  /// Reverse of the burst: each dot springs back to its home point on the mark,
+  /// settles, then `onComplete` fires so the renderer can swap in the crisp
+  /// static mark. If we never seeded (no bounds/image yet) there's nothing to
+  /// converge — complete immediately so the caller isn't left hanging.
+  func reassemble(onComplete: @escaping () -> Void) {
+    guard seeded, !dots.isEmpty else { onComplete(); return }
+    mode = .reassemble
+    reassembleElapsed = 0
+    reassembleFinished = false
+    onReassembleDone = onComplete
+    targets = homeTargets()
+    start()
+  }
+
+  /// Home points for the dots to converge onto — the mark's shape again. When
+  /// there are more dots than sampled points we cycle the points; with no image
+  /// the dots gather at the centre.
+  private func homeTargets() -> [CGPoint] {
+    let pts = sourceImage.map { markPoints($0, want: dots.count) } ?? []
+    guard !pts.isEmpty else { return [] }
+    return dots.indices.map { pts[$0 % pts.count] }
+  }
+
+  @objc private func step(_ link: CADisplayLink) {
+    guard !dots.isEmpty else { return }
+    let dt = CGFloat(min(link.duration, 1.0 / 30.0))         // clamp long frames
+    if mode == .reassemble { stepReassemble(dt); return }
+    stepDisperse(dt)
+  }
+
+  /// Recording: burst → wall-bounce → collide → wander (perpetual).
+  private func stepDisperse(_ dt: CGFloat) {
+    let c = mid
+    let wall = max(0, radius - dotRadius)
+
+    // Integrate + bounce off the circular wall (reflect about the radial normal).
+    for i in dots.indices {
+      dots[i].p.x += dots[i].v.dx * dt
+      dots[i].p.y += dots[i].v.dy * dt
+      let dx = dots[i].p.x - c.x, dy = dots[i].p.y - c.y
+      let d = (dx * dx + dy * dy).squareRoot()
+      if d > wall && d > 0 {
+        let nx = dx / d, ny = dy / d
+        dots[i].p.x = c.x + nx * wall
+        dots[i].p.y = c.y + ny * wall
+        let vn = dots[i].v.dx * nx + dots[i].v.dy * ny
+        dots[i].v.dx -= 2 * vn * nx
+        dots[i].v.dy -= 2 * vn * ny
+      }
+    }
+
+    // Pairwise elastic collisions (equal mass; a handful of dots → O(n²) is nothing).
+    let minD = dotRadius * 2
+    for a in 0 ..< dots.count {
+      for b in (a + 1) ..< dots.count {
+        let dx = dots[b].p.x - dots[a].p.x
+        let dy = dots[b].p.y - dots[a].p.y
+        let d = (dx * dx + dy * dy).squareRoot()
+        guard d < minD, d > 0.0001 else { continue }
+        let nx = dx / d, ny = dy / d
+        let overlap = (minD - d) / 2
+        dots[a].p.x -= nx * overlap; dots[a].p.y -= ny * overlap
+        dots[b].p.x += nx * overlap; dots[b].p.y += ny * overlap
+        let rvn = (dots[b].v.dx - dots[a].v.dx) * nx + (dots[b].v.dy - dots[a].v.dy) * ny
+        if rvn < 0 {                                         // only if approaching
+          dots[a].v.dx += rvn * nx; dots[a].v.dy += rvn * ny
+          dots[b].v.dx -= rvn * nx; dots[b].v.dy -= rvn * ny
+        }
+      }
+    }
+
+    // Bleed the initial burst off (drag) but floor the speed HIGH, so the swarm
+    // never settles — it keeps zipping and colliding off the wall and each other
+    // for the whole recording instead of drifting to a near-stop.
+    for i in dots.indices {
+      dots[i].v.dx *= drag; dots[i].v.dy *= drag
+      let s = (dots[i].v.dx * dots[i].v.dx + dots[i].v.dy * dots[i].v.dy).squareRoot()
+      if s > 0.001 && s < minSpeed {
+        let k = minSpeed / s
+        dots[i].v.dx *= k; dots[i].v.dy *= k
+      }
+    }
+    setNeedsDisplay()
+  }
+
+  /// Stopping: each dot springs to its home point on the mark (damped so it
+  /// settles instead of oscillating). When the cloud has landed — or a short
+  /// backstop elapses — snap onto the targets for a crisp final frame and hand
+  /// off to `onReassembleDone` so the renderer can show the static mark.
+  private func stepReassemble(_ dt: CGFloat) {
+    reassembleElapsed += dt
+    var maxDist: CGFloat = 0
+    for i in dots.indices {
+      let t = targets.isEmpty ? mid : targets[i % targets.count]
+      let toX = t.x - dots[i].p.x, toY = t.y - dots[i].p.y
+      dots[i].v.dx = (dots[i].v.dx + toX * stiffness * dt) * damping
+      dots[i].v.dy = (dots[i].v.dy + toY * stiffness * dt) * damping
+      dots[i].p.x += dots[i].v.dx * dt
+      dots[i].p.y += dots[i].v.dy * dt
+      let d = (toX * toX + toY * toY).squareRoot()
+      if d > maxDist { maxDist = d }
+    }
+    setNeedsDisplay()
+
+    if !reassembleFinished, maxDist < settleDistance || reassembleElapsed > settleTimeout {
+      // Snap home so the last frame is exactly the mark, then hand off.
+      for i in dots.indices { dots[i].p = targets.isEmpty ? mid : targets[i % targets.count] }
+      setNeedsDisplay()
+      reassembleFinished = true
+      let done = onReassembleDone
+      onReassembleDone = nil
+      stop()
+      done?()
+    }
+  }
+
+  override func draw(_ rect: CGRect) {
+    guard let ctx = UIGraphicsGetCurrentContext() else { return }
+    ctx.setFillColor(color.cgColor)
+    for dot in dots {
+      ctx.fillEllipse(in: CGRect(x: dot.p.x - dotRadius, y: dot.p.y - dotRadius,
+                                 width: dotRadius * 2, height: dotRadius * 2))
+    }
+  }
+
+  /// Sample up to `want` points from the brand mark's opaque area, mapped into
+  /// this view's bounds — the dots start here so the mark is recognizable for a
+  /// frame before it bursts. Returns [] (→ random spread) if it can't sample.
+  private func markPoints(_ image: UIImage, want: Int) -> [CGPoint] {
+    guard want > 0, bounds.width > 4, let cg = image.cgImage else { return [] }
+    let w = 44, h = 44
+    var data = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8,
+                              bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
+    // Aspect-fit the mark into the sampling square with a small inset.
+    let inset: CGFloat = 6
+    let box = CGFloat(min(w, h)) - inset * 2
+    let scale = min(box / CGFloat(cg.width), box / CGFloat(cg.height))
+    let dw = CGFloat(cg.width) * scale, dh = CGFloat(cg.height) * scale
+    ctx.draw(cg, in: CGRect(x: (CGFloat(w) - dw) / 2, y: (CGFloat(h) - dh) / 2, width: dw, height: dh))
+
+    var pts: [CGPoint] = []
+    for y in 0..<h {
+      for x in 0..<w where data[(y * w + x) * 4 + 3] > 90 {   // opaque → part of the mark
+        // Bitmap origin is bottom-left; flip y into UIKit's top-left space.
+        let px = (CGFloat(x) + 0.5) / CGFloat(w) * bounds.width
+        let py = (CGFloat(h - 1 - y) + 0.5) / CGFloat(h) * bounds.height
+        pts.append(CGPoint(x: px, y: py))
+      }
+    }
+    guard pts.count > want else { return pts }
+    // Even stride so the sample still traces the whole shape.
+    var out: [CGPoint] = []
+    let stride = CGFloat(pts.count) / CGFloat(want)
+    var idx: CGFloat = 0
+    while Int(idx) < pts.count && out.count < want { out.append(pts[Int(idx)]); idx += stride }
+    return out
+  }
+}
+
+// =============================================================================
+// SDUIRenderer — server-driven UI renderer for Tulmi's iOS keyboard extension.
+//
+// When the backend config sets `features.sdui = true` and provides a `root`
+// KeyboardNode tree, KeyboardViewController hands off UI construction to this
+// renderer instead of hand-building UIButtons. Every node in the tree maps to
+// a small UIView-building method here (LetterKey → UIButton, Row → horizontal
+// UIStackView, BlurBackdrop → UIVisualEffectView, etc). Actions are decoded
+// as a tagged union and dispatched through the host controller so dictation /
+// refine / textDocumentProxy stay in the existing code path.
+//
+// The renderer is intentionally undiffed — the RN counterpart also rebuilds on
+// state change, so we do too: `stateChanged()` tears the mounted subview down
+// and re-runs `render()`. Cheap enough for keyboard-sized trees.
+// =============================================================================
+
+// MARK: - Host protocol
+
+/// Back-reference the renderer holds weakly so it can call the existing
+/// dictation / refine / text-proxy code paths that live on
+/// KeyboardViewController without depending on its concrete type.
+protocol KBHostControllerProtocol: AnyObject {
+  var hostTextDocumentProxy: UITextDocumentProxy { get }
+  var hostHasFullAccess: Bool { get }
+  var hostExtensionContext: NSExtensionContext? { get }
+  func hostLabel(_ key: String, _ fallback: String) -> String
+  func hostStartDictation()
+  func hostStopDictation()
+  func hostRunRefine()
+  func hostAdvanceInputMode()
+  func hostPresent(_ vc: UIViewController)
+  /// The current field's autocap trait. Used by the renderer to decide when to
+  /// arm state.shift after inserts. Default `.sentences` matches iOS default.
+  func hostAutocapitalizationType() -> UITextAutocapitalizationType
+  /// The current field's returnKeyType, so the Return key can render its
+  /// context-appropriate label (Go / Search / Send / Done…) + accent color.
+  func hostReturnKeyType() -> UIReturnKeyType
+  /// What kind of field the cursor is in, in words — see the implementation.
+  func hostFieldKind() -> String
+  /// True when the focused field only accepts numbers, so the renderer can
+  /// show the number pad instead of QWERTY.
+  func hostIsNumericField() -> Bool
+  /// True when the user has multiple keyboards enabled (Apple exposes this as
+  /// UIInputViewController.needsInputModeSwitchKey). When true, the space bar
+  /// shows the current language code (e.g. "EN") like native iOS; when false
+  /// it just shows "space".
+  func hostNeedsInputModeSwitchKey() -> Bool
+  /// Two-letter code of the currently active primary language (e.g. "EN",
+  /// "FR"), used as the space bar label when multiple keyboards are enabled.
+  /// Falls back to a locale-derived code if the primary language isn't set.
+  func hostPrimaryLanguageCode() -> String
+  /// The current field's autocorrection trait — `.no` turns the renderer's
+  /// autocorrect + suggestions off for that field (URL / email / code fields).
+  func hostAutocorrectionType() -> UITextAutocorrectionType
+  /// Exact text-expansion for a finished word: the user's dictionary (App
+  /// Group) merged with the iOS supplementary lexicon (contact names, system
+  /// text replacements). nil when no trigger matches.
+  func hostExpansion(for word: String) -> String?
+  /// Forward a globe-key touch to UIInputViewController.handleInputModeList
+  /// (from:with:) — a tap switches keyboards, a hold shows the system picker,
+  /// exactly like Apple's own globe.
+  func hostHandleInputModeList(from view: UIView, with event: UIEvent)
+  /// Open a URL through the host's app-opening path (the one the mic uses to
+  /// reach the containing app). A keyboard cannot call UIApplication.open
+  /// itself.
+  func hostOpenURL(_ url: URL)
+  /// The field's keyboardType, by its UIKit name ("default", "numberPad",
+  /// "emailAddress", …) — for field.keyboardType in conditions.
+  func hostKeyboardTypeName() -> String
+  /// True when the field is a secure (password) entry.
+  func hostIsSecureField() -> Bool
+}
+
+// MARK: - Polymorphic JSON value (for props / style bags)
+
+/// Small Codable helper matching the `Record<string, any>` shape of props/style
+/// bags in the SDUI schema. Kept intentionally lax — reads that don't match a
+/// shape just return nil and the renderer falls back to defaults.
+enum KBJSON: Decodable {
+  case null
+  case bool(Bool)
+  case number(Double)
+  case string(String)
+  case array([KBJSON])
+  case object([String: KBJSON])
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.singleValueContainer()
+    if c.decodeNil() { self = .null; return }
+    if let b = try? c.decode(Bool.self) { self = .bool(b); return }
+    if let d = try? c.decode(Double.self) { self = .number(d); return }
+    if let s = try? c.decode(String.self) { self = .string(s); return }
+    if let a = try? c.decode([KBJSON].self) { self = .array(a); return }
+    if let o = try? c.decode([String: KBJSON].self) { self = .object(o); return }
+    self = .null
+  }
+
+  var asString: String? {
+    if case .string(let s) = self { return s }
+    if case .number(let n) = self { return String(n) }
+    if case .bool(let b) = self { return b ? "true" : "false" }
+    return nil
+  }
+  /// Only a finite number. "nan", "inf" or 1e309 from the server is no
+  /// number at all, so every reader falls back to its default instead of
+  /// carrying NaN into a frame or infinity into an Int.
+  var asDouble: Double? {
+    if case .number(let n) = self { return n.isFinite ? n : nil }
+    if case .string(let s) = self, let n = Double(s), n.isFinite { return n }
+    return nil
+  }
+  var asCGFloat: CGFloat? { asDouble.map { CGFloat($0) } }
+  var asBool: Bool? {
+    if case .bool(let b) = self { return b }
+    if case .number(let n) = self { return n != 0 }
+    if case .string(let s) = self { return ["true", "1", "yes"].contains(s.lowercased()) }
+    return nil
+  }
+  var asObject: [String: KBJSON]? { if case .object(let o) = self { return o }; return nil }
+  var asArray: [KBJSON]? { if case .array(let a) = self { return a }; return nil }
+}
+
+// MARK: - Codable schema
+
+/// Top-level config sent by GET /v1/keyboard/config (schema-mirrors the TS
+/// KeyboardConfigResponse in TAILZU-BACKEND/shared/types/sdui.ts).
+struct KBConfig: Decodable {
+  let schemaVersion: Int?
+  let theme: KBTheme?
+  // v3 dark/light adaptive palettes. When present, the renderer picks between
+  // themeDark and themeLight based on the extension's current userInterface-
+  // Style and re-renders on traitCollectionDidChange. When absent, `theme` is
+  // the sole palette used (backward-compatible).
+  let themeDark: KBTheme?
+  let themeLight: KBTheme?
+  let layouts: [KBLayout]?
+  let features: KBFeatures?
+  let labels: [String: String]?
+  let root: KBNode?
+  let actions: [String: KBActionSpec]?
+  let cacheTtlSeconds: Int?
+  let cacheVersion: String?
+  let flags: [String: KBJSON]?
+}
+
+struct KBFeatures: Decodable {
+  let voice: Bool?
+  let refine: Bool?
+  let streaming: Bool?
+  let sdui: Bool?
+  /// Every key the server sent under `features`, typed or not — what
+  /// features.* reads in conditions and binds, so a new feature switch needs
+  /// no new field here.
+  let raw: [String: KBJSON]
+
+  private enum CodingKeys: String, CodingKey { case voice, refine, streaming, sdui }
+
+  init(from decoder: Decoder) throws {
+    // The typed fields decode exactly as the synthesized init did.
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    voice = try c.decodeIfPresent(Bool.self, forKey: .voice)
+    refine = try c.decodeIfPresent(Bool.self, forKey: .refine)
+    streaming = try c.decodeIfPresent(Bool.self, forKey: .streaming)
+    sdui = try c.decodeIfPresent(Bool.self, forKey: .sdui)
+    raw = (try? decoder.singleValueContainer().decode([String: KBJSON].self)) ?? [:]
+  }
+}
+
+struct KBTheme: Decodable {
+  let background: String?
+  let key: String?
+  let keyText: String?
+  let accent: String?
+  let keyPressed: String?
+  let backgroundEffect: KBEffect?
+  let keyEffect: KBEffect?
+  let keyRadius: Double?
+  let keyShadow: Bool?
+}
+
+struct KBLayout: Decodable {
+  let language: String
+  let displayName: String?
+  let rows: [[String]]
+}
+
+/// KeyboardEffect union — `{kind: "solid", color}` / `{kind: "blur", style}` /
+/// `{kind: "gradient", colors[], direction?}`.
+enum KBEffect: Decodable {
+  case solid(color: String)
+  case blur(style: String)
+  case gradient(colors: [String], direction: String?)
+
+  private enum Keys: String, CodingKey { case kind, color, style, colors, direction }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Keys.self)
+    let kind = try c.decode(String.self, forKey: .kind)
+    switch kind {
+    case "solid":
+      self = .solid(color: (try? c.decode(String.self, forKey: .color)) ?? "#00000000")
+    case "blur":
+      self = .blur(style: (try? c.decode(String.self, forKey: .style)) ?? "regular")
+    case "gradient":
+      let colors = (try? c.decode([String].self, forKey: .colors)) ?? []
+      let dir = try? c.decode(String.self, forKey: .direction)
+      self = .gradient(colors: colors, direction: dir)
+    default:
+      // Unknown effect kind → transparent no-op backdrop, NOT a throw. Throwing
+      // here failed the entire KBConfig decode, which silently discarded the
+      // whole SDUI tree and fell back to the hand-built keyboard — so the
+      // backend could never introduce a new effect kind without nuking SDUI on
+      // older clients. Degrade gracefully instead (matches the unknown-node and
+      // unknown-action philosophy elsewhere).
+      self = .solid(color: "#00000000")
+    }
+  }
+}
+
+/// A single node in the SDUI keyboard tree. `on`/`bind` are kept lax; the
+/// renderer reads them by convention.
+struct KBNode: Decodable {
+  let type: String
+  let id: String?
+  let props: [String: KBJSON]?
+  let style: [String: KBJSON]?
+  let children: [KBNode]?
+  let bind: [String: String]?
+  let on: [String: KBActionRef]?
+  let effect: KBEffect?
+  let visibleIf: KBCondition?
+}
+
+/// ActionRef = a string alias (looked up in config.actions) OR an inline
+/// ActionSpec. Modeled as an enum so both forms decode transparently.
+/// `indirect` is required because KBActionSpec.condition references KBActionRef,
+/// creating a cycle Swift needs a heap indirection to size.
+indirect enum KBActionRef: Decodable {
+  case named(String)
+  case inline(KBActionSpec)
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.singleValueContainer()
+    if let s = try? c.decode(String.self) { self = .named(s); return }
+    let spec = try KBActionSpec(from: decoder)
+    self = .inline(spec)
+  }
+}
+
+/// Tagged union of keyboard actions. Custom-decoded because Swift Codable
+/// doesn't handle string-discriminated JSON unions natively. `indirect`
+/// because `.condition` holds KBActionRef which wraps KBActionSpec.
+indirect enum KBActionSpec: Decodable {
+  // ----- text + editing -----
+  case insertText(text: String)
+  case insertKey(char: String)
+  case deleteBackward
+  case deleteWord
+  case shift
+  case capsLock
+  case returnKey
+
+  // ----- layouts + dictation + refine -----
+  case switchLayout(language: String?)
+  case showLanguageMenu
+  case startDictation
+  case stopDictation
+  case runRefine
+  case cycleTone
+
+  // ----- app / system -----
+  case openApp(screenId: String?)
+  case openSettings
+  case openUrl(url: String, external: Bool)
+
+  // ----- feedback -----
+  case haptic(style: String)
+  case toast(message: String, tone: String)
+  case confetti
+  case speak(text: String, voice: String?)
+  case playMedia(url: String)
+  case stopMedia
+
+  // ----- clipboard + share -----
+  case copyToClipboard(text: String, toastMessage: String?)
+  case readClipboard(assignTo: String)
+  case share(text: String?, url: String?, title: String?)
+
+  // ----- state store (backend can mutate state.user.* paths for setState) -----
+  case setState(path: String, value: KBJSON)
+  case toggleState(path: String)
+  case incrementState(path: String, by: Double)
+  case clearState(path: String)
+
+  // ----- network + analytics + logging -----
+  case callEndpoint(method: String, path: String, body: KBJSON?, assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?)
+  case analyticsTrack(event: String, props: KBJSON?)
+  case log(message: String, level: String)
+
+  // ----- cache + reload -----
+  case clearCache
+  case reloadApp
+
+  // ----- flow control -----
+  case sequence(actions: [KBActionRef])
+  case parallel(actions: [KBActionRef])
+  case condition(ifCond: KBCondition, then: KBActionRef, elseRef: KBActionRef?)
+  case delay(ms: Double)
+
+  // ----- extensibility slot: backend can invoke a named native handler
+  // registered via SDUIRenderer.registerExtension(name:handler:). Unknown
+  // names are silently ignored so backend can push forward-looking actions
+  // that a given client build hasn't wired up yet — no crash, just a no-op.
+  case extensionAction(name: String, params: KBJSON?)
+
+  case unknown(kind: String)
+
+  private enum Keys: String, CodingKey {
+    case kind, text, char, language, screenId, style, actions, message, tone
+    case url, external, voice
+    case toastMessage, assignTo, title
+    case path, value, by
+    case method, body, onSuccess, onError
+    case event, props, level, ms
+    case name, params
+    case ifCond = "if", then, elseRef = "else"
+  }
+
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: Keys.self)
+    // A missing / undecodable kind defaults to a no-op .unknown rather than
+    // throwing — one malformed action must not blow up decode and drop the
+    // ENTIRE SDUI tree back to the hand-built keyboard (mirrors the graceful
+    // per-field try? below, and the KBEffect unknown-kind philosophy).
+    guard let kind = try? c.decode(String.self, forKey: .kind) else {
+      self = .unknown(kind: ""); return
+    }
+    switch kind {
+    case "insertText":
+      self = .insertText(text: (try? c.decode(String.self, forKey: .text)) ?? "")
+    case "insertKey":
+      self = .insertKey(char: (try? c.decode(String.self, forKey: .char)) ?? "")
+    case "deleteBackward": self = .deleteBackward
+    case "deleteWord":     self = .deleteWord
+    case "shift":          self = .shift
+    case "capsLock":       self = .capsLock
+    case "return":         self = .returnKey
+    case "switchLayout":
+      self = .switchLayout(language: try? c.decode(String.self, forKey: .language))
+    case "showLanguageMenu": self = .showLanguageMenu
+    case "startDictation":   self = .startDictation
+    case "stopDictation":    self = .stopDictation
+    case "runRefine":        self = .runRefine
+    case "cycleTone":        self = .cycleTone
+    case "openApp":
+      self = .openApp(screenId: try? c.decode(String.self, forKey: .screenId))
+    case "openSettings":     self = .openSettings
+    case "openUrl":
+      self = .openUrl(
+        url: (try? c.decode(String.self, forKey: .url)) ?? "",
+        external: (try? c.decode(Bool.self, forKey: .external)) ?? false
+      )
+    case "haptic":
+      self = .haptic(style: (try? c.decode(String.self, forKey: .style)) ?? "light")
+    case "toast":
+      self = .toast(
+        message: (try? c.decode(String.self, forKey: .message)) ?? "",
+        tone: (try? c.decode(String.self, forKey: .tone)) ?? "info"
+      )
+    case "confetti":
+      self = .confetti
+    case "speak":
+      self = .speak(
+        text: (try? c.decode(String.self, forKey: .text)) ?? "",
+        voice: try? c.decode(String.self, forKey: .voice)
+      )
+    case "playMedia":
+      self = .playMedia(url: (try? c.decode(String.self, forKey: .url)) ?? "")
+    case "stopMedia":
+      self = .stopMedia
+    case "copyToClipboard":
+      self = .copyToClipboard(
+        text: (try? c.decode(String.self, forKey: .text)) ?? "",
+        toastMessage: try? c.decode(String.self, forKey: .toastMessage)
+      )
+    case "readClipboard":
+      self = .readClipboard(assignTo: (try? c.decode(String.self, forKey: .assignTo)) ?? "")
+    case "share":
+      self = .share(
+        text: try? c.decode(String.self, forKey: .text),
+        url: try? c.decode(String.self, forKey: .url),
+        title: try? c.decode(String.self, forKey: .title)
+      )
+    case "setState":
+      self = .setState(
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        value: (try? c.decode(KBJSON.self, forKey: .value)) ?? .null
+      )
+    case "toggleState":
+      self = .toggleState(path: (try? c.decode(String.self, forKey: .path)) ?? "")
+    case "incrementState":
+      self = .incrementState(
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        by: (try? c.decode(Double.self, forKey: .by)) ?? 1
+      )
+    case "clearState":
+      self = .clearState(path: (try? c.decode(String.self, forKey: .path)) ?? "")
+    case "callEndpoint":
+      self = .callEndpoint(
+        method: (try? c.decode(String.self, forKey: .method)) ?? "GET",
+        path: (try? c.decode(String.self, forKey: .path)) ?? "",
+        body: try? c.decode(KBJSON.self, forKey: .body),
+        assignTo: try? c.decode(String.self, forKey: .assignTo),
+        onSuccess: try? c.decode(KBActionRef.self, forKey: .onSuccess),
+        onError: try? c.decode(KBActionRef.self, forKey: .onError)
+      )
+    case "analytics.track":
+      self = .analyticsTrack(
+        event: (try? c.decode(String.self, forKey: .event)) ?? "",
+        props: try? c.decode(KBJSON.self, forKey: .props)
+      )
+    case "log":
+      self = .log(
+        message: (try? c.decode(String.self, forKey: .message)) ?? "",
+        level: (try? c.decode(String.self, forKey: .level)) ?? "info"
+      )
+    case "clearCache":
+      self = .clearCache
+    case "reloadApp":
+      self = .reloadApp
+    case "sequence":
+      self = .sequence(actions: (try? c.decode([KBActionRef].self, forKey: .actions)) ?? [])
+    case "parallel":
+      self = .parallel(actions: (try? c.decode([KBActionRef].self, forKey: .actions)) ?? [])
+    case "condition":
+      // Fall back to a no-op when if/then are absent/malformed instead of
+      // throwing (which would drop the whole tree). `else` stays optional.
+      guard let cond = try? c.decode(KBCondition.self, forKey: .ifCond),
+            let thenA = try? c.decode(KBActionRef.self, forKey: .then) else {
+        self = .unknown(kind: "condition"); return
+      }
+      let elseA = try? c.decode(KBActionRef.self, forKey: .elseRef)
+      self = .condition(ifCond: cond, then: thenA, elseRef: elseA)
+    case "delay":
+      self = .delay(ms: (try? c.decode(Double.self, forKey: .ms)) ?? 0)
+    case "extension":
+      self = .extensionAction(
+        name: (try? c.decode(String.self, forKey: .name)) ?? "",
+        params: try? c.decode(KBJSON.self, forKey: .params)
+      )
+    default:
+      self = .unknown(kind: kind)
+    }
+  }
+}
+
+/// Condition mirrors the RN evaluator: {eq}, {neq}, {gt}, {gte}, {lt}, {lte},
+/// {in}, {contains}, {truthy}, {falsy}, {flag}, {platform}, {not}, {all}, {any}.
+indirect enum KBCondition: Decodable {
+  case eq(path: String, value: KBJSON)
+  case neq(path: String, value: KBJSON)
+  case gt(path: String, value: Double)
+  case gte(path: String, value: Double)
+  case lt(path: String, value: Double)
+  case lte(path: String, value: Double)
+  case inList(path: String, values: [KBJSON])
+  case contains(path: String, needle: String)
+  case startsWith(path: String, prefix: String)
+  case endsWith(path: String, suffix: String)
+  case truthy(path: String)
+  case falsy(path: String)
+  case flag(name: String)
+  case platform(name: String)
+  case not(inner: KBCondition)
+  case all(conds: [KBCondition])
+  case any_(conds: [KBCondition])
+  case unknown
+
+  init(from decoder: Decoder) throws {
+    // Conditions are a discriminator-less "first key wins" shape; peek at each
+    // possible key. Only one of them will be present per condition.
+    let raw = try decoder.singleValueContainer().decode([String: KBJSON].self)
+    if let arr = raw["eq"]?.asArray, arr.count == 2, let p = arr[0].asString {
+      self = .eq(path: p, value: arr[1]); return
+    }
+    if let arr = raw["neq"]?.asArray, arr.count == 2, let p = arr[0].asString {
+      self = .neq(path: p, value: arr[1]); return
+    }
+    if let arr = raw["gt"]?.asArray, arr.count == 2, let p = arr[0].asString, let n = arr[1].asDouble {
+      self = .gt(path: p, value: n); return
+    }
+    if let arr = raw["gte"]?.asArray, arr.count == 2, let p = arr[0].asString, let n = arr[1].asDouble {
+      self = .gte(path: p, value: n); return
+    }
+    if let arr = raw["lt"]?.asArray, arr.count == 2, let p = arr[0].asString, let n = arr[1].asDouble {
+      self = .lt(path: p, value: n); return
+    }
+    if let arr = raw["lte"]?.asArray, arr.count == 2, let p = arr[0].asString, let n = arr[1].asDouble {
+      self = .lte(path: p, value: n); return
+    }
+    if let arr = raw["in"]?.asArray, arr.count == 2, let p = arr[0].asString, let vs = arr[1].asArray {
+      self = .inList(path: p, values: vs); return
+    }
+    if let arr = raw["contains"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
+      self = .contains(path: p, needle: s); return
+    }
+    if let arr = raw["startsWith"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
+      self = .startsWith(path: p, prefix: s); return
+    }
+    if let arr = raw["endsWith"]?.asArray, arr.count == 2, let p = arr[0].asString, let s = arr[1].asString {
+      self = .endsWith(path: p, suffix: s); return
+    }
+    if let p = raw["truthy"]?.asString { self = .truthy(path: p); return }
+    if let p = raw["falsy"]?.asString  { self = .falsy(path: p); return }
+    if let n = raw["flag"]?.asString   { self = .flag(name: n); return }
+    if let n = raw["platform"]?.asString { self = .platform(name: n); return }
+    if let inner = raw["not"] {
+      let data = try JSONEncoderSafe.data(for: inner)
+      let dec = try JSONDecoder().decode(KBCondition.self, from: data)
+      self = .not(inner: dec); return
+    }
+    if let arr = raw["all"]?.asArray {
+      var out: [KBCondition] = []
+      for v in arr {
+        let data = try JSONEncoderSafe.data(for: v)
+        out.append(try JSONDecoder().decode(KBCondition.self, from: data))
+      }
+      self = .all(conds: out); return
+    }
+    if let arr = raw["any"]?.asArray {
+      var out: [KBCondition] = []
+      for v in arr {
+        let data = try JSONEncoderSafe.data(for: v)
+        out.append(try JSONDecoder().decode(KBCondition.self, from: data))
+      }
+      self = .any_(conds: out); return
+    }
+    self = .unknown
+  }
+}
+
+/// Serialize a KBJSON back to Data so `not`/`all`/`any` can recursively decode
+/// their inner Condition. KBJSON isn't Encodable directly, so we lower it to
+/// Foundation types and hand to JSONSerialization.
+enum JSONEncoderSafe {
+  static func data(for value: KBJSON) throws -> Data {
+    let obj = lower(value)
+    return try JSONSerialization.data(withJSONObject: obj, options: .fragmentsAllowed)
+  }
+  /// Public so callers (analytics tombstone, arbitrary JSON side-channels) can
+  /// convert a KBJSON to a JSON-friendly Any for further processing.
+  static func lower(_ v: KBJSON) -> Any {
+    switch v {
+    case .null: return NSNull()
+    case .bool(let b): return b
+    case .number(let n): return n
+    case .string(let s): return s
+    case .array(let a): return a.map { lower($0) }
+    case .object(let o):
+      var out: [String: Any] = [:]
+      for (k, x) in o { out[k] = lower(x) }
+      return out
+    }
+  }
+}
+
+// MARK: - State
+
+/// Small state store. Actions mutate this and call stateChanged() to re-render.
+/// Anything readable here is bind-able + visibleIf-able from the backend tree,
+/// which is what lets us push changes without rebuilding — the more state we
+/// expose, the more the backend can control without a Swift release.
+final class KBState {
+  var shift: Bool = false
+  var capsLock: Bool = false
+  var layoutId: String = ""
+  var dictating: Bool = false
+  var refining: Bool = false
+  var hasFullAccess: Bool = false
+  var status: String = ""
+  var micLevel: CGFloat = 0
+  var suggestions: [String] = []
+  /// WHAT the chips currently mean — they are three different things, and
+  /// styling them identically misleads the user:
+  ///   "revert"     — an autocorrect ALREADY landed; the chip is the word the
+  ///                  user originally typed. Tapping it undoes the correction.
+  ///   "alternates" — the word is spelled fine but confusable ("their"); the
+  ///                  chips are other real words. None is "the" answer.
+  ///   "candidates" — ranked swipe results; the first genuinely is the best.
+  var suggestionKind: String = "candidates"
+  /// Tone the tools-bar pill cycles through. Values chosen server-side via
+  /// config.flags["kb.tones"] or the default set below when unset.
+  var tone: String = "Neutral"
+  /// True while space is held long enough to enter trackpad-cursor mode. When
+  /// true, other keys visually dim and touch tracking on space becomes cursor
+  /// movement instead of insertion.
+  var trackpadActive: Bool = false
+  /// Flow-session state (kb.mic.mode = "flow"): false = no background mic is
+  /// armed, so the mic key shows the "Start Flow" bolt instead of the mark.
+  /// Defaults true so non-flow modes never flash the bolt.
+  var flowArmed: Bool = true
+  // -------- OS-derived state exposed to the backend tree --------------------
+  // These read via bind: { text: "primaryLanguage" } / visibleIf conditions,
+  // so backend can drive things like "show EN when multi-keyboard, else space"
+  // WITHOUT needing new Swift logic. Kept in sync by reflectFieldContext().
+  /// Two-letter primary language code (e.g. "EN"). Follows the active input mode.
+  var primaryLanguage: String = "EN"
+  /// True when the user has more than one keyboard installed (needsInputModeSwitchKey).
+  var hasMultipleKeyboards: Bool = false
+  /// Current appearance — "dark" or "light". Follows userInterfaceStyle.
+  var appearance: String = "dark"
+  // -------- Backend-scratch dict ------------------------------------------
+  // Free-form key/value store the backend owns. setState/toggleState/etc.
+  // write here; bind + visibleIf read from state.user.<key>. This is what lets
+  // backend compose behaviors ("if state.user.mode == 'search' then …") without
+  // needing new Swift for every new flag.
+  var user: [String: KBJSON] = [:]
+  // -------- Device / environment (populated at init + refreshed on demand) -
+  var deviceModel: String = ""
+  var systemVersion: String = ""
+  var isNetworkReachable: Bool = true
+  var keyboardHeight: CGFloat = 0
+}
+
+/// Snapshot of the subset of KBState fields that affect layout structure vs
+/// pure surface (letter case). Used by stateChanged() to decide whether a
+/// change is safe to apply via the fast-shift path (in-place setTitle on
+/// letter buttons) or requires a full remount.
+struct KBStateSnapshot {
+  let shift: Bool
+  let capsLock: Bool
+  let layoutId: String
+  let dictating: Bool
+  let refining: Bool
+  let hasFullAccess: Bool
+  let status: String
+  let tone: String
+  let trackpadActive: Bool
+  let primaryLanguage: String
+  let hasMultipleKeyboards: Bool
+  let appearance: String
+  let flowArmed: Bool
+
+  static func from(_ s: KBState) -> KBStateSnapshot {
+    KBStateSnapshot(
+      shift: s.shift,
+      capsLock: s.capsLock,
+      layoutId: s.layoutId,
+      dictating: s.dictating,
+      refining: s.refining,
+      hasFullAccess: s.hasFullAccess,
+      status: s.status,
+      tone: s.tone,
+      trackpadActive: s.trackpadActive,
+      primaryLanguage: s.primaryLanguage,
+      hasMultipleKeyboards: s.hasMultipleKeyboards,
+      appearance: s.appearance,
+      flowArmed: s.flowArmed
+    )
+  }
+
+  /// True when the only difference from `other` is trackpadActive. MUST be
+  /// handled without a remount: the rebuild tears down the space key while
+  /// its long-press gesture is mid-flight, cancelling the gesture — which is
+  /// exactly the bug that made hold-space cursor movement die the instant it
+  /// armed.
+  func isTrackpadOnlyDelta(from other: KBStateSnapshot) -> Bool {
+    shift == other.shift &&
+    capsLock == other.capsLock &&
+    layoutId == other.layoutId &&
+    dictating == other.dictating &&
+    refining == other.refining &&
+    hasFullAccess == other.hasFullAccess &&
+    status == other.status &&
+    tone == other.tone &&
+    primaryLanguage == other.primaryLanguage &&
+    hasMultipleKeyboards == other.hasMultipleKeyboards &&
+    appearance == other.appearance &&
+    flowArmed == other.flowArmed &&
+    trackpadActive != other.trackpadActive
+  }
+
+  /// True when the only difference from `other` is shift and/or capsLock —
+  /// safe to apply via in-place setTitle on letter buttons without a full
+  /// tree rebuild.
+  func isShiftOnlyDelta(from other: KBStateSnapshot) -> Bool {
+    layoutId == other.layoutId &&
+    dictating == other.dictating &&
+    refining == other.refining &&
+    hasFullAccess == other.hasFullAccess &&
+    status == other.status &&
+    tone == other.tone &&
+    trackpadActive == other.trackpadActive &&
+    primaryLanguage == other.primaryLanguage &&
+    hasMultipleKeyboards == other.hasMultipleKeyboards &&
+    appearance == other.appearance &&
+    flowArmed == other.flowArmed &&
+    (shift != other.shift || capsLock != other.capsLock)
+  }
+}
+
+// MARK: - Renderer
+
+/// Weak-forwarding target for gesture recognizers. A UIGestureRecognizer retains
+/// its target STRONGLY; pointing one straight at the renderer (which strongly
+/// owns the view tree the GR lives in) forms a retain cycle
+/// renderer → tree → button → GR → renderer that keeps the renderer — and its
+/// timers — alive after the keyboard dismisses, so deinit never runs and the
+/// whole tree leaks in a ~48MB extension. This proxy holds the renderer weakly
+/// and forwards the callback, so the only strong edge is button → GR → proxy and
+/// the renderer deallocs normally. (UIControl target-action already stores its
+/// target unretained, so only the GRs need this.)
+final class WeakGRProxy: NSObject {
+  private weak var target: NSObject?
+  private let selector: Selector
+  init(target: NSObject, selector: Selector) {
+    self.target = target
+    self.selector = selector
+  }
+  @objc func handle(_ gr: UIGestureRecognizer) {
+    guard let target = target, target.responds(to: selector) else { return }
+    _ = target.perform(selector, with: gr)
+  }
+}
+
+final class SDUIRenderer: NSObject {
+  private weak var host: KBHostControllerProtocol?
+  // var (not let) so a freshly-fetched config can be swapped into the LIVE
+  // renderer via updateConfig() — without it, a backend deploy could never
+  // reach a running keyboard, only a future extension-process launch.
+  private var config: KBConfig
+  private let state = KBState()
+
+  /// The container view we mount into (owned by the host controller).
+  private weak var mountContainer: UIView?
+  /// The single root subview we produce so we can swap it whole on re-render.
+  private var mountedRoot: UIView?
+  /// Optional multi-touch typing layer (kb.keyPlane.enabled). Rebuilt with the
+  /// tree so its key frames always match the freshly-mounted buttons.
+  private weak var keyPlane: KeyPlaneView?
+
+  private var lastShiftTapTime: TimeInterval = 0
+  private var _lastSpaceTapTime: TimeInterval = 0
+  private var _trackpadAnchor: CGFloat = 0
+  private var _trackpadOffset: Int = 0
+  private var deleteTimer: Timer?
+  private var deleteRepeatCount: Int = 0
+  // Timer + [weak self] avoids the retain cycle CADisplayLink would create
+  // (it retains its target). Renderer is held by the controller and needs to
+  // die when the keyboard extension dismisses.
+  private var waveformTimer: Timer?
+  private weak var waveformView: WaveformView?
+
+  init(controller: KBHostControllerProtocol, config: KBConfig) {
+    self.host = controller
+    self.config = config
+    super.init()
+    self.state.hasFullAccess = controller.hostHasFullAccess
+    self.state.layoutId = config.layouts?.first?.language ?? ""
+    self.state.primaryLanguage = controller.hostPrimaryLanguageCode()
+    self.state.hasMultipleKeyboards = controller.hostNeedsInputModeSwitchKey()
+    self.state.deviceModel = UIDevice.current.model
+    self.state.systemVersion = UIDevice.current.systemVersion
+    // state.appearance follows the trait collection; can't read here reliably
+    // because the controller may not be attached to a window yet.
+  }
+
+  // MARK: Dark/light adaptation
+
+  /// The current appearance the host is in — dark or light. Read from the
+  /// host controller's trait collection so the picker below matches whatever
+  /// UIVisualEffectView is actually rendering the backdrop.
+  private var currentAppearance: UIUserInterfaceStyle {
+    (host as? UIViewController)?.traitCollection.userInterfaceStyle ?? .dark
+  }
+
+  /// Pick between config.themeDark / themeLight based on the current
+  /// appearance. Falls back to config.theme when the adaptive palettes are
+  /// absent (backend hasn't emitted them yet). Every color read in the
+  /// renderer routes through this so a trait-collection change picks up
+  /// automatically on remount().
+  var theme: KBTheme? {
+    if currentAppearance == .light, let l = config.themeLight { return l }
+    if currentAppearance == .dark, let d = config.themeDark { return d }
+    return config.theme
+  }
+
+  /// Called by the host controller from traitCollectionDidChange. Re-applies
+  /// the backdrop with the new blur style and rebuilds the tree so keys pick
+  /// up the new palette. Also syncs state.appearance so backend bind/visibleIf
+  /// can key off dark vs light without shipping two Swift builds.
+  func appearanceDidChange() {
+    state.appearance = currentAppearance == .light ? "light" : "dark"
+    if let container = mountContainer { applyRootBackground(to: container) }
+    remount()
+  }
+
+  // MARK: Mount
+
+  /// Attach the renderer to a container view. Called once by the host
+  /// controller after it decides SDUI mode is active.
+  func mount(into container: UIView) {
+    mountContainer = container
+    // Sync state.appearance NOW — the host's traitCollectionDidChange only
+    // fires on CHANGES, and on the no-cache path the renderer is created after
+    // the view is already in a window, so that change already happened with no
+    // renderer attached. Without this, a light-mode device kept the hardcoded
+    // "dark" default and every visibleIf-gated light/dark tree variant picked
+    // the wrong branch for the whole session.
+    state.appearance = currentAppearance == .light ? "light" : "dark"
+    syncToneFromConfig()
+    // Apply theme.backgroundEffect / backgroundColor to the container itself.
+    applyRootBackground(to: container)
+    remount()
+  }
+
+  /// Reflect the app-side active tone (kb.personality.activeTone, a tone ID)
+  /// onto the pill's display label so the keyboard opens showing the tone the
+  /// user actually picked in the app.
+  ///
+  /// A tone picked ON THE KEYBOARD must survive this: the host refetches the
+  /// config on every open (and forces updates through whenever the per-user
+  /// payload differs), so unconditionally re-applying the config tone snapped
+  /// the pill back to the app's tone moments after every keyboard-side pick —
+  /// "tones aren't user-choosable". The baseline key records which app-side
+  /// tone the pick was made AGAINST: while the config still echoes that same
+  /// id (a stale echo, or our own PUT landing), the local pick wins; only a
+  /// genuinely NEW app-side selection overrides it.
+  private func syncToneFromConfig() {
+    guard let activeId = config.flags?["kb.personality.activeTone"]?.asString else { return }
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    if let pick = ud?.string(forKey: "tulmi.kb.tone"), !pick.isEmpty,
+       ud?.string(forKey: "tulmi.kb.tone.baseline") == activeId,
+       let match = configuredTones().first(where: { $0.id == pick }) {
+      state.tone = match.label
+      return
+    }
+    if let match = configuredTones().first(where: { $0.id == activeId }) {
+      state.tone = match.label
+      // The app-side tone is authoritative here — refresh the mirror so the
+      // refine pipeline sends the same id the pill now shows.
+      ud?.set(activeId, forKey: "tulmi.kb.tone")
+      ud?.set(activeId, forKey: "tulmi.kb.tone.baseline")
+    }
+  }
+
+  /// The user picked a tone ON THE KEYBOARD (tap-cycle or the hold sheet).
+  /// Three writes make it actually take effect:
+  ///   • App Group `tulmi.kb.tone` — the picked ID; the host sends it
+  ///     explicitly with every /v1/refine call so the very next refine uses
+  ///     it even before the server save lands.
+  ///   • App Group `tulmi.kb.tone.baseline` — the app-side activeTone the
+  ///     pick was made against (see syncToneFromConfig).
+  ///   • Server `PUT /v1/personality {activeTone}` (fire-and-forget partial
+  ///     merge) — the app's Voice screen and future sessions agree with the
+  ///     pill instead of silently reverting it.
+  private func persistTonePick(id: String) {
+    KeyboardTelemetry.bump(.toneChanged)
+    let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+    ud?.set(id, forKey: "tulmi.kb.tone")
+    ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
+    TulmiBackend.putPersonalityQuick(body: ["activeTone": id]) { _ in }
+  }
+
+  /// Swap in a freshly-fetched config and rebuild the tree in place. This is the
+  /// missing piece that let backend edits reach a LIVE keyboard: the host calls
+  /// it whenever a config refetch returns, so a deploy + cache bump takes effect
+  /// on the current session (after the refetch) instead of only on a future
+  /// extension-process launch — which iOS schedules unpredictably. State
+  /// (dictating, shift, tone…) is preserved; only the tree + theme are rebuilt.
+  func updateConfig(_ newConfig: KBConfig, force: Bool = false) {
+    // Short-circuit when nothing changed: the per-appearance refetch returns the
+    // SAME cacheVersion most of the time, and a no-op remount still cancels any
+    // in-flight key touch (silent dropped keystroke). Only rebuild on a real bump.
+    // `force` bypasses this: cacheVersion only changes on deploys/admin bumps,
+    // so per-USER payload changes (pinned presets, active tone, media registry
+    // uploads) share a cacheVersion and were discarded wholesale — the host
+    // forces the update through when the raw payload bytes actually differ.
+    if !force, let old = config.cacheVersion, let new_ = newConfig.cacheVersion, old == new_ {
+      return
+    }
+    config = newConfig
+    // Flag-derived caches follow the config.
+    parsedBigrams = nil
+    parsedConfusables = nil
+    swipeWords = nil
+    cachedCheckerLang = nil
+    resolvedAccentMap = nil
+    syncToneFromConfig()
+    // If the active layout no longer exists in the new config, fall back to its
+    // first layout so remount() has a valid layoutId to render.
+    if let layouts = newConfig.layouts,
+       !layouts.contains(where: { $0.language == state.layoutId }) {
+      state.layoutId = layouts.first?.language ?? state.layoutId
+    }
+    if let container = mountContainer { applyRootBackground(to: container) }
+    remountWhenIdle()
+  }
+
+  /// Remount, but never mid-touch: swapping the tree under an active finger
+  /// cancels the in-flight UIControl touch (dropped keystroke) and can let the
+  /// detached KeyPlaneView commit a key from the old tree. Wait for the plane
+  /// to go idle (bounded retries so a rest-a-finger user can't stall forever).
+  private var pendingRemountRetries = 0
+  private func remountWhenIdle() {
+    // Also hold off while the space-bar trackpad is scrubbing: rebuilding the
+    // tree destroys the space key mid-gesture and cancels the cursor drag.
+    // kb.remount.maxRetries × kb.remount.retryMs bounds the wait.
+    // Space, return and backspace are buttons outside the plane: a finger
+    // still on one (liftDownAt, or backspace repeating) would lose its lift
+    // action to the rebuild.
+    if (keyPlane?.hasActiveTouches == true || state.trackpadActive || !liftDownAt.isEmpty || deleteTimer != nil),
+       pendingRemountRetries < clampInt(flagDouble("kb.remount.maxRetries", 20), 0, 1000) {
+      pendingRemountRetries += 1
+      DispatchQueue.main.asyncAfter(deadline: .now() + flagDouble("kb.remount.retryMs", 250) / 1000.0) { [weak self] in
+        self?.remountWhenIdle()
+      }
+      return
+    }
+    pendingRemountRetries = 0
+    pendingRemount = false
+    remount()
+  }
+
+  /// Tear down the current subview and rebuild from the root node. Cheap: the
+  /// keyboard tree is tiny (~40 nodes).
+  private func remount() {
+    guard let container = mountContainer, let root = config.root else { return }
+    // An open tone sheet would be buried alive by the fresh tree (it and its
+    // scrim are siblings of mountedRoot): invisible, unresponsive, and leaked
+    // until the next present. Close it before rebuilding. Same for an open
+    // accent tray — it's also a container sibling, and the rebuilt plane has
+    // empty tracks, so nothing would ever commit/dismiss it again.
+    dismissToneSheet(animated: false)
+    dismissAccentTray()
+    mountedRoot?.removeFromSuperview()
+    // NOTE: keyPlane is NOT torn down — it's persistent (K7) and rebinds to
+    // the fresh tree below, so touches survive layer-peek remounts.
+    // Drop any visible key-pop balloon so a mid-touch rebuild can't orphan it
+    // pointing at a now-deallocated key (it's re-created lazily on next press).
+    calloutView?.removeFromSuperview()
+    calloutView = nil
+    // Reset the fast-shift ref maps — they'll be repopulated as the fresh
+    // tree renders. Keeping stale refs would leak old buttons and cause
+    // the fast path to call setTitle on removed subviews.
+    letterButtonsByChar.removeAll(keepingCapacity: true)
+    layerKeyRegistry.removeAll(keepingCapacity: true)
+    actionKeyRegistry.removeAll(keepingCapacity: true)
+    weakShiftButton = nil
+    liftActions.removeAll(keepingCapacity: true)
+    liftDownAt.removeAll()
+    liftRolled.removeAll()
+    KeyboardTelemetry.bump(.remounts)
+    let v = render(node: root)
+    v.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(v)
+    NSLayoutConstraint.activate([
+      v.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      v.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      v.topAnchor.constraint(equalTo: container.topAnchor),
+      v.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+    mountedRoot = v
+    // If a recording is in progress, the tree we just rebuilt has a fresh
+    // tools row that needs to be brought back above the dim overlay, and the
+    // emitter's saved emitterPosition points at the OLD mic center (deallocated
+    // with the previous tree). Re-anchor both.
+    if state.dictating, recordingDimView != nil {
+      if let mic = currentMicButton?.superview {
+        container.bringSubviewToFront(mic)
+      }
+      // Move emitter to the new mic position so dots keep flowing from the
+      // right place. Only reposition; we don't restart the birthrate.
+      if let emitter = dotStreamLayer,
+         let mic = currentMicButton, let micSuper = mic.superview {
+        emitter.emitterPosition = micSuper.convert(mic.center, to: container)
+      }
+    }
+
+    // Multi-touch typing layer. ON by default now — it's the smooth path: it
+    // sits above the tree and owns touch for the single-character keys (letters
+    // + number/symbol glyphs), turning the per-button target-action grid into a
+    // real rolling/multi-touch plane. Without it, letter keys commit only on a
+    // clean touchUpInside of the exact button, so a fast tap that drifts a few
+    // points becomes touchUpOutside and the key is DROPPED — which reads as
+    // "have to type hard / deliberately." The plane commits the key under the
+    // finger at release and tolerates roll/drift, so quick light taps register
+    // like the system keyboard. Buttons stay pure visuals (fast-shift, flash,
+    // theming untouched); space bar + tone pill are excluded so their special
+    // handling survives. OTA-reversible: backend sets kb.keyPlane.enabled=false
+    // to fall back to the per-button grid. Accent long-press trays are routed
+    // through the plane too now (kb.keyPlane.accentTrays), so nothing is lost
+    // by having it on.
+    if flagBool("kb.keyPlane.enabled", true) {
+      var planeKeys: [KeyPlaneView.Key] = letterButtonsByChar.compactMap { char, btn in
+        guard !char.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        btn.isUserInteractionEnabled = false   // plane owns its touches now
+        return KeyPlaneView.Key(button: btn, role: .character(char))
+      }
+      // Shift joins the plane (K7): touch-down arms it AND the same finger can
+      // slide onto a letter for a native one-shot capital.
+      if flagBool("kb.keyPlane.shift", true), let shift = weakShiftButton {
+        shift.isUserInteractionEnabled = false
+        planeKeys.append(KeyPlaneView.Key(button: shift, role: .shift))
+      }
+      // Layer keys join too (K7): touch-down switches instantly, and holding
+      // through the switch + sliding to a key = native layer-peek.
+      if flagBool("kb.layerPeek.enabled", true) {
+        for entry in layerKeyRegistry {
+          entry.btn.isUserInteractionEnabled = false
+          planeKeys.append(KeyPlaneView.Key(button: entry.btn, role: .layerSwitch(target: entry.target)))
+        }
+      }
+      // Space / return / backspace join the partition so the gaps around them
+      // belong to someone. Their interaction stays ON and their painted rect
+      // keeps vetoing the plane, so a direct touch still reaches the button and
+      // everything only the button can do — backspace's hold-to-repeat, space's
+      // long-press cursor slide — is untouched. What changes is that their veto
+      // no longer carries the hitSlop halo, so the band around each of them
+      // comes to the plane instead of being refused.
+      if flagBool("kb.keyPlane.actionKeys", true) {
+        for b in actionKeyRegistry {
+          planeKeys.append(KeyPlaneView.Key(button: b, role: .action))
+        }
+      }
+      if !planeKeys.isEmpty {
+        // The new tree's constraints must be RESOLVED before the plane snaps
+        // its key frames — critical on the layer-peek path, where this remount
+        // runs synchronously inside an active touch.
+        container.layoutIfNeeded()
+        let plane = keyPlane ?? KeyPlaneView(renderer: self)
+        plane.rolloverCommit = flagBool("kb.keyPlane.rolloverCommit", true)
+        plane.commitOnDown = flagBool("kb.keyPlane.commitOnDown", false)
+        plane.accentTraysEnabled = flagBool("kb.keyPlane.accentTrays", true)
+        plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
+        plane.lmBiasPt = flagBool("kb.touch.lmBias.enabled", false)
+          ? flagCGFloat("kb.touch.lmBias.pt", 3) : 0
+        plane.vSlop = flagCGFloat("kb.touch.vSlop", 8)
+        plane.topRowUpSlop = flagCGFloat("kb.touch.topRowUpSlop", 12)
+        plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
+        plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
+        plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
+        plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
+        plane.swipeMinKeys = clampInt(flagDouble("kb.swipe.minKeys", 3), 2, 64)
+        plane.trailColor = flagColor("kb.swipe.trail.color", "#FFFFFFD9")
+        plane.trailWidth = flagCGFloat("kb.swipe.trail.width", 7)
+        plane.trailFadeMs = flagDouble("kb.swipe.trail.fadeMs", 260)
+        // K11 touch feel — the values most likely to need tuning from real
+        // field use, so they're OTA-adjustable rather than baked in.
+        plane.fillGaps = flagBool("kb.touch.fillGaps", true)
+        plane.alwaysRefreshGeometry = flagBool("kb.touch.alwaysRefresh", true)
+        plane.totalResolve = flagBool("kb.touch.totalResolve", true)
+        plane.debugRects = flagBool("kb.debug.showTouchRects", false)
+        // The sheet without its paint — see KeyPlaneView.sheet. It keeps the
+        // display passes the overlay asked for, and .redraw with them, because
+        // the keyboard has only ever worked reliably with those in place.
+        plane.sheet = flagBool("kb.keyPlane.sheet", true)
+        plane.backgroundColor = .clear
+        plane.isOpaque = false
+        plane.contentMode = (plane.debugRects || plane.sheet) ? .redraw : .scaleToFill
+        plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
+        plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
+        plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
+        plane.roleReach = flagCGFloat("kb.touch.roleReach", 20)
+        // Geometry and swipe constants that used to be compiled in.
+        plane.keyHeightCap = flagCGFloat("kb.touch.maxKeyHeight", 64)
+        plane.rowTolerance = flagCGFloat("kb.touch.rowTolerance", 8)
+        plane.sideReachExtra = flagCGFloat("kb.touch.sideReach", 6)
+        plane.trayCancelDrift = flagCGFloat("kb.accentTray.cancelDriftPt", 12)
+        let pathCap = clampInt(flagDouble("kb.swipe.pathCap", 128), 8, 4096)
+        plane.swipePathCap = pathCap
+        plane.swipePathTrim = clampInt(flagDouble("kb.swipe.pathTrim", 64), 1, pathCap)
+        plane.pivotWindow = clampInt(flagDouble("kb.swipe.pivot.window", 3), 1, 64)
+        plane.pivotMinTravel = flagCGFloat("kb.swipe.pivot.minTravelPt", 8)
+        plane.pivotMaxCos = flagCGFloat("kb.swipe.pivot.maxCos", 0.57)
+        plane.trailMaxPoints = clampInt(flagDouble("kb.swipe.trail.maxPoints", 40), 2, 1024)
+        if plane.superview !== container {
+          plane.translatesAutoresizingMaskIntoConstraints = false
+          container.addSubview(plane)   // topmost — intercepts plane-key touches only
+          NSLayoutConstraint.activate([
+            plane.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            plane.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            plane.topAnchor.constraint(equalTo: container.topAnchor),
+            plane.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+          ])
+        } else {
+          container.bringSubviewToFront(plane)
+        }
+        plane.rebind(keys: planeKeys)
+        keyPlane = plane
+        // Everything interactive that ISN'T plane-managed (delete, space,
+        // return, mic, tone pill, suggestion chips) vetoes the plane's
+        // generous reach — a touch inside any of them always goes to them.
+        plane.setObstacles(collectPlaneObstacles())
+      } else {
+        keyPlane?.removeFromSuperview()
+        keyPlane = nil
+      }
+    } else {
+      keyPlane?.removeFromSuperview()
+      keyPlane = nil
+    }
+    // Keep the fast-shift snapshot in sync on EVERY remount path (mount,
+    // updateConfig, appearanceDidChange, stateChanged) — previously only the
+    // stateChanged async block assigned it, so the first shift after any other
+    // remount missed the fast path and paid a full rebuild.
+    lastRenderSnapshot = KBStateSnapshot.from(state)
+    // Key geometry changed → the autocorrect neighbor map must be re-derived.
+    cachedNeighborMap = nil
+    // Re-assert the trackpad visual: a remount that lands mid-scrub (bundled
+    // state delta, exhausted deferral) rebuilds letters at alpha 1 and a fresh
+    // plane with interaction ON — this restores the blanked/disabled state.
+    applyTrackpadVisual(active: state.trackpadActive)
+    // THE DICTATION OVERLAY GOES BACK ON TOP, and this is the whole bug.
+    //
+    // The overlay is a sibling of mountedRoot, so a remount does not destroy
+    // it — it BURIES it. The fresh tree is added last, the key plane is then
+    // brought to the front, and the overlay ends up underneath both. Tapping
+    // the mic changes state.dictating, which schedules exactly such a remount,
+    // so this happened on every single recording.
+    //
+    // Underneath, it is the worst of both: the keys sit above it, so they take
+    // touches and are not blurred — and the overlay, now with nothing in front
+    // of it to blur, renders as a flat sheet of material showing through a
+    // deliberately transparent keyboard. A grey sheet, live keys, no blur, all
+    // from one line that was never written.
+    //
+    // Raised after everything else, above the plane and below the build stamp.
+    if state.dictating, recordingDimView != nil {
+      // The veil is photographs of the OLD tree's rows; the new tree's rows
+      // are live and unfrosted beneath it. Draw it again from the new rows.
+      removeKeyDimming(animated: false)
+      applyKeyDimming(animated: false)
+    }
+    // Build stamp — added LAST so it sits on top of the tree + plane. A small
+    // corner marker that proves whether THIS binary is the one running: if iOS
+    // is serving a cached old keyboard extension (the usual reason "updates do
+    // nothing"), you won't see it. Bump `buildStamp` every build. Hide via
+    // kb.buildStamp.enabled=false once delivery is confirmed working.
+    addBuildStamp(to: container)
+  }
+
+  /// Bump this string on every build so the on-screen marker changes — that's
+  /// how you tell a freshly-loaded extension from a cached old one.
+  /// K4: autocorrect + suggestions, press-order rollover, LM hit-target bias,
+  /// plane-side accent trays, per-keystroke XPC cuts, cold-start fast path.
+  /// K5: native touch spaces — row-aware vertical slops with nearest-row
+  /// scoring, edge-margin capture beside a/l, obstacle-vetoed reach — and the
+  /// space-bar trackpad fixed (trackpad state changes no longer remount).
+  /// K6: audit fixes — tracker-validity guards around autocorrect, hit-slop-
+  /// aware obstacle veto, shift on touch-down, punctuation pull-back, layer
+  /// auto-return, symbol long-press alternates, appearance/tone config sync.
+  /// K7: QuickPath swipe typing (embedded lexicon + trail), persistent touch
+  /// plane with role keys — instant layer switches, real layer-peek, slide-
+  /// from-shift capitals — async spellcheck/completions, confusable-pair
+  /// chips, backspace autocorrect revert, flow-armed mic glyph.
+  /// K8: pre-submission audit fixes — newline-correction race guard, swipe
+  /// first-key seeding, press-balance across peek remounts, nearest-role
+  /// resolution, async remounts off button callbacks, multi-language-safe
+  /// layer auto-return.
+  /// K41: the mic ring moves with the voice (the app sends the level), and
+  /// password boxes — secure or marked by content type — get no mic, no
+  /// Refine and no autocorrect.
+  static let buildStamp = "K41"
+
+  /// The bundled brand mark.
+  ///
+  /// Looked up three ways because the one-argument form and the Bundle.main
+  /// form do NOT always agree inside an app extension, and the cost of getting
+  /// it wrong is Apple's own mic glyph appearing on our keyboard. Bundle(for:)
+  /// is the authoritative one — it resolves against the binary this class was
+  /// compiled into, whatever the host decided Bundle.main is.
+  static func tailzuMark() -> UIImage? {
+    if let m = UIImage(named: "TailzuMark", in: Bundle(for: SDUIRenderer.self), compatibleWith: nil) { return m }
+    if let m = UIImage(named: "TailzuMark") { return m }
+    return UIImage(named: "TailzuMark", in: Bundle.main, compatibleWith: nil)
+  }
+  private weak var buildStampLabel: UILabel?
+  private func addBuildStamp(to container: UIView) {
+    // Default FALSE: a debug marker must never ship visible in a store build
+    // (with default true it appeared on offline first-run / any config miss).
+    // To verify a new binary loaded, flip kb.buildStamp.enabled=true on the
+    // backend (OTA) — the stamp appearing then proves BOTH the binary carries
+    // this code AND live config delivery works — and flip it back off after.
+    guard flagBool("kb.buildStamp.enabled", false) else { return }
+    buildStampLabel?.removeFromSuperview()
+    let l = UILabel()
+    // The stamp is the only instrument that reaches a device without a
+    // debugger, so it carries the numbers that actually settle an argument
+    // rather than just a version string:
+    //
+    //   k  keys in the touch partition (0 = the plane is not running)
+    //   a  of those, action keys — space/return/backspace
+    //   r  shift + layer keys
+    //   v  controls vetoing the plane; a big number here IS the dead zone
+    //   h  the partitioned band's height in points
+    //
+    // "K26 k30 a0 r4 v9 h180" says the partition is live but the action keys
+    // never registered. "K26 k0" says the plane is not installed at all. Both
+    // were guesses before; now they are readings.
+    l.text = stampText()
+    l.font = .systemFont(ofSize: 9, weight: .heavy)
+    l.textColor = UIColor.systemOrange.withAlphaComponent(0.9)
+    l.isUserInteractionEnabled = false   // never intercepts key touches
+    l.translatesAutoresizingMaskIntoConstraints = false
+    container.addSubview(l)
+    container.bringSubviewToFront(l)
+    NSLayoutConstraint.activate([
+      l.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -5),
+      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
+    ])
+    buildStampLabel = l
+    // Read again once the layout has settled. This runs during the mount, so
+    // the keys have no frames yet and every number above would be a zero —
+    // reporting "the plane owns nothing" for the one reason that has nothing
+    // to do with the plane.
+    DispatchQueue.main.async { [weak self, weak l] in
+      guard let self = self, let l = l else { return }
+      l.text = self.stampText()
+      l.sizeToFit()
+    }
+    // And on every touch the plane is asked about, so the last verdict is
+    // always on screen: tap a dead spot, read whether the plane took it.
+    keyPlane?.onDebugHit = { [weak self, weak l] in
+      guard let self = self, let l = l else { return }
+      l.text = self.stampText()
+      l.sizeToFit()
+    }
+  }
+
+  /// One line that settles the argument. Fields:
+  ///   k keys in the partition   a action keys   r shift/layer   v vetoes
+  ///   P plane height            y band top      h band height
+  ///   o the key farthest from the plane's middle, and its y — the outlier
+  ///   t last touch (x,y) and Y/N for whether the plane took it
+  private func stampText() -> String {
+    guard let plane = keyPlane else { return "\(Self.buildStamp) NOPLANE" }
+    let p = plane.partitionReport
+    var t = "\(Self.buildStamp) k\(p.keys) a\(p.actions) r\(p.roles) v\(p.obstacles)"
+    t += " P\(Int(p.planeH)) y\(Int(p.band.minY)) h\(Int(p.band.height)) o\(p.outlier)"
+    if let h = plane.lastHit {
+      t += " t(\(Int(h.point.x)),\(Int(h.point.y)))\(h.owned ? "Y" : "N")"
+    }
+    // n typed by the plane · c cancelled by iOS · s of those rescued
+    t += " n\(plane.dbgCommitted) c\(plane.dbgCancelled) s\(plane.dbgRescued)"
+    return t
+  }
+
+  /// Public hook — actions call this after mutating KBState.
+  /// Deferred + coalesced remount. Multiple `stateChanged()` calls in the
+  /// same runloop collapse to a single rebuild scheduled on the next tick,
+  /// so touch handlers (insertText, delete, shift toggle, autocap arm) return
+  /// immediately instead of blocking on the full tree teardown/rebuild. That
+  /// blocking rebuild was the root of the "touch delay" — on complex trees
+  /// each remount cost 30-80ms and fired synchronously inside the tap
+  /// handler; iOS therefore didn't process the next tap until the rebuild
+  /// finished. This coalesced-async model completes the current tap first,
+  /// commits the character to the field, THEN rebuilds visuals.
+  ///
+  /// FAST PATH: when the ONLY delta since the last render is state.shift /
+  /// state.capsLock (autoCap arm, one-shot shift release), skip the full
+  /// remount and mutate letter labels in place. That's every-other-keystroke
+  /// in sentences mode + roughly-every-keystroke on word/character caps.
+  /// The full remount runs when layoutId/dictating/refining/tone/other
+  /// diffs are present, or when we haven't tracked the previous snapshot.
+  private var pendingRemount: Bool = false
+  private var letterButtonsByChar: [String: UIButton] = [:]
+  /// Layer-switch keys ("123"/"ABC"/"#+=") registered during render so the
+  /// touch plane can own them for layer-peek. `target` nil = cycle.
+  private var layerKeyRegistry: [(btn: UIButton, target: String?)] = []
+
+  /// Non-letter keys that take part in the touch partition: space, return,
+  /// backspace.
+  ///
+  /// Without them the plane partitioned only the letter grid, so nearest-key
+  /// had nothing to offer down there and the gaps around these keys had to be
+  /// refused — a gap next to space would otherwise have typed a letter.
+  ///
+  /// GlobeKey is deliberately absent: it opens the system keyboard switcher,
+  /// and a near-miss silently swapping the user's keyboard is far worse than a
+  /// near-miss doing nothing.
+  private var actionKeyRegistry: [UIButton] = []
+
+  private func registerActionKey(_ v: UIView?, _ tag: String) {
+    guard let b = v as? UIButton else { return }
+    b.accessibilityIdentifier = tag
+    actionKeyRegistry.append(b)
+  }
+  private var weakShiftButton: UIButton?
+  private var lastRenderSnapshot: KBStateSnapshot?
+
+  func stateChanged() {
+    let currentSnap = KBStateSnapshot.from(state)
+    // Trackpad enter/exit NEVER remounts — see isTrackpadOnlyDelta. The
+    // native look (blanked keys) is applied in place instead.
+    if let last = lastRenderSnapshot,
+       currentSnap.isTrackpadOnlyDelta(from: last) {
+      applyTrackpadVisual(active: currentSnap.trackpadActive)
+      lastRenderSnapshot = currentSnap
+      return
+    }
+    if let last = lastRenderSnapshot,
+       currentSnap.isShiftOnlyDelta(from: last),
+       !letterButtonsByChar.isEmpty {
+      applyFastShiftUpdate(uppercased: currentSnap.shift || currentSnap.capsLock)
+      lastRenderSnapshot = currentSnap
+      return
+    }
+    if pendingRemount { return }
+    pendingRemount = true
+    DispatchQueue.main.async { [weak self] in
+      // Route through the mid-touch guard: a state-driven rebuild (dictation
+      // start/stop, status, tone…) landing while a finger is down cancels that
+      // in-flight touch — a silently dropped keystroke. pendingRemount stays
+      // TRUE across the guard's deferrals so later stateChanged() calls keep
+      // coalescing into this one chain instead of spawning parallel retry
+      // chains that each fire a full rebuild once idle; remountWhenIdle clears
+      // it when it actually remounts.
+      self?.remountWhenIdle()
+    }
+  }
+
+  /// Native space-bar trackpad look, applied WITHOUT a remount: letters dim
+  /// (native blanks them), the callout hides, and the touch plane stops
+  /// claiming touches so a stray second finger can't type mid-scrub. All
+  /// in-place mutations on live views — the space key and its long-press
+  /// gesture survive untouched.
+  private func applyTrackpadVisual(active: Bool) {
+    let alpha: CGFloat = active ? flagCGFloat("kb.trackpad.dimAlpha", 0.35) : 1
+    for (_, btn) in letterButtonsByChar { btn.alpha = alpha }
+    weakShiftButton?.alpha = alpha
+    for entry in layerKeyRegistry { entry.btn.alpha = alpha }
+    keyPlane?.isUserInteractionEnabled = !active
+    if active { hideKeyCallout() }
+  }
+
+  /// In-place letter case swap + shift icon refresh. Runs synchronously
+  /// (safe — it's a title mutation, cheap) so the shift key visually flips
+  /// on the same runloop as the next keystroke.
+  private func applyFastShiftUpdate(uppercased: Bool) {
+    for (ch, btn) in letterButtonsByChar {
+      btn.setTitle(uppercased ? ch.uppercased() : ch.lowercased(), for: .normal)
+    }
+    if let shift = weakShiftButton {
+      applyShiftKeyVisual(shift)
+    }
+  }
+
+  // MARK: Root backdrop
+
+  /// The theme's `backgroundEffect` sits on the container itself (not on the
+  /// root node) so blur / gradient covers the whole keyboard area.
+  ///
+  /// IMPORTANT: we do NOT paint container.backgroundColor from theme.background
+  /// as an opaque layer — that was making the blur backdrop useless (it was
+  /// frosting a solid black rectangle instead of the OS keyboard region behind
+  /// it). Native iOS keyboards let the underlying region show through the blur
+  /// so keys read as "floating on frosted glass" instead of sitting on a slab.
+  /// theme.background is kept as a *fallback* color, applied only when no
+  /// backgroundEffect is set — that way older client builds without the blur
+  /// still get a solid backdrop.
+  private func applyRootBackground(to container: UIView) {
+    if theme?.backgroundEffect == nil, let bg = theme?.background {
+      container.backgroundColor = UIColor(tulmiHex: bg)
+    } else {
+      container.backgroundColor = .clear
+    }
+    guard let effect = theme?.backgroundEffect else { return }
+    // Remove any previous backdrop we installed.
+    container.subviews
+      .filter { $0.tag == Self.backdropTag }
+      .forEach { $0.removeFromSuperview() }
+    let backdrop = makeEffectBackdrop(effect: effect)
+    backdrop.tag = Self.backdropTag
+    backdrop.translatesAutoresizingMaskIntoConstraints = false
+    container.insertSubview(backdrop, at: 0)
+    NSLayoutConstraint.activate([
+      backdrop.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      backdrop.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      backdrop.topAnchor.constraint(equalTo: container.topAnchor),
+      backdrop.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+    ])
+  }
+  private static let backdropTag: Int = 0x7B00D_1_A
+
+  // MARK: - Node dispatch
+
+  /// Walk a node into a UIView. `visibleIf` culls the subtree; unknown types
+  /// render a red "?" tile so schema mismatches are visible instead of silent.
+  func render(node: KBNode) -> UIView {
+    if let cond = node.visibleIf, !evaluate(cond) {
+      let empty = UIView()
+      empty.isHidden = true
+      return empty
+    }
+    let v: UIView
+    switch node.type {
+    case "Container", "Column": v = buildStack(node: node, axis: .vertical)
+    case "Row":                  v = buildStack(node: node, axis: .horizontal)
+    case "Spacer":               v = buildSpacer(node: node)
+    case "LetterKey":            v = buildLetterKey(node: node)
+    case "IconKey":              v = buildIconKey(node: node)
+    // Generic components — every one of these means "backend can add richer UI
+    // without shipping new Swift." Keep additions here in sync with buildXxx.
+    case "TextLabel":            v = buildTextLabel(node: node)
+    case "Image":                v = buildImageNode(node: node)
+    case "ProgressBar":          v = buildProgressBar(node: node)
+    case "Toggle":               v = buildToggleNode(node: node)
+    case "ScrollView":           v = buildScrollView(node: node)
+    case "SpaceKey":             v = buildSpaceKey(node: node); registerActionKey(v, "SP")
+    case "ShiftKey":             v = buildShiftKey(node: node)
+    case "ReturnKey":            v = buildReturnKey(node: node); registerActionKey(v, "RET")
+    case "BackspaceKey":         v = buildBackspaceKey(node: node); registerActionKey(v, "DEL")
+    case "GlobeKey":             v = buildGlobeKey(node: node)
+    case "MicKey":               v = buildMicKey(node: node)
+    case "RefineKey":            v = buildRefineKey(node: node)
+    case "SuggestionBar":        v = buildSuggestionBar(node: node)
+    case "Waveform":             v = buildWaveform(node: node)
+    case "StatusLabel":          v = buildStatusLabel(node: node)
+    case "Divider":              v = buildDivider(node: node)
+    case "BlurBackdrop":         v = buildBlurBackdrop(node: node)
+    default:
+      // A type this build doesn't know is the server being ahead of the
+      // binary, not an error the user should look at. The red "?" tile is a
+      // debugging aid: kb.render.unknownNode = "debug" brings it back.
+      guard flagString("kb.render.unknownNode", "hide") == "debug" else {
+        NSLog("unknown kb component (hidden): %@", node.type)
+        let empty = UIView()
+        empty.isHidden = true
+        return empty
+      }
+      v = buildUnknown(type: node.type)
+    }
+    applyStyle(node: node, to: v)
+    applyEffectIfChildlessBackdrop(node: node, view: v)
+    // The return key's action accent (Go / Send / Search…) is applied AFTER
+    // the node's style, or style.bg / style.fg would paint over it.
+    if node.type == "ReturnKey" { applyReturnAccent(node: node, to: v) }
+    // The id the haptics picker knows this key by (kb.haptics.keys).
+    if let b = v as? UIButton, let hid = hapticId(for: node) {
+      objc_setAssociatedObject(b, &Self.keyHapticIdKey, hid, .OBJC_ASSOCIATION_RETAIN)
+    }
+    return v
+  }
+
+  private static var keyHapticIdKey: UInt8 = 0
+
+  /// The name a key is known by in kb.haptics.keys: props.hapticId, else the
+  /// node's id, else its role — the same names Android's hapticIdFor uses.
+  /// nil means "use the title": a letter or punctuation key IS what it types,
+  /// which is what the picker writes. BackspaceKey fires its own "backspace"
+  /// haptic in deleteDown, so it gets no role id here (it would buzz twice).
+  private func hapticId(for node: KBNode) -> String? {
+    if let h = node.props?["hapticId"]?.asString, !h.isEmpty { return h }
+    if node.type != "LetterKey", let id = node.id, !id.isEmpty { return id }
+    switch node.type {
+    case "ShiftKey":  return "shift"
+    case "SpaceKey":  return "space"
+    case "ReturnKey": return "return"
+    case "GlobeKey":  return "globe"
+    case "MicKey":    return "mic"
+    case "RefineKey": return "refine"
+    default:          return nil
+    }
+  }
+
+  // MARK: - Components
+
+  /// Container / Row / Column all lower to UIStackView. Row = horizontal.
+  /// If the node has an `effect` too, `applyEffectIfChildlessBackdrop` inserts
+  /// it as a background subview at layer index 0 — UIStackView still lays out
+  /// its arrangedSubviews above it.
+  ///
+  /// Proportional flex: children with a numeric `flex` on their style get a
+  /// widthAnchor (row) / heightAnchor (column) constraint whose multiplier is
+  /// their `flex / totalFlex` share of the stack's usable size. That's what
+  /// makes space:5.79 actually occupy 5.79× a letter key's width instead of
+  /// tied-with-everything-at-defaultLow behavior. Explicit `width` still wins
+  /// over flex when both are set.
+  private func buildStack(node: KBNode, axis: NSLayoutConstraint.Axis) -> UIView {
+    // Horizontal stacks (= key rows) use KeyRowStackView so a tap in the gap
+    // between two keys routes to the nearest key instead of being lost. Keys
+    // fill the row height (alignment .fill), so there is no vertical gap WITHIN
+    // a row — dividing the horizontal gaps reclaims all the wasted touch area.
+    // Vertical stacks stay plain UIStackView (routing across rows would send a
+    // near-miss to the wrong row, which is worse than the small inter-row gap).
+    let stack = axis == .horizontal ? KeyRowStackView() : UIStackView()
+    if let keyRow = stack as? KeyRowStackView {
+      keyRow.gapRoutingEnabled = flagBool("kb.row.expandHitTargets", true)
+    }
+    stack.axis = axis
+    // style.align (cross axis) and style.justify (main axis), as the catalog
+    // writes them. Absent → .fill / .fill, exactly as before.
+    stack.alignment = stackAlignment(node.style?["align"]?.asString, axis: axis)
+    let justify = (node.style?["justify"]?.asString ?? "fill").lowercased()
+    stack.distribution = stackDistribution(justify)
+    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble
+      ?? flagDouble("kb.stack.defaultGap", 5))
+
+    let kids = node.children ?? []
+    var built: [(node: KBNode, view: UIView)] = []
+    for child in kids {
+      let cv = render(node: child)
+      stack.addArrangedSubview(cv)
+      built.append((child, cv))
+    }
+    // start / center / end pack the children like CSS justify-content: a
+    // spacer that gives way before any child takes the free space.
+    if ["start", "flex-start", "center", "end", "flex-end"].contains(justify) {
+      func packer() -> UIView {
+        let s = UIView()
+        let give = UILayoutPriority(rawValue: UILayoutPriority.defaultLow.rawValue - 1)
+        s.setContentHuggingPriority(give, for: axis)
+        s.setContentCompressionResistancePriority(give, for: axis)
+        return s
+      }
+      switch justify {
+      case "start", "flex-start":
+        stack.addArrangedSubview(packer())
+      case "end", "flex-end":
+        stack.insertArrangedSubview(packer(), at: 0)
+      default:
+        let lead = packer(), trail = packer()
+        stack.insertArrangedSubview(lead, at: 0)
+        stack.addArrangedSubview(trail)
+        if axis == .horizontal {
+          trail.widthAnchor.constraint(equalTo: lead.widthAnchor).isActive = true
+        } else {
+          trail.heightAnchor.constraint(equalTo: lead.heightAnchor).isActive = true
+        }
+      }
+    }
+
+    // Second pass: apply proportional flex constraints. Sum every child's flex
+    // (default 0). If the total is > 0 AND the child has flex but no explicit
+    // width/height in its dimension, tie its size to a reference child (the
+    // first flex sibling) at the ratio flex_i / flex_ref.
+    let flexes: [Double] = built.map { $0.node.style?["flex"]?.asDouble ?? 0 }
+    let sizeKey = axis == .horizontal ? "width" : "height"
+    let hasSizeInAxis: [Bool] = built.map { $0.node.style?[sizeKey]?.asCGFloat != nil }
+    // Find the first flex>0 child that DOESN'T have explicit size — becomes the
+    // ratio anchor.
+    let refIndex = flexes.enumerated().first { (i, f) in f > 0 && !hasSizeInAxis[i] }?.offset
+    if let ref = refIndex {
+      let refFlex = flexes[ref]
+      let refView = built[ref].view
+      for i in 0..<built.count {
+        guard i != ref else { continue }
+        let f = flexes[i]
+        if f <= 0 { continue }             // no flex → intrinsic / explicit width
+        if hasSizeInAxis[i] { continue }   // explicit width wins
+        let child = built[i].view
+        let ratio = CGFloat(f / refFlex)
+        if axis == .horizontal {
+          child.widthAnchor.constraint(equalTo: refView.widthAnchor, multiplier: ratio).isActive = true
+        } else {
+          child.heightAnchor.constraint(equalTo: refView.heightAnchor, multiplier: ratio).isActive = true
+        }
+      }
+    }
+    return stack
+  }
+
+  /// style.align → UIStackView.alignment (start | center | end | fill, plus
+  /// the CSS spellings). Unknown or absent → .fill.
+  private func stackAlignment(_ raw: String?, axis: NSLayoutConstraint.Axis) -> UIStackView.Alignment {
+    switch (raw ?? "fill").lowercased() {
+    case "start", "flex-start", "leading", "top":
+      return axis == .horizontal ? .top : .leading
+    case "end", "flex-end", "trailing", "bottom":
+      return axis == .horizontal ? .bottom : .trailing
+    case "center":
+      return .center
+    case "baseline":
+      return axis == .horizontal ? .firstBaseline : .fill
+    default:
+      return .fill
+    }
+  }
+
+  /// style.justify → UIStackView.distribution. start / center / end keep
+  /// .fill and are packed with spacers by buildStack.
+  private func stackDistribution(_ justify: String) -> UIStackView.Distribution {
+    switch justify {
+    case "equal", "fill-equally":                      return .fillEqually
+    case "space-between":                              return .equalSpacing
+    case "space-around", "space-evenly":               return .equalCentering
+    default:                                           return .fill
+    }
+  }
+
+  /// An empty view that consumes remaining space in the parent stack, letting
+  /// siblings hug their content.
+  private func buildSpacer(node: KBNode) -> UIView {
+    let v = UIView()
+    v.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    v.setContentHuggingPriority(.defaultLow, for: .vertical)
+    v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+    return v
+  }
+
+  /// Letter key — the workhorse. Title honors shift/capsLock; tap inserts.
+  /// Long-press (500ms) reveals an accent tray for letters that have one
+  /// (English: a e i o u n c y s d h; Latin extended can be added by locale).
+  /// When `bind.content` names a KBState key (e.g. "tone"), the title reads
+  /// from that key at render time — used for the tone pill in the tools bar.
+  private func buildLetterKey(node: KBNode) -> UIView {
+    var ch = node.props?["char"]?.asString ?? ""
+    if let boundKey = node.bind?["content"], let live = stateValue(for: boundKey) {
+      ch = live
+    }
+    let btn = makeKeyButton()
+    // Tone pill registration for the dictation dot stream — the pill is the
+    // one LetterKey whose bind.content resolves to the "tone" state field, so
+    // this identifies it uniquely without a per-node id.
+    if node.bind?["content"] == "tone" {
+      currentToneButton = btn
+      // Hold the tone pill → a tone sheet springs out of it (keyboard frosts
+      // behind it) so the user can jump straight to any tone instead of tapping
+      // to cycle. Live SDUI path — this is the control the user actually sees
+      // (the hand-built TulmiPersonalityRow sheet never mounts when sdui=true).
+      // List comes from configuredTones() (backend kb.tones); the whole gesture
+      // is disableable via kb.tone.sheet.enabled=false. cancelsTouchesInView
+      // (default true) suppresses the cycle-tap once the hold recognizes.
+      if flagBool("kb.tone.sheet.enabled", true) {
+        let lp = UILongPressGestureRecognizer(
+          target: WeakGRProxy(target: self, selector: #selector(toneSheetLongPress(_:))),
+          action: #selector(WeakGRProxy.handle(_:)))
+        lp.minimumPressDuration = flagDouble("kb.tone.sheet.longPressMs", 300) / 1000.0
+        lp.allowableMovement = 500
+        btn.addGestureRecognizer(lp)
+      }
+    }
+    let uppercased = state.shift || state.capsLock
+    // Only apply case swap for single-character labels — multi-char titles
+    // (like "Neutral") stay as-is regardless of shift.
+    let displayed = ch.count == 1 ? (uppercased ? ch.uppercased() : ch.lowercased()) : ch
+    btn.setTitle(displayed, for: .normal)
+    // Register single-char letter buttons for the fast-shift path so
+    // stateChanged() can update them in place without a full remount.
+    if ch.count == 1 && node.bind?["content"] != "tone" {
+      letterButtonsByChar[ch.lowercased()] = btn
+    }
+    // Bake the BASE char (not the currently-cased one). The fast-shift path
+    // (applyFastShiftUpdate) only re-titles the button in place; it does NOT
+    // rebuild this action. If we baked the case here, a shift toggle would flip
+    // the visible title but leave the OLD case in the tap action → keys insert
+    // the wrong case (e.g. display "A" but type "a", or type "HELLO" for
+    // "Hello"). run(.insertKey) applies the live state.shift/capsLock case at
+    // tap time instead, so title and inserted text always agree.
+    let payload = node.props?["char"]?.asString ?? ch
+    // On contact, unless this letter holds an accent tray — see bindTap.
+    let hasTray = !(accentMap[ch.lowercased()] ?? []).isEmpty
+    bindTap(btn, node: node, defaultAction: .insertKey(char: payload),
+            onDown: flagBool("kb.key.commitOnDown", true) && !hasTray)
+
+    // Attach an accent popover if this letter has one in the map.
+    if let accents = accentMap[ch.lowercased()], !accents.isEmpty {
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(letterLongPress(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
+      // Backend flag: kb.accentTray.longPressMs (default 500) — hold-to-open threshold
+      lp.minimumPressDuration = flagDouble("kb.accentTray.longPressMs", 500) / 1000.0
+      lp.allowableMovement = 500
+      objc_setAssociatedObject(lp, &Self.accentsKey, accents, .OBJC_ASSOCIATION_RETAIN)
+      objc_setAssociatedObject(lp, &Self.accentsBaseKey, ch, .OBJC_ASSOCIATION_RETAIN)
+      btn.addGestureRecognizer(lp)
+    }
+    return btn
+  }
+
+  private static var accentsKey: UInt8 = 0
+  private static var accentsBaseKey: UInt8 = 0
+  private weak var activeAccentTray: UIView?
+
+  /// Read a KBState value by name for a `bind` in the tree. Used by
+  /// components (LetterKey) that show live state text (e.g. tone pill).
+  /// Every case here is a "backend can drive this without a rebuild" hook.
+  private func stateValue(for key: String) -> String? {
+    switch key {
+    case "tone":                 return state.tone
+    case "status":               return state.status
+    case "layoutId":             return state.layoutId
+    case "primaryLanguage":      return state.primaryLanguage
+    case "appearance":           return state.appearance
+    case "hasMultipleKeyboards": return state.hasMultipleKeyboards ? "true" : "false"
+    case "hasFullAccess":        return state.hasFullAccess ? "true" : "false"
+    case "dictating":            return state.dictating ? "true" : "false"
+    case "refining":             return state.refining ? "true" : "false"
+    case "shift":                return state.shift ? "true" : "false"
+    case "capsLock":             return state.capsLock ? "true" : "false"
+    // Anything else: the general lookup the conditions use (state.user.*,
+    // micLevel, flags.*, features.*, labels.*, field.*, quota.*).
+    default:                     return bindLookup(key)
+    }
+  }
+
+  // MARK: - Backend-tunable flags (with sane defaults)
+  //
+  // Every visual constant we add gets a `flag*` accessor so backend can push
+  // a config.flags[<key>] override without a native rebuild. Unset → default.
+  //
+  // Convention: dot.notation keys under "kb.*". Grouped by feature so backend
+  // devs can find them.
+
+  private func flagString(_ key: String, _ def: String) -> String {
+    config.flags?[key]?.asString ?? def
+  }
+  /// Bounded as well as finite: a console typo of 1e300 is still a number,
+  /// and it would overflow the arithmetic and conversions downstream.
+  private func flagDouble(_ key: String, _ def: Double) -> Double {
+    guard let v = config.flags?[key]?.asDouble else { return def }
+    return min(1e9, max(-1e9, v))
+  }
+  /// Geometry: no key, gap or offset is ever wider than this.
+  private func flagCGFloat(_ key: String, _ def: CGFloat) -> CGFloat {
+    guard let v = config.flags?[key]?.asDouble else { return def }
+    return CGFloat(min(1e5, max(-1e5, v)))
+  }
+  private func flagBool(_ key: String, _ def: Bool) -> Bool {
+    config.flags?[key]?.asBool ?? def
+  }
+  private func flagColor(_ key: String, _ def: String) -> UIColor {
+    UIColor(tulmiHex: flagString(key, def))
+  }
+  /// Icon-spec flag — resolves to a UIImage via the same resolver used by
+  /// IconKey. Backend can pass { sf: "..." } / { asset: "..." } / { url: "..." }
+  /// / { emoji: "..." } / string shorthand.
+  private func flagIcon(_ key: String) -> KBJSON? {
+    config.flags?[key]
+  }
+
+  /// SF Symbol font-weight name → UIImage.SymbolWeight.
+  fileprivate func sfWeight(_ raw: String) -> UIImage.SymbolWeight {
+    switch raw.lowercased() {
+    case "thin":     return .thin
+    case "light":    return .light
+    case "regular":  return .regular
+    case "medium":   return .medium
+    case "semibold": return .semibold
+    case "bold":     return .bold
+    case "heavy":    return .heavy
+    case "black":    return .black
+    default:         return .regular
+    }
+  }
+
+  // MARK: - Dictation visual overlay
+  //
+  // Two visual layers ride on top of the keyboard while state.dictating=true:
+  //   1. Key dimming — a translucent black overlay dims the letter/function
+  //      key rows, focusing attention on the tools row. Tools row is brought
+  //      above the overlay so mic + tone stay bright.
+  //   2. Dot stream — a CAEmitterLayer positioned at the mic button center,
+  //      emitting orange dots that travel across to the tone pill and fade
+  //      out along the way, so the tone pill visually "receives" them.
+  //
+  // On stop (state.dictating flips to false), the emitter's birthRate is
+  // zeroed but the layer stays live for ~2.5s so already-airborne dots
+  // complete their journey. Rough coincidence: refine RTT is ~2s, so the
+  // last dot dissolves about when the refined text lands in the field.
+
+  private weak var currentMicButton: UIButton?
+  private weak var currentToneButton: UIButton?
+  private var dotStreamLayer: CAEmitterLayer?
+  private weak var recordingDimView: UIView?
+  // The mic's physics sim is held STRONGLY (not via the view tree) so it
+  // survives the stop→remount and can run its reverse "reassemble into the
+  // mark" pass. `micReassembling` keeps buildMicKey rendering the sim (rather
+  // than the static mark) for that brief converge window after recording ends.
+  private var currentMicParticles: MicParticleView?
+  private var micReassembling = false
+  // The mark view that lives across remounts when the server's recording
+  // motion is the dispersal, so record → stop → home is one unbroken motion.
+  // A new spec, motion or ink (a deploy, a theme flip) makes a new one.
+  private var currentMicMark: TulmiMarkView?
+  private var currentMicMarkKey = ""
+
+  private func persistedMark(spec: [String: KBJSON], motion: [String: KBJSON]?, program: [String: KBJSON]?, tint: UIColor) -> TulmiMarkView? {
+    let key = "\(spec)|\(String(describing: motion))|\(String(describing: program))|\(tint)"
+    if let mv = currentMicMark, currentMicMarkKey == key {
+      mv.removeFromSuperview()               // detach from the discarded button
+      return mv
+    }
+    guard let mv = TulmiMarkView(spec: spec, motion: motion, program: program, tint: tint) else { return nil }
+    mv.level = { [weak self] in self?.state.micLevel ?? 0 }
+    currentMicMark = mv
+    currentMicMarkKey = key
+    if state.dictating { mv.beginPlay() }    // first built mid-recording (a deploy landed)
+    return mv
+  }
+
+  private func showRecordingVisuals() {
+    // Wait for the remount that stateChanged() scheduled — that's where
+    // currentMicButton / currentToneButton get set. Async on main gets us the
+    // next runloop tick, by which point the new tree is mounted.
+    // Guard against a race: if dictation stopped between reflectDictating(true)
+    // and this block running, don't create visuals at all.
+    DispatchQueue.main.async { [weak self] in
+      guard let self = self, self.state.dictating else { return }
+      self.applyKeyDimming()
+      self.startDotStream()
+    }
+  }
+
+  private func hideRecordingVisuals() {
+    fadeOutDotStream()
+    removeKeyDimming()
+  }
+
+  private func applyKeyDimming(animated: Bool = true) {
+    // Backend flags:
+    //   kb.dictation.dim.enabled        (default true)  — set false to skip the veil entirely
+    //   kb.dictation.dim.blur           (default true)  — frost the keys (false: fade only)
+    //   kb.dictation.dim.iosBlurRadius  (default 4)     — points; the Android radius is px and larger
+    //   kb.dictation.dim.keyAlpha       (default 0.72)  — the frosted keys' opacity
+    //   kb.dictation.dim.color / .alpha                 — a tint over the rows, whisper by default
+    //   kb.dictation.dim.blocksTouches  (default true)  — the frosted rows swallow touches
+    //   kb.dictation.dim.fadeMs         (default 250)
+    guard flagBool("kb.dictation.dim.enabled", true) else { return }
+    guard let container = mountContainer, recordingDimView == nil else { return }
+    guard let mic = currentMicButton, mic.window != nil else { return }
+    container.layoutIfNeeded()
+
+    // FROSTED KEYS, DRAWN. Each key row is photographed, blurred a few points,
+    // faded, and shown in the row's own place while the row itself is hidden:
+    // the keys read as behind glass, still recognisably keys, and the veil
+    // owns their touches. The tools row — the mic that stops the recording,
+    // and everything beside it — is never touched: not frosted, not covered,
+    // not blocked. That is the whole difference from the system material,
+    // which sat over the entire keyboard, hid the mic, and turned dark keys
+    // into a sheet of fog.
+    //
+    // Which views are rows: the mic's row is its first ancestor as wide as
+    // the keyboard; everything beside that row and beside its ancestors up
+    // to the tree is a row of keys (or a bar), whatever the tree's nesting.
+    var row: UIView = mic
+    while let sup = row.superview, sup !== container, row.bounds.width < container.bounds.width * 0.8 { row = sup }
+    var rows: [UIView] = []
+    var path: UIView = row
+    while let sup = path.superview, sup !== container {
+      for sib in sup.subviews where sib !== path && !sib.isHidden && sib.alpha > 0.01 && sib.bounds.height >= 12 {
+        rows.append(sib)
+      }
+      path = sup
+    }
+
+    // KEY BY KEY, AND ONLY A LITTLE. Each key is photographed on its own,
+    // blurred a couple of points, faded and drawn a touch smaller in its own
+    // place; the gaps between keys stay exactly as they are and nothing is
+    // laid over the rows. It reads as the keys going soft, not as a sheet.
+    // A row with no keys in it (a bar of suggestions) is frosted whole.
+    let veil = DictationVeil()
+    veil.swallows = flagBool("kb.dictation.dim.blocksTouches", true)
+    let radius = flagBool("kb.dictation.dim.blur", true) ? flagCGFloat("kb.dictation.dim.iosBlurRadius", 2.5) : 0
+    let keyAlpha = flagCGFloat("kb.dictation.dim.iosKeyAlpha", 0.6)
+    let shrink = flagCGFloat("kb.dictation.dim.iosKeyScale", 0.985)
+    for r in rows {
+      veil.rects.append(r.convert(r.bounds, to: container))
+      var keys: [UIView] = []
+      SDUIRenderer.keyViews(in: r, into: &keys)
+      for k in (keys.isEmpty ? [r] : keys) {
+        let frame = k.convert(k.bounds, to: container)
+        if let img = SDUIRenderer.frosted(k, radius: radius) {
+          let iv = UIImageView(image: img)
+          iv.frame = frame
+          iv.alpha = keyAlpha
+          iv.transform = CGAffineTransform(scaleX: shrink, y: shrink)
+          veil.addSubview(iv)
+        }
+        veil.frostedKeys.append(k)
+        k.alpha = 0
+      }
+    }
+
+    veil.frame = container.bounds
+    veil.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    veil.alpha = animated ? 0 : 1
+    container.addSubview(veil)
+    if animated {
+      let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
+      UIView.animate(withDuration: fadeMs / 1000.0) { veil.alpha = 1 }
+    }
+    recordingDimView = veil
+  }
+
+  /// The keys in a row: its controls, outermost first — a key inside a key
+  /// (a label in a button) is the button's, not its own.
+  private static func keyViews(in view: UIView, into out: inout [UIView]) {
+    for sub in view.subviews where !sub.isHidden && sub.alpha > 0.01 {
+      if sub is UIControl, sub.bounds.width >= 8, sub.bounds.height >= 8 { out.append(sub) }
+      else { keyViews(in: sub, into: &out) }
+    }
+  }
+
+  /// A view, photographed and blurred `radius` points (0: as it is).
+  private static let frostContext = CIContext(options: nil)
+  private static func frosted(_ view: UIView, radius: CGFloat) -> UIImage? {
+    let size = view.bounds.size
+    guard size.width > 1, size.height > 1 else { return nil }
+    let format = UIGraphicsImageRendererFormat.default()
+    format.opaque = false
+    let shot = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+      view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+    }
+    guard radius > 0, let ci = CIImage(image: shot) else { return shot }
+    let blurred = ci.clampedToExtent()
+      .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius * shot.scale])
+      .cropped(to: ci.extent)
+    guard let cg = frostContext.createCGImage(blurred, from: ci.extent) else { return shot }
+    return UIImage(cgImage: cg, scale: shot.scale, orientation: .up)
+  }
+
+  /// The veil: the frosted rows, and their touches. A touch anywhere else —
+  /// the tools row, the mic — falls straight through to what is there.
+  private final class DictationVeil: UIView {
+    var rects: [CGRect] = []
+    var frostedKeys: [UIView] = []
+    var swallows = true
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+      guard swallows, rects.contains(where: { $0.contains(point) }) else { return nil }
+      return self
+    }
+  }
+
+  private func removeKeyDimming(animated: Bool = true) {
+    guard let dim = recordingDimView else { return }
+    recordingDimView = nil
+    // The rows come back the moment the veil starts to go: a hidden key under
+    // a fading veil reads as the keyboard returning, which it is.
+    (dim as? DictationVeil)?.frostedKeys.forEach { $0.alpha = 1 }
+    guard animated else { dim.removeFromSuperview(); return }
+    let fadeMs = flagDouble("kb.dictation.dim.fadeMs", 250)
+    UIView.animate(withDuration: fadeMs / 1000.0, animations: { dim.alpha = 0 },
+                   completion: { _ in dim.removeFromSuperview() })
+  }
+
+  private func startDotStream() {
+    // Backend flags:
+    //   kb.dictation.dots.enabled     (default true)      — skip stream entirely
+    //   kb.dictation.dots.color       (default "#E8A23C")
+    //   kb.dictation.dots.size        (default 14)        — px, diameter of the source image
+    //   kb.dictation.dots.birthRate   (default 7)         — dots per second
+    //   kb.dictation.dots.lifetimeMs  (default 1800)      — how long each dot lives
+    //   kb.dictation.dots.spread      (default 0.08)      — rad, emission fan
+    //   kb.dictation.dots.velocityJitter (default 0.05)   — fraction of base velocity
+    //   kb.dictation.dots.scale       (default 0.35)      — CAEmitterCell scale
+    //   kb.dictation.dots.scaleRange  (default 0.1)
+    //   kb.dictation.dots.alphaSpeed  (default -0.55)     — /sec, negative fades
+    guard flagBool("kb.dictation.dots.enabled", true) else { return }
+    guard let container = mountContainer,
+          let mic = currentMicButton, let micSuper = mic.superview,
+          let tone = currentToneButton, let toneSuper = tone.superview,
+          dotStreamLayer == nil else { return }
+
+    let micCenter = micSuper.convert(mic.center, to: container)
+    let toneCenter = toneSuper.convert(tone.center, to: container)
+
+    let emitter = CAEmitterLayer()
+    emitter.emitterPosition = micCenter
+    emitter.emitterShape = .point
+    emitter.emitterMode = .points
+    container.layer.addSublayer(emitter)
+
+    let cell = CAEmitterCell()
+    cell.contents = makeDotImage().cgImage
+    cell.birthRate = Float(flagDouble("kb.dictation.dots.birthRate", 7))
+    cell.lifetime = Float(flagDouble("kb.dictation.dots.lifetimeMs", 1800) / 1000.0)
+    let dx = toneCenter.x - micCenter.x
+    let dy = toneCenter.y - micCenter.y
+    let distance = sqrt(dx * dx + dy * dy)
+    cell.velocity = distance / CGFloat(cell.lifetime)
+    cell.velocityRange = distance * flagCGFloat("kb.dictation.dots.velocityJitter", 0.05)
+    cell.emissionLongitude = atan2(dy, dx)
+    cell.emissionRange = flagCGFloat("kb.dictation.dots.spread", 0.08)
+    cell.scale = flagCGFloat("kb.dictation.dots.scale", 0.35)
+    cell.scaleRange = flagCGFloat("kb.dictation.dots.scaleRange", 0.1)
+    cell.alphaSpeed = Float(flagDouble("kb.dictation.dots.alphaSpeed", -0.55))
+    emitter.emitterCells = [cell]
+    dotStreamLayer = emitter
+  }
+
+  private func fadeOutDotStream() {
+    // Backend flag:
+    //   kb.dictation.dots.decayMs  (default 2500) — how long the birth-zeroed
+    //   emitter stays live so already-airborne dots complete their journey.
+    //   Bump to align the last dot's dissolve with typical refine RTT.
+    guard let emitter = dotStreamLayer else { return }
+    emitter.emitterCells?.forEach { $0.birthRate = 0 }
+    let decayMs = flagDouble("kb.dictation.dots.decayMs", 2500)
+    let cleanup = DispatchWorkItem { [weak self] in
+      self?.dotStreamLayer?.removeFromSuperlayer()
+      self?.dotStreamLayer = nil
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + decayMs / 1000.0, execute: cleanup)
+  }
+
+  /// A single dot image, sized + colored from backend flags.
+  private func makeDotImage() -> UIImage {
+    let size = flagCGFloat("kb.dictation.dots.size", 14)
+    let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+    return renderer.image { ctx in
+      flagColor("kb.dictation.dots.color", "#E8A23C").setFill()
+      ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: CGSize(width: size, height: size)))
+    }
+  }
+
+  /// Tones the cycleTone action rotates through. Backend can override via
+  /// config.flags["kb.tones"] (comma-separated). Default matches the ones
+  /// the app's Personality screen uses.
+  /// The tone list. Primary source is the RICH backend list the server
+  /// actually ships — kb.personality.tones, [{id,label}] — so renames /
+  /// reorders / additions land OTA and the App Group carries the real tone ID
+  /// the app's refine pipeline expects (the old code only read the legacy
+  /// "kb.tones" CSV, which the backend doesn't serve, so the pill silently
+  /// cycled a client-hardcoded list). CSV + hardcoded sets remain fallbacks.
+  private func configuredTones() -> [(id: String, label: String)] {
+    if case .array(let arr)? = config.flags?["kb.personality.tones"] {
+      let rich: [(id: String, label: String)] = arr.compactMap { item in
+        guard case .object(let o) = item, let id = o["id"]?.asString, !id.isEmpty else { return nil }
+        return (id, o["label"]?.asString ?? id.capitalized)
+      }
+      if !rich.isEmpty { return rich }
+    }
+    if let raw = config.flags?["kb.tones"]?.asString {
+      let parts = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+      if !parts.isEmpty { return parts.map { ($0.lowercased(), $0) } }
+    }
+    return [("none", "Tone"), ("casual", "Casual"), ("formal", "Formal"), ("excited", "Excited")]
+  }
+
+  // MARK: - Tone sheet (hold the tone pill → pick a voice / tone directly)
+
+  private weak var toneSheetOverlay: UIView?
+  private weak var toneSheetBlur: UIVisualEffectView?
+  /// Voice picked on the keyboard this session — keeps the sheet's checkmark
+  /// right before the next config refetch echoes kb.personality.activeId back.
+  private var localActiveVoiceId: String?
+
+  /// The user's keyboard voice set (kb.personality.pinned — managed from the
+  /// app's Voice screen "Keyboard voices" card). Empty when nothing is pinned.
+  private func pinnedKeyboardVoices() -> [(id: String, name: String, tone: String)] {
+    guard case .array(let arr)? = config.flags?["kb.personality.pinned"] else { return [] }
+    return arr.compactMap { item in
+      guard case .object(let o) = item, let id = o["id"]?.asString, !id.isEmpty else { return nil }
+      return (id, o["name"]?.asString ?? id.capitalized, o["tone"]?.asString ?? "")
+    }
+  }
+
+  /// Tiny section label ("VOICES" / "TONES") for the sheet's stack.
+  private func toneSheetHeader(_ text: String) -> UIView {
+    let wrap = UIView()
+    let l = UILabel()
+    l.text = text.uppercased()
+    l.font = .systemFont(ofSize: flagCGFloat("kb.tone.sheet.headerFontSize", 10), weight: .bold)
+    // Dim ink of the panel's own contrast: white on the dark panel, black on
+    // the light one (kb.tone.sheet.headerFg / .headerFgLight).
+    l.textColor = state.appearance == "light"
+      ? flagColor("kb.tone.sheet.headerFgLight", "#00000066")
+      : flagColor("kb.tone.sheet.headerFg", "#FFFFFF66")
+    l.translatesAutoresizingMaskIntoConstraints = false
+    wrap.addSubview(l)
+    NSLayoutConstraint.activate([
+      l.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 16),
+      l.trailingAnchor.constraint(lessThanOrEqualTo: wrap.trailingAnchor, constant: -16),
+      l.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 7),
+      l.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -2),
+    ])
+    return wrap
+  }
+
+  @objc private func toneSheetLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began, let anchor = gr.view as? UIButton else { return }
+    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    presentToneSheet(anchor: anchor)
+  }
+
+  private func presentToneSheet(anchor: UIButton) {
+    dismissToneSheet(animated: false)
+    guard let host = mountContainer else { return }
+
+    // 1) Frost the keyboard behind the sheet; tap the scrim to dismiss.
+    let blur = UIVisualEffectView(effect: nil)
+    blur.frame = host.bounds
+    blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    host.addSubview(blur)
+    blur.addGestureRecognizer(
+      UITapGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(toneScrimTapped(_:))),
+        action: #selector(WeakGRProxy.handle(_:))))
+    toneSheetBlur = blur
+
+    // 2) The tone list. Every colour, size and timing is a kb.tone.sheet.*
+    // flag; the defaults are the shipped sheet. In light appearance the panel
+    // goes light and its ink dark (…Light flags) — white rows on a light
+    // keyboard were unreadable.
+    let light = state.appearance == "light"
+    let container = UIView()
+    // #171717F5 is the old white 0.09 / alpha 0.96, to the nearest byte.
+    container.backgroundColor = light ? flagColor("kb.tone.sheet.bgLight", "#F9F9F9F5")
+                                      : flagColor("kb.tone.sheet.bg", "#171717F5")
+    container.layer.cornerRadius = flagCGFloat("kb.tone.sheet.radius", 12)
+    container.layer.shadowColor = flagColor("kb.tone.sheet.shadowColor", "#000000").cgColor
+    container.layer.shadowOpacity = Float(flagDouble("kb.tone.sheet.shadowOpacity", 0.35))
+    container.layer.shadowRadius = flagCGFloat("kb.tone.sheet.shadowRadius", 12)
+    container.layer.shadowOffset = CGSize(width: 0, height: flagCGFloat("kb.tone.sheet.shadowOffsetY", 6))
+    container.translatesAutoresizingMaskIntoConstraints = false
+
+    let vstack = UIStackView()
+    vstack.axis = .vertical
+    vstack.spacing = flagCGFloat("kb.tone.sheet.rowGap", 2)
+    vstack.translatesAutoresizingMaskIntoConstraints = false
+    vstack.isLayoutMarginsRelativeArrangement = true
+    let pad = flagCGFloat("kb.tone.sheet.padding", 6)
+    vstack.layoutMargins = UIEdgeInsets(top: pad, left: pad, bottom: pad, right: pad)
+    // Scroll wrapper: voices + tones together can outgrow the keyboard's
+    // height, and an extension can't draw past its frame — the sheet hugs its
+    // content (high-priority equal-height) until the bottom clamp below stops
+    // it, then the list scrolls instead of clipping rows off.
+    let scroll = UIScrollView()
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    scroll.showsVerticalScrollIndicator = false
+    container.addSubview(scroll)
+    scroll.addSubview(vstack)
+    let hug = scroll.heightAnchor.constraint(equalTo: vstack.heightAnchor)
+    hug.priority = .defaultHigh
+    NSLayoutConstraint.activate([
+      scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+      scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+      scroll.topAnchor.constraint(equalTo: container.topAnchor),
+      scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+      vstack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
+      vstack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
+      vstack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
+      vstack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
+      vstack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
+      hug,
+    ])
+
+    let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+    let rowFg = light ? flagColor("kb.tone.sheet.fgLight", "#000000")
+                      : flagColor("kb.tone.sheet.fg", "#FFFFFF")
+    let rowFont = flagCGFloat("kb.tone.sheet.fontSize", 14)
+    let rowPadV = flagCGFloat("kb.tone.sheet.rowPadV", 9)
+    let rowPadH = flagCGFloat("kb.tone.sheet.rowPadH", 16)
+    let check = flagString("kb.tone.sheet.checkSuffix", "  ✓")
+    // `host` is shadowed by the mount container in this function.
+    let copy = self.host
+
+    // Keyboard voices first (when the user has pinned any): switch the whole
+    // writing voice right from the keyboard — the app's "Keyboard voices" card
+    // decides what's listed here. Picking one also adopts its tone below.
+    let voices = pinnedKeyboardVoices()
+    if !voices.isEmpty {
+      let activeVoice = localActiveVoiceId ?? config.flags?["kb.personality.activeId"]?.asString
+      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_voices", "Voices") ?? "Voices"))
+      for v in voices {
+        let isActive = v.id == activeVoice
+        let btn = UIButton(type: .system)
+        btn.setTitle(isActive ? "\(v.name)\(check)" : v.name, for: .normal)
+        btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
+        btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
+        btn.contentHorizontalAlignment = .leading
+        let pickedId = v.id, pickedTone = v.tone
+        btn.addAction(UIAction { [weak self] _ in self?.selectVoice(id: pickedId, tone: pickedTone) },
+                      for: .touchUpInside)
+        vstack.addArrangedSubview(btn)
+      }
+      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_tones", "Tones") ?? "Tones"))
+    }
+
+    for tone in configuredTones() {
+      let btn = UIButton(type: .system)
+      let isActive = tone.label.caseInsensitiveCompare(state.tone) == .orderedSame
+      btn.setTitle(isActive ? "\(tone.label)\(check)" : tone.label, for: .normal)
+      btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
+      btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
+      btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
+      btn.contentHorizontalAlignment = .leading
+      let pickedId = tone.id, pickedLabel = tone.label
+      btn.addAction(UIAction { [weak self] _ in self?.selectTone(id: pickedId, label: pickedLabel) },
+                    for: .touchUpInside)
+      vstack.addArrangedSubview(btn)
+    }
+
+    host.addSubview(container)
+    let anchorFrame = anchor.convert(anchor.bounds, to: host)
+    // The tone pill sits in the tools row at the TOP of the keyboard, so the
+    // sheet DROPS DOWN over the (frosted) keys — going up would render above the
+    // keyboard's own frame, where an extension can't draw, and get clipped.
+    // Right-align to the pill (it lives on the right) and clamp to the host.
+    let edge = flagCGFloat("kb.tone.sheet.edgeInset", 8)
+    NSLayoutConstraint.activate([
+      container.trailingAnchor.constraint(equalTo: host.leadingAnchor, constant: anchorFrame.maxX),
+      container.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: edge),
+      container.topAnchor.constraint(equalTo: host.topAnchor,
+                                     constant: anchorFrame.maxY + flagCGFloat("kb.tone.sheet.offsetY", 6)),
+      container.widthAnchor.constraint(greaterThanOrEqualToConstant: flagCGFloat("kb.tone.sheet.minWidth", 150)),
+      // Never grow past the keyboard's own frame — the scroll wrapper takes
+      // over when content is taller than this allows.
+      container.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor, constant: -edge),
+    ])
+    toneSheetOverlay = container
+
+    // 3) Suction pop: the sheet is "sucked out" of the pill — starts as a tiny
+    // point at the pill and springs to full size.
+    host.layoutIfNeeded()
+    container.alpha = 0
+    container.transform = toneSheetCollapsedTransform()
+    UIView.animate(withDuration: flagDouble("kb.tone.sheet.anim.blurMs", 160) / 1000.0) {
+      blur.effect = UIBlurEffect(style: .systemThinMaterialDark)
+    }
+    UIView.animate(
+      withDuration: flagDouble("kb.tone.sheet.anim.openMs", 420) / 1000.0, delay: 0,
+      usingSpringWithDamping: flagCGFloat("kb.tone.sheet.anim.damping", 0.72),
+      initialSpringVelocity: flagCGFloat("kb.tone.sheet.anim.velocity", 0.6),
+      options: [.curveEaseOut, .allowUserInteraction],
+      animations: { container.alpha = 1; container.transform = .identity })
+  }
+
+  /// Where the sheet grows from and shrinks back to: a speck at the pill.
+  private func toneSheetCollapsedTransform() -> CGAffineTransform {
+    let scale = flagCGFloat("kb.tone.sheet.anim.scale", 0.08)
+    return CGAffineTransform(translationX: 0, y: flagCGFloat("kb.tone.sheet.anim.liftPt", -10))
+      .scaledBy(x: scale, y: scale)
+  }
+
+  @objc private func toneScrimTapped(_ gr: UITapGestureRecognizer) {
+    dismissToneSheet(animated: true)
+  }
+
+  private func selectTone(id: String, label: String) {
+    state.tone = label
+    persistTonePick(id: id)
+    fireKeyHaptic()
+    dismissToneSheet(animated: true)
+    stateChanged()   // remount → the tone pill rebinds to the new state.tone
+  }
+
+  /// A keyboard voice was picked from the sheet. Persists server-side (the
+  /// active voice is what /v1/refine writes with) and adopts the voice's own
+  /// tone locally, so the pill + the explicit refine tone don't keep overriding
+  /// the voice with a stale earlier pick.
+  private func selectVoice(id: String, tone: String) {
+    KeyboardTelemetry.bump(.voiceChanged)
+    localActiveVoiceId = id
+    var body: [String: Any] = ["activePresetId": id]
+    if !tone.isEmpty { body["activeTone"] = tone }
+    TulmiBackend.putPersonalityQuick(body: body) { _ in }
+    if !tone.isEmpty {
+      let ud = UserDefaults(suiteName: TulmiFlow.appGroup)
+      ud?.set(tone, forKey: "tulmi.kb.tone")
+      ud?.set(config.flags?["kb.personality.activeTone"]?.asString ?? "", forKey: "tulmi.kb.tone.baseline")
+      if let match = configuredTones().first(where: { $0.id == tone }) {
+        state.tone = match.label
+      }
+    }
+    fireKeyHaptic()
+    dismissToneSheet(animated: true)
+    stateChanged()
+  }
+
+  private func dismissToneSheet(animated: Bool) {
+    let overlay = toneSheetOverlay
+    let blur = toneSheetBlur
+    toneSheetOverlay = nil
+    toneSheetBlur = nil
+    guard animated, overlay != nil || blur != nil else {
+      overlay?.removeFromSuperview(); blur?.removeFromSuperview(); return
+    }
+    let collapsed = toneSheetCollapsedTransform()
+    UIView.animate(
+      withDuration: flagDouble("kb.tone.sheet.anim.closeMs", 200) / 1000.0, delay: 0, options: [.curveEaseIn],
+      animations: {
+        overlay?.alpha = 0
+        overlay?.transform = collapsed
+        blur?.effect = nil
+        blur?.alpha = 0
+      },
+      completion: { _ in overlay?.removeFromSuperview(); blur?.removeFromSuperview() })
+  }
+
+  /// kb.accents — the long-press alternates, { "a": ["à", …], "$": ["€", …] },
+  /// sent by the server so a language, a market or an experiment can change
+  /// them. A key absent from the server's map has no tray; an empty list turns
+  /// one key's tray off. The built-in map is only the fallback for a config
+  /// that carries none. Parsed once: a renderer lives for one config.
+  private var accentMap: [String: [String]] {
+    if let m = resolvedAccentMap { return m }
+    let m: [String: [String]]
+    if case .object(let o)? = config.flags?["kb.accents"] {
+      var out: [String: [String]] = [:]
+      for (k, v) in o {
+        if case .array(let a) = v { out[k] = a.compactMap { $0.asString } }
+      }
+      m = out
+    } else {
+      m = Self.builtInAccents
+    }
+    resolvedAccentMap = m
+    return m
+  }
+  /// Parsed on first use and dropped by updateConfig, so a new kb.accents
+  /// reaches a keyboard that is already open.
+  private var resolvedAccentMap: [String: [String]]?
+
+  /// English, in Apple's stock order — the fallback for kb.accents.
+  private static let builtInAccents: [String: [String]] = [
+    "a": ["à", "á", "â", "ä", "æ", "ã", "å", "ā"],
+    "e": ["è", "é", "ê", "ë", "ē", "ė", "ę"],
+    "i": ["î", "ï", "í", "ī", "į", "ì"],
+    "o": ["ô", "ö", "ò", "ó", "œ", "ø", "ō", "õ"],
+    "u": ["û", "ü", "ù", "ú", "ū"],
+    "y": ["ÿ"],
+    "s": ["ß", "ś", "š"],
+    "l": ["ł"],
+    "z": ["ž", "ź", "ż"],
+    "c": ["ç", "ć", "č"],
+    "n": ["ñ", "ń"],
+    "d": ["ď"],
+    "h": ["ĥ", "ħ"],
+    // Number/symbol-layer alternates (native long-press sets). The tray
+    // machinery is char-keyed, so these light up automatically on the
+    // 123/#+= layers — both via the plane's hold timer and the GR path.
+    "0": ["°"],
+    "-": ["–", "—", "•"],
+    "/": ["\\"],
+    "$": ["€", "£", "¥", "₹", "¢"],
+    "&": ["§"],
+    "\"": ["\u{201C}", "\u{201D}", "„", "«", "»"],
+    ".": ["…"],
+    "?": ["¿"],
+    "!": ["¡"],
+    "'": ["\u{2018}", "\u{2019}", "‚", "`"],
+    "%": ["‰"],
+    "=": ["≠", "≈"],
+  ]
+
+  @objc private func letterLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard let btn = gr.view as? UIButton else { return }
+    let accents = (objc_getAssociatedObject(gr, &Self.accentsKey) as? [String]) ?? []
+    let base = (objc_getAssociatedObject(gr, &Self.accentsBaseKey) as? String) ?? ""
+    switch gr.state {
+    case .began:
+      showAccentTray(for: btn, base: base, options: accents)
+    case .changed:
+      if let tray = activeAccentTray {
+        updateAccentTrayHighlight(at: gr.location(in: tray))
+      }
+    case .ended:
+      pickAccentAndDismiss(gestureRecognizer: gr)
+    case .cancelled, .failed:
+      dismissAccentTray()
+    default:
+      break
+    }
+  }
+
+  /// Highlight the chip under `loc` (tray-local coords); un-highlight the rest.
+  private func updateAccentTrayHighlight(at loc: CGPoint) {
+    guard let tray = activeAccentTray else { return }
+    tray.subviews.forEach { chip in
+      chip.backgroundColor = chip.frame.contains(loc)
+        ? flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+        : keyBgColor()
+    }
+  }
+
+  private func showAccentTray(for anchor: UIButton, base: String, options: [String]) {
+    dismissAccentTray()
+    guard let container = mountContainer else { return }
+    let uppercased = state.shift || state.capsLock
+    let items = ([base] + options).map { uppercased ? $0.uppercased() : $0 }
+
+    // Backend flags:
+    //   kb.accentTray.chipWidth      (default 40)
+    //   kb.accentTray.chipFontSize   (default 22)
+    //   kb.accentTray.chipRadius     (default 6)
+    //   kb.accentTray.height         (default 48)
+    //   kb.accentTray.offsetY        (default -52) — negative = above the key
+    //   kb.accentTray.radius         (default 8)
+    //   kb.accentTray.padding        (default 4)
+    //   kb.accentTray.gap            (default 4)
+    let chipW = flagCGFloat("kb.accentTray.chipWidth", 40)
+    let chipFont = flagCGFloat("kb.accentTray.chipFontSize", 22)
+    let chipRadius = flagCGFloat("kb.accentTray.chipRadius", 6)
+    let trayHeight = flagCGFloat("kb.accentTray.height", 48)
+    let trayRadius = flagCGFloat("kb.accentTray.radius", 8)
+    let trayPad = flagCGFloat("kb.accentTray.padding", 4)
+    let gap = flagCGFloat("kb.accentTray.gap", 4)
+    let offsetY = flagCGFloat("kb.accentTray.offsetY", -52)
+
+    let tray = UIStackView()
+    tray.axis = .horizontal
+    tray.distribution = .fillEqually
+    tray.alignment = .fill
+    tray.spacing = gap
+    tray.translatesAutoresizingMaskIntoConstraints = false
+    tray.backgroundColor = keyBgColor()
+    tray.layer.cornerRadius = trayRadius
+    tray.layer.masksToBounds = true
+    tray.isLayoutMarginsRelativeArrangement = true
+    tray.layoutMargins = UIEdgeInsets(top: trayPad, left: trayPad, bottom: trayPad, right: trayPad)
+
+    let chipCount = items.count
+    let width: CGFloat = CGFloat(chipCount) * chipW + CGFloat(chipCount - 1) * gap + trayPad * 2
+
+    for text in items {
+      let chip = UIButton(type: .system)
+      chip.setTitle(text, for: .normal)
+      chip.setTitleColor(keyTextColor(), for: .normal)
+      chip.titleLabel?.font = .systemFont(ofSize: chipFont, weight: .regular)
+      chip.backgroundColor = .clear
+      chip.layer.cornerRadius = chipRadius
+      chip.isUserInteractionEnabled = false
+      tray.addArrangedSubview(chip)
+    }
+
+    container.addSubview(tray)
+    let anchorFrame = anchor.convert(anchor.bounds, to: container)
+    let desiredX = anchorFrame.midX - width / 2
+    let clampedX = max(4, min(container.bounds.width - width - 4, desiredX))
+    let desiredY = anchorFrame.minY + offsetY
+    let clampedY = max(4, desiredY)
+    NSLayoutConstraint.activate([
+      tray.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: clampedX),
+      tray.topAnchor.constraint(equalTo: container.topAnchor, constant: clampedY),
+      tray.widthAnchor.constraint(equalToConstant: width),
+      tray.heightAnchor.constraint(equalToConstant: trayHeight),
+    ])
+    activeAccentTray = tray
+  }
+
+  private func pickAccentAndDismiss(gestureRecognizer gr: UILongPressGestureRecognizer) {
+    defer { dismissAccentTray() }
+    guard let tray = activeAccentTray else { return }
+    let loc = gr.location(in: tray)
+    // Find the chip whose frame contains the release point.
+    guard let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+          let ch = chip.title(for: .normal), !ch.isEmpty else {
+      // Slid off the tray — no insert (matches Apple).
+      return
+    }
+    insertAccent(ch)
+  }
+
+  /// Insert a tray selection — shared by the gesture path and the plane path.
+  private func insertAccent(_ ch: String) {
+    host?.hostTextDocumentProxy.insertText(ch)
+    // Same double-tap-caps chain reset as the plain insert path.
+    lastShiftTapTime = 0
+    if state.shift && !state.capsLock {
+      state.shift = false
+      stateChanged()
+    }
+    // Keep the tracker COHERENT rather than clearing it: wiping mid-word
+    // ("caf" + "é" → tracker "") makes the next letters a strict suffix of
+    // the real word — the exact desync the boundary verifier guards against.
+    // The ASCII-only guard keeps autocorrect away from accented words anyway.
+    lastAutocorrect = nil
+    pendingAutoSpace = false
+    typingGeneration += 1   // any in-flight async correction is now stale
+    currentWord += ch
+    refreshSuggestions()
+    updateAutoCap(afterTyping: ch)
+  }
+
+  private func dismissAccentTray() {
+    activeAccentTray?.removeFromSuperview()
+    activeAccentTray = nil
+  }
+
+  // MARK: - Accent tray via KeyPlaneView
+  //
+  // With the multi-touch plane on, character buttons have userInteraction OFF,
+  // so their UILongPressGestureRecognizers never fire. The plane detects the
+  // hold itself (per-track timer) and drives the SAME tray through these hooks
+  // — closing the "accent trays don't work while the plane is on" v1 gap.
+  // Coordinates: the plane and the mount container are pinned to identical
+  // edges, so plane-local points are container points.
+
+  /// Present the tray for a held key. Returns false when the key has no
+  /// accents (or the feature is off) so the plane leaves the touch as a
+  /// normal press.
+  /// Does this character have a tray waiting behind it? The plane asks before
+  /// committing on touch-down, because a key that can open a tray owes the
+  /// finger the chance to hold.
+  fileprivate func planeHasAccents(_ char: String) -> Bool {
+    guard flagBool("kb.keyPlane.accentTrays", true) else { return false }
+    guard let accents = accentMap[char.lowercased()] else { return false }
+    return !accents.isEmpty
+  }
+
+  fileprivate func planeTryPresentAccentTray(for button: UIButton?, char: String?) -> Bool {
+    // One tray at a time: a second finger's hold must not dismiss-and-replace
+    // the first finger's tray (the first finger would then commit against a
+    // tray it no longer owns).
+    guard activeAccentTray == nil else { return false }
+    guard flagBool("kb.keyPlane.accentTrays", true),
+          let button = button, let char = char,
+          let accents = accentMap[char.lowercased()], !accents.isEmpty
+    else { return false }
+    showAccentTray(for: button, base: char, options: accents)
+    guard let tray = activeAccentTray else { return false }
+    // Default-highlight the base chip (iOS does this) so releasing without
+    // sliding reads as "the base letter is selected".
+    if let baseChip = tray.subviews.first {
+      baseChip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+    }
+    return true
+  }
+
+  fileprivate func planeUpdateAccentTray(at point: CGPoint) {
+    guard let tray = activeAccentTray, let container = mountContainer else { return }
+    updateAccentTrayHighlight(at: tray.convert(point, from: container))
+  }
+
+  /// Release while a tray is open: a chip commits its accent; off-chip but
+  /// still on the held key commits the base char (`fallbackChar`); anywhere
+  /// else commits nothing. `lostTrayFallback` covers the tray being destroyed
+  /// under the finger (peek remount from another touch): `fallbackChar` was
+  /// computed against the NEW layer's geometry and may be nil, but the held
+  /// key must still type.
+  fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?,
+                                         lostTrayFallback: String? = nil) {
+    // If the tray is already gone (dismissed by a remount or another path),
+    // the held key must still type its base char — losing the keystroke
+    // entirely is the one unacceptable outcome.
+    guard let tray = activeAccentTray, let container = mountContainer else {
+      dismissAccentTray()
+      if let base = lostTrayFallback ?? fallbackChar { run(.inline(.insertKey(char: base))) }
+      return
+    }
+    defer { dismissAccentTray() }
+    let loc = tray.convert(point, from: container)
+    if let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+       let ch = chip.title(for: .normal), !ch.isEmpty {
+      insertAccent(ch)
+    } else if let base = fallbackChar {
+      run(.inline(.insertKey(char: base)))
+    }
+  }
+
+  fileprivate func planeDismissAccentTray() { dismissAccentTray() }
+
+  /// Generic icon-bearing key. `props.icon` accepts any of:
+  ///   - "sf:name"                     (SF Symbol shorthand)
+  ///   - "asset:name"                  (bundled UIImage)
+  ///   - "https://…" (or "http://…")   (remote — auto-cached to disk)
+  ///   - { sf: "…" } / { asset: "…" } / { url: "…" } / { emoji: "…" }
+  ///   - A bare SF Symbol name (backwards compat with older backend trees)
+  ///
+  /// This is the "end the rebuild cycle" hook — every icon-changing keyboard
+  /// tweak is a backend push instead of a Swift release. `on.onPress` carries
+  /// the KBActionSpec that fires when tapped (startDictation, insertText,
+  /// switchLayout, etc.) so the same node covers mic-like, refine-like, and
+  /// arbitrary future buttons.
+  private func buildIconKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    let spec = node.props?["icon"]
+    // Emoji-as-title path: renders as text so multi-color glyphs display right.
+    if let emoji = iconEmoji(spec) {
+      btn.setTitle(emoji, for: .normal)
+      btn.titleLabel?.font = .systemFont(ofSize: 22)
+    } else {
+      // Weak-ref the button so the remote-image callback can update it without
+      // retaining it beyond the tree lifetime. If a URL fetch completes after
+      // the button was already replaced by a re-render, this just no-ops.
+      let img = resolveIcon(spec) { [weak btn, weak self] in
+        guard let btn = btn else { return }
+        btn.setImage(self?.resolveIcon(spec) ?? nil, for: .normal)
+      }
+      if let img = img {
+        btn.setImage(img, for: .normal)
+      } else if case .string(let raw) = spec ?? .null,
+                !raw.hasPrefix("sf:"), !raw.hasPrefix("asset:"),
+                !raw.hasPrefix("http") {
+        // Bare "mic.fill"-style names — treat as SF Symbol for compat.
+        btn.setImage(UIImage(systemName: raw), for: .normal)
+      } else if spec == nil {
+        btn.setImage(UIImage(systemName: "questionmark"), for: .normal)
+      }
+      // Icon tint: prefer node.style.fg override so backend can force a
+      // specific icon color (mic on orange bg needs black icon, etc.), fall
+      // back to theme's keyText for the general case.
+      if let hex = node.style?["fg"]?.asString {
+        btn.tintColor = UIColor(tulmiHex: hex)
+      } else {
+        btn.tintColor = keyTextColor()
+      }
+      // Optional per-side icon inset so backend can control padding without
+      // shipping different assets. Reads props.iconInset (uniform) or
+      // props.iconInsetTop/… (per side).
+      let uni = node.props?["iconInset"]?.asCGFloat
+      let top = node.props?["iconInsetTop"]?.asCGFloat ?? uni ?? 0
+      let bot = node.props?["iconInsetBottom"]?.asCGFloat ?? uni ?? 0
+      let lef = node.props?["iconInsetLeft"]?.asCGFloat ?? uni ?? 0
+      let rig = node.props?["iconInsetRight"]?.asCGFloat ?? uni ?? 0
+      if top != 0 || bot != 0 || lef != 0 || rig != 0 {
+        btn.imageEdgeInsets = UIEdgeInsets(top: top, left: lef, bottom: bot, right: rig)
+      }
+    }
+    bindTap(btn, node: node, defaultAction: nil)
+    attachLongPress(btn, node: node)
+    return btn
+  }
+
+  /// Big space bar. Custom label from `labels.space` falls back to "space".
+  /// Behaviors baked in:
+  ///  - Single tap → inserts " ". Double-tap within 500ms → replaces the
+  ///    trailing space with ". " (Apple's "quick period" pattern).
+  ///  - Long-press (~300ms) → trackpad-cursor mode. Finger drags become
+  ///    horizontal cursor moves via adjustTextPosition(byCharacterOffset:).
+  ///    Two-finger drag reserved for a future selection extension.
+  ///  - Sound + haptic fire on the touch-down when Full Access is granted
+  ///    (shared with makeKeyButton — this override just handles the special
+  ///    tap semantics).
+  private func buildSpaceKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    // Native iOS shows "space" if only Tulmi is enabled, but the language code
+    // (e.g. "EN") if the user has multiple keyboards installed. Read via
+    // state.* so this stays consistent with backend bind: { text: "..." } and
+    // the two paths never drift out of sync.
+    let label: String
+    if state.hasMultipleKeyboards, !state.primaryLanguage.isEmpty {
+      label = state.primaryLanguage
+    } else {
+      label = host?.hostLabel("space", "space") ?? "space"
+    }
+    btn.setTitle(label, for: .normal)
+    btn.titleLabel?.font = .systemFont(ofSize: 15)
+    // Single-tap insertion fires on lift so slide-off cancels cleanly
+    // (Apple's slide-off pattern); a near lift and a cancelled short tap
+    // still count — see bindLift.
+    //
+    // A node may replace the tap with its own on.onPress, but only when it
+    // also sets props.override = true: space's native tap (double-space
+    // period, trackpad release, word boundary, layer return) is too much to
+    // lose to a stray onPress. The trackpad hold below stays either way.
+    if node.props?["override"]?.asBool == true, let ref = node.on?["onPress"] {
+      bindLift(btn) { [weak self] in self?.run(ref) }
+    } else {
+      bindLift(btn) { [weak self] in self?.handleSpaceTap() }
+    }
+
+    // Backend flags:
+    //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
+    //   kb.trackpad.longPressMs   (default 300) — hold-to-activate threshold
+    // (sensitivity / pt-per-char is exposed on the .changed handler below.)
+    if flagBool("kb.trackpad.enabled", true) {
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(spaceLongPress(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
+      lp.minimumPressDuration = flagDouble("kb.trackpad.longPressMs", 300) / 1000.0
+      lp.allowableMovement = 1000
+      btn.addGestureRecognizer(lp)
+    }
+    return btn
+  }
+
+  /// Fires when the user taps space. Handles the double-space-→-". " pattern.
+  private func handleSpaceTap() {
+    let now = Date().timeIntervalSince1970
+    if state.trackpadActive {
+      // Trackpad was ending — swallow this tap; the touchUp inside long-press
+      // already released the cursor.
+      state.trackpadActive = false
+      stateChanged()
+      return
+    }
+    let proxy = host?.hostTextDocumentProxy
+    // Backend flag: kb.smartPeriod.windowMs (default 500) — max gap between two
+    // space taps for the "double-space → period-space" replacement to fire.
+    let recent = now - _lastSpaceTapTime < (flagDouble("kb.smartPeriod.windowMs", 500) / 1000.0)
+    let smartPeriodOn: Bool = {
+      if let f = config.flags?["kb.smartPeriod"]?.asBool { return f }
+      return true
+    }()
+    if recent && smartPeriodOn, host?.hostIsSecureField() != true,
+       let ctx = proxy?.documentContextBeforeInput,
+       ctx.hasSuffix(" "),
+       let prevChar = ctx.dropLast().last,
+       !prevChar.isPunctuation, prevChar != "\n" {
+      // Replace the trailing " " with ". ".
+      proxy?.deleteBackward()
+      proxy?.insertText(". ")
+      _lastSpaceTapTime = 0
+      // The word boundary already ran on the first space; the tail is ". " —
+      // a clean boundary, so tracking stays valid.
+      resetTypingContext(tailAtBoundary: true)
+    } else {
+      proxy?.insertText(" ")
+      _lastSpaceTapTime = now
+      lastInsertedChar = " "   // word-start bigram row (" " entry) arms next-letter bias
+      pendingAutoSpace = false
+      typingGeneration += 1    // stale-guard for the async checker (symmetry with noteTyped)
+      handleWordBoundary(boundary: " ")
+    }
+    // Native returns to the letter layer after a space typed on 123/#+=.
+    autoReturnToLetters()
+    updateAutoCap()
+  }
+
+  /// Space/return on the number or symbol layer flips back to the letter
+  /// layer, like the system keyboard. kb.layer.returnAfterSpace kills it OTA.
+  private func autoReturnToLetters() {
+    guard flagBool("kb.layer.returnAfterSpace", true) else { return }
+    // Only bounce back from SYMBOL layers. config.layouts is the LANGUAGE
+    // list — treating layouts.first as "the letter layer" yanked a user
+    // typing on any non-first language back to English on every space.
+    let symbolIds = Set(flagString("kb.layer.symbolIds", "123,sym")
+      .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+    guard symbolIds.contains(state.layoutId) else { return }
+    let letters = flagString("kb.layer.lettersId", "en")
+    guard (config.layouts ?? []).contains(where: { $0.language == letters }),
+          state.layoutId != letters else { return }
+    state.layoutId = letters
+    // Async: this runs inside the space/return button's own action handler —
+    // a synchronous remount would deallocate that very button (and its
+    // gestures) mid-callback.
+    DispatchQueue.main.async { [weak self] in self?.remount() }
+  }
+
+  /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
+  /// we track the finger and issue adjustTextPosition calls in proportion to
+  /// horizontal movement. Ends when the finger lifts.
+  @objc private func spaceLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard let view = gr.view else { return }
+    switch gr.state {
+    case .began:
+      state.trackpadActive = true
+      _trackpadAnchor = gr.location(in: view).x
+      _trackpadOffset = 0
+      resetTypingContext()   // cursor is about to move — the word tracker is void
+      // Subtle haptic to signal mode entry.
+      if let host = host, host.hostHasFullAccess {
+        let g = UIImpactFeedbackGenerator(style: .light)
+        g.prepare(); g.impactOccurred()
+      }
+      stateChanged()
+    case .changed:
+      let cur = gr.location(in: view).x
+      // 7pt per character — matches Apple's feel. Sub-character deltas
+      // accumulate in _trackpadOffset so slow drags still move.
+      // Backend flag: kb.trackpad.ptPerChar (default 7) — pt of finger drag per
+      // one-character cursor step. Higher = less sensitive, easier fine-grained control.
+      let raw = Double(cur - _trackpadAnchor) / max(1.0, flagDouble("kb.trackpad.ptPerChar", 7))
+      let steps = Int(raw)
+      if steps != _trackpadOffset {
+        let delta = steps - _trackpadOffset
+        host?.hostTextDocumentProxy.adjustTextPosition(byCharacterOffset: delta)
+        _trackpadOffset = steps
+      }
+    case .ended, .cancelled, .failed:
+      state.trackpadActive = false
+      _lastSpaceTapTime = 0  // don't count the release as a tap
+      stateChanged()
+    default:
+      break
+    }
+  }
+
+  /// Shift toggle — modern behavior with directional arrows + hold-to-lock:
+  ///
+  ///   Visual:
+  ///     - state.shift = false     → down arrow (lowercase mode)
+  ///     - state.shift = true      → up arrow (uppercase mode)
+  ///     - state.capsLock = false  → outlined arrow, key-text color
+  ///     - state.capsLock = true   → filled arrow, brand orange (locked)
+  ///
+  ///   Interaction (matches the stock iOS keyboard's caps lock):
+  ///     - Tap (unlocked)  → toggle uppercase/lowercase (one-shot arm/disarm)
+  ///     - Hold (unlocked) → CAPS LOCK: persistent uppercase (filled orange up)
+  ///     - Tap or Hold (locked) → unlock back to lowercase
+  ///
+  ///   Notes:
+  ///     - Caps lock always means uppercase-locked (shift=true, capsLock=true),
+  ///       so the invariant capsLock ⇒ shift=true holds. There is no
+  ///       locked-lowercase state — that only ever looked like "nothing
+  ///       happened" when the user expected caps.
+  ///     - Long-press threshold is 0.35s — long enough to distinguish from
+  ///       a tap, short enough to feel snappy.
+  private func buildShiftKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    applyShiftKeyVisual(btn)
+    weakShiftButton = btn  // fast-shift path needs to reach the icon later
+    // Shift arms on touch-DOWN, like the system keyboard. On touch-up (the
+    // old wiring), a fast typist's shift↓·letter↓·letter↑·shift↑ overlap
+    // committed the letter BEFORE shift armed — lowercase letter, and the
+    // NEXT letter came out capitalized. keyTouchDown (added by makeKeyButton
+    // first) flushes held plane letters before this fires, so ordering holds.
+    let handler = UIAction { [weak self] _ in self?.handleShiftTap() }
+    btn.addAction(handler, for: .touchDown)
+    // Long-press → lock (or unlock+flip if already locked).
+    let lp = UILongPressGestureRecognizer(
+      target: WeakGRProxy(target: self, selector: #selector(handleShiftLongPress(_:))),
+      action: #selector(WeakGRProxy.handle(_:)))
+    // Backend flag: kb.shift.longPressMs (default 350) — hold threshold to lock
+    lp.minimumPressDuration = flagDouble("kb.shift.longPressMs", 350) / 1000.0
+    // MUST cancel the button's touch (default true) so the finger-up that ends
+    // the hold does NOT also fire touchUpInside → handleShiftTap(). Without this
+    // the hold locked caps, then the trailing tap saw capsLock == true and
+    // immediately unlocked+flipped it — so hold-to-lock appeared to do nothing.
+    // (This mirrors the letter accent-tray long-press, which relies on the same
+    // default to suppress its insert-on-release.)
+    lp.cancelsTouchesInView = true
+    btn.addGestureRecognizer(lp)
+    return btn
+  }
+
+  /// Set the ShiftKey's image + tint based on current state.
+  /// Backend flags:
+  ///   kb.shift.iconLowerOutlined  (default "arrowtriangle.down")
+  ///   kb.shift.iconUpperOutlined  (default "arrowtriangle.up")
+  ///   kb.shift.iconLowerLocked    (default "arrowtriangle.down.fill")
+  ///   kb.shift.iconUpperLocked    (default "arrowtriangle.up.fill")
+  ///   kb.shift.iconSize           (default 16)      — SF Symbol point size
+  ///   kb.shift.iconWeight         (default "semibold")
+  ///   kb.shift.lockedColor        (default "#E8A23C") — arrow tint when locked
+  private func applyShiftKeyVisual(_ btn: UIButton) {
+    let icon: String = {
+      if state.capsLock {
+        return state.shift
+          ? flagString("kb.shift.iconUpperLocked", "arrowtriangle.up.fill")
+          : flagString("kb.shift.iconLowerLocked", "arrowtriangle.down.fill")
+      } else {
+        return state.shift
+          ? flagString("kb.shift.iconUpperOutlined", "arrowtriangle.up")
+          : flagString("kb.shift.iconLowerOutlined", "arrowtriangle.down")
+      }
+    }()
+    let size = flagCGFloat("kb.shift.iconSize", 16)
+    let weight = sfWeight(flagString("kb.shift.iconWeight", "semibold"))
+    let cfg = UIImage.SymbolConfiguration(pointSize: size, weight: weight)
+    btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
+    btn.setTitle(nil, for: .normal)
+    btn.tintColor = state.capsLock
+      ? flagColor("kb.shift.lockedColor", "#E8A23C")
+      : keyTextColor()
+    btn.contentHorizontalAlignment = .center
+    btn.contentVerticalAlignment = .center
+  }
+
+  @objc private func handleShiftLongPress(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began else { return }
+    shiftHoldLock()
+  }
+
+  /// Hold-to-caps-lock, shared by the gesture path (plane off) and the
+  /// plane's shift-hold timer.
+  private func shiftHoldLock() {
+    if state.capsLock {
+      // Locked → unlock back to lowercase.
+      state.capsLock = false
+      state.shift = false
+    } else {
+      // Unlocked → CAPS LOCK: force persistent uppercase (stock-keyboard caps).
+      state.capsLock = true
+      state.shift = true
+    }
+    lastShiftTapTime = 0
+    stateChanged()
+    fireKeyHaptic("shift")
+  }
+
+  // MARK: - Plane role-key callbacks (shift + layer-peek, K7)
+
+  /// Shift went down on the plane: arm/toggle exactly like a tap (the plane
+  /// fires this on touch-DOWN, which is the native timing).
+  fileprivate func planeShiftDown() { handleShiftTap() }
+
+  /// Shift held on the plane → caps lock.
+  fileprivate func planeShiftLongPress() { shiftHoldLock() }
+
+  /// True only for the duration of a plane-initiated layer switch — the one
+  /// caller for which run(.switchLayout)'s remount must be synchronous.
+  private var planePeekInProgress = false
+
+  /// A layer key went down: switch NOW (synchronous remount — the persistent
+  /// plane rebinds and the same touch keeps working on the new layer).
+  /// Returns the layout to bounce back to if this turns into a slide-commit.
+  fileprivate func planePeekBegan(target: String?) -> String? {
+    let origin = state.layoutId
+    planePeekInProgress = true
+    run(.inline(.switchLayout(language: target)))
+    planePeekInProgress = false
+    return origin == state.layoutId ? nil : origin
+  }
+
+  /// A layer-peek slide committed a key: bounce back to where the peek began.
+  /// Called from the plane's touchesEnded — the plane survives the rebuild,
+  /// so synchronous is safe here.
+  fileprivate func planePeekReturn(to layout: String) {
+    guard (config.layouts ?? []).contains(where: { $0.language == layout }),
+          state.layoutId != layout else { return }
+    state.layoutId = layout
+    planePeekInProgress = true
+    remount()
+    planePeekInProgress = false
+  }
+
+  private func handleShiftTap() {
+    // Locked (caps lock) → tap unlocks back to lowercase.
+    if state.capsLock {
+      state.capsLock = false
+      state.shift = false
+      lastShiftTapTime = 0
+      stateChanged()
+      return
+    }
+    // Double-tap shift → CAPS LOCK, matching the system keyboard. A second tap
+    // within kb.shift.doubleTapMs of the last engages a persistent uppercase
+    // lock. (Hold-to-lock is kept too, via handleShiftLongPress, as a bonus.)
+    let now = Date().timeIntervalSince1970
+    let window = flagDouble("kb.shift.doubleTapMs", 300) / 1000.0
+    if lastShiftTapTime > 0 && (now - lastShiftTapTime) <= window {
+      state.capsLock = true
+      state.shift = true
+      lastShiftTapTime = 0
+      stateChanged()
+      fireKeyHaptic("shift")
+      return
+    }
+    // Single tap → one-shot uppercase for the next letter.
+    state.shift.toggle()
+    lastShiftTapTime = now
+    stateChanged()
+  }
+
+  /// Return key — inserts newline. Adapts label + tint to the current field's
+  /// UIReturnKeyType so Go / Send / Search / Done render correctly with the
+  /// system-blue accent (Apple's convention for action returns).
+  private func buildReturnKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    let rt = host?.hostReturnKeyType() ?? .default
+    btn.setTitle(returnKeyLabel(for: rt), for: .normal)
+    // The action accent (Go / Send / Search / Done) is painted by
+    // applyReturnAccent, which render() runs AFTER applyStyle — painting it
+    // here let the node's style.bg / style.fg overwrite it every time.
+    bindTap(btn, node: node, defaultAction: .returnKey)
+    return btn
+  }
+
+  /// The action accent for Go / Send / Search / Done… returns.
+  ///   node style.actionBg / style.actionFg — this key's own accent
+  ///   kb.returnKey.actionBg   (default "#007AFF") — else, every return key
+  ///   kb.returnKey.actionFg   (default "#FFFFFF")
+  /// Stored as the key's resting colour so a press restores the accent.
+  private func applyReturnAccent(node: KBNode, to view: UIView) {
+    guard let btn = view as? UIButton else { return }
+    let rt = host?.hostReturnKeyType() ?? .default
+    guard returnKeyIsAction(rt) else { return }
+    let accent = (node.style?["actionBg"]?.asString).map { UIColor(tulmiHex: $0) }
+      ?? flagColor("kb.returnKey.actionBg", "#007AFF")
+    let fg = (node.style?["actionFg"]?.asString).map { UIColor(tulmiHex: $0) }
+      ?? flagColor("kb.returnKey.actionFg", "#FFFFFF")
+    btn.backgroundColor = accent
+    btn.setTitleColor(fg, for: .normal)
+    objc_setAssociatedObject(btn, &Self.keyBaseColorKey, accent, .OBJC_ASSOCIATION_RETAIN)
+  }
+
+  /// Localized label for a UIReturnKeyType. Values pulled from Apple's own
+  /// UIKit table (matched empirically). Return "return" for default.
+  private func returnKeyLabel(for type: UIReturnKeyType) -> String {
+    switch type {
+    case .go:              return host?.hostLabel("return.go", "Go") ?? "Go"
+    case .join:            return host?.hostLabel("return.join", "Join") ?? "Join"
+    case .next:            return host?.hostLabel("return.next", "Next") ?? "Next"
+    case .route:           return host?.hostLabel("return.route", "Route") ?? "Route"
+    case .search:          return host?.hostLabel("return.search", "Search") ?? "Search"
+    case .send:            return host?.hostLabel("return.send", "Send") ?? "Send"
+    case .yahoo:           return host?.hostLabel("return.yahoo", "Yahoo") ?? "Yahoo"
+    case .google:          return host?.hostLabel("return.google", "Google") ?? "Google"
+    case .done:            return host?.hostLabel("return.done", "Done") ?? "Done"
+    case .emergencyCall:   return host?.hostLabel("return.emergency", "Emergency") ?? "Emergency"
+    case .continue:        return host?.hostLabel("return.continue", "Continue") ?? "Continue"
+    case .default:         return host?.hostLabel("return", "return") ?? "return"
+    @unknown default:      return host?.hostLabel("return", "return") ?? "return"
+    }
+  }
+
+  /// True for the return types Apple accents in system-blue (action returns).
+  private func returnKeyIsAction(_ type: UIReturnKeyType) -> Bool {
+    switch type {
+    case .default, .next: return false
+    default: return true
+    }
+  }
+
+  /// Resolve a functional key's glyph from DATA rather than a compiled-in
+  /// constant.
+  ///
+  /// Order: the node's own `props.icon` (so a tree can style one key), then a
+  /// global flag (so the backend can restyle every keyboard at once), then the
+  /// SF Symbol we shipped with. Accepts the full icon-spec vocabulary —
+  /// { sf }, { emoji }, { url }, { asset } — so a glyph can become an emoji or
+  /// a hosted image without a rebuild, which is what "backspace looks wrong in
+  /// this locale" actually needs.
+  private func applyKeyGlyph(_ btn: UIButton, node: KBNode, flag: String, fallbackSF: String) {
+    if let spec = node.props?["icon"] ?? flagIcon(flag),
+       let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      btn.setImage(img, for: .normal)
+      btn.imageView?.contentMode = .scaleAspectFit
+      return
+    }
+    btn.setImage(UIImage(systemName: fallbackSF), for: .normal)
+  }
+
+  /// Backspace — tap deletes one; long-press repeats (200ms initial then 40ms).
+  private func buildBackspaceKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.backspace", fallbackSF: "delete.left")
+    btn.tintColor = keyTextColor()
+    // on.onPress replaces the native delete only with props.override = true —
+    // hold-to-repeat, word acceleration and autocorrect revert live here.
+    if node.props?["override"]?.asBool == true, let ref = node.on?["onPress"] {
+      bindLift(btn) { [weak self] in self?.run(ref) }
+      return btn
+    }
+    btn.addTarget(self, action: #selector(deleteDown), for: .touchDown)
+    // .touchDragExit included: dragging off the held key must stop the
+    // auto-repeat — without it the repeat kept deleting until lift.
+    btn.addTarget(self, action: #selector(deleteUp),
+                  for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+    return btn
+  }
+  @objc private func deleteDown() {
+    // Backspace right after an autocorrect reverts it instead of deleting —
+    // and deliberately does NOT arm the repeat timer (holding through a
+    // revert must not machine-gun the restored text).
+    if maybeRevertAutocorrectOnDelete() {
+      fireKeyHaptic("backspace")
+      return
+    }
+    // First delete fires immediately on touch-down (Apple's pattern).
+    host?.hostTextDocumentProxy.deleteBackward()
+    noteDeletedBackward()
+    deleteRepeatCount = 1
+    deleteTimer?.invalidate()
+    // 500ms initial delay before repeat begins, then 90ms per char for the
+    // first 20 chars, then accelerate to whole-word deletion. Matches Apple's
+    // measured timings (see research report).
+    //
+    // Backend flag: kb.delete.initialDelayMs (default 500) — how long the user
+    // must hold before the auto-repeat kicks in.
+    // CRITICAL: scheduledTimer(withTimeInterval:...) adds to .default runloop
+    // mode. While a finger is on the screen iOS switches to .tracking mode
+    // and .default timers pause. Add explicitly to .common instead.
+    let initialDelay = flagDouble("kb.delete.initialDelayMs", 500) / 1000.0
+    let initial = Timer(timeInterval: initialDelay, repeats: false) { [weak self] _ in
+      self?.startDeleteRepeat()
+    }
+    RunLoop.main.add(initial, forMode: .common)
+    deleteTimer = initial
+    // Selection haptic on first press so touch-down feels alive even when the
+    // repeat hasn't kicked in yet.
+    fireKeyHaptic("backspace")
+  }
+
+  private func startDeleteRepeat() {
+    // Backend flags:
+    //   kb.delete.repeatIntervalMs  (default 90)   — per-char delete cadence
+    //   kb.delete.wordAfterChars    (default 20)   — count before word-boundary mode
+    // Same .common-mode requirement — see deleteDown for why.
+    let intervalMs = flagDouble("kb.delete.repeatIntervalMs", 90) / 1000.0
+    let wordThreshold = Int(flagDouble("kb.delete.wordAfterChars", 20))
+    let repeatTimer = Timer(timeInterval: intervalMs, repeats: true) { [weak self] _ in
+      guard let self = self else { return }
+      self.deleteRepeatCount += 1
+      if self.deleteRepeatCount > wordThreshold {
+        self.deleteWordBoundary()
+        self.resetTypingContext()
+      } else {
+        self.host?.hostTextDocumentProxy.deleteBackward()
+        self.noteDeletedBackward()
+      }
+    }
+    RunLoop.main.add(repeatTimer, forMode: .common)
+    deleteTimer = repeatTimer
+  }
+
+  private func deleteWordBoundary() {
+    guard let p = host?.hostTextDocumentProxy else { return }
+    // kb.delete.wordMaxChars — one accelerated repeat never eats more.
+    let cap = clampInt(flagDouble("kb.delete.wordMaxChars", 64), 0, 100_000)
+    var deleted = 0
+    while deleted < cap {
+      let ctx = p.documentContextBeforeInput ?? ""
+      guard let last = ctx.last else { break }
+      p.deleteBackward()
+      deleted += 1
+      if last.isWhitespace || last.isNewline { break }
+    }
+  }
+
+  @objc private func deleteUp() {
+    deleteTimer?.invalidate()
+    deleteTimer = nil
+    deleteRepeatCount = 0
+    updateAutoCap()
+  }
+
+  /// Globe key — the system keyboard switcher.
+  ///
+  /// With kb.globe.systemPicker (default true) every touch goes to
+  /// UIInputViewController.handleInputModeList(from:with:), the way Apple's
+  /// own sample wires it: a tap advances to the next keyboard, a hold shows
+  /// the system's keyboard list. Off, a tap just advances (the old wiring,
+  /// which never showed the list). A node with on.onPress runs that instead;
+  /// on.onLongPress still attaches its own hold action.
+  private func buildGlobeKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.globe", fallbackSF: "globe")
+    btn.tintColor = keyTextColor()
+    if node.on?["onPress"] != nil {
+      bindTap(btn, node: node, defaultAction: nil)
+    } else if flagBool("kb.globe.systemPicker", true) {
+      btn.addTarget(self, action: #selector(globeInputModeList(_:event:)), for: .allTouchEvents)
+    } else {
+      let action = UIAction { [weak self] _ in self?.host?.hostAdvanceInputMode() }
+      btn.addAction(action, for: .touchUpInside)
+    }
+    attachLongPress(btn, node: node)
+    return btn
+  }
+
+  /// Every globe touch, handed to the system switcher (see buildGlobeKey).
+  @objc private func globeInputModeList(_ btn: UIButton, event: UIEvent?) {
+    guard let event = event else { return }
+    host?.hostHandleInputModeList(from: btn, with: event)
+  }
+
+  /// on.onLongPress — any key may carry a hold action.
+  private func attachLongPress(_ btn: UIButton, node: KBNode) {
+    guard let long = node.on?["onLongPress"] else { return }
+    let lp = UILongPressGestureRecognizer(
+      target: WeakGRProxy(target: self, selector: #selector(longPressFired(_:))),
+      action: #selector(WeakGRProxy.handle(_:)))
+    lp.name = "kb.longPress.action"
+    lp.minimumPressDuration = flagDouble("kb.longPress.ms", 500) / 1000.0
+    btn.addGestureRecognizer(lp)
+    objc_setAssociatedObject(lp, &Self.longPressActionKey, long, .OBJC_ASSOCIATION_RETAIN)
+  }
+  private static var longPressActionKey: UInt8 = 0
+  @objc private func longPressFired(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began else { return }
+    if let ref = objc_getAssociatedObject(gr, &Self.longPressActionKey) as? KBActionRef {
+      run(ref)
+    }
+  }
+
+  /// Mic key — toggles startDictation / stopDictation based on state.dictating.
+  /// Icon tint respects node.style.fg (backend can override the theme's white
+  /// keyText — the tools-row mic uses black-on-orange). Stop-dictation now
+  /// auto-fires runRefine so the captured message moves straight into the
+  /// refinement pipeline without a second button press.
+  ///
+  /// The default action wiring here still exists so old backend trees (that
+  /// don't specify on.onPress) keep working. New trees can override with
+  /// on.onPress: { kind: "condition", ... } for custom flows — see
+  /// makeToolsRow() in the backend catalog.
+  private func buildMicKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    // Register for later access by the dot-stream visualizer during recording.
+    // There's only ever one MicKey rendered at a time (dark and light variants
+    // are visibleIf-gated), so a single weak ref is safe.
+    currentMicButton = btn
+    // Icon tint: prefer explicit style.fg override, else keyTextColor().
+    let tint: UIColor = {
+      if let hex = node.style?["fg"]?.asString { return UIColor(tulmiHex: hex) }
+      return keyTextColor()
+    }()
+    // Mic appearance:
+    //   • RECORDING → the brand structure gives way to a tiny physics sim: a
+    //     handful of dots wandering inside the circle, bouncing off the wall
+    //     and each other (MicParticleView). Backend can disable it via
+    //     kb.mic.particles=false to fall back to the animated media.
+    //   • IDLE      → the CLEAN brand mark (bundled TailzuMark, else SF mic) on
+    //     the amber circle — "the structure".
+    let particlesOn = flagBool("kb.mic.particles", true)
+    // THE MARK, FROM THE SERVER: its shapes and its motion travel on the node.
+    // Absent — a backend older than this — the bundled asset stands in, which
+    // is the same picture standing still.
+    let markSpec = node.props?["mark"]?.asObject
+    let markMotion = node.props?["motion"]?.asObject
+    let markProgram = node.props?["program"]?.asObject
+    // What the server wants of the key: its program (everything, idle and
+    // recording, as text), else the dispersal, the particles, or nothing.
+    let recKind = TulmiMarkView.recordingKind(markMotion, program: markProgram)
+    let plays = (recKind == "disperse" || recKind == "program") && markSpec != nil
+    if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
+      // The structure bursts apart into the dots (recording), or the dots are
+      // springing back into the structure (micReassembling, after stop). Either
+      // way we mount the SAME persistent sim so the motion is continuous across
+      // the remount — never a re-seed mid-flight.
+      btn.setImage(nil, for: .normal)
+      let particles: MicParticleView
+      if let existing = currentMicParticles {
+        existing.removeFromSuperview()          // detach from the discarded btn
+        particles = existing                    // reuse → dots + physics continuity
+      } else {
+        // More, tinier dots → a dense swarm that constantly collides with the
+        // wall and each other, instead of a few big blobs. Backend-tunable.
+        let count = Int(flagCGFloat("kb.mic.particles.count", 60))
+        let dotR = flagCGFloat("kb.mic.particles.radius", 0.9)
+        // The dots burst from whichever mark the key is drawing.
+        let mark = markSpec.flatMap { TulmiMarkView.image(spec: $0, tint: tint, size: CGSize(width: 44, height: 44)) }
+          ?? SDUIRenderer.tailzuMark()
+        particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
+        // The swarm's physics, from the server (defaults: the shipped feel).
+        particles.burstMin = flagCGFloat("kb.mic.particles.burstMin", 55)
+        particles.burstMax = flagCGFloat("kb.mic.particles.burstMax", 110)
+        particles.drag = flagCGFloat("kb.mic.particles.drag", 0.99)
+        particles.minSpeed = flagCGFloat("kb.mic.particles.minSpeed", 24)
+        particles.stiffness = flagCGFloat("kb.mic.particles.stiffness", 26)
+        particles.damping = flagCGFloat("kb.mic.particles.damping", 0.8)
+        particles.settleDistance = flagCGFloat("kb.mic.particles.settlePt", 0.8)
+        particles.settleTimeout = flagCGFloat("kb.mic.particles.settleMs", 600) / 1000
+        currentMicParticles = particles
+      }
+      particles.translatesAutoresizingMaskIntoConstraints = false
+      btn.addSubview(particles)
+      let inset = flagCGFloat("kb.mic.particles.inset", 6)
+      NSLayoutConstraint.activate([
+        particles.leadingAnchor.constraint(equalTo: btn.leadingAnchor, constant: inset),
+        particles.trailingAnchor.constraint(equalTo: btn.trailingAnchor, constant: -inset),
+        particles.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
+        particles.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
+      ])
+    } else if state.dictating, !plays,
+              let spec = flagIcon("kb.mic.idleIcon"),
+              let img = resolveIcon(spec, onLoad: { [weak self] in self?.stateChanged() }) {
+      // Fallback recording visual (particles disabled): the animated media.
+      btn.setImage(img, for: .normal)
+      btn.imageEdgeInsets = .zero
+      btn.imageView?.contentMode = .scaleAspectFill
+      btn.imageView?.startAnimating()
+    } else if !state.flowArmed,
+              flagBool("kb.flow.armGlyph.enabled", false),
+              !["local", "stream", "handoff"].contains(flagString("kb.mic.mode", "flow").lowercased()) {
+      // OFF by default (owner preference: the mic is icon-only and always the
+      // brand mark). When enabled, an unarmed flow session shows the "Start
+      // Flow" bolt so the arm-first tap looks different from a ready mic.
+      let cfgSym = UIImage.SymbolConfiguration(
+        pointSize: flagCGFloat("kb.flow.glyphSize", 16), weight: .semibold)
+      btn.setImage(UIImage(systemName: flagString("kb.flow.startGlyph", "bolt.fill"),
+                           withConfiguration: cfgSym), for: .normal)
+      btn.imageEdgeInsets = .zero
+      btn.imageView?.contentMode = .center
+    } else if let spec = markSpec,
+              let mv = plays ? persistedMark(spec: spec, motion: markMotion, program: markProgram, tint: tint)
+                              : TulmiMarkView(spec: spec, motion: markMotion, program: markProgram, tint: tint) {
+      // THE MARK, DRAWN FROM THE SERVER'S SHAPES, not from a picture: resized,
+      // recoloured or set moving by a deploy. Only geometry reaches this
+      // branch, so pushed media still cannot stand where the mark stands.
+      // With the dispersal it is the same view at idle and while recording:
+      // the parts fly out and back in place, so nothing is swapped.
+      btn.setImage(nil, for: .normal)
+      btn.imageView?.stopAnimating()
+      mv.translatesAutoresizingMaskIntoConstraints = false
+      btn.addSubview(mv)
+      let inset = flagCGFloat("kb.mic.idleIconInset", 0)
+      NSLayoutConstraint.activate([
+        mv.leadingAnchor.constraint(equalTo: btn.leadingAnchor, constant: inset),
+        mv.trailingAnchor.constraint(equalTo: btn.trailingAnchor, constant: -inset),
+        mv.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
+        mv.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
+      ])
+    } else if let mark = SDUIRenderer.tailzuMark() {
+      // OWNER DECISION: the idle mic is the brand mark and never backend-pushed
+      // MEDIA. The server may redraw it as geometry (the branch above); it may
+      // not replace it with a picture. kb.mic.idleIcon is deliberately NOT
+      // consulted at idle (it remains only the recording fallback above); an
+      // uploaded animation must not replace the mark again.
+      // Idle brand mark, filling the circle.
+      //
+      // A UIButton does NOT scale its image up. `.scaleAspectFit` only ever
+      // shrinks; the image view is laid out at the image's INTRINSIC size and
+      // centred. The mark is a 30pt asset and the mic is a 36pt circle, so it
+      // sat 3pt short of the wall on every side — a ring of empty amber that
+      // no inset value could close, because the inset was already 0 and the
+      // gap was never an inset.
+      //
+      // `.fill` on both axes hands the image view the whole content rect, and
+      // aspect-fit then scales the mark UP into it. kb.mic.idleIconInset means
+      // what it says again: 0 fills, larger pulls it in.
+      btn.setImage(mark.withRenderingMode(.alwaysTemplate), for: .normal)
+      btn.imageView?.stopAnimating()
+      btn.imageView?.contentMode = .scaleAspectFit
+      btn.contentHorizontalAlignment = .fill
+      btn.contentVerticalAlignment = .fill
+      let inset = flagCGFloat("kb.mic.idleIconInset", 0)
+      btn.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+    } else {
+      // Only reachable if the brand mark is missing from the built extension —
+      // i.e. the asset catalog did not compile in. Apple's mic on OUR keyboard
+      // is the visible symptom of a packaging failure, so it is logged rather
+      // than quietly worn.
+      NSLog("[Tailzu][kb] TailzuMark missing from the bundle — showing the system mic.")
+      btn.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+    }
+    btn.tintColor = tint
+    // If the backend provided an explicit on.onPress, use that (backend can
+    // wire condition + sequence to do "stop then refine" itself). Otherwise
+    // fall back to the built-in toggle — WITH auto-refine on stop so the
+    // captured text always moves forward regardless of tree shape.
+    if let ref = node.on?["onPress"] {
+      let action = UIAction { [weak self] _ in self?.run(ref) }
+      btn.addAction(action, for: .touchUpInside)
+    } else if !["local", "stream", "handoff"].contains(flagString("kb.mic.mode", "flow").lowercased()) {
+      // FLOW mode — and any ABSENT/UNKNOWN mode, since iOS blocks in-extension
+      // recording so we must never default to it — has its OWN state machine in
+      // the host (arm → dictate → stop, driven by the background-audio session).
+      // Only an explicit "local"/"stream"/"handoff" takes the toggle branch below.
+      // The renderer must NOT toggle
+      // state.dictating here or auto-run refine — doing both is what desynced
+      // the mic: the first tap (which only opens the app to arm) still fired the
+      // recording particles and left `dictating` stuck true, so the next tap hit
+      // the "stop + refine" branch and pushed a bad refine onto the typepad.
+      // Defer entirely to the host: it calls reflectDictating(true/false) ONLY
+      // when audio is actually being captured, so the particles + icon track the
+      // real recording state, and it owns whether/when to refine.
+      let action = UIAction { [weak self] _ in self?.host?.hostStartDictation() }
+      btn.addAction(action, for: .touchUpInside)
+    } else {
+      let action = UIAction { [weak self] _ in
+        guard let self = self else { return }
+        if self.state.dictating {
+          // stopDictation → runRefine, so the message auto-flows into refine.
+          self.run(.inline(.sequence(actions: [
+            .inline(.stopDictation),
+            .inline(.runRefine),
+          ])))
+        } else {
+          self.run(.inline(.startDictation))
+        }
+      }
+      btn.addAction(action, for: .touchUpInside)
+    }
+    return btn
+  }
+
+  /// Refine key — dispatches runRefine, unless the node's on.onPress says
+  /// otherwise. on.onLongPress adds a hold action.
+  private func buildRefineKey(node: KBNode) -> UIView {
+    let btn = makeKeyButton()
+    applyKeyGlyph(btn, node: node, flag: "kb.icon.refine", fallbackSF: "sparkles")
+    btn.tintColor = keyTextColor()
+    if node.on?["onPress"] != nil {
+      bindTap(btn, node: node, defaultAction: nil)
+    } else {
+      let action = UIAction { [weak self] _ in self?.run(.inline(.runRefine)) }
+      btn.addAction(action, for: .touchUpInside)
+    }
+    attachLongPress(btn, node: node)
+    return btn
+  }
+
+  /// Suggestion bar — horizontal scroll of chip buttons from state.suggestions.
+  /// Empty until backend fills it; view is still laid out (fixed height).
+  private func buildSuggestionBar(node: KBNode) -> UIView {
+    // Backend flags:
+    //   kb.suggestion.gap        (default 8)   — spacing between chips
+    //   kb.suggestion.edgeInset  (default 8)   — left/right padding of the scroll region
+    //   kb.suggestion.chipRadius (default 12)
+    //   kb.suggestion.chipPadV   (default 4)   — vertical padding inside chip
+    //   kb.suggestion.chipPadH   (default 12)  — horizontal padding inside chip
+    //   kb.suggestion.height     (default 36)
+    //   kb.suggestion.fontSize   (default 15)
+    //   kb.suggestion.chipBg / .chipFg / .chipBorder / .chipBorderWidth
+    //   kb.suggestion.emphasizeFirst (default true) + .leadBg / .leadFg
+    let gap = flagCGFloat("kb.suggestion.gap", 8)
+    let edge = flagCGFloat("kb.suggestion.edgeInset", 8)
+    let barHeight = flagCGFloat("kb.suggestion.height", 36)
+
+    let scroll = UIScrollView()
+    scroll.showsHorizontalScrollIndicator = false
+    let row = UIStackView()
+    row.axis = .horizontal
+    row.spacing = gap
+    row.translatesAutoresizingMaskIntoConstraints = false
+    scroll.addSubview(row)
+    NSLayoutConstraint.activate([
+      row.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: edge),
+      row.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -edge),
+      row.topAnchor.constraint(equalTo: scroll.topAnchor),
+      row.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
+      row.heightAnchor.constraint(equalTo: scroll.heightAnchor),
+    ])
+    suggestionRowStack = row
+    renderSuggestionChips(into: row)
+    scroll.heightAnchor.constraint(equalToConstant: barHeight).isActive = true
+    return scroll
+  }
+
+  /// The live suggestion row, for in-place chip refreshes from the typing
+  /// pipeline (refreshSuggestions / handleWordBoundary). Chip updates must
+  /// NEVER remount the tree — that would put a full rebuild on the keystroke
+  /// path.
+  private weak var suggestionRowStack: UIStackView?
+
+  /// Suggestion chips.
+  ///
+  /// These used to be painted with keyBgColor()/keyTextColor() — the exact
+  /// fill and text of a LETTER KEY — so they read as three stray keys floating
+  /// in the tools row rather than as something offered to tap. They also had
+  /// no font control, no border and no hierarchy, while every real key around
+  /// them has deliberate sizing and a shadow.
+  ///
+  /// Now they're their own surface: a quieter translucent fill with a hairline
+  /// edge (the app's editorial language), and the FIRST chip carries the brand
+  /// accent because it's the one that will actually be applied — native's
+  /// centre-slot emphasis, mapped honestly onto our ranked list. Every value
+  /// is backend-tunable so the look can be adjusted without a rebuild.
+  /// Reused chip / divider views.
+  ///
+  /// These were rebuilt from scratch on every suggestion update — that is on
+  /// nearly every keystroke — which churned the view tree and, worse, made the
+  /// touch plane's obstacle list point at dead views, forcing a full hierarchy
+  /// walk to rediscover the replacements. Stable identities remove both costs;
+  /// a reused chip reads its word from `state.suggestions` at TAP time via its
+  /// tag, so it can never apply a stale suggestion.
+  private var chipPool: [UIButton] = []
+  private var dividerPool: [UIView] = []
+
+  /// Returns true when the row's arranged subviews CHANGED — the only case
+  /// where the plane's obstacle list has to be re-walked.
+  @discardableResult
+  private func renderSuggestionChips(into row: UIStackView) -> Bool {
+    let chipRadius = flagCGFloat("kb.suggestion.chipRadius", 12)
+    let chipPadV = flagCGFloat("kb.suggestion.chipPadV", 4)
+    let chipPadH = flagCGFloat("kb.suggestion.chipPadH", 12)
+    let fontSize = flagCGFloat("kb.suggestion.fontSize", 15)
+    let dark = keyIsDark(keyBgColor())
+    // Deliberately NOT the key fill: a suggestion is an offer, not a key.
+    let chipBg = flagColor("kb.suggestion.chipBg", dark ? "#FFFFFF14" : "#00000012")
+    let chipFg = flagColor("kb.suggestion.chipFg", dark ? "#FFFFFFF2" : "#000000E6")
+    let borderColor = flagColor("kb.suggestion.chipBorder", dark ? "#FFFFFF24" : "#00000018")
+    let borderWidth = flagCGFloat("kb.suggestion.chipBorderWidth", 1)
+    // Emphasis follows MEANING, not list position. Only "candidates" (ranked
+    // swipe results) have a genuine best answer worth the brand accent.
+    //   • revert     — the chip is the user's OWN word after an autocorrect
+    //                  landed. Painting "undo" in brand amber points the eye
+    //                  at rejecting the correction, which is backwards; iOS
+    //                  instead QUOTES the original, the universal "keep what
+    //                  you typed" signal. We do the same.
+    //   • alternates — confusable real words; none is "the" answer, so
+    //                  emphasizing the first would be an arbitrary claim.
+    let kind = state.suggestionKind
+    let isRevert = kind == "revert"
+    let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
+    let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
+    let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
+
+    // The bar can also render as a plain divided row (native's three-slot
+    // strip) instead of pills — kb.suggestion.style, so the whole shape is a
+    // backend decision, not a compiled-in one.
+    let flatStyle = flagString("kb.suggestion.style", "chips").lowercased() == "flat"
+    let dividerColor = flagColor("kb.suggestion.dividerColor", dark ? "#FFFFFF24" : "#00000018")
+
+    let items = state.suggestions
+
+    // Grow the pools to fit. They only ever grow, and to the largest bar the
+    // user has seen — three or four views.
+    while chipPool.count < items.count {
+      let b = UIButton(type: .system)
+      // The handler resolves the word from the LIVE state through the sender's
+      // tag rather than capturing it, which is what makes reuse safe: a
+      // recycled chip always applies the word it is currently showing.
+      b.addAction(UIAction { [weak self] act in
+        guard let self = self,
+              let btn = act.sender as? UIButton,
+              btn.tag >= 0, btn.tag < self.state.suggestions.count else { return }
+        self.applySuggestion(self.state.suggestions[btn.tag])
+      }, for: .touchUpInside)
+      chipPool.append(b)
+    }
+    while dividerPool.count < max(0, items.count - 1) {
+      let sep = UIView()
+      sep.translatesAutoresizingMaskIntoConstraints = false
+      sep.widthAnchor.constraint(equalToConstant: 1).isActive = true
+      sep.heightAnchor.constraint(
+        equalToConstant: flagCGFloat("kb.suggestion.dividerHeight", 18)).isActive = true
+      dividerPool.append(sep)
+    }
+
+    var desired: [UIView] = []
+    for (i, s) in items.enumerated() {
+      let isLead = leadEnabled && i == 0
+      // A divider between slots, as the system strip has. Added BEFORE the
+      // chip so it separates rather than trails.
+      if flatStyle, i > 0 {
+        let sep = dividerPool[i - 1]
+        sep.backgroundColor = dividerColor
+        desired.append(sep)
+      }
+      let chip = chipPool[i]
+      chip.tag = i
+      // Quote a revert so it reads as "keep what you typed" rather than as
+      // another word being suggested to you.
+      chip.setTitle(isRevert ? "\u{201C}\(s)\u{201D}" : s, for: .normal)
+      chip.setTitleColor(isLead ? leadFg : chipFg, for: .normal)
+      chip.titleLabel?.font = .systemFont(ofSize: fontSize, weight: isLead ? .semibold : .regular)
+      // Flat mode paints no surface at all — the words sit on the bar, native
+      // style. The lead still reads as the lead through weight and colour.
+      chip.backgroundColor = flatStyle ? .clear : (isLead ? leadBg : chipBg)
+      if flatStyle, isLead { chip.setTitleColor(leadBg, for: .normal) }
+      chip.layer.cornerRadius = flatStyle ? 0 : chipRadius
+      // Assigned unconditionally: a REUSED chip that carried a border last
+      // pass must lose it when it becomes the lead, rather than keeping a
+      // stale edge from whatever it was showing before.
+      if !flatStyle, !isLead, borderWidth > 0 {
+        chip.layer.borderWidth = borderWidth
+        chip.layer.borderColor = borderColor.cgColor
+      } else {
+        chip.layer.borderWidth = 0
+      }
+      chip.contentEdgeInsets = UIEdgeInsets(top: chipPadV, left: chipPadH, bottom: chipPadV, right: chipPadH)
+      desired.append(chip)
+    }
+
+    // Touch the stack only when the ARRANGEMENT changed. Re-adding identical
+    // views would invalidate layout — and the obstacle list — for nothing.
+    if row.arrangedSubviews.elementsEqual(desired, by: { $0 === $1 }) { return false }
+    row.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    desired.forEach { row.addArrangedSubview($0) }
+    return true
+  }
+
+  /// One-shot latch for the remount fallback below: a tree with NO
+  /// SuggestionBar node at all would otherwise remount on EVERY completion
+  /// update (the snapshot can't see suggestions), reintroducing the
+  /// per-keystroke rebuild. Cleared when a bar actually mounts.
+  private var suggestionBarRemountAttempted = false
+
+  fileprivate func updateSuggestionBarInPlace() {
+    guard let row = suggestionRowStack, row.window != nil else {
+      // No live bar: a backend tree may gate the SuggestionBar node on
+      // state.hasSuggestions (visibleIf CULLS it, so there's no row to fill
+      // in place). Remount ONCE so the gate re-evaluates — if the tree simply
+      // has no bar, don't keep paying rebuilds for it.
+      if !state.suggestions.isEmpty, !suggestionBarRemountAttempted {
+        suggestionBarRemountAttempted = true
+        stateChanged()
+      }
+      return
+    }
+    suggestionBarRemountAttempted = false
+    // Chips are obstacles for the touch plane's top-row reach. Only a changed
+    // ARRANGEMENT can change which views those are — a chip that merely swapped
+    // its word is the same view, and its new rect is picked up by the plane's
+    // own refresh when the next touch lands. So the hierarchy walk that used to
+    // run on every keystroke now runs only when the bar's shape changes.
+    if renderSuggestionChips(into: row) {
+      keyPlane?.setObstaclesDirty()
+    }
+  }
+
+  /// Every live, enabled control in the mounted tree that the plane must not
+  /// steal touches from. Plane-managed letter keys have userInteraction OFF,
+  /// so they're excluded naturally.
+  /// Pull side of the plane's obstacle refresh — see setObstaclesDirty().
+  fileprivate func planeObstacleViews() -> [UIView] { collectPlaneObstacles() }
+
+  private func collectPlaneObstacles() -> [UIView] {
+    guard let rootV = mountedRoot else { return [] }
+    var out: [UIView] = []
+    func walk(_ v: UIView) {
+      // NOTE: no isEnabled check — a DISABLED control (e.g. mic with voice
+      // off) must still block the plane; its area going to a letter would
+      // type where the user expected a dead button.
+      if let c = v as? UIControl, c.isUserInteractionEnabled, !c.isHidden {
+        out.append(c)
+      }
+      for s in v.subviews { walk(s) }
+    }
+    walk(rootV)
+    return out
+  }
+
+  /// Waveform bars — driven by a 30 FPS Timer modulating bar heights from
+  /// state.micLevel with a random baseline (matches the RN counterpart).
+  private func buildWaveform(node: KBNode) -> UIView {
+    // Backend flags:
+    //   kb.waveform.barCount        (default 24)
+    //   kb.waveform.color           (default "#999999")
+    //   kb.waveform.radius          (default 1.5)
+    //   kb.waveform.spacing         (default 3)
+    //   kb.waveform.height          (default 24)
+    //   kb.waveform.levelMultiplier (default 0.6)
+    //   kb.waveform.baselineMin     (default 0.2)
+    //   kb.waveform.baselineMax     (default 0.6)
+    //   kb.waveform.fps             (default 30) — see below
+    let cfg = WaveformView.Config(
+      barCount: Int(flagDouble("kb.waveform.barCount", 24)),
+      barColor: flagColor("kb.waveform.color", "#999999"),
+      barRadius: flagCGFloat("kb.waveform.radius", 1.5),
+      barSpacing: flagCGFloat("kb.waveform.spacing", 3),
+      height: flagCGFloat("kb.waveform.height", 24),
+      levelMultiplier: flagCGFloat("kb.waveform.levelMultiplier", 0.6),
+      baselineMin: flagCGFloat("kb.waveform.baselineMin", 0.2),
+      baselineMax: flagCGFloat("kb.waveform.baselineMax", 0.6),
+    )
+    let w = WaveformView(config: cfg)
+    w.tintColor = keyTextColor()
+    w.setLevel(state.micLevel)
+    if waveformTimer == nil {
+      // Backend flag: kb.waveform.fps (default 30)
+      let fps = flagDouble("kb.waveform.fps", 30)
+      let t = Timer(timeInterval: 1.0 / max(1.0, fps), repeats: true) { [weak self] _ in
+        self?.waveformView?.setLevel(self?.state.micLevel ?? 0)
+      }
+      RunLoop.main.add(t, forMode: .common)
+      waveformTimer = t
+    }
+    waveformView = w
+    return w
+  }
+
+  /// Bound to state.status — updated whenever the host reflects setStatus().
+  private func buildStatusLabel(node: KBNode) -> UIView {
+    let l = UILabel()
+    l.text = state.status
+    l.textAlignment = .center
+    l.font = .systemFont(ofSize: 12)
+    l.textColor = keyTextColor()
+    l.isHidden = state.status.isEmpty
+    return l
+  }
+
+  /// 1pt hairline divider.
+  private func buildDivider(node: KBNode) -> UIView {
+    let v = UIView()
+    // #FFFFFF14 is the old white at 8%, to the nearest byte.
+    v.backgroundColor = flagColor("kb.divider.color", "#FFFFFF14")
+    v.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.divider.thicknessPx", 1) / UIScreen.main.scale).isActive = true
+    return v
+  }
+
+  /// Blur backdrop wrapping the children — UIVisualEffectView with the mapped
+  /// UIBlurEffect.Style from the node's effect.
+  private func buildBlurBackdrop(node: KBNode) -> UIView {
+    let style = blurStyle(from: node.effect ?? .blur(style: "systemThinMaterial"))
+    let effectView = UIVisualEffectView(effect: UIBlurEffect(style: style))
+    // Children mount inside the effect view's contentView so they render above
+    // the blur, not underneath it.
+    let stack = UIStackView()
+    stack.axis = .vertical
+    stack.alignment = .fill
+    stack.spacing = CGFloat(node.style?["spacing"]?.asDouble ?? 0)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    for c in node.children ?? [] {
+      stack.addArrangedSubview(render(node: c))
+    }
+    effectView.contentView.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: effectView.contentView.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: effectView.contentView.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: effectView.contentView.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: effectView.contentView.bottomAnchor),
+    ])
+    return effectView
+  }
+
+  /// Placeholder for unknown component types — a small red view labeled "?"
+  /// so schema mismatches show up on screen instead of silently disappearing.
+  private func buildUnknown(type: String) -> UIView {
+    NSLog("unknown kb component: %@", type)
+    let v = UIView()
+    v.backgroundColor = .red
+    let l = UILabel()
+    l.text = "?"
+    l.textColor = .white
+    l.textAlignment = .center
+    l.font = .boldSystemFont(ofSize: 14)
+    l.translatesAutoresizingMaskIntoConstraints = false
+    v.addSubview(l)
+    NSLayoutConstraint.activate([
+      l.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+      l.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+      l.topAnchor.constraint(equalTo: v.topAnchor),
+      l.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+    ])
+    v.widthAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+    v.heightAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
+    return v
+  }
+
+  // MARK: - Generic node builders (backend can render arbitrary UI)
+
+  /// Free-form text label. Backend controls all of: text (literal via
+  /// props.text OR live via bind.text against state.*), font size, weight,
+  /// color, alignment, numberOfLines. Kept intentionally generic so a single
+  /// node type covers headers, status lines, hints, etc.
+  private func buildTextLabel(node: KBNode) -> UIView {
+    let l = UILabel()
+    l.numberOfLines = Int(node.props?["numberOfLines"]?.asDouble ?? 1)
+    let literal = node.props?["text"]?.asString
+    if let bound = node.bind?["text"], let val = stateValue(for: bound) {
+      l.text = val
+    } else {
+      l.text = literal
+    }
+    if let size = node.style?["fontSize"]?.asCGFloat {
+      let weight = fontWeight(from: node.style?["fontWeight"]?.asString)
+      l.font = .systemFont(ofSize: size, weight: weight)
+    }
+    if let fg = node.style?["fg"]?.asString { l.textColor = UIColor(tulmiHex: fg) }
+    switch node.style?["align"]?.asString {
+    case "center": l.textAlignment = .center
+    case "right":  l.textAlignment = .right
+    default:       l.textAlignment = .left
+    }
+    return l
+  }
+
+  /// Static image node. `props.source` accepts the same shapes as
+  /// IconKey.props.icon: { sf } / { asset } / { url } / { emoji } / string
+  /// shorthand. Async fetches auto-refresh via resolveIcon's onLoad callback.
+  private func buildImageNode(node: KBNode) -> UIView {
+    let iv = UIImageView()
+    iv.contentMode = .scaleAspectFit
+    let spec = node.props?["source"] ?? node.props?["icon"]
+    if let emoji = iconEmoji(spec) {
+      // Render emoji as a label — no image needed.
+      let l = UILabel()
+      l.text = emoji
+      l.textAlignment = .center
+      l.font = .systemFont(ofSize: node.style?["fontSize"]?.asCGFloat ?? 32)
+      return l
+    }
+    if let img = resolveIcon(spec, onLoad: { [weak iv, weak self] in
+      iv?.image = self?.resolveIcon(spec)
+    }) {
+      iv.image = img
+    }
+    if let tint = node.style?["fg"]?.asString {
+      iv.tintColor = UIColor(tulmiHex: tint)
+    }
+    return iv
+  }
+
+  /// Simple 0–1 progress bar. `bind.value` → state path returning a number.
+  /// style controls track/fill color, height, radius.
+  private func buildProgressBar(node: KBNode) -> UIView {
+    let track = UIView()
+    track.backgroundColor = UIColor(tulmiHex: node.style?["trackBg"]?.asString ?? "#FFFFFF1A")
+    track.layer.cornerRadius = node.style?["radius"]?.asCGFloat ?? 4
+    track.clipsToBounds = true
+    let fill = UIView()
+    fill.backgroundColor = UIColor(tulmiHex: node.style?["fg"]?.asString ?? "#FFFFFFCC")
+    fill.translatesAutoresizingMaskIntoConstraints = false
+    track.addSubview(fill)
+    let value: CGFloat = {
+      if let key = node.bind?["value"] {
+        let v = lookup(key.hasPrefix("state.") ? key : "state.\(key)").asDouble ?? 0
+        return CGFloat(max(0, min(1, v)))
+      }
+      return CGFloat(node.props?["value"]?.asDouble ?? 0)
+    }()
+    NSLayoutConstraint.activate([
+      fill.leadingAnchor.constraint(equalTo: track.leadingAnchor),
+      fill.topAnchor.constraint(equalTo: track.topAnchor),
+      fill.bottomAnchor.constraint(equalTo: track.bottomAnchor),
+      fill.widthAnchor.constraint(equalTo: track.widthAnchor, multiplier: max(0.001, value)),
+    ])
+    return track
+  }
+
+  /// UISwitch bound to a state.user.* path via bind.value. Backend can also
+  /// wire on.onChange to any action ref if it wants extra work after the flip.
+  private func buildToggleNode(node: KBNode) -> UIView {
+    let sw = UISwitch()
+    let path = node.bind?["value"]
+    if let p = path {
+      let key = p.hasPrefix("state.") ? p : "state.\(p)"
+      sw.isOn = truthy(lookup(key))
+    }
+    sw.addAction(UIAction { [weak self, weak sw] _ in
+      guard let self = self, let sw = sw else { return }
+      if let p = path {
+        let bare = p.hasPrefix("state.user.") ? String(p.dropFirst("state.user.".count)) : p
+        self.writeStatePath(bare, .bool(sw.isOn))
+      }
+      if let ref = node.on?["onChange"] {
+        self.run(ref)
+      }
+      self.stateChanged()
+    }, for: .valueChanged)
+    return sw
+  }
+
+  /// UIScrollView container. Children lay out inside a UIStackView so the
+  /// existing flex / gap / padding style keys still work. `props.horizontal`
+  /// swaps axis.
+  private func buildScrollView(node: KBNode) -> UIView {
+    let scroll = UIScrollView()
+    scroll.showsHorizontalScrollIndicator = false
+    scroll.showsVerticalScrollIndicator = false
+    let horizontal = node.props?["horizontal"]?.asBool ?? false
+    let stack = UIStackView()
+    stack.axis = horizontal ? .horizontal : .vertical
+    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble ?? 6)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    scroll.addSubview(stack)
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+      stack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: scroll.topAnchor),
+      stack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor),
+    ])
+    if horizontal {
+      stack.heightAnchor.constraint(equalTo: scroll.heightAnchor).isActive = true
+    } else {
+      stack.widthAnchor.constraint(equalTo: scroll.widthAnchor).isActive = true
+    }
+    for child in node.children ?? [] {
+      stack.addArrangedSubview(render(node: child))
+    }
+    return scroll
+  }
+
+  // MARK: - Style + effect resolvers
+
+  /// Apply the node's `style` bag: sizes, insets, radius, colors, font.
+  /// Unknown keys are ignored so extending the schema doesn't crash old builds.
+  private func applyStyle(node: KBNode, to view: UIView) {
+    guard let style = node.style else { return }
+    if let w = style["width"]?.asCGFloat {
+      view.widthAnchor.constraint(equalToConstant: w).isActive = true
+    }
+    if let h = style["height"]?.asCGFloat {
+      view.heightAnchor.constraint(equalToConstant: h).isActive = true
+    }
+    if let radius = style["radius"]?.asCGFloat {
+      view.layer.cornerRadius = radius
+      view.clipsToBounds = true
+    }
+    if let bg = style["bg"]?.asString {
+      let c = UIColor(tulmiHex: bg)
+      view.backgroundColor = c
+      // A key's resting colour is ITS OWN style.bg, not the theme's key fill:
+      // keyTouchUp restores whatever is stored here, and restoring theme.key
+      // turned shift, ⌫, 123, the mic and the tone pill into letter keys
+      // after their first tap.
+      if view is UIButton {
+        objc_setAssociatedObject(view, &Self.keyBaseColorKey, c, .OBJC_ASSOCIATION_RETAIN)
+      }
+    }
+    // style.pressedBg — this key's own press colour (else theme.keyPressed).
+    if let pressed = style["pressedBg"]?.asString, view is UIButton {
+      objc_setAssociatedObject(view, &Self.keyPressedOverrideKey, UIColor(tulmiHex: pressed),
+                               .OBJC_ASSOCIATION_RETAIN)
+    }
+    // Opacity / border / shadow — all backend-controllable style knobs. Kept
+    // ignored when unset so old backend trees don't accidentally change look.
+    if let opacity = style["opacity"]?.asDouble {
+      view.alpha = CGFloat(opacity)
+    }
+    if let borderColor = style["borderColor"]?.asString {
+      view.layer.borderColor = UIColor(tulmiHex: borderColor).cgColor
+    }
+    if let borderWidth = style["borderWidth"]?.asCGFloat {
+      view.layer.borderWidth = borderWidth
+    }
+    if case .object(let shadow)? = style["shadow"] {
+      view.layer.shadowColor = UIColor(tulmiHex: shadow["color"]?.asString ?? "#000000").cgColor
+      view.layer.shadowOpacity = Float(shadow["opacity"]?.asDouble ?? 0.5)
+      view.layer.shadowRadius = shadow["radius"]?.asCGFloat ?? 4
+      if case .array(let offset)? = shadow["offset"], offset.count == 2 {
+        view.layer.shadowOffset = CGSize(
+          width: offset[0].asDouble ?? 0,
+          height: offset[1].asDouble ?? 2,
+        )
+      }
+      view.clipsToBounds = false  // shadows need overflow
+    }
+    if let stack = view as? UIStackView {
+      // Per-side padding: layoutMargins with individual insets. Uniform
+      // `padding` still works as the fallback when specific sides aren't set.
+      let pad = style["padding"]?.asCGFloat
+      let padTop = style["paddingTop"]?.asCGFloat ?? pad
+      let padBottom = style["paddingBottom"]?.asCGFloat ?? pad
+      let padLeft = style["paddingLeft"]?.asCGFloat ?? pad
+      let padRight = style["paddingRight"]?.asCGFloat ?? pad
+      if padTop != nil || padBottom != nil || padLeft != nil || padRight != nil {
+        stack.isLayoutMarginsRelativeArrangement = true
+        stack.layoutMargins = UIEdgeInsets(
+          top: padTop ?? 0,
+          left: padLeft ?? 0,
+          bottom: padBottom ?? 0,
+          right: padRight ?? 0,
+        )
+      }
+      // flex on the stack itself no longer forces fillEqually — the parent
+      // buildStack now applies proportional widthAnchor multipliers per-child
+      // based on their flex ratio. fillEqually would blow that away.
+    }
+    if let btn = view as? UIButton {
+      if let fg = style["fg"]?.asString {
+        btn.setTitleColor(UIColor(tulmiHex: fg), for: .normal)
+      }
+      if let fs = style["fontSize"]?.asCGFloat {
+        let weight = fontWeight(from: style["fontWeight"]?.asString)
+        btn.titleLabel?.font = .systemFont(ofSize: fs, weight: weight)
+      }
+    }
+    if let lbl = view as? UILabel {
+      if let fg = style["fg"]?.asString { lbl.textColor = UIColor(tulmiHex: fg) }
+      if let fs = style["fontSize"]?.asCGFloat {
+        let weight = fontWeight(from: style["fontWeight"]?.asString)
+        lbl.font = .systemFont(ofSize: fs, weight: weight)
+      }
+    }
+    // `flex` on a Spacer / leaf → let it grow inside a stack.
+    if let flex = style["flex"]?.asDouble, flex > 0 {
+      view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      view.setContentHuggingPriority(.defaultLow, for: .vertical)
+    }
+  }
+
+  private func fontWeight(from raw: String?) -> UIFont.Weight {
+    switch (raw ?? "").lowercased() {
+    case "ultralight": return .ultraLight
+    case "thin":       return .thin
+    case "light":      return .light
+    case "regular":    return .regular
+    case "medium":     return .medium
+    case "semibold":   return .semibold
+    case "bold":       return .bold
+    case "heavy":      return .heavy
+    case "black":      return .black
+    default:           return .regular
+    }
+  }
+
+  /// Apply node.effect to a view. Solid → backgroundColor, gradient →
+  /// CAGradientLayer, blur → underlaid effect view. For nodes with children
+  /// the effect view sits at subview index 0 so children render above it —
+  /// UIStackView still lays out its arrangedSubviews on top.
+  private func applyEffectIfChildlessBackdrop(node: KBNode, view: UIView) {
+    guard let effect = node.effect else { return }
+    switch effect {
+    case .solid(let color):
+      let c = UIColor(tulmiHex: color)
+      view.backgroundColor = c
+      // Same as style.bg: a key restores its own fill after a press.
+      if view is UIButton {
+        objc_setAssociatedObject(view, &Self.keyBaseColorKey, c, .OBJC_ASSOCIATION_RETAIN)
+      }
+    case .gradient(let colors, let direction):
+      // Wrap in the GradientView subclass (same one used by makeEffectBackdrop)
+      // so the CAGradientLayer resizes via layoutSubviews. Raw CALayer
+      // autoresizing masks are Mac-only — iOS refuses them.
+      let g = GradientView()
+      g.gradientColors = colors.map { UIColor(tulmiHex: $0).cgColor }
+      g.horizontal = (direction == "horizontal")
+      g.translatesAutoresizingMaskIntoConstraints = false
+      view.insertSubview(g, at: 0)
+      NSLayoutConstraint.activate([
+        g.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        g.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        g.topAnchor.constraint(equalTo: view.topAnchor),
+        g.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ])
+      view.layer.masksToBounds = true
+    case .blur(let style):
+      let blur = UIVisualEffectView(effect: UIBlurEffect(style: mapBlur(style)))
+      blur.translatesAutoresizingMaskIntoConstraints = false
+      view.insertSubview(blur, at: 0)
+      NSLayoutConstraint.activate([
+        blur.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+        blur.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        blur.topAnchor.constraint(equalTo: view.topAnchor),
+        blur.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      ])
+    }
+  }
+
+  private func makeEffectBackdrop(effect: KBEffect) -> UIView {
+    switch effect {
+    case .solid(let color):
+      let v = UIView()
+      v.backgroundColor = UIColor(tulmiHex: color)
+      return v
+    case .blur(let style):
+      return UIVisualEffectView(effect: UIBlurEffect(style: mapBlur(style)))
+    case .gradient(let colors, let direction):
+      let host = GradientView()
+      host.gradientColors = colors.map { UIColor(tulmiHex: $0).cgColor }
+      host.horizontal = direction == "horizontal"
+      return host
+    }
+  }
+
+  /// Map the schema's KeyboardEffect.blur.style enum to UIBlurEffect.Style.
+  private func mapBlur(_ raw: String) -> UIBlurEffect.Style {
+    switch raw {
+    case "chromeMaterialDark":     return .systemChromeMaterialDark
+    case "chromeMaterialLight":    return .systemChromeMaterialLight
+    case "systemThinMaterial":     return .systemThinMaterial
+    case "systemUltraThinMaterial": return .systemUltraThinMaterial
+    case "regular":                return .regular
+    default:                       return .systemThinMaterial
+    }
+  }
+
+  private func blurStyle(from effect: KBEffect) -> UIBlurEffect.Style {
+    if case .blur(let s) = effect { return mapBlur(s) }
+    return .systemThinMaterial
+  }
+
+  // MARK: - Key styling helpers
+
+  /// A generic button matching the hand-built path's default look; overridden
+  /// by node-level `style`. Handles:
+  ///   - Base fill + shadow + radius from theme
+  ///   - Optional per-key blur from theme.keyEffect
+  ///   - Press-down visual highlight (Apple's inversion swap) via touch handlers
+  ///   - Sound + haptic on touch-down (Full Access gated)
+  private func makeKeyButton() -> UIButton {
+    // KeyHitButton (via init(frame:), NOT UIButton(type:.system) — that factory
+    // doesn't return the subclass) so the expanded touch target below actually
+    // applies. Every visual is set explicitly below, so .custom looks identical
+    // to the old .system key. The hit slop pushes each key's tappable area into
+    // the gaps + absorbs finger drift — the fix for "only a firm, dead-center
+    // tap types". Tunable OTA via kb.key.hitSlop.x / .y.
+    let b = KeyHitButton(frame: .zero)
+    b.hitSlop = UIEdgeInsets(
+      // x defaults to HALF the inter-key gap (gap 5 → 2): at slop ≥ gap the two
+      // neighbors' expanded targets both cover the whole gap, UIKit's reverse-
+      // order hitTest always hands the gap to the RIGHT key, and the row's
+      // nearest-key midpoint routing never runs — a systematic rightward
+      // mistype bias. Half-gap keeps forgiveness without overlap.
+      top: flagCGFloat("kb.key.hitSlop.y", 8), left: flagCGFloat("kb.key.hitSlop.x", 2),
+      bottom: flagCGFloat("kb.key.hitSlop.y", 8), right: flagCGFloat("kb.key.hitSlop.x", 2))
+    b.setTitleColor(keyTextColor(), for: .normal)
+    b.titleLabel?.font = .systemFont(ofSize: 18)
+    let base = keyBgColor()
+    b.backgroundColor = base
+    b.layer.cornerRadius = CGFloat(theme?.keyRadius ?? 5)
+    if theme?.keyShadow == true {
+      // Backend flags:
+      //   kb.key.shadow.color   (default "#000000")
+      //   kb.key.shadow.offsetY (default 1)
+      //   kb.key.shadow.radius  (default 0)
+      //   kb.key.shadow.opacity (default 0.4)
+      b.layer.shadowColor = flagColor("kb.key.shadow.color", "#000000").cgColor
+      b.layer.shadowOffset = CGSize(width: 0, height: flagCGFloat("kb.key.shadow.offsetY", 1))
+      b.layer.shadowRadius = flagCGFloat("kb.key.shadow.radius", 0)
+      b.layer.shadowOpacity = Float(flagDouble("kb.key.shadow.opacity", 0.4))
+    }
+    // If the theme carries a keyEffect blur, drop it under the button.
+    if case .blur(let s) = theme?.keyEffect ?? .solid(color: "#00000000") {
+      let blur = UIVisualEffectView(effect: UIBlurEffect(style: mapBlur(s)))
+      blur.translatesAutoresizingMaskIntoConstraints = false
+      blur.layer.cornerRadius = b.layer.cornerRadius
+      blur.clipsToBounds = true
+      b.insertSubview(blur, at: 0)
+      NSLayoutConstraint.activate([
+        blur.leadingAnchor.constraint(equalTo: b.leadingAnchor),
+        blur.trailingAnchor.constraint(equalTo: b.trailingAnchor),
+        blur.topAnchor.constraint(equalTo: b.topAnchor),
+        blur.bottomAnchor.constraint(equalTo: b.bottomAnchor),
+      ])
+      b.backgroundColor = .clear
+    }
+    // Press feedback (visual + sound + haptic). Firing on touchDown so the key
+    // feels alive at the moment of contact — Apple's exact behavior.
+    b.addTarget(self, action: #selector(keyTouchDown(_:)), for: .touchDown)
+    b.addTarget(self, action: #selector(keyTouchUp(_:)),
+                for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+    // Remember the resting background so touchUp can restore it after the
+    // inversion swap. Uses associated object so per-instance color survives
+    // across renderer rebuilds. The RESOLVED fill — clear over a keyEffect
+    // blur, not theme.key painted over the blur after the first tap. A node's
+    // style.bg / solid effect / return accent overwrite this later.
+    objc_setAssociatedObject(b, &Self.keyBaseColorKey, b.backgroundColor ?? base, .OBJC_ASSOCIATION_RETAIN)
+    return b
+  }
+
+  private static var keyBaseColorKey: UInt8 = 0
+  private static var keyPressedColorKey: UInt8 = 0
+  /// A node's own style.pressedBg, stored by applyStyle.
+  private static var keyPressedOverrideKey: UInt8 = 0
+
+  @objc private func keyTouchDown(_ btn: UIButton) {
+    // A real (non-plane) key going down flushes any still-held plane letters
+    // first, so letter→space / letter→shift overlaps keep press order. Plane-
+    // managed letters have isUserInteractionEnabled == false and reach here
+    // via planeDown instead — they must NOT flush (their own touch was just
+    // registered by the same event).
+    keyDownRollover(btn)
+    // Apple's inversion: letter keys press to function color, function keys
+    // press to letter color. We don't know which side a key is on, so use
+    // theme.keyPressed if present, else lighten the base color.
+    // A node's style.pressedBg wins over the theme for that one key.
+    let pressed: UIColor
+    if let own = objc_getAssociatedObject(btn, &Self.keyPressedOverrideKey) as? UIColor {
+      pressed = own
+    } else if let hex = theme?.keyPressed {
+      pressed = UIColor(tulmiHex: hex)
+    } else {
+      let hex = flagString("kb.press.fallbackColor", "")
+      pressed = hex.isEmpty ? UIColor(white: 0.5, alpha: 0.3) : UIColor(tulmiHex: hex)
+    }
+    objc_setAssociatedObject(btn, &Self.keyPressedColorKey, pressed, .OBJC_ASSOCIATION_RETAIN)
+    // Instant background swap on touch-down (Apple's key press is instant on
+    // press-in — the *release* is what's animated). Combined with the animated
+    // touchUp below, this gives the "soft glow fade" that reads as premium.
+    btn.backgroundColor = pressed
+    // System input-click sound. Only plays when the extension conforms to
+    // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
+    // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
+    UIDevice.current.playInputClick()
+    // The key's id: props.hapticId / node id / role ("space", "return",
+    // "mic"…) stored at render — see hapticId(for:). A letter or punctuation
+    // key has none, and its title IS its id, matching what the picker writes
+    // and what Android reads. Lowercased inside hapticsOn, so a shifted "Q"
+    // and a picked "q" are the same key.
+    let hid = (objc_getAssociatedObject(btn, &Self.keyHapticIdKey) as? String) ?? btn.title(for: .normal)
+    fireKeyHaptic(hid)
+    showKeyCallout(for: btn)
+  }
+
+  @objc private func keyTouchUp(_ btn: UIButton) {
+    hideKeyCallout()
+    let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
+    // Backend flag: kb.press.fadeMs (default 120) — release animation length.
+    // 0 or negative → instant snap-back (native style is 60-120ms).
+    let ms = flagDouble("kb.press.fadeMs", 120)
+    if ms <= 0 {
+      btn.backgroundColor = base
+      return
+    }
+    UIView.animate(withDuration: ms / 1000.0,
+                   delay: 0,
+                   options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                   animations: { btn.backgroundColor = base },
+                   completion: nil)
+  }
+
+  // MARK: - KeyPlaneView callbacks (multi-touch typing layer)
+  //
+  // The plane owns touch for the character keys when kb.keyPlane.enabled; it
+  // drives the SAME press visual / haptic and the SAME insert action a button
+  // tap would, so behavior is identical — just with rolling + multi-touch.
+
+  /// Number of fingers currently pressing keys on the multi-touch plane. The
+  /// single shared callout can only sensibly track ONE finger, so 2+ suppress it.
+  private var planeActiveTouchCount = 0
+
+  /// Press-down visual + click + haptic for the key under a finger.
+  fileprivate func planeDown(_ button: UIButton) {
+    planeActiveTouchCount += 1
+    keyTouchDown(button)
+  }
+
+  /// Restore a key's resting visual when a finger leaves it (roll-off or lift).
+  fileprivate func planeUp(_ button: UIButton) {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+    keyTouchUp(button)
+  }
+
+  /// Balance an outstanding planeDown whose button no longer exists (a
+  /// layer-peek remount deallocated it). Only the counter + callout need
+  /// closing — there is no view left to restore.
+  fileprivate func planeUpLost() {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+    hideKeyCallout()
+  }
+
+  /// Commit the character under the finger on release. Routes through the exact
+  /// insertKey path a button tap uses, so live shift / capsLock casing applies.
+  fileprivate func planeCommit(char: String) {
+    KeyboardTelemetry.bump(.keystrokes)
+    // Timed: keyMs / keystrokes is what a letter waits before it shows, and
+    // slowKeys says how often that wait crossed a frame and a half. A slow
+    // keyboard and a dropping keyboard feel the same from the outside.
+    let t0 = CACurrentMediaTime()
+    run(.inline(.insertKey(char: char)))
+    let ms = (CACurrentMediaTime() - t0) * 1000
+    KeyboardTelemetry.bump(.keyMs, by: Int(ms.rounded()))
+    if ms > 24 { KeyboardTelemetry.bump(.slowKeys) }
+  }
+
+  /// Take back the char planeCommit typed on touch-down: the finger held on,
+  /// and the accent tray that opens now offers alternatives to it. Deletes
+  /// exactly what insertKey inserted and rewinds the word tracker with it, so
+  /// the chip (or the base char, re-inserted on release) lands clean. A
+  /// one-shot shift went with the letter; it is given back for the accent.
+  /// May the held key's char be taken back for a tray? Only when it is still
+  /// what was typed last, the text still ends with it, and a tray can open.
+  fileprivate func planeCanRetract(char: String?, button: UIButton?) -> Bool {
+    guard let inserted = lastKeyInsert, !inserted.isEmpty, let ch = char,
+          inserted.lowercased() == ch.lowercased(), button != nil,
+          activeAccentTray == nil, planeHasAccents(ch),
+          (host?.hostTextDocumentProxy.documentContextBeforeInput ?? "").hasSuffix(inserted)
+    else { return false }
+    return true
+  }
+
+  /// The char retracted for a tray that then did not open.
+  private var retractedInsert: String?
+
+  fileprivate func planeRestoreRetracted() {
+    guard let r = retractedInsert, !r.isEmpty else { return }
+    retractedInsert = nil
+    host?.hostTextDocumentProxy.insertText(r)
+    noteTyped(r)
+    lastKeyInsert = r
+    if state.shift && !state.capsLock { state.shift = false; stateChanged() }
+    updateAutoCap(afterTyping: r)
+  }
+
+  fileprivate func planeRetractDownCommit() {
+    guard let inserted = lastKeyInsert, !inserted.isEmpty else { return }
+    lastKeyInsert = nil
+    retractedInsert = inserted
+    KeyboardTelemetry.bump(.trayRetracted)
+    for _ in 0..<inserted.count {
+      host?.hostTextDocumentProxy.deleteBackward()
+      noteDeletedBackward()
+    }
+    if !state.capsLock, !state.shift, inserted.count == 1,
+       let c = inserted.first, c.isUppercase {
+      state.shift = true
+      stateChanged()
+    }
+    updateAutoCap()
+  }
+
+  /// Selection-changed haptic on every key. Requires Full Access to fire; the
+  /// generator silently no-ops without it. Cheaper than instantiating a new
+  /// generator per tap.
+  private var selectionGenerator: UISelectionFeedbackGenerator?
+  /// Backend-tunable, because key haptics are the single most polarizing
+  /// keyboard setting and this used to need a rebuild to change at all:
+  ///   kb.haptics.enabled  (bool,   default true)  — master switch
+  ///   kb.haptics.style    (string, default "selection") — "selection" |
+  ///                       "light" | "medium" | "heavy" | "rigid" | "soft"
+  /// Full Access is still required by iOS; without it the generator no-ops.
+  private var impactGenerator: UIImpactFeedbackGenerator?
+  private var impactGeneratorStyle: String = ""
+
+  /// Should THIS key buzz?
+  ///
+  /// Android already read the per-key settings the app's Haptics picker
+  /// writes; iOS read only the old master switch, so every choice made in that
+  /// picker did nothing here and every key buzzed regardless. Both platforms
+  /// now answer the question the same way, from the same two flags:
+  ///
+  ///   kb.haptics.all   — every key. The picker's master toggle.
+  ///   kb.haptics.keys  — the individual keys the user picked.
+  ///
+  /// Independent, not nested: turning "all" off must not discard the keys
+  /// somebody chose one at a time. A nil id is something the picker never
+  /// offered (a suggestion chip, the tone pill) and follows the master only.
+  ///
+  /// kb.haptics.enabled stays as the kill switch above both, so a build can
+  /// still be silenced outright from the backend.
+  private func hapticsOn(_ keyId: String?) -> Bool {
+    if flagBool("kb.haptics.all", false) { return true }
+    guard let id = keyId?.lowercased(), !id.isEmpty else { return false }
+    guard case .object(let map)? = config.flags?["kb.haptics.keys"] else { return false }
+    return map[id]?.asBool == true
+  }
+
+  fileprivate func fireKeyHaptic(_ keyId: String? = nil) {
+    guard host?.hostHasFullAccess == true else { return }
+    guard flagBool("kb.haptics.enabled", true) else { return }
+    guard hapticsOn(keyId) else { return }
+    let style = flagString("kb.haptics.style", "selection").lowercased()
+    if style == "selection" {
+      if selectionGenerator == nil { selectionGenerator = UISelectionFeedbackGenerator() }
+      selectionGenerator?.selectionChanged()
+      selectionGenerator?.prepare() // pre-cache the next one
+      return
+    }
+    // Impact styles. The generator is rebuilt only when the style actually
+    // changes — allocating one per keystroke would cost real time on the
+    // typing hot path.
+    if impactGenerator == nil || impactGeneratorStyle != style {
+      var mapped: UIImpactFeedbackGenerator.FeedbackStyle = .medium
+      switch style {
+      case "light": mapped = .light
+      case "heavy": mapped = .heavy
+      case "rigid": if #available(iOS 13.0, *) { mapped = .rigid }
+      case "soft": if #available(iOS 13.0, *) { mapped = .soft }
+      default: break
+      }
+      impactGenerator = UIImpactFeedbackGenerator(style: mapped)
+      impactGeneratorStyle = style
+    }
+    impactGenerator?.impactOccurred()
+    impactGenerator?.prepare()
+  }
+
+  // MARK: - Key-pop callout (native magnified bubble)
+
+  private var calloutView: KeyCalloutView?
+
+  /// Show the native key-pop balloon above a pressed LETTER key. Fired from
+  /// keyTouchDown — which both the plain-button path and the KeyPlaneView rolling
+  /// path (planeDown → keyTouchDown) route through — so the bubble follows the
+  /// finger key-to-key during a rolling slide with no extra wiring. Gated to
+  /// single alphabetic glyphs so it never pops over numbers/symbols/space/return
+  /// (matching iOS, which only pops letters). OTA-disable via kb.callout.enabled.
+  private func showKeyCallout(for btn: UIButton) {
+    guard flagBool("kb.callout.enabled", true), let container = mountContainer else { return }
+    // One shared balloon can't follow two fingers; with 2+ down on the plane
+    // they'd fight over it (flicker / stale glyph), so suppress it entirely.
+    guard planeActiveTouchCount <= 1 else { hideKeyCallout(); return }
+    guard let title = btn.title(for: .normal), title.count == 1,
+          let ch = title.first, ch.isLetter else { hideKeyCallout(); return }
+    let rect = container.convert(btn.bounds, from: btn)
+    let cv: KeyCalloutView
+    if let existing = calloutView {
+      cv = existing
+    } else {
+      // Built once per mount (remount drops it), so the flags are read here
+      // and not on every press.
+      cv = KeyCalloutView(frame: .zero)
+      cv.headExtraWidth = flagCGFloat("kb.callout.headExtraWidth", 28)
+      cv.headMinWidth = flagCGFloat("kb.callout.headMinWidth", 44)
+      cv.headExtraHeight = flagCGFloat("kb.callout.headExtraHeight", 8)
+      cv.neckHeight = flagCGFloat("kb.callout.neckHeight", 10)
+      cv.headRadius = flagCGFloat("kb.callout.radius", 7)
+      cv.edgeClamp = flagCGFloat("kb.callout.edgeInset", 3)
+      cv.setShadow(color: flagColor("kb.callout.shadowColor", "#000000"),
+                   opacity: Float(flagDouble("kb.callout.shadowOpacity", 0.18)),
+                   radius: flagCGFloat("kb.callout.shadowRadius", 5),
+                   offset: CGSize(width: flagCGFloat("kb.callout.shadowOffsetX", 0),
+                                  height: flagCGFloat("kb.callout.shadowOffsetY", 2)))
+      calloutView = cv
+    }
+    cv.present(keyRect: rect, char: title, in: container,
+               bg: calloutBgColor(), text: calloutTextColor(),
+               glyphSize: flagCGFloat("kb.callout.fontSize", 24))
+  }
+
+  private func hideKeyCallout() { calloutView?.isHidden = true }
+
+  /// Balloon fill. Backend override kb.callout.bg (hex); else native default —
+  /// white on light themes, a lighter-than-key gray on dark ones.
+  private func calloutBgColor() -> UIColor {
+    let hex = flagString("kb.callout.bg", "")
+    if !hex.isEmpty { return UIColor(tulmiHex: hex) }
+    return keyIsDark(keyBgColor()) ? UIColor(white: 0.30, alpha: 1) : .white
+  }
+  /// Balloon glyph color. Backend override kb.callout.text (hex); else native
+  /// default — white on dark themes, near-black on light ones.
+  private func calloutTextColor() -> UIColor {
+    let hex = flagString("kb.callout.text", "")
+    if !hex.isEmpty { return UIColor(tulmiHex: hex) }
+    return keyIsDark(keyBgColor()) ? .white : UIColor(white: 0.11, alpha: 1)
+  }
+  private func keyIsDark(_ c: UIColor) -> Bool {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    c.getRed(&r, green: &g, blue: &b, alpha: &a)
+    return 0.299 * r + 0.587 * g + 0.114 * b < 0.5
+  }
+
+  private func keyBgColor() -> UIColor {
+    if let key = theme?.key { return UIColor(tulmiHex: key) }
+    return UIColor(red: 0.11, green: 0.11, blue: 0.15, alpha: 1)
+  }
+  private func keyTextColor() -> UIColor {
+    if let t = theme?.keyText { return UIColor(tulmiHex: t) }
+    return .white
+  }
+
+  // MARK: - Generic icon resolver + remote cache
+  //
+  // Backend can specify a button's icon in any of these shapes:
+  //
+  //   props: { icon: { sf: "mic.fill" } }                 // SF Symbol
+  //   props: { icon: { asset: "TailzuMark" } }            // bundled asset
+  //   props: { icon: { url: "https://cdn/mark@3x.png" } } // remote — cached
+  //   props: { icon: { emoji: "🎙️" } }                  // renders as text
+  //   props: { icon: "sf:mic.fill" }                      // string shorthand
+  //   props: { icon: "asset:TailzuMark" }
+  //   props: { icon: "https://cdn/mark.png" }
+  //
+  // The whole point: no Swift change is needed to swap an icon. Bundled + SF
+  // are instant; remote resolves async and the button re-renders when the
+  // download finishes.
+  private var remoteImageCache: [String: UIImage] = [:]
+  private var remoteImageInflight: Set<String> = []
+
+  /// Resolve an icon spec from `props.icon` (or similar). Returns a UIImage
+  /// synchronously for SF symbols and bundled assets; for URLs, returns any
+  /// cached image immediately and kicks off a fetch. `onLoad` fires when a
+  /// URL fetch completes so the caller can refresh the affected button.
+  fileprivate func resolveIcon(_ spec: KBJSON?, onLoad: (() -> Void)? = nil) -> UIImage? {
+    guard let spec = spec else { return nil }
+    // Object form: { sf } / { asset } / { url } / { emoji }.
+    if case .object(let o) = spec {
+      if case .string(let sf) = (o["sf"] ?? .null) {
+        return UIImage(systemName: sf)?.withRenderingMode(.alwaysTemplate)
+      }
+      if case .string(let asset) = (o["asset"] ?? .null) {
+        return UIImage(named: asset, in: Bundle.main, compatibleWith: nil)?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if case .string(let url) = (o["url"] ?? .null) {
+        return fetchRemoteImage(url, onLoad: onLoad)
+      }
+      // emoji is rendered by the button title path — resolveIcon returns nil so
+      // the caller falls through to setTitle. Callers should check emojiText
+      // via iconEmoji(spec) helper below.
+      return nil
+    }
+    // Shorthand string form.
+    if case .string(let s) = spec {
+      if s.hasPrefix("sf:") {
+        return UIImage(systemName: String(s.dropFirst(3)))?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if s.hasPrefix("asset:") {
+        return UIImage(named: String(s.dropFirst(6)), in: Bundle.main, compatibleWith: nil)?
+          .withRenderingMode(.alwaysTemplate)
+      }
+      if s.hasPrefix("https://") || s.hasPrefix("http://") {
+        return fetchRemoteImage(s, onLoad: onLoad)
+      }
+    }
+    return nil
+  }
+
+  /// Extract an emoji glyph from an icon spec, if that's how it was specified.
+  /// Used by button builders to `setTitle(emoji)` instead of an image.
+  fileprivate func iconEmoji(_ spec: KBJSON?) -> String? {
+    guard let spec = spec else { return nil }
+    if case .object(let o) = spec, case .string(let e) = (o["emoji"] ?? .null) { return e }
+    return nil
+  }
+
+  /// Return a cached remote image if we have one; else start a URLSession
+  /// download and call `onLoad` when it lands. The cache is persistent across
+  /// keyboard sessions via the app-group container so a single fetch serves
+  /// every open of the keyboard until the URL changes.
+  private func fetchRemoteImage(_ url: String, onLoad: (() -> Void)?) -> UIImage? {
+    if let img = remoteImageCache[url] { return img }
+    // Persistent-disk lookup.
+    if let img = loadPersistedRemoteImage(url) {
+      remoteImageCache[url] = img
+      return img
+    }
+    // Start the download (only once per URL per session).
+    if remoteImageInflight.contains(url) { return nil }
+    guard let u = URL(string: url) else { return nil }
+    remoteImageInflight.insert(url)
+    URLSession.shared.dataTask(with: u) { [weak self] data, _, _ in
+      guard let self = self else { return }
+      DispatchQueue.main.async {
+        self.remoteImageInflight.remove(url)
+        // Route through TulmiImageLoader.decode-style so GIF / APNG land as
+        // an animatedImage instead of a frozen first frame. Delegating to
+        // that helper's cache also means both the SDUI + hand-built paths
+        // share the same warm memory across keyboard opens.
+        guard let d = data else { return }
+        guard let img = self.decodeAnimated(d) else { return }
+        self.remoteImageCache[url] = img
+        self.persistRemoteImage(data: d, url: url)
+        onLoad?()
+      }
+    }.resume()
+    return nil
+  }
+
+  /// Decode a downloaded blob as either a static image or a multi-frame
+  /// animated one (GIF / APNG). Delegates to TulmiImageLoader.decode — the
+  /// SINGLE downscaling decoder — so a large animated GIF pushed as the mic
+  /// icon can't unpack to full-resolution frames and OOM-kill the extension.
+  /// (This method previously ran its own full-res CGImageSourceCreateImageAtIndex
+  /// loop with no downscale, which busted the ~48MB keyboard memory ceiling.)
+  private func decodeAnimated(_ data: Data) -> UIImage? {
+    return TulmiImageLoader.decode(data)
+  }
+
+  private func remoteImageCacheDir() -> URL? {
+    let fm = FileManager.default
+    // Prefer the app-group container so main app + extension share the cache.
+    // Was "group.com.tulmi.shared" — a group the extension is NOT entitled to, so
+    // containerURL returned nil and the cache silently fell back to the private
+    // caches dir (never shared). Reference the canonical constant so it can't
+    // drift from the group used everywhere else.
+    let group = fm.containerURL(forSecurityApplicationGroupIdentifier: TulmiFlow.appGroup)
+    let base = group ?? fm.urls(for: .cachesDirectory, in: .userDomainMask).first
+    guard let root = base?.appendingPathComponent("keyboard-icons", isDirectory: true) else { return nil }
+    if !fm.fileExists(atPath: root.path) {
+      try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+    return root
+  }
+
+  private func remoteImageFile(for url: String) -> URL? {
+    guard let dir = remoteImageCacheDir() else { return nil }
+    // Cheap URL → filename hash (djb2-ish). Not for security — just uniqueness.
+    var h: UInt64 = 5381
+    for ch in url.unicodeScalars { h = (h << 5) &+ h &+ UInt64(ch.value) }
+    return dir.appendingPathComponent(String(h, radix: 36) + ".img")
+  }
+
+  private func loadPersistedRemoteImage(_ url: String) -> UIImage? {
+    guard let f = remoteImageFile(for: url),
+          let data = try? Data(contentsOf: f) else { return nil }
+    // Same GIF/APNG handling as the network path so a cached animated file
+    // reanimates on the next open of the keyboard.
+    return decodeAnimated(data)
+  }
+
+  private func persistRemoteImage(data: Data, url: String) {
+    guard let f = remoteImageFile(for: url) else { return }
+    try? data.write(to: f, options: .atomic)
+  }
+
+  // MARK: - Tap binding
+
+  /// Attach the primary tap handler for a component. Priority: an explicit
+  /// `on.onPress` action wins; otherwise fall back to the component's default.
+  /// Wire a key to its action.
+  ///
+  /// `onDown` types the letter THE MOMENT THE SCREEN IS TOUCHED, which is what
+  /// the system keyboard does and what this one has never done: every key here
+  /// has always fired on .touchUpInside, so the character waited for the finger
+  /// to come back up. That is the lag — not layout, not geometry, not the
+  /// plane. A quarter of a second of nothing on every letter, and it reads as a
+  /// slow keyboard because it is one.
+  ///
+  /// Only ever passed for a plain character insert. A key with an accent tray
+  /// keeps its lift, because there the press and the character are genuinely
+  /// different events and the hold has to be ruled out first; a layer key keeps
+  /// its own peek handling; anything with a side effect that cannot be taken
+  /// back keeps the gesture that lets a finger slide off and cancel.
+  private func bindTap(_ btn: UIButton, node: KBNode, defaultAction: KBActionSpec?,
+                       onDown: Bool = false) {
+    if let ref = node.on?["onPress"] {
+      bindLift(btn) { [weak self] in self?.run(ref) }
+      // Layer-switch keys register for the plane's layer-peek handling (press
+      // → instant switch; press-slide-release → peek). Detected here in the
+      // SHARED tap binder — not in buildLetterKey — so a "123" shipped as an
+      // IconKey (or any node type) gets peek instead of silently keeping a
+      // touchUpInside that would remount mid-callback.
+      if case .switchLayout(let target)? = resolve(ref) {
+        layerKeyRegistry.append((btn, target))
+      }
+    } else if let def = defaultAction {
+      if onDown {
+        let action = UIAction { [weak self] _ in self?.run(.inline(def)) }
+        btn.addAction(action, for: .touchDown)
+      } else {
+        bindLift(btn) { [weak self] in self?.run(.inline(def)) }
+      }
+    }
+  }
+
+  // MARK: - Lift keys (K39, K40)
+  //
+  // Space, return and every onPress key fire on lift, so slide-off cancels
+  // (Apple's pattern). Three things a fast thumb does broke that.
+  //
+  // The other thumb lands the next letter before this one lifts. Letters
+  // type on contact, so the letter went in first: "hellow orld". The fix is
+  // the system keyboard's rollover — any key landing fires every lift key
+  // still held, in press order, and their own lift is then spent (K40).
+  //
+  // Near the home indicator iOS cancels the touch outright — .touchCancel,
+  // and the tap was dropped. A cancelled short, still tap that no gesture
+  // (the space trackpad) took now fires.
+  //
+  // A lift outside the key is .touchUpOutside — but UIKit only reports that
+  // beyond about 70pt; nearer it is still .touchUpInside. So the liftSlop
+  // rescue is a backstop for a slop raised past that, not a common path.
+  //
+  // Handlers are target/action, not UIAction, because only those receive the
+  // UIEvent that says where the finger was.
+  private var liftActions: [ObjectIdentifier: () -> Void] = [:]
+  private var liftDownAt: [ObjectIdentifier: CFTimeInterval] = [:]
+  /// Presses already fired by rollover; their own lift fires nothing.
+  private var liftRolled: Set<ObjectIdentifier> = []
+
+  /// Fire every lift key still held, oldest first, except `btn` (the key
+  /// going down now). kb.key.liftRollover=false restores lift-only.
+  private func flushHeldLifts(except btn: UIButton? = nil) {
+    guard flagBool("kb.key.liftRollover", true), !liftDownAt.isEmpty else { return }
+    let skip = btn.map { ObjectIdentifier($0) }
+    let held = liftDownAt.filter { $0.key != skip }.sorted { $0.value < $1.value }
+    for (id, _) in held {
+      liftDownAt[id] = nil
+      liftRolled.insert(id)
+      KeyboardTelemetry.bump(.liftRolled)
+      liftActions[id]?()
+    }
+  }
+
+  /// A plane finger landing: lift keys held by the other thumb go first.
+  fileprivate func planeFlushHeldLifts() { flushHeldLifts() }
+
+  /// The part of a key going down that is about ORDER, not paint: every key
+  /// still held and not yet typed commits first — lift keys, then plane keys
+  /// — so overlapping presses land in the order they were pressed. Plane-
+  /// managed letters have isUserInteractionEnabled == false and reach
+  /// keyTouchDown via planeDown instead; their own touch was just registered
+  /// by the plane, which has already flushed.
+  fileprivate func keyDownRollover(_ btn: UIButton) {
+    guard btn.isUserInteractionEnabled else { return }
+    flushHeldLifts(except: btn)
+    keyPlane?.flushPendingCommits()
+  }
+
+  private func bindLift(_ btn: UIButton, _ fire: @escaping () -> Void) {
+    liftActions[ObjectIdentifier(btn)] = fire
+    btn.addTarget(self, action: #selector(liftDown(_:)), for: .touchDown)
+    btn.addTarget(self, action: #selector(liftInside(_:)), for: .touchUpInside)
+    btn.addTarget(self, action: #selector(liftOutside(_:event:)), for: .touchUpOutside)
+    btn.addTarget(self, action: #selector(liftCancelled(_:event:)), for: .touchCancel)
+  }
+
+  @objc private func liftDown(_ btn: UIButton) {
+    liftRolled.remove(ObjectIdentifier(btn))
+    liftDownAt[ObjectIdentifier(btn)] = CACurrentMediaTime()
+  }
+
+  @objc private func liftInside(_ btn: UIButton) {
+    liftDownAt[ObjectIdentifier(btn)] = nil
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
+    liftActions[ObjectIdentifier(btn)]?()
+  }
+
+  private func liftNear(_ btn: UIButton, _ event: UIEvent?) -> Bool {
+    let slop = flagCGFloat("kb.key.liftSlop", 14)
+    guard slop > 0 else { return false }
+    guard let p = event?.touches(for: btn)?.first?.location(in: btn) else { return false }
+    return btn.bounds.insetBy(dx: -slop, dy: -slop).contains(p)
+  }
+
+  @objc private func liftOutside(_ btn: UIButton, event: UIEvent?) {
+    liftDownAt[ObjectIdentifier(btn)] = nil
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
+    guard liftNear(btn, event) else { return }
+    KeyboardTelemetry.bump(.liftRescued)
+    liftActions[ObjectIdentifier(btn)]?()
+  }
+
+  @objc private func liftCancelled(_ btn: UIButton, event: UIEvent?) {
+    let down = liftDownAt.removeValue(forKey: ObjectIdentifier(btn))
+    if liftRolled.remove(ObjectIdentifier(btn)) != nil { return }
+    guard !state.trackpadActive, let down = down else { return }
+    let maxMs = flagDouble("kb.key.cancelMs", 250)
+    guard maxMs > 0, (CACurrentMediaTime() - down) * 1000 < maxMs else { return }
+    guard liftNear(btn, event) else { return }
+    KeyboardTelemetry.bump(.cancelRescued)
+    liftActions[ObjectIdentifier(btn)]?()
+  }
+
+  // MARK: - Action interpreter
+
+  /// Resolve a KBActionRef (string alias or inline spec) into a KBActionSpec.
+  /// String aliases are looked up in the top-level `config.actions` map.
+  private func resolve(_ ref: KBActionRef) -> KBActionSpec? {
+    switch ref {
+    case .inline(let spec): return spec
+    case .named(let name):  return config.actions?[name]
+    }
+  }
+
+  /// Run an action ref through the interpreter switch. All side-effecting
+  /// user gestures land here.
+  func run(_ ref: KBActionRef) {
+    guard let spec = resolve(ref) else { return }
+    let proxy = host?.hostTextDocumentProxy
+    switch spec {
+    case .insertText(let text):
+      let inserted = applySmartPunctuation(text)
+      proxy?.insertText(inserted)
+      noteTyped(inserted)
+      updateAutoCap(afterTyping: inserted)
+    case .insertKey(let char):
+      // Derive case from LIVE state at tap time (not baked at render) so the
+      // fast-shift in-place re-title never desyncs from what actually inserts.
+      // Mirrors buildLetterKey's title logic: single-char → cased, multi-char
+      // (or symbol/digit payloads) → inserted verbatim.
+      let cased = char.count == 1
+        ? ((state.shift || state.capsLock) ? char.uppercased() : char.lowercased())
+        : char
+      var inserted = applySmartPunctuation(cased)
+      // Auto-space pull-back: a suggestion just inserted "word " — terminal
+      // punctuation typed next replaces that space, then re-adds it:
+      // "word ," → "word, ". Native behavior for accepted predictions.
+      if pendingAutoSpace {
+        pendingAutoSpace = false
+        if inserted.count == 1, let c = inserted.first,
+           flagString("kb.autoSpace.pullBackChars", ",.!?;:)]…’”").contains(c) {
+          proxy?.deleteBackward()
+          inserted = String(c) + " "
+        }
+      }
+      proxy?.insertText(inserted)
+      lastKeyInsert = inserted
+      // A character between two shift taps breaks the double-tap-caps chain, so
+      // clear the timer — otherwise "shift, type a, shift" wrongly engaged caps.
+      lastShiftTapTime = 0
+      if state.shift && !state.capsLock {
+        state.shift = false
+        stateChanged()
+      }
+      noteTyped(inserted)
+      updateAutoCap(afterTyping: inserted)
+    case .deleteBackward:
+      // Backspace right after an autocorrect UNDOES it (consumes the press) —
+      // the fastest revert path, matching user muscle memory.
+      if maybeRevertAutocorrectOnDelete() { return }
+      proxy?.deleteBackward()
+      noteDeletedBackward()
+      updateAutoCap()
+    case .deleteWord:
+      guard let p = proxy else { return }
+      // Delete back until a whitespace/newline or the document is empty.
+      // Bounded to avoid pathological loops on unusual editors
+      // (kb.deleteWord.maxChars).
+      let cap = clampInt(flagDouble("kb.deleteWord.maxChars", 1000), 0, 100_000)
+      var deleted = 0
+      while deleted < cap {
+        let ctx = p.documentContextBeforeInput ?? ""
+        guard let last = ctx.last else { break }
+        p.deleteBackward()
+        deleted += 1
+        if last.isWhitespace || last.isNewline { break }
+      }
+      // deleteWord stops AT a whitespace/newline (or an empty doc) — a clean
+      // boundary, so the tracker stays armed for the next word.
+      resetTypingContext(tailAtBoundary: true)
+    case .shift:
+      state.shift.toggle()
+      stateChanged()
+    case .capsLock:
+      state.capsLock.toggle()
+      state.shift = state.capsLock ? true : state.shift
+      stateChanged()
+    case .returnKey:
+      // Capture the context BEFORE the newline: most hosts scope
+      // documentContextBeforeInput to the current line, so the boundary
+      // pipeline could never verify the finished word after the insert. Only
+      // pay the read when a correction/expansion could actually apply.
+      let preCtx: String? = (!currentWord.isEmpty && trackerValid)
+        ? (proxy?.documentContextBeforeInput ?? "") : nil
+      proxy?.insertText("\n")
+      lastAutocorrect = nil
+      lastInsertedChar = "\n"
+      pendingAutoSpace = false
+      // Bump BEFORE the boundary pipeline captures it: the newline path skips
+      // the post-hoc context verification (line-scoped context), so the
+      // generation counter is its ONLY race guard — without this bump a
+      // second Return arriving before the async checker finished let the
+      // correction replaceTail against moved text.
+      typingGeneration += 1
+      handleWordBoundary(boundary: "\n", preInsertContext: preCtx)
+      // Native returns to the letter layer after a return from 123/#+=.
+      autoReturnToLetters()
+      updateAutoCap()
+    case .switchLayout(let language):
+      let langs = (config.layouts ?? []).map { $0.language }
+      if let target = language, langs.contains(target) {
+        state.layoutId = target
+      } else if !langs.isEmpty {
+        let idx = langs.firstIndex(of: state.layoutId) ?? -1
+        state.layoutId = langs[(idx + 1) % langs.count]
+      }
+      // Layer-peek (the plane's touch-down switch) NEEDS a synchronous
+      // remount — the new layer's keys must be bound before the finger's
+      // next move event, and the plane view survives the rebuild. Every
+      // OTHER path into switchLayout is a real UIControl's action handler
+      // (ABC/123 tap with the plane off, backend sequences): a synchronous
+      // remount there deallocates the very button mid-callback, so those
+      // defer one runloop tick.
+      if planePeekInProgress {
+        remount()
+      } else {
+        DispatchQueue.main.async { [weak self] in self?.remount() }
+      }
+    case .showLanguageMenu:
+      presentLanguageMenu()
+    case .startDictation:
+      state.dictating = true
+      stateChanged()
+      host?.hostStartDictation()
+    case .stopDictation:
+      state.dictating = false
+      stateChanged()
+      host?.hostStopDictation()
+    case .runRefine:
+      state.refining = true
+      stateChanged()
+      host?.hostRunRefine()
+    case .cycleTone:
+      // Cycle through the backend tone list (kb.personality.tones). The pill
+      // shows the LABEL; persistTonePick carries the ID to the refine
+      // pipeline + server so the choice actually sticks.
+      let tones = configuredTones()
+      let idx = tones.firstIndex(where: { $0.label.caseInsensitiveCompare(state.tone) == .orderedSame }) ?? -1
+      let next = tones[(idx + 1) % max(1, tones.count)]
+      state.tone = next.label
+      stateChanged()
+      persistTonePick(id: next.id)
+      fireKeyHaptic("tone")
+    case .openApp(let screenId):
+      // The tombstone in the App Group is the guaranteed half: the app reads
+      // it on its next foreground, however it gets there. The open is the
+      // other half — through the host's app-opening path, the same one the
+      // mic uses to reach Tailzu (a keyboard cannot call UIApplication.open).
+      // Writing only the tombstone left the tap doing nothing visible.
+      let target = (screenId?.isEmpty == false) ? "screen/\(screenId!)" : ""
+      writeDeepLinkTombstone(path: target)
+      openContainingApp(appURL(screen: screenId))
+    case .openSettings:
+      // Tombstone with a well-known path the app routes to openSettings() on
+      // foreground; the open brings the app there (kb.deepLink.settingsUrl).
+      writeDeepLinkTombstone(path: "openSettings")
+      openContainingApp(URL(string: flagString("kb.deepLink.settingsUrl", "tulmi://")))
+    case .haptic(let style):
+      fireHaptic(style)
+    case .sequence(let actions):
+      runSequence(actions, from: 0)
+    case .parallel(let actions):
+      // Actions run "at the same time" from the tree's POV. For side-effecting
+      // ops (haptic, log, network) they truly run concurrently; for state
+      // mutations they still serialize on the main queue but the point is
+      // authorial intent — no ordering guarantee.
+      for a in actions {
+        DispatchQueue.main.async { [weak self] in self?.run(a) }
+      }
+    case .condition(let cond, let thenA, let elseA):
+      if evaluate(cond) { run(thenA) }
+      else if let e = elseA { run(e) }
+    case .delay(let ms):
+      // A pause primitive. It only means something INSIDE a sequence, where
+      // runSequence() intercepts it and defers the remaining actions by `ms`
+      // (haptic → delay 100 → toast). Reached here only when run directly at the
+      // top level, with no following action to defer — so a standalone no-op.
+      _ = ms
+    case .openUrl(let url, _):
+      // Extensions can't UIApplication.open directly; drop a tombstone in the
+      // app group, then open through the host. A URL on one of the app's own
+      // schemes (kb.deepLink.openUrlSchemes, comma-separated) opens as
+      // itself; anything else opens the app — a keyboard may open its own
+      // app, not someone else's (App Review 4.4.1), and the tombstone carries
+      // the URL there.
+      writeDeepLinkTombstone(path: "openUrl?u=\(url)")
+      let schemes = Set(flagString("kb.deepLink.openUrlSchemes", "tulmi")
+        .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+      if let u = URL(string: url), let scheme = u.scheme?.lowercased(), schemes.contains(scheme) {
+        openContainingApp(u)
+      } else {
+        openContainingApp(appURL(screen: nil))
+      }
+    case .toast(let msg, let tone):
+      showToast(message: msg, tone: tone)
+    case .confetti:
+      // Confetti rendered as a short-lived CAEmitterLayer over the mount.
+      fireConfetti()
+    case .speak(let text, let voice):
+      speak(text: text, voice: voice)
+    case .playMedia(let url):
+      playMedia(url: url)
+    case .stopMedia:
+      stopMedia()
+    case .copyToClipboard(let text, let toastMessage):
+      UIPasteboard.general.string = text
+      if let m = toastMessage { showToast(message: m, tone: "success") }
+    case .readClipboard(let assignTo):
+      let clip = UIPasteboard.general.string ?? ""
+      writeStatePath(assignTo, .string(clip))
+      stateChanged()
+    case .share(let text, let url, let title):
+      var items: [Any] = []
+      if let t = text, !t.isEmpty { items.append(t) }
+      if let u = url, let real = URL(string: u) { items.append(real) }
+      if items.isEmpty { return }
+      let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+      if let t = title { vc.setValue(t, forKey: "subject") }
+      host?.hostPresent(vc)
+    case .setState(let path, let value):
+      writeStatePath(path, value)
+      stateChanged()
+    case .toggleState(let path):
+      let current = lookup("state.\(path)")
+      let flipped: KBJSON = truthy(current) ? .bool(false) : .bool(true)
+      writeStatePath(path, flipped)
+      stateChanged()
+    case .incrementState(let path, let by):
+      let current = lookup("state.\(path)").asDouble ?? 0
+      writeStatePath(path, .number(current + by))
+      stateChanged()
+    case .clearState(let path):
+      writeStatePath(path, .null)
+      stateChanged()
+    case .callEndpoint(let method, let path, let body, let assignTo, let onSuccess, let onError):
+      callEndpoint(method: method, path: path, body: body, assignTo: assignTo, onSuccess: onSuccess, onError: onError)
+    case .analyticsTrack(let event, let props):
+      // Extensions can't hit our analytics SDK directly (memory + sandbox);
+      // drop an event tombstone in the app group and the main app forwards
+      // on next foreground.
+      writeAnalyticsTombstone(event: event, props: props)
+    case .log(let msg, let level):
+      NSLog("[kb %@] %@", level, msg)
+    case .clearCache:
+      remoteImageCache.removeAll()
+      if let dir = remoteImageCacheDir() {
+        try? FileManager.default.removeItem(at: dir)
+      }
+    case .reloadApp:
+      // Reboots the SDUI tree only — the extension process itself stays up.
+      remount()
+    case .extensionAction(let name, let params):
+      // Look up in the registered extension handlers. Unknown → no-op (safe
+      // for pushing forward-looking actions to old builds).
+      if let handler = Self.extensionHandlers[name] {
+        handler(self, params ?? .null)
+      } else {
+        NSLog("[kb ext] no handler for %@", name)
+      }
+    case .unknown(let kind):
+      NSLog("unknown kb action: %@", kind)
+    }
+  }
+
+  /// Execute a sequence one action at a time, honoring `delay(ms)` as a REAL
+  /// pause: when a delay is reached the remaining actions run after
+  /// asyncAfter(ms). A sequence with no delays runs synchronously in order,
+  /// exactly as the old `for a in actions { run(a) }` did.
+  private func runSequence(_ actions: [KBActionRef], from index: Int) {
+    var i = index
+    while i < actions.count {
+      let ref = actions[i]
+      if case .delay(let ms)? = resolve(ref), ms > 0 {
+        let next = i + 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000.0) { [weak self] in
+          self?.runSequence(actions, from: next)
+        }
+        return
+      }
+      run(ref)
+      i += 1
+    }
+  }
+
+  // MARK: - Extension handler registry
+  //
+  // Native code can register a named handler at app launch time:
+  //     SDUIRenderer.registerExtension("myCustomVoice") { renderer, params in ... }
+  // Then backend can fire it as { kind: "extension", name: "myCustomVoice", params: {...} }.
+  // Unknown names silently no-op so backend can push handlers older builds don't
+  // have yet without a crash.
+  private static var extensionHandlers: [String: (SDUIRenderer, KBJSON) -> Void] = [:]
+  static func registerExtension(_ name: String, handler: @escaping (SDUIRenderer, KBJSON) -> Void) {
+    extensionHandlers[name] = handler
+  }
+
+  // MARK: - State path writer (for setState / readClipboard / callEndpoint.assignTo)
+  //
+  // Writes a KBJSON value into state.user.<path> — a scratch dict that backend
+  // can freely read/write via bind + visibleIf. Reserved for backend use;
+  // native state fields (shift, dictating, etc.) are not writable via this path.
+  private func writeStatePath(_ path: String, _ value: KBJSON) {
+    // Store the value with its REAL type. The old asString-first round-trip
+    // coerced setState(path, 5) into .string("5.0"), so a later eq:[path, 5]
+    // (a .number) never matched (equal() compares by case). Only .null is
+    // special-cased, mapping to a removal.
+    if case .null = value { state.user.removeValue(forKey: path) }
+    else { state.user[path] = value }
+  }
+
+  // MARK: - Toast (transient label at the bottom of the keyboard)
+  private weak var toastView: UILabel?
+  private func showToast(message: String, tone: String) {
+    // Backend flags:
+    //   kb.toast.durationMs   (default 2000) — visible time before fade begins
+    //   kb.toast.fadeInMs     (default 180)
+    //   kb.toast.fadeOutMs    (default 250)
+    //   kb.toast.height       (default 32)
+    //   kb.toast.offsetY      (default -18) — negative = above bottom anchor
+    //   kb.toast.fontSize     (default 13)
+    //   kb.toast.color.error   (default "#FF3B30E6")
+    //   kb.toast.color.success (default "#34C759E6")
+    //   kb.toast.color.info    (default "#000000D9")
+    guard let container = mountContainer else { return }
+    toastView?.removeFromSuperview()
+    let l = UILabel()
+    l.text = message
+    l.textColor = flagColor("kb.toast.fg", "#FFFFFF")
+    l.textAlignment = .center
+    l.font = .systemFont(ofSize: flagCGFloat("kb.toast.fontSize", 13), weight: .medium)
+    let bg: UIColor = {
+      switch tone {
+      case "error":   return flagColor("kb.toast.color.error", "#FF3B30E6")
+      case "success": return flagColor("kb.toast.color.success", "#34C759E6")
+      default:        return flagColor("kb.toast.color.info", "#000000D9")
+      }
+    }()
+    l.backgroundColor = bg
+    l.layer.cornerRadius = flagCGFloat("kb.toast.radius", 8)
+    l.clipsToBounds = true
+    l.translatesAutoresizingMaskIntoConstraints = false
+    l.alpha = 0
+    container.addSubview(l)
+    NSLayoutConstraint.activate([
+      l.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+      l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: flagCGFloat("kb.toast.offsetY", -18)),
+      l.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.toast.height", 32)),
+      l.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor,
+                               multiplier: flagCGFloat("kb.toast.maxWidthFraction", 0.9)),
+    ])
+    l.layoutMargins = UIEdgeInsets(top: flagCGFloat("kb.toast.padV", 6), left: flagCGFloat("kb.toast.padH", 14),
+                                   bottom: flagCGFloat("kb.toast.padV", 6), right: flagCGFloat("kb.toast.padH", 14))
+    toastView = l
+    let fadeIn = flagDouble("kb.toast.fadeInMs", 180) / 1000.0
+    let duration = flagDouble("kb.toast.durationMs", 2000) / 1000.0
+    let fadeOut = flagDouble("kb.toast.fadeOutMs", 250) / 1000.0
+    UIView.animate(withDuration: fadeIn) { l.alpha = 1 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak l] in
+      UIView.animate(withDuration: fadeOut, animations: { l?.alpha = 0 },
+                     completion: { _ in l?.removeFromSuperview() })
+    }
+  }
+
+  // MARK: - Confetti (short-lived CAEmitterLayer)
+  private func fireConfetti() {
+    guard let container = mountContainer else { return }
+    let emitter = CAEmitterLayer()
+    // Backend flags:
+    //   kb.confetti.colors       (default 6 system colors) — array of hex strings
+    //   kb.confetti.birthRate    (default 6)   — particles/sec per color cell
+    //   kb.confetti.lifetimeMs   (default 3000)
+    //   kb.confetti.velocity     (default 200) — pt/sec
+    //   kb.confetti.spin         (default 3)   — rad/sec
+    //   kb.confetti.scale        (default 0.06)
+    //   kb.confetti.burstMs      (default 400) — birth cutoff
+    //   kb.confetti.teardownMs   (default 3500)
+    emitter.emitterPosition = CGPoint(x: container.bounds.midX, y: -10)
+    emitter.emitterShape = .line
+    emitter.emitterSize = CGSize(width: container.bounds.width, height: 1)
+    let defaultColors = ["#FF3B30","#007AFF","#34C759","#FFCC00","#AF52DE","#FF9500"]
+    let hexList: [String] = {
+      if case .array(let a)? = config.flags?["kb.confetti.colors"] {
+        return a.compactMap { $0.asString }
+      }
+      return defaultColors
+    }()
+    let birthRate = Float(flagDouble("kb.confetti.birthRate", 6))
+    let lifetime = Float(flagDouble("kb.confetti.lifetimeMs", 3000) / 1000.0)
+    let velocity = flagCGFloat("kb.confetti.velocity", 200)
+    let spin = flagCGFloat("kb.confetti.spin", 3)
+    let scale = flagCGFloat("kb.confetti.scale", 0.06)
+    emitter.emitterCells = hexList.map { hex in
+      let cell = CAEmitterCell()
+      cell.birthRate = birthRate
+      cell.lifetime = lifetime
+      cell.velocity = velocity
+      cell.velocityRange = velocity * 0.2
+      cell.emissionLongitude = .pi
+      cell.emissionRange = 0.5
+      cell.spin = spin
+      cell.spinRange = spin * 1.3
+      cell.scale = scale
+      cell.color = UIColor(tulmiHex: hex).cgColor
+      cell.contents = UIImage(systemName: "square.fill")?.cgImage
+      return cell
+    }
+    container.layer.addSublayer(emitter)
+    let burst = flagDouble("kb.confetti.burstMs", 400) / 1000.0
+    let teardown = flagDouble("kb.confetti.teardownMs", 3500) / 1000.0
+    DispatchQueue.main.asyncAfter(deadline: .now() + burst) { emitter.birthRate = 0 }
+    DispatchQueue.main.asyncAfter(deadline: .now() + teardown) { emitter.removeFromSuperlayer() }
+  }
+
+  // MARK: - TTS (AVSpeechSynthesizer)
+  private var speechSynth: AVSpeechSynthesizer?
+  private func speak(text: String, voice: String?) {
+    if speechSynth == nil { speechSynth = AVSpeechSynthesizer() }
+    let utter = AVSpeechUtterance(string: text)
+    if let v = voice, let sv = AVSpeechSynthesisVoice(language: v) { utter.voice = sv }
+    speechSynth?.speak(utter)
+  }
+
+  // MARK: - Media (AVPlayer, opt-in)
+  private var mediaPlayer: AVPlayer?
+  private func playMedia(url: String) {
+    guard let u = URL(string: url) else { return }
+    let p = AVPlayer(url: u)
+    mediaPlayer = p
+    p.play()
+  }
+  private func stopMedia() {
+    mediaPlayer?.pause()
+    mediaPlayer = nil
+  }
+
+  // MARK: - callEndpoint
+  //
+  // Small helper so backend can trigger arbitrary POST/GET from the keyboard.
+  // Uses the same base URL the config was fetched from. Result body (if JSON
+  // and assignTo is set) lands at state.user[assignTo]. onSuccess/onError refs
+  // run after the response is decoded.
+  private func callEndpoint(method: String, path: String, body: KBJSON?,
+                            assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?) {
+    let base = TulmiBackend.baseUrl
+    guard let url = URL(string: base + path) else { return }
+    // Backend flag: kb.network.timeoutMs (default 15000) — request timeout for
+    // callEndpoint invocations. Default was iOS's implicit 60s which is way
+    // too long on a bad network.
+    var req = URLRequest(url: url)
+    req.httpMethod = method.uppercased()
+    req.timeoutInterval = flagDouble("kb.network.timeoutMs", 15000) / 1000.0
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let body = body, let data = try? JSONEncoderSafe.data(for: body) {
+      req.httpBody = data
+    }
+    URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        let ok = (resp as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        if let err = err {
+          NSLog("[kb callEndpoint] %@", "\(err)")
+        }
+        if ok, let d = data, let json = try? JSONDecoder().decode(KBJSON.self, from: d) {
+          if let key = assignTo { self.writeStatePath(key, json); self.stateChanged() }
+          if let ok = onSuccess { self.run(ok) }
+        } else {
+          if let er = onError { self.run(er) }
+        }
+      }
+    }.resume()
+  }
+
+  // MARK: - Analytics tombstone (extension → main app hand-off; deep-link
+  // tombstone helper is defined once, further down)
+  private func writeAnalyticsTombstone(event: String, props: KBJSON?) {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    var log = d?.array(forKey: "tulmi.analytics.pending") as? [[String: Any]] ?? []
+    var entry: [String: Any] = ["event": event, "at": Int(0)]  // timestamp filled by main app
+    if let p = props, case .object(let o) = p {
+      var props2: [String: Any] = [:]
+      for (k, v) in o { props2[k] = JSONEncoderSafe.lower(v) }
+      entry["props"] = props2
+    }
+    log.append(entry)
+    d?.set(log, forKey: "tulmi.analytics.pending")
+  }
+
+  private func fireHaptic(_ style: String) {
+    switch style {
+    case "light":
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    case "medium":
+      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    case "heavy":
+      UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+    case "selection":
+      UISelectionFeedbackGenerator().selectionChanged()
+    case "success":
+      UINotificationFeedbackGenerator().notificationOccurred(.success)
+    case "warning":
+      UINotificationFeedbackGenerator().notificationOccurred(.warning)
+    case "error":
+      UINotificationFeedbackGenerator().notificationOccurred(.error)
+    default:
+      UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+  }
+
+  // MARK: - Auto-capitalization
+
+  /// Called after every insert / delete. Reads the text before the cursor and
+  /// arms state.shift when the next character is at a sentence boundary:
+  ///   - field start (nothing before cursor)
+  ///   - immediately after ". " or "? " or "! " or newline
+  /// Respects the field's autocapitalizationType — off entirely on URL /
+  /// email / password fields, .allCharacters keeps shift on always,
+  /// .words fires on every word boundary.
+  /// `afterTyping` is the text just inserted, when the caller knows it. For a
+  /// plain letter/digit that knowledge is enough to decide autocap locally —
+  /// the char before the cursor IS that letter, so neither .sentences nor
+  /// .words wants a cap next — skipping the documentContextBeforeInput read.
+  /// That read is an XPC round-trip to the host app on EVERY keystroke; the
+  /// system keyboard pays no such tax, and this fast path removes ours for the
+  /// most common case. Word boundaries / deletes still do the real read.
+  private func updateAutoCap(afterTyping typed: String? = nil) {
+    // Backend flag: kb.autoCap.enabled (default true) — global auto-cap kill switch
+    guard flagBool("kb.autoCap.enabled", true) else { return }
+    guard let host = host else { return }
+    if state.capsLock { return } // caps lock wins; don't fight the user
+    let mode = host.hostAutocapitalizationType()
+    if mode == .none { return }
+    let shouldCap: Bool
+    if mode != .allCharacters,
+       let t = typed, t.count == 1, let c = t.first, c.isLetter || c.isNumber {
+      shouldCap = false   // fast path: no proxy read
+    } else {
+      let ctx = host.hostTextDocumentProxy.documentContextBeforeInput ?? ""
+      switch mode {
+      case .allCharacters:
+        shouldCap = true
+      case .words:
+        shouldCap = ctx.isEmpty || (ctx.last?.isWhitespace ?? true)
+      case .sentences:
+        if ctx.isEmpty { shouldCap = true }
+        else if ctx.last == "\n" || ctx.hasSuffix("\n ") {
+          // New line/paragraph → sentence start. Checked BEFORE the whitespace
+          // strip below: "\n".isWhitespace is true, so drop(while:) swallowed
+          // the newline and the old `last == "\n"` comparison was dead code —
+          // every new line started lowercase.
+          shouldCap = true
+        }
+        else {
+          // Look back past trailing whitespace, then check the last non-space
+          // for a sentence-ending mark.
+          let trimmed = ctx.reversed().drop(while: { $0.isWhitespace })
+          let hadSpace = ctx.count != trimmed.count
+          if let last = trimmed.first {
+            shouldCap = hadSpace && (last == "." || last == "?" || last == "!")
+          } else {
+            shouldCap = true
+          }
+        }
+      @unknown default:
+        shouldCap = false
+      }
+    }
+    if shouldCap != state.shift {
+      state.shift = shouldCap
+      stateChanged()
+    }
+  }
+
+  // MARK: - Smart punctuation
+
+  /// Server-controlled toggle key. When flags["kb.smartPunctuation"] is truthy
+  /// (default), we run typed characters through this cleaner:
+  ///   `"` → curly quote (open/close by odd/even count in the buffer)
+  ///   `--` → em-dash (delete the trailing "-" first)
+  ///   `...` → single ellipsis codepoint (delete the trailing ".." first)
+  /// Everything else passes through untouched.
+  private func applySmartPunctuation(_ text: String) -> String {
+    let on: Bool = {
+      if let f = config.flags?["kb.smartPunctuation"]?.asBool { return f }
+      return true
+    }()
+    guard on, text.count == 1, let ch = text.first,
+          ch == "\"" || ch == "'" || ch == "-" || ch == "."
+    else { return text }
+    // Only the four trigger characters ever read the document context — the
+    // old guard let EVERY letter fall through to a documentContextBeforeInput
+    // read (an XPC round-trip to the host app) before returning it unchanged.
+    guard let proxy = host?.hostTextDocumentProxy else { return text }
+    // A password is typed exactly: "..." stays three dots, quotes stay straight.
+    // (Read here, behind the trigger-character guard, so letters never pay for it.)
+    if host?.hostIsSecureField() == true { return text }
+    // Respect the FIELD's smart-typography traits, like the system keyboard:
+    // code editors / identifier fields set these to .no and a curly quote
+    // there is corruption, not typography.
+    let traits = proxy as? UITextInputTraits
+    if (ch == "\"" || ch == "'"), traits?.smartQuotesType == UITextSmartQuotesType.no {
+      return text
+    }
+    if ch == "-", traits?.smartDashesType == UITextSmartDashesType.no {
+      return text
+    }
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    switch ch {
+    case "\"":
+      // Toggle straight → curly. Count existing straight " in the paragraph
+      // is unreliable; simplest heuristic: last char is a word char → close.
+      let last = ctx.last
+      if last == nil || last?.isWhitespace == true || last == "\n" { return "\u{201C}" }
+      return "\u{201D}"
+    case "'":
+      let last = ctx.last
+      if last == nil || last?.isWhitespace == true || last == "\n" { return "\u{2018}" }
+      return "\u{2019}"
+    case "-":
+      if ctx.hasSuffix("-") {
+        proxy.deleteBackward()
+        return "\u{2014}" // em-dash
+      }
+      return text
+    case ".":
+      if ctx.hasSuffix("..") {
+        proxy.deleteBackward()
+        proxy.deleteBackward()
+        return "\u{2026}" // ellipsis
+      }
+      return text
+    default:
+      return text
+    }
+  }
+
+  // MARK: - Autocorrect + word suggestions (on-device)
+  //
+  // The intelligence layer the keyboard lacked vs the system one. Fully local
+  // and synchronous-cheap: UITextChecker supplies misspelling detection,
+  // guesses and completions; the LIVE key geometry re-ranks guesses by tap
+  // adjacency (a candidate differing from the typed word only by neighbor-key
+  // substitutions is almost certainly what the finger meant). Corrections fire
+  // at word boundaries (space / return / punctuation) exactly like the system
+  // keyboard and Wispr's QWERTY layer. Backend flags:
+  //   kb.autocorrect.enabled      (default false — backend owns rollout)
+  //   kb.autocorrect.minLen       (default 3)  — shortest word we'll correct
+  //   kb.autocorrect.maxDistance  (default 2)  — weighted edit-distance cap
+  //   kb.autocorrect.lang         (default "" — derive from primaryLanguage)
+  //   kb.suggestions.enabled      (default false) — completion chips while typing
+  //   kb.suggestions.max          (default 3)
+  //   kb.touch.lmBias.enabled / .pt + kb.touch.bigrams
+  //     — next-letter hit-target bias, consumed by KeyPlaneView.keyAt.
+
+  /// The word being typed since the last boundary. A best-effort mirror of the
+  /// document tail: handleWordBoundary VERIFIES it against the real context
+  /// before touching the document, so a stale mirror can never corrupt text.
+  private var currentWord = ""
+  /// False when the tracker may be a strict SUFFIX of the real trailing word —
+  /// e.g. after deleting past a boundary ("help·" ⌫ → tracker empty, doc tail
+  /// "help") and typing on ("ing" tracked, doc "helping"). ctx.hasSuffix alone
+  /// can't catch that, and correcting the suffix corrupts the word. Restored
+  /// at the next word boundary (a fresh word starts fully tracked).
+  private var trackerValid = true
+  /// True right after a suggestion insert added its trailing auto-space.
+  /// Typing terminal punctuation next pulls that space back ("word ," →
+  /// "word, ") — the native auto-space pull-back.
+  private var pendingAutoSpace = false
+  /// What the last insertKey actually put in the document — the cased,
+  /// smart-punctuated string — so a touch-down commit can be taken back
+  /// exactly when its accent tray opens (planeRetractDownCommit).
+  private var lastKeyInsert: String?
+  /// Last applied correction, kept so the suggestion bar can offer the typed
+  /// original as a one-tap revert (native behavior), and so a backspace right
+  /// after the correction undoes it (kb.autocorrect.backspaceRevert).
+  private var lastAutocorrect: (original: String, corrected: String, boundary: String)?
+  /// Last word this engine COMMITTED whole (swipe insert, confusable offer
+  /// target) — suggestion chips replace it in place.
+  private var lastCommittedWord: (word: String, boundary: String)?
+  /// Bumped on every text mutation; async checker results are dropped when
+  /// the generation moved (the user typed on while the checker ran).
+  private var typingGeneration = 0
+  /// Parsed kb.autocorrect.confusables: word → alternatives to OFFER (never
+  /// auto-replace — real-word swaps are suggestions, not corrections).
+  private var parsedConfusables: [String: [String]]?
+  /// Background spell-check lane: UITextChecker work (guesses can cost
+  /// 10-30ms) stays off the tap handler. Serial queue = single-thread
+  /// confinement for the non-thread-safe checker.
+  private static let spellQueue = DispatchQueue(label: "kb.spellcheck", qos: .userInitiated)
+  private static let bgChecker = UITextChecker()
+  /// Last single character inserted — seeds the bigram bias for the NEXT touch.
+  fileprivate var lastInsertedChar: String?
+  /// Parsed kb.touch.bigrams: previous char → set of likely next chars.
+  private var parsedBigrams: [String: Set<String>]?
+  /// Physical key adjacency derived from the live button frames; rebuilt after
+  /// every remount (see remount()).
+  fileprivate var cachedNeighborMap: [Character: Set<Character>]?
+  private var cachedCheckerLang: String?
+
+  /// Likely next letters after the last insert, for KeyPlaneView's hit-target
+  /// bias. Empty when the table has no row (or nothing was typed yet).
+  fileprivate func lmLikelyNext() -> Set<String> {
+    guard let prev = lastInsertedChar?.lowercased() else { return [] }
+    if parsedBigrams == nil {
+      var out: [String: Set<String>] = [:]
+      if case .object(let table)? = config.flags?["kb.touch.bigrams"] {
+        for (k, v) in table {
+          guard let s = v.asString else { continue }
+          out[k.lowercased()] = Set(s.map { String($0) })
+        }
+      }
+      parsedBigrams = out
+    }
+    return parsedBigrams?[prev] ?? []
+  }
+
+  /// Called after every self-initiated insert with the EXACT text that landed
+  /// (post smart-punctuation). Maintains the word tracker, the bigram seed,
+  /// and fires the boundary pipeline on terminators.
+  private func noteTyped(_ inserted: String) {
+    lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
+    if inserted.count == 1, let c = inserted.first {
+      lastInsertedChar = inserted
+      if c == "'" || c == "\u{2019}" || c.isLetter || c.isNumber {
+        currentWord.append(c)
+        refreshSuggestions()
+      } else if c.isWhitespace || c.isNewline || c.isPunctuation {
+        handleWordBoundary(boundary: inserted)
+      } else {
+        resetTypingContext()
+      }
+    } else {
+      // Multi-char insert (suggestion, backend insertText, transformed
+      // punctuation) — tracking a word through it isn't reliable; reset.
+      lastInsertedChar = inserted.last.map(String.init)
+      resetTypingContext()
+    }
+  }
+
+  private func noteDeletedBackward() {
+    lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
+    lastInsertedChar = nil   // unknown context now — bias off until next insert
+    pendingAutoSpace = false
+    if currentWord.isEmpty {
+      // Deleting past what we tracked: the doc tail may now end mid-word with
+      // untracked characters in front of anything typed next. Corrections are
+      // unsafe until the next boundary.
+      trackerValid = false
+    } else {
+      currentWord.removeLast()
+    }
+    refreshSuggestions()
+  }
+
+  /// Forget the tracked word + revert state. Called whenever the text around
+  /// the cursor changed in a way the tracker can't follow. `tailAtBoundary`
+  /// says whether the document is KNOWN to end at a word boundary right now
+  /// (suggestion just inserted "word ", dictation committed with a trailing
+  /// space) — if not, corrections stay disabled until the next boundary.
+  func resetTypingContext(tailAtBoundary: Bool = false) {
+    currentWord = ""
+    lastAutocorrect = nil
+    lastCommittedWord = nil
+    typingGeneration += 1
+    pendingAutoSpace = false
+    trackerValid = tailAtBoundary
+    if !state.suggestions.isEmpty {
+      state.suggestions = []
+      updateSuggestionBarInPlace()
+    }
+  }
+
+  /// The word just ended (boundary landed in the document already, except for
+  /// the return key — see `preInsertContext`). Order: text expansion (exact
+  /// trigger) wins, then spell correction. ONE context read happens here — at
+  /// the boundary, not per keystroke — and it doubles as the safety check
+  /// that the tracker matches reality.
+  ///
+  /// `preInsertContext`: for "\n" boundaries the caller passes the context it
+  /// read BEFORE inserting the newline — most hosts scope
+  /// documentContextBeforeInput to the current line, so reading after the
+  /// insert comes back empty and the verification could never pass.
+  private func handleWordBoundary(boundary: String, preInsertContext: String? = nil) {
+    lastAutocorrect = nil
+    let word = currentWord
+    currentWord = ""
+    let wasValid = trackerValid
+    trackerValid = true   // a boundary just landed — the next word starts fully tracked
+    if !state.suggestions.isEmpty {
+      state.suggestions = []
+      updateSuggestionBarInPlace()
+    }
+    guard wasValid, !word.isEmpty, let proxy = host?.hostTextDocumentProxy else { return }
+    // Respect the field: URL / email / code fields opt out of correction.
+    guard host?.hostAutocorrectionType() != UITextAutocorrectionType.no else { return }
+    let expansion = host?.hostExpansion(for: word)
+    let autocorrectOn = flagBool("kb.autocorrect.enabled", false)
+    guard expansion != nil || autocorrectOn else { return }
+    let ctx: String = preInsertContext.map { $0 + boundary }
+      ?? (proxy.documentContextBeforeInput ?? "")
+    guard ctx.hasSuffix(word + boundary) else { return }
+    // The char BEFORE the matched word must itself be a boundary (or nothing).
+    // Without this, a tracker that is a strict suffix of the real word — e.g.
+    // "ing" against doc "helping" — passes hasSuffix and the replace corrupts
+    // the word. Belt-and-suspenders on top of the trackerValid gate.
+    let head = ctx.dropLast(word.count + boundary.count)
+    if let p = head.last,
+       p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" {
+      return
+    }
+
+    // 1) Text expansion — the user's own dictionary + the iOS supplementary
+    //    lexicon (contact names, Settings text replacements), via the host.
+    if let repl = expansion, repl != word {
+      replaceTail(count: word.count + boundary.count, with: repl + boundary, proxy: proxy)
+      return
+    }
+    guard autocorrectOn else { return }
+
+    // 2) Spell correction — ASYNC (K7). rangeOfMisspelledWord + guesses cost
+    // 10-30ms on older devices, which used to ride inside the space-tap
+    // handler. The check runs on the spell queue; the result applies back on
+    // main ONLY if the document tail is still exactly word+boundary (a
+    // generation counter + a fresh context read guard the race).
+    let minLen = clampInt(flagDouble("kb.autocorrect.minLen", 3), 0, 64)
+    let maxLen = clampInt(flagDouble("kb.autocorrect.maxLen", 24), 1, 256)
+    guard word.count >= minLen, word.count <= maxLen else { return }
+    // Plain ASCII letters (+apostrophe) only: digits, symbols, and accented
+    // words (deliberately picked from the tray) are left alone.
+    guard word.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
+    else { return }
+    let lang = autocorrectLanguage()
+    let neighbors = keyNeighborMap()
+    let maxDist = flagDouble("kb.autocorrect.maxDistance", 2.0)
+    // Captured on main (the flag store isn't queue-safe) and handed to the
+    // static scorer running on the spell queue.
+    let neighborCost = flagDouble("kb.autocorrect.neighborCost", 0.5)
+    let punctCost = flagDouble("kb.autocorrect.punctCost", 0.5)
+    let maxGuesses = clampInt(flagDouble("kb.autocorrect.maxGuesses", 8), 1, 64)
+    let maxLenDelta = clampInt(flagDouble("kb.autocorrect.maxLenDelta", 1), 0, 16)
+    let generation = typingGeneration
+    let isNewline = boundary == "\n"
+    Self.spellQueue.async { [weak self] in
+      let ns = word as NSString
+      let full = NSRange(location: 0, length: ns.length)
+      let miss = Self.bgChecker.rangeOfMisspelledWord(
+        in: word, range: full, startingAt: 0, wrap: false, language: lang)
+      guard miss.location != NSNotFound else {
+        // Spelled fine — real-word confusables ("their/there") are OFFERED
+        // as chips, never auto-swapped.
+        DispatchQueue.main.async {
+          guard let self = self, self.typingGeneration == generation else { return }
+          self.offerConfusables(for: word, boundary: boundary)
+        }
+        return
+      }
+      let guesses = Self.bgChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
+      guard let corrected = SDUIRenderer.pickCorrection(
+        for: word, from: guesses, neighbors: neighbors, maxDist: maxDist,
+        neighborCost: neighborCost, punctCost: punctCost,
+        maxGuesses: maxGuesses, maxLenDelta: maxLenDelta) else { return }
+      DispatchQueue.main.async {
+        self?.applyAsyncCorrection(word: word, boundary: boundary, corrected: corrected,
+                                   generation: generation, newlineBoundary: isNewline)
+      }
+    }
+  }
+
+  /// Apply a background-checked correction — only while it's still safe: the
+  /// generation must not have moved, and (except for newline boundaries,
+  /// where the context is line-scoped and unreadable) the document tail must
+  /// still be exactly word+boundary.
+  private func applyAsyncCorrection(word: String, boundary: String, corrected: String,
+                                    generation: Int, newlineBoundary: Bool) {
+    guard typingGeneration == generation, let proxy = host?.hostTextDocumentProxy else { return }
+    let cased = matchCase(of: word, to: corrected)
+    guard cased != word else { return }
+    if !newlineBoundary {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      guard ctx.hasSuffix(word + boundary) else { return }
+      let head = ctx.dropLast(word.count + boundary.count)
+      if let p = head.last, p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" { return }
+    }
+    replaceTail(count: word.count + boundary.count, with: cased + boundary, proxy: proxy)
+    typingGeneration += 1
+    lastAutocorrect = (word, cased, boundary)
+    // Denominator for the revert rate — the pair is what makes the signal
+    // meaningful ("4 reverts" means nothing without "out of how many").
+    KeyboardTelemetry.bump(.autocorrectApplied)
+    // Revert affordance: the typed original shows as a chip; tapping restores it.
+    state.suggestionKind = "revert"
+    state.suggestions = [word]
+    updateSuggestionBarInPlace()
+  }
+
+  /// Real-word confusion pairs (kb.autocorrect.confusables). The word is
+  /// spelled fine, so it's never auto-replaced — the alternatives appear as
+  /// chips that swap the committed word in place.
+  private func offerConfusables(for word: String, boundary: String) {
+    if parsedConfusables == nil {
+      var out: [String: [String]] = [:]
+      if case .object(let table)? = config.flags?["kb.autocorrect.confusables"] {
+        for (k, v) in table {
+          if let arr = v.asArray { out[k.lowercased()] = arr.compactMap { $0.asString } }
+          else if let s = v.asString { out[k.lowercased()] = [s] }
+        }
+      }
+      parsedConfusables = out
+    }
+    guard let alts = parsedConfusables?[word.lowercased()], !alts.isEmpty else { return }
+    lastCommittedWord = (word, boundary)
+    state.suggestionKind = "alternates"
+    state.suggestions = alts.map { matchCase(of: word, to: $0) }
+    updateSuggestionBarInPlace()
+  }
+
+  private func replaceTail(count: Int, with text: String, proxy: UITextDocumentProxy) {
+    for _ in 0..<count { proxy.deleteBackward() }
+    proxy.insertText(text)
+  }
+
+  /// Best guess within the edit-distance budget, or nil to leave the word
+  /// alone. Deliberately conservative: a wrong correction costs the user far
+  /// more trust than a missed one. Static + parameterized so it runs on the
+  /// spell queue with values captured on main.
+  private static func pickCorrection(for typed: String, from guesses: [String],
+                                     neighbors: [Character: Set<Character>],
+                                     maxDist: Double,
+                                     neighborCost: Double,
+                                     punctCost: Double,
+                                     maxGuesses: Int = 8,
+                                     maxLenDelta: Int = 1) -> String? {
+    guard !guesses.isEmpty else { return nil }
+    var best: (word: String, dist: Double)?
+    // kb.autocorrect.maxGuesses / .maxLenDelta, captured on main.
+    for g in guesses.prefix(maxGuesses) {
+      guard !g.isEmpty, abs(g.count - typed.count) <= maxLenDelta else { continue }
+      let d = weightedEditDistance(
+        Array(typed.lowercased()), Array(g.lowercased()), neighbors: neighbors,
+        neighborCost: neighborCost, punctCost: punctCost)
+      if d <= maxDist, best == nil || d < best!.dist { best = (g, d) }
+    }
+    return best?.word
+  }
+
+  /// Levenshtein with keyboard-aware costs: substituting a key for one of its
+  /// physical neighbors costs `neighborCost` (a fat-finger, not a different
+  /// word); inserting a missing apostrophe or word-splitting space costs
+  /// `punctCost` ("dont" → "don\'t", "alot" → "a lot"); everything else 1.
+  ///
+  /// Both are backend-tunable (kb.autocorrect.neighborCost / .punctCost)
+  /// because together with kb.autocorrect.maxDistance they ARE the
+  /// aggressiveness dial: lower costs mean more words get "fixed". A wrong
+  /// correction costs far more trust than a missed one, so this needs to be
+  /// adjustable without a rebuild.
+  private static func weightedEditDistance(_ a: [Character], _ b: [Character],
+                                           neighbors: [Character: Set<Character>],
+                                           neighborCost: Double,
+                                           punctCost: Double) -> Double {
+    let n = a.count, m = b.count
+    guard n > 0, m > 0 else { return Double(max(n, m)) }
+    var prev = (0...m).map { Double($0) }
+    var cur = [Double](repeating: 0, count: m + 1)
+    for i in 1...n {
+      cur[0] = Double(i)
+      for j in 1...m {
+        let subCost: Double
+        if a[i-1] == b[j-1] { subCost = 0 }
+        else if neighbors[a[i-1]]?.contains(b[j-1]) == true { subCost = neighborCost }
+        else { subCost = 1 }
+        let insCost: Double = (b[j-1] == "'" || b[j-1] == " ") ? punctCost : 1
+        cur[j] = min(prev[j-1] + subCost,   // substitute
+                     prev[j] + 1,           // drop a typed char
+                     cur[j-1] + insCost)    // insert a candidate char
+      }
+      swap(&prev, &cur)
+    }
+    return prev[m]
+  }
+
+  /// Physical adjacency from the LIVE key frames (letterButtonsByChar), so the
+  /// model is always true for whatever layout the backend shipped — no
+  /// hardcoded QWERTY table. 1.8× key width catches orthogonal + diagonal
+  /// neighbors and nothing further.
+  private func keyNeighborMap() -> [Character: Set<Character>] {
+    if let m = cachedNeighborMap { return m }
+    var centers: [(ch: Character, p: CGPoint, w: CGFloat)] = []
+    for (str, btn) in letterButtonsByChar {
+      guard str.count == 1, let c = str.first, c.isLetter,
+            let sup = btn.superview, btn.window != nil else { continue }
+      let f = sup.convert(btn.frame, to: mountContainer)
+      guard f.width > 0 else { continue }
+      centers.append((c, CGPoint(x: f.midX, y: f.midY), f.width))
+    }
+    var m: [Character: Set<Character>] = [:]
+    // kb.autocorrect.neighborRadius — in key widths.
+    let reach = flagCGFloat("kb.autocorrect.neighborRadius", 1.8)
+    for a in centers {
+      var s = Set<Character>()
+      for b in centers where b.ch != a.ch {
+        if hypot(a.p.x - b.p.x, a.p.y - b.p.y) < a.w * reach { s.insert(b.ch) }
+      }
+      m[a.ch] = s
+    }
+    cachedNeighborMap = m
+    return m
+  }
+
+  /// Mirror the typed word's casing onto the candidate: ALL-CAPS stays caps,
+  /// leading cap stays capped, else the candidate as the checker offered it.
+  private func matchCase(of typed: String, to candidate: String) -> String {
+    guard let first = typed.first else { return candidate }
+    if typed.count > 1, typed == typed.uppercased(), typed != typed.lowercased() {
+      return candidate.uppercased()
+    }
+    if first.isUppercase {
+      return candidate.prefix(1).uppercased() + candidate.dropFirst()
+    }
+    return candidate
+  }
+
+  /// UITextChecker language: kb.autocorrect.lang override, else the field's
+  /// primary language, resolved against the checker's available set.
+  private func autocorrectLanguage() -> String {
+    if let l = cachedCheckerLang { return l }
+    let flagged = flagString("kb.autocorrect.lang", "")
+    let want = (flagged.isEmpty ? state.primaryLanguage : flagged).lowercased()
+    let avail = UITextChecker.availableLanguages
+    let match = avail.first { $0.lowercased() == want }
+      ?? avail.first { $0.lowercased().hasPrefix(want) }
+      ?? flagString("kb.autocorrect.fallbackLang", "en_US")
+    cachedCheckerLang = match
+    return match
+  }
+
+  /// Completion chips for the in-progress word. In-place bar update — never a
+  /// remount (a remount per keystroke is the 30-80ms tap lag this renderer
+  /// spent so much effort killing).
+  private func refreshSuggestions() {
+    guard flagBool("kb.suggestions.enabled", false),
+          host?.hostAutocorrectionType() != UITextAutocorrectionType.no else {
+      // Feature off (or field opted out): make sure no stale chip — e.g. an
+      // autocorrect revert chip — outlives the keystroke that follows it.
+      if !state.suggestions.isEmpty {
+        state.suggestions = []
+        updateSuggestionBarInPlace()
+      }
+      return
+    }
+    guard currentWord.count >= clampInt(flagDouble("kb.suggestions.minChars", 2), 0, 64),
+          currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
+    else {
+      if !state.suggestions.isEmpty {
+        state.suggestions = []
+        updateSuggestionBarInPlace()
+      }
+      return
+    }
+    // Completions off the keystroke path (K7): computed on the spell queue,
+    // applied only if the word is still what the user is typing.
+    let word = currentWord
+    let lang = autocorrectLanguage()
+    let maxN = max(1, Int(flagDouble("kb.suggestions.max", 3)))
+    Self.spellQueue.async { [weak self] in
+      let ns = word as NSString
+      let comps = Self.bgChecker.completions(
+        forPartialWordRange: NSRange(location: 0, length: ns.length),
+        in: word, language: lang) ?? []
+      let out = Array(comps.prefix(maxN))
+      DispatchQueue.main.async {
+        guard let self = self, self.currentWord == word else { return }
+        if self.state.suggestions != out {
+          self.state.suggestions = out
+          self.updateSuggestionBarInPlace()
+        }
+      }
+    }
+  }
+
+  /// A suggestion chip was tapped: revert chip restores the pre-autocorrect
+  /// text; completion chip replaces the in-progress word. An empty tracker
+  /// falls through to a plain append — that keeps backend-driven suggestion
+  /// lists (setState) working exactly as before.
+  fileprivate func applySuggestion(_ s: String) {
+    guard let proxy = host?.hostTextDocumentProxy else { return }
+    if let last = lastAutocorrect, s == last.original {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      if ctx.hasSuffix(last.corrected + last.boundary) {
+        replaceTail(count: last.corrected.count + last.boundary.count,
+                    with: last.original + last.boundary, proxy: proxy)
+      }
+      resetTypingContext(tailAtBoundary: true)
+      updateAutoCap()
+      return
+    }
+    // Swipe alternates + confusable offers: the chip replaces the last word
+    // this engine committed whole. The bar STAYS up (native behavior): the
+    // untapped alternates plus the word just swapped out remain available,
+    // so the user can keep flipping until they like it.
+    if let lc = lastCommittedWord {
+      let ctx = proxy.documentContextBeforeInput ?? ""
+      if ctx.hasSuffix(lc.word + lc.boundary) {
+        let remaining = state.suggestions.filter { $0 != s } + [lc.word]
+        replaceTail(count: lc.word.count + lc.boundary.count,
+                    with: s + lc.boundary, proxy: proxy)
+        lastInsertedChar = lc.boundary.last.map(String.init)
+        resetTypingContext(tailAtBoundary: true)
+        lastCommittedWord = (s, lc.boundary)
+        state.suggestions = remaining
+        updateSuggestionBarInPlace()
+        updateAutoCap()
+        return
+      }
+      lastCommittedWord = nil
+    }
+    let word = currentWord
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    guard trackerValid, word.isEmpty || ctx.hasSuffix(word) else {
+      resetTypingContext()
+      return
+    }
+    // Same strict-suffix guard as the boundary pipeline: replacing "ing" when
+    // the document says "helping" must not fire.
+    if !word.isEmpty {
+      let head = ctx.dropLast(word.count)
+      if let p = head.last, p.isLetter || p.isNumber || p == "'" || p == "\u{2019}" {
+        resetTypingContext()
+        return
+      }
+    }
+    let cased = matchCase(of: word, to: s)
+    // An empty tracker means the chip is appending, not replacing — make sure
+    // it doesn't weld onto a trailing word ("hello" + chip → "hello world ").
+    let needsLead = word.isEmpty
+      && !(ctx.isEmpty || ctx.last!.isWhitespace || ctx.last!.isNewline)
+    replaceTail(count: word.count, with: (needsLead ? " " : "") + cased + " ", proxy: proxy)
+    lastInsertedChar = " "
+    resetTypingContext(tailAtBoundary: true)
+    pendingAutoSpace = true   // typing punctuation next pulls the space back
+    updateAutoCap()
+  }
+
+  // MARK: - QuickPath swipe typing (K7)
+  //
+  // The plane promotes a single-finger glide across ≥ kb.swipe.minKeys keys
+  // into a swipe; on lift the swept key sequence decodes into a word:
+  //   • candidates must anchor to the swipe's first and last keys (± physical
+  //     neighbors) — the strongest constraint in shape writing,
+  //   • every letter must appear IN ORDER along the swept keys (exact key or
+  //     neighbor; doubled letters ride one key; apostrophes are free),
+  //   • ranked by corpus frequency (embedded list + kb.swipe.extraWords),
+  //     subsequence exactness, and length affinity.
+  // Best candidate inserts with a trailing auto-space; runners-up land in the
+  // suggestion bar and swap in place via lastCommittedWord.
+
+  /// Frequency-ordered core lexicon. Deliberately compact — the goal is the
+  /// words people actually glide (function words + everyday vocabulary); the
+  /// backend extends OTA via kb.swipe.extraWords. A single multi-line literal
+  /// (no `+` chain — 29 chained overloaded operators is how a file earns
+  /// "unable to type-check in reasonable time").
+  private static let swipeCoreWords: [String] = """
+    the be to of and a in that have i it for not on with he as you do at this
+    but his by from they we say her she or an will my one all would there their
+    what so up out if about who get which go me when make can like time no just
+    him know take people into year your good some could them see other than then
+    now look only come its over think also back after use two how our work first
+    well way even new want because any these give day most us is was are been has
+    had were said did having may should am place made find where much too very
+    still being going before great same those both does another around thought
+    while together children saw few though feel man men woman women child life
+    world school state family student group country problem hand part case week
+    company system program question government number night point home water room
+    mother area money story fact month lot right study book eye job word business
+    issue side kind head house service friend father power hour game line end
+    member law car city community name president team minute idea body information
+    nothing ago face others level office door health person art war history party
+    result change morning reason research girl guy moment air teacher force
+    education call try ask need become leave put mean keep let begin seem help
+    talk turn start show hear play run move live believe hold bring happen write
+    provide sit stand lose pay meet include continue set learn lead understand
+    watch follow stop create speak read allow add spend grow open walk win offer
+    remember love consider appear buy wait serve die send expect build stay fall
+    cut reach kill remain little important different small large next early young
+    public bad able best better sure free low late hard major economic strong
+    possible whole real american big high old hello thanks thank please sorry
+    okay yeah cool nice awesome happy tomorrow today tonight later maybe really
+    actually definitely probably haha gonna wanna gotta yes no here come coming
+    meeting message send sent text call called calling home working dinner lunch
+    coffee drink food great night week weekend friday monday tuesday wednesday
+    thursday saturday sunday don't can't won't didn't i'm i'll i've it's that's
+    what's you're we're they're isn't wasn't couldn't wouldn't shouldn't
+    """.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+
+  private var swipeWords: [String]?
+  private func swipeLexicon() -> [String] {
+    if let w = swipeWords { return w }
+    // kb.swipe.coreWords replaces the embedded list wholesale when the server
+    // sends one (frequency order: rank drives the score). Empty → embedded.
+    let served = knobStrings("kb.swipe.coreWords", []).map { $0.lowercased() }.filter { !$0.isEmpty }
+    var words = served.isEmpty ? Self.swipeCoreWords : served
+    if case .array(let extra)? = config.flags?["kb.swipe.extraWords"] {
+      words.append(contentsOf: extra.compactMap { $0.asString?.lowercased() })
+    }
+    swipeWords = words
+    return words
+  }
+
+  fileprivate func planeCanSwipe() -> Bool { !swipeLexicon().isEmpty }
+
+  fileprivate func planeSwipeEngaged() {
+    hideKeyCallout()
+    fireKeyHaptic()
+  }
+
+  fileprivate func planeSwipeCommit(sweptChars: [String], pivots: [String] = []) {
+    KeyboardTelemetry.bump(.swipeCommitted)
+    let candidates = decodeSwipe(sweptChars, pivots: pivots)
+    guard var best = candidates.first, let proxy = host?.hostTextDocumentProxy else { return }
+    // "i" and its contractions capitalize themselves, like native.
+    if best == "i" || best.hasPrefix("i'") {
+      best = "I" + best.dropFirst()
+    }
+    if state.capsLock { best = best.uppercased() }
+    else if state.shift { best = best.prefix(1).uppercased() + best.dropFirst() }
+    // Separate from a trailing word, then insert with the auto-space.
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    let lead = (ctx.isEmpty || ctx.last!.isWhitespace || ctx.last!.isNewline) ? "" : " "
+    proxy.insertText(lead + best + " ")
+    if state.shift && !state.capsLock {
+      state.shift = false
+      stateChanged()
+    }
+    lastInsertedChar = " "
+    resetTypingContext(tailAtBoundary: true)
+    pendingAutoSpace = true
+    lastCommittedWord = (best, " ")
+    let maxAlt = max(0, Int(flagDouble("kb.swipe.maxAlternates", 3)))
+    let alts = candidates.dropFirst().prefix(maxAlt).map { matchCase(of: best, to: $0) }
+    if !alts.isEmpty {
+      state.suggestionKind = "candidates"
+      state.suggestions = Array(alts)
+      updateSuggestionBarInPlace()
+    }
+    updateAutoCap()
+    fireKeyHaptic()
+  }
+
+  /// Decode a swept key sequence into ranked word candidates.
+  private func decodeSwipe(_ swept: [String], pivots: [String] = []) -> [String] {
+    let sweptChars: [Character] = swept.compactMap { $0.lowercased().first }
+    guard sweptChars.count >= 2, let first = sweptChars.first, let last = sweptChars.last
+    else { return [] }
+    let neighbors = keyNeighborMap()
+    // Core high-frequency list FIRST (rank drives the frequency score), then
+    // dictionary candidates derived from this specific swipe — the core list
+    // alone is ~350 words, so without this almost every real word a user
+    // swipes has no entry to match at all.
+    let core = swipeLexicon()
+    let lexicon = core + dictionaryCandidates(for: sweptChars, pivots: pivots, excluding: Set(core))
+    let total = max(1, core.count)
+
+    // Pivot letters — where the finger actually turned. Treated as a hard
+    // constraint below: a word that doesn't account for a deliberate corner
+    // isn't what the user traced.
+    let pivotChars: [Character] = pivots.compactMap { $0.lowercased().first }
+
+    func near(_ a: Character, _ b: Character) -> Bool {
+      a == b || neighbors[a]?.contains(b) == true
+    }
+    /// Letters of `word` (apostrophes skipped) must appear in order along the
+    /// swept keys; doubled letters consume one key. Returns the share of
+    /// exact-key (non-neighbor) matches, or nil when the shape doesn't fit.
+    func subsequenceExactness(_ word: [Character]) -> Double? {
+      var i = 0
+      var exact = 0, matched = 0
+      var prev: Character? = nil
+      for wc in word {
+        if wc == "'" || wc == "\u{2019}" { continue }
+        if wc == prev { prev = wc; continue }   // doubled letter rides one key
+        var found = false
+        while i < sweptChars.count {
+          let sc = sweptChars[i]
+          i += 1
+          if sc == wc { exact += 1; matched += 1; found = true; break }
+          if near(sc, wc) { matched += 1; found = true; break }
+        }
+        if !found { return nil }
+        prev = wc
+      }
+      return matched == 0 ? nil : Double(exact) / Double(matched)
+    }
+
+    /// Every letter the finger deliberately turned on must appear in the word,
+    /// in order (neighbours allowed — a corner can land a key off).
+    func coversPivots(_ letters: [Character]) -> Bool {
+      guard pivotChars.count > 2 else { return true } // endpoints only: no info
+      var i = 0
+      for pc in pivotChars {
+        var found = false
+        while i < letters.count {
+          let lc = letters[i]
+          i += 1
+          if near(lc, pc) { found = true; break }
+        }
+        if !found { return false }
+      }
+      return true
+    }
+
+    // The scoring dial, kb.swipe.score.* — frequency, exactness, length
+    // affinity (and the swept-keys-per-letter ratio it assumes), pivot bonus.
+    let wFreq = flagDouble("kb.swipe.score.freq", 2.0)
+    let wExact = flagDouble("kb.swipe.score.exact", 1.5)
+    let wLength = flagDouble("kb.swipe.score.length", 0.6)
+    let keysPerLetter = flagDouble("kb.swipe.score.keysPerLetter", 1.6)
+    let wPivot = flagDouble("kb.swipe.score.pivot", 0.4)
+    let extraLetters = clampInt(flagDouble("kb.swipe.maxExtraLetters", 2), 0, 16)
+    var scored: [(String, Double)] = []
+    for (rank, word) in lexicon.enumerated() {
+      let letters = Array(word.filter { $0 != "'" && $0 != "\u{2019}" })
+      guard letters.count >= 2, letters.count <= sweptChars.count + extraLetters else { continue }
+      guard let wf = letters.first, let wl = letters.last,
+            near(first, wf), near(last, wl) else { continue }
+      guard coversPivots(letters) else { continue }
+      guard let exactness = subsequenceExactness(Array(word)) else { continue }
+      // Dictionary-derived candidates sit past the core list, so their rank
+      // would compute a negative frequency — floor it instead: they're valid
+      // words, just without a frequency prior.
+      let freq = rank < total ? 1.0 - Double(rank) / Double(total) : 0.0
+      let lengthAffinity = 1.0 - min(
+        1.0, abs(Double(sweptChars.count) - Double(letters.count) * keysPerLetter) / Double(sweptChars.count))
+      // A word that uses MORE of the pivots is more likely the traced one.
+      let pivotBonus = pivotChars.count > 2
+        ? min(1.0, Double(letters.count) / Double(max(1, pivotChars.count))) * wPivot
+        : 0
+      scored.append((word, freq * wFreq + exactness * wExact + lengthAffinity * wLength + pivotBonus))
+    }
+    let top = clampInt(flagDouble("kb.swipe.candidates", 4), 1, 32)
+    return scored.sorted { $0.1 > $1.1 }.prefix(top).map { $0.0 }
+  }
+
+  /// Real-dictionary candidates for THIS swipe.
+  ///
+  /// The curated list is a fast path for the few hundred most common words;
+  /// everything else a user swipes ("invoice", "Thursday", their colleague's
+  /// name) simply had no entry to match. UITextChecker carries the system
+  /// dictionary we already use for autocorrect, so we hand it the swipe's own
+  /// letters — the pivot letters spell a plausible skeleton, and the checker's
+  /// guesses fill in the vowels a glide skips. The user's personal vocabulary
+  /// is included too, since those are exactly the words a generic dictionary
+  /// will never have.
+  private func dictionaryCandidates(for swept: [Character], pivots: [String],
+                                    excluding: Set<String>) -> [String] {
+    var out: [String] = []
+    var seen = excluding
+
+    func consider(_ raw: String) {
+      let w = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+      guard w.count >= 2, !seen.contains(w) else { return }
+      guard w.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" }) else { return }
+      seen.insert(w)
+      out.append(w)
+    }
+
+    // The user's own dictionary first — names and jargon no lexicon has.
+    if let vocab = config.flags?["kb.personality.vocabulary"]?.asString {
+      for term in vocab.split(whereSeparator: { $0 == "," || $0 == "\n" }) {
+        consider(String(term))
+      }
+    }
+
+    // Ask the spell checker to repair the swipe's own letter sequence. A glide
+    // reads as a badly-misspelled word, which is precisely what guesses() is
+    // built to fix.
+    let lang = autocorrectLanguage()
+    // kb.swipe.dictGuesses — checker guesses taken per skeleton.
+    let dictGuesses = clampInt(flagDouble("kb.swipe.dictGuesses", 12), 0, 256)
+    let skeletons: [String] = {
+      var s: [String] = [String(swept)]
+      let pivotWord = pivots.compactMap { $0.lowercased().first }
+      if pivotWord.count >= 2 { s.append(String(pivotWord)) }
+      return s
+    }()
+    for skeleton in skeletons {
+      let ns = skeleton as NSString
+      guard ns.length >= 2, ns.length <= 32 else { continue }
+      let range = NSRange(location: 0, length: ns.length)
+      // Bounded: this runs synchronously on the commit (once per swipe, not
+      // per keystroke), so we take the top few and stop.
+      let guesses = Self.bgChecker.guesses(forWordRange: range, in: skeleton, language: lang) ?? []
+      for g in guesses.prefix(dictGuesses) { consider(g) }
+    }
+    return out
+  }
+
+  /// Backspace immediately after an autocorrect restores the typed original
+  /// (consuming the delete). kb.autocorrect.backspaceRevert kills it OTA.
+  private func maybeRevertAutocorrectOnDelete() -> Bool {
+    guard flagBool("kb.autocorrect.backspaceRevert", true),
+          let last = lastAutocorrect,
+          let proxy = host?.hostTextDocumentProxy else { return false }
+    let ctx = proxy.documentContextBeforeInput ?? ""
+    guard ctx.hasSuffix(last.corrected + last.boundary) else {
+      lastAutocorrect = nil
+      return false
+    }
+    replaceTail(count: last.corrected.count + last.boundary.count,
+                with: last.original + last.boundary, proxy: proxy)
+    // The sharpest quality signal we have: the user just backspaced a
+    // correction, i.e. told us it was wrong.
+    KeyboardTelemetry.bump(.autocorrectReverted)
+    resetTypingContext(tailAtBoundary: true)
+    updateAutoCap()
+    return true
+  }
+
+  /// Write a deep-link target into the shared App Group. The main app checks
+  /// UserDefaults(suiteName:)?.string(forKey: "tulmi.kb.pendingDeepLink") on
+  /// launch/foreground; if present, it routes to that path and clears the key.
+  private func writeDeepLinkTombstone(path: String) {
+    let d = UserDefaults(suiteName: "group.com.tulmi.app")
+    d?.set(path, forKey: "tulmi.kb.pendingDeepLink")
+    d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
+  }
+
+  /// The app's URL for a screen: kb.deepLink.urlTemplate with "{screen}"
+  /// replaced (the same template the host uses for the Flow arm); no screen
+  /// opens the app root, kb.deepLink.rootUrl.
+  private func appURL(screen: String?) -> URL? {
+    guard let s = screen, !s.isEmpty else {
+      return URL(string: flagString("kb.deepLink.rootUrl", "tulmi://"))
+    }
+    let enc = s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    let template = flagString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
+    return URL(string: template.replacingOccurrences(of: "{screen}", with: enc))
+  }
+
+  /// Open the containing app through the host. kb.deepLink.openApp = false
+  /// restores tombstone-only (the app then routes on its next foreground).
+  private func openContainingApp(_ url: URL?) {
+    guard flagBool("kb.deepLink.openApp", true), let url = url else { return }
+    host?.hostOpenURL(url)
+  }
+
+  private func presentLanguageMenu() {
+    guard let layouts = config.layouts, !layouts.isEmpty else { return }
+    let sheet = UIAlertController(title: host?.hostLabel("language", "Language"),
+                                  message: nil,
+                                  preferredStyle: .actionSheet)
+    for layout in layouts {
+      let title = layout.displayName ?? layout.language
+      sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+        self?.run(.inline(.switchLayout(language: layout.language)))
+      })
+    }
+    sheet.addAction(UIAlertAction(title: host?.hostLabel("cancel", "Cancel") ?? "Cancel", style: .cancel))
+    // iPad requires a sourceView for action sheets or presentation raises.
+    // Anchoring on mountContainer keeps the popover on the keyboard surface.
+    if let popover = sheet.popoverPresentationController {
+      popover.sourceView = mountContainer
+      popover.sourceRect = CGRect(
+        x: (mountContainer?.bounds.midX ?? 0),
+        y: (mountContainer?.bounds.midY ?? 0),
+        width: 0, height: 0,
+      )
+      popover.permittedArrowDirections = []
+    }
+    host?.hostPresent(sheet)
+  }
+
+  // MARK: - Condition evaluator
+
+  /// Evaluate a KBCondition against KBState + config.flags. Mirrors the shape
+  /// used by the RN evaluator so backend authors write the same conditions.
+  func evaluate(_ cond: KBCondition) -> Bool {
+    switch cond {
+    case .eq(let p, let v):   return equal(lookup(p), v)
+    case .neq(let p, let v):  return !equal(lookup(p), v)
+    case .gt(let p, let v):   return (lookupNumber(p) ?? .nan) > v
+    case .gte(let p, let v):  return (lookupNumber(p) ?? .nan) >= v
+    case .lt(let p, let v):   return (lookupNumber(p) ?? .nan) < v
+    case .lte(let p, let v):  return (lookupNumber(p) ?? .nan) <= v
+    case .inList(let p, let vs):
+      let l = lookup(p)
+      return vs.contains { equal(l, $0) }
+    case .contains(let p, let s):
+      return (lookupString(p) ?? "").contains(s)
+    case .startsWith(let p, let s):
+      return (lookupString(p) ?? "").hasPrefix(s)
+    case .endsWith(let p, let s):
+      return (lookupString(p) ?? "").hasSuffix(s)
+    case .truthy(let p):
+      return truthy(lookup(p))
+    case .falsy(let p):
+      return !truthy(lookup(p))
+    case .flag(let name):
+      guard let raw = config.flags?[name] else { return false }
+      return truthy(raw)
+    case .platform(let n):
+      return n == "ios"
+    case .not(let inner):
+      return !evaluate(inner)
+    case .all(let cs):
+      return cs.allSatisfy { evaluate($0) }
+    case .any_(let cs):
+      return cs.contains { evaluate($0) }
+    case .unknown:
+      return false
+    }
+  }
+
+  /// Read a path like "state.shift" / "flags.betaEnabled" / "config.layoutId"
+  /// out of KBState and config.flags.
+  private func lookup(_ path: String) -> KBJSON {
+    let parts = path.split(separator: ".").map(String.init)
+    guard let head = parts.first else { return .null }
+    switch head {
+    case "state":
+      let key = parts.dropFirst().joined(separator: ".")
+      switch key {
+      case "shift":                return .bool(state.shift)
+      case "capsLock":             return .bool(state.capsLock)
+      case "layoutId":             return .string(state.layoutId)
+      case "dictating":            return .bool(state.dictating)
+      case "refining":             return .bool(state.refining)
+      case "hasFullAccess":        return .bool(state.hasFullAccess)
+      case "status":               return .string(state.status)
+      case "micLevel":             return .number(Double(state.micLevel))
+      case "hasSuggestions":       return .bool(!state.suggestions.isEmpty)
+      case "flowArmed":            return .bool(state.flowArmed)
+      case "tone":                 return .string(state.tone)
+      case "trackpadActive":       return .bool(state.trackpadActive)
+      case "primaryLanguage":      return .string(state.primaryLanguage)
+      case "hasMultipleKeyboards": return .bool(state.hasMultipleKeyboards)
+      case "appearance":           return .string(state.appearance)
+      case "deviceModel":          return .string(state.deviceModel)
+      case "systemVersion":        return .string(state.systemVersion)
+      case "isNetworkReachable":   return .bool(state.isNetworkReachable)
+      case "keyboardHeight":       return .number(Double(state.keyboardHeight))
+      // A password box. Read from the field each time, so it is always the
+      // field the user is in; the tree hides the mic and Refine on it.
+      case "secured":              return .bool(host?.hostIsSecureField() ?? false)
+      default:
+        // state.user.<anything> — backend scratch dict.
+        if key.hasPrefix("user.") {
+          return state.user[String(key.dropFirst("user.".count))] ?? .null
+        }
+        return .null
+      }
+    case "flags":
+      let key = parts.dropFirst().joined(separator: ".")
+      return config.flags?[key] ?? .null
+    case "features":
+      // config.features, every key the server sent (features.voice, …).
+      let key = parts.dropFirst().joined(separator: ".")
+      return config.features?.raw[key] ?? .null
+    case "labels":
+      // The copy the server sent (labels.flow_start_hint, …) — so a tree can
+      // hide a row whose label the server blanked.
+      let key = parts.dropFirst().joined(separator: ".")
+      guard let text = config.labels?[key] else { return .null }
+      return .string(text)
+    case "field":
+      // The focused field's traits, read from the host when asked.
+      let key = parts.dropFirst().joined(separator: ".")
+      guard let host = host else { return .null }
+      switch key {
+      case "keyboardType":      return .string(host.hostKeyboardTypeName())
+      case "returnKeyType":     return .string(Self.returnKeyTypeName(host.hostReturnKeyType()))
+      case "autocapitalization": return .string(Self.autocapName(host.hostAutocapitalizationType()))
+      case "isSecure":          return .bool(host.hostIsSecureField())
+      case "isNumeric":         return .bool(host.hostIsNumericField())
+      case "kind":              return .string(host.hostFieldKind())
+      default:                  return .null
+      }
+    case "quota":
+      // quota.<x> is the kb.quota.<x> flag (quota.exhausted, quota.screenId…).
+      let key = parts.dropFirst().joined(separator: ".")
+      return config.flags?["kb.quota.\(key)"] ?? .null
+    default:
+      return .null
+    }
+  }
+
+  /// UIReturnKeyType by its UIKit name, for field.returnKeyType.
+  private static func returnKeyTypeName(_ t: UIReturnKeyType) -> String {
+    switch t {
+    case .default:       return "default"
+    case .go:            return "go"
+    case .google:        return "google"
+    case .join:          return "join"
+    case .next:          return "next"
+    case .route:         return "route"
+    case .search:        return "search"
+    case .send:          return "send"
+    case .yahoo:         return "yahoo"
+    case .done:          return "done"
+    case .emergencyCall: return "emergencyCall"
+    case .continue:      return "continue"
+    @unknown default:    return "default"
+    }
+  }
+
+  /// UITextAutocapitalizationType by its UIKit name, for field.autocapitalization.
+  private static func autocapName(_ t: UITextAutocapitalizationType) -> String {
+    switch t {
+    case .none:          return "none"
+    case .words:         return "words"
+    case .sentences:     return "sentences"
+    case .allCharacters: return "allCharacters"
+    @unknown default:    return "sentences"
+    }
+  }
+
+  /// A bind value for any key the fixed cases in stateValue(for:) don't
+  /// know: the same lookup the conditions use. A bare key is a state key
+  /// ("micLevel" → state.micLevel, "user.x" → state.user.x); a namespaced
+  /// one (flags. / features. / labels. / field. / quota.) reads there.
+  private func bindLookup(_ key: String) -> String? {
+    let namespaces: Set<String> = ["state", "flags", "features", "labels", "field", "quota"]
+    let head = key.split(separator: ".").first.map(String.init) ?? ""
+    let value = lookup(namespaces.contains(head) ? key : "state.\(key)")
+    switch value {
+    case .string(let s): return s
+    case .bool(let b):   return b ? "true" : "false"
+    case .number(let n):
+      return n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n)
+    case .null, .array, .object: return nil
+    }
+  }
+  private func lookupNumber(_ path: String) -> Double? { lookup(path).asDouble }
+  private func lookupString(_ path: String) -> String? { lookup(path).asString }
+
+  private func truthy(_ v: KBJSON) -> Bool {
+    switch v {
+    case .null:               return false
+    case .bool(let b):        return b
+    case .number(let n):      return n != 0
+    case .string(let s):      return !s.isEmpty
+    case .array(let a):       return !a.isEmpty
+    case .object(let o):      return !o.isEmpty
+    }
+  }
+  private func equal(_ a: KBJSON, _ b: KBJSON) -> Bool {
+    switch (a, b) {
+    case (.null, .null):                     return true
+    case (.bool(let x), .bool(let y)):       return x == y
+    case (.number(let x), .number(let y)):   return x == y
+    case (.string(let x), .string(let y)):   return x == y
+    case (.string(let x), .bool(let y)):     return x == (y ? "true" : "false")
+    case (.bool(let x), .string(let y)):     return (x ? "true" : "false") == y
+    default: return false
+    }
+  }
+
+  // MARK: - State reflect (called by host)
+
+  func reflectHasFullAccess(_ v: Bool) {
+    if state.hasFullAccess == v { return }
+    state.hasFullAccess = v
+    stateChanged()
+  }
+  func reflectStatus(_ s: String) {
+    if state.status == s { return }
+    state.status = s
+    stateChanged()
+  }
+  func reflectDictating(_ v: Bool) {
+    if state.dictating == v { return }
+    state.dictating = v
+    // Stop the 30 FPS timer when dictation ends so the extension isn't
+    // draining CPU/battery for a static bar row. It'll be recreated on the
+    // next buildWaveform call when dictation restarts.
+    if !v {
+      waveformTimer?.invalidate()
+      waveformTimer = nil
+    }
+    // Recording visuals — key dimming + dot stream on start; graceful fade
+    // (existing dots keep flying for ~2.5s) on stop. Called before
+    // stateChanged() so the tree remounts to update the mic icon (brand mark
+    // → thick line) in the same runloop that shows the overlay.
+    if v {
+      showRecordingVisuals()
+      // Re-entering recording (possibly mid-reassembly): scatter the dots again.
+      micReassembling = false
+      currentMicParticles?.beginRecording()
+      // Or, with the dispersal, the parts fly out and the wave stays.
+      currentMicMark?.beginPlay()
+    } else {
+      hideRecordingVisuals()
+      // Reverse animation: the dots spring back INTO the mark, then hand off to
+      // the crisp static mark. Keep buildMicKey rendering the sim until the
+      // converge finishes (micReassembling), so the structure re-forms
+      // seamlessly instead of snapping back.
+      if let particles = currentMicParticles {
+        micReassembling = true
+        particles.reassemble { [weak self] in
+          guard let self = self, self.micReassembling else { return }
+          self.micReassembling = false
+          self.currentMicParticles = nil
+          self.stateChanged()          // final remount → static brand mark
+        }
+      }
+      // The parts fly home on their own and the view rebuilds itself crisp;
+      // the same view stays mounted throughout, so there is nothing to swap in.
+      currentMicMark?.settle {}
+    }
+    stateChanged()
+  }
+  func reflectRefining(_ v: Bool) {
+    if state.refining == v { return }
+    state.refining = v
+    stateChanged()
+  }
+  /// Flow-session armed state (host-owned). Drives the mic key's
+  /// "Start Flow" bolt vs the ready mic mark, so "tap opens the app to arm"
+  /// is visually distinct from "tap to dictate".
+  func reflectFlowArmed(_ armed: Bool) {
+    if state.flowArmed == armed { return }
+    state.flowArmed = armed
+    stateChanged()
+  }
+  func reflectMicLevel(_ l: CGFloat) {
+    state.micLevel = l  // no remount — the display link picks it up
+  }
+
+  /// Field-context refresh — called by the host on textDidChange (which fires
+  /// when the user switches focus between text fields, not just on typing).
+  /// Rebuilds the mounted tree only if something the tree actually depends on
+  /// changed (returnKeyType / primaryLanguage / hasMultipleKeyboards) so we're
+  /// not remounting on every keystroke.
+  private var lastReflectedReturnKey: UIReturnKeyType?
+  /// keyboardType | isSecure | autocapitalization, last seen (field.*).
+  private var lastReflectedFieldTraits: String?
+  private var lastFieldContextReadAt: TimeInterval = 0
+  private var pendingFieldContextRefresh = false
+  func reflectFieldContext() {
+    // This fires from textDidChange — i.e. on EVERY keystroke — and each of
+    // the three host reads below crosses into the host app (proxy traits /
+    // textInputMode). The values only actually change on focus switches, so
+    // throttle the reads; kb.host.traitRefreshMs=0 restores per-keystroke.
+    // A throttled call is never DROPPED — it re-arms one deferred read, so a
+    // fast field switch (type → tap another field < 500ms later) still lands
+    // its return-key label a beat later instead of never.
+    let minInterval = flagDouble("kb.host.traitRefreshMs", 500) / 1000.0
+    let now = Date().timeIntervalSince1970
+    if minInterval > 0, now - lastFieldContextReadAt < minInterval {
+      if !pendingFieldContextRefresh {
+        pendingFieldContextRefresh = true
+        let delay = max(0.05, minInterval - (now - lastFieldContextReadAt))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+          self?.pendingFieldContextRefresh = false
+          self?.reflectFieldContext()
+        }
+      }
+      return
+    }
+    lastFieldContextReadAt = now
+    let rt = host?.hostReturnKeyType() ?? .default
+    let lang = host?.hostPrimaryLanguageCode() ?? "EN"
+    let multi = host?.hostNeedsInputModeSwitchKey() ?? false
+    var changed = false
+    if lastReflectedReturnKey != rt         { lastReflectedReturnKey = rt; changed = true }
+    if state.primaryLanguage != lang        {
+      state.primaryLanguage = lang
+      cachedCheckerLang = nil   // autocorrect follows the active language
+      changed = true
+    }
+    if state.hasMultipleKeyboards != multi  { state.hasMultipleKeyboards = multi; changed = true }
+    // The traits field.* reads in the tree's conditions: a focus switch that
+    // changes them re-renders, so a gate like {truthy: "field.isSecure"}
+    // follows the field the user is in.
+    if let h = host {
+      let sig = "\(h.hostKeyboardTypeName())|\(h.hostIsSecureField())|\(Self.autocapName(h.hostAutocapitalizationType()))"
+      if lastReflectedFieldTraits != sig { lastReflectedFieldTraits = sig; changed = true }
+    }
+    // A field that only takes numbers gets the number pad, not QWERTY.
+    //
+    // The field TELLS us this — keyboardType is how every other keyboard knows
+    // to show a dialer for an OTP box or an amount. Making the user hunt for
+    // "123" in a field that cannot accept a letter is work we imposed.
+    //
+    // Leaving the field restores letters, so the pad can never outlive the
+    // field that asked for it. Only "num" is reset, so a user who deliberately
+    // switched to 123 or symbols keeps their choice.
+    let numeric = host?.hostIsNumericField() ?? false
+    if numeric, state.layoutId != "num" {
+      state.layoutId = "num"; changed = true
+    } else if !numeric, state.layoutId == "num" {
+      state.layoutId = "en"; changed = true
+    }
+    if changed { stateChanged() }
+  }
+
+  /// Appearance refresh — called by the host on traitCollectionDidChange when
+  /// the user flips dark/light. Also syncs the state.appearance string so the
+  /// backend tree can bind against it (visibleIf, etc.).
+  func reflectAppearance(_ dark: Bool) {
+    let val = dark ? "dark" : "light"
+    if state.appearance == val { return }
+    state.appearance = val
+    stateChanged()
+  }
+
+  deinit {
+    waveformTimer?.invalidate()
+    deleteTimer?.invalidate()
+  }
+}
+
+// MARK: - Waveform bars view
+
+/// Waveform bar array — every geometry / color parameter is passed in so
+/// backend flags can tune the look. Baseline heights are random per bar so
+/// even at zero micLevel the waveform looks alive.
+private final class WaveformView: UIView {
+  struct Config {
+    let barCount: Int
+    let barColor: UIColor
+    let barRadius: CGFloat
+    let barSpacing: CGFloat
+    let height: CGFloat
+    let levelMultiplier: CGFloat
+    let baselineMin: CGFloat
+    let baselineMax: CGFloat
+  }
+  static let `default` = Config(
+    barCount: 24, barColor: UIColor(white: 0.6, alpha: 1), barRadius: 1.5,
+    barSpacing: 3, height: 24, levelMultiplier: 0.6,
+    baselineMin: 0.2, baselineMax: 0.6,
+  )
+  private var bars: [CALayer] = []
+  private var baselines: [CGFloat] = []
+  private var level: CGFloat = 0
+  private let cfg: Config
+
+  init(config: Config = WaveformView.default) {
+    self.cfg = config
+    super.init(frame: .zero)
+    for _ in 0..<max(1, config.barCount) {
+      let l = CALayer()
+      l.backgroundColor = config.barColor.cgColor
+      l.cornerRadius = config.barRadius
+      layer.addSublayer(l)
+      bars.append(l)
+      baselines.append(CGFloat.random(in: config.baselineMin...max(config.baselineMin, config.baselineMax)))
+    }
+    heightAnchor.constraint(equalToConstant: config.height).isActive = true
+  }
+  required init?(coder: NSCoder) { fatalError("init(coder:) unsupported") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    redraw()
+  }
+  func setLevel(_ l: CGFloat) { level = l; redraw() }
+
+  private func redraw() {
+    let W = bounds.width, H = bounds.height
+    guard W > 0, H > 0, !bars.isEmpty else { return }
+    let n = CGFloat(bars.count)
+    let spacing = cfg.barSpacing
+    let barW = max(1.5, (W - spacing * (n - 1)) / n)
+    let mult = cfg.levelMultiplier
+    for (i, l) in bars.enumerated() {
+      let jitter = CGFloat.random(in: -0.05...0.05)
+      let h = max(2, min(H, H * (baselines[i] + level * mult + jitter)))
+      let x = CGFloat(i) * (barW + spacing)
+      let y = (H - h) / 2
+      l.frame = CGRect(x: x, y: y, width: barW, height: h)
+    }
+  }
+}
+
+// MARK: - Gradient host view
+
+private final class GradientView: UIView {
+  var gradientColors: [CGColor] = [] { didSet { setNeedsLayout() } }
+  var horizontal: Bool = false      { didSet { setNeedsLayout() } }
+  override class var layerClass: AnyClass { CAGradientLayer.self }
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let g = layer as! CAGradientLayer
+    g.colors = gradientColors
+    if horizontal {
+      g.startPoint = CGPoint(x: 0, y: 0.5); g.endPoint = CGPoint(x: 1, y: 0.5)
+    } else {
+      g.startPoint = CGPoint(x: 0.5, y: 0); g.endPoint = CGPoint(x: 0.5, y: 1)
+    }
+  }
+}
+
+// MARK: - Config decoder entry point
+
+extension SDUIRenderer {
+  /// Decode raw config bytes into a KBConfig. Returns nil on any decode error —
+  /// callers fall through to the hand-built path.
+  static func decodeConfig(_ data: Data) -> KBConfig? {
+    do {
+      let dec = JSONDecoder()
+      return try dec.decode(KBConfig.self, from: data)
+    } catch {
+      NSLog("SDUIRenderer.decodeConfig error: %@", "\(error)")
+      return nil
+    }
+  }
+}

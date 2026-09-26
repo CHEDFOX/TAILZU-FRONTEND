@@ -1,0 +1,400 @@
+// ---------------------------------------------------------------------------
+// The renderer, as far as the key plane talks to it.
+//
+// Members marked LIFTED are pasted in by gen.py from SDUIRenderer.swift,
+// verbatim. The rest mirror the shipped code line for line where it is
+// logic (keyTouchDown's flush, handleSpaceTap, the shift tap, backspace) and
+// drop what is only paint (colours, callouts, haptics). The host app is a
+// text buffer that records when every character arrived.
+// ---------------------------------------------------------------------------
+
+enum KeyboardTelemetry {
+//@@COUNTER@@
+  static var counts: [String: Int] = [:]
+  static func bump(_ c: Counter, by n: Int = 1) { counts[c.rawValue, default: 0] += n }
+}
+
+/// The host app's text field. Every edit is stamped with the simulated time,
+/// so latency is measured from the finger to the character.
+final class FakeProxy {
+  private(set) var text = ""
+  private(set) var arrivals: [(t: Double, text: String)] = []
+  var documentContextBeforeInput: String? { text }
+  func insertText(_ s: String) { text += s; arrivals.append((Clock.now, text)) }
+  func deleteBackward() { if !text.isEmpty { text.removeLast() }; arrivals.append((Clock.now, text)) }
+  func reset() { text = ""; arrivals = [] }
+}
+final class FakeHost { let hostTextDocumentProxy = FakeProxy() }
+
+final class KBStateSim {
+  var shift = false, capsLock = false, trackpadActive = false
+  var layoutId = "en"
+}
+enum KBActionSpec { case insertKey(char: String); case returnKey; case deleteBackward }
+/// The slice of the config the lifted code reads: flags, as the keyboard
+/// decodes them.
+enum KBJSON {
+  case null, bool(Bool), number(Double), string(String), array([KBJSON]), object([String: KBJSON])
+  var asString: String? { if case .string(let s) = self { return s }; return nil }
+}
+struct SimConfig { var flags: [String: KBJSON]? = nil }
+enum KBActionRef { case inline(KBActionSpec) }
+
+final class SDUIRenderer: NSObject {
+  var host: FakeHost? = FakeHost()
+  var config = SimConfig()
+  let state = KBStateSim()
+  weak var keyPlane: KeyPlaneView?
+  var mountContainer: UIView?
+  var mountedRoot: UIView?
+  var planeActiveTouchCount = 0
+  var pendingAutoSpace = false
+  var lastShiftTapTime: Double = 0
+  var _lastSpaceTapTime: Double = 0
+  weak var activeAccentTray: UIView?
+  /// What the simulation saw the keyboard do, beyond text: role keys, taps
+  /// on controls that type nothing. For the coverage map.
+  var sideEffects: [String] = []
+  #if !HAS_LASTKEYINSERT
+  var lastKeyInsert: String?
+  #endif
+
+  // ---- flags: the backend's values, the shipped defaults when absent
+  func flagBool(_ k: String, _ d: Bool) -> Bool { FLAG_BOOL[k] ?? d }
+  func flagDouble(_ k: String, _ d: Double) -> Double { FLAG_NUM[k] ?? d }
+  func flagCGFloat(_ k: String, _ d: CGFloat) -> CGFloat { CGFloat(FLAG_NUM[k] ?? Double(d)) }
+  func flagColor(_ k: String, _ d: String) -> UIColor { .white }
+  /// String flags are not in the snapshot tables: the shipped default.
+  func flagString(_ k: String, _ d: String) -> String { d }
+
+  // ---- word tracking and auto-cap: off the text path in this simulation
+  // (the host field reports no auto-capitalisation), so they do nothing.
+  func stateChanged() {}
+  func noteTyped(_ s: String) {}
+  func noteDeletedBackward() {}
+  func updateAutoCap(afterTyping typed: String? = nil) {}
+  func applySmartPunctuation(_ s: String) -> String { s }
+  func updateAccentTrayHighlight(at p: CGPoint) {}
+  func hideKeyCallout() {}
+
+  func run(_ ref: KBActionRef) {
+    guard case .inline(let spec) = ref else { return }
+    switch spec {
+    case .insertKey(let c): insertKeyCase(c)
+    case .returnKey: host?.hostTextDocumentProxy.insertText("\n")
+    case .deleteBackward:
+      host?.hostTextDocumentProxy.deleteBackward()
+      noteDeletedBackward()
+    }
+  }
+
+  // ---- plane callbacks (mirrors)
+  fileprivate func planeDown(_ button: UIButton) {
+    planeActiveTouchCount += 1
+    keyTouchDown(button)
+  }
+  fileprivate func planeUp(_ button: UIButton) {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+  }
+  fileprivate func planeUpLost() {
+    planeActiveTouchCount = max(0, planeActiveTouchCount - 1)
+    hideKeyCallout()
+  }
+  fileprivate func planeShiftDown() { sideEffects.append("shift"); handleShiftTap() }
+  fileprivate func planeShiftLongPress() { state.capsLock = true; state.shift = true }
+  fileprivate func planePeekBegan(target: String?) -> String? { sideEffects.append("123"); return nil }
+  fileprivate func planePeekReturn(to layout: String) {}
+  fileprivate func planeCanSwipe() -> Bool { false }
+  fileprivate func planeSwipeEngaged() {}
+  fileprivate func planeSwipeCommit(sweptChars: [String], pivots: [String] = []) {}
+  fileprivate func planeObstacleViews() -> [UIView] { collectPlaneObstacles() }
+  fileprivate func lmLikelyNext() -> Set<String> {
+    // kb.touch.bigrams: the letters likely after the last one typed.
+    guard let last = host?.hostTextDocumentProxy.text.last.map({ String($0).lowercased() }) else { return [] }
+    return Set((BIGRAMS[last] ?? "").map(String.init))
+  }
+  fileprivate func planeHasAccents(_ char: String) -> Bool {
+    guard flagBool("kb.keyPlane.accentTrays", true) else { return false }
+    guard let accents = accentMap[char.lowercased()] else { return false }
+    return !accents.isEmpty
+  }
+  fileprivate func planeTryPresentAccentTray(for button: UIButton?, char: String?) -> Bool {
+    guard activeAccentTray == nil else { return false }
+    guard flagBool("kb.keyPlane.accentTrays", true),
+          let button = button, let char = char,
+          let accents = accentMap[char.lowercased()], !accents.isEmpty
+    else { return false }
+    showAccentTray(for: button, base: char, options: accents)
+    guard let tray = activeAccentTray else { return false }
+    if let baseChip = tray.subviews.first {
+      baseChip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+    }
+    KeyboardTelemetry.bump(.accentTrayOpened)
+    return true
+  }
+  fileprivate func planeUpdateAccentTray(at point: CGPoint) {
+    guard let tray = activeAccentTray, let container = mountContainer else { return }
+    updateAccentTrayHighlight(at: tray.convert(point, from: container))
+  }
+  fileprivate func planeCommitAccentTray(at point: CGPoint, fallbackChar: String?,
+                                         lostTrayFallback: String? = nil) {
+    guard let tray = activeAccentTray, let container = mountContainer else {
+      dismissAccentTray()
+      if let base = lostTrayFallback ?? fallbackChar { run(.inline(.insertKey(char: base))) }
+      return
+    }
+    defer { dismissAccentTray() }
+    let loc = tray.convert(point, from: container)
+    if let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+       let ch = chip.title(for: .normal), !ch.isEmpty {
+      insertAccent(ch)
+    } else if let base = fallbackChar {
+      run(.inline(.insertKey(char: base)))
+    }
+  }
+  fileprivate func planeDismissAccentTray() { dismissAccentTray() }
+  private func dismissAccentTray() {
+    activeAccentTray?.removeFromSuperview()
+    activeAccentTray = nil
+  }
+  private func insertAccent(_ ch: String) {
+    host?.hostTextDocumentProxy.insertText(ch)
+    lastShiftTapTime = 0
+    if state.shift && !state.capsLock {
+      state.shift = false
+      stateChanged()
+    }
+    pendingAutoSpace = false
+    updateAutoCap(afterTyping: ch)
+  }
+  /// The tray's geometry as showAccentTray lays it out: base char first, then
+  /// the accents, centred over the key, `offsetY` above it, clamped on screen.
+  private func showAccentTray(for anchor: UIButton, base: String, options: [String]) {
+    guard let container = mountContainer else { return }
+    let uppercased = state.shift || state.capsLock
+    let items = ([base] + options).map { uppercased ? $0.uppercased() : $0 }
+    let chipW = flagCGFloat("kb.accentTray.chipWidth", 40)
+    let trayHeight = flagCGFloat("kb.accentTray.height", 48)
+    let trayPad = flagCGFloat("kb.accentTray.padding", 4)
+    let gap = flagCGFloat("kb.accentTray.gap", 4)
+    let offsetY = flagCGFloat("kb.accentTray.offsetY", -52)
+    let n = CGFloat(items.count)
+    let width = n * chipW + (n - 1) * gap + trayPad * 2
+    let anchorFrame = container.convert(anchor.bounds, from: anchor)
+    let x = max(4, min(container.bounds.width - width - 4, anchorFrame.midX - width / 2))
+    let y = max(4, anchorFrame.minY + offsetY)
+    let tray = UIView(frame: CGRect(x: x, y: y, width: width, height: trayHeight))
+    for (i, s) in items.enumerated() {
+      let chip = UIButton(frame: CGRect(x: trayPad + CGFloat(i) * (chipW + gap), y: trayPad,
+                                        width: chipW, height: trayHeight - 2 * trayPad))
+      chip.setTitle(s, for: .normal)
+      tray.addSubview(chip)
+    }
+    container.addSubview(tray)
+    activeAccentTray = tray
+  }
+
+  // ---- keys that are real buttons (mirrors)
+  /// keyTouchDown: a real (non-plane) key going down flushes held plane keys
+  /// first so overlaps keep press order. The rest of it is paint.
+  func keyTouchDown(_ btn: UIButton) {
+    #if HAS_KEYDOWN_ROLLOVER
+    keyDownRollover(btn)
+    #else
+    if btn.isUserInteractionEnabled { keyPlane?.flushPendingCommits() }
+    #endif
+  }
+  private func handleShiftTap() {
+    if state.capsLock { state.capsLock = false; state.shift = false } else { state.shift.toggle() }
+  }
+  /// handleSpaceTap: trackpad release, double-space period, plain space.
+  func handleSpaceTap() {
+    let now = Clock.now
+    if state.trackpadActive {
+      state.trackpadActive = false
+      stateChanged()
+      return
+    }
+    let proxy = host?.hostTextDocumentProxy
+    let recent = now - _lastSpaceTapTime < (flagDouble("kb.smartPeriod.windowMs", 500) / 1000.0)
+    if recent,
+       let ctx = proxy?.documentContextBeforeInput,
+       ctx.hasSuffix(" "),
+       let prevChar = ctx.dropLast().last,
+       !prevChar.isPunctuation, prevChar != "\n" {
+      proxy?.deleteBackward()
+      proxy?.insertText(". ")
+      _lastSpaceTapTime = 0
+    } else {
+      proxy?.insertText(" ")
+      _lastSpaceTapTime = now
+    }
+  }
+  func deleteDown() {
+    host?.hostTextDocumentProxy.deleteBackward()
+    noteDeletedBackward()
+  }
+  func deleteUp() {}
+
+  private func collectPlaneObstacles() -> [UIView] {
+    guard let rootV = mountedRoot else { return [] }
+    var out: [UIView] = []
+    func walk(_ v: UIView) {
+      if let c = v as? UIControl, c.isUserInteractionEnabled, !c.isHidden { out.append(c) }
+      for s in v.subviews { walk(s) }
+    }
+    walk(rootV)
+    return out
+  }
+
+  // ======================= LIFTED from SDUIRenderer.swift =====================
+//@@RENDERER@@
+  // ===========================================================================
+}
+
+// ---------------------------------------------------------------------------
+// Mounting: the tree the renderer builds for the English letters layer, with
+// the frames the stacks give it, and the plane over it configured from the
+// same flags in the same way (mirrors the kb.keyPlane block in remount()).
+// ---------------------------------------------------------------------------
+final class Mounted {
+  let window: UIWindow, container: UIView, root: UIStackView, plane: KeyPlaneView
+  var byChar: [String: UIButton] = [:]
+  var named: [String: UIButton] = [:]   // "space", "return", "delete", "shift", "123", "globe", "mic", "tone"
+  var allKeys: [(label: String, button: UIButton)] = []
+  init(window: UIWindow, container: UIView, root: UIStackView, plane: KeyPlaneView) {
+    self.window = window; self.container = container; self.root = root; self.plane = plane
+  }
+}
+
+extension SDUIRenderer {
+  func simMount() -> Mounted {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: KB_WIDTH, height: KB_HEIGHT))
+    let container = UIView(frame: window.bounds)
+    window.addSubview(container)
+    let root = UIStackView(frame: container.bounds)
+    root.axis = .vertical
+    container.addSubview(root)
+    mountContainer = container
+    mountedRoot = root
+    var planeKeys: [KeyPlaneView.Key] = []
+    var byChar: [String: UIButton] = [:], named: [String: UIButton] = [:]
+    var all: [(String, UIButton)] = []
+    for row in ROWS {
+      let rv = KeyRowStackView(frame: CGRect(x: row.x, y: row.y, width: row.w, height: row.h))
+      rv.gapRoutingEnabled = flagBool("kb.row.expandHitTargets", true)
+      root.addArrangedSubview(rv)
+      for it in row.items {
+        let f = CGRect(x: it.x, y: it.y, width: it.w, height: it.h)
+        if it.kind == "Spacer" || it.kind == "SuggestionBar" {
+          rv.addArrangedSubview(UIView(frame: f)); continue
+        }
+        // makeKeyButton: slop from flags, keyTouchDown on every key's touchDown.
+        let b = KeyHitButton(frame: f)
+        b.hitSlop = UIEdgeInsets(
+          top: flagCGFloat("kb.key.hitSlop.y", 8), left: flagCGFloat("kb.key.hitSlop.x", 2),
+          bottom: flagCGFloat("kb.key.hitSlop.y", 8), right: flagCGFloat("kb.key.hitSlop.x", 2))
+        b.addTarget(self, action: { [unowned self] b, _ in self.keyTouchDown(b) }, for: .touchDown)
+        rv.addArrangedSubview(b)
+        switch it.kind {
+        case "LetterKey":
+          b.setTitle(it.ch, for: .normal)
+          b.isUserInteractionEnabled = false   // plane owns its touches now
+          byChar[it.ch] = b
+          planeKeys.append(KeyPlaneView.Key(button: b, role: .character(it.ch)))
+          all.append((it.ch, b))
+        case "ShiftKey":
+          b.isUserInteractionEnabled = false
+          planeKeys.append(KeyPlaneView.Key(button: b, role: .shift))
+          named["shift"] = b; all.append(("shift", b))
+        case "LayerKey":
+          b.isUserInteractionEnabled = false
+          planeKeys.append(KeyPlaneView.Key(button: b, role: .layerSwitch(target: it.ch)))
+          named[it.ch] = b; all.append((it.ch, b))
+        case "SpaceKey":
+          b.accessibilityIdentifier = "SP"
+          wireLift(b) { [weak self] in self?.handleSpaceTap() }
+          named["space"] = b; all.append((" ", b))
+        case "ReturnKey":
+          b.accessibilityIdentifier = "RET"
+          wireLift(b) { [weak self] in self?.run(.inline(.returnKey)) }
+          named["return"] = b; all.append(("\n", b))
+        case "BackspaceKey":
+          b.accessibilityIdentifier = "DEL"
+          b.addTarget(self, action: { [unowned self] _, _ in self.sideEffects.append("delete"); self.deleteDown() }, for: .touchDown)
+          b.addTarget(self, action: { [unowned self] _, _ in self.deleteUp() },
+                      for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+          named["delete"] = b; all.append(("delete", b))
+        case "GlobeKey", "MicKey", "ToneKey":
+          let tag = it.kind == "GlobeKey" ? "globe" : it.kind == "MicKey" ? "mic" : "tone"
+          b.addAction(UIAction { [weak self] _ in self?.sideEffects.append(tag) }, for: .touchUpInside)
+          named[tag] = b; all.append((tag, b))
+        default:
+          fatalError("unknown key kind \(it.kind)")
+        }
+      }
+    }
+    // Space / return / backspace join the partition as action keys.
+    if flagBool("kb.keyPlane.actionKeys", true) {
+      for n in ["space", "return", "delete"] { if let b = named[n] { planeKeys.append(KeyPlaneView.Key(button: b, role: .action)) } }
+    }
+    let plane = KeyPlaneView(renderer: self)
+    plane.rolloverCommit = flagBool("kb.keyPlane.rolloverCommit", true)
+    plane.commitOnDown = flagBool("kb.keyPlane.commitOnDown", false)
+    plane.accentTraysEnabled = flagBool("kb.keyPlane.accentTrays", true)
+    plane.trayLongPressMs = flagDouble("kb.accentTray.longPressMs", 500)
+    plane.lmBiasPt = flagBool("kb.touch.lmBias.enabled", false)
+      ? flagCGFloat("kb.touch.lmBias.pt", 3) : 0
+    plane.vSlop = flagCGFloat("kb.touch.vSlop", 8)
+    plane.topRowUpSlop = flagCGFloat("kb.touch.topRowUpSlop", 12)
+    plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
+    plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
+    plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
+    plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
+    plane.swipeMinKeys = max(2, Int(flagDouble("kb.swipe.minKeys", 3)))
+    plane.fillGaps = flagBool("kb.touch.fillGaps", true)
+    plane.alwaysRefreshGeometry = flagBool("kb.touch.alwaysRefresh", true)
+    plane.totalResolve = flagBool("kb.touch.totalResolve", true)
+    plane.debugRects = flagBool("kb.debug.showTouchRects", false)
+    plane.sheet = flagBool("kb.keyPlane.sheet", true)
+    plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
+    plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
+    plane.cancelCommitMaxDrift = flagCGFloat("kb.touch.cancelCommit.maxDriftPt", 12)
+    #if HAS_ROLEREACH
+    plane.roleReach = flagCGFloat("kb.touch.roleReach", 20)
+    #endif
+    #if HAS_PLANEKNOBS
+    plane.keyHeightCap = flagCGFloat("kb.touch.maxKeyHeight", 64)
+    plane.rowTolerance = flagCGFloat("kb.touch.rowTolerance", 8)
+    plane.sideReachExtra = flagCGFloat("kb.touch.sideReach", 6)
+    plane.trayCancelDrift = flagCGFloat("kb.accentTray.cancelDriftPt", 12)
+    let pathCap = max(8, Int(flagDouble("kb.swipe.pathCap", 128)))
+    plane.swipePathCap = pathCap
+    plane.swipePathTrim = max(1, min(pathCap, Int(flagDouble("kb.swipe.pathTrim", 64))))
+    plane.pivotWindow = max(1, Int(flagDouble("kb.swipe.pivot.window", 3)))
+    plane.pivotMinTravel = flagCGFloat("kb.swipe.pivot.minTravelPt", 8)
+    plane.pivotMaxCos = flagCGFloat("kb.swipe.pivot.maxCos", 0.57)
+    plane.trailMaxPoints = max(2, Int(flagDouble("kb.swipe.trail.maxPoints", 40)))
+    #endif
+    plane.frame = container.bounds
+    container.addSubview(plane)   // topmost — intercepts plane-key touches only
+    plane.rebind(keys: planeKeys)
+    keyPlane = plane
+    plane.setObstacles(collectPlaneObstacles())
+    window.layoutIfNeeded()
+    window.displayIfNeeded()
+    let m = Mounted(window: window, container: container, root: root, plane: plane)
+    m.byChar = byChar; m.named = named; m.allKeys = all
+    return m
+  }
+
+  /// Space and return fire on lift: through bindLift where the build has it
+  /// (K39+), a bare touchUpInside action before that.
+  private func wireLift(_ b: UIButton, _ fire: @escaping () -> Void) {
+    #if HAS_BINDLIFT
+    bindLift(b, fire)
+    #else
+    b.addAction(UIAction { _ in fire() }, for: .touchUpInside)
+    #endif
+  }
+}

@@ -2,8 +2,11 @@ package com.tulmi.app.keyboard
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.Keyboard
 import android.inputmethodservice.KeyboardView
@@ -11,9 +14,17 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
+import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import java.io.File
@@ -26,25 +37,66 @@ import java.io.File
  * Talks to the Tulmi backend (see Net.kt). Uses the deprecated Keyboard/
  * KeyboardView for a minimal, working keyboard surface in v1.
  */
-class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardActionListener {
+class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardActionListener, KBHost {
 
-    private lateinit var keyboardView: KeyboardView
-    private lateinit var keyboard: Keyboard
+    private var keyboardView: KeyboardView? = null
+    private var keyboard: Keyboard? = null
     private var statusView: TextView? = null
     private var rootView: View? = null
+    private var tonePill: Button? = null
 
     /** Server-driven config (theme/labels/flags); null until fetched/cached. */
     private var kbConfig: Net.KbConfig? = null
+
+    // -- SDUI wiring ---------------------------------------------------------
+    // When the backend flips features.sdui=true AND ships a root tree, we hand
+    // the whole keyboard surface to SDUIRenderer instead of inflating
+    // res/layout/keyboard.xml. The hand-built path stays intact as a fallback
+    // so old configs (and offline first-run before the cache lands) still work.
+    private var sduiConfig: KBConfig? = null
+    private var sduiRenderer: SDUIRenderer? = null
+    private var sduiContainer: FrameLayout? = null
+    private val kbState = KBState()
+    private var sduiActive = false
+
+    // The emoji preference persists in SharedPreferences under the same file
+    // the config cache uses ("tulmi_kb"). The tone itself lives in TulmiTone —
+    // the server's voices and tones, shared with the SDUI pill.
+    private var emojiOn = true
+
+    // One-shot command from the tone menu (Shorter / Longer / Bullet points).
+    // Consumed by the next successful transcription: we append it to the field
+    // as a trailing "…make it shorter" so the backend's command-mode detector
+    // picks it up on refine. Reset once consumed.
+    private var pendingCommand: String? = null
 
     private var caps = false
     private var recorder: MediaRecorder? = null
     private var audioFile: File? = null
     private var recording = false
+    private var audioFx: TulmiAudioFx? = null
+
+    // Voice-reactive UI wants the recorder's amplitude every ~33ms. We can't
+    // read MediaRecorder.maxAmplitude directly on a background thread, so we
+    // schedule a Handler tick on the main queue and push the smoothed level
+    // into kbState.micLevel for whatever SDUI nodes bind to it.
+    private var micLevelTimer: Runnable? = null
+    private var smoothedLevel: Float = 0f
+
+    // Long-press-to-cursor on the space bar. Ticks a follow-up gesture that
+    // interprets ACTION_MOVE dx as InputConnection.setSelection() displacement.
+    private var spaceDragging = false
+    private var spaceDragAnchorX = 0f
+    private var spaceDragAnchorSel = 0
 
     // Live (streaming) dictation state. Used when the server enables
     // features.liveVoice; otherwise we fall back to the file-based path.
     private var stream: Stream? = null
     private var streaming = false
+    // True from stopStreaming() (the "Finishing…" flush window) until
+    // endStreaming() tears down. Guards against a second mic tap double-finishing
+    // the stream (extra stop frame + a watchdog that could close a fresh session).
+    private var finishing = false
     private var pendingPartial = "" // interim text currently shown in the field
     private var dictatedSomething = false // a final landed this session → auto-refine on close
 
@@ -59,51 +111,606 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         const val CODE_REFINE = -101
     }
 
+    /** Fills the suggestion bar. Null when the device has no spell checker. */
+    private var corrections: TulmiCorrections? = null
+
+    /** kb.suggestions.enabled. Off means the bar stays empty rather than the
+     *  node disappearing — the layout is the backend's to change, not ours. */
+    private var suggestionsEnabled: Boolean = true
+
+    /** kb.autocorrect.enabled. */
+    private var autocorrectEnabled: Boolean = true
+
+    /** The correction just applied, so an immediate backspace can take it back.
+     *  Reverting is also the sharpest quality signal the product has: a user
+     *  undoing a correction is them saying it was wrong, in the clearest terms
+     *  available, and it is counted. */
+    private var lastCorrection: Pair<String, String>? = null
+
+    /** Exactly what the CURRENT dictation has put into the field, and what was
+     *  already there before it started. Refine works on the first and is given
+     *  the second as context — without these it rewrites the whole draft. */
+    private var dictatedText = ""
+    private var priorText = ""
+
+    /**
+     * Ask for suggestions on the word the caret is sitting in. The word comes
+     * from the InputConnection rather than from a buffer we keep ourselves —
+     * the user can move the caret, paste, or have the field edited under us,
+     * and a local buffer would drift out of step with all three.
+     */
+    private fun suggestForCaretWord() {
+        // The spell-check reply feeds TWO things: the bar's suggestions and
+        // the candidate autocorrect applies at the next boundary. Gating the
+        // request on the bar alone meant that hiding the bar silently turned
+        // autocorrect off too. Ask whenever either consumer is on; what the
+        // bar SHOWS is decided where the reply lands.
+        if (!suggestionsEnabled && !autocorrectEnabled) return
+        // A password is never read for suggestions: the bar would show it in
+        // the clear and the system spell checker would be sent it.
+        if (kbState.secured) { corrections?.clear(); return }
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
+        val word = before.takeLastWhile { !it.isWhitespace() }
+        corrections?.suggest(word)
+    }
+
+    /**
+     * Turn a traced path into a word.
+     *
+     * The path gives the letters the finger crossed, which is a skeleton of the
+     * word and not the word: it has every letter the user passed over, and none
+     * of the ones they glided through without stopping. Android's spell checker
+     * is asked to resolve that skeleton — the same dictionary that already
+     * backs the suggestion bar, in the languages the device actually has, so a
+     * swipe works in Hindi or Marathi for anyone who installed them. Words the
+     * server lists (kb.swipe.extraWords) and the user's own vocabulary are
+     * offered first: no device dictionary knows the product's name or a
+     * colleague's.
+     *
+     * A guess is only taken if it starts and ends on the letters the finger
+     * genuinely started and ended on. Those two are the ones the user was
+     * deliberate about; everything between them was travel. The runners-up
+     * (up to kb.swipe.maxAlternates) stay in the bar, so a wrong guess is one
+     * tap from the right word.
+     */
+    override fun onSwipe(letters: String) {
+        val corr = corrections ?: return
+        val first = letters.first()
+        val last = letters.last()
+        corr.resolve(letters) { candidates ->
+            fun fits(w: String) = w.length >= 2 &&
+                w.first().lowercaseChar() == first && w.last().lowercaseChar() == last
+            val extra = (knobStrings("kb.swipe.extraWords", listOf()) + corr.vocabulary)
+                .filter { fits(it) && tracedBy(it, letters) }
+            val ranked = (extra + candidates.filter { fits(it) })
+                .distinctBy { it.lowercase() }
+            val word = ranked.firstOrNull() ?: return@resolve
+            val ic = currentInputConnection ?: return@resolve
+            // Replace whatever partial word the trace started on, then leave a
+            // space — a swiped word is a finished word.
+            val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
+            val partial = before.takeLastWhile { !it.isWhitespace() }
+            if (partial.isNotEmpty()) ic.deleteSurroundingText(partial.length, 0)
+            ic.commitText("$word ", 1)
+            TulmiTelemetry.bump(TulmiTelemetry.SWIPE_COMMITTED)
+            corr.clear()
+            val alternates = ranked.drop(1).take(knobInt("kb.swipe.maxAlternates", 0).coerceAtLeast(0))
+            if (alternates.isNotEmpty() && suggestionsEnabled) {
+                // The committed word leads, its runners-up follow; tapping one
+                // swaps it in for the word just swiped.
+                lastSwipe = word
+                kbState.suggestionKind = "candidates"
+                kbState.suggestions = listOf(word) + alternates
+            } else {
+                kbState.suggestions = emptyList()
+            }
+            sduiRenderer?.stateChanged()
+        }
+    }
+
+    /** The word the last swipe committed, while its alternates are on offer. */
+    private var lastSwipe: String? = null
+
+    /** Could a trace over [path] have typed [word]? Its letters, doubles
+     *  collapsed, must appear along the path in order. */
+    private fun tracedBy(word: String, path: String): Boolean {
+        var i = 0
+        var prev = ' '
+        for (ch in word.lowercase()) {
+            if (ch == prev) continue
+            prev = ch
+            i = path.indexOf(ch, i)
+            if (i < 0) return false
+            i += 1
+        }
+        return true
+    }
+
+    /**
+     * The next insert is a word boundary the host itself asked for (see
+     * beforeWordBoundary), so it must not cancel the correction it just made —
+     * a backspace straight after it still has to be able to take it back.
+     */
+    private var boundaryPending = false
+
+    override fun onTextInserted() {
+        // A new word starts: swipe alternates no longer apply to anything.
+        if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
+        if (boundaryPending) {
+            boundaryPending = false
+            // The word just ended; the bar has nothing left to offer.
+            corrections?.clear()
+            return
+        }
+        // Any inserted character invalidates a pending revert — the user moved
+        // on, and backspace now means backspace again.
+        lastCorrection = null
+        suggestForCaretWord()
+    }
+
+    override fun onTextDeleted() {
+        if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
+        lastCorrection = null
+        // The word just changed under the bar. Re-ask, or it keeps offering
+        // corrections for a word that is no longer there.
+        suggestForCaretWord()
+    }
+
+    /**
+     * A word is ending. Expand it if it is one of the user's dictionary
+     * triggers; otherwise, correct it if there is a correction worth making.
+     * The boundary itself is committed by the caller right after this.
+     */
+    override fun beforeWordBoundary(boundary: String) {
+        boundaryPending = true
+        if (expandAtBoundary()) return
+        autocorrectAtBoundary()
+    }
+
+    /** Backspace straight after an autocorrection takes it back
+     *  (kb.autocorrect.backspaceRevert) instead of deleting a character. */
+    override fun onBackspace(): Boolean {
+        if (!knobBool("kb.autocorrect.backspaceRevert", true)) return false
+        return revertCorrection()
+    }
+
+    // --- text expansion (the user's dictionary, written by the app) ---------
+
+    /** trigger (lowercased) → replacement, from the "tulmi.dictionary" JSON the
+     *  app writes through tulmi-bridge ([{ word, replacement }]). */
+    private var expansions: Map<String, String> = emptyMap()
+    private var expansionsRaw: String? = null
+
+    /** Re-read the dictionary when the app has written a new one. Cheap when
+     *  nothing changed: one in-memory preference read and a string compare. */
+    private fun loadDictionary() {
+        val raw = getSharedPreferences("tulmi", Context.MODE_PRIVATE).getString("tulmi.dictionary", null)
+        if (raw == expansionsRaw) return
+        expansionsRaw = raw
+        expansions = try {
+            val arr = org.json.JSONArray(raw ?: "[]")
+            val map = HashMap<String, String>()
+            for (i in 0 until arr.length()) {
+                val e = arr.optJSONObject(i) ?: continue
+                val w = e.optString("word", "").trim()
+                val r = e.optString("replacement", "")
+                if (w.isNotEmpty() && r.isNotEmpty()) map[w.lowercase()] = r
+            }
+            map
+        } catch (_: Exception) { emptyMap() }
+    }
+
+    /** Swap a finished trigger word for its replacement. True when it did. */
+    private fun expandAtBoundary(): Boolean {
+        if (expansions.isEmpty() || kbState.secured) return false
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: return false
+        val typed = before.takeLastWhile { !it.isWhitespace() }
+        if (typed.isEmpty()) return false
+        val repl = expansions[typed.lowercase()] ?: return false
+        if (repl == typed) return false
+        ic.deleteSurroundingText(typed.length, 0)
+        ic.commitText(repl, 1)
+        return true
+    }
+
+    /**
+     * Replace the word at the caret with its correction, if there is one worth
+     * making. Called at a word boundary, before the boundary character lands.
+     *
+     * Uses the candidate cached from the last spell-check reply rather than
+     * asking now: the checker is another process, and a round trip here would
+     * put IPC on the keystroke path and land the correction after the space.
+     */
+    private fun autocorrectAtBoundary() {
+        if (!autocorrectEnabled) return
+        // Correcting a password is not a cosmetic mistake — it is a login that
+        // fails for a reason the user cannot see.
+        if (kbState.secured) return
+        val ic = currentInputConnection ?: return
+        val candidate = corrections?.topCandidate ?: return
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
+        val typed = before.takeLastWhile { !it.isWhitespace() }
+        if (typed.isEmpty()) return
+        // Only a candidate computed for exactly this word.
+        if (corrections?.topCandidateFor != typed.trim()) return
+        if (!TulmiAutocorrect.accepts(typed, candidate)) return
+
+        ic.deleteSurroundingText(typed.length, 0)
+        ic.commitText(candidate, 1)
+        lastCorrection = typed to candidate
+        TulmiTelemetry.bump(TulmiTelemetry.AUTOCORRECT_APPLIED)
+    }
+
+    /**
+     * Undo the correction just applied. Returns true when it handled the
+     * backspace, so the caller does not also delete a character.
+     */
+    private fun revertCorrection(): Boolean {
+        val (typed, applied) = lastCorrection ?: return false
+        lastCorrection = null
+        val ic = currentInputConnection ?: return false
+        // The correction has to still be the tail — if the field moved, deleting
+        // by its length would eat something else.
+        val before = ic.getTextBeforeCursor(applied.length + 8, 0)?.toString() ?: return false
+        val tail = before.trimEnd()
+        if (!tail.endsWith(applied)) return false
+        // Include any space typed after it, so the caret lands where the user
+        // expects: at the end of the word they are taking back.
+        val trailing = before.length - tail.length
+        ic.deleteSurroundingText(applied.length + trailing, 0)
+        ic.commitText(typed, 1)
+        TulmiTelemetry.bump(TulmiTelemetry.AUTOCORRECT_REVERTED)
+        suggestForCaretWord()
+        return true
+    }
+
+    /** Accept a chip: swap the caret's word for the chosen one — or, for a
+     *  swipe's alternate, the word the swipe just committed. */
+    override fun applySuggestion(word: String) {
+        val ic = currentInputConnection ?: return
+        val swiped = lastSwipe
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
+        if (swiped != null && before.endsWith("$swiped ")) {
+            ic.deleteSurroundingText(swiped.length + 1, 0)
+        } else {
+            val typed = before.takeLastWhile { !it.isWhitespace() }
+            if (typed.isNotEmpty()) ic.deleteSurroundingText(typed.length, 0)
+        }
+        ic.commitText("$word ", 1)
+        lastSwipe = null
+        kbState.suggestionKind = ""
+        TulmiTelemetry.bump(TulmiTelemetry.SUGGESTION_ACCEPTED)
+        corrections?.clear()
+        kbState.suggestions = emptyList()
+        sduiRenderer?.stateChanged()
+    }
+
     override fun onCreateInputView(): View {
+        // Pick up shared prefs + preload cached config synchronously so we can
+        // decide SDUI vs fallback BEFORE inflating anything.
+        Net.load(this)
+        loadTonePrefs()
+        loadDictionary()
+        TulmiTelemetry.load(this)
+        TulmiTelemetry.bump(TulmiTelemetry.COLD_STARTS)
+        if (corrections == null) {
+            corrections = TulmiCorrections(this) { words ->
+                // topCandidate is already set inside TulmiCorrections by now;
+                // the bar is the only thing the flag hides.
+                if (lastSwipe == null) kbState.suggestionKind = ""
+                kbState.suggestions = if (suggestionsEnabled) words else emptyList()
+                sduiRenderer?.stateChanged()
+            }
+        }
+        refreshAppearance()
+
+        val startup = pickStartupConfig()
+            ?: return buildFallbackInputView()
+        return buildSduiInputView(startup.first, startup.second)
+    }
+
+    /**
+     * The config to open with: the last one fetched, else the server's own
+     * config as shipped in the app (res/raw/tailzu_default_config.json,
+     * exported by the backend), so the very first open draws the server's
+     * keyboard.
+     *
+     * A config that does not PARSE is skipped for the next one — it used to
+     * drop the whole keyboard to the legacy XML layout, a different keyboard
+     * altogether, over one bad byte in a cache. Null only when a well-formed
+     * config opts out of SDUI (the server's call) or nothing parses at all.
+     */
+    private fun pickStartupConfig(): Pair<String, KBConfig>? {
+        for (raw in configCandidates()) {
+            if (!isUsableConfig(raw)) continue
+            if (!SDUIRenderer.isSDUI(raw)) return null
+            val cfg = try { SDUIRenderer.parseKBConfig(raw) } catch (_: Throwable) { continue }
+            return raw to cfg
+        }
+        return null
+    }
+
+    /** The cached config, then the bundled one — the bundle is only read from
+     *  resources when the cache is missing or unusable. */
+    private fun configCandidates(): Sequence<String> = sequence {
+        getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE).getString("config_json", null)?.let { yield(it) }
+        bundledConfig()?.let { yield(it) }
+    }
+
+    /** Parses, and is a keyboard config at all (not an error page or `{}`).
+     *  parseKBConfig reads everything with opt*, so well-formed JSON is the
+     *  only thing it can fail on — one parse here is the whole check. */
+    private fun isUsableConfig(raw: String): Boolean = try {
+        val o = org.json.JSONObject(raw)
+        o.has("root") || o.has("theme")
+    } catch (_: Throwable) { false }
+
+    /**
+     * SDUI path: create a bare FrameLayout container and hand it to the renderer.
+     * The renderer walks config.root and produces the entire view subtree. When
+     * the background config refetch returns, `applyConfig` updates the renderer
+     * via `updateConfig` so pushed changes take effect without a keyboard reopen.
+     */
+    private fun buildSduiInputView(rawJson: String, cfg: KBConfig): View {
+        val container = FrameLayout(this)
+        // A keyboard is left to right whatever the system language: on an
+        // Arabic or Hebrew phone every row would otherwise lay out mirrored
+        // (p o i u y t r e w q). The script a key TYPES is unaffected.
+        container.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        sduiContainer = container
+        rootView = container
+        sduiActive = true
+        // Knobs and the tone pick see this config before the first frame draws.
+        KbKnobs.update(rawJson)
+        sduiConfig = cfg
+        TulmiTone.sync(this, cfg.flags)
+        try {
+            val renderer = SDUIRenderer(this, cfg, container)
+            sduiRenderer = renderer
+            cfg.root?.let { renderer.mount(it) }
+        } catch (t: Throwable) {
+            android.util.Log.w("SDUI", "render failed, falling back: ${t.message}")
+            sduiActive = false
+            sduiRenderer = null
+            return buildFallbackInputView()
+        }
+
+        // Kick off the background refresh — same policy as fallback.
+        loadAndApplyConfig()
+        setupTonePill() // no-op if pill isn't in the tree; harmless
+        return container
+    }
+
+    /** Legacy hand-built keyboard — inflates keyboard.xml + Keyboard(qwerty). */
+    private fun buildFallbackInputView(): View {
         val root = layoutInflater.inflate(
             resources.getIdentifier("keyboard", "layout", packageName),
             null,
         ) as LinearLayout
-        keyboardView = root.findViewById(resources.getIdentifier("keyboard_view", "id", packageName))
+        val kv: KeyboardView = root.findViewById(resources.getIdentifier("keyboard_view", "id", packageName))
+        keyboardView = kv
         statusView = root.findViewById(resources.getIdentifier("status", "id", packageName))
-        keyboard = Keyboard(this, resources.getIdentifier("qwerty", "xml", packageName))
-        keyboardView.keyboard = keyboard
-        keyboardView.setOnKeyboardActionListener(this)
+        val kb = Keyboard(this, resources.getIdentifier("qwerty", "xml", packageName))
+        keyboard = kb
+        kv.keyboard = kb
+        kv.setOnKeyboardActionListener(this)
         rootView = root
-        // Pick up the backend URL + user token the app shared before any request.
-        Net.load(this)
+        sduiActive = false
+
+        // Tone pill (top-bar). Mirrors the iOS tonePill: shows the current tone,
+        // opens a PopupMenu with tones + emoji toggle + one-shot commands.
+        val pillId = resources.getIdentifier("tone_pill", "id", packageName)
+        if (pillId != 0) {
+            tonePill = root.findViewById(pillId)
+        }
+        setupTonePill()
+
         loadAndApplyConfig()
         return root
     }
+
+    // --- tone pill / command palette (legacy XML keyboard) ------------------
+
+    private fun loadTonePrefs() {
+        val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
+        emojiOn = prefs.getBoolean("emoji", true)
+    }
+
+    private fun persistEmojiPref() {
+        getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE).edit()
+            .putBoolean("emoji", emojiOn)
+            .apply()
+    }
+
+    /** The flags of the last config applied, whichever keyboard is showing. */
+    private fun flags(): Map<String, Any?> = sduiConfig?.flags ?: emptyMap()
+
+    private fun setupTonePill() {
+        val pill = tonePill ?: return
+        pill.text = TulmiTone.label(this, flags()).ifEmpty { label("tone_pill", "Tone") }
+        // Rounded background built at runtime so we don't need a new drawable
+        // resource file. Corner radius = half the pill height for a full pill.
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = knobFloat("kb.legacy.pillRadius", 18f) * resources.displayMetrics.density
+            setColor(Color.WHITE)
+        }
+        pill.background = bg
+        pill.setOnClickListener { anchor -> showToneMenu(anchor) }
+    }
+
+    /** Popup: the server's voices + tones, Emoji On/Off, and the one-shot
+     *  Shorter / Longer / Bullet points commands. */
+    private fun showToneMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        val menu = popup.menu
+        val items = TulmiTone.items(flags())
+        val current = TulmiTone.current(this, flags())
+        // Ids: 1..n = voices/tones in server order; then emoji and commands.
+        items.forEachIndexed { i, t ->
+            menu.add(0, i + 1, i, if (t == current) "${t.label} \u2713" else t.label)
+        }
+        val base = items.size
+        val emojiLabel = if (emojiOn) label("tone_menu_emoji_on", "Emoji: On \u2713") else label("tone_menu_emoji_off", "Emoji: Off")
+        menu.add(0, base + 1, base, emojiLabel)
+        menu.add(0, base + 2, base + 1, label("tone_menu_shorter", "Shorter"))
+        menu.add(0, base + 3, base + 2, label("tone_menu_longer", "Longer"))
+        menu.add(0, base + 4, base + 3, label("tone_menu_bullets", "Bullet points"))
+        popup.setOnMenuItemClickListener { item ->
+            val id = item.itemId
+            when {
+                id in 1..base -> {
+                    TulmiTone.select(this, flags(), items[id - 1])
+                    tonePill?.text = TulmiTone.label(this, flags())
+                }
+                id == base + 1 -> {
+                    emojiOn = !emojiOn
+                    persistEmojiPref()
+                }
+                id == base + 2 -> pendingCommand = label("tone_cmd_shorter", "make it shorter")
+                id == base + 3 -> pendingCommand = label("tone_cmd_longer", "make it longer")
+                id == base + 4 -> pendingCommand = label("tone_cmd_bullets", "format as bullet points")
+            }
+            true
+        }
+        popup.show()
+    }
+
+    /**
+     * If the user picked a one-shot command from the tone menu, append it to
+     * the field as a trailing suffix like "…make it shorter" so the backend's
+     * command-mode detector catches it on the next refine call. Consumed once.
+     */
+    private fun applyPendingCommandToField() {
+        val cmd = pendingCommand ?: return
+        val ic = currentInputConnection ?: return
+        ic.commitText(" …$cmd", 1)
+        pendingCommand = null
+    }
+
+    /** res/raw/tailzu_default_config.json — the backend's keyboard config for a
+     *  signed-out phone, re-exported before each store build. Looked up by
+     *  name so this file does not depend on the app's R class. */
+    private fun bundledConfig(): String? = try {
+        val id = resources.getIdentifier("tailzu_default_config", "raw", packageName)
+        if (id == 0) null else resources.openRawResource(id).bufferedReader().use { it.readText() }
+    } catch (_: Exception) { null }
 
     // --- server-driven config (theme/labels/flags), cached for offline -------
 
     private fun loadAndApplyConfig() {
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
-        // Apply last-known config immediately so the keyboard never waits on the network.
-        prefs.getString("config_json", null)?.let {
-            try { applyConfig(Net.parseConfig(it)) } catch (_: Exception) {}
-        }
+        // Apply last-known config immediately so the keyboard never waits on
+        // the network — the cached one when it is usable, else the bundled one.
+        configCandidates().firstOrNull { isUsableConfig(it) }?.let { applyRawJson(it) }
         // Refresh in the background; cache the result for next time.
         Thread {
             try {
                 val json = Net.getKeyboardConfigJson()
-                val cfg = Net.parseConfig(json)
-                prefs.edit().putString("config_json", json).apply()
-                main.post { applyConfig(cfg) }
+                // Only a config that parses replaces the last good one. A
+                // truncated body or a proxy's error page used to be cached as
+                // is, and every open after that fell back to the legacy layout.
+                if (isUsableConfig(json)) {
+                    prefs.edit().putString("config_json", json).apply()
+                    main.post { applyRawJson(json) }
+                }
             } catch (_: Exception) { /* offline → keep cached/defaults */ }
+            // Piggyback the batch on the trip we were already making. Counters
+            // are cleared only once the POST succeeded, so a failed upload
+            // costs a window's delay rather than the data.
+            try {
+                TulmiTelemetry.pendingUpload(this)?.let { (counters, windowMs) ->
+                    Net.postTelemetry(counters, windowMs, SDUIRenderer.BUILD_STAMP)
+                    TulmiTelemetry.commitUpload(this, counters)
+                }
+            } catch (_: Exception) { /* keep the counters for the next window */ }
         }.start()
+    }
+
+    /**
+     * Apply raw config JSON to whichever renderer is active. For the fallback
+     * path we parse into Net.KbConfig and repaint the hand-built keyboard. For
+     * the SDUI path we parse into the full tree model and push it into the
+     * renderer via `updateConfig` (which triggers a cheap re-render).
+     *
+     * A config that fails to parse changes nothing: the keyboard keeps the last
+     * good one it has, on screen and in the knobs.
+     */
+    private fun applyRawJson(json: String) {
+        val parsed = try { SDUIRenderer.parseKBConfig(json) } catch (t: Throwable) {
+            android.util.Log.w("SDUI", "config parse failed, keeping the last good one: ${t.message}")
+            null
+        } ?: return
+        // Every non-renderer file reads its server values through KbKnobs.
+        KbKnobs.update(json)
+        // Parsed first, so applyConfig below reads THIS config's flags rather
+        // than the previous one's.
+        sduiConfig = parsed
+        // Fallback theme/labels always parsed — used for label() lookups and
+        // for the tone pill even when SDUI is driving the tree.
+        try { applyConfig(Net.parseConfig(json)) } catch (_: Exception) {}
+        // Keep a keyboard-side tone pick unless the app has made a new one.
+        TulmiTone.sync(this, parsed.flags)
+        if (sduiActive) {
+            try {
+                sduiRenderer?.updateConfig(parsed)
+            } catch (t: Throwable) {
+                android.util.Log.w("SDUI", "config apply failed: ${t.message}")
+            }
+        } else {
+            tonePill?.text = TulmiTone.label(this, parsed.flags).ifEmpty { label("tone_pill", "Tone") }
+        }
     }
 
     private fun applyConfig(cfg: Net.KbConfig) {
         kbConfig = cfg
+        // The user's own words, from the same flag iOS reads. Offered ahead of
+        // the device dictionary so a name we were told about is never
+        // "corrected" into a common word.
+        corrections?.vocabulary = knobString("kb.personality.vocabulary", "")
+            .split(Regex("[,\n]"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        // Honour the same two knobs iOS reads. The backend has been shipping
+        // them all along; Android simply never looked, so the bar could be
+        // neither turned off nor resized from the server.
+        corrections?.maxSuggestions = knobInt("kb.suggestions.max", 3)
+        // The cost model's weights are read by TulmiAutocorrect itself, from
+        // the knobs (kb.autocorrect.*), each time it decides.
+        autocorrectEnabled = knobBool("kb.autocorrect.enabled", true)
+        suggestionsEnabled = knobBool("kb.suggestions.enabled", true)
+        if (!suggestionsEnabled) {
+            corrections?.clear()
+            kbState.suggestions = emptyList()
+        }
+        // If we're rendering via SDUI, the theme lives in the tree, not on the
+        // fallback views — skip the legacy color-apply and let the SDUI path
+        // pick up the fresh JSON (see applyRawJson below).
+        if (sduiActive) return
         try {
             val bg = Color.parseColor(cfg.background)
             rootView?.setBackgroundColor(bg)
-            keyboardView.setBackgroundColor(bg)
-            statusView?.setTextColor(Color.parseColor(cfg.keyText))
+            keyboardView?.setBackgroundColor(bg)
+            statusView?.setTextColor(parseHexColor(cfg.keyText))
+            // Theme the tone pill from cfg.accent so it inherits the same white
+            // (or brand-tinted) affordance as the return key on iOS.
+            try {
+                val accent = parseHexColor(cfg.accent)
+                (tonePill?.background as? GradientDrawable)?.setColor(accent)
+                val lum = 0.299 * Color.red(accent) + 0.587 * Color.green(accent) + 0.114 * Color.blue(accent)
+                tonePill?.setTextColor(if (lum > 153) Color.BLACK else Color.WHITE)
+            } catch (_: Exception) { /* keep default */ }
         } catch (_: Exception) { /* malformed color → ignore */ }
     }
+
+    /**
+     * Color parser that extends `Color.parseColor` with 8-char `#RRGGBBAA`
+     * support (Android's built-in expects `#AARRGGBB`). Used across both the
+     * fallback and SDUI paths so themes can push whichever ordering.
+     */
+    private fun parseHexColor(hex: String): Int = SDUIRenderer.parseHex(hex)
 
     private fun label(key: String, default: String): String =
         kbConfig?.labels?.get(key) ?: default
@@ -113,20 +720,48 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
         val ic = currentInputConnection ?: return
         when (primaryCode) {
-            CODE_DELETE -> ic.deleteSurroundingText(1, 0)
+            CODE_DELETE -> {
+                // A backspace straight after a correction means "no, I meant
+                // what I typed" — put it back rather than deleting a character
+                // of a word the user never chose.
+                if (onBackspace()) return
+                ic.deleteSurroundingText(1, 0)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                // The word just changed under the bar. Re-ask, or it keeps
+                // offering corrections for a word that is no longer there.
+                suggestForCaretWord()
+            }
             CODE_SHIFT -> {
                 caps = !caps
-                keyboard.isShifted = caps
-                keyboardView.invalidateAllKeys()
+                keyboard?.let { it.isShifted = caps }
+                keyboardView?.invalidateAllKeys()
+                // The SDUI tree draws from kbState, not from the legacy
+                // KeyboardView — without these two lines shift flipped the
+                // internal flag and NOTHING on screen changed. refreshAutoCap
+                // already did this, which is why auto-capitalisation appeared
+                // to work while the shift key looked dead.
+                kbState.shift = caps
+                sduiRenderer?.stateChanged()
             }
             CODE_ENTER -> sendDefaultEditorAction(true)
-            CODE_SPACE -> ic.commitText(" ", 1)
-            CODE_MIC -> if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."))
-            CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."))
+            CODE_SPACE -> {
+                if (!expandAtBoundary()) autocorrectAtBoundary()
+                ic.commitText(" ", 1)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                // A space ends the word, so the bar has nothing left to offer.
+                corrections?.clear()
+            }
+            CODE_MIC -> {
+                TulmiTelemetry.bump(TulmiTelemetry.MIC_TAPS)
+                if (kbConfig?.voice != false) toggleVoice() else setStatus(label("voiceOff", "Voice is off."), actionable = true)
+            }
+            CODE_REFINE -> if (kbConfig?.refine != false) refineField() else setStatus(label("refineOff", "Refine is off."), actionable = true)
             else -> {
                 var ch = primaryCode.toChar()
                 if (caps) ch = Character.toUpperCase(ch)
                 ic.commitText(ch.toString(), 1)
+                TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+                suggestForCaretWord()
             }
         }
     }
@@ -148,115 +783,371 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     // --- live (streaming) dictation -----------------------------------------
 
-    private fun startStreaming() {
+    /**
+     * Can we record? If not, OPEN THE APP — do not just say so.
+     *
+     * An IME cannot request a runtime permission; only an Activity can. Both
+     * mic paths used to answer a missing RECORD_AUDIO by calling setStatus(),
+     * and setStatus deliberately renders nothing — the keyboard shows no status
+     * text at all. So the whole handling of the one failure a new Android user
+     * is most likely to hit was a line of text that is never drawn: they tapped
+     * the mic and the keyboard did nothing, forever, with no way to find out
+     * why.
+     *
+     * The app's voice-permission screen is the thing that can actually fix it,
+     * and an IME is allowed to start an Activity. So open it.
+     */
+    private fun micPermitted(): Boolean {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            setStatus("Open the Tulmi app once to allow microphone access.")
-            return
+            == PackageManager.PERMISSION_GRANTED
+        ) return true
+        setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true)
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(knobString("kb.mic.permissionScreenId", "onboarding"))))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (t: Throwable) {
+            // Nothing else to try. The keyboard stays usable for typing, which
+            // is the right failure: a keyboard that cannot dictate is still a
+            // keyboard.
         }
+        return false
+    }
+
+    private fun startStreaming() {
+        // Idempotent: a second start (double-tap, or an SDUI StartDictation while
+        // already live) would overwrite `stream`/`recorder` and leak the first
+        // with the mic left hot. Bail if anything is already capturing.
+        if (streaming || recording) return
+        if (kbState.secured) return
+        if (!micPermitted()) return
         pendingPartial = ""
         dictatedSomething = false
+        dictatedText = ""
+        priorText = (currentInputConnection?.getTextBeforeCursor(refineContextChars(), 0)?.toString() ?: "")
         streaming = true
-        setStatus(label("listening", "🎙️ Listening…"))
+        kbState.dictating = true
+        sduiRenderer?.stateChanged()
+        setStatus(label("listening", "Listening…"))
         val target = targetAppName()
         stream = Stream(
-            onReady = { main.post { setStatus(label("listening", "🎙️ Listening…")) } },
-            onPartial = { t -> main.post { replacePartial(t) } },
+            onReady = { main.post { setStatus(label("listening", "Listening…")) } },
+            // kb.mic.liveText decides whether ANY raw transcript reaches the
+            // field. Off — the shipped default — neither the interim words nor
+            // the committed segments are painted: they accumulate, and the
+            // refined sentence lands once. Silencing only the partials, which
+            // is what this used to do, left the user watching raw finals arrive
+            // and then be deleted and rewritten, which reads as the product
+            // correcting its own mistakes.
+            onPartial = { t -> if (liveText) main.post { replacePartial(t) } },
             onFinal = { t -> main.post { commitFinal(t) } },
-            onError = { e -> main.post { setStatus("Error: $e"); endStreaming() } },
+            onError = { m -> main.post {
+                val lower = m.lowercase()
+                // A 401/unauthorized means the shared token expired — tell the
+                // user to reopen the app (which re-shares a fresh one).
+                if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
+                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true)
+                else
+                    setStatus(label("voice_not_listening", "444 : Not Listening"))
+                endStreaming()
+            } },
             onClosed = { main.post { onDictationClosed() } },
+            // Publish the live mic level so a Waveform / level-bound SDUI node
+            // reacts during streaming (the file path polls maxAmplitude; the
+            // streaming path had no level source).
+            onLevel = { lvl -> main.post {
+                kbState.micLevel = lvl
+                sduiRenderer?.stateChanged()
+            } },
         ).also { it.start(target, "auto") }
     }
 
     /** Swap the on-screen interim text for the latest hypothesis. */
     private fun replacePartial(text: String) {
+        // Live words never go into a password box focus moved into mid-dictation.
+        if (kbState.secured) return
         val ic = currentInputConnection ?: return
         if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
         ic.commitText(text, 1)
         pendingPartial = text
     }
 
-    /** Commit a finalized segment (keep it) and reset the interim tracker. */
+    // Conversational refusal/clarification the STT/refine can emit on silence
+    // ("I didn't catch that", "say that again", "no speech detected"). The server
+    // filters these, but this is the last line of defense: such a string must
+    // NEVER land in the field. Precise + length-bounded (mirrors iOS
+    // KeyboardViewController.looksLikeFiller / the backend looksLikeMeta guard)
+    // so a real short dictation is never dropped.
+    // The patterns and the length bound are the server's
+    // (kb.dictation.fillerPatterns / kb.dictation.fillerMaxLen); the defaults
+    // are the set this shipped with. Compiled once per distinct list.
+    private var fillerSource: List<String>? = null
+    private var fillerRegexes: List<Regex> = emptyList()
+
+    private fun fillerPatterns(): List<Regex> {
+        val src = knobStrings("kb.dictation.fillerPatterns", listOf(
+            "\\bi (didn'?t|couldn'?t|can'?t|could not|did not) (catch|hear|understand|make out) (that|it|you|anything)\\b",
+            "\\bi (don'?t|didn'?t) get anything\\b",
+            "\\b(could|can) you (say (that|it) again|repeat that)\\b",
+            "\\bsay (that|it) again\\b",
+            "\\b(please )?repeat that\\b",
+            "\\bno (speech|audio|input|sound) (was )?(detected|found|received|captured)\\b",
+            "\\bnothing (was said|to transcribe|was detected|was captured)\\b",
+        ))
+        if (src != fillerSource) {
+            fillerSource = src
+            // A pattern that does not compile is skipped, never a crash.
+            fillerRegexes = src.mapNotNull { runCatching { Regex(it, RegexOption.IGNORE_CASE) }.getOrNull() }
+        }
+        return fillerRegexes
+    }
+
+    private fun looksLikeFiller(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty() || t.length > knobInt("kb.dictation.fillerMaxLen", 140)) return false
+        return fillerPatterns().any { it.containsMatchIn(t) }
+    }
+
+    /** How much of the draft before the caret refine is given as context. */
+    private fun refineContextChars(): Int = knobInt("kb.refine.contextChars", 4000).coerceAtLeast(0)
+
+    /** An app screen as a deep link: kb.deeplink.base + the screen id. */
+    private fun deepLink(screenId: String): String = knobString("kb.deeplink.base", "tulmi://screen/") + screenId
+
+    /**
+     * Commit a finalized segment (keep it) and reset the interim tracker.
+     *
+     * WHEN kb.mic.liveText IS FALSE, NOTHING IS WRITTEN HERE. The flag already
+     * silenced partials, but finals still landed — so the user watched raw
+     * transcript segments arrive and then be deleted and replaced by the
+     * refined sentence a moment later. That is the product correcting itself
+     * in public, and it reads as a mistake even when the final text is right.
+     * iOS has deferred since build 39 (kb.mic.deferUntilStop); this is Android
+     * catching up to the same flag.
+     *
+     * The segments are still ACCUMULATED, because refine needs the whole
+     * utterance. They just wait until there is one finished sentence to show.
+     */
     private fun commitFinal(text: String) {
-        val ic = currentInputConnection ?: return
-        if (pendingPartial.isNotEmpty()) ic.deleteSurroundingText(pendingPartial.length, 0)
-        ic.commitText(if (text.endsWith(" ")) text else "$text ", 1)
-        pendingPartial = ""
+        // Never insert a bare space for an empty final — that dropped a stray
+        // trailing space at the cursor. Empty finals carry no words.
+        if (text.isBlank()) return
+        TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
+        // A refusal is dropped whether or not it would have been shown.
+        if (looksLikeFiller(text)) {
+            clearPartial()
+            return
+        }
+        val inserted = if (text.endsWith(" ")) text else "$text "
         dictatedSomething = true
+        // Accumulate the exact span this dictation owns, so refine can rewrite
+        // that and nothing else. Several finals can arrive in one utterance.
+        dictatedText += inserted
+        if (!liveText) return          // deferred: it lands once, written properly
+        if (kbState.secured) { pendingPartial = ""; return }
+        val ic = currentInputConnection ?: return
+        clearPartial()
+        ic.commitText(inserted, 1)
+    }
+
+    /** True when the field should show the raw transcript as it arrives.
+     *  Backend-controlled (kb.mic.liveText); false is the shipped default. */
+    private val liveText: Boolean
+        get() = kbConfig?.liveText != false
+
+    /** Remove whatever interim text is on screen, if any. */
+    private fun clearPartial() {
+        if (pendingPartial.isEmpty()) return
+        currentInputConnection?.deleteSurroundingText(pendingPartial.length, 0)
+        pendingPartial = ""
     }
 
     private fun stopStreaming() {
-        setStatus(label("transcribing", "Finishing…"))
-        stream?.finish()
-        endStreaming()
+        // Don't tear down yet. finish() stops the mic and asks the server to
+        // flush the engine's final tail + send "done"; we keep the socket AND
+        // the stream alive so those tail words still land. Teardown happens when
+        // onDictationClosed() runs (the "done" event) or finish()'s watchdog
+        // fires. Tearing down here cut the socket before the tail arrived.
+        // Ignore a second stop tap during the flush window — otherwise we send a
+        // second "stop" frame and arm a second watchdog that could later close a
+        // freshly-restarted session, and the double-finish blocks restarting.
+        if (finishing) return
+        val s = stream ?: run { endStreaming(); return }
+        finishing = true
+        setStatus(label("finishing", "Finishing…"))
+        s.finish()
     }
 
     private fun endStreaming() {
+        finishing = false
         streaming = false
+        // Terminal path: cancel the stream so the mic/socket/capture thread are
+        // released here too (the error path used to just null the ref, leaving
+        // the mic hot until the IME died). cancel() is idempotent + safe on an
+        // already-closed stream, so the normal "done" close path is unaffected.
+        stream?.cancel()
         stream = null
-        if (statusView?.text == label("transcribing", "Finishing…")) setStatus("")
+        kbState.dictating = false
+        kbState.micLevel = 0f
+        sduiRenderer?.stateChanged()
+        if (statusView?.text == label("finishing", "Finishing…")) setStatus("")
     }
 
-    /** Dictation closed → auto-refine what was just spoken (replaces the old ✨ key). */
+    /** Dictation closed -> auto-refine what was just spoken (replaces the old Refine key). */
     private fun onDictationClosed() {
+        // A partial may still be in the field that never got its finalizing
+        // "final" (socket closed right after the last partial). It's real
+        // dictated text already at the cursor — treat it as committed so the
+        // tail isn't dropped and refine still runs over it.
+        //
+        // In deferred mode no partial was ever painted, so there is nothing at
+        // the cursor to rescue and nothing to add to the span refine rewrites.
+        if (pendingPartial.isNotEmpty() && liveText) {
+            dictatedSomething = true
+            pendingPartial = ""
+        } else {
+            pendingPartial = ""
+        }
         endStreaming()
-        if (dictatedSomething && kbConfig?.refine != false) refineField()
+        // Focus moved into a password box before the dictation closed: nothing
+        // is added to it, and nothing from it is sent.
+        if (kbState.secured) dictatedSomething = false
+        if (dictatedSomething) {
+            // If the user picked a one-shot command from the tone menu, drop it
+            // in as a trailing suffix before refine — the backend command-mode
+            // detector reads the field and rewrites accordingly.
+            applyPendingCommandToField()
+            // Refine what was DICTATED, not the whole field. refineField() would
+            // hand the model the user's entire draft and let it rewrite
+            // paragraphs nobody asked it to touch.
+            if (kbConfig?.refine != false) refineDictated(dictatedText, priorText)
+        }
         dictatedSomething = false
+        dictatedText = ""
     }
 
     private fun startRecording() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            setStatus("Open the Tulmi app once to allow microphone access.")
-            return
-        }
+        // Idempotent — see startStreaming. A second start would strand the first
+        // MediaRecorder with the mic hot.
+        if (recording || streaming) return
+        if (kbState.secured) return
+        if (!micPermitted()) return
         try {
             val file = File(cacheDir, "tulmi_rec.m4a")
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
-            rec.setAudioSource(MediaRecorder.AudioSource.MIC)
+            // VOICE_COMMUNICATION activates the OS voice-processing pipeline
+            // (AEC + NS + AGC where the vendor implements it) — matches the
+            // iOS AVAudioSession .voiceChat mode, which is what makes the
+            // background-voice + hiss rejection possible.
+            rec.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             rec.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             rec.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
             rec.setAudioSamplingRate(16000)
             rec.setOutputFile(file.absolutePath)
             rec.prepare()
             rec.start()
+            // Layer TulmiAudioFx on top so devices that don't route
+            // VOICE_COMMUNICATION through the shared pipeline still get
+            // application-level AEC/NS/AGC. audioSessionId isn't exposed on
+            // MediaRecorder, but the global session (id 0) accepts effects
+            // that apply to any active input on this app.
+            audioFx = TulmiAudioFx.attach(audioSessionId = 0)
             recorder = rec
             audioFile = file
             recording = true
-            setStatus(label("listening", "🎙️ Listening… tap mic to stop"))
+            kbState.dictating = true
+            sduiRenderer?.stateChanged()
+            startMicLevelPolling()
+            setStatus(label("listening_tap_stop", "Listening… tap mic to stop"))
         } catch (e: Exception) {
-            setStatus("Mic error: ${e.message}")
+            setStatus(label("voice_not_listening", "444 : Not Listening"))
             cleanupRecorder()
         }
     }
 
     private fun stopAndTranscribe() {
         recording = false
+        kbState.dictating = false
+        sduiRenderer?.stateChanged()
+        stopMicLevelPolling()
+        // Detach the recorder/fx/file on the MAIN thread so a quick restart gets
+        // fresh instances, then do the BLOCKING teardown off-thread.
         val file = audioFile
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-        }
-        cleanupRecorder()
-        if (file == null || !file.exists()) {
-            setStatus("No audio captured.")
-            return
-        }
+        val rec = recorder; recorder = null
+        val fx = audioFx; audioFx = null
+        audioFile = null
         setStatus(label("transcribing", "Transcribing…"))
         val target = targetAppName()
         Thread {
+            // stop() finalizes the MP4 and reset()/release() free native
+            // resources — each can block hundreds of ms on the main thread
+            // (jank / ANR). Run them here, off the main thread. The file isn't a
+            // valid MP4 until stop() returns, so the existence check comes after.
+            try { rec?.stop() } catch (_: Exception) {}
+            try { rec?.reset(); rec?.release() } catch (_: Exception) {}
+            try { fx?.close() } catch (_: Throwable) {}
+            if (file == null || !file.exists()) {
+                main.post { setStatus(label("voice_not_listening", "444 : Not Listening")) }
+                return@Thread
+            }
             try {
                 val cleaned = Net.transcribeClean(file, target)
                 main.post {
-                    currentInputConnection?.commitText(cleaned, 1)
+                    // Drop a conversational refusal/clarification instead of
+                    // committing it (mirrors the streaming commitFinal guard);
+                    // there's nothing to refine in that case either.
+                    if (looksLikeFiller(cleaned)) {
+                        setStatus("")
+                        return@post
+                    }
+                    // The words finished after focus moved into a password
+                    // box: they were not spoken for it, and its contents must
+                    // not go to the server as refine context.
+                    if (kbState.secured) {
+                        setStatus(label("micSecure", "Dictation is off in password fields."), actionable = true)
+                        return@post
+                    }
+                    val conn = currentInputConnection
+                    // What the user had already written, BEFORE this dictation
+                    // lands. Handed to refine as context so the new sentence is
+                    // fitted to the draft it joins — and so refine rewrites the
+                    // dictated span ONLY.
+                    val prior = (conn?.getTextBeforeCursor(refineContextChars(), 0)?.toString() ?: "")
+                    conn?.commitText(cleaned, 1)
+                    TulmiTelemetry.bump(TulmiTelemetry.DICTATION_COMMITTED)
+                    corrections?.clear()
                     setStatus("")
+                    if (kbConfig?.refine != false) refineDictated(cleaned, prior)
+                    // A one-shot tone command (Shorter/Longer/Bullets) is only
+                    // meaningful if a refine actually consumes it — same as the
+                    // streaming path's onDictationClosed(). Appending it without a
+                    // following refine (the old behaviour) left "…make it shorter"
+                    // stranded in the field forever. Only drop it in + refine when
+                    // refine is enabled; otherwise leave it pending for next time.
+                    if (pendingCommand != null && kbConfig?.refine != false) {
+                        applyPendingCommandToField()
+                    }
                 }
             } catch (e: Exception) {
-                main.post { setStatus("Error: ${e.message}") }
+                main.post { setStatus(statusForError(e)) }
             }
         }.start()
+    }
+
+    /**
+     * Map a backend failure to a status line. Net wraps HTTP errors as
+     * "<op> <code>: <body>"; a 401 means the token the app shared into
+     * SharedPreferences has expired — the keyboard can't refresh a Supabase
+     * session itself, so the fix is to open the app once (which re-shares a
+     * fresh token). Everything else is the generic "backend unavailable" copy.
+     */
+    private fun statusForError(e: Throwable): String {
+        val msg = e.message ?: ""
+        return if (msg.contains(" 401") || msg.contains("unauthorized", ignoreCase = true))
+            label("auth_expired", "Open Tailzu once to sign in again")
+        else
+            label("voice_unavailable", "222 : will let you know when we are back")
     }
 
     private fun cleanupRecorder() {
@@ -266,34 +1157,245 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         } catch (_: Exception) {
         }
         recorder = null
+        try { audioFx?.close() } catch (_: Throwable) {}
+        audioFx = null
+        stopMicLevelPolling()
+    }
+
+    // ---------------------------------------------------------------------
+    // Voice-reactive mic-level polling. maxAmplitude is a 16-bit signed int
+    // — we normalize to [0, 1] and IIR-smooth it so a single burst doesn't
+    // jerk the animation. Publishes into kbState.micLevel so SDUI nodes that
+    // bind to it (MediaPlayer speed, Waveform bars if a backend ever adds
+    // them back) get live values.
+    // ---------------------------------------------------------------------
+
+    private fun startMicLevelPolling() {
+        stopMicLevelPolling()
+        smoothedLevel = 0f
+        val fps = knobFloat("kb.mic.level.fps", 30f).coerceIn(1f, 120f)
+        val periodMs = (1000f / fps).toLong()
+        val alpha = knobFloat("kb.mic.level.smoothing", 0.35f).coerceIn(0.01f, 1f)  // one-pole IIR — higher = less smoothing
+        val tick = object : Runnable {
+            override fun run() {
+                val rec = recorder ?: return
+                val amp = try { rec.maxAmplitude } catch (_: Throwable) { 0 }
+                val norm = (amp / 32767f).coerceIn(0f, 1f)
+                smoothedLevel = smoothedLevel * (1 - alpha) + norm * alpha
+                kbState.micLevel = smoothedLevel
+                sduiRenderer?.stateChanged()
+                main.postDelayed(this, periodMs)
+            }
+        }
+        micLevelTimer = tick
+        main.postDelayed(tick, periodMs)
+    }
+
+    private fun stopMicLevelPolling() {
+        micLevelTimer?.let { main.removeCallbacks(it) }
+        micLevelTimer = null
+        kbState.micLevel = 0f
+        sduiRenderer?.stateChanged()
     }
 
     // --- refine (smart autocorrect of the whole field) ----------------------
 
-    private fun refineField() {
-        val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(10000, 0)?.toString() ?: ""
-        val after = ic.getTextAfterCursor(10000, 0)?.toString() ?: ""
-        val full = (before + after).trim()
-        if (full.isEmpty()) {
-            setStatus("Type something first, then tap ✨")
-            return
-        }
+    /**
+     * Refine ONLY what was just dictated, leaving the rest of the draft alone.
+     *
+     * The old behaviour ran refineField() after a dictation, which rewrites the
+     * WHOLE field — so speaking one sentence into a long draft handed the model
+     * the entire draft and let it rewrite paragraphs the user never asked it to
+     * touch. iOS has always refined just the dictated span with the prior text
+     * as context; this is that.
+     *
+     * `spoken` is the exact string that was committed, so the replacement is
+     * anchored to it: if the tail no longer matches, the field moved under us
+     * and we leave it alone rather than deleting by a stale length.
+     */
+    private fun refineDictated(spoken: String, prior: String) {
+        val text = spoken.trim()
+        if (text.isEmpty()) return
+        kbState.refining = true
+        sduiRenderer?.stateChanged()
         setStatus(label("refining", "Refining…"))
+        TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
         val target = targetAppName()
+        // The tone the pill shows, as the id the server's routes know.
+        val tone = TulmiTone.activeToneId(this, flags())
         Thread {
             try {
-                val refined = Net.refine(full, target)
+                val refined = Net.refine(text, target, tone, prior.trim())
                 main.post {
-                    val conn = currentInputConnection
-                    conn?.deleteSurroundingText(before.length, after.length)
-                    conn?.commitText(refined, 1)
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
                     setStatus("")
+                    // Focus moved into a password box while the refine ran.
+                    if (kbState.secured) return@post
+                    val conn = currentInputConnection ?: return@post
+                    if (refined.isBlank() || looksLikeFiller(refined)) return@post
+                    // DEFERRED: nothing of this utterance is at the cursor, so
+                    // there is no tail to find and none to protect — the
+                    // finished sentence is simply inserted. Guarding on the
+                    // tail here would refuse to insert anything at all.
+                    if (!liveText) {
+                        conn.commitText(refined, 1)
+                        flashKeysForText(refined)
+                        return@post
+                    }
+                    // LIVE: the raw transcript is already in the field. Replace
+                    // that exact span, and only if it is still the tail — the
+                    // user may have typed or moved the cursor mid-refine.
+                    val before = conn.getTextBeforeCursor(spoken.length + 8, 0)?.toString() ?: ""
+                    if (!before.endsWith(spoken)) return@post
+                    conn.deleteSurroundingText(spoken.length, 0)
+                    conn.commitText(refined, 1)
+                    flashKeysForText(refined)
                 }
             } catch (e: Exception) {
-                main.post { setStatus("Error: ${e.message}") }
+                main.post {
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
+                    setStatus(statusForError(e))
+                }
             }
         }.start()
+    }
+
+    private fun refineField() {
+        // Refine reads the whole field and sends it to our server. In a
+        // password box that is an exfiltration, however well-intentioned.
+        if (kbState.secured) {
+            setStatus(label("refineSecure", "Refine is off in password fields."), actionable = true)
+            return
+        }
+        val ic = currentInputConnection ?: return
+        val maxChars = knobInt("kb.refine.maxChars", 10000)
+        val before = ic.getTextBeforeCursor(maxChars, 0)?.toString() ?: ""
+        val after = ic.getTextAfterCursor(maxChars, 0)?.toString() ?: ""
+        val full = (before + after).trim()
+        if (full.isEmpty()) {
+            setStatus(label("refineEmpty", "Type something first, then tap Refine"), actionable = true)
+            return
+        }
+        kbState.refining = true
+        sduiRenderer?.stateChanged()
+        setStatus(label("refining", "Refining…"))
+        TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
+        val target = targetAppName()
+        // The active tone (TulmiTone: a keyboard pick, else the server's), as
+        // the tone id the server's refine routes know.
+        val tone = TulmiTone.activeToneId(this, flags())
+        Thread {
+            try {
+                val refined = Net.refine(full, target, tone)
+                main.post {
+                    val conn = currentInputConnection
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    if (conn == null) return@post
+                    // `before`/`after` were measured before a call that takes
+                    // seconds. Deleting by those lengths now would eat whatever
+                    // the user typed in the meantime, or — if they moved the
+                    // caret — a span of text somewhere else entirely. Check the
+                    // field still holds exactly what we sent before touching it.
+                    val nowBefore = conn.getTextBeforeCursor(maxChars, 0)?.toString() ?: ""
+                    val nowAfter = conn.getTextAfterCursor(maxChars, 0)?.toString() ?: ""
+                    if (nowBefore != before || nowAfter != after) {
+                        setStatus(label("refine_stale", "Text changed — refine cancelled"), actionable = true)
+                        return@post
+                    }
+                    conn.deleteSurroundingText(before.length, after.length)
+                    conn.commitText(refined, 1)
+                    setStatus("")
+                    flashKeysForText(refined)
+                }
+            } catch (e: Exception) {
+                main.post {
+                    kbState.refining = false
+                    sduiRenderer?.stateChanged()
+                    TulmiTelemetry.bump(TulmiTelemetry.REFINE_FAILED)
+                    setStatus(statusForError(e))
+                }
+            }
+        }.start()
+    }
+
+    // ---------------------------------------------------------------------
+    // Orange word-flash across letter keys — mirrors the iOS
+    // KeyboardViewController.flashKeysForText behaviour. Whenever refined
+    // text lands, walk every key in the current view tree that represents
+    // a letter that appears in the incoming string and animate its
+    // background between authored key-fill and brand-accent for ~120ms,
+    // staggered by index so it reads as a left-to-right wave rather than a
+    // simultaneous pop.
+    //
+    // No hardcoded list of keys — we walk rootView recursively and pick out
+    // anything that IS a Button/TextView with a single-char letter label.
+    // Backend-driven layouts (new symbol pages, extra keys, non-Latin
+    // scripts) all light up correctly because the discovery is purely by
+    // shape, not by a static keymap.
+    // ---------------------------------------------------------------------
+
+    private fun flashKeysForText(text: String) {
+        // kb.flash.*: on/off, colour, cadence. The colour used to be the
+        // theme's accent, which the server sets to a grey — so the "orange
+        // wave" was a grey one. It is its own knob now, brand amber by default.
+        if (!knobBool("kb.flash.enabled", true)) return
+        val root = rootView ?: return
+        val letters = text.lowercase().toCharArray().toSet()
+        if (letters.isEmpty()) return
+        val hits = mutableListOf<TextView>()
+        walkLetterKeys(root, letters, hits)
+        if (hits.isEmpty()) return
+        val accent = SDUIRenderer.parseHex(knobString("kb.flash.color", "#E8A23C").ifBlank { "#E8A23C" })
+        val perStagger = knobLong("kb.flash.staggerMs", 25L)
+        val flashMs = knobLong("kb.flash.durationMs", 260L)
+        hits.sortBy { locationX(it) }
+        hits.forEachIndexed { i, key ->
+            main.postDelayed({ flashOneKey(key, accent, flashMs) }, i * perStagger)
+        }
+    }
+
+    private fun walkLetterKeys(v: View, letters: Set<Char>, out: MutableList<TextView>) {
+        // A one-letter suggestion chip ("I", "a") is not a key.
+        if (v.tag == SDUIRenderer.CHIP_TAG) return
+        if (v is TextView && v !is Button && v.text?.length == 1) {
+            val ch = v.text[0].lowercaseChar()
+            if (ch in letters) out.add(v)
+            return
+        }
+        if (v is Button && v.text?.length == 1) {
+            val ch = v.text[0].lowercaseChar()
+            if (ch in letters) out.add(v)
+            return
+        }
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) walkLetterKeys(v.getChildAt(i), letters, out)
+        }
+    }
+
+    private fun locationX(v: View): Int {
+        val out = IntArray(2)
+        v.getLocationOnScreen(out)
+        return out[0]
+    }
+
+    private fun flashOneKey(v: TextView, accent: Int, ms: Long) {
+        val originalBg = v.background
+        val originalTint = v.currentTextColor
+        val flashBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = knobFloat("kb.flash.radius", 7f) * resources.displayMetrics.density
+            setColor(accent)
+        }
+        v.background = flashBg
+        v.setTextColor(SDUIRenderer.parseHex(knobString("kb.flash.textColor", "#14100c")))
+        main.postDelayed({
+            v.background = originalBg
+            v.setTextColor(originalTint)
+        }, ms)
     }
 
     // --- helpers ------------------------------------------------------------
@@ -313,15 +1415,46 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
     }
 
-    private fun setStatus(text: String) {
+    override fun setStatus(text: String, actionable: Boolean) {
+        // Chatter stays hidden — the 444/222 codes, "Listening…", "Finishing…"
+        // — because the mic animation is the feedback and text over the keys is
+        // noise. ACTIONABLE guidance shows, because the alternative is what
+        // this used to do: suppress everything, including every message that
+        // told the user how to unblock the thing they just tapped. A mic that
+        // refuses silently is indistinguishable from a mic that is broken.
+        val show = actionable && text.isNotEmpty()
+        kbState.status = if (show) text else ""
         statusView?.let {
-            it.text = text
-            it.visibility = if (text.isEmpty()) View.GONE else View.VISIBLE
+            it.text = kbState.status
+            it.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        if (sduiActive) sduiRenderer?.stateChanged()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // The system asking for memory back is the one moment it is worth
+        // giving up decoded images — they redraw from the disk cache.
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            TulmiImageLoader.purgeMemory()
         }
     }
 
     override fun onFinishInput() {
         super.onFinishInput()
+        // Leaving a field clears the secure flag. The next onStartInputView
+        // sets it correctly anyway; this makes the SAFE value the resting one,
+        // so no path can leave the keyboard believing a password box is still
+        // focused and quietly refuse to work in the next ordinary field.
+        kbState.secured = false
+        // The chips belonged to the field being left. Carrying them into the
+        // next one would offer corrections for a word the user never typed there.
+        corrections?.clear()
+        kbState.suggestions = emptyList()
+        // onFinishInput fires far more often than onDestroy and the service
+        // usually survives it — this is the realistic last chance to keep
+        // whatever the throttle has not written yet.
+        try { TulmiTelemetry.persist(this) } catch (_: Exception) {}
         if (recording) {
             recording = false
             cleanupRecorder()
@@ -333,6 +1466,276 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         setStatus("")
     }
 
+    override fun onDestroy() {
+        // The service can be destroyed WITHOUT a final onFinishInput — release
+        // the mic + streaming socket and drop every pending main-thread callback
+        // (mic-level poll, backspace repeat, key-flash restores, SDUI posts) so
+        // nothing leaks or fires against a torn-down view. Idempotent.
+        try { if (recording) cleanupRecorder() } catch (_: Exception) {}
+        try { stream?.cancel() } catch (_: Exception) {}
+        recording = false
+        streaming = false
+        // Last chance to keep the counters — the throttle means the most recent
+        // ones have not been written yet.
+        try { TulmiTelemetry.persist(this, force = true) } catch (_: Exception) {}
+        try { corrections?.close() } catch (_: Exception) {}
+        corrections = null
+        main.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    // ---------------------------------------------------------------------
+    // Text-field lifecycle. Runs every time a new input field takes focus.
+    // Refreshes auto-capitalization + Return-key label so both react to the
+    // field the keyboard is currently sitting on (email vs search vs
+    // messenger vs multi-line note).
+    // ---------------------------------------------------------------------
+
+    override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        caretAt = info?.initialSelStart ?: -1
+        // The app may have signed in / out, or edited the dictionary, since the
+        // view was built: both are cheap in-memory preference reads.
+        Net.load(this)
+        loadDictionary()
+        refreshAutoCap()
+        refreshReturnKeyLabel(info)
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Dark/light flipped with the keyboard open: redraw in the other theme.
+        if (refreshAppearance()) sduiRenderer?.stateChanged()
+    }
+
+    /** Follow the system appearance (themeDark / themeLight, and the tree's
+     *  appearance-gated rows). True when it changed. */
+    private fun refreshAppearance(): Boolean {
+        val next = if (
+            (resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        ) "dark" else "light"
+        if (kbState.appearance == next) return false
+        kbState.appearance = next
+        return true
+    }
+
+    override fun onUpdateSelection(
+        oldSelStart: Int, oldSelEnd: Int,
+        newSelStart: Int, newSelEnd: Int,
+        candidatesStart: Int, candidatesEnd: Int,
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        caretAt = newSelStart
+        refreshAutoCap()
+    }
+
+    /** The caret as the editor last reported it; -1 until it has. */
+    private var caretAt = -1
+
+    override fun caretPosition(): Int = caretAt
+
+    override fun onCaretMoved() {
+        if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
+        lastCorrection = null
+        suggestForCaretWord()
+    }
+
+    /**
+     * Auto-capitalize by asking the InputConnection whether the next
+     * character should be uppercased — Android's own text engine tells us
+     * (based on TextView.CAP_MODE_SENTENCES + the surrounding punctuation).
+     * The keyboard just observes; the field owner decides.
+     */
+    private fun refreshAutoCap() {
+        // kb.autoCap.enabled: the server's kill switch for auto-capitalisation.
+        if (!knobBool("kb.autoCap.enabled", true)) return
+        // Caps lock is the user's explicit choice; auto-cap never touches it.
+        if (kbState.capsLock) return
+        val ic = currentInputConnection ?: return
+        val info = currentInputEditorInfo ?: return
+        val capMode = ic.getCursorCapsMode(info.inputType) and android.text.TextUtils.CAP_MODE_SENTENCES
+        val shouldCap = capMode != 0
+        if (caps != shouldCap) {
+            caps = shouldCap
+            keyboard?.isShifted = caps
+            keyboardView?.invalidateAllKeys()
+            kbState.shift = caps
+            sduiRenderer?.stateChanged()
+        }
+    }
+
+    /**
+     * Return-key label follows EditorInfo.imeOptions — same source iOS
+     * reads via UITextInputTraits.returnKeyType. When the host requests a
+     * specific action (search, send, done, next) we surface the localized
+     * label from kbConfig.labels so translations flow through the backend.
+     * Nothing hardcodes a language.
+     */
+    private fun refreshReturnKeyLabel(info: android.view.inputmethod.EditorInfo?) {
+        val opts = info?.imeOptions ?: 0
+        val action = opts and android.view.inputmethod.EditorInfo.IME_MASK_ACTION
+        // What Return DOES here: the field's action, unless the field says
+        // Enter must stay a newline (IME_FLAG_NO_ENTER_ACTION — every
+        // multi-line editor sets it) or has no action at all.
+        val noEnterAction = (opts and android.view.inputmethod.EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+        kbState.returnAction = when (action) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH,
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND,
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO,
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT,
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE,
+            android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> if (noEnterAction) 0 else action
+            else -> 0
+        }
+        // …and what it SAYS: the server's label for that action.
+        kbState.returnLabel = when (kbState.returnAction) {
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH -> label("return.search", "Search")
+            android.view.inputmethod.EditorInfo.IME_ACTION_SEND -> label("return.send", "Send")
+            android.view.inputmethod.EditorInfo.IME_ACTION_GO -> label("return.go", "Go")
+            android.view.inputmethod.EditorInfo.IME_ACTION_NEXT -> label("return.next", "Next")
+            android.view.inputmethod.EditorInfo.IME_ACTION_DONE -> label("return.done", "Done")
+            android.view.inputmethod.EditorInfo.IME_ACTION_PREVIOUS -> label("return.previous", "Previous")
+            else -> label("return", "return")
+        }
+
+        // Does the globe key have anywhere to go?
+        //
+        // The SDUI tree gates GlobeKey on state.hasMultipleKeyboards, and
+        // NOTHING on Android ever set it — so the condition read null, and the
+        // globe never rendered at all. Its handler was fully written and simply
+        // unreachable, which on a phone using gesture navigation (no nav bar,
+        // so no system IME-switch button either) left a user with more than one
+        // keyboard no way out of ours except the Settings app.
+        kbState.hasMultipleKeyboards = runCatching {
+            val imm = getSystemService(INPUT_METHOD_SERVICE)
+                as? android.view.inputmethod.InputMethodManager
+            (imm?.enabledInputMethodList?.size ?: 0) > 1
+        }.getOrDefault(false)
+
+        // Follow the system appearance. Read here rather than once at create:
+        // the user can flip dark/light while the keyboard is open, and the IME
+        // is not recreated for it.
+        refreshAppearance()
+
+        // A field that only takes numbers gets the number pad, not QWERTY.
+        //
+        // The field TELLS us this — inputType is how every other keyboard knows
+        // to show a dialer for an OTP box or an amount. Making the user find
+        // "123" for a field that cannot accept a letter is work we imposed.
+        //
+        // Leaving one restores letters, so the pad can never outlive the field
+        // that asked for it.
+        val inputType = info?.inputType ?: 0
+        val cls = inputType and android.text.InputType.TYPE_MASK_CLASS
+        val numericField = cls == android.text.InputType.TYPE_CLASS_NUMBER ||
+            cls == android.text.InputType.TYPE_CLASS_PHONE
+
+        // IS THIS A PASSWORD BOX?
+        //
+        // iOS hands secure fields to the system keyboard and a third-party one
+        // never sees them. Android does not: an IME is given the password box
+        // exactly like any other field. Everything this keyboard does to a
+        // field is wrong there — autocorrect silently rewrites a password so
+        // the login fails, and Refine and dictation read the field and POST it
+        // to our server. The user typed it into a box with dots in it; they did
+        // not mean to send it anywhere.
+        //
+        // All four password variations, across both classes that have one.
+        val variation = inputType and android.text.InputType.TYPE_MASK_VARIATION
+        kbState.secured = when (cls) {
+            android.text.InputType.TYPE_CLASS_TEXT ->
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                variation == android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            android.text.InputType.TYPE_CLASS_NUMBER ->
+                variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+        if (numericField) {
+            kbState.layoutId = "num"
+        } else if (kbState.layoutId == "num") {
+            // Back to the server's letter layer (kb.layer.lettersId).
+            kbState.layoutId = knobString("kb.layer.lettersId", "en")
+        }
+
+        sduiRenderer?.stateChanged()
+    }
+
+    // ---------------------------------------------------------------------
+    // Gesture layer. Space cursor-drag and accent menus for the legacy
+    // keyboard. (Backspace hold-to-repeat lives in the renderer, on the key
+    // itself, tuned by kb.delete.*.)
+    // ---------------------------------------------------------------------
+
+    /**
+     * Attach space long-press → cursor drag. During the drag the space
+     * key stops being a space key; ACTION_MOVE dx translates to selection
+     * displacement one character per ~14dp (matches iOS trackpad tuning).
+     */
+    fun bindSpaceCursorDrag(view: View) {
+        val threshold = view.resources.displayMetrics.density * 14f
+        view.setOnLongClickListener { v ->
+            spaceDragging = true
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            val ic = currentInputConnection
+            val before = ic?.getTextBeforeCursor(1_000_000, 0)?.length ?: 0
+            spaceDragAnchorSel = before
+            true
+        }
+        view.setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    spaceDragAnchorX = ev.rawX
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (spaceDragging) {
+                        val dx = ev.rawX - spaceDragAnchorX
+                        val delta = (dx / threshold).toInt()
+                        val target = (spaceDragAnchorSel + delta).coerceAtLeast(0)
+                        currentInputConnection?.setSelection(target, target)
+                        true
+                    } else false
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    val wasDragging = spaceDragging
+                    spaceDragging = false
+                    if (wasDragging) true else { v.performClick(); false }
+                }
+                else -> false
+            }
+        }
+    }
+
+    /**
+     * Attach long-press accent menu to a letter view. [accents] comes from
+     * the backend config (kb.accents[char]) so which accents show up for
+     * each key is a server-side decision; the keyboard never hardcodes a
+     * mapping. Empty accent list = no menu.
+     */
+    fun bindAccentLongPress(view: TextView, char: Char) {
+        val accents = kbConfig?.accents?.get(char.lowercase()) ?: return
+        if (accents.isEmpty()) return
+        view.setOnLongClickListener { v ->
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            val popup = PopupMenu(this, v)
+            accents.forEachIndexed { i, glyph ->
+                popup.menu.add(0, i, i, glyph.toString())
+            }
+            popup.setOnMenuItemClickListener { item ->
+                val glyph = accents.getOrNull(item.itemId) ?: return@setOnMenuItemClickListener false
+                val out = if (caps) glyph.uppercaseChar() else glyph
+                currentInputConnection?.commitText(out.toString(), 1)
+                true
+            }
+            popup.show()
+            true
+        }
+    }
+
     // --- unused OnKeyboardActionListener members ----------------------------
     override fun onPress(primaryCode: Int) {}
     override fun onRelease(primaryCode: Int) {}
@@ -341,4 +1744,102 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun swipeRight() {}
     override fun swipeDown() {}
     override fun swipeUp() {}
+
+    // =======================================================================
+    // KBHost — implementation the SDUIRenderer calls back into. Everything is
+    // a thin adapter over existing methods so the fallback path continues to
+    // reuse the same dictation/refine/status helpers.
+    // =======================================================================
+    override fun context(): Context = this
+
+    override fun ic(): InputConnection? = currentInputConnection
+
+    override fun startDictation() {
+        if (kbConfig?.voice == false) {
+            setStatus(label("voiceOff", "Voice is off."), actionable = true)
+            return
+        }
+        // OUT OF WORDS — before the microphone opens, not after.
+        //
+        // Both paths below end in a request that would be refused, so the only
+        // question is whether the user finds out before or after speaking. A
+        // capture already running is left alone: stopping one mid-sentence to
+        // sell something is worse than letting the words already said land.
+        if (kbConfig?.wordsExhausted == true && !streaming && !recording) {
+            openAppForWords()
+            return
+        }
+        if (kbConfig?.liveVoice == true) startStreaming() else startRecording()
+    }
+
+    /**
+     * Send them to the screen that explains it, instead of opening the mic.
+     *
+     * An IME is allowed to start an Activity, so unlike iOS this is a direct
+     * hop rather than a tombstone the app picks up later. The destination is
+     * named by the config, so it can move without a keyboard build.
+     */
+    private fun openAppForWords() {
+        val screen = kbConfig?.quotaScreenId ?: "words_out"
+        // kb.quota.status is the server's message for this moment; the label is
+        // the fallback when it sends none.
+        val message = knobString("kb.quota.status", "").ifBlank {
+            label("words_out_status", "Out of free words — open Tailzu to get more.")
+        }
+        setStatus(message, actionable = true)
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink(screen)))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (t: Throwable) {
+            // Nothing else to try, and the status line above already says what
+            // happened. The keyboard stays usable for typing, which is the
+            // right failure: a keyboard that cannot dictate is still a keyboard.
+        }
+    }
+
+    override fun stopDictation() {
+        if (streaming) stopStreaming()
+        if (recording) stopAndTranscribe()
+    }
+
+    override fun runRefine() {
+        if (kbConfig?.refine == false) {
+            setStatus(label("refineOff", "Refine is off."), actionable = true)
+            return
+        }
+        refineField()
+    }
+
+    override fun switchLayout(language: String?) {
+        val target = language ?: return cycleLayout()
+        kbState.layoutId = target
+        sduiRenderer?.stateChanged()
+    }
+
+    override fun cycleLayout() {
+        val layouts = sduiConfig?.layouts ?: return
+        if (layouts.isEmpty()) return
+        val idx = layouts.indexOfFirst { it.language == kbState.layoutId }
+        val next = layouts[(idx + 1).coerceAtLeast(0) % layouts.size]
+        kbState.layoutId = next.language
+        sduiRenderer?.stateChanged()
+    }
+
+    override fun showLanguageMenu() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showInputMethodPicker()
+    }
+
+    override fun state(): KBState = kbState
+
+    override fun config(): KBConfig =
+        sduiConfig ?: throw IllegalStateException("SDUI config not loaded")
+
+    override fun rootView(): View? = rootView
+
+    override fun onStateChanged() {
+        sduiRenderer?.stateChanged()
+    }
 }

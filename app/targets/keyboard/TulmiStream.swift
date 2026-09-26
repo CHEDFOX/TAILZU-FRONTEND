@@ -30,6 +30,30 @@ final class TulmiStream: NSObject {
   )!
   private var tapInstalled = false
 
+  /// Backpressure: track in-flight WS sends so a slow/failing socket can't queue
+  /// audio indefinitely. Keyboard extensions have a ~60 MB memory ceiling —
+  /// unbounded queuing gets the process killed. When we hit the cap we drop
+  /// the newest frames (aka "spill from the end") rather than the oldest,
+  /// which keeps the transcript in temporal order. The server's number
+  /// (kb.stream.sendCapBytes), read once per stream so the audio thread never
+  /// asks; 2 MB in flight ≈ 60s of 16k PCM until a config says otherwise.
+  private let sendCapBytes = knobInt("kb.stream.sendCapBytes", 2097152)
+  private var inFlightBytes = 0
+  private let sendQueue = DispatchQueue(label: "TulmiStream.send")
+
+  /// Set when the caller invoked finish(); differentiates a graceful close
+  /// from a mid-stream socket failure in receiveLoop.
+  private var finishing = false
+
+  /// finish()'s force-close watchdog, held so a graceful "done" can cancel it —
+  /// otherwise it fired a SECOND .closed ~2s after the clean close (double
+  /// teardown / duplicate refine).
+  private var finishWatchdog: DispatchWorkItem?
+
+  /// One-shot guard so .closed is emitted EXACTLY once no matter which path
+  /// (server "done", watchdog, or receive failure) gets there first.
+  private var hasClosed = false
+
   init(onEvent: @escaping (Event) -> Void) {
     self.onEvent = onEvent
     super.init()
@@ -44,21 +68,24 @@ final class TulmiStream: NSObject {
       return
     }
     var req = URLRequest(url: url)
-    req.setValue("Bearer \(TulmiBackend.bearer)", forHTTPHeaderField: "Authorization")
+    // No token → no Authorization header and no token field (the server then
+    // refuses the stream, as it refuses any request from a signed-out keyboard).
+    TulmiBackend.authorize(&req)
     let task = session.webSocketTask(with: req)
     self.task = task
     task.resume()
     receiveLoop()
 
-    let start: [String: Any] = [
+    var start: [String: Any] = [
       "type": "start",
-      "token": TulmiBackend.bearer,
       "targetApp": targetApp,
       "language": language,
       "sampleRate": 16000,
       "encoding": "pcm_s16le",
       "channels": 1,
     ]
+    let bearer = TulmiBackend.bearer
+    if !bearer.isEmpty { start["token"] = bearer }
     if let data = try? JSONSerialization.data(withJSONObject: start),
        let str = String(data: data, encoding: .utf8) {
       task.send(.string(str)) { _ in }
@@ -67,30 +94,85 @@ final class TulmiStream: NSObject {
     startCapture()
   }
 
-  /// Stop the mic, tell the server we're done, and close gracefully.
+  /// Stop the mic and tell the server we're done — but KEEP the socket open.
+  ///
+  /// The speech engine buffers the last ~0.3–1s of audio and only emits the
+  /// final tail segment(s) after it receives our "stop" and flushes; the server
+  /// then sends "done". If we cancel the socket here (the old behaviour), that
+  /// tail never arrives and every dictation's ending is truncated. So we send
+  /// "stop", let the server drive the close via .closed (the "done" event), and
+  /// only force-close from a watchdog if "done" never comes.
   func finish() {
+    finishing = true
     stopCapture()
-    if let task = task {
-      task.send(.string("{\"type\":\"stop\"}")) { _ in
-        task.cancel(with: .normalClosure, reason: nil)
-      }
+    guard let task = task else {
+      emitClosedOnce()
+      return
     }
-    task = nil
+    task.send(.string("{\"type\":\"stop\"}")) { _ in }
+    // Watchdog: if the server never flushes "done" (dropped socket / wedged
+    // engine), force-close so we don't hang in the finishing state. Held as a
+    // work item so a graceful "done" cancels it (see handleMessage) — otherwise
+    // it fired a second .closed ~2s after the clean close. How long to wait is
+    // the server's (kb.stream.finishTimeoutMs, 2.5s until a config arrives).
+    let watchdog = DispatchWorkItem { [weak self] in
+      guard let self = self, self.task != nil else { return }
+      self.task?.cancel(with: .normalClosure, reason: nil)
+      self.task = nil
+      self.emitClosedOnce()
+    }
+    finishWatchdog = watchdog
+    let finishTimeout = knobDouble("kb.stream.finishTimeoutMs", 2500) / 1000.0
+    DispatchQueue.main.asyncAfter(deadline: .now() + finishTimeout, execute: watchdog)
   }
 
   /// Abort immediately (keyboard dismissed, error, etc.).
   func cancel() {
+    finishing = true
+    finishWatchdog?.cancel()
+    finishWatchdog = nil
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
+  }
+
+  /// Emit .closed at most once — every close path funnels through here. Always
+  /// resolves on main: receive callbacks land off-main, but the close state
+  /// (hasClosed / task / finishWatchdog) is otherwise touched on main by
+  /// finish() and its watchdog, so funneling here keeps that state single-threaded.
+  private func emitClosedOnce() {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in self?.emitClosedOnce() }
+      return
+    }
+    guard !hasClosed else { return }
+    hasClosed = true
+    onEvent(.closed)
   }
 
   // MARK: - Capture
 
   private func startCapture() {
     let audio = AVAudioSession.sharedInstance()
+    // Voice processing (echo cancel, noise suppression, gain) and ducking
+    // other apps' audio are the server's calls (kb.audio.voiceProcessing,
+    // kb.audio.duckOthers); both on until a config says otherwise. Off, the
+    // session uses the plain .default mode and the input node is left raw.
+    let voiceProcessing = knobBool("kb.audio.voiceProcessing", true)
+    let duckOthers = knobBool("kb.audio.duckOthers", true)
     do {
-      try audio.setCategory(.record, mode: .default)
+      // .voiceChat enables the OS voice-processing IO unit (AEC + noise
+      // suppression + AGC) — exactly what a keyboard dictating in a noisy
+      // room wants. Some devices/hosts refuse voice-chat IO inside an
+      // extension and throw here; fall back to plain .record so capture
+      // still works.
+      do {
+        let mode: AVAudioSession.Mode = voiceProcessing ? .voiceChat : .default
+        let options: AVAudioSession.CategoryOptions = duckOthers ? [.duckOthers] : []
+        try audio.setCategory(.playAndRecord, mode: mode, options: options)
+      } catch {
+        try audio.setCategory(.record, mode: .default)
+      }
       try audio.setActive(true)
     } catch {
       onEvent(.error("Audio session: \(error.localizedDescription)"))
@@ -98,9 +180,17 @@ final class TulmiStream: NSObject {
     }
 
     let input = engine.inputNode
+    // Turn on the input node's voice processing (echo cancel + noise suppress).
+    // iOS 13+; throws on hardware that can't do it — non-fatal, we just capture
+    // raw. If enabling it later makes engine.start() fail, KeyboardViewController
+    // falls back to the local batch-record path, so streaming never hard-fails.
+    if voiceProcessing { try? input.setVoiceProcessingEnabled(true) }
+
     let inputFormat = input.outputFormat(forBus: 0)
     converter = AVAudioConverter(from: inputFormat, to: targetFormat)
-    input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
+    // Frames per tap callback — the server's (kb.stream.tapFrames).
+    let tapFrames = AVAudioFrameCount(clamping: max(1, knobInt("kb.stream.tapFrames", 2048)))
+    input.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)
     }
     tapInstalled = true
@@ -108,6 +198,10 @@ final class TulmiStream: NSObject {
     do {
       try engine.start()
     } catch {
+      // Don't leak the tap + active audio session (which ducks other apps'
+      // audio) when the engine fails to start — tear the capture down before
+      // surfacing the error.
+      stopCapture()
       onEvent(.error("Mic start: \(error.localizedDescription)"))
     }
   }
@@ -118,7 +212,10 @@ final class TulmiStream: NSObject {
       tapInstalled = false
     }
     if engine.isRunning { engine.stop() }
-    try? AVAudioSession.sharedInstance().setActive(false)
+    // Notify other apps (Music, Podcasts) so they resume playback where they
+    // were paused when we activated the session. Without this flag the user's
+    // music stays silent until they tap play again.
+    try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
   }
 
   /// Resample the mic buffer to 16 kHz mono Int16 and send it as a binary frame.
@@ -141,7 +238,19 @@ final class TulmiStream: NSObject {
     }
     guard status != .error, out.frameLength > 0, let ch = out.int16ChannelData else { return }
     let data = Data(bytes: ch[0], count: Int(out.frameLength) * MemoryLayout<Int16>.size)
-    task.send(.data(data)) { _ in }
+
+    // Drop new frames if the socket is backlogged — better a small audio gap
+    // than an OOM kill of the keyboard extension.
+    var willDrop = false
+    sendQueue.sync {
+      if inFlightBytes + data.count > sendCapBytes { willDrop = true }
+      else { inFlightBytes += data.count }
+    }
+    if willDrop { return }
+
+    task.send(.data(data)) { [weak self] _ in
+      self?.sendQueue.async { self?.inFlightBytes -= data.count }
+    }
   }
 
   // MARK: - Receive
@@ -150,8 +259,15 @@ final class TulmiStream: NSObject {
     task?.receive { [weak self] result in
       guard let self = self else { return }
       switch result {
-      case .failure:
-        self.onEvent(.closed)
+      case .failure(let err):
+        // Distinguish a graceful close from a mid-stream network failure so
+        // the keyboard doesn't auto-refine a partial-that-never-finalized.
+        if self.finishing {
+          self.emitClosedOnce()
+        } else {
+          self.onEvent(.error("stream lost: \(err.localizedDescription)"))
+          self.emitClosedOnce()
+        }
       case .success(let message):
         switch message {
         case .string(let text): self.handleMessage(text)
@@ -172,7 +288,23 @@ final class TulmiStream: NSObject {
     switch type {
     case "ready": onEvent(.ready)
     case "partial": onEvent(.partial(json["text"] as? String ?? ""))
-    case "final", "done": onEvent(.finalText(json["text"] as? String ?? ""))
+    case "final": onEvent(.finalText(json["text"] as? String ?? ""))
+    // "done" is the terminal marker, NOT a transcript — it carries no text.
+    // Mapping it to .finalText("") made commitFinal insert a bare space at the
+    // cursor (the reported "stray trailing space" bug). It's a clean close.
+    // Cancel the finish() watchdog and drop the socket here so it can't fire a
+    // second .closed later; emitClosedOnce keeps the teardown/refine single.
+    case "done":
+      // This callback lands off-main; mutate the close state on main so it can't
+      // race finish()'s watchdog.
+      DispatchQueue.main.async { [weak self] in
+        guard let self = self else { return }
+        self.finishWatchdog?.cancel()
+        self.finishWatchdog = nil
+        self.task?.cancel(with: .normalClosure, reason: nil)
+        self.task = nil
+        self.emitClosedOnce()
+      }
     case "error": onEvent(.error(json["message"] as? String ?? "stream error"))
     default: break
     }

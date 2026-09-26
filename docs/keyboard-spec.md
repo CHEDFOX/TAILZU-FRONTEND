@@ -87,3 +87,87 @@ Values from source (AOSP timings, iOS 216pt, etc.) are exact.
 10. **Glide decoder + autocomplete** (borrow KeyboardKit Pro / AOSP decoder). Heaviest; add last.
 
 Keep the **skin** (colors, tone options, sizes, labels) server-tunable via `/v1/keyboard/config`; the **engine** (callouts, gestures, haptics) ships native.
+
+## The mic key's mark comes from the server
+
+The `MicKey` node carries the brand mark as geometry and the motion it has, so
+the mark can be resized, recoloured or set moving with a backend deploy — no
+store build. Only geometry is accepted: a picture can never stand where the
+mark stands, on either platform.
+
+```json
+{
+  "type": "MicKey",
+  "props": {
+    "mark": {
+      "viewBox": [170, 228, 680, 512],
+      "tint": true,
+      "shapes": [
+        { "kind": "rect", "x": 308, "y": 269, "w": 132, "h": 132, "rx": 28, "color": "#F4F1EA" },
+        { "id": "link", "kind": "bars", "x1": 444, "y1": 394, "x2": 554, "y2": 486, "thick": 6, "heights": [28, 36, 41, 46, 43, 34, 28], "swell": { "thick": 1.3, "height": 1.9 }, "color": "#E8A23C" },
+        { "id": "dot", "kind": "circle", "cx": 828, "cy": 243, "r": 11, "color": "#B06240" }
+      ]
+    },
+    "motion": {
+      "idle": [
+        { "on": "mark", "kind": "signal", "period": 3.6, "color": "#F4F1EA", "steps": [
+          { "on": "c", "at": 0.33, "hold": 0.42 },
+          { "on": "a", "at": 0.92, "hold": 0.42 },
+          { "on": "link", "at": 1.33, "run": 0.95, "width": 0.3 },
+          { "on": "b", "at": 2.33, "hold": 0.42 }
+        ] },
+        { "on": "mark", "kind": "breathe", "period": 4.2, "scale": 1.06, "opacity": 1 }
+      ],
+      "recording": {
+        "kind": "disperse", "keep": "link", "out": 1.9, "spin": 40, "arc": 0.22, "shrink": 0.45, "gather": 0.05, "stagger": 0.07, "settle": 1.4,
+        "back": { "speed": 12, "bounce": 0.6, "turbulence": 0.14, "tumble": 1, "stagger": 0.05 },
+        "wave": { "lift": 2, "centre": true, "wait": 0.25, "tide": { "period": 1.2, "length": 0.6, "rise": 1, "rows": 5, "depth": 14, "lean": 0.55, "skew": 0.09, "mess": 0.7 } }
+      }
+    }
+  }
+}
+```
+
+- `shapes`: `rect` (x, y, w, h, rx), `line` (x1, y1, x2, y2, width, cap, dash), `circle` (cx, cy, r), `bars` (x1, y1, x2, y2, thick, heights, swell) — a row of bars across the line from (x1, y1) to (x2, y2), evenly spaced, one per entry of `heights` (each bar's length, centred on the line), `thick` wide; `swell` is how far a bar can rise: `height` times taller, `thick` times thicker, at the crest of a wave. Bars keep their own colour; the motion is the height. Coordinates are the artboard's; `viewBox` is the part shown, aspect-fit into the key.
+- `fit: "circle"` (default) scales the artboard so its diagonal spans the key, which keeps every corner inside a round key; `"box"` fits the sides.
+- `tint: true` paints every shape in the key's `fg`; `false` uses each shape's `color`.
+- `motion.idle`: `signal` (on `"mark"`) is the splash's sequence on a loop, a timeline of `steps` over `period` seconds. Each step names a shape and the second it lights (`at`): a square or plain line wears the signal `color` for `hold` seconds (on in 60ms, off in 60ms); a dashed line has a bright cluster of its dashes travel its length for `run` seconds, `width` of the line wide, full at its core and soft at its edges; a row of bars has a crest of the same shape travel it instead — each bar rises under the crest, to its full `swell`, and collapses behind it, in its own colour. The dashes or bars stay where they are, the way the splash runs it between the blocks. `color` defaults to pale on a tinted mark and amber otherwise. `breathe` swells a shape (or `"mark"`, the whole) to `scale` and fades it to `opacity` and back; `hatch` runs a dashed line's dashes along it. All on `period` seconds; all honour the system's reduce-motion setting. On a 36pt key the signal and the breath are what shows; the hatch is for the sizes where dashes resolve.
+- `motion.recording`: what the key does while the microphone is open. `{ "kind": "disperse", ... }` — everything but the wave leaves. Every shape except the kept one (`keep`, the id of a row of bars or a dashed line) is a part. At the start of a recording the whole gathers inward by `gather` for a tenth of a second, then each part leaves in turn, `stagger` seconds after the last, nearest the wave first: out from the artboard's centre along an arc bent `arc` key-radii sideways (alternating), to `out` key-radii away past the rim, turning `spin` degrees (alternating), shrinking by `shrink` and fading over the last half of the way. The kept line is the wave: after `wave.wait` seconds it glides to the centre (`centre`) and grows by `wave.lift`, and becomes a sea: the bars are the front of a surface `wave.tide.rows` deep, each row `wave.tide.depth` artboard units behind the last (behind and up, along the bars' own normal and a little back along the line), a little smaller and fainter, drawn as a contour line along the row with facets of the bars' colour between the rows, faint, deeper where the crest stands. Two crests travel it, a long slow one (`wave.tide.length` of the line, one pass every `wave.tide.period` seconds) and a shorter quicker one riding it, each row meeting them `wave.tide.skew` of a cycle later so they run diagonally across the water; under a crest the surface rises, up to `wave.tide.rise` of the bars' full swell, its top leaning forward by `wave.tide.lean` of its height like a breaking wave, and collapses behind it; where the crests cancel it goes flat. Crests are peaked and troughs flat, the way water is. `wave.tide.mess` (0 to 1) adds a third crest running against the others, a chop of short ripples across all of them, a slow noise that lifts and drops patches of the surface, and a slight wander of the rows, so no two tides are alike. The rows grow out of the bars as the wave opens and sink back into them as it closes. All in the bars' own colour; nothing lights. On stop the wave settles back into the link (its bars never changed, so there is no seam), and the parts are thrown in (`back`): in the opposite order, `back.stagger` seconds apart, each on a fast spring (`back.speed`) underdamped by `back.bounce`, so it arrives like something hurled, overshoots the core a touch and snaps onto it; on the way it tumbles `back.tumble` extra turns and is buffeted sideways and along its path by a turbulence of `back.turbulence` key-radii that dies away as it closes in. All land exactly where they began, within `settle` seconds. Every part follows one number, its progress from home to away, so a stop mid-flight simply turns it around; the same view stays mounted throughout and the idle motion resumes. `"particles"` — the mark bursts into the dot sim and springs back on stop — or `"none"`. A build before the dispersal reads a name only and shows its particles.
+- A shape kind or motion kind a build does not know is skipped. A build older than this ignores both props and draws its bundled mark; a backend older than this sends neither and the keyboard does the same.
+
+## The program
+
+`MicKey.props.program` is what the key does, written in a small motion language the keyboards evaluate. It supersedes `motion` (kept for builds that predate it): where a program is present and the build knows it, `motion` is ignored. Everything below is text on the server; a change to it is a deploy, not a build.
+
+```json
+{
+  "version": 1,
+  "fps": { "idle": 24, "rec": 60 },
+  "colors": { "signal": "#F4F1EA" },
+  "vars": { "period": 3.6, "out": 1.9 },
+  "funcs": { "side": { "args": [], "expr": "arc*R*sin(pi*clamp(p, 0, 1))*sign" } },
+  "springs": { "p": { "scope": "shape", "rest": 0, "target": "rec ? 1 : 0", "rate": "rec ? 6.5 : 12", "damp": "rec ? 1 : 0.6" } },
+  "mark": { "scale": "1 + 0.06*(0.5 - 0.5*cos(tau*t/4.2))" },
+  "shapes": { "a": { "vars": { "k": 0, "sign": 1 }, "dx": "dir.x*out*R*p", "dy": "dir.y*out*R*p", "rot": "40*p*sign", "scale": "1 - 0.45*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, p)", "mix": "rec ? 0 : ramp(t % period, 0.92, 0.42)" },
+              "link": { "dx": "(cx - home.x)*q", "scale": "1 + q", "rise": "tide(f, 0)*q", "lean": "0.55*q" } },
+  "emit": [ { "attach": "link", "kind": "polyline", "repeat": ["rows"], "as": ["r"], "points": { "count": "cols", "as": "i", "x": "topx(r, i)", "y": "topy(r, i)" }, "opacity": "q*0.6", "width": "thick*0.35", "color": "ink" } ],
+  "settle": { "eps": 0.002, "timeout": 1.4 }
+}
+```
+
+**Expressions.** Numbers only. Arithmetic `+ - * / % ^`, comparisons `< <= > >= == !=` (1 or 0), `&& || !`, `a ? b : c`, parentheses, function calls. Names are looked up in the context; a name that is not there is 0. Division by zero, a non-finite result, or an unknown function is 0. A bad program is a still mark, never a crash.
+
+**Built-in functions.** `sin cos tan abs sqrt floor ceil round exp log atan2 min max pow hypot`, `clamp(x, a, b)`, `smooth(a, b, x)` (smoothstep), `lerp(a, b, u)`, `crest(x)` (`max(0, sin x)^1.6`, a peaked wave), `ramp(x, at, len, edge=0.06)` (on over `edge` at `at`, held `len`, off over `edge`: the splash's hold), `run(f, x, at, dur, width)` (how far up the bar at fraction `f` is when a crest `width` of the line wide crosses it, starting wholly before the line at `at` and wholly past it `dur` later), `noise(x)` (a smooth pseudo-random of x). Constants `pi`, `tau`, `e`.
+
+**Context.** Global: `t` (seconds since the program started), `rec` (1 while the microphone is open, else 0), `since` (seconds since `rec` last flipped), `level` (the live microphone level, 0 to 1), `cx cy` (the artboard's centre), `U` (its short side), `R` (the key's radius in artboard units, the diagonal over 2), `vbw vbh`, every `vars` entry, every global spring by name. Per shape, in addition: `home.x home.y` (its centre), `dir.x dir.y` (the unit vector from the artboard's centre to it), its own `vars`, its shape-scoped springs by name; a rect adds `w h`; a circle `r`; a line or bars `x1 y1 x2 y2 L` (length), `lx ly` (the unit along it), `nx ny` (its normal), `bx by` (the direction "behind and up": the normal and a little back along the line), `width` (a line's) or `thick cols swh swt` and the function `height(i)` (bars). Per bar, inside `rise` and `lean`: `i`, `f` (its fraction along the line, `(i + 0.5)/cols`), `hgt` (its rest height), and inside `lean` also `rise`. In an emit: the attached shape's context plus the repeat names and the point name.
+
+**Springs.** Each frame a spring's `target`, `rate` (radians per second) and `damp` (damping ratio: 1 critical, below it bouncy) are evaluated — `prev` is its previous target, for "hold what you had" — and its value chases the target: `v += (target - x)·rate²·dt - 2·damp·rate·v·dt; x += v·dt`. `scope: "shape"` keeps one per shape (its target sees that shape's context); `"global"` keeps one. It starts at `rest`. Springs are why a stop mid-flight simply turns around.
+
+**Shapes.** For each shape id: `dx dy` (offset, artboard units), `rot` (degrees, about its centre), `scale` (about its centre), `opacity`, `mix` (0 to 1 from its own colour toward `colors.signal`); for bars also `rise` (each bar's height factor, 0 rest to 1 full `swell`, thickness with it) and `lean` (its top's forward lean along the line, as a factor of its risen height). `mark` takes `scale`, `rot` and `opacity` for the whole.
+
+**Emit.** Drawables the program adds behind a shape, in its coordinates, moving with it: `kind` polyline, polygon, line (`x1 y1 x2 y2`) or circle (`cx cy r`); `repeat` up to two counts (each at most 64) bound to the `as` names; `points` either a list of `[x, y]` expression pairs or `{ count, as, x, y }`; `opacity`; `width` (strokes); `color` `"ink"` (the shape's) or `"signal"`.
+
+**Rates and rest.** `fps.idle` and `fps.rec` cap the frame rate. `settle`: once `rec` is 0, the program is home when every spring is within `eps` of its target and still, or after `timeout` seconds; then springs are snapped and the idle motion carries on. Reduce Motion stops the program; the mark stands still.
+
+**Limits.** At most 64 per repeat count, functions eight deep, and the artboard's shapes only: the program can move, turn, scale, fade, recolour and surround what the mark has; it cannot add a picture.
+
