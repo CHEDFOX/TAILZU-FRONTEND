@@ -16,6 +16,7 @@
     "app.offline.retryMaxMs": 30000,
     "app.offline.retryMs": 8000,
     "app.offline.titleSize": 22,
+    "push.ask": {},
     "quota.screenId": "paywall"
   },
   "dynamic": {
