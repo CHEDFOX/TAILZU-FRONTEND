@@ -6,9 +6,14 @@
     "kb.remount.": "Retries around UIKit replacing the keyboard's input view.",
     "kb.dictation.dim.ios": "iOS-tuned dim values. Android reads kb.dictation.dim.blurRadius and kb.dictation.dim.keyAlpha."
   },
+  "values": {
+    "kb.mic.mode = flow": "The iOS default: the app holds the microphone because an iOS keyboard cannot. Android records in the keyboard, so it takes the path features.liveVoice picks.",
+    "kb.mic.mode = handoff": "The app records one capture for the keyboard: the same iOS restriction. Android treats it as flow."
+  },
   "keys": {
     "kb.host.traitRefreshMs": "Throttles UIKit text-trait reads across the extension boundary. Android gets the field once, in EditorInfo.",
     "kb.mic.stopGlyph": "An SF Symbols name.",
+    "kb.mic.resetSecondPassMs": "A second pass clearing a UIKit button highlight that sticks after the Flow arm's app switch. Android arms nothing and switches to no app to record.",
     "kb.field.numericKeyboardTypes": "UIKit keyboard type names. Android reads the field's inputType class.",
     "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations."
   },

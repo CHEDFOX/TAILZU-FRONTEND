@@ -21,6 +21,7 @@ android/
 ├─ KbKnobs.kt                knobFloat/knobBool/knobString/knobLabel… for files outside the renderer
 ├─ Net.kt                    backend client (every request carries X-Tulmi-Keyboard-Build: A<n>)
 ├─ Stream.kt                 live dictation over /v1/transcribe-stream
+├─ TulmiEffects.kt           confetti, the recording dots and the key rows' frost (overlay, idle when nothing flies)
 ├─ TulmiAutocorrect.kt, TulmiCorrections.kt, TulmiTelemetry.kt, TulmiImageLoader.kt,
 │  TulmiPersonalityRow.kt, TulmiAudioFx.kt
 └─ res/
