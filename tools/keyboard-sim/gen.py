@@ -87,6 +87,12 @@ r.append(decl("fileprivate func planeCommit(char: String) {"))
 retract = decl("fileprivate func planeRetractDownCommit() {", required=False)
 have["RETRACT"] = bool(retract)
 r.append(retract)
+# K41: the take-back checks it is still this key's char, and can put it back.
+r.append(decl("fileprivate func planeCanRetract(char: String?, button: UIButton?) -> Bool {", required=False))
+r.append(decl("fileprivate func planeRestoreRetracted() {", required=False))
+m = re.search(r"\n(\s*private var retractedInsert: String\?)\n", src)
+if m:
+    r.append(m.group(1) + "\n")
 # The accent map: kb.accents from the config (K40+), else the built-in map.
 acc = src.find("  /// kb.accents — the long-press alternates")
 if acc >= 0:

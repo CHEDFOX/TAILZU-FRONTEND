@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import CryptoKit
 
 /// Tulmi keyboard (iOS custom keyboard extension).
 ///
@@ -219,6 +220,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // why native keys look like they're floating on frosted glass instead of
     // sitting on a solid slab. Any opaque paint here defeats the blur.
     view.backgroundColor = .clear
+    recoverFromCrashedConfig()
     writeKeyboardStatus()
     loadDictionary()
     loadSupplementaryLexicon()
@@ -231,9 +233,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // The last config fetched, else the server's own config as shipped inside
     // the extension (default-config.json, exported by the backend), so even
     // the very first open draws the server's keyboard, not the hand-built one.
-    if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config") ?? Self.bundledConfig(),
+    let cached = UserDefaults.standard.data(forKey: "tulmi_kb_config")
+    if let data = cached ?? Self.bundledConfig(),
        let kb = SDUIRenderer.decodeConfig(data),
        kb.features?.sdui == true, kb.root != nil {
+      // A cached config has to prove itself on every open: if the keyboard
+      // dies with it on screen, the next open forgets it (see the guard below).
+      if cached != nil { markConfigApplying("cache") }
       // The dictation/flow paths mutate these implicitly-unwrapped hand-built
       // controls unconditionally (they've always existed before). Give them
       // detached placeholders — never added to a superview — so every such
@@ -355,8 +361,76 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   // MARK: - Server-driven config (theme/labels/flags), cached for offline
 
+  // CRASH GUARD. The keyboard applies its cached config before it fetches a new
+  // one, so a config that crashes it — a console value the renderer cannot
+  // take — would crash every open and never let the fixed config arrive.
+  // While a config has not yet survived a session, a marker says which one is
+  // on trial; a clean close (or 20 s up) clears it. Found at launch, it means
+  // the last open died with that config: a cached one is dropped (the shipped
+  // config draws and a fresh one is fetched), a fetched one is discarded, and
+  // one that fails twice is skipped until the server sends different bytes.
+  private static let applyingKey = "tulmi_kb_config_applying"
+  private static let pendingConfigKey = "tulmi_kb_config_pending"
+  private static let suspectKey = "tulmi_kb_config_suspect"
+  private static let badKey = "tulmi_kb_config_bad"
+  private var survivalToken = 0
+
+  private static func digest(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  private static func isBadConfig(_ data: Data) -> Bool {
+    UserDefaults.standard.string(forKey: badKey) == digest(data)
+  }
+
+  private func recoverFromCrashedConfig() {
+    let d = UserDefaults.standard
+    guard let what = d.string(forKey: Self.applyingKey) else { return }
+    d.removeObject(forKey: Self.applyingKey)
+    let culprit = what == "fetched" ? d.data(forKey: Self.pendingConfigKey) : d.data(forKey: "tulmi_kb_config")
+    d.removeObject(forKey: Self.pendingConfigKey)
+    if what != "fetched" { d.removeObject(forKey: "tulmi_kb_config") }
+    guard let bytes = culprit else { return }
+    // One strike could be the system killing the extension for its own
+    // reasons; two in a row with the same bytes is the config.
+    let hash = Self.digest(bytes)
+    if d.string(forKey: Self.suspectKey) == hash {
+      d.set(hash, forKey: Self.badKey)
+      d.removeObject(forKey: Self.suspectKey)
+    } else {
+      d.set(hash, forKey: Self.suspectKey)
+    }
+    NSLog("[Tailzu][kb] recovered from a crash with the %@ config", what)
+  }
+
+  private func markConfigApplying(_ what: String) {
+    let d = UserDefaults.standard
+    // A fetched config on trial outranks the cached one it replaces.
+    if d.string(forKey: Self.applyingKey) == "fetched", what == "cache" { return }
+    d.set(what, forKey: Self.applyingKey)
+    survivalToken &+= 1
+    let token = survivalToken
+    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+      guard let self = self, token == self.survivalToken else { return }
+      self.configSurvived()
+    }
+  }
+
+  /// The config on trial ran a session without taking the keyboard down.
+  private func configSurvived() {
+    let d = UserDefaults.standard
+    guard let what = d.string(forKey: Self.applyingKey) else { return }
+    d.removeObject(forKey: Self.applyingKey)
+    d.removeObject(forKey: Self.suspectKey)
+    if what == "fetched", let pending = d.data(forKey: Self.pendingConfigKey) {
+      d.set(pending, forKey: "tulmi_kb_config")
+    }
+    d.removeObject(forKey: Self.pendingConfigKey)
+  }
+
   private func loadAndApplyConfig() {
     if let data = UserDefaults.standard.data(forKey: "tulmi_kb_config") {
+      markConfigApplying("cache")
       if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }
       applySDUIIfAvailable(data)
     }
@@ -375,18 +449,29 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// now rejects non-2xx), so an expired-token 401 can't clobber a good config.
   private func fetchRemoteConfig() {
     let now = Date().timeIntervalSince1970
-    guard now - lastConfigFetchAt > knobDouble("kb.config.minRefetchMs", 3000) / 1000.0 else { return }
+    // Clamped to an hour: a typo here must not stop the keyboard ever fetching.
+    let minGap = min(3_600_000, max(0, knobDouble("kb.config.minRefetchMs", 3000))) / 1000.0
+    guard now - lastConfigFetchAt > minGap else { return }
     lastConfigFetchAt = now
     // [weak self]: this completion captures the controller across a network
     // round-trip. A strong capture pins the whole keyboard view tree alive for
     // the duration inside the extension's tight (~48–60 MB) memory budget.
     TulmiBackend.keyboardConfigData { [weak self] result in
       guard case .success(let data) = result else { return }
-      UserDefaults.standard.set(data, forKey: "tulmi_kb_config")
-      if let cfg = TulmiBackend.parseConfig(data) {
-        DispatchQueue.main.async { self?.applyConfig(cfg) }
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        // A config that took the keyboard down twice is not applied again;
+        // the server's next, different config is.
+        if Self.isBadConfig(data) { return }
+        // New bytes are cached only once they have run without a crash
+        // (configSurvived); an identical refetch changes nothing.
+        if data != UserDefaults.standard.data(forKey: "tulmi_kb_config") {
+          UserDefaults.standard.set(data, forKey: Self.pendingConfigKey)
+          self.markConfigApplying("fetched")
+        }
+        if let cfg = TulmiBackend.parseConfig(data) { self.applyConfig(cfg) }
+        self.applySDUIIfAvailable(data)
       }
-      DispatchQueue.main.async { self?.applySDUIIfAvailable(data) }
       // Piggyback the counter upload on the config refresh the keyboard
       // already performs — no extra wake-up, and KeyboardTelemetry's own
       // interval keeps it to roughly twice an hour even for a heavy user.
@@ -1524,6 +1609,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let spoken = flowDictatedText.trimmingCharacters(in: .whitespacesAndNewlines)
     flowDictatedText = ""
     guard !spoken.isEmpty else { return }
+    // The words finished after the user moved into a password box: they were
+    // not spoken for it, and its contents must not go to the server as context.
+    if hostIsSecureField() {
+      setStatus(label("micSecure", "Dictation is off in password fields."), actionable: true)
+      return
+    }
 
     // ONE-SHOT transport: the app POSTed the whole utterance to
     // /v1/transcribe-clean, which transcribes AND writes in a single call, so
@@ -1940,6 +2031,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   }
 
   private func replacePartial(with text: String) {
+    // Live words never go into a password box the user moved into mid-dictation.
+    if hostIsSecureField() { return }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     proxy.insertText(text)
@@ -2014,6 +2107,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       if !flowRecording, kbConfig?.refine ?? true { awaitDictationTail() }
       return
     }
+    // Live mode, and the focus is now a password box: nothing goes in there.
+    if hostIsSecureField() { pendingPartial = ""; return }
     let proxy = textDocumentProxy
     for _ in 0..<pendingPartial.count { proxy.deleteBackward() }
     proxy.insertText(inserted)
@@ -2277,6 +2372,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Refine reads the whole field and sends it to the server. In a password
     // box that is the password.
     if hostIsSecureField() {
+      sduiRenderer?.reflectRefining(false)
       setStatus(label("refineSecure", "Refine is off in password fields."), actionable: true)
       return
     }
@@ -2286,7 +2382,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let full = (before + after).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !full.isEmpty else {
       // Nothing to refine — do NOT print instructions onto the typepad. Just a
-      // tiny haptic nudge so the tap isn't silent, and bail.
+      // tiny haptic nudge so the tap isn't silent, and bail. The renderer set
+      // "refining" when the key was pressed; put it back.
+      sduiRenderer?.reflectRefining(false)
       if hasFullAccess { selectionHaptic.selectionChanged() }
       return
     }
@@ -2427,6 +2525,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Stop any in-flight recording / timers if the keyboard goes away.
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
+    // A clean close: whatever config was on trial ran a whole session.
+    configSurvived()
     // The extension can be killed the moment it's dismissed, so write the tail
     // of this session's counters now instead of waiting for the throttle.
     KeyboardTelemetry.flushToDisk()

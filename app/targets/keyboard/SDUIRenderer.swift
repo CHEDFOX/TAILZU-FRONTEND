@@ -1032,6 +1032,7 @@ final class KeyPlaneView: UIView {
     // still held space went in ahead of it: "hellow orld". Measured in the
     // simulator (tools/keyboard-sim) at 80 wpm it was two sentences in
     // three, and every error was that one.
+    cancelHeldTrays()
     renderer?.planeFlushHeldLifts()
     flushPendingCommits()
     for t in touches {
@@ -1120,11 +1121,20 @@ final class KeyPlaneView: UIView {
           guard let self = self, let track = track,
                 !track.committed || track.downCommitted,
                 !track.trayActive, !track.swipeMode else { return }
+          if track.downCommitted {
+            // The char went in on touch-down; the tray offers alternatives
+            // to it, so take it back and let the release decide. BEFORE the
+            // tray is built: the take-back returns a one-shot shift, and the
+            // chips are cased from it (É, not é). Only while this key's char
+            // is still the last thing typed — never someone else's.
+            guard self.renderer?.planeCanRetract(char: track.char, button: track.button) == true else { return }
+            self.renderer?.planeRetractDownCommit()
+          }
           if self.renderer?.planeTryPresentAccentTray(for: track.button, char: track.char) == true {
             track.trayActive = true
-            // The char went in on touch-down; the tray now offers its
-            // alternatives, so take it back and let the release decide.
-            if track.downCommitted { self.renderer?.planeRetractDownCommit() }
+          } else if track.downCommitted {
+            // Nothing opened after all: the char goes back where it was.
+            self.renderer?.planeRestoreRetracted()
           }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -1445,7 +1455,18 @@ final class KeyPlaneView: UIView {
   /// called itself, forever, through UIKit.
   private var flushing = false
 
+  /// Another key is going down: a key already typed on contact is being
+  /// rested on while the other hand types, not held for its tray. Opening it
+  /// now would take back a char that is no longer the last one typed.
+  private func cancelHeldTrays() {
+    for (_, t) in tracks where t.downCommitted && !t.trayActive {
+      t.trayTimer?.invalidate()
+      t.trayTimer = nil
+    }
+  }
+
   func flushPendingCommits() {
+    cancelHeldTrays()
     guard rolloverCommit, !flushing else { return }
     flushing = true
     defer { flushing = false }
@@ -1595,6 +1616,13 @@ final class KeyCalloutView: UIView {
 // the backend's tests. Anything unknown or non-finite is 0: a bad program is
 // a still mark, never a crash.
 // =============================================================================
+/// A server number as a count or index: clamped BEFORE the conversion, so no
+/// value — huge, negative, NaN — can trap Int(_:).
+func clampInt(_ v: Double, _ lo: Int, _ hi: Int) -> Int {
+  guard v.isFinite else { return lo }
+  return Int(min(Double(hi), max(Double(lo), v.rounded(.towardZero))))
+}
+
 indirect enum MotionAST {
   case num(Double), name(String), call(String, [MotionAST]), neg(MotionAST), not(MotionAST)
   case tern(MotionAST, MotionAST, MotionAST), bin(String, MotionAST, MotionAST)
@@ -1705,8 +1733,8 @@ enum MotionLang {
 
   static func eval(_ n: MotionAST, _ ctx: MotionCtx, _ funcs: [String: MotionFunc], _ depth: Int = 0) -> Double {
     switch n {
-    case .num(let v): return v
-    case .name(let k): return ctx.get(k) ?? 0
+    case .num(let v): return fin(v)
+    case .name(let k): return fin(ctx.get(k) ?? 0)
     case .neg(let x): return -eval(x, ctx, funcs, depth)
     case .not(let x): return eval(x, ctx, funcs, depth) != 0 ? 0 : 1
     case .tern(let c, let x, let y): return eval(c, ctx, funcs, depth) != 0 ? eval(x, ctx, funcs, depth) : eval(y, ctx, funcs, depth)
@@ -1726,11 +1754,13 @@ enum MotionLang {
       if op == "&&" { return (eval(l, ctx, funcs, depth) != 0 && eval(r, ctx, funcs, depth) != 0) ? 1 : 0 }
       let x = eval(l, ctx, funcs, depth), y = eval(r, ctx, funcs, depth)
       switch op {
-      case "+": return x + y
-      case "-": return x - y
-      case "*": return x * y
-      case "/": return y == 0 ? 0 : x / y
-      case "%": return y == 0 ? 0 : x - floor(x / y) * y
+      // Finite in, finite out: 1e308 * 10 is infinity, and infinity minus
+      // itself is NaN, which CoreAnimation throws on.
+      case "+": return fin(x + y)
+      case "-": return fin(x - y)
+      case "*": return fin(x * y)
+      case "/": return y == 0 ? 0 : fin(x / y)
+      case "%": return y == 0 ? 0 : fin(x - floor(x / y) * y)
       case "^": return fin(pow(x, y))
       case "<": return x < y ? 1 : 0
       case "<=": return x <= y ? 1 : 0
@@ -1798,7 +1828,7 @@ struct MotionProgram {
     }
     let fps = spec["fps"]?.asObject, settle = spec["settle"]?.asObject
     return MotionProgram(vars: vars, funcs: funcs, springs: springs, mark: mark, shapes: shapes, emit: emit,
-                         fpsIdle: max(1, min(60, Int(fps?["idle"]?.asDouble ?? 24))), fpsRec: max(1, min(120, Int(fps?["rec"]?.asDouble ?? 60))),
+                         fpsIdle: clampInt(fps?["idle"]?.asDouble ?? 24, 1, 60), fpsRec: clampInt(fps?["rec"]?.asDouble ?? 60, 1, 120),
                          signal: UIColor(tulmiHex: spec["colors"]?.asObject?["signal"]?.asString ?? "#F4F1EA"),
                          eps: max(1e-5, settle?["eps"]?.asDouble ?? 0.002), timeout: max(0.1, settle?["timeout"]?.asDouble ?? 1.4))
   }
@@ -1944,7 +1974,7 @@ final class TulmiMarkView: UIView {
                     backTurbulence: max(0, r["back"]?.asObject?["turbulence"]?.asDouble ?? 0.14),
                     backTumble: max(0, r["back"]?.asObject?["tumble"]?.asDouble ?? 1),
                     backStagger: max(0, r["back"]?.asObject?["stagger"]?.asDouble ?? 0.05),
-                    tideRows: min(8, max(1, Int(w?["tide"]?.asObject?["rows"]?.asDouble ?? 5))),
+                    tideRows: clampInt(w?["tide"]?.asObject?["rows"]?.asDouble ?? 5, 1, 8),
                     centre: w?["centre"]?.asBool ?? true)
   }
 
@@ -2029,7 +2059,10 @@ final class TulmiMarkView: UIView {
     let a = CGPoint(x: sh.n["x1"] ?? 0, y: sh.n["y1"] ?? 0), b = CGPoint(x: sh.n["x2"] ?? 0, y: sh.n["y2"] ?? 0)
     let L = Double(hypot(b.x - a.x, b.y - a.y)), on = Double(sh.dash.first ?? 0), off = Double(sh.dash.count > 1 ? sh.dash[1] : (sh.dash.first ?? 0))
     var pos = 0.0
-    while pos < L, on > 0 {
+    // A dash that never advances (a negative gap) or one so fine it would make
+    // thousands of layers is not drawn: a bad spec is a plain line, not a hang.
+    guard on > 0, on + off > 0, L / (on + off) <= 256 else { return out }
+    while pos < L {
       let f0 = pos / L, f1 = min(L, pos + on) / L
       add(CGPoint(x: a.x + (b.x - a.x) * CGFloat(f0), y: a.y + (b.y - a.y) * CGFloat(f0)),
           CGPoint(x: a.x + (b.x - a.x) * CGFloat(f1), y: a.y + (b.y - a.y) * CGFloat(f1)), width: sub.lineWidth, at: (f0 + f1) / 2)
@@ -2304,7 +2337,7 @@ final class TulmiMarkView: UIView {
           c.v["thick"] = Double(sh.n["thick"] ?? 6); c.v["cols"] = Double(sh.heights.count)
           c.v["swh"] = Double(sh.swellHeight); c.v["swt"] = Double(sh.swellThick)
           let hs = sh.heights.map { Double($0) }
-          c.fn["height"] = { args in let i = Int((args.first ?? 0).rounded()); return hs.isEmpty ? 0 : hs[max(0, min(hs.count - 1, i))] }
+          c.fn["height"] = { args in let i = clampInt((args.first ?? 0).rounded(), 0, max(0, hs.count - 1)); return hs.isEmpty ? 0 : hs[i] }
         }
       }
       c.v["home.x"] = hx; c.v["home.y"] = hy
@@ -2335,9 +2368,16 @@ final class TulmiMarkView: UIView {
     func step(_ name: String, _ spec: MotionProgram.Spring, _ key: String, _ c: MotionCtx) {
       var st = progSprings[key] ?? (v: spec.rest, vel: 0, prev: spec.rest)
       c.v["prev"] = st.prev
-      let target = MotionLang.eval(spec.target, c, pg.funcs), w = max(0.1, MotionLang.eval(spec.rate, c, pg.funcs)), z = max(0, MotionLang.eval(spec.damp, c, pg.funcs))
+      let target = MotionLang.eval(spec.target, c, pg.funcs)
+      let w = min(1000, max(0.1, MotionLang.eval(spec.rate, c, pg.funcs))), z = min(100, max(0, MotionLang.eval(spec.damp, c, pg.funcs)))
       st.prev = target
-      st.vel += (target - st.v) * w * w * dt - 2 * z * w * st.vel * dt; st.v += st.vel * dt
+      // One step is stable while w·dt and 2·z·w·dt stay small; a stiff spring
+      // on a long frame is not, and diverges to NaN. Sub-step instead — the
+      // shipped springs need one step at 60 fps, exactly as before.
+      let stiff = max(w, 2 * z * w) * dt
+      let n = clampInt((stiff / 0.5).rounded(.up), 1, 64), h = dt / Double(n)
+      for _ in 0..<n { st.vel += (target - st.v) * w * w * h - 2 * z * w * st.vel * h; st.v += st.vel * h }
+      if !st.v.isFinite || !st.vel.isFinite || abs(st.v) > 1e6 { st = (v: target, vel: 0, prev: target) }
       progSprings[key] = st; c.v[name] = st.v
       if abs(st.v - target) > pg.eps || abs(st.vel) > pg.eps * 10 { quiet = false }
     }
@@ -2393,13 +2433,20 @@ final class TulmiMarkView: UIView {
     for (n, e) in pg.emit.enumerated() {
       guard let hi = shapes.firstIndex(where: { $0.id == e.attach }), let home = homes[hi], let place = placed[hi] else { continue }
       let base = ctx.shapes[hi], host = layers[hi]
-      let counts = e.repeats.map { max(0, min(64, Int(MotionLang.eval($0, base, pg.funcs)))) }
+      let counts = e.repeats.map { clampInt(MotionLang.eval($0, base, pg.funcs), 0, 64) }
       let n0 = counts.count > 0 ? counts[0] : 1, n1 = counts.count > 1 ? counts[1] : 1
       let color = e.signal ? sig : (tint ?? shapes[hi].color ?? UIColor.black).cgColor
       var used = 0
       for a in 0..<n0 { for b in 0..<n1 {
         let c = MotionCtx(base)
         if e.names.count > 0 { c.v[e.names[0]] = Double(a) }; if e.names.count > 1 { c.v[e.names[1]] = Double(b) }
+        // Opacity first: an invisible element costs nothing else. At rest the
+        // shipped program's 42 emitted lines are all at zero, and building
+        // their paths anyway was most of the mark's work on every idle frame.
+        // (A generated shape may read its own counter in its opacity, so it
+        // keeps the original order.)
+        let alpha = Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
+        if e.gen == nil, alpha <= 0.001 { continue }
         if used >= progEmitPools[n].count {
           let l = CAShapeLayer(); l.lineJoin = .round
           root.insertSublayer(l, below: host); extras.append(l); progEmitPools[n].append(l)
@@ -2421,12 +2468,12 @@ final class TulmiMarkView: UIView {
           var first = true
           func add(_ x: Double, _ y: Double) { let q = px(x, y); if first { p.move(to: q); first = false } else { p.addLine(to: q) } }
           if let pts = e.points { for (xa, ya) in pts { add(MotionLang.eval(xa, c, pg.funcs), MotionLang.eval(ya, c, pg.funcs)) } }
-          else if let g = e.gen { let cnt = max(0, min(64, Int(MotionLang.eval(g.count, c, pg.funcs)))); for j in 0..<cnt { c.v[g.name] = Double(j); add(MotionLang.eval(g.x, c, pg.funcs), MotionLang.eval(g.y, c, pg.funcs)) } }
+          else if let g = e.gen { let cnt = clampInt(MotionLang.eval(g.count, c, pg.funcs), 0, 64); for j in 0..<cnt { c.v[g.name] = Double(j); add(MotionLang.eval(g.x, c, pg.funcs), MotionLang.eval(g.y, c, pg.funcs)) } }
           if e.kind == "polygon" { p.close(); l.fillColor = color; l.strokeColor = nil }
           else { l.fillColor = nil; l.strokeColor = color; l.lineWidth = CGFloat(MotionLang.eval(e.width, c, pg.funcs)) * s }
         }
         l.path = p.cgPath; l.position = place.pos; l.transform = place.tf; l.isHidden = false
-        l.opacity = Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
+        l.opacity = e.gen == nil ? alpha : Float(min(1, max(0, MotionLang.eval(e.opacity, c, pg.funcs)))) * place.op
       } }
       for u in used..<progEmitPools[n].count { progEmitPools[n][u].isHidden = true }
     }
@@ -3092,9 +3139,12 @@ enum KBJSON: Decodable {
     if case .bool(let b) = self { return b ? "true" : "false" }
     return nil
   }
+  /// Only a finite number. "nan", "inf" or 1e309 from the server is no
+  /// number at all, so every reader falls back to its default instead of
+  /// carrying NaN into a frame or infinity into an Int.
   var asDouble: Double? {
-    if case .number(let n) = self { return n }
-    if case .string(let s) = self, let n = Double(s) { return n }
+    if case .number(let n) = self { return n.isFinite ? n : nil }
+    if case .string(let s) = self, let n = Double(s), n.isFinite { return n }
     return nil
   }
   var asCGFloat: CGFloat? { asDouble.map { CGFloat($0) } }
@@ -3873,6 +3923,7 @@ final class SDUIRenderer: NSObject {
     parsedConfusables = nil
     swipeWords = nil
     cachedCheckerLang = nil
+    resolvedAccentMap = nil
     syncToneFromConfig()
     // If the active layout no longer exists in the new config, fall back to its
     // first layout so remount() has a valid layoutId to render.
@@ -3893,8 +3944,11 @@ final class SDUIRenderer: NSObject {
     // Also hold off while the space-bar trackpad is scrubbing: rebuilding the
     // tree destroys the space key mid-gesture and cancels the cursor drag.
     // kb.remount.maxRetries × kb.remount.retryMs bounds the wait.
-    if (keyPlane?.hasActiveTouches == true || state.trackpadActive),
-       pendingRemountRetries < Int(flagDouble("kb.remount.maxRetries", 20)) {
+    // Space, return and backspace are buttons outside the plane: a finger
+    // still on one (liftDownAt, or backspace repeating) would lose its lift
+    // action to the rebuild.
+    if (keyPlane?.hasActiveTouches == true || state.trackpadActive || !liftDownAt.isEmpty || deleteTimer != nil),
+       pendingRemountRetries < clampInt(flagDouble("kb.remount.maxRetries", 20), 0, 1000) {
       pendingRemountRetries += 1
       DispatchQueue.main.asyncAfter(deadline: .now() + flagDouble("kb.remount.retryMs", 250) / 1000.0) { [weak self] in
         self?.remountWhenIdle()
@@ -4025,7 +4079,7 @@ final class SDUIRenderer: NSObject {
         plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
         plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
         plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
-        plane.swipeMinKeys = max(2, Int(flagDouble("kb.swipe.minKeys", 3)))
+        plane.swipeMinKeys = clampInt(flagDouble("kb.swipe.minKeys", 3), 2, 64)
         plane.trailColor = flagColor("kb.swipe.trail.color", "#FFFFFFD9")
         plane.trailWidth = flagCGFloat("kb.swipe.trail.width", 7)
         plane.trailFadeMs = flagDouble("kb.swipe.trail.fadeMs", 260)
@@ -4051,13 +4105,13 @@ final class SDUIRenderer: NSObject {
         plane.rowTolerance = flagCGFloat("kb.touch.rowTolerance", 8)
         plane.sideReachExtra = flagCGFloat("kb.touch.sideReach", 6)
         plane.trayCancelDrift = flagCGFloat("kb.accentTray.cancelDriftPt", 12)
-        let pathCap = max(8, Int(flagDouble("kb.swipe.pathCap", 128)))
+        let pathCap = clampInt(flagDouble("kb.swipe.pathCap", 128), 8, 4096)
         plane.swipePathCap = pathCap
-        plane.swipePathTrim = max(1, min(pathCap, Int(flagDouble("kb.swipe.pathTrim", 64))))
-        plane.pivotWindow = max(1, Int(flagDouble("kb.swipe.pivot.window", 3)))
+        plane.swipePathTrim = clampInt(flagDouble("kb.swipe.pathTrim", 64), 1, pathCap)
+        plane.pivotWindow = clampInt(flagDouble("kb.swipe.pivot.window", 3), 1, 64)
         plane.pivotMinTravel = flagCGFloat("kb.swipe.pivot.minTravelPt", 8)
         plane.pivotMaxCos = flagCGFloat("kb.swipe.pivot.maxCos", 0.57)
-        plane.trailMaxPoints = max(2, Int(flagDouble("kb.swipe.trail.maxPoints", 40)))
+        plane.trailMaxPoints = clampInt(flagDouble("kb.swipe.trail.maxPoints", 40), 2, 1024)
         if plane.superview !== container {
           plane.translatesAutoresizingMaskIntoConstraints = false
           container.addSubview(plane)   // topmost — intercepts plane-key touches only
@@ -4691,11 +4745,16 @@ final class SDUIRenderer: NSObject {
   private func flagString(_ key: String, _ def: String) -> String {
     config.flags?[key]?.asString ?? def
   }
+  /// Bounded as well as finite: a console typo of 1e300 is still a number,
+  /// and it would overflow the arithmetic and conversions downstream.
   private func flagDouble(_ key: String, _ def: Double) -> Double {
-    config.flags?[key]?.asDouble ?? def
+    guard let v = config.flags?[key]?.asDouble else { return def }
+    return min(1e9, max(-1e9, v))
   }
+  /// Geometry: no key, gap or offset is ever wider than this.
   private func flagCGFloat(_ key: String, _ def: CGFloat) -> CGFloat {
-    CGFloat(config.flags?[key]?.asDouble ?? Double(def))
+    guard let v = config.flags?[key]?.asDouble else { return def }
+    return CGFloat(min(1e5, max(-1e5, v)))
   }
   private func flagBool(_ key: String, _ def: Bool) -> Bool {
     config.flags?[key]?.asBool ?? def
@@ -5267,15 +5326,24 @@ final class SDUIRenderer: NSObject {
   /// them. A key absent from the server's map has no tray; an empty list turns
   /// one key's tray off. The built-in map is only the fallback for a config
   /// that carries none. Parsed once: a renderer lives for one config.
-  private var accentMap: [String: [String]] { resolvedAccentMap }
-  private lazy var resolvedAccentMap: [String: [String]] = {
-    guard case .object(let o)? = config.flags?["kb.accents"] else { return Self.builtInAccents }
-    var out: [String: [String]] = [:]
-    for (k, v) in o {
-      if case .array(let a) = v { out[k] = a.compactMap { $0.asString } }
+  private var accentMap: [String: [String]] {
+    if let m = resolvedAccentMap { return m }
+    let m: [String: [String]]
+    if case .object(let o)? = config.flags?["kb.accents"] {
+      var out: [String: [String]] = [:]
+      for (k, v) in o {
+        if case .array(let a) = v { out[k] = a.compactMap { $0.asString } }
+      }
+      m = out
+    } else {
+      m = Self.builtInAccents
     }
-    return out
-  }()
+    resolvedAccentMap = m
+    return m
+  }
+  /// Parsed on first use and dropped by updateConfig, so a new kb.accents
+  /// reaches a keyboard that is already open.
+  private var resolvedAccentMap: [String: [String]]?
 
   /// English, in Apple's stock order — the fallback for kb.accents.
   private static let builtInAccents: [String: [String]] = [
@@ -5649,7 +5717,7 @@ final class SDUIRenderer: NSObject {
       if let f = config.flags?["kb.smartPeriod"]?.asBool { return f }
       return true
     }()
-    if recent && smartPeriodOn,
+    if recent && smartPeriodOn, host?.hostIsSecureField() != true,
        let ctx = proxy?.documentContextBeforeInput,
        ctx.hasSuffix(" "),
        let prevChar = ctx.dropLast().last,
@@ -6055,7 +6123,7 @@ final class SDUIRenderer: NSObject {
   private func deleteWordBoundary() {
     guard let p = host?.hostTextDocumentProxy else { return }
     // kb.delete.wordMaxChars — one accelerated repeat never eats more.
-    let cap = Int(flagDouble("kb.delete.wordMaxChars", 64))
+    let cap = clampInt(flagDouble("kb.delete.wordMaxChars", 64), 0, 100_000)
     var deleted = 0
     while deleted < cap {
       let ctx = p.documentContextBeforeInput ?? ""
@@ -7162,9 +7230,34 @@ final class SDUIRenderer: NSObject {
   /// exactly what insertKey inserted and rewinds the word tracker with it, so
   /// the chip (or the base char, re-inserted on release) lands clean. A
   /// one-shot shift went with the letter; it is given back for the accent.
+  /// May the held key's char be taken back for a tray? Only when it is still
+  /// what was typed last, the text still ends with it, and a tray can open.
+  fileprivate func planeCanRetract(char: String?, button: UIButton?) -> Bool {
+    guard let inserted = lastKeyInsert, !inserted.isEmpty, let ch = char,
+          inserted.lowercased() == ch.lowercased(), button != nil,
+          activeAccentTray == nil, planeHasAccents(ch),
+          (host?.hostTextDocumentProxy.documentContextBeforeInput ?? "").hasSuffix(inserted)
+    else { return false }
+    return true
+  }
+
+  /// The char retracted for a tray that then did not open.
+  private var retractedInsert: String?
+
+  fileprivate func planeRestoreRetracted() {
+    guard let r = retractedInsert, !r.isEmpty else { return }
+    retractedInsert = nil
+    host?.hostTextDocumentProxy.insertText(r)
+    noteTyped(r)
+    lastKeyInsert = r
+    if state.shift && !state.capsLock { state.shift = false; stateChanged() }
+    updateAutoCap(afterTyping: r)
+  }
+
   fileprivate func planeRetractDownCommit() {
     guard let inserted = lastKeyInsert, !inserted.isEmpty else { return }
     lastKeyInsert = nil
+    retractedInsert = inserted
     KeyboardTelemetry.bump(.trayRetracted)
     for _ in 0..<inserted.count {
       host?.hostTextDocumentProxy.deleteBackward()
@@ -7668,7 +7761,7 @@ final class SDUIRenderer: NSObject {
       // Delete back until a whitespace/newline or the document is empty.
       // Bounded to avoid pathological loops on unusual editors
       // (kb.deleteWord.maxChars).
-      let cap = Int(flagDouble("kb.deleteWord.maxChars", 1000))
+      let cap = clampInt(flagDouble("kb.deleteWord.maxChars", 1000), 0, 100_000)
       var deleted = 0
       while deleted < cap {
         let ctx = p.documentContextBeforeInput ?? ""
@@ -8202,6 +8295,9 @@ final class SDUIRenderer: NSObject {
     // old guard let EVERY letter fall through to a documentContextBeforeInput
     // read (an XPC round-trip to the host app) before returning it unchanged.
     guard let proxy = host?.hostTextDocumentProxy else { return text }
+    // A password is typed exactly: "..." stays three dots, quotes stay straight.
+    // (Read here, behind the trigger-character guard, so letters never pay for it.)
+    if host?.hostIsSecureField() == true { return text }
     // Respect the FIELD's smart-typography traits, like the system keyboard:
     // code editors / identifier fields set these to .no and a curly quote
     // there is corruption, not typography.
@@ -8434,8 +8530,8 @@ final class SDUIRenderer: NSObject {
     // handler. The check runs on the spell queue; the result applies back on
     // main ONLY if the document tail is still exactly word+boundary (a
     // generation counter + a fresh context read guard the race).
-    let minLen = Int(flagDouble("kb.autocorrect.minLen", 3))
-    let maxLen = Int(flagDouble("kb.autocorrect.maxLen", 24))
+    let minLen = clampInt(flagDouble("kb.autocorrect.minLen", 3), 0, 64)
+    let maxLen = clampInt(flagDouble("kb.autocorrect.maxLen", 24), 1, 256)
     guard word.count >= minLen, word.count <= maxLen else { return }
     // Plain ASCII letters (+apostrophe) only: digits, symbols, and accented
     // words (deliberately picked from the tray) are left alone.
@@ -8448,8 +8544,8 @@ final class SDUIRenderer: NSObject {
     // static scorer running on the spell queue.
     let neighborCost = flagDouble("kb.autocorrect.neighborCost", 0.5)
     let punctCost = flagDouble("kb.autocorrect.punctCost", 0.5)
-    let maxGuesses = max(1, Int(flagDouble("kb.autocorrect.maxGuesses", 8)))
-    let maxLenDelta = max(0, Int(flagDouble("kb.autocorrect.maxLenDelta", 1)))
+    let maxGuesses = clampInt(flagDouble("kb.autocorrect.maxGuesses", 8), 1, 64)
+    let maxLenDelta = clampInt(flagDouble("kb.autocorrect.maxLenDelta", 1), 0, 16)
     let generation = typingGeneration
     let isNewline = boundary == "\n"
     Self.spellQueue.async { [weak self] in
@@ -8659,7 +8755,7 @@ final class SDUIRenderer: NSObject {
       }
       return
     }
-    guard currentWord.count >= Int(flagDouble("kb.suggestions.minChars", 2)),
+    guard currentWord.count >= clampInt(flagDouble("kb.suggestions.minChars", 2), 0, 64),
           currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
     else {
       if !state.suggestions.isEmpty {
@@ -8926,7 +9022,7 @@ final class SDUIRenderer: NSObject {
     let wLength = flagDouble("kb.swipe.score.length", 0.6)
     let keysPerLetter = flagDouble("kb.swipe.score.keysPerLetter", 1.6)
     let wPivot = flagDouble("kb.swipe.score.pivot", 0.4)
-    let extraLetters = Int(flagDouble("kb.swipe.maxExtraLetters", 2))
+    let extraLetters = clampInt(flagDouble("kb.swipe.maxExtraLetters", 2), 0, 16)
     var scored: [(String, Double)] = []
     for (rank, word) in lexicon.enumerated() {
       let letters = Array(word.filter { $0 != "'" && $0 != "\u{2019}" })
@@ -8947,7 +9043,7 @@ final class SDUIRenderer: NSObject {
         : 0
       scored.append((word, freq * wFreq + exactness * wExact + lengthAffinity * wLength + pivotBonus))
     }
-    let top = max(1, Int(flagDouble("kb.swipe.candidates", 4)))
+    let top = clampInt(flagDouble("kb.swipe.candidates", 4), 1, 32)
     return scored.sorted { $0.1 > $1.1 }.prefix(top).map { $0.0 }
   }
 
@@ -8986,7 +9082,7 @@ final class SDUIRenderer: NSObject {
     // built to fix.
     let lang = autocorrectLanguage()
     // kb.swipe.dictGuesses — checker guesses taken per skeleton.
-    let dictGuesses = max(0, Int(flagDouble("kb.swipe.dictGuesses", 12)))
+    let dictGuesses = clampInt(flagDouble("kb.swipe.dictGuesses", 12), 0, 256)
     let skeletons: [String] = {
       var s: [String] = [String(swept)]
       let pivotWord = pivots.compactMap { $0.lowercased().first }
