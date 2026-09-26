@@ -14,32 +14,74 @@ import java.util.concurrent.TimeUnit
  * Tiny backend client for the keyboard. Uses OkHttp (already on the classpath
  * via React Native), so no extra Gradle dependency is needed.
  *
- * NOTE: until we bridge the app's saved backend URL into the keyboard, set
- * baseUrl here. Android emulator → your PC = 10.0.2.2; a physical phone → your
- * PC's LAN IP, or your VPS URL.
+ * The base URL and the user's token come from the app (tulmi-bridge writes
+ * them to SharedPreferences, see [load]). Every path except the config's own
+ * is a knob, and so is every timeout — the config has to be reachable before
+ * any knob is, so its path stays fixed.
  */
 object Net {
     var baseUrl: String = "https://api.tailzu.space"
-    private var token = "dev" // shared by the app via SharedPreferences (see load)
 
-    private val client = OkHttpClient.Builder()
-        .callTimeout(60, TimeUnit.SECONDS)
-        .build()
+    /**
+     * The signed-in user's token, shared by the app. EMPTY when nothing has been
+     * shared — and then no Authorization header is sent at all. There used to be
+     * a "dev" placeholder here, which the server could only ever answer with a
+     * 401, and which made a keyboard that had never been signed in look like one
+     * whose session had expired.
+     */
+    private var token = ""
+
+    /**
+     * Which keyboard build is asking. The backend targets configs and rollouts
+     * by this (A<n> is Android, K<n> is iOS); the number is BUILD_STAMP, the one
+     * constant that also stamps telemetry.
+     */
+    const val BUILD_HEADER = "X-Tulmi-Keyboard-Build"
+
+    /** One client; each call sets its own deadline (see [call]). */
+    private val client = OkHttpClient.Builder().build()
 
     /**
      * Load the backend URL + user token the main app shared (it writes them to
      * the "tulmi" SharedPreferences via the tulmi-bridge native module). The IME
-     * runs in the same package, so it can read them directly. Keeps the baked
-     * defaults when nothing has been shared yet.
+     * runs in the same package, so it can read them directly.
      */
     fun load(context: android.content.Context) {
         val p = context.getSharedPreferences("tulmi", android.content.Context.MODE_PRIVATE)
         p.getString("tulmi.baseUrl", null)?.let { if (it.isNotBlank()) baseUrl = it }
-        p.getString("tulmi.token", null)?.let { if (it.isNotBlank()) token = it }
+        // Read every time, blank included: a sign-out must stop us sending the
+        // old token, not leave it in place because the new value was empty.
+        token = p.getString("tulmi.token", null)?.trim().orEmpty()
     }
 
-    /** The user token, exposed for the live streaming client (Stream.kt). */
+    /** The user token, exposed for the live streaming client (Stream.kt). Empty when signed out. */
     fun bearer(): String = token
+
+    /** The headers every request to our backend carries. */
+    fun authorize(b: Request.Builder): Request.Builder {
+        if (token.isNotEmpty()) b.header("Authorization", "Bearer $token")
+        b.header(BUILD_HEADER, SDUIRenderer.BUILD_STAMP)
+        return b
+    }
+
+    /** Same, for code that talks HttpURLConnection (the renderer's callEndpoint). */
+    fun authorize(conn: java.net.HttpURLConnection) {
+        if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.setRequestProperty(BUILD_HEADER, SDUIRenderer.BUILD_STAMP)
+    }
+
+    /** Deadline for short calls — config, telemetry, personality, callEndpoint. */
+    fun shortTimeoutMs(): Long = knobLong("kb.network.timeoutMs", 15000L)
+
+    /** Deadline for calls that do real work server-side — refine and transcribe. */
+    private fun longTimeoutMs(): Long = knobLong("kb.network.longTimeoutMs", 60000L)
+
+    /** Run a request with its own deadline; returns (code, body). */
+    private fun call(req: Request, timeoutMs: Long): Pair<Int, String> {
+        val c = client.newCall(req)
+        c.timeout().timeout(timeoutMs.coerceAtLeast(1000L), TimeUnit.MILLISECONDS)
+        c.execute().use { res -> return res.code to (res.body?.string() ?: "") }
+    }
 
     /** WebSocket URL for live dictation: same host as baseUrl, ws/wss scheme. */
     fun streamUrl(): String {
@@ -48,7 +90,7 @@ object Net {
             baseUrl.startsWith("http://") -> "ws://" + baseUrl.removePrefix("http://")
             else -> baseUrl
         }
-        return "$ws/v1/transcribe-stream"
+        return ws + knobString("kb.network.streamPath", "/v1/transcribe-stream")
     }
 
     /** Server-driven keyboard config (theme/labels/flags). Fetched + cached. */
@@ -136,15 +178,27 @@ object Net {
 
     /** Returns the raw config JSON (so the caller can both apply and cache it). */
     fun getKeyboardConfigJson(): String {
-        val req = Request.Builder()
-            .url("$baseUrl/v1/keyboard/config")
-            .addHeader("Authorization", "Bearer $token")
-            .get()
-            .build()
-        client.newCall(req).execute().use { res ->
-            val s = res.body?.string() ?: ""
-            if (!res.isSuccessful) throw RuntimeException("config ${res.code}: $s")
-            return s
+        // The one path that is NOT a knob: knobs arrive in this response.
+        val req = authorize(Request.Builder().url("$baseUrl/v1/keyboard/config")).get().build()
+        val (code, s) = call(req, shortTimeoutMs())
+        if (code !in 200..299) throw RuntimeException("config $code: $s")
+        return s
+    }
+
+    /**
+     * The route for a tone.
+     *
+     * Tones the server has a dedicated route for go there; anything else — an
+     * empty tone, or one added on the server after this build — goes to the
+     * catch-all, which reads the tone from the body. So this can only ever fall
+     * BACK to the safe default, never to a 404.
+     */
+    private fun refinePath(toneId: String): String {
+        val routed = knobStrings("kb.refine.toneRoutes", listOf("formal", "casual", "very-casual", "excited", "none"))
+        return if (toneId.isNotEmpty() && toneId in routed) {
+            knobString("kb.refine.tonePathPrefix", "/v1/refine/") + toneId
+        } else {
+            knobString("kb.network.refinePath", "/v1/refine")
         }
     }
 
@@ -158,17 +212,8 @@ object Net {
          *  something that read as a paragraph on its own and wrong in place. */
         context: String = "",
     ): String {
-        // Route to the backend's per-tone endpoint when a known LLM tone is
-        // selected; "none" → skip-refine endpoint; everything else (Neutral,
-        // empty, or anything unrecognized) → the catch-all /v1/refine that
-        // always exists. This can only ever fall BACK to the safe default —
-        // never a 404 — so an unexpected tone value can't break refine.
         val toneId = tone.trim().lowercase().replace(' ', '-')
-        val path = when (toneId) {
-            "formal", "casual", "very-casual", "excited" -> "/v1/refine/$toneId"
-            "none" -> "/v1/refine/none"
-            else -> "/v1/refine"
-        }
+        val path = refinePath(toneId)
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
@@ -176,17 +221,29 @@ object Net {
             // backend detects it. Same contract as iOS.
             .put("language", "auto")
             .apply { if (context.isNotBlank()) put("context", context) }
+            // The catch-all reads the tone from here; the per-tone routes carry
+            // it in the path and ignore it.
+            .apply { if (toneId.isNotEmpty()) put("tone", toneId) }
             .toString()
-        val req = Request.Builder()
-            .url("$baseUrl$path")
-            .addHeader("Authorization", "Bearer $token")
+        val req = authorize(Request.Builder().url("$baseUrl$path"))
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(req).execute().use { res ->
-            val s = res.body?.string() ?: ""
-            if (!res.isSuccessful) throw RuntimeException("refine ${res.code}: $s")
-            return JSONObject(s).optString("refinedText")
-        }
+        val (code, s) = call(req, longTimeoutMs())
+        if (code !in 200..299) throw RuntimeException("refine $code: $s")
+        return JSONObject(s).optString("refinedText")
+    }
+
+    /**
+     * Save part of the user's personality — the active voice / tone picked on
+     * the keyboard. A PARTIAL body: the server merges it into the saved profile,
+     * so sending { activeTone } does not wipe vocabulary or pins.
+     */
+    fun putPersonality(body: JSONObject) {
+        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.personalityPath", "/v1/personality")))
+            .put(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        val (code, s) = call(req, shortTimeoutMs())
+        if (code !in 200..299) throw RuntimeException("personality $code: $s")
     }
 
     /**
@@ -204,16 +261,11 @@ object Net {
             .put("build", build)
             .put("platform", "android")
             .toString()
-        val req = Request.Builder()
-            .url("$baseUrl/v1/keyboard/telemetry")
-            .addHeader("Authorization", "Bearer $token")
+        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.telemetryPath", "/v1/keyboard/telemetry")))
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
-        client.newCall(req).execute().use { res ->
-            if (!res.isSuccessful) {
-                throw RuntimeException("telemetry ${res.code}: ${res.body?.string() ?: ""}")
-            }
-        }
+        val (code, s) = call(req, shortTimeoutMs())
+        if (code !in 200..299) throw RuntimeException("telemetry $code: $s")
     }
 
     fun transcribeClean(file: File, targetApp: String): String {
@@ -222,15 +274,11 @@ object Net {
             .addFormDataPart("targetApp", targetApp)
             .addFormDataPart("language", "auto")
             .build()
-        val req = Request.Builder()
-            .url("$baseUrl/v1/transcribe-clean")
-            .addHeader("Authorization", "Bearer $token")
+        val req = authorize(Request.Builder().url(baseUrl + knobString("kb.network.transcribePath", "/v1/transcribe-clean")))
             .post(body)
             .build()
-        client.newCall(req).execute().use { res ->
-            val s = res.body?.string() ?: ""
-            if (!res.isSuccessful) throw RuntimeException("transcribe ${res.code}: $s")
-            return JSONObject(s).optString("cleanedText")
-        }
+        val (code, s) = call(req, longTimeoutMs())
+        if (code !in 200..299) throw RuntimeException("transcribe $code: $s")
+        return JSONObject(s).optString("cleanedText")
     }
 }
