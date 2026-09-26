@@ -4,6 +4,7 @@
  */
 import Constants from "expo-constants";
 import * as Sentry from "@sentry/react-native";
+import { num } from "../sdui/knobs";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const DSN = extra.sentryDsn ?? "";
@@ -20,7 +21,7 @@ export function initSentry(): void {
       debug: false,
       // Ship only errors + warnings by default; enable tracesSampleRate later
       // if we want performance instrumentation.
-      tracesSampleRate: 0.05,
+      tracesSampleRate: num("telemetry.sentry.tracesSampleRate", 0.05),
       // Attach basic context — the RN SDK auto-captures OS + app version.
       environment: process.env.NODE_ENV ?? "production",
     });

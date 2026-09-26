@@ -9,6 +9,10 @@
  */
 import React from "react";
 import { Pressable, Text, View } from "react-native";
+// Knobs are safe this high up: the module depends on nothing, and before any
+// bootstrap has landed each call simply returns its fallback. App.tsx points
+// them at the last server's values from disk before this ever renders.
+import { bool, color, num, txt } from "./knobs";
 
 // Optional Sentry — the app already env-gates it elsewhere. require() so a
 // missing module (Expo Go) doesn't hard-fail the bundle.
@@ -40,7 +44,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     // names the node that threw, which is the one thing a screenshot of this
     // screen could never tell us before.
     const frames = (info?.componentStack ?? "")
-      .split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 4).join(" › ");
+      .split("\n").map((l) => l.trim()).filter(Boolean).slice(0, num("errorBoundary.stackFrames", 4)).join(" › ");
     if (frames) this.setState((st) => ({ ...st, stack: frames }));
     try { Sentry?.captureException?.(error); } catch { /* reporting is best-effort */ }
   }
@@ -54,13 +58,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    const bg = color("errorBoundary.bg", "#0e0e12");
     return (
-      <View style={{ flex: 1, backgroundColor: "#0e0e12", alignItems: "center", justifyContent: "center", padding: 32 }}>
-        <Text style={{ color: "#fff", fontSize: 20, fontWeight: "600", marginBottom: 10, textAlign: "center" }}>
-          Something went wrong
+      <View style={{ flex: 1, backgroundColor: bg, alignItems: "center", justifyContent: "center", padding: num("errorBoundary.padding", 32) }}>
+        <Text style={{ color: color("errorBoundary.titleColor", "#FFFFFF"), fontSize: num("errorBoundary.titleSize", 20), fontWeight: "600", marginBottom: 10, textAlign: "center" }}>
+          {txt("errorBoundary.title", "Something went wrong")}
         </Text>
-        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 15, lineHeight: 22, textAlign: "center", marginBottom: 16 }}>
-          The screen hit an unexpected error. You can try again, or reset if it keeps happening.
+        <Text style={{ color: color("errorBoundary.bodyColor", "rgba(255,255,255,0.6)"), fontSize: num("errorBoundary.bodySize", 15), lineHeight: 22, textAlign: "center", marginBottom: 16 }}>
+          {txt("errorBoundary.body", "The screen hit an unexpected error. You can try again, or reset if it keeps happening.")}
         </Text>
         {/*
           SHOW WHAT BROKE.
@@ -75,25 +80,39 @@ export class ErrorBoundary extends React.Component<Props, State> {
           the buttons off screen, and low-contrast so it reads as diagnostics
           rather than as part of the apology.
         */}
-        <Text
-          selectable
-          numberOfLines={6}
-          style={{
-            color: "rgba(255,255,255,0.38)", fontSize: 11.5, lineHeight: 17,
-            textAlign: "center", marginBottom: 26, fontVariant: ["tabular-nums"],
-          }}
-        >
-          {String(this.state.error?.message ?? this.state.error ?? "unknown")}
-          {this.state.stack ? `\n${this.state.stack}` : ""}
-        </Text>
+        {/* The server may hide the raw detail (a release audience), in which
+            case the gap it leaves is kept so the buttons do not jump. */}
+        {bool("errorBoundary.showDetails", true) ? (
+          <Text
+            selectable
+            numberOfLines={num("errorBoundary.detailLines", 6)}
+            style={{
+              color: color("errorBoundary.detailColor", "rgba(255,255,255,0.38)"),
+              fontSize: num("errorBoundary.detailSize", 11.5), lineHeight: 17,
+              textAlign: "center", marginBottom: 26, fontVariant: ["tabular-nums"],
+            }}
+          >
+            {String(this.state.error?.message ?? this.state.error ?? "unknown")}
+            {this.state.stack ? `\n${this.state.stack}` : ""}
+          </Text>
+        ) : <View style={{ height: 10 }} />}
         <Pressable
           onPress={this.retry}
-          style={{ backgroundColor: "#E8A23C", paddingHorizontal: 28, paddingVertical: 13, borderRadius: 26, marginBottom: 14 }}
+          accessibilityRole="button"
+          style={{
+            backgroundColor: color("errorBoundary.accent", "#E8A23C"),
+            paddingHorizontal: 28, paddingVertical: 13,
+            borderRadius: num("errorBoundary.buttonRadius", 26), marginBottom: 14,
+          }}
         >
-          <Text style={{ color: "#0e0e12", fontSize: 16, fontWeight: "600" }}>Try again</Text>
+          <Text style={{ color: color("errorBoundary.buttonText", "#0e0e12"), fontSize: num("errorBoundary.buttonTextSize", 16), fontWeight: "600" }}>
+            {txt("errorBoundary.retry", "Try again")}
+          </Text>
         </Pressable>
-        <Pressable onPress={this.reset} style={{ paddingHorizontal: 20, paddingVertical: 10 }}>
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 14 }}>Reset the app</Text>
+        <Pressable onPress={this.reset} accessibilityRole="button" style={{ paddingHorizontal: 20, paddingVertical: 10 }}>
+          <Text style={{ color: color("errorBoundary.resetColor", "rgba(255,255,255,0.5)"), fontSize: num("errorBoundary.resetSize", 14) }}>
+            {txt("errorBoundary.reset", "Reset the app")}
+          </Text>
         </Pressable>
       </View>
     );

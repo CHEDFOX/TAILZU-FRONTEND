@@ -23,6 +23,7 @@ import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -70,6 +71,20 @@ class KBState(
      * Return, or a backend-localized override). Updated by the IME whenever
      * a new input field takes focus. */
     var returnLabel: String = "Return",
+    /**
+     * The field's editor action (EditorInfo.IME_ACTION_SEARCH / SEND / GO /
+     * NEXT / DONE / PREVIOUS), or 0 when Return should insert a newline — a
+     * multi-line field, a field with IME_FLAG_NO_ENTER_ACTION, or none set.
+     * Return PERFORMS this instead of typing "\n" into a search box.
+     */
+    var returnAction: Int = 0,
+    /**
+     * What the suggestion bar is showing, in iOS's terms: "" (spelling
+     * suggestions, led by the word as typed), "candidates" (a swipe's ranked
+     * words — the first is the one that was committed), "revert" or
+     * "alternates". Only "candidates" has a best answer worth the lead colour.
+     */
+    var suggestionKind: String = "",
     /**
      * More than one keyboard is enabled on the device, so the globe key has
      * somewhere to go. The SDUI tree gates GlobeKey on this — a device with
@@ -147,6 +162,19 @@ interface KBHost {
     fun onSwipe(letters: String)
     fun rootView(): View?
     fun onStateChanged()
+    /**
+     * A word is about to end with [boundary] (" " or "\n"). Called BEFORE the
+     * boundary is committed, so the host can expand a dictionary trigger or
+     * apply an autocorrection to the word the caret is still inside.
+     */
+    fun beforeWordBoundary(boundary: String) {}
+    /**
+     * Backspace was pressed. True when the host consumed it — undoing an
+     * autocorrection it just made — so the renderer must not also delete.
+     */
+    fun onBackspace(): Boolean = false
+    /** Text was just deleted by a key; the word under the caret has changed. */
+    fun onTextDeleted() {}
 }
 
 // ===========================================================================
@@ -163,6 +191,10 @@ data class KBConfig(
     val layouts: List<KBLayout>,
     val root: KBNode?,
     val actions: Map<String, KBActionSpec>,
+    /** The server's dark / light themes. When present, the one matching the
+     *  system appearance is drawn instead of `theme`. */
+    val themeDark: KBTheme? = null,
+    val themeLight: KBTheme? = null,
 )
 
 data class KBTheme(
@@ -335,9 +367,42 @@ class SDUIRenderer(
     private fun flagFloat(key: String, def: Float): Float =
         (kbConfig.flags[key] as? Number)?.toFloat() ?: def
 
+    private fun flagInt(key: String, def: Int): Int =
+        (kbConfig.flags[key] as? Number)?.toInt() ?: def
+
+    private fun flagString(key: String, def: String): String =
+        (kbConfig.flags[key] as? String) ?: def
+
+    /** A colour flag. A blank or missing value is the default, never magenta. */
+    private fun flagColor(key: String, def: String): Int =
+        parseHex((kbConfig.flags[key] as? String)?.takeIf { it.isNotBlank() } ?: def)
+
+    /** A server label, or the fallback before any config. */
+    private fun label(key: String, def: String): String = kbConfig.labels[key] ?: def
+
+    /**
+     * The theme to draw with: the server's dark or light theme when it sent
+     * one for the current system appearance, else the plain `theme`. Read
+     * through here, never kbConfig.theme, so a dark/light flip repaints right.
+     */
+    private val theme: KBTheme
+        get() = when (host.state().appearance) {
+            "light" -> kbConfig.themeLight ?: kbConfig.theme
+            else -> kbConfig.themeDark ?: kbConfig.theme
+        }
+
+    /** The tone pill's label, resolved once per config / pick rather than on
+     *  every keystroke (treeKey reads it on the typing path). */
+    private var toneLabel: String = ""
+
+    private fun refreshTone() {
+        toneLabel = TulmiTone.label(host.context(), kbConfig.flags)
+    }
+
     /** Attach the root tree. Called from the IME after `parseKBConfig`. */
     fun mount(root: KBNode) {
         rootNode = root
+        refreshTone()
         redraw()
     }
 
@@ -402,12 +467,22 @@ class SDUIRenderer(
     private val SUGGESTION_TAG_PREFIX = "tulmi.sugg:"
 
     /**
+     * Reused chip and divider views. Only ever grow, to the largest bar seen —
+     * three or four views — so a repaint costs no inflation.
+     */
+    private val chipPool = ArrayList<TextView>()
+    private val dividerPool = ArrayList<View>()
+
+    /**
      * One-shot latch for the fallback below. A tree that has NO SuggestionBar
      * node at all (or gates it behind visibleIf) has no row to fill in place —
      * so redraw ONCE to let that gate re-evaluate, and then stop, rather than
      * paying a rebuild on every keystroke forever.
      */
     private var suggestionRemountAttempted = false
+
+    private fun suggestionTag(words: List<String>): String =
+        SUGGESTION_TAG_PREFIX + host.state().suggestionKind + "|" + words.joinToString("\u0000")
 
     private fun refreshSuggestionBarInPlace() {
         val want = host.state().suggestions
@@ -423,41 +498,118 @@ class SDUIRenderer(
             return
         }
         suggestionRemountAttempted = false
-        if (row.tag == SUGGESTION_TAG_PREFIX + want.joinToString("")) return
+        if (row.tag == suggestionTag(want)) return
         fillSuggestionRow(row, want)
     }
 
     /**
-     * Fill (or refill) a suggestion row. Chip views are REUSED — only their
-     * text and click target change — so a repaint costs no inflation and no
-     * layout churn beyond the widths actually changing.
+     * Fill (or refill) a suggestion row — the Android half of iOS
+     * renderSuggestionChips, styled by the same kb.suggestion.* flags.
+     *
+     * Chips are TextViews, not Buttons: a Button carries a 48dp minimum height
+     * and all-caps text from the platform theme, which clipped chips in a 36dp
+     * bar and shouted every word. Views are REUSED — only text, colours and
+     * click target change — and the row is re-arranged only when its SHAPE
+     * changes, so a keystroke repaints words, not the layout.
+     *
+     * Colours left blank on the server ("") keep the bar's own surface: the
+     * SuggestionBar node's bg (or the theme key) and the theme's key text.
      */
     private fun fillSuggestionRow(row: LinearLayout, words: List<String>) {
-        while (row.childCount > words.size) row.removeViewAt(row.childCount - 1)
-        for (i in words.indices) {
-            val chip = if (i < row.childCount) {
-                row.getChildAt(i) as Button
-            } else {
-                val b = Button(host.context())
-                suggestionChipBackground?.invoke()?.let { b.background = it }
-                val lp = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { setMargins(dp(4), dp(4), dp(4), dp(4)) }
-                row.addView(b, lp)
-                b
+        val ctx = host.context()
+        val kind = host.state().suggestionKind
+        val flat = flagString("kb.suggestion.style", "chips").lowercase() == "flat"
+        val gap = dp(flagFloat("kb.suggestion.gap", 8f))
+        val edge = dp(flagFloat("kb.suggestion.edgeInset", 4f))
+        val padH = dp(flagFloat("kb.suggestion.chipPadH", 12f))
+        val padV = dp(flagFloat("kb.suggestion.chipPadV", 4f))
+        val radius = flagFloat("kb.suggestion.chipRadius", 12f) * ctx.resources.displayMetrics.density
+        val fontSize = flagFloat("kb.suggestion.fontSize", 14f)
+        val bgHex = flagString("kb.suggestion.chipBg", "")
+        val fg = flagString("kb.suggestion.chipFg", "").takeIf { it.isNotBlank() }?.let { parseHex(it) }
+            ?: parseHex(theme.keyText)
+        val borderHex = flagString("kb.suggestion.chipBorder", "")
+        val borderW = dp(flagFloat("kb.suggestion.chipBorderWidth", 1f))
+        // Emphasis follows MEANING, not position: only a swipe's ranked
+        // candidates have a best answer. A spelling list leads with the word as
+        // typed, and painting "keep what I wrote" in brand amber says the
+        // opposite of what it is.
+        val lead = flagBoolean("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
+        val leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
+        val leadFg = flagColor("kb.suggestion.leadFg", "#000000")
+        val dividerColor = flagString("kb.suggestion.dividerColor", "").takeIf { it.isNotBlank() }?.let { parseHex(it) }
+            ?: ((parseHex(theme.keyText) and 0x00FFFFFF) or 0x24000000)
+        val dividerH = dp(flagFloat("kb.suggestion.dividerHeight", 18f))
+
+        row.setPadding(edge, 0, edge, 0)
+        row.gravity = android.view.Gravity.CENTER_VERTICAL
+        while (chipPool.size < words.size) {
+            chipPool += TextView(ctx).apply {
+                gravity = android.view.Gravity.CENTER
+                isAllCaps = false
+                maxLines = 1
+                isClickable = true
+                tag = SDUIRenderer.CHIP_TAG
             }
+        }
+        while (dividerPool.size < (words.size - 1).coerceAtLeast(0)) dividerPool += View(ctx)
+
+        val desired = ArrayList<View>(words.size * 2)
+        for (i in words.indices) {
+            val isLead = lead && i == 0
+            if (flat && i > 0) {
+                val sep = dividerPool[i - 1]
+                sep.setBackgroundColor(dividerColor)
+                sep.layoutParams = LinearLayout.LayoutParams(dp(1), dividerH).apply {
+                    leftMargin = gap / 2; rightMargin = gap / 2
+                }
+                desired += sep
+            }
+            val chip = chipPool[i]
             val word = words[i]
-            chip.text = word
-            chip.setTextColor(parseHex(kbConfig.theme.keyText))
+            // A revert quotes the user's own word — "keep what you typed".
+            chip.text = if (kind == "revert") "\u201C$word\u201D" else word
+            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSize)
+            chip.setTypeface(android.graphics.Typeface.DEFAULT,
+                if (isLead) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            chip.setPadding(padH, padV, padH, padV)
+            if (flat) {
+                chip.background = null
+                chip.setTextColor(if (isLead) leadBg else fg)
+            } else {
+                val surface = if (bgHex.isBlank() && !isLead) {
+                    (suggestionChipBackground?.invoke() as? GradientDrawable) ?: GradientDrawable()
+                } else GradientDrawable().apply { setColor(if (isLead) leadBg else parseHex(bgHex)) }
+                surface.cornerRadius = radius
+                if (!isLead && borderHex.isNotBlank() && borderW > 0) surface.setStroke(borderW, parseHex(borderHex))
+                chip.background = surface
+                chip.setTextColor(if (isLead) leadFg else fg)
+            }
+            chip.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { if (!flat && i > 0) leftMargin = gap }
             // Rebound every pass: a reused chip must apply the word it is
             // showing NOW, never the one it carried before.
             chip.setOnClickListener {
                 hapticTap(chip)
                 host.applySuggestion(word)
             }
+            desired += chip
         }
-        row.tag = SUGGESTION_TAG_PREFIX + words.joinToString("")
+        // Touch the row only when its ARRANGEMENT changed.
+        val same = row.childCount == desired.size &&
+            desired.indices.all { row.getChildAt(it) === desired[it] }
+        if (!same) {
+            row.removeAllViews()
+            for (v in desired) {
+                (v.parent as? ViewGroup)?.removeView(v)
+                row.addView(v)
+            }
+        } else {
+            row.requestLayout()
+        }
+        row.tag = suggestionTag(words)
     }
 
     /** Fingerprint of every tree input EXCEPT shift/caps. When this is unchanged
@@ -465,13 +617,13 @@ class SDUIRenderer(
     private fun treeKey(): String {
         val s = host.state()
         return listOf(
-            s.layoutId, s.dictating, s.refining, s.status, s.returnLabel,
+            s.layoutId, s.dictating, s.refining, s.status, s.returnLabel, s.returnAction,
             s.hasMultipleKeyboards, s.appearance,
             // suggestions deliberately NOT fingerprinted — they are applied in
             // place by refreshSuggestionBarInPlace(). Including them here put a
             // full teardown-and-rebuild of the whole keyboard on the keystroke
             // path, just to repaint three chips.
-            currentTone(), micReassembling,
+            toneLabel, micReassembling,
             // Fingerprint the scratch dict so a setState/toggle/increment/clear
             // forces a full redraw (visibleIf/bind gates on state.user.* must
             // re-evaluate) instead of being swallowed by the fast-shift path.
@@ -492,22 +644,107 @@ class SDUIRenderer(
                 k.label = if (upper) base.uppercase() else base.lowercase()
             }
             drawnShiftKey?.let { k ->
-                k.label = if (host.state().capsLock) "\u21ea" else "\u21e7"
-                k.textColor = parseHex(
-                    if (upper) kbConfig.theme.accent else kbConfig.theme.keyText)
+                k.label = shiftGlyph()
+                k.textColor = shiftColor(drawnShiftRest)
             }
             for (p in drawnPlanes) p.invalidate()
         }
         shiftButton?.let { b ->
-            b.text = if (host.state().capsLock) "⇪" else "⇧"
-            b.setTextColor(parseHex(if (upper) kbConfig.theme.accent else kbConfig.theme.keyText))
+            b.text = shiftGlyph()
+            b.setTextColor(shiftColor(shiftRestColor))
         }
+    }
+
+    // --- Shift (kb.shift.*) --------------------------------------------------
+    //
+    // The glyph and its colour are the server's: kb.shift.icon* name the four
+    // states (lower/upper x outlined/locked) the way iOS does, as SF Symbol
+    // names, which are drawn here as the matching Unicode shapes. A name this
+    // build does not know is used as-is when it is itself a glyph ("⇧"), and
+    // falls back to the shift/caps-lock arrows otherwise.
+
+    /** The shift key's resting text colour (its node fg, else the theme's). */
+    private var shiftRestColor: Int = 0
+    private var drawnShiftRest: Int = 0
+
+    private fun shiftGlyph(): String {
+        val s = host.state()
+        return if (s.capsLock) {
+            glyphFor(if (s.shift) flagString("kb.shift.iconUpperLocked", "arrowtriangle.up.fill")
+                     else flagString("kb.shift.iconLowerLocked", "arrowtriangle.down.fill"), "\u21ea")
+        } else {
+            glyphFor(if (s.shift) flagString("kb.shift.iconUpperOutlined", "arrowtriangle.up")
+                     else flagString("kb.shift.iconLowerOutlined", "arrowtriangle.down"), "\u21e7")
+        }
+    }
+
+    private fun shiftColor(rest: Int): Int =
+        if (host.state().capsLock) flagColor("kb.shift.lockedColor", "#E8A23C") else rest
+
+    private fun glyphFor(name: String, fallback: String): String = when (name) {
+        "arrowtriangle.up" -> "\u25B3"
+        "arrowtriangle.up.fill" -> "\u25B2"
+        "arrowtriangle.down" -> "\u25BD"
+        "arrowtriangle.down.fill" -> "\u25BC"
+        "shift" -> "\u21e7"
+        "shift.fill" -> "\u2B06"
+        "capslock", "capslock.fill" -> "\u21ea"
+        "arrow.up" -> "\u2191"
+        "arrow.down" -> "\u2193"
+        else -> if (name.isNotEmpty() && name.codePointCount(0, name.length) <= 2) name else fallback
+    }
+
+    /** Last shift tap, for double-tap caps lock. */
+    private var lastShiftTapAt = 0L
+
+    /**
+     * A shift tap, on either render path. Locked → unlock. A second tap within
+     * kb.shift.doubleTapMs → caps lock (0 turns the double tap off). Otherwise
+     * a one-shot shift.
+     */
+    private fun pressShift() {
+        val s = host.state()
+        if (s.capsLock) {
+            s.capsLock = false
+            s.shift = false
+            lastShiftTapAt = 0L
+            host.onStateChanged()
+            return
+        }
+        val now = android.os.SystemClock.uptimeMillis()
+        val window = flagFloat("kb.shift.doubleTapMs", 0f).toLong()
+        if (window > 0 && lastShiftTapAt > 0 && now - lastShiftTapAt <= window) {
+            s.capsLock = true
+            s.shift = true
+            lastShiftTapAt = 0L
+            host.onStateChanged()
+            return
+        }
+        s.shift = !s.shift
+        lastShiftTapAt = now
+        host.onStateChanged()
+    }
+
+    /** Hold shift → caps lock, or back off when already locked. Caps lock is
+     *  always uppercase-locked (shift stays true), as on iOS. */
+    private fun holdShift() {
+        val s = host.state()
+        if (s.capsLock) {
+            s.capsLock = false
+            s.shift = false
+        } else {
+            s.capsLock = true
+            s.shift = true
+        }
+        lastShiftTapAt = 0L
+        host.onStateChanged()
     }
 
     /** Swap in a freshly-fetched config (e.g. background refetch returned). */
     fun updateConfig(cfg: KBConfig) {
         kbConfig = cfg
         cfg.root?.let { rootNode = it }
+        refreshTone()
         redraw()
     }
 
@@ -527,8 +764,11 @@ class SDUIRenderer(
         suggestionRow = null
         suggestionChipBackground = null
         container.removeAllViews()
-        applyEffect(container, kbConfig.theme.backgroundEffect ?: KBEffect.Solid(kbConfig.theme.background))
+        applyEffect(container, theme.backgroundEffect ?: KBEffect.Solid(theme.background))
         rootNode?.let { render(it, container) }
+        // A toast still on screen outlives the rebuild instead of vanishing
+        // with the tree it was drawn over.
+        toastView?.let { t -> if (t.parent == null) container.addView(t, t.layoutParams) }
         // Baseline for the next fast-shift comparison.
         lastTreeKey = treeKey()
         publishKeyGeometry(container)
@@ -609,8 +849,44 @@ class SDUIRenderer(
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
+        applyStackStyle(ll, node.style)
         applyEvents(ll, node)
         for (c in node.children) render(c, ll)
+    }
+
+    /**
+     * A stack's own layout knobs: `gap` between children and `align`.
+     *
+     * The gap is a transparent divider drawn only BETWEEN visible children, so
+     * a child culled by visibleIf leaves no double gap, and LinearLayout counts
+     * it before sharing out flex — keys keep their proportions. Android ignored
+     * `gap` on every stack but drawn rows, so keys sat edge to edge and rows
+     * touched, on a tree that asks for 6pt between keys and 10pt between rows.
+     */
+    private fun applyStackStyle(ll: LinearLayout, style: Map<String, Any?>) {
+        val gap = numFromStyle(style["gap"]) ?: 0f
+        if (gap > 0f) {
+            val px = dp(gap)
+            ll.dividerDrawable = GradientDrawable().apply {
+                setColor(Color.TRANSPARENT)
+                setSize(px, px)
+            }
+            ll.showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+        }
+        gravityFor(style["align"] as? String, ll.orientation == LinearLayout.HORIZONTAL)?.let { ll.gravity = it }
+    }
+
+    /** `align` as a gravity: start / center / end, on the stack's cross axis
+     *  for a stack and on both axes' reading line for text. */
+    private fun gravityFor(align: String?, horizontal: Boolean): Int? = when (align?.lowercase()) {
+        "center" -> android.view.Gravity.CENTER
+        "start", "left", "leading" ->
+            if (horizontal) android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            else android.view.Gravity.START
+        "end", "right", "trailing" ->
+            if (horizontal) android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            else android.view.Gravity.END
+        else -> null
     }
 
     /** Row = horizontal LinearLayout. */
@@ -642,12 +918,15 @@ class SDUIRenderer(
             // both modes, where the old Button cast only worked in one.
             onSwipe = { letters ->
                 val word = letters.joinToString("")
-                if (word.length >= 2) host.onSwipe(word)
+                // kb.swipe.minKeys: how many distinct keys a trace must cross
+                // before it is read as a word rather than a sloppy tap.
+                if (letters.size >= flagInt("kb.swipe.minKeys", 2).coerceAtLeast(2)) host.onSwipe(word)
             }
         }
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
+        applyStackStyle(ll, node.style)
         applyEvents(ll, node)
         // A row of KEYS is blurred and locked while the mic records. The tools
         // row is not: the mic that stops the recording lives there, and blurring
@@ -727,52 +1006,44 @@ class SDUIRenderer(
                 keys += TulmiKeyPlane.DrawnKey("", flex, fixedW, isSpacer = true)
                 continue
             }
-            val fill = parseHex((c.style["bg"] as? String) ?: kbConfig.theme.key)
-            val fg = parseHex((c.style["fg"] as? String) ?: kbConfig.theme.keyText)
+            val fill = parseHex((c.style["bg"] as? String) ?: theme.key)
+            val fg = parseHex((c.style["fg"] as? String) ?: theme.keyText)
             val size = (numFromStyle(c.style["fontSize"]) ?: 16f) * dm.scaledDensity
-            val radius = kbConfig.theme.keyRadius * dm.density
+            val radius = theme.keyRadius * dm.density
 
             // Case is read from LIVE state at COMMIT time, never baked into the
             // key — the same rule the Button path follows, so a fast-shift
             // repaint can never desync from what actually gets typed.
-            val raw = if (c.bind["content"] == "tone") currentTone()
-                      else ((c.props["char"] as? String) ?: "")
+            val raw = boundText(c) ?: ((c.props["char"] as? String) ?: "")
             val hasPress = c.on.containsKey("onPress")
             val upper = st.shift || st.capsLock
-            val label = when (c.type) {
-                "LetterKey" -> if (raw.length == 1) {
+            val keyLabel = when (c.type) {
+                "LetterKey" -> if (raw.length == 1 && c.bind["content"] == null) {
                     if (upper) raw.uppercase() else raw.lowercase()
                 } else raw
-                "SpaceKey" -> kbConfig.labels["space"] ?: "space"
-                "ReturnKey" -> kbConfig.labels["return"] ?: "return"
-                "ShiftKey" -> if (st.capsLock) "⇪" else "⇧"
-                "BackspaceKey" -> "⌫"
+                "SpaceKey" -> label("space", "space")
+                "ReturnKey" -> returnKeyLabel()
+                "ShiftKey" -> shiftGlyph()
+                "BackspaceKey" -> "\u232B"
                 else -> ""
             }
-            val labelColor = if (c.type == "ShiftKey" && upper) {
-                parseHex(kbConfig.theme.accent)
-            } else fg
+            val accentReturn = c.type == "ReturnKey" && returnIsAccent()
+            if (c.type == "ShiftKey") drawnShiftRest = fg
+            val labelColor = when {
+                c.type == "ShiftKey" -> shiftColor(fg)
+                accentReturn -> flagColor("kb.returnKey.actionFg", "#FFFFFF")
+                else -> fg
+            }
+            val keyFill = if (accentReturn) flagColor("kb.returnKey.actionBg", "#007AFF") else fill
 
             var pressEnd: (() -> Unit)? = null
             var pressStart: (() -> Unit)? = null
             val key: TulmiKeyPlane.DrawnKey
             val commit: () -> Unit = when (c.type) {
-                "ShiftKey" -> {
-                    {
-                        val s = host.state()
-                        s.shift = !s.shift
-                        s.capsLock = false
-                        host.onStateChanged()
-                        invokeEvent(c, "onPress")
-                    }
-                }
-                "BackspaceKey" -> {
-                    { host.ic()?.deleteSurroundingText(1, 0); invokeEvent(c, "onPress") }
-                }
-                "SpaceKey" -> { { insertText(" "); invokeEvent(c, "onPress") } }
-                "ReturnKey" -> {
-                    { host.ic()?.commitText("\n", 1); invokeEvent(c, "onPress") }
-                }
+                "ShiftKey" -> { { pressShift(); invokeEvent(c, "onPress") } }
+                "BackspaceKey" -> { { deleteBackwardOnce(); invokeEvent(c, "onPress") } }
+                "SpaceKey" -> { { pressSpace(); invokeEvent(c, "onPress") } }
+                "ReturnKey" -> { { pressReturn(); invokeEvent(c, "onPress") } }
                 else -> {
                     {
                         if (hasPress) invokeEvent(c, "onPress") else {
@@ -788,25 +1059,19 @@ class SDUIRenderer(
             }
 
             key = TulmiKeyPlane.DrawnKey(
-                label = label, flex = flex, fixedWidthPx = fixedW,
-                fill = fill, textColor = labelColor, textSizePx = size, radiusPx = radius,
+                label = keyLabel, flex = flex, fixedWidthPx = fixedW,
+                fill = keyFill, textColor = labelColor, textSizePx = size, radiusPx = radius,
                 onCommit = { hapticTap(plane, hapticIdFor(c, raw)); commit() },
                 onLongPress = when (c.type) {
-                    // Long-press shift = caps lock, as on the Button path.
-                    "ShiftKey" -> {
-                        {
-                            val s = host.state()
-                            s.capsLock = !s.capsLock
-                            s.shift = false
-                            host.onStateChanged()
-                        }
-                    }
+                    // Hold shift = caps lock, as on the Button path.
+                    "ShiftKey" -> { { hapticTap(plane, "shift"); holdShift() } }
                     else -> if (c.on.containsKey("onLongPress")) {
                         { invokeEvent(c, "onLongPress") }
                     } else null
                 },
                 onPressStart = { pressStart?.invoke() },
                 onPressEnd = { pressEnd?.invoke() },
+                longPressMs = if (c.type == "ShiftKey") flagFloat("kb.shift.longPressMs", 500f).toLong() else 0L,
             )
 
             // Backspace repeats while held. Wired through press start/end
@@ -814,16 +1079,12 @@ class SDUIRenderer(
             // suppresses the release commit so the last delete isn't doubled.
             if (c.type == "BackspaceKey") {
                 var repeat: Runnable? = null
-                val r = object : Runnable {
-                    override fun run() {
-                        key.suppressCommit = true
-                        host.ic()?.deleteSurroundingText(1, 0)
-                        handler.postDelayed(this, BACKSPACE_REPEAT_MS)
-                    }
+                pressStart = {
+                    val r = deleteRepeater(onFirst = { key.suppressCommit = true; invokeEvent(c, "onLongPress") })
+                    repeat = r
+                    handler.postDelayed(r, deleteInitialDelayMs())
                 }
-                repeat = r
-                pressStart = { handler.postDelayed(r, BACKSPACE_REPEAT_DELAY_MS) }
-                pressEnd = { repeat?.let { handler.removeCallbacks(it) } }
+                pressEnd = { repeat?.let { handler.removeCallbacks(it) }; repeat = null }
             }
 
             keys += key
@@ -837,20 +1098,13 @@ class SDUIRenderer(
         // Rows can own the band between them: see TulmiKeyPlane.drawnVInsetPx.
         // Backend-set, 0 by default, so this is inert until it is turned on.
         plane.drawnVInsetPx = flagFloat("kb.touch.vInsetPx", 0f) * dm.density
-        plane.pressedFill = parseHex(kbConfig.theme.keyPressed)
+        plane.pressedFill = parseHex(theme.keyPressed)
         plane.setDrawnKeys(keys)
         drawnPlanes += plane
         return true
     }
 
     private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
-
-    /** Hold before backspace starts repeating, then the gap between deletes.
-     *  Matches the Button path's own repeat. Plain properties, NOT a second
-     *  companion object — a class gets exactly one, and this file already has
-     *  it (parseHex lives there). */
-    private val BACKSPACE_REPEAT_DELAY_MS = 400L
-    private val BACKSPACE_REPEAT_MS = 50L
 
     /** Spacer = flex-weighted empty View. Direction inferred from parent orientation. */
     private fun renderSpacer(node: KBNode, parent: ViewGroup) {
@@ -865,21 +1119,41 @@ class SDUIRenderer(
         parent.addView(v)
     }
 
+    /**
+     * The live text a key is bound to (bind.content), or null when it is not
+     * bound. Any state key works — "status" (the guidance band), "returnLabel",
+     * "tone", "layoutId", "quota.status", "user.x", "flags.kb.x" — so the server
+     * can put live state on any key without a build. Android used to honour
+     * "tone" alone, which left the tree's status band blank: every permission,
+     * sign-in and out-of-words message the keyboard raised was never drawn.
+     */
+    private fun boundText(node: KBNode): String? {
+        val key = node.bind["content"] ?: return null
+        if (key == "tone" || key == "state.tone") return toneLabel.ifEmpty { null }
+        return when (val v = lookup(key)) {
+            null -> null
+            is String -> v
+            is Number -> if (v.toDouble() == Math.floor(v.toDouble())) v.toLong().toString() else v.toString()
+            JSONObject.NULL -> null
+            else -> v.toString()
+        }
+    }
+
     /** LetterKey — Button labeled with props.char (capitalized on shift/caps). */
     private fun renderLetterKey(node: KBNode, parent: ViewGroup) {
-        // A LetterKey bound to "tone" (the tone pill) shows the LIVE tone, not a
-        // static char. Only single-char labels follow shift-casing; multi-char
-        // titles like "Neutral" stay as authored (mirrors iOS buildLetterKey).
-        val raw = if (node.bind["content"] == "tone") currentTone()
-                  else ((node.props["char"] as? String) ?: "")
-        val label = if (raw.length == 1) {
+        // A LetterKey bound to live state (the tone pill, the status band)
+        // shows that, not a static char. Only single-char, unbound labels
+        // follow shift-casing; bound text stays as authored.
+        val bound = boundText(node)
+        val raw = bound ?: ((node.props["char"] as? String) ?: "")
+        val label = if (raw.length == 1 && bound == null) {
             if (host.state().shift || host.state().capsLock) raw.uppercase() else raw.lowercase()
         } else raw
         val b = keyButton(label, node)
         // Register plain letters for the in-place fast-shift path (keyed by the
-        // base lowercase char). Special keys (onPress override) and multi-char
-        // labels are excluded — they don't re-case.
-        if (raw.length == 1 && !node.on.containsKey("onPress")) {
+        // base lowercase char). Special keys (onPress override), bound keys and
+        // multi-char labels are excluded — they don't re-case.
+        if (raw.length == 1 && bound == null && !node.on.containsKey("onPress")) {
             letterButtonsByChar[raw.lowercase()] = b
         }
         b.setOnClickListener {
@@ -887,12 +1161,10 @@ class SDUIRenderer(
             // If the backend attached an onPress action (tone pill → cycleTone,
             // layer keys "123"/"ABC"/"#+=" → switchLayout, …), dispatch THAT and
             // do NOT type the label. Only a plain letter (no onPress override)
-            // inserts its character. Previously this always inserted the label
-            // AND fired onPress, so those special keys typed "123"/"neutral" into
-            // the field. Mirrors iOS bindTap (on.onPress wins over insert).
+            // inserts its character. Mirrors iOS bindTap (on.onPress wins over insert).
             if (node.on.containsKey("onPress")) {
                 invokeEvent(node, "onPress")
-            } else {
+            } else if (bound == null) {
                 // Case from LIVE state at tap time — so a fast-shift update (or
                 // even no rebuild at all) still inserts the right case instead
                 // of a label captured when the tree was last built.
@@ -906,8 +1178,49 @@ class SDUIRenderer(
                 }
             }
         }
-        b.setOnLongClickListener { invokeEvent(node, "onLongPress"); true }
+        val isTonePill = node.bind["content"] == "tone"
+        if (isTonePill && flagBoolean("kb.tone.sheet.enabled", true)) {
+            // Hold the pill → pick any voice or tone directly instead of
+            // cycling. Its own touch handling (the plane would never deliver a
+            // hold), with the server's threshold.
+            bindHold(b, flagFloat("kb.tone.sheet.longPressMs", 300f).toLong()) {
+                hapticTap(b, "tone")
+                showToneSheet(b)
+            }
+        } else {
+            b.setOnLongClickListener { invokeEvent(node, "onLongPress"); true }
+        }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+    }
+
+    /**
+     * Give a key its own hold gesture: [onHold] fires after [holdMs] of an
+     * unbroken press, and the release that follows is swallowed so the hold is
+     * not ALSO a tap. The key is tagged RAW_TOUCH so the row's key plane leaves
+     * its touches alone — the plane commits taps and has no notion of a hold.
+     */
+    private fun bindHold(v: View, holdMs: Long, onHold: () -> Unit) {
+        v.tag = TulmiKeyPlane.RAW_TOUCH
+        var fired = false
+        val hold = Runnable { fired = true; onHold() }
+        v.setOnTouchListener { view, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    fired = false
+                    handler.postDelayed(hold, holdMs.coerceAtLeast(50L))
+                    false
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    handler.removeCallbacks(hold)
+                    if (fired) { view.isPressed = false; true } else false
+                }
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(hold)
+                    false
+                }
+                else -> false
+            }
+        }
     }
 
     /**
@@ -936,60 +1249,171 @@ class SDUIRenderer(
 
     /** SpaceKey — wide button using labels.space or "space" as fallback. */
     private fun renderSpaceKey(node: KBNode, parent: ViewGroup) {
-        val label = kbConfig.labels["space"] ?: "space"
-        val b = keyButton(label, node)
+        val b = keyButton(label("space", "space"), node)
         b.setOnClickListener {
             hapticTap(b, "space")
-            insertText(" ")
+            pressSpace()
             invokeEvent(node, "onPress")
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
     }
 
-    /** ShiftKey — toggles state.shift; long-press → capsLock. */
-    private fun renderShiftKey(node: KBNode, parent: ViewGroup) {
-        val active = host.state().shift || host.state().capsLock
-        val label = when {
-            host.state().capsLock -> "⇪"
-            host.state().shift -> "⇧"
-            else -> "⇧"
+    /**
+     * Space ends a word: the host gets its chance to expand or correct it
+     * first, then the space lands, then a symbol layer hands back to letters.
+     */
+    private fun pressSpace() {
+        host.beforeWordBoundary(" ")
+        insertText(" ")
+        autoReturnToLetters()
+    }
+
+    /**
+     * A space typed on the number or symbol layer flips back to letters, like
+     * the system keyboard (kb.layer.returnAfterSpace). Which layers count as
+     * symbols and which one is "letters" are the server's to name.
+     */
+    private fun autoReturnToLetters() {
+        if (!flagBoolean("kb.layer.returnAfterSpace", false)) return
+        val s = host.state()
+        val symbols = flagString("kb.layer.symbolIds", "123,sym").split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (s.layoutId !in symbols) return
+        val letters = flagString("kb.layer.lettersId", "en")
+        if (letters.isEmpty() || s.layoutId == letters) return
+        // Posted: this runs inside the space key's own click, and the switch
+        // rebuilds the tree that key belongs to.
+        handler.post {
+            if (host.state().layoutId in symbols) {
+                host.state().layoutId = letters
+                host.onStateChanged()
+            }
         }
-        val b = keyButton(label, node)
-        if (active) b.setTextColor(parseHex(kbConfig.theme.accent))
+    }
+
+    /** ShiftKey — tap toggles shift, double-tap or hold locks caps. */
+    private fun renderShiftKey(node: KBNode, parent: ViewGroup) {
+        val b = keyButton(shiftGlyph(), node)
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, flagFloat("kb.shift.iconSize", 16f))
+        applyFontWeight(b, flagString("kb.shift.iconWeight", "semibold"))
         shiftButton = b   // let the fast-shift path recolor it in place
         b.setOnClickListener {
             hapticTap(b, "shift")
-            val s = host.state()
-            s.shift = !s.shift
-            s.capsLock = false
-            host.onStateChanged()
+            pressShift()
             invokeEvent(node, "onPress")
         }
-        b.setOnLongClickListener {
+        bindHold(b, flagFloat("kb.shift.longPressMs", 500f).toLong()) {
             hapticTap(b, "shift")
-            val s = host.state()
-            s.capsLock = !s.capsLock
-            s.shift = false
-            host.onStateChanged()
+            holdShift()
             invokeEvent(node, "onLongPress")
-            true
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        // After the node style: its fg is the RESTING colour, and a locked
+        // shift is drawn in kb.shift.lockedColor over it.
+        shiftRestColor = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(theme.keyText)
+        b.setTextColor(shiftColor(shiftRestColor))
     }
 
-    /** ReturnKey — commits a newline. Label from labels.return. */
+    // --- Return -----------------------------------------------------------------
+
+    /** Return performs the field's own action (Search, Send, Go, Next, Done)
+     *  when it has one and kb.return.editorAction allows; otherwise it types a
+     *  newline. It used to ALWAYS type a newline — into search boxes and chat
+     *  fields whose send button it was supposed to be. */
+    private fun returnPerformsAction(): Boolean =
+        host.state().returnAction != 0 && flagBoolean("kb.return.editorAction", true)
+
+    /** The actions drawn in the accent colour — the ones that finish something.
+     *  Next / Previous move focus and stay plain, as on iOS. */
+    private fun returnIsAccent(): Boolean {
+        if (!returnPerformsAction()) return false
+        return when (host.state().returnAction) {
+            EditorInfo.IME_ACTION_SEARCH, EditorInfo.IME_ACTION_SEND,
+            EditorInfo.IME_ACTION_GO, EditorInfo.IME_ACTION_DONE -> true
+            else -> false
+        }
+    }
+
+    /** "Search" / "Send" / … for an action field (the host resolves those
+     *  from labels return.*), the plain labels.return otherwise. */
+    private fun returnKeyLabel(): String {
+        val plain = label("return", "return")
+        return if (returnPerformsAction()) host.state().returnLabel.ifEmpty { plain } else plain
+    }
+
+    private fun pressReturn() {
+        val ic = host.ic() ?: return
+        if (returnPerformsAction()) {
+            ic.performEditorAction(host.state().returnAction)
+            return
+        }
+        host.beforeWordBoundary("\n")
+        insertText("\n")
+    }
+
+    /** ReturnKey — the field's action, or a newline. */
     private fun renderReturnKey(node: KBNode, parent: ViewGroup) {
-        val label = kbConfig.labels["return"] ?: "return"
-        val b = keyButton(label, node)
+        val b = keyButton(returnKeyLabel(), node)
         b.setOnClickListener {
             hapticTap(b, "return")
-            host.ic()?.commitText("\n", 1)
+            pressReturn()
             invokeEvent(node, "onPress")
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        // After the node style, which would otherwise repaint it plain.
+        if (returnIsAccent()) {
+            (b.background as? GradientDrawable)?.setColor(flagColor("kb.returnKey.actionBg", "#007AFF"))
+            b.setTextColor(flagColor("kb.returnKey.actionFg", "#FFFFFF"))
+        }
     }
 
-    /** BackspaceKey — deletes; long-press repeats every ~50ms until release. */
+    // --- Backspace ----------------------------------------------------------
+
+    /**
+     * Delete one thing backwards: an autocorrection the host can undo
+     * (kb.autocorrect.backspaceRevert), else the selection, else one character
+     * — a whole code point, so an emoji is never cut in half.
+     */
+    private fun deleteBackwardOnce(checkSelection: Boolean = true) {
+        if (host.onBackspace()) return
+        val ic = host.ic() ?: return
+        val selected = if (checkSelection) ic.getSelectedText(0) else null
+        when {
+            !selected.isNullOrEmpty() -> ic.commitText("", 1)
+            Build.VERSION.SDK_INT >= 24 -> ic.deleteSurroundingTextInCodePoints(1, 0)
+            else -> ic.deleteSurroundingText(1, 0)
+        }
+        TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
+        host.onTextDeleted()
+    }
+
+    /** Hold before backspace starts repeating (kb.delete.initialDelayMs). */
+    private fun deleteInitialDelayMs(): Long = flagFloat("kb.delete.initialDelayMs", 400f).toLong().coerceAtLeast(50L)
+
+    /**
+     * The hold-to-delete repeat: a character every kb.delete.repeatIntervalMs,
+     * then whole words once kb.delete.wordAfterChars characters have gone (0
+     * never switches) — the same acceleration iOS has. [onFirst] runs as the
+     * repeat takes over from the tap.
+     */
+    private fun deleteRepeater(onFirst: () -> Unit): Runnable {
+        val interval = flagFloat("kb.delete.repeatIntervalMs", 50f).toLong().coerceAtLeast(10L)
+        val wordAfter = flagFloat("kb.delete.wordAfterChars", 0f).toInt()
+        var count = 0
+        return object : Runnable {
+            override fun run() {
+                if (count == 0) onFirst()
+                count += 1
+                if (wordAfter > 0 && count > wordAfter) {
+                    if (!host.onBackspace()) { deleteWord(); host.onTextDeleted() }
+                } else {
+                    deleteBackwardOnce(checkSelection = false)
+                }
+                handler.postDelayed(this, interval)
+            }
+        }
+    }
+
+    /** BackspaceKey — deletes on tap; held, repeats and then accelerates. */
     private fun renderBackspaceKey(node: KBNode, parent: ViewGroup) {
         val resId = iconRegistry["backspace"]
         val view: View = if (resId != null) {
@@ -998,35 +1422,42 @@ class SDUIRenderer(
                 background = keyBackground(node)
             }
         } else {
-            keyButton("⌫", node)
+            keyButton("\u232B", node)
         }
         view.setOnClickListener {
             hapticTap(view, "backspace")
-            host.ic()?.deleteSurroundingText(1, 0)
+            deleteBackwardOnce()
             invokeEvent(node, "onPress")
         }
-        val repeat = object : Runnable {
-            override fun run() {
-                host.ic()?.deleteSurroundingText(1, 0)
-                handler.postDelayed(this, 50)
-            }
-        }
-        view.setOnLongClickListener {
-            hapticTap(view, "backspace")
-            handler.postDelayed(repeat, 300)
-            invokeEvent(node, "onLongPress")
-            true
-        }
-        // The repeat below is driven by this key's OWN up/cancel. The key plane
-        // must not intercept them, or the repeat never stops.
+        // The repeat is driven by this key's OWN down/up/cancel, so the key
+        // plane must not take its touches (RAW_TOUCH), or it would never stop.
         view.tag = TulmiKeyPlane.RAW_TOUCH
-        view.setOnTouchListener { _, e ->
-            if (e.action == android.view.MotionEvent.ACTION_UP ||
-                e.action == android.view.MotionEvent.ACTION_CANCEL
-            ) {
-                handler.removeCallbacks(repeat)
+        var repeat: Runnable? = null
+        var repeated = false
+        view.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    repeated = false
+                    val r = deleteRepeater(onFirst = {
+                        repeated = true
+                        hapticTap(view, "backspace")
+                        invokeEvent(node, "onLongPress")
+                    })
+                    repeat = r
+                    handler.postDelayed(r, deleteInitialDelayMs())
+                    false
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    repeat?.let { handler.removeCallbacks(it) }
+                    repeat = null
+                    // A hold that already deleted must not delete once more on release.
+                    if (repeated && e.actionMasked == android.view.MotionEvent.ACTION_UP) {
+                        v.isPressed = false
+                        true
+                    } else false
+                }
+                else -> false
             }
-            false
         }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
     }
@@ -1040,7 +1471,7 @@ class SDUIRenderer(
                 background = keyBackground(node)
             }
         } else {
-            keyButton(kbConfig.labels["globe"] ?: "\u2295", node)   // circled plus, a text mark not a pictograph
+            keyButton(label("globe", "\u2295"), node)   // circled plus, a text mark not a pictograph
         }
         view.setOnClickListener {
             hapticTap(view, "globe")
@@ -1074,7 +1505,7 @@ class SDUIRenderer(
         val markSpec = node.props["mark"] as? JSONObject
         val markMotion = node.props["motion"] as? JSONObject
         val markProgram = node.props["program"] as? JSONObject
-        val fg = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(kbConfig.theme.keyText)
+        val fg = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(theme.keyText)
         val tinted = markSpec?.optBoolean("tint", true) ?: true
         // The dots burst from whichever mark the key is drawing.
         val mark = markSpec?.let { TulmiMarkView.bitmap(it, fg, dp(44)) } ?: markBitmap()
@@ -1094,7 +1525,7 @@ class SDUIRenderer(
                 host.context(),
                 count = flagFloat("kb.mic.particles.count", 40f).toInt(),
                 dotRadius = flagFloat("kb.mic.particles.radius", 1.5f),
-                dotColor = parseHex(kbConfig.theme.keyText),
+                dotColor = parseHex(theme.keyText),
                 mark = mark,
             ).also { currentMicParticles = it }
             frame.addView(
@@ -1141,7 +1572,7 @@ class SDUIRenderer(
                     background = keyBackground(node)
                 }
             } else {
-                keyButton(kbConfig.labels["mic"] ?: "\u25CF", node)     // filled circle; the brand mark replaces it when the drawable loads
+                keyButton(label("mic", "\u25CF"), node)     // filled circle; the brand mark replaces it when the drawable loads
             }
         }
 
@@ -1169,8 +1600,7 @@ class SDUIRenderer(
 
     /** RefineKey — triggers the existing refine path. */
     private fun renderRefineKey(node: KBNode, parent: ViewGroup) {
-        val label = kbConfig.labels["refine"] ?: "Refine"
-        val b = keyButton(label, node)
+        val b = keyButton(label("refine", "Refine"), node)
         b.setOnClickListener {
             hapticTap(b, "refine")
             host.runRefine()
@@ -1187,35 +1617,48 @@ class SDUIRenderer(
         val row = LinearLayout(host.context()).apply { orientation = LinearLayout.HORIZONTAL }
         scroll.addView(
             row,
-            ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
         // The chip surface comes from the bar NODE, so it has to be captured
         // here — the in-place refresh runs without a node in hand.
         suggestionChipBackground = { keyBackground(node) }
         suggestionRow = row
         fillSuggestionRow(row, host.state().suggestions)
-        addChildWithStyle(parent, scroll, node.style, isRow = parent.isHorizontal())
+        // The node's own height wins; a tree that leaves it out gets the bar
+        // height the server set for every tree (kb.suggestion.height).
+        val style = if (node.style.containsKey("height")) node.style
+            else node.style + ("height" to flagFloat("kb.suggestion.height", 36f))
+        addChildWithStyle(parent, scroll, style, isRow = parent.isHorizontal())
     }
 
-    /** Waveform — N thin vertical bars scaled by state.micLevel. */
+    /** Waveform — bars that follow state.micLevel, shaped by kb.waveform.*. */
     private fun renderWaveform(node: KBNode, parent: ViewGroup) {
-        val bars = (node.props["bars"] as? Number)?.toInt() ?: 24
-        val color = (node.props["color"] as? String) ?: kbConfig.theme.accent
+        val dm = host.context().resources.displayMetrics
+        val bars = (node.props["bars"] as? Number)?.toInt() ?: flagInt("kb.waveform.barCount", 24)
+        val color = (node.props["color"] as? String) ?: flagString("kb.waveform.color", "#999999")
         val wf = WaveformView(
             host.context(),
-            bars,
-            parseHex(color),
+            barCount = bars.coerceIn(1, 128),
+            color = parseHex(color),
+            radiusPx = flagFloat("kb.waveform.radius", 1.5f) * dm.density,
+            spacingPx = flagFloat("kb.waveform.spacing", 3f) * dm.density,
+            levelMultiplier = flagFloat("kb.waveform.levelMultiplier", 0.6f),
+            baselineMin = flagFloat("kb.waveform.baselineMin", 0.2f),
+            baselineMax = flagFloat("kb.waveform.baselineMax", 0.6f),
+            fps = flagFloat("kb.waveform.fps", 60f),
             levelProvider = { host.state().micLevel },
             activeProvider = { host.state().dictating },
         )
-        addChildWithStyle(parent, wf, node.style, isRow = parent.isHorizontal())
+        val style = if (node.style.containsKey("height")) node.style
+            else node.style + ("height" to flagFloat("kb.waveform.height", 24f))
+        addChildWithStyle(parent, wf, style, isRow = parent.isHorizontal())
     }
 
     /** StatusLabel — TextView bound to state.status. */
     private fun renderStatusLabel(node: KBNode, parent: ViewGroup) {
         val tv = TextView(host.context()).apply {
             text = host.state().status
-            setTextColor(parseHex(kbConfig.theme.keyText))
+            setTextColor(parseHex(theme.keyText))
         }
         applyTextStyle(tv, node.style)
         addChildWithStyle(parent, tv, node.style, isRow = parent.isHorizontal())
@@ -1224,7 +1667,7 @@ class SDUIRenderer(
     /** Divider — hairline strip. Uses theme.keyText @ low alpha unless overridden. */
     private fun renderDivider(node: KBNode, parent: ViewGroup) {
         val v = View(host.context())
-        val bg = (node.style["bg"] as? String) ?: kbConfig.theme.keyText
+        val bg = (node.style["bg"] as? String) ?: theme.keyText
         v.setBackgroundColor(parseHex(bg) and 0x33FFFFFF.toInt())
         val h = dp(1)
         val lp: ViewGroup.LayoutParams = if (parent.isHorizontal()) {
@@ -1304,8 +1747,13 @@ class SDUIRenderer(
             }
         }
         addChildWithStyle(parent, iv, node.style, isRow = parent.isHorizontal())
-        val spec = node.props["spec"] as? Map<*, *>
-        val url = (spec?.get("url") as? String) ?: (node.props["url"] as? String)
+        // Props arrive as org.json values: an object is a JSONObject, not a Map
+        // (the old Map cast never matched, so props.spec.url never loaded).
+        val url = when (val spec = node.props["spec"]) {
+            is JSONObject -> spec.optString("url", "").takeIf { it.isNotEmpty() }
+            is Map<*, *> -> spec["url"] as? String
+            else -> null
+        } ?: (node.props["url"] as? String)
         if (!url.isNullOrEmpty()) {
             TulmiImageLoader.into(host.context(), url, iv)
         }
@@ -1330,7 +1778,11 @@ class SDUIRenderer(
         // mirrors renderMediaPlayer. onComplete is fired separately when the run
         // finishes; it is NOT a press handler.
         applyEvents(iv, node)
-        val frames = (node.props["frames"] as? List<*>).orEmpty()
+        val frames: List<Any?> = when (val raw = node.props["frames"]) {
+            is JSONArray -> (0 until raw.length()).map { raw.opt(it) }
+            is List<*> -> raw
+            else -> emptyList()
+        }
         val frameMs = (node.props["frameMs"] as? Number)?.toLong() ?: 120L
         // loops<=0 = "run until the tree is torn down" (matches the RN Slideshow's
         // documented 0 = infinite). Either way ticks post on the renderer's shared
@@ -1345,8 +1797,12 @@ class SDUIRenderer(
         var cycles = 0
         val tick = object : Runnable {
             override fun run() {
-                val f = frames[index] as? Map<*, *> ?: return
-                val url = f["url"] as? String
+                val url = when (val f = frames[index]) {
+                    is JSONObject -> f.optString("url", "")
+                    is Map<*, *> -> f["url"] as? String
+                    is String -> f
+                    else -> null
+                }
                 if (!url.isNullOrEmpty()) TulmiImageLoader.into(ctx, url, iv)
                 index += 1
                 if (index >= frames.size) {
@@ -1393,12 +1849,6 @@ class SDUIRenderer(
         }
 
         val pinned = itemList(kbConfig.flags["kb.personality.pinned"])
-        // kb.personality.tones is now served as a flat JSON array of tone LABEL
-        // strings (Object.values(TONE_LABELS)); older configs shipped
-        // { id, label } objects. Both element shapes are handled below.
-        val toneItems = itemList(kbConfig.flags["kb.personality.tones"])
-        val activeId = (kbConfig.flags["kb.personality.activeId"] as? String) ?: ""
-
         val chips = pinned.mapNotNull { p ->
             TulmiPersonalityRow.ChipData(
                 id = strField(p, "id") ?: return@mapNotNull null,
@@ -1407,42 +1857,36 @@ class SDUIRenderer(
                 tone = strField(p, "tone") ?: "",
             )
         }
-        val toneList = toneItems.mapNotNull { t ->
-            when (t) {
-                // New shape: a bare label string. Derive a stable id (lowercased,
-                // spaces→dashes) matching Net.refine's toneId scheme.
-                is String -> if (t.isBlank()) null
-                    else TulmiPersonalityRow.Tone(
-                        id = t.trim().lowercase().replace(' ', '-'),
-                        label = t,
-                    )
-                // Back-compat: { id, label } objects (Map or JSONObject).
-                else -> strField(t, "id")?.let { id ->
-                    TulmiPersonalityRow.Tone(id = id, label = strField(t, "label") ?: "")
-                }
-            }
-        }
-        val accent = parseHex(kbConfig.theme.accent)
+        // The same tone list the pill cycles, in the server's order.
+        val toneList = TulmiTone.tones(kbConfig.flags).map { TulmiPersonalityRow.Tone(id = it.id, label = it.label) }
         row.update(
             chips = chips,
             tones = toneList,
-            activeId = activeId,
-            accentColor = accent,
-            chipBgColor = Color.argb(23, 255, 255, 255),
-            chipFgColor = parseHex(kbConfig.theme.keyText),
+            activeId = TulmiTone.activeVoiceId(host.context(), kbConfig.flags),
+            accentColor = parseHex(theme.accent),
+            chipBgColor = flagColor("kb.personalityRow.chipBg", "#FFFFFF17"),
+            chipFgColor = parseHex(theme.keyText),
         )
         row.onSelect = { presetId, tone ->
-            // Backend owns the actual switching logic — the row just reports.
-            // The host publishes into KBState and posts to the backend so any
-            // condition/visibleIf referencing state.activePresetId re-evaluates.
-            host.state().let { /* no-op — real state update owned by host */ }
+            // A chip tap switches voice (its own tone); a pick from its tone
+            // sheet switches voice AND tone. Saved like a pill pick — locally
+            // for the next refine, and to the server.
+            val voice = TulmiTone.voices(kbConfig.flags).firstOrNull { it.id == presetId }
+            val item = TulmiTone.Item("voice", presetId, voice?.label ?: presetId, tone ?: voice?.tone ?: "")
+            TulmiTone.select(host.context(), kbConfig.flags, item)
+            refreshTone()
             host.onStateChanged()
         }
     }
 
-    /** Unknown component — render a small red View so mismatches are visible. */
+    /**
+     * Unknown component. Hidden: a node type this build does not know is a
+     * NEWER tree, and the user should see the rest of it, not a red square.
+     * kb.render.unknownNode = "debug" brings the square back for development.
+     */
     private fun renderUnknown(node: KBNode, parent: ViewGroup) {
         Log.w("SDUI", "unknown component: ${node.type}")
+        if (flagString("kb.render.unknownNode", "hide") != "debug") return
         val v = View(host.context())
         v.setBackgroundColor(Color.RED)
         val lp = LinearLayout.LayoutParams(dp(24), dp(24))
@@ -1456,23 +1900,47 @@ class SDUIRenderer(
     /** Create a plain key button styled from theme.keyRadius/keyEffect. */
     private fun keyButton(label: String, node: KBNode): Button {
         val b = Button(host.context())
+        // The platform Button style upper-cases its text, which drew every
+        // lowercase key as a capital and "return" as "RETURN" — the tree's
+        // labels are exactly what it wants shown.
+        b.isAllCaps = false
         b.text = label
         b.background = keyBackground(node)
-        b.setTextColor(parseHex(kbConfig.theme.keyText))
+        b.setTextColor(parseHex(theme.keyText))
         val fs = numFromStyle(node.style["fontSize"])
         if (fs != null) b.setTextSize(TypedValue.COMPLEX_UNIT_SP, fs)
-        val fw = (node.style["fontWeight"] as? String)
-        if (fw == "bold" || fw == "600" || fw == "700" || fw == "800" || fw == "900") {
-            b.setTypeface(b.typeface, android.graphics.Typeface.BOLD)
-        }
+        applyFontWeight(b, node.style["fontWeight"] as? String)
         return b
+    }
+
+    /**
+     * A font weight by name or number — "regular", "medium", "semibold",
+     * "bold", "400"…"900" — as iOS reads them. Only bold used to be honoured,
+     * so "regular" kept the Button style's medium face and "medium" was lost.
+     */
+    private fun applyFontWeight(v: TextView, fw: String?) {
+        val tf = when (fw?.lowercase()) {
+            null, "" -> return
+            "bold", "700", "800", "900", "heavy", "black" ->
+                android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            "semibold", "600" ->
+                if (Build.VERSION.SDK_INT >= 28) android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 600, false)
+                else android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            "medium", "500" -> android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            "regular", "normal", "400" ->
+                android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            "light", "300" -> android.graphics.Typeface.create("sans-serif-light", android.graphics.Typeface.NORMAL)
+            "thin", "ultralight", "100", "200" -> android.graphics.Typeface.create("sans-serif-thin", android.graphics.Typeface.NORMAL)
+            else -> return
+        }
+        v.typeface = tf
     }
 
     /** GradientDrawable background derived from theme.keyEffect + radius. */
     private fun keyBackground(node: KBNode): GradientDrawable {
         val gd = GradientDrawable()
-        gd.cornerRadius = kbConfig.theme.keyRadius * host.context().resources.displayMetrics.density
-        val fill = (node.style["bg"] as? String) ?: kbConfig.theme.key
+        gd.cornerRadius = theme.keyRadius * host.context().resources.displayMetrics.density
+        val fill = (node.style["bg"] as? String) ?: theme.key
         gd.setColor(parseHex(fill))
         return gd
     }
@@ -1546,16 +2014,26 @@ class SDUIRenderer(
             existing.cornerRadius = it.toFloat() * host.context().resources.displayMetrics.density
             v.background = existing
         }
+        // A hairline edge — the tone pill's ring. Merged into the view's own
+        // GradientDrawable like the radius above.
+        val borderW = numFromStyle(style["borderWidth"]) ?: 0f
+        val borderC = style["borderColor"] as? String
+        if (borderW > 0f && !borderC.isNullOrBlank()) {
+            val gd = v.background as? GradientDrawable ?: GradientDrawable().also { g ->
+                (style["bg"] as? String)?.let { c -> g.setColor(parseHex(c)) }
+                v.background = g
+            }
+            gd.setStroke(dp(borderW).coerceAtLeast(1), parseHex(borderC))
+        }
+        numFromStyle(style["opacity"])?.let { v.alpha = it.coerceIn(0f, 1f) }
         (style["fg"] as? String)?.let { if (v is TextView) v.setTextColor(parseHex(it)) }
         parent.addView(v, lp)
     }
 
     private fun applyTextStyle(v: TextView, style: Map<String, Any?>) {
         (style["fontSize"] as? Number)?.let { v.setTextSize(TypedValue.COMPLEX_UNIT_SP, it.toFloat()) }
-        val fw = (style["fontWeight"] as? String)
-        if (fw == "bold" || fw == "600" || fw == "700" || fw == "800" || fw == "900") {
-            v.setTypeface(v.typeface, android.graphics.Typeface.BOLD)
-        }
+        applyFontWeight(v, style["fontWeight"] as? String)
+        gravityFor(style["align"] as? String, horizontal = true)?.let { v.gravity = it }
         (style["fg"] as? String)?.let { v.setTextColor(parseHex(it)) }
     }
 
@@ -1609,19 +2087,11 @@ class SDUIRenderer(
         when (spec) {
             is KBActionSpec.InsertText -> insertText(spec.text)
             is KBActionSpec.InsertKey -> insertText(spec.char)
-            is KBActionSpec.DeleteBackward -> host.ic()?.deleteSurroundingText(1, 0)
-            is KBActionSpec.DeleteWord -> deleteWord()
-            is KBActionSpec.Shift -> {
-                host.state().shift = !host.state().shift
-                host.state().capsLock = false
-                host.onStateChanged()
-            }
-            is KBActionSpec.CapsLock -> {
-                host.state().capsLock = !host.state().capsLock
-                host.state().shift = false
-                host.onStateChanged()
-            }
-            is KBActionSpec.Return -> host.ic()?.commitText("\n", 1)
+            is KBActionSpec.DeleteBackward -> deleteBackwardOnce()
+            is KBActionSpec.DeleteWord -> { deleteWord(); host.onTextDeleted() }
+            is KBActionSpec.Shift -> pressShift()
+            is KBActionSpec.CapsLock -> holdShift()
+            is KBActionSpec.Return -> pressReturn()
             is KBActionSpec.SwitchLayout -> {
                 if (spec.language == null) host.cycleLayout()
                 else host.switchLayout(spec.language)
@@ -1684,32 +2154,66 @@ class SDUIRenderer(
 
     // --- Tone pill (SDUI) ---------------------------------------------------
     // The tone pill is a LetterKey with bind.content == "tone" and
-    // on.onPress == { kind: "cycleTone" }. In SDUI mode the hand-built pill
-    // isn't shown, so this is the only way to change tone. We read/write the
-    // SAME SharedPreferences the hand-built pill + IME use ("tulmi_kb"/"tone")
-    // so the two stay in lockstep and the IME's refine path sees the selection.
-
-    private fun toneStore() =
-        host.context().getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
-
-    private fun currentTone(): String = toneStore().getString("tone", "Neutral") ?: "Neutral"
-
-    /** Tones from backend flag `kb.tones` (comma-separated) or a default set —
-     *  mirrors iOS configuredTones(). */
-    private fun configuredTones(): List<String> {
-        (kbConfig.flags["kb.tones"] as? String)?.let { raw ->
-            val parts = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            if (parts.isNotEmpty()) return parts
-        }
-        return listOf("Neutral", "Casual", "Formal", "Excited")
-    }
+    // on.onPress == { kind: "cycleTone" }. What it cycles, what it shows and
+    // how a pick is saved all live in TulmiTone: the server's pinned voices
+    // then its tones, in the server's order, saved locally for the next refine
+    // and sent to PUT /v1/personality.
 
     private fun cycleTone() {
-        val tones = configuredTones()
-        val idx = tones.indexOf(currentTone())
-        val next = tones[(idx + 1) % tones.size.coerceAtLeast(1)]
-        toneStore().edit().putString("tone", next).apply()
-        host.onStateChanged() // re-render → the tone pill re-reads currentTone()
+        val items = TulmiTone.items(kbConfig.flags)
+        if (items.isEmpty()) return
+        val cur = TulmiTone.current(host.context(), kbConfig.flags)
+        val next = items[(items.indexOf(cur) + 1) % items.size]
+        pickTone(next)
+    }
+
+    private fun pickTone(item: TulmiTone.Item) {
+        TulmiTone.select(host.context(), kbConfig.flags, item)
+        refreshTone()
+        host.onStateChanged() // re-render → the tone pill shows the new label
+    }
+
+    /**
+     * Hold the pill → every voice and tone at once, the active ones ticked in
+     * kb.tone.sheet.accent. A plain menu anchored on the pill: it cannot be
+     * clipped by the keyboard's frame and needs no overlay of our own.
+     */
+    private fun showToneSheet(anchor: View) {
+        val ctx = host.context()
+        val voices = TulmiTone.voices(kbConfig.flags)
+        val tones = TulmiTone.tones(kbConfig.flags)
+        if (voices.isEmpty() && tones.isEmpty()) return
+        val activeVoice = TulmiTone.activeVoiceId(ctx, kbConfig.flags)
+        val activeTone = TulmiTone.activeToneId(ctx, kbConfig.flags)
+        val accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+        val popup = android.widget.PopupMenu(ctx, anchor)
+        val picks = ArrayList<TulmiTone.Item>()
+        var order = 0
+        fun header(text: String) {
+            if (text.isEmpty()) return
+            popup.menu.add(0, android.view.Menu.NONE, order++, text).isEnabled = false
+        }
+        fun entry(item: TulmiTone.Item, active: Boolean) {
+            picks += item
+            val title: CharSequence = if (active) {
+                android.text.SpannableString("${item.label}  \u2713").apply {
+                    setSpan(android.text.style.ForegroundColorSpan(accent), 0, length, 0)
+                }
+            } else item.label
+            // Ids start at 1: Menu.NONE (0) is the headers'.
+            popup.menu.add(0, picks.size, order++, title)
+        }
+        if (voices.isNotEmpty()) {
+            header(label("tone_sheet_voices", "Voices"))
+            voices.forEach { entry(it, it.id == activeVoice) }
+            header(label("tone_sheet_tones", "Tones"))
+        }
+        tones.forEach { entry(it, it.id == activeTone) }
+        popup.setOnMenuItemClickListener { mi ->
+            picks.getOrNull(mi.itemId - 1)?.let { pickTone(it) }
+            true
+        }
+        try { popup.show() } catch (t: Throwable) { Log.w("SDUI", "tone sheet failed: ${t.message}") }
     }
 
     /** Look back for a word boundary and delete that many chars. */
@@ -1727,7 +2231,7 @@ class SDUIRenderer(
     }
 
     private fun openApp(screenId: String?) {
-        val uri = Uri.parse("tulmi://screen/${screenId ?: ""}")
+        val uri = Uri.parse(flagString("kb.deeplink.base", "tulmi://screen/") + (screenId ?: ""))
         val i = Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -1765,17 +2269,55 @@ class SDUIRenderer(
         }
     }
 
-    /** Transient message. Android's system Toast is the pragmatic equivalent of
-     *  iOS's in-keyboard toast label; `tone` has no visual treatment here. */
-    private fun toast(message: String, @Suppress("UNUSED_PARAMETER") tone: String) {
+    /** The toast on screen, so a rebuild can carry it over (see redraw). */
+    private var toastView: TextView? = null
+
+    /**
+     * Transient message, drawn IN the keyboard like iOS's toast label and styled
+     * by kb.toast.*: colour by tone (error / success / info), size, position,
+     * and its fade-in / hold / fade-out timings. The system Toast it replaces
+     * appeared over the host app, in the system's style, with none of that
+     * under the server's control.
+     */
+    private fun toast(message: String, tone: String) {
         if (message.isEmpty()) return
-        try {
-            android.widget.Toast.makeText(
-                host.context(), message, android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        } catch (t: Throwable) {
-            Log.w("SDUI", "toast failed: ${t.message}")
+        val ctx = host.context()
+        toastView?.let { old -> old.animate().cancel(); (old.parent as? ViewGroup)?.removeView(old) }
+        val heightPx = dp(flagFloat("kb.toast.height", 32f))
+        val bg = when (tone) {
+            "error" -> flagColor("kb.toast.color.error", "#FF3B30E6")
+            "success" -> flagColor("kb.toast.color.success", "#34C759E6")
+            else -> flagColor("kb.toast.color.info", "#000000D9")
         }
+        val tv = TextView(ctx).apply {
+            text = message
+            isAllCaps = false
+            maxLines = 1
+            gravity = android.view.Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, flagFloat("kb.toast.fontSize", 13f))
+            applyFontWeight(this, "medium")
+            setPadding(dp(14), 0, dp(14), 0)
+            background = GradientDrawable().apply { setColor(bg); cornerRadius = heightPx / 2f }
+            alpha = 0f
+            isClickable = false
+        }
+        val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, heightPx).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL
+            // Negative offsetY = above the bottom edge, as on iOS.
+            bottomMargin = dp(-flagFloat("kb.toast.offsetY", -18f))
+        }
+        tv.layoutParams = lp
+        container.addView(tv, lp)
+        toastView = tv
+        val hold = flagFloat("kb.toast.durationMs", 2000f).toLong()
+        val fadeOut = flagFloat("kb.toast.fadeOutMs", 250f).toLong()
+        tv.animate().alpha(1f).setDuration(flagFloat("kb.toast.fadeInMs", 180f).toLong()).withEndAction {
+            tv.animate().alpha(0f).setStartDelay(hold).setDuration(fadeOut).withEndAction {
+                (tv.parent as? ViewGroup)?.removeView(tv)
+                if (toastView === tv) toastView = null
+            }.start()
+        }.start()
     }
 
     private fun copyToClipboard(text: String) {
@@ -1812,15 +2354,17 @@ class SDUIRenderer(
     private fun callEndpoint(spec: KBActionSpec.CallEndpoint) {
         val urlStr = Net.baseUrl + spec.path
         val bodyStr = jsonBody(spec.body)
+        val timeoutMs = flagFloat("kb.network.timeoutMs", 15000f).toInt()
         Thread {
             var ok = false
             var respText: String? = null
             try {
                 val conn = (java.net.URL(urlStr).openConnection() as java.net.HttpURLConnection).apply {
                     requestMethod = spec.method.uppercase()
-                    connectTimeout = 15000
-                    readTimeout = 15000
-                    setRequestProperty("Authorization", "Bearer ${Net.bearer()}")
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    // Token (when there is one) + the build header, as every Net call.
+                    Net.authorize(this)
                     setRequestProperty("Content-Type", "application/json")
                 }
                 if (bodyStr != null && conn.requestMethod != "GET") {
@@ -1887,10 +2431,15 @@ class SDUIRenderer(
     private fun hapticsOn(keyId: String?): Boolean {
         if (flagBoolean("kb.haptics.all", false)) return true
         val id = keyId?.lowercase() ?: return false
-        val map = kbConfig.flags["kb.haptics.keys"] as? Map<*, *> ?: return false
         // Lowercased on BOTH sides — the picker writes "q", the shifted key
         // reports "Q", and a case mismatch would silently drop the setting.
-        return map[id] == true
+        // org.json hands the object over as a JSONObject; the Map cast alone
+        // never matched, so no individually picked key ever buzzed.
+        return when (val keys = kbConfig.flags["kb.haptics.keys"]) {
+            is JSONObject -> keys.optBoolean(id, false)
+            is Map<*, *> -> keys[id] == true
+            else -> false
+        }
     }
 
     /** The name a key is known by in kb.haptics.keys — what it types, or its
@@ -1906,9 +2455,22 @@ class SDUIRenderer(
         else -> raw
     }
 
+    /**
+     * Key feedback. kb.haptics.enabled is the kill switch above the user's own
+     * choices; kb.haptics.style picks the feel — "selection" (the keyboard
+     * tick), "light" / "soft", "medium", "heavy" / "rigid" — mapped onto the
+     * closest Android feedback constants.
+     */
     private fun hapticTap(v: View, keyId: String? = null) {
+        if (!flagBoolean("kb.haptics.enabled", true)) return
         if (!hapticsOn(keyId)) return
-        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        val constant = when (flagString("kb.haptics.style", "selection").lowercase()) {
+            "light", "soft" -> HapticFeedbackConstants.CLOCK_TICK
+            "medium" -> HapticFeedbackConstants.VIRTUAL_KEY
+            "heavy", "rigid" -> HapticFeedbackConstants.LONG_PRESS
+            else -> HapticFeedbackConstants.KEYBOARD_TAP
+        }
+        v.performHapticFeedback(constant)
     }
 
     // -----------------------------------------------------------------------
@@ -1964,7 +2526,9 @@ class SDUIRenderer(
         val tail = parts.drop(1)
         return when (head) {
             "state" -> lookupState(tail)
-            "flags" -> if (tail.isNotEmpty()) kbConfig.flags[tail.first()] else null
+            // Flag keys are dotted themselves ("kb.quota.status"), so the whole
+            // tail is the key — reading only its first segment found nothing.
+            "flags" -> if (tail.isNotEmpty()) kbConfig.flags[tail.joinToString(".")] else null
             "config" -> null // reserved, not exposed
             else -> lookupState(parts) // treat unqualified as state.*
         }
@@ -1986,6 +2550,17 @@ class SDUIRenderer(
             "status" -> s.status
             "micLevel" -> s.micLevel
             "suggestions" -> s.suggestions
+            "hasSuggestions" -> s.suggestions.isNotEmpty()
+            "returnLabel" -> returnKeyLabel()
+            "returnAction" -> s.returnAction
+            "tone" -> toneLabel
+            // quota.status is the words-out message; any other quota.<x> reads
+            // the server's kb.quota.<x> flag (exhausted, screenId, …).
+            "quota" -> when (val k = parts.drop(1).joinToString(".")) {
+                "" -> null
+                "status" -> quotaStatus()
+                else -> kbConfig.flags["kb.quota.$k"]
+            }
             // Backend scratch dict: state.user.<key>. Dotted keys rejoin so
             // state.user.a.b resolves user["a.b"] (what setState wrote).
             "user" -> if (parts.size > 1) s.user[parts.drop(1).joinToString(".")] else null
@@ -1993,12 +2568,22 @@ class SDUIRenderer(
         }
     }
 
+    /** What to say when the free words are gone: the server's kb.quota.status
+     *  when it sends one, else the words_out_status label. */
+    private fun quotaStatus(): String =
+        flagString("kb.quota.status", "").ifBlank {
+            label("words_out_status", "Out of free words \u2014 open Tailzu to get more.")
+        }
+
     // -----------------------------------------------------------------------
     // Small util
     // -----------------------------------------------------------------------
 
     private fun dp(v: Int): Int =
         (v * host.context().resources.displayMetrics.density).toInt()
+
+    private fun dp(v: Float): Int =
+        Math.round(v * host.context().resources.displayMetrics.density)
 
     private fun ViewGroup.isHorizontal(): Boolean =
         this is LinearLayout && this.orientation == LinearLayout.HORIZONTAL
@@ -2876,6 +3461,18 @@ class SDUIRenderer(
             style = Paint.Style.FILL
         }
 
+        // The physics, from the server (read once per view — onDraw runs every
+        // frame). Defaults are the numbers this sim shipped with.
+        private val burstSpeedMin = knobFloat("kb.mic.particles.speedMin", 55f)
+        private val burstSpeedRange = knobFloat("kb.mic.particles.speedRange", 55f)
+        private val wanderDrag = knobFloat("kb.mic.particles.drag", 0.985f)
+        private val wanderMinSpeed = knobFloat("kb.mic.particles.minSpeed", 13f)
+        private val homeStiffness = knobFloat("kb.mic.particles.stiffness", 26f)
+        private val homeDamping = knobFloat("kb.mic.particles.damping", 0.8f)
+        private val homeMaxSec = knobFloat("kb.mic.particles.reassembleMaxMs", 600f) / 1000f
+        private val homeSnapPx = knobFloat("kb.mic.particles.snapPx", 0.8f)
+        private val markAlphaMin = knobInt("kb.mic.particles.alphaThreshold", 90)
+
         private enum class Mode { DISPERSE, REASSEMBLE }
         private var mode = Mode.DISPERSE
         private val targets = ArrayList<PointF>()   // home points during REASSEMBLE
@@ -2940,7 +3537,7 @@ class SDUIRenderer(
             val j = rnd.nextFloat() - 0.5f
             val rx = dx * kotlin.math.cos(j) - dy * kotlin.math.sin(j)
             val ry = dx * kotlin.math.sin(j) + dy * kotlin.math.cos(j)
-            val speed = 55f + rnd.nextFloat() * 55f            // 55..110 px/s
+            val speed = burstSpeedMin + rnd.nextFloat() * burstSpeedRange   // 55..110 px/s shipped
             return PointF(rx * speed, ry * speed)
         }
 
@@ -2990,7 +3587,7 @@ class SDUIRenderer(
                 var x = 0
                 while (x < sw) {
                     val a = (pix[y * sw + x] ushr 24) and 0xff       // alpha channel
-                    if (a > 90) all.add(PointF(ox + (x + 0.5f) * scale, oy + (y + 0.5f) * scale))
+                    if (a > markAlphaMin) all.add(PointF(ox + (x + 0.5f) * scale, oy + (y + 0.5f) * scale))
                     x++
                 }
                 y++
@@ -3048,7 +3645,7 @@ class SDUIRenderer(
                     }
                 }
             }
-            val drag = 0.985f; val minSpeed = 13f
+            val drag = wanderDrag; val minSpeed = wanderMinSpeed
             for (d in dots) {
                 d.vx *= drag; d.vy *= drag
                 val s = kotlin.math.sqrt(d.vx * d.vx + d.vy * d.vy)
@@ -3059,7 +3656,7 @@ class SDUIRenderer(
         /** Stopping: damped spring to home points, then snap + hand off. */
         private fun stepReassemble(dt: Float) {
             reassembleElapsed += dt
-            val stiffness = 26f; val damping = 0.80f
+            val stiffness = homeStiffness; val damping = homeDamping
             var maxDist = 0f
             for (i in dots.indices) {
                 val d = dots[i]
@@ -3071,7 +3668,7 @@ class SDUIRenderer(
                 val dd = kotlin.math.sqrt(toX * toX + toY * toY)
                 if (dd > maxDist) maxDist = dd
             }
-            if (!reassembleFinished && (maxDist < 0.8f || reassembleElapsed > 0.6f)) {
+            if (!reassembleFinished && (maxDist < homeSnapPx || reassembleElapsed > homeMaxSec)) {
                 for (i in dots.indices) {
                     val t = if (targets.isEmpty()) PointF(midX, midY) else targets[i % targets.size]
                     dots[i].x = t.x; dots[i].y = t.y
@@ -3097,36 +3694,43 @@ class SDUIRenderer(
     private class WaveformView(
         ctx: Context,
         private val barCount: Int,
-        private val color: Int,
+        color: Int,
+        private val radiusPx: Float,
+        private val spacingPx: Float,
+        private val levelMultiplier: Float,
+        private val baselineMin: Float,
+        baselineMax: Float,
+        fps: Float,
         private val levelProvider: () -> Float,
         private val activeProvider: () -> Boolean,
     ) : View(ctx) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this@apply.color = this@WaveformView.color
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        private val rnd = java.util.Random()
+        /** Each bar's resting height, 0..1 of the view — the iOS waveform's
+         *  shape: a quiet uneven row that the voice lifts. */
+        private val baselines = FloatArray(barCount.coerceAtLeast(1)) {
+            baselineMin + rnd.nextFloat() * (maxOf(baselineMin, baselineMax) - baselineMin)
         }
+        /** Repaint cadence while live; 60 or more follows the display. */
+        private val frameMs: Long = if (fps >= 60f || fps <= 0f) 0L else (1000f / fps).toLong()
 
         override fun onDraw(canvas: Canvas) {
-            val level = levelProvider().coerceIn(0f, 1f)
             val w = width.toFloat()
             val h = height.toFloat()
-            val slot = w / barCount
-            val barW = slot * 0.45f
-            for (i in 0 until barCount) {
-                val phase = (i.toFloat() / barCount) * Math.PI.toFloat() * 2f
-                val jitter = (0.5f + 0.5f * kotlin.math.sin(phase + level * 6f))
-                val barH = h * (0.1f + 0.85f * level * jitter)
-                val cx = slot * i + slot / 2f
-                canvas.drawRoundRect(
-                    cx - barW / 2f,
-                    (h - barH) / 2f,
-                    cx + barW / 2f,
-                    (h + barH) / 2f,
-                    barW / 2f,
-                    barW / 2f,
-                    paint,
-                )
+            if (w <= 0f || h <= 0f) return
+            val level = levelProvider().coerceIn(0f, 1f)
+            val n = baselines.size
+            val barW = maxOf(1.5f, (w - spacingPx * (n - 1)) / n)
+            for (i in 0 until n) {
+                val jitter = (rnd.nextFloat() - 0.5f) * 0.1f
+                val bh = (h * (baselines[i] + level * levelMultiplier + jitter)).coerceIn(2f, h)
+                val x = i * (barW + spacingPx)
+                val y = (h - bh) / 2f
+                canvas.drawRoundRect(x, y, x + barW, y + bh, radiusPx, radiusPx, paint)
             }
-            if (activeProvider()) postInvalidateOnAnimation()
+            if (activeProvider()) {
+                if (frameMs == 0L) postInvalidateOnAnimation() else postInvalidateDelayed(frameMs)
+            }
         }
     }
 
@@ -3142,7 +3746,10 @@ class SDUIRenderer(
          * Deliberately its own series: this keyboard is not a port of the iOS
          * one and its stamps should never be read as tracking K-numbers.
          */
-        const val BUILD_STAMP = "A1"
+        const val BUILD_STAMP = "A2"
+
+        /** Tag on suggestion chips, so nothing mistakes a one-letter chip for a key. */
+        const val CHIP_TAG = "tulmi.chip"
 
         /** True iff the raw JSON opts in to SDUI and ships a root tree. */
         fun isSDUI(rawJson: String): Boolean {
@@ -3157,18 +3764,11 @@ class SDUIRenderer(
 
         fun parseKBConfig(rawJson: String): KBConfig {
             val o = JSONObject(rawJson)
-            val t = o.optJSONObject("theme") ?: JSONObject()
-            val theme = KBTheme(
-                background = t.optString("background", "#15151b"),
-                key = t.optString("key", "#2b2b33"),
-                keyText = t.optString("keyText", "#ffffff"),
-                accent = t.optString("accent", "#ffffff"),
-                keyPressed = t.optString("keyPressed", "#3a3a45"),
-                backgroundEffect = parseEffect(t.optJSONObject("backgroundEffect")),
-                keyEffect = parseEffect(t.optJSONObject("keyEffect")),
-                keyRadius = t.optDouble("keyRadius", 6.0).toFloat(),
-                keyShadow = t.optBoolean("keyShadow", false),
-            )
+            val theme = parseTheme(o.optJSONObject("theme") ?: JSONObject())
+            // The appearance-specific themes. Parsed in full, each on its own —
+            // a theme the server did not send stays null and `theme` stands in.
+            val themeDark = o.optJSONObject("themeDark")?.let { parseTheme(it) }
+            val themeLight = o.optJSONObject("themeLight")?.let { parseTheme(it) }
             val featObj = o.optJSONObject("features") ?: JSONObject()
             val features = HashMap<String, Boolean>()
             for (k in featObj.keys()) features[k] = featObj.optBoolean(k, false)
@@ -3210,8 +3810,22 @@ class SDUIRenderer(
                 layouts = layouts,
                 root = root,
                 actions = actions,
+                themeDark = themeDark,
+                themeLight = themeLight,
             )
         }
+
+        private fun parseTheme(t: JSONObject): KBTheme = KBTheme(
+            background = t.optString("background", "#15151b"),
+            key = t.optString("key", "#2b2b33"),
+            keyText = t.optString("keyText", "#ffffff"),
+            accent = t.optString("accent", "#ffffff"),
+            keyPressed = t.optString("keyPressed", "#3a3a45"),
+            backgroundEffect = parseEffect(t.optJSONObject("backgroundEffect")),
+            keyEffect = parseEffect(t.optJSONObject("keyEffect")),
+            keyRadius = t.optDouble("keyRadius", 6.0).toFloat(),
+            keyShadow = t.optBoolean("keyShadow", false),
+        )
 
         private fun parseEffect(o: JSONObject?): KBEffect? {
             if (o == null) return null

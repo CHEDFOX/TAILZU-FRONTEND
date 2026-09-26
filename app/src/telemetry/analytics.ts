@@ -7,18 +7,20 @@
  */
 import Constants from "expo-constants";
 import PostHog from "posthog-react-native";
+import { bool, str } from "../sdui/knobs";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const API_KEY = extra.posthogApiKey ?? "";
-const HOST = extra.posthogHost ?? "https://us.i.posthog.com";
 
 let client: PostHog | null = null;
 let inited = false;
 let queue: Array<() => void> = [];
 
 export async function initAnalytics(): Promise<void> {
-  if (inited || !API_KEY) return;
+  if (inited || !API_KEY || !bool("analytics.enabled", true)) return;
   inited = true;
+  // The build's host wins when it names one; otherwise the server's.
+  const HOST = extra.posthogHost ?? str("analytics.posthogHost", "https://us.i.posthog.com");
   try {
     // posthog-react-native 3+ instantiates directly — the old static
     // initAsync helper is gone. Constructor is sync; the class handles its

@@ -23,6 +23,7 @@
  * Collapsing that distinction here is how one of those two would end up wrong.
  */
 import { getKeyboardStatus } from "../../modules/tulmi-bridge";
+import { num } from "../sdui/knobs";
 
 export type DeviceSignals = {
   /** Null when the native bridge is absent (Expo Go, or a failed link). */
@@ -76,7 +77,7 @@ export async function refreshDeviceSignals(): Promise<DeviceSignals> {
  * is "nothing granted" — the conservative reading, showing a step that may not
  * be needed rather than skipping one that is.
  */
-export async function refreshDeviceSignalsBounded(ms = 500): Promise<DeviceSignals> {
+export async function refreshDeviceSignalsBounded(ms = num("device.signalsTimeoutMs", 500)): Promise<DeviceSignals> {
   return Promise.race([
     refreshDeviceSignals(),
     new Promise<DeviceSignals>((r) => setTimeout(() => r(snapshot), ms)),

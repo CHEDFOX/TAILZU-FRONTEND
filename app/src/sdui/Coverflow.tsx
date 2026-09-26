@@ -45,6 +45,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, PanResponder, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 /** Last centred card, per deck name. See `memory` below. */
 const DECK_MEMORY = new Map<string, number>();
@@ -53,27 +54,37 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
   const cards = React.Children.toArray(children);
   const n = cards.length;
 
-  const cardWidth = Number(props?.cardWidth) || 164;
-  const cardHeight = Number(props?.cardHeight) || 118;
+  // Every default is a ui.Coverflow.* knob; a node's own prop still wins.
+  const cardWidth = Number(props?.cardWidth) || K.num("ui.Coverflow.cardWidth", 164);
+  const cardHeight = Number(props?.cardHeight) || K.num("ui.Coverflow.cardHeight", 118);
   /** Distance between neighbouring card centres. Less than the card's width, so
    *  the deck overlaps and reads as a stack rather than a row. */
-  const step = Number(props?.step) || Math.round(cardWidth * 0.72);
+  const step = Number(props?.step) || Math.round(cardWidth * K.num("ui.Coverflow.stepRatio", 0.72));
   /** Degrees a card is turned at one card out. */
-  const rotation = props?.rotation !== undefined ? Number(props.rotation) : 38;
+  const rotation = props?.rotation !== undefined ? Number(props.rotation) : K.num("ui.Coverflow.rotation", 38);
   /** How far it recedes at one card out, in points. */
-  const depth = props?.depth !== undefined ? Number(props.depth) : 132;
+  const depth = props?.depth !== undefined ? Number(props.depth) : K.num("ui.Coverflow.depth", 132);
   /** Lower is a stronger lens — more foreshortening on the side cards. */
-  const perspective = Number(props?.perspective) || 760;
+  const perspective = Number(props?.perspective) || K.num("ui.Coverflow.perspective", 760);
   /** How much a card shrinks and fades per card out. */
-  const shrink = props?.shrink !== undefined ? Number(props.shrink) : 0.06;
-  const fade = props?.fade !== undefined ? Number(props.fade) : 0.3;
+  const shrink = props?.shrink !== undefined ? Number(props.shrink) : K.num("ui.Coverflow.shrink", 0.06);
+  const fade = props?.fade !== undefined ? Number(props.fade) : K.num("ui.Coverflow.fade", 0.3);
+  /** The faintest a far card may get. */
+  const minOpacity = Number(props?.minOpacity ?? K.num("ui.Coverflow.minOpacity", 0.1));
   /** The settle. Stiffness and damping, not a duration — a throw has to carry
    *  its speed into the stop or the deck feels like it is on rails. */
-  const stiffness = Number(props?.stiffness) || 140;
-  const damping = Number(props?.damping) || 18;
-  const mass = Number(props?.mass) || 0.9;
+  const stiffness = Number(props?.stiffness) || K.num("ui.Coverflow.stiffness", 140);
+  const damping = Number(props?.damping) || K.num("ui.Coverflow.damping", 18);
+  const mass = Number(props?.mass) || K.num("ui.Coverflow.mass", 0.9);
   /** How far a flick is projected when choosing where to land, in cards. */
-  const throwFactor = props?.throwFactor !== undefined ? Number(props.throwFactor) : 0.9;
+  const throwFactor = props?.throwFactor !== undefined ? Number(props.throwFactor) : K.num("ui.Coverflow.throwFactor", 0.9);
+  /** How hard the deck resists past either end: the share of the finger's
+   *  travel it still follows. 1 is no resistance, 0 a wall. */
+  const rubberBand = Number(props?.rubberBand ?? K.num("ui.Coverflow.rubberBand", 0.35));
+  /** Points of travel under which a release is a tap, and over which a
+   *  horizontal move is claimed as a drag. */
+  const tapSlop = Number(props?.tapSlop ?? K.num("ui.Coverflow.tapSlop", 6));
+  const panSlop = Number(props?.panSlop ?? K.num("ui.Coverflow.panSlop", 4));
   /**
    * A TAP ON A SIDE CARD BRINGS IT IN; IT DOES NOT OPEN IT.
    *
@@ -88,7 +99,11 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
    * the answer should be changeable without a release. false restores the old
    * behaviour, where any tap opens.
    */
-  const tapToCentre = props?.tapToCentre !== undefined ? !!props.tapToCentre : true;
+  const tapToCentre = props?.tapToCentre !== undefined ? !!props.tapToCentre : K.bool("ui.Coverflow.tapToCentre", true);
+
+  // The PanResponder below is built once; it reads the live feel through this.
+  const feel = useRef({ step, rubberBand, tapSlop, panSlop, tapToCentre, throwFactor });
+  feel.current = { step, rubberBand, tapSlop, panSlop, tapToCentre, throwFactor };
 
   /**
    * WHERE THE DECK WAS LEFT.
@@ -155,20 +170,22 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
   const pan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > feel.current.panSlop && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderGrant: () => { dragFrom.current = posNow.current; moved.current = 0; },
       onPanResponderMove: (_, g) => {
         moved.current = Math.max(moved.current, Math.abs(g.dx));
-        let next = dragFrom.current - g.dx / step;
+        const band = feel.current.rubberBand;
+        let next = dragFrom.current - g.dx / feel.current.step;
         // Rubber band past the ends — the deck resists rather than stopping
         // dead, which is the difference between a limit and a fault.
-        if (next < 0) next *= 0.35;
-        if (next > n - 1) next = (n - 1) + (next - (n - 1)) * 0.35;
+        if (next < 0) next *= band;
+        if (next > n - 1) next = (n - 1) + (next - (n - 1)) * band;
         pos.setValue(next);
       },
       onPanResponderRelease: (_, g) => {
+        const step = feel.current.step;
         // A tap, not a throw: work out which card from where the finger was.
-        if (moved.current <= 6) {
+        if (moved.current <= feel.current.tapSlop) {
           const fromCentre = (g.x0 - width.current / 2) / step;
           const i = Math.max(0, Math.min(n - 1, Math.round(posNow.current + fromCentre)));
           // Which card is centred RIGHT NOW. Rounded off the live position
@@ -176,7 +193,7 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
           // against where the deck is actually going to stop.
           const centred = Math.max(0, Math.min(n - 1, Math.round(posNow.current)));
           settle(i);
-          if (tapToCentre && i !== centred) {
+          if (feel.current.tapToCentre && i !== centred) {
             // Bringing a card in is a move, not a choice. Selection feedback,
             // and onChange will fire from the settle as it arrives.
             Haptics.selectionAsync().catch(() => {});
@@ -191,7 +208,7 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
         }
         // Where the throw was heading. vx is points per ms; one card per flick
         // unless it was hard.
-        settle(Math.round(posNow.current - (g.vx * 1000 * throwFactor) / step));
+        settle(Math.round(posNow.current - (g.vx * 1000 * feel.current.throwFactor) / step));
       },
       onPanResponderTerminate: () => settle(Math.round(posNow.current)),
     }),
@@ -249,7 +266,7 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
         });
         const opacity = pos.interpolate({
           inputRange: [i - 3, i, i + 3],
-          outputRange: [Math.max(0.1, 1 - fade * 3), 1, Math.max(0.1, 1 - fade * 3)],
+          outputRange: [Math.max(minOpacity, 1 - fade * 3), 1, Math.max(minOpacity, 1 - fade * 3)],
           extrapolate: "clamp",
         });
         return (

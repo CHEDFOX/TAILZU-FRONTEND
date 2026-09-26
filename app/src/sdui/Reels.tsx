@@ -21,6 +21,7 @@ import React, { useCallback, useRef, useState } from "react";
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 export const Reels = ({ props, style, children, fire }: CompProps): React.ReactElement => {
   const reels = React.Children.toArray(children);
@@ -30,7 +31,7 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
   const index = useRef(0);
   /** A tick as each reel arrives. The pages look alike, so the change wants
    *  confirming by touch as well as by sight. */
-  const haptic = props?.haptic !== false;
+  const haptic = props?.haptic !== undefined ? props.haptic !== false : K.bool("ui.Reels.haptic", true);
   /**
    * PAGING, as a choice rather than a fact of the component.
    *
@@ -38,11 +39,11 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
    * bottom has a bottom row nobody can tap — and wrong for a reel of text,
    * where snapping fights the reader. It was neither: it was compiled in.
    */
-  const paging = props?.paging !== false;
-  const decel = props?.decelerationRate === "normal" ? "normal" : "fast";
+  const paging = props?.paging !== undefined ? props.paging !== false : K.bool("ui.Reels.paging", true);
+  const decel = (props?.decelerationRate ?? K.str("ui.Reels.decelerationRate", "fast")) === "normal" ? "normal" : "fast";
   /** Where each reel sits in its page. "center" unless a screen says otherwise. */
-  const align = String(props?.align ?? "center");
-  const showsIndicator = props?.showsIndicator === true;
+  const align = String(props?.align ?? K.str("ui.Reels.align", "center"));
+  const showsIndicator = props?.showsIndicator !== undefined ? props.showsIndicator === true : K.bool("ui.Reels.showsIndicator", false);
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;

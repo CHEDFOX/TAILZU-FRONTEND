@@ -48,9 +48,13 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { View } from "react-native";
 import { WebView } from "react-native-webview";
 import { TURNSTILE } from "./authConfig";
+import { num, str } from "../sdui/knobs";
 
-/** How long a solve may take before the caller gives up and sends without one. */
-const SOLVE_TIMEOUT_MS = 8000;
+/** The widget's script. https only: this is code the WebView will run. */
+function scriptUrl(): string {
+  const u = str("auth.turnstile.scriptUrl", "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit");
+  return /^https:\/\/[^"'<>\s]+$/.test(u) ? u : "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+}
 
 type Waiter = (token: string | undefined) => void;
 
@@ -88,7 +92,8 @@ export function solveCaptcha(): Promise<string | undefined> {
       clearTimeout(timer);
       resolve(t);
     };
-    const timer = setTimeout(() => done(undefined), SOLVE_TIMEOUT_MS);
+    // How long a solve may take before the caller gives up and sends without one.
+    const timer = setTimeout(() => done(undefined), num("auth.turnstile.timeoutMs", 8000));
     waiting.set(id, done);
     ask!(id);
   });
@@ -108,7 +113,7 @@ export function solveCaptcha(): Promise<string | undefined> {
 function page(siteKey: string): string {
   return `<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script src="${scriptUrl()}" async defer></script>
 <style>html,body{margin:0;background:transparent}</style>
 </head><body><div id="w"></div>
 <script>

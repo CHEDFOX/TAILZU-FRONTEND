@@ -12,10 +12,9 @@
  * should not be shown it twice for one id.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { num } from "./knobs";
 
 const KEY = "tulmi.launchCard.seen";
-/** Enough for years of announcements; oldest fall off the front. */
-const MAX_REMEMBERED = 40;
 
 async function read(): Promise<string[]> {
   try {
@@ -39,7 +38,9 @@ export async function markCardSeen(id: string): Promise<void> {
   try {
     const list = await read();
     if (list.includes(id)) return;
-    await AsyncStorage.setItem(KEY, JSON.stringify([...list, id].slice(-MAX_REMEMBERED)));
+    // Enough for years of announcements; oldest fall off the front.
+    const max = Math.max(1, num("launchCard.maxRemembered", 40));
+    await AsyncStorage.setItem(KEY, JSON.stringify([...list, id].slice(-max)));
   } catch {
     // A card shown again on the next open is the cost of a failed write, and
     // it is not worth a crash on app start.

@@ -43,6 +43,7 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 /**
  * The collapse, as explicit stops rather than an easing curve.
@@ -57,14 +58,27 @@ import type { CompProps } from "./components";
  * is so flat at the start that the plate sits still for 300ms and then
  * disappears in 100, which reads as a stall followed by a cut.
  */
-const COLLAPSE_IN =  [0, 0.16, 0.40, 0.62, 0.80, 1];
-const COLLAPSE_OUT = [1, 1.045, 0.88, 0.62, 0.32, 0];
-/** Where the gather ends. Travel, when a caller aims, starts here. */
-const WINDUP = 0.16;
+// The stops, and the wind-up, are the server's: the node's props first
+// (collapseIn / collapseOut / windup), then the ui.MorphOut.* knobs, then the
+// shape described above.
+const collapseIn = () => K.list<number>("ui.MorphOut.collapseIn", [0, 0.16, 0.40, 0.62, 0.80, 1]);
+const collapseOut = () => K.list<number>("ui.MorphOut.collapseOut", [1, 1.045, 0.88, 0.62, 0.32, 0]);
 
 export function MorphOut({ props, style, children }: CompProps): React.ReactElement {
   const active = props.active === true;
-  const durationMs = Number(props.durationMs) || 560;
+  const durationMs = Number(props.durationMs) || K.num("ui.MorphOut.durationMs", 560);
+  /** Where the gather ends. Travel, when a caller aims, starts here. */
+  const WINDUP = Number(props.windup ?? K.num("ui.MorphOut.windup", 0.16));
+  /** Where the late fade starts, 0..1 of the run. */
+  const fadeAt = Number(props.fadeAt ?? K.num("ui.MorphOut.fadeAt", 0.82));
+  let COLLAPSE_IN: number[] = Array.isArray(props.collapseIn) ? props.collapseIn.map(Number) : collapseIn();
+  let COLLAPSE_OUT: number[] = Array.isArray(props.collapseOut) ? props.collapseOut.map(Number) : collapseOut();
+  // Two lists that do not pair up cannot be interpolated; the shape above
+  // stands in rather than the plate failing to leave at all.
+  if (COLLAPSE_IN.length < 2 || COLLAPSE_IN.length !== COLLAPSE_OUT.length) {
+    COLLAPSE_IN = [0, 0.16, 0.40, 0.62, 0.80, 1];
+    COLLAPSE_OUT = [1, 1.045, 0.88, 0.62, 0.32, 0];
+  }
   // Aim, for a caller that has a real target. Zero — collapse in place — is the
   // right default precisely because the intro's destination cannot be located.
   const dx = Number(props.dx) || 0;
@@ -91,7 +105,7 @@ export function MorphOut({ props, style, children }: CompProps): React.ReactElem
     }).start();
   }, [active, durationMs, p]);
 
-  const size = Number((style as { width?: number } | undefined)?.width) || 128;
+  const size = Number((style as { width?: number } | undefined)?.width) || K.num("ui.MorphOut.size", 128);
 
   // Gather, then collapse — the whole shape, in one interpolation.
   const scale = p.interpolate({
@@ -123,7 +137,7 @@ export function MorphOut({ props, style, children }: CompProps): React.ReactElem
           // Held at full opacity for most of the travel: fading early turns
           // the move into a dissolve, and a dissolve is exactly the "two
           // separate things" reading this exists to remove.
-          opacity: p.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1, 1, 0] }),
+          opacity: p.interpolate({ inputRange: [0, fadeAt, 1], outputRange: [1, 1, 0] }),
         },
       ]}
     >

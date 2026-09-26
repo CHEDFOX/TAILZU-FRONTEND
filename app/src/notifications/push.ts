@@ -14,7 +14,8 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
-import { callEndpoint } from "../sdui/client";
+import { APP_VERSION, callEndpoint } from "../sdui/client";
+import { bool, str, txt } from "../sdui/knobs";
 
 const expoProjectId =
   (Constants.expoConfig?.extra as any)?.eas?.projectId ??
@@ -25,11 +26,11 @@ const expoProjectId =
 // the app is foregrounded. Can be overridden by feature-specific handlers.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowAlert: bool("push.foreground.showAlert", true),
+    shouldPlaySound: bool("push.foreground.playSound", true),
+    shouldSetBadge: bool("push.foreground.setBadge", true),
+    shouldShowBanner: bool("push.foreground.showBanner", true),
+    shouldShowList: bool("push.foreground.showList", true),
   }),
 });
 
@@ -42,8 +43,8 @@ export async function registerForPushToken(): Promise<string | null> {
 
     // Android needs a notification channel or the OS never displays pushes.
     if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
-        name: "General",
+      await Notifications.setNotificationChannelAsync(str("push.android.channelId", "default"), {
+        name: txt("push.android.channelName", "General"),
         importance: Notifications.AndroidImportance.DEFAULT,
         sound: "default",
       });
@@ -60,10 +61,12 @@ export async function registerForPushToken(): Promise<string | null> {
     // registration is retried on the next call this session instead of being
     // suppressed by the dedupe guard above.
     try {
-      await callEndpoint("POST", "/v1/push/register", {
+      await callEndpoint("POST", str("net.pushRegisterPath", "/v1/push/register"), {
         token,
         platform: Platform.OS,
-        appVersion: Constants.expoConfig?.version ?? "0.0.0",
+        // The binary's own version (see client.readAppVersion) — this said
+        // "0.0.0" whenever the manifest had none.
+        appVersion: APP_VERSION,
       });
       lastToken = token;
     } catch { /* silent — retry on next boot / call */ }

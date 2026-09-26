@@ -27,12 +27,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 type Option = { angle?: string; text?: string };
 type Row = { role?: string; text?: string; label?: string; options?: Option[] };
 
-/** Everything visual, so the server can move all of it without a build. */
-const D = {
+/**
+ * Everything visual, so the server can move all of it without a build: the
+ * ui.ChatThread.look knob for every thread, then a node's `colors` / `look`
+ * over that. The literal is what the thread always drew.
+ */
+const defaults = () => K.obj("ui.ChatThread.look", {
   askBg: "rgba(255,255,255,0.06)",
   askBorder: "rgba(255,255,255,0.09)",
   askText: "rgba(255,255,255,0.9)",
@@ -50,11 +55,42 @@ const D = {
   labelText: "rgba(255,255,255,0.38)",
   radius: 16,
   gap: 11,
-};
+  tailRadius: 5,
+  mineMaxWidth: "82%",
+  askMaxWidth: "88%",
+  bubbleFontSize: 14.5,
+  mineLineHeight: 21,
+  askLineHeight: 22,
+  minePadV: 10,
+  askPadV: 12,
+  bubblePadH: 14,
+  noteFontSize: 11,
+  noteTracking: 0.5,
+  notePadV: 5,
+  notePadH: 11,
+  noteRadius: 999,
+  variantsGap: 7,
+  labelFontSize: 10.5,
+  labelTracking: 1.4,
+  variantRadius: 14,
+  variantPadV: 11,
+  variantPadH: 13,
+  variantFontSize: 14,
+  variantLineHeight: 21,
+  angleFontSize: 10,
+  angleTracking: 1,
+  angleMarginBottom: 4,
+  dimmedOpacity: 0.3,
+  activeOpacity: 0.85,
+  borderWidth: 1,
+  paddingBottom: 10,
+  scrollDelayMs: 60
+});
+type Look = ReturnType<typeof defaults>;
 
 export const ChatThread = ({ node, props, style, store, fire }: CompProps): React.ReactElement => {
-  const c = { ...D, ...(props?.colors ?? {}) } as typeof D;
-  const pickLabel = String(props?.pickLabel ?? "Tap the one that sounds like you");
+  const c = { ...defaults(), ...(props?.colors ?? {}), ...(props?.look ?? {}) } as Look;
+  const pickLabel = String(props?.pickLabel ?? K.txt("ui.ChatThread.pickLabel", "Tap the one that sounds like you"));
 
   // Where a pick is written. The server names these so the action that runs
   // afterwards can read them as ordinary $state references.
@@ -82,7 +118,7 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
   useEffect(() => {
     // A new row that lands below the fold is a row nobody sees. The delay is
     // for layout: scrolling before the row has measured lands short.
-    const t = setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), 60);
+    const t = setTimeout(() => scroller.current?.scrollToEnd({ animated: true }), Number(c.scrollDelayMs));
     return () => clearTimeout(t);
   }, [count]);
 
@@ -92,12 +128,12 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
         <View
           key={i}
           style={{
-            alignSelf: "flex-end", maxWidth: "82%", backgroundColor: c.mineBg,
-            paddingVertical: 10, paddingHorizontal: 14,
-            borderRadius: c.radius, borderBottomRightRadius: 5,
+            alignSelf: "flex-end", maxWidth: c.mineMaxWidth as `${number}%`, backgroundColor: c.mineBg,
+            paddingVertical: c.minePadV, paddingHorizontal: c.bubblePadH,
+            borderRadius: c.radius, borderBottomRightRadius: c.tailRadius,
           }}
         >
-          <Text style={{ fontSize: 14.5, lineHeight: 21, color: c.mineText }}>{r.text ?? ""}</Text>
+          <Text style={{ fontSize: c.bubbleFontSize, lineHeight: c.mineLineHeight, color: c.mineText }}>{r.text ?? ""}</Text>
         </View>
       );
     }
@@ -107,10 +143,10 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
           key={i}
           style={{
             alignSelf: "center", backgroundColor: c.noteBg, borderColor: c.noteBorder,
-            borderWidth: 1, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 11,
+            borderWidth: c.borderWidth, borderRadius: c.noteRadius, paddingVertical: c.notePadV, paddingHorizontal: c.notePadH,
           }}
         >
-          <Text style={{ fontSize: 11, letterSpacing: 0.5, color: c.noteText }}>{r.text ?? ""}</Text>
+          <Text style={{ fontSize: c.noteFontSize, letterSpacing: c.noteTracking, color: c.noteText }}>{r.text ?? ""}</Text>
         </View>
       );
     }
@@ -119,10 +155,10 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
       if (!options.length) return null;
       const chose = picked[i];
       return (
-        <View key={i} style={{ gap: 7 }}>
+        <View key={i} style={{ gap: c.variantsGap }}>
           <Text
             style={{
-              fontSize: 10.5, letterSpacing: 1.4, textTransform: "uppercase",
+              fontSize: c.labelFontSize, letterSpacing: c.labelTracking, textTransform: "uppercase",
               color: c.labelText,
             }}
           >
@@ -134,7 +170,7 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
             return (
               <TouchableOpacity
                 key={j}
-                activeOpacity={0.85}
+                activeOpacity={c.activeOpacity}
                 disabled={chose != null}
                 onPress={() => {
                   // Snapshot BEFORE the optimistic UI, and in the order the
@@ -151,22 +187,22 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
                 style={{
                   backgroundColor: isPicked ? c.pickedBg : c.variantBg,
                   borderColor: isPicked ? c.pickedBorder : c.variantBorder,
-                  borderWidth: 1, borderRadius: 14,
-                  paddingVertical: 11, paddingHorizontal: 13,
-                  opacity: dimmed ? 0.3 : 1,
+                  borderWidth: c.borderWidth, borderRadius: c.variantRadius,
+                  paddingVertical: c.variantPadV, paddingHorizontal: c.variantPadH,
+                  opacity: dimmed ? c.dimmedOpacity : 1,
                 }}
               >
                 {o.angle ? (
                   <Text
                     style={{
-                      fontSize: 10, letterSpacing: 1, textTransform: "uppercase",
-                      color: isPicked ? c.pickedBorder : c.angleText, marginBottom: 4,
+                      fontSize: c.angleFontSize, letterSpacing: c.angleTracking, textTransform: "uppercase",
+                      color: isPicked ? c.pickedBorder : c.angleText, marginBottom: c.angleMarginBottom,
                     }}
                   >
                     {o.angle}
                   </Text>
                 ) : null}
-                <Text style={{ fontSize: 14, lineHeight: 21, color: c.variantText }}>{o.text}</Text>
+                <Text style={{ fontSize: c.variantFontSize, lineHeight: c.variantLineHeight, color: c.variantText }}>{o.text}</Text>
               </TouchableOpacity>
             );
           })}
@@ -178,24 +214,27 @@ export const ChatThread = ({ node, props, style, store, fire }: CompProps): Reac
       <View
         key={i}
         style={{
-          alignSelf: "flex-start", maxWidth: "88%", backgroundColor: c.askBg,
-          borderColor: c.askBorder, borderWidth: 1,
-          paddingVertical: 12, paddingHorizontal: 14,
-          borderRadius: c.radius, borderBottomLeftRadius: 5,
+          alignSelf: "flex-start", maxWidth: c.askMaxWidth as `${number}%`, backgroundColor: c.askBg,
+          borderColor: c.askBorder, borderWidth: c.borderWidth,
+          paddingVertical: c.askPadV, paddingHorizontal: c.bubblePadH,
+          borderRadius: c.radius, borderBottomLeftRadius: c.tailRadius,
         }}
       >
-        <Text style={{ fontSize: 14.5, lineHeight: 22, color: c.askText }}>{r.text ?? ""}</Text>
+        <Text style={{ fontSize: c.bubbleFontSize, lineHeight: c.askLineHeight, color: c.askText }}>{r.text ?? ""}</Text>
       </View>
     );
   };
 
-  const body = useMemo(() => rows.map(bubble), [rows, picked, c.radius]);
+  // Keyed on the whole look, so a new bootstrap or a restyled node redraws.
+  const lookKey = JSON.stringify(c);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const body = useMemo(() => rows.map(bubble), [rows, picked, lookKey]);
 
   return (
     <ScrollView
       ref={scroller}
       style={[{ flex: 1 }, style]}
-      contentContainerStyle={{ gap: c.gap, paddingBottom: 10 }}
+      contentContainerStyle={{ gap: c.gap, paddingBottom: c.paddingBottom }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >

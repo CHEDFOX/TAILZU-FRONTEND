@@ -32,20 +32,35 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
-const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+/** The monospace face per platform — ui.BinaryReveal.fontIos / fontAndroid. */
+const mono = () => Platform.select({
+  ios: K.str("ui.BinaryReveal.fontIos", "Menlo"),
+  android: K.str("ui.BinaryReveal.fontAndroid", "monospace"),
+  default: K.str("ui.BinaryReveal.fontAndroid", "monospace"),
+});
 
 type Phase = "scramble" | "resolve" | "hold";
 
 export const BinaryReveal = ({ props, style }: CompProps): React.ReactElement => {
-  const text = String(props?.text ?? "Tailzu");
-  const color = String(props?.color ?? "#E8A23C");
-  const background = String(props?.background ?? "#000000");
-  const flipMs = Number(props?.flipMs) > 0 ? Number(props.flipMs) : 55;
-  const lockMs = Number(props?.lockMs) > 0 ? Number(props.lockMs) : 90;
-  const holdMs = Number(props?.holdMs) > 0 ? Number(props.holdMs) : 2000;
-  const scrambleMs = Number(props?.scrambleMs) > 0 ? Number(props.scrambleMs) : 900;
-  const fontSize = Number(props?.fontSize) > 0 ? Number(props.fontSize) : 40;
+  const text = String(props?.text ?? K.txt("ui.BinaryReveal.text", "Tailzu"));
+  const color = String(props?.color ?? K.color("ui.BinaryReveal.color", "#E8A23C"));
+  const background = String(props?.background ?? K.color("ui.BinaryReveal.background", "#000000"));
+  const flipMs = Number(props?.flipMs) > 0 ? Number(props.flipMs) : K.num("ui.BinaryReveal.flipMs", 55);
+  const lockMs = Number(props?.lockMs) > 0 ? Number(props.lockMs) : K.num("ui.BinaryReveal.lockMs", 90);
+  const holdMs = Number(props?.holdMs) > 0 ? Number(props.holdMs) : K.num("ui.BinaryReveal.holdMs", 2000);
+  const scrambleMs = Number(props?.scrambleMs) > 0 ? Number(props.scrambleMs) : K.num("ui.BinaryReveal.scrambleMs", 900);
+  const fontSize = Number(props?.fontSize) > 0 ? Number(props.fontSize) : K.num("ui.BinaryReveal.fontSize", 40);
+  const fontFamily = String(props?.fontFamily ?? mono());
+  /** Cell width and line height, as multiples of the font size. */
+  const cellWidth = Number(props?.cellWidth ?? K.num("ui.BinaryReveal.cellWidth", 0.72));
+  const lineHeight = Number(props?.lineHeight ?? K.num("ui.BinaryReveal.lineHeight", 1.2));
+  const bitOpacity = Number(props?.bitOpacity ?? K.num("ui.BinaryReveal.bitOpacity", 0.55));
+  const lockedWeight = String(props?.lockedWeight ?? K.str("ui.BinaryReveal.lockedWeight", "600")) as "600";
+  const bitWeight = String(props?.bitWeight ?? K.str("ui.BinaryReveal.bitWeight", "400")) as "400";
+  const zero = String(props?.zero ?? K.txt("ui.BinaryReveal.zero", "0"));
+  const one = String(props?.one ?? K.txt("ui.BinaryReveal.one", "1"));
 
   const chars = useMemo(() => Array.from(text), [text]);
   // How many characters are locked to the real word, left to right.
@@ -97,20 +112,21 @@ export const BinaryReveal = ({ props, style }: CompProps): React.ReactElement =>
           const isLocked = i < locked;
           // Deterministic per slot per frame — using Math.random() here would
           // reroll every character on any unrelated re-render.
-          const bit = (frame * 31 + i * 17) % 2 === 0 ? "0" : "1";
+          const bit = (frame * 31 + i * 17) % 2 === 0 ? zero : one;
           return (
             <Text
               key={i}
               style={[
                 styles.cell,
                 {
+                  fontFamily,
                   color,
                   fontSize,
-                  width: fontSize * 0.72,
-                  lineHeight: fontSize * 1.2,
+                  width: fontSize * cellWidth,
+                  lineHeight: fontSize * lineHeight,
                   // The binary sits back; the resolved letter comes forward.
-                  opacity: isLocked ? 1 : 0.55,
-                  fontWeight: isLocked ? "600" : "400",
+                  opacity: isLocked ? 1 : bitOpacity,
+                  fontWeight: isLocked ? lockedWeight : bitWeight,
                 },
               ]}
               allowFontScaling={false}
@@ -127,5 +143,5 @@ export const BinaryReveal = ({ props, style }: CompProps): React.ReactElement =>
 const styles = StyleSheet.create({
   wrap: { alignItems: "center", justifyContent: "center" },
   row: { flexDirection: "row", alignItems: "center" },
-  cell: { fontFamily: MONO, textAlign: "center" },
+  cell: { textAlign: "center" },
 });

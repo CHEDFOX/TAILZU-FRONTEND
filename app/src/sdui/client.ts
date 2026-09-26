@@ -5,7 +5,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
 import * as Localization from "expo-localization";
-import { bumpLaunchCount, getBaseUrl, getLanguage } from "../storage";
+import { bumpLaunchCount, getBaseUrl, getLanguage, saveKnobSnapshot } from "../storage";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type {
   BootstrapResponse,
@@ -17,8 +17,33 @@ import { getDeviceSignals } from "../device/signals";
 import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
+import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
 
-export const APP_VERSION = "1.0.0";
+/**
+ * THE VERSION OF THE BINARY THAT IS ACTUALLY RUNNING.
+ *
+ * This was the literal "1.0.0" while the store build was 1.0.1, so the update
+ * gate compared the server's minimum against a number no device had, and every
+ * capability handshake reported the wrong build. The native version is what
+ * the store installed; expo-constants' manifest version is the fallback for a
+ * runtime without expo-application, and the old literal is the last resort.
+ */
+function readAppVersion(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const v = require("expo-application")?.nativeApplicationVersion;
+    if (typeof v === "string" && v) return v;
+  } catch { /* not in this runtime */ }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const C = require("expo-constants");
+    const v = (C?.default ?? C)?.expoConfig?.version;
+    if (typeof v === "string" && v) return v;
+  } catch { /* not in this runtime */ }
+  return "1.0.0";
+}
+
+export const APP_VERSION = readAppVersion();
 
 /**
  * Share the current backend URL + the user's token with the native keyboard
@@ -90,7 +115,7 @@ export async function reportUpdateCheck(): Promise<void> {
   }
   // Best-effort and fire-and-forget: this is diagnostics, never a gate.
   try {
-    await callEndpoint("POST", "/v1/keyboard/telemetry", {
+    await callEndpoint("POST", str("net.telemetryPath", "/v1/keyboard/telemetry"), {
       buckets: { kind: "updates" },
       counters: {},
       windowMs: 0,
@@ -128,7 +153,7 @@ function runningBundle(): string {
 export function buildCapabilities() {
   const { width, height } = Dimensions.get("window");
   const colorScheme: "light" | "dark" = Appearance.getColorScheme() === "dark" ? "dark" : "light";
-  const locale = Localization.getLocales?.()[0]?.languageTag ?? "en-US";
+  const locale = Localization.getLocales?.()[0]?.languageTag ?? str("app.defaultLocale", "en-US");
   return {
     schemaVersion: SDUI_SCHEMA_VERSION,
     appVersion: APP_VERSION,
@@ -191,11 +216,60 @@ export class QuotaExceededError extends Error {
   }
 }
 
-class RetryableFetchError extends Error {
-  constructor(public readonly status: number, message: string) {
-    super(message);
+/**
+ * A REFUSED REQUEST, WORDED FOR THE PERSON HOLDING THE PHONE.
+ *
+ * The message used to be "/v1/app/screen → 500", and several screens show a
+ * thrown error's message as it stands — so that is what users read. The
+ * message is now the server's words for what happened (labels error.*), and
+ * the raw path + status travel in `detail`, which is what goes to the log.
+ */
+export class HttpError extends Error {
+  constructor(public readonly status: number, public readonly detail: string) {
+    super(httpErrorText(status));
+    this.name = "HttpError";
+  }
+}
+
+class RetryableFetchError extends HttpError {
+  constructor(status: number, detail: string) {
+    super(status, detail);
     this.name = "RetryableFetchError";
   }
+}
+
+/** What to tell a person about a refused request, by status. */
+export function httpErrorText(status: number): string {
+  if (status === 401 || status === 403) {
+    return txt("error.unauthorized", "Your session has expired. Sign in again to continue.");
+  }
+  if (status === 404) return txt("error.notFound", "That isn't available right now.");
+  if (status === 429) return txt("error.rateLimited", "Too many requests. Wait a moment, then try again.");
+  if (status >= 500) return txt("error.server", "Something went wrong on our side. Try again in a moment.");
+  return txt("error.generic", "Something went wrong. Try again.");
+}
+
+/**
+ * Any failure, as something a person can read. Raw detail never reaches the
+ * screen from here; callers log it themselves (see logError).
+ */
+export function userErrorMessage(err: unknown): string {
+  if (err instanceof HttpError) return err.message;
+  if (err instanceof QuotaExceededError) {
+    return txt("error.quota", "You've used this month's free words.");
+  }
+  // fetch rejects with a TypeError when there is no connection at all.
+  if (err instanceof TypeError) {
+    return txt("error.network", "Couldn't reach Tailzu. Check your connection and try again.");
+  }
+  return txt("error.generic", "Something went wrong. Try again.");
+}
+
+/** The raw detail of a failure, for logs only. */
+export function errorDetail(err: unknown): string {
+  if (err instanceof HttpError) return err.detail;
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  return String(err);
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -218,7 +292,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     if (res.status === 429 || res.status >= 500) {
       throw new RetryableFetchError(res.status, `${path} → ${res.status}`);
     }
-    throw new Error(`${path} → ${res.status}`);
+    console.warn(`[net] ${path} → ${res.status}`);
+    throw new HttpError(res.status, `${path} → ${res.status}`);
   }
   return (await res.json()) as T;
 }
@@ -229,7 +304,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
  * class and native network errors (TypeError from fetch); permanent 4xx errors
  * short-circuit on the first attempt.
  */
-async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, attempts = num("net.retry.attempts", 4)): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -238,8 +313,11 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
       lastErr = err;
       const retryable =
         err instanceof RetryableFetchError || err instanceof TypeError;
-      if (!retryable || i === attempts - 1) throw err;
-      const backoff = Math.min(2000, 200 * Math.pow(2, i));
+      if (!retryable || i === attempts - 1) {
+        if (retryable) console.warn(`[net] giving up: ${errorDetail(err)}`);
+        throw err;
+      }
+      const backoff = Math.min(num("net.retry.maxMs", 2000), num("net.retry.baseMs", 200) * Math.pow(2, i));
       await new Promise((r) => setTimeout(r, backoff));
     }
   }
@@ -270,7 +348,6 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
 // ---------------------------------------------------------------------------
 const BOOT_KEY = (base: string) => `tulmi.cache.boot:${base}`;
 const SCREEN_PREFIX = (base: string, ver: string) => `tulmi.cache.screen:${base}:${ver}:`;
-const PERSIST_MAX_SCREENS = 80;
 let persistBase = "";
 let persistVersion = "";
 
@@ -314,6 +391,33 @@ export async function peekBootstrap(): Promise<BootstrapResponse | null> {
 
 function persistBootstrap(base: string, b: BootstrapResponse): void {
   AsyncStorage.setItem(BOOT_KEY(base), JSON.stringify({ ...b, __signals: signalStamp() })).catch(() => {});
+  // And the knobs alone, somewhere the next launch can read before it has
+  // loaded anything (see storage.readKnobSnapshotSync).
+  saveKnobSnapshot({ labels: b.labels, flags: b.flags as Record<string, unknown> | undefined });
+}
+
+/**
+ * Point the knobs at the last bootstrap on disk, when nothing better is in hand.
+ *
+ * The sign-in screen and the pre-boot moments run before this launch has a
+ * bootstrap of its own. App.tsx already primes the knobs synchronously where
+ * the binary allows (MMKV); this is the asynchronous floor under that, for a
+ * binary without it. Unlike peekBootstrap it ignores the device-signal stamp:
+ * the stamp guards a ROUTING decision, and knobs are words and numbers.
+ */
+let knobsPrimed = false;
+export function markKnobsPrimed(): void { knobsPrimed = true; }
+export async function primeKnobsFromDisk(): Promise<void> {
+  if (knobsPrimed) return;
+  try {
+    const base = await getBaseUrl();
+    const raw = await AsyncStorage.getItem(BOOT_KEY(base));
+    if (!raw || knobsPrimed) return;
+    const stored = JSON.parse(raw) as Partial<BootstrapResponse> | null;
+    if (!stored || typeof stored !== "object") return;
+    setKnobs({ labels: stored.labels ?? {}, flags: stored.flags ?? {} });
+    knobsPrimed = true;
+  } catch { /* the fallbacks stand */ }
 }
 
 /**
@@ -362,8 +466,9 @@ function persistScreen(cacheK: string, screen: ScreenResponse): void {
       // re-persisted on the next launch. It is only wrong if the cap is low
       // enough to thrash, which is why it sits well above the screen count.
       const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(SCREEN_PREFIX(persistBase, persistVersion)));
-      if (keys.length > PERSIST_MAX_SCREENS) {
-        await AsyncStorage.multiRemove(keys.slice(0, keys.length - PERSIST_MAX_SCREENS));
+      const max = num("cache.persistMaxScreens", 80);
+      if (keys.length > max) {
+        await AsyncStorage.multiRemove(keys.slice(0, keys.length - max));
       }
     })
     .catch(() => {});
@@ -386,7 +491,22 @@ export async function bootstrap(): Promise<BootstrapResponse> {
   const body: BootstrapRequest = { capabilities: buildCapabilities(), launchCount };
   const b = await withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
   getBaseUrl().then((base) => persistBootstrap(base, b)).catch(() => {});
+  knobsPrimed = true;
+  lastBootstrapAt = Date.now();
   return b;
+}
+
+/** When this session last received a bootstrap from the network (ms epoch). */
+let lastBootstrapAt = 0;
+
+/**
+ * Whether a bootstrap received this session is still inside the TTL the
+ * server put on it. False when there has been none, or the server sent no TTL.
+ */
+export function bootstrapIsFresh(b: Pick<BootstrapResponse, "cacheTtlSeconds"> | null | undefined): boolean {
+  const ttl = Number(b?.cacheTtlSeconds ?? 0);
+  if (!lastBootstrapAt || !Number.isFinite(ttl) || ttl <= 0) return false;
+  return Date.now() - lastBootstrapAt < ttl * 1000;
 }
 
 /**
@@ -515,7 +635,7 @@ export async function fetchScreen(screenId: string, params?: Record<string, any>
       at: Date.now(),
       // Capped: a backend that sends a very long TTL should not be able to
       // pin a screen in memory past the session it was fetched in.
-      ttlMs: Math.min(ttl, 900) * 1000,
+      ttlMs: Math.min(ttl, num("cache.screenTtlCapSeconds", 900)) * 1000,
       screen,
     });
   } else {
@@ -570,39 +690,47 @@ export async function fetchAuthConfig(): Promise<
     suction: unknown | null;
     /** The theme, needed to draw the server tree at all. See AuthGateScreen. */
     theme: BootstrapResponse["theme"] | null;
+    /** The bootstrap's flags and labels, for the server tree's ctx. */
+    flags: Record<string, unknown>;
+    labels: Record<string, string>;
   } | null
 > {
   try {
     const b = await bootstrap();
     const f = b.flags ?? {};
-    const on = f["auth.enablePhone"];
+    // Every knob below reads THIS bootstrap. The sign-in screen has no other:
+    // SduiApp has not committed one yet, so without this the auth screen's
+    // words, sizes and switches would all be the compiled-in fallbacks.
+    setKnobs(b);
     return {
-      enablePhone: on === true || on === "true",
+      enablePhone: bool("auth.enablePhone", false) || f["auth.enablePhone"] === "true",
       // The one address that takes a password instead of a code. Empty
       // whenever the backend is not in a submission window, and an empty
       // string can never equal a typed address, so the path simply is not
       // there the rest of the time.
-      reviewEmail: String(f["auth.reviewEmail"] ?? "").trim().toLowerCase(),
+      reviewEmail: str("auth.reviewEmail", "").trim().toLowerCase(),
       // Both halves or neither. The page has to be https and the resume has
       // to be a scheme this build claims — anything else would send the user
       // somewhere the app cannot come back from, which is the bug this exists
       // to fix.
-      googleWeb: readGoogleWeb(f["auth.googleWeb"]),
+      googleWeb: readGoogleWeb(obj("auth.googleWeb", {})),
       // Absent whenever nothing has been uploaded to `hero.auth`, and the
       // screen is designed to read on plain black in exactly that case — an
       // empty slot must never cost anyone a broken first screen.
-      background: readBackground(f["auth.background"]),
-      backgroundCode: readBackground(f["auth.background.code"]),
+      background: readBackground(obj("auth.background", {})),
+      backgroundCode: readBackground(obj("auth.background.code", {})),
       // Both halves must be present. A flag saying yes with no tree behind it
       // would draw an empty sign-in screen, which is worse than the native one
       // in every way — so the absence of either falls back.
-      sdui: f["auth.sdui"] === true && !!f["auth.screen"],
+      // The tree itself is content, not a knob: absent means "no server
+      // screen", and nothing may stand in for it.
+      sdui: bool("auth.sdui", false) && !!f["auth.screen"],
       screen: f["auth.screen"] ?? null,
-      scrim: typeof f["auth.scrim"] === "number"
-        ? Math.max(0, Math.min(1, f["auth.scrim"] as number))
-        : 0.42,
-      suction: f["auth.suction"] ?? null,
+      scrim: Math.max(0, Math.min(1, num("auth.scrim", 0.42))),
+      suction: obj("auth.suction", { staggerMs: 95, durationMs: 780, fromY: 120 }),
       theme: b.theme ?? null,
+      flags: f as Record<string, unknown>,
+      labels: b.labels ?? {},
     };
   } catch {
     return null;
@@ -625,7 +753,7 @@ function readBackground(raw: unknown): AuthBackground | null {
   return {
     url,
     contentType: typeof o.contentType === "string" ? o.contentType : undefined,
-    background: typeof o.background === "string" ? o.background : "#000000",
+    background: typeof o.background === "string" ? o.background : color("auth.background.ground", "#000000"),
     fit,
   };
 }
@@ -693,7 +821,10 @@ export async function callEndpoint(
       const text = await res.text().catch(() => "");
       if (text.includes("quota_exceeded")) throw new QuotaExceededError(text);
     }
-    throw new Error(`${path} → ${res.status}`);
+    // The raw path and status go to the log; the thrown message is the one a
+    // screen may show (see HttpError).
+    console.warn(`[net] ${method} ${path} → ${res.status}`);
+    throw new HttpError(res.status, `${method} ${path} → ${res.status}`);
   }
   const ct = res.headers.get("content-type") ?? "";
   return ct.includes("application/json") ? res.json() : res.text();

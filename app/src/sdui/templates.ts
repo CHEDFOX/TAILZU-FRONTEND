@@ -6,6 +6,7 @@
  * A screen uses either `root` (a full hand-built tree) or `template` + `blocks`.
  */
 import type { Node, ScreenResponse } from "./types";
+import { num, str } from "./knobs";
 
 type Composer = (screen: ScreenResponse, blocks: Node[]) => Node;
 
@@ -20,7 +21,7 @@ const feature: Composer = (screen, blocks) => ({
   type: "Screen",
   children: [
     ...(screen.title ? [{ type: "Heading", props: { content: screen.title } } as Node] : []),
-    { type: "Spacer", style: { height: 8 } },
+    { type: "Spacer", style: { height: num("template.feature.gap", 8) } },
     ...blocks,
   ],
 });
@@ -28,7 +29,7 @@ const feature: Composer = (screen, blocks) => ({
 /** Blocks stacked with consistent gaps (cards/rows). */
 const list: Composer = (_screen, blocks) => ({
   type: "Screen",
-  children: [{ type: "Stack", style: { direction: "column", gap: 10 }, children: blocks }],
+  children: [{ type: "Stack", style: { direction: "column", gap: num("template.list.gap", 10) }, children: blocks }],
 });
 
 /** Vertically + horizontally centered content (welcome, empty states). */
@@ -36,7 +37,7 @@ const centered: Composer = (_screen, blocks) => ({
   type: "Screen",
   style: { justify: "center", flex: 1 },
   children: [
-    { type: "Stack", style: { direction: "column", align: "center", gap: 12 }, children: blocks },
+    { type: "Stack", style: { direction: "column", align: "center", gap: num("template.centered.gap", 12) }, children: blocks },
   ],
 });
 
@@ -48,7 +49,7 @@ const detail: Composer = (screen, blocks) => ({
   type: "Screen",
   children: [
     ...(screen.title ? [{ type: "Heading", props: { content: screen.title } } as Node] : []),
-    { type: "Divider", style: { marginVertical: 12 } } as Node,
+    { type: "Divider", style: { marginVertical: num("template.detail.dividerMargin", 12) } } as Node,
     ...blocks,
   ],
 });
@@ -60,7 +61,11 @@ const detail: Composer = (screen, blocks) => ({
 const grid: Composer = (screen, blocks) => ({
   type: "Screen",
   children: [
-    { type: "Grid", props: { columns: screen.state?.templateColumns ?? 2, gap: 12 }, children: blocks },
+    {
+      type: "Grid",
+      props: { columns: screen.state?.templateColumns ?? num("template.grid.columns", 2), gap: num("template.grid.gap", 12) },
+      children: blocks,
+    },
   ],
 });
 
@@ -72,7 +77,7 @@ const hero: Composer = (screen, blocks) => ({
   type: "Screen",
   children: [
     { type: "Hero", props: { title: screen.title, subtitle: screen.state?.subtitle, image: screen.state?.image } },
-    { type: "Spacer", style: { height: 20 } },
+    { type: "Spacer", style: { height: num("template.hero.gap", 20) } },
     ...blocks,
   ],
 });
@@ -82,6 +87,6 @@ const TEMPLATES: Record<string, Composer> = { scroll, feature, list, centered, d
 /** Build a renderable root from a screen's `template` + `blocks`. */
 export function composeTemplate(screen: ScreenResponse): Node {
   const blocks = screen.blocks ?? [];
-  const composer = TEMPLATES[screen.template ?? "scroll"] ?? scroll;
+  const composer = TEMPLATES[screen.template ?? str("template.default", "scroll")] ?? scroll;
   return composer(screen, blocks);
 }

@@ -14,6 +14,7 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import Purchases, { LOG_LEVEL, PRORATION_MODE, PurchasesOffering } from "react-native-purchases";
+import { num, str, txt } from "../sdui/knobs";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const IOS_KEY = extra.revenueCatIosKey ?? "";
@@ -94,8 +95,6 @@ export function isBillingEnabled(): boolean {
  * not bought anything. So the deadline is not an error path — it is the
  * answer we have by the time the app has to show something.
  */
-const STORE_DEADLINE_MS = 6000;
-
 function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
   return Promise.race([
     p,
@@ -115,7 +114,7 @@ export function initBilling(userId?: string): Promise<void> {
         // The app has already frozen once on exactly this shape of mistake:
         // a best-effort call that the boot awaited, on a network that accepts
         // the socket and answers nothing.
-        await within(refreshEntitlements(), STORE_DEADLINE_MS);
+        await within(refreshEntitlements(), num("billing.storeDeadlineMs", 6000));
         // The listener is what makes the deadline safe: when the store does
         // answer, late, the entitlements land and everything that reads them
         // re-renders. Nothing is lost by not waiting — it just arrives after
@@ -193,23 +192,46 @@ export async function showPaywall(offeringId?: string, packageId?: string): Prom
  * The same lesson the auth screen already learned: a silent identical failure
  * is a bug report instead of an answer.
  */
-export type PurchaseOutcome = { ok: boolean; reason?: string };
+export type PurchaseOutcome = {
+  ok: boolean;
+  /** Words for the person — the server's (labels iap.error.*). */
+  reason?: string;
+  /** The raw cause, for the log. */
+  detail?: string;
+};
 
 export async function buyPackage(offeringId?: string, packageId?: string): Promise<PurchaseOutcome> {
   // Build-time, from process.env.REVENUECAT_IOS_KEY / _ANDROID_KEY. Empty means
   // the binary was built without them, and no amount of store configuration
   // will help until it is rebuilt with them set.
-  if (!KEY) return { ok: false, reason: "No RevenueCat key in this build." };
+  if (!KEY) {
+    return { ok: false, reason: txt("iap.error.noKey", "No RevenueCat key in this build."), detail: "no RevenueCat key" };
+  }
   const offering = await pickOffering(offeringId);
   if (!offering) {
-    return { ok: false, reason: `No offering "${offeringId ?? "current"}" for this platform.` };
+    const name = offeringId ?? "current";
+    return {
+      ok: false,
+      reason: txt("iap.error.noOffering", 'No offering "{offering}" for this platform.', { offering: name }),
+      detail: `no offering ${name}`,
+    };
   }
   const list = offering.availablePackages ?? [];
-  const pkg = packageId ? list.find((p) => p.identifier === packageId) ?? list[0] : list[0];
+  // A packageId the offering does not hold: the server says what that means.
+  // "first" buys the offering's first package instead (what this always did);
+  // "none" refuses, so a mistyped id can never sell somebody a different plan.
+  const fallbackPkg = str("iap.packageFallback", "first") === "none" ? undefined : list[0];
+  const pkg = packageId ? list.find((p) => p.identifier === packageId) ?? fallbackPkg : list[0];
   if (!pkg) {
     // The offering exists but holds nothing this device can buy — the usual
     // shape of "products not attached for this store yet".
-    return { ok: false, reason: `Offering "${offering.identifier}" has no package ${packageId ?? ""}.`.trim() };
+    return {
+      ok: false,
+      reason: txt("iap.error.noPackage", 'Offering "{offering}" has no package {package}.', {
+        offering: offering.identifier, package: packageId ?? "",
+      }).trim(),
+      detail: `offering ${offering.identifier} has no package ${packageId ?? ""}`,
+    };
   }
   try {
     // CHANGING PLAN IS NOT THE SAME AS BUYING ONE, AND ANDROID HAS TO BE TOLD.
@@ -244,12 +266,19 @@ export async function buyPackage(offeringId?: string, packageId?: string): Promi
     const res = await Purchases.purchasePackage(pkg, null, change);
     await refreshEntitlements();
     const active = Object.keys(res.customerInfo.entitlements.active).length > 0;
-    return active ? { ok: true } : { ok: false, reason: "Purchase completed but granted no entitlement." };
+    return active
+      ? { ok: true }
+      : { ok: false, reason: txt("iap.error.noEntitlement", "Purchase completed but granted no entitlement."), detail: "no entitlement" };
   } catch (e: unknown) {
     const err = e as { userCancelled?: boolean; message?: string; code?: string | number };
     // A cancel is not a failure and must not be reported as one.
     if (err?.userCancelled) return { ok: false, reason: undefined };
-    return { ok: false, reason: err?.message ?? String(e) };
+    const message = err?.message ?? String(e);
+    return {
+      ok: false,
+      reason: txt("iap.error.store", "{message}", { message }),
+      detail: `store: ${err?.code ?? "?"} ${message}`,
+    };
   }
 }
 

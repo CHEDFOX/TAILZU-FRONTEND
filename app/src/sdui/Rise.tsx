@@ -25,6 +25,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated } from "react-native";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 export type RiseCfg = {
   /** Wait this long before starting. The ONLY thing that orders an entrance. */
@@ -39,14 +40,16 @@ export type RiseCfg = {
   mass?: number;
 };
 
-const D: Required<RiseCfg> = {
+/** The defaults every entrance starts from — the ui.Rise.defaults knob, so the
+ *  server retunes the whole app's arrival at once; a node's own props win. */
+const defaults = (): Required<RiseCfg> => K.obj<Required<RiseCfg>>("ui.Rise.defaults", {
   delayMs: 0,
   fromY: 120,
   scaleFrom: 0.86,
   damping: 14,
   stiffness: 110,
   mass: 0.9,
-};
+});
 
 export function RiseView({
   cfg,
@@ -60,7 +63,9 @@ export function RiseView({
   style?: object;
   children: React.ReactNode;
 }) {
-  const c = { ...D, ...(cfg ?? {}) };
+  const c = { ...defaults(), ...(cfg ?? {}) };
+  /** Where in the travel it has fully faded in, 0..1. */
+  const fadeAt = K.num("ui.Rise.fadeAt", 0.35);
   const [askedReduce, setAskedReduce] = useState(false);
   const still = reduce ?? askedReduce;
 
@@ -91,7 +96,7 @@ export function RiseView({
           // Fades in over the first third of the travel, so it is never a
           // ghost sliding up from off-screen — it is already there by the
           // time it is worth looking at.
-          opacity: t.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 1] }),
+          opacity: t.interpolate({ inputRange: [0, fadeAt, 1], outputRange: [0, 1, 1] }),
           transform: [
             { translateY: t.interpolate({ inputRange: [0, 1], outputRange: [c.fromY, 0] }) },
             { scale: t.interpolate({ inputRange: [0, 1], outputRange: [c.scaleFrom, 1] }) },

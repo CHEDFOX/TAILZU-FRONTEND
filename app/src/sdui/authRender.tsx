@@ -48,15 +48,24 @@ export function missingComponents(node: unknown, found: string[] = []): string[]
   return found;
 }
 
-export function useAuthSduiCtx(): Ctx {
+/**
+ * `flags` and `labels` are the bootstrap's — the same ones the rest of the app
+ * renders with. They were empty here, so the server's sign-in tree could not
+ * use "@label" copy, "$flags.x" values or `{ flag }` conditions: every one
+ * resolved to nothing on the one screen that has to work.
+ */
+export function useAuthSduiCtx(
+  flags?: Record<string, unknown> | null,
+  labels?: Record<string, string> | null,
+): Ctx {
+  const store = useMemo(() => new Store({}), []);
   return useMemo(() => {
-    const store = new Store({});
     const noop = () => {};
     return {
       store,
       actions: {},
-      flags: {},
-      labels: {},
+      flags: flags ?? {},
+      labels: labels ?? {},
       nav: { push: noop, back: noop, switchTab: noop, replace: noop },
       /**
        * THE ESCAPE HATCH THAT WAS MISSING ONE.
@@ -78,5 +87,5 @@ export function useAuthSduiCtx(): Ctx {
       refresh: noop,
       reloadScreen: noop,
     } as unknown as Ctx;
-  }, []);
+  }, [store, flags, labels]);
 }

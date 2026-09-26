@@ -8,6 +8,7 @@ import type { Node, NodeEvent } from "./types";
 import { Store, useStoreVersion } from "./state";
 import { REGISTRY, resolveStyle, useTheme, CompProps } from "./components";
 import { Ctx, evalCondition, runAction } from "./actions";
+import { num, str } from "./knobs";
 
 // Conditions a style value can carry (a subset of the SDUI Condition keys).
 const STYLE_COND_KEYS = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains",
@@ -127,9 +128,20 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
     }
   }
   // Resolve "@label.key" string props against the catalog's central copy.
+  //
+  // A key the catalog does not have drew as the KEY — "paywall.cta.monthly"
+  // on a button, in front of a user. Blank is the honest failure: nothing is
+  // better than an identifier. The server can ask for the key back (policy
+  // "key") while it is authoring, to see what is missing.
+  let missingPolicy: string | null = null;
   for (const k of Object.keys(props)) {
     const v = props[k];
-    if (typeof v === "string" && v.startsWith("@")) props[k] = ctx.labels[v.slice(1)] ?? v.slice(1);
+    if (typeof v === "string" && v.startsWith("@")) {
+      const hit = ctx.labels[v.slice(1)];
+      if (hit !== undefined) { props[k] = hit; continue; }
+      if (missingPolicy === null) missingPolicy = str("labels.missingPolicy", "blank");
+      props[k] = missingPolicy === "key" ? v.slice(1) : "";
+    }
   }
 
   const style = resolveStyle(resolveStyleConditionals(node.style, ctx), theme);
@@ -149,7 +161,10 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
           node={{
             type: "Paragraph",
             props: { content: props.emptyLabel },
-            style: { opacity: 0.6, textAlign: "center", marginTop: 24, marginBottom: 24 },
+            style: {
+              opacity: num("list.empty.opacity", 0.6), textAlign: "center",
+              marginTop: num("list.empty.margin", 24), marginBottom: num("list.empty.margin", 24),
+            },
           }}
           ctx={ctx}
         />
@@ -210,16 +225,17 @@ function Motion({ spec, children }: { spec: NonNullable<Node["motion"]>; childre
   useEffect(() => {
     Animated.timing(v, {
       toValue: 1,
-      duration: spec.durationMs ?? 260,
-      delay: spec.delayMs ?? 0,
+      duration: spec.durationMs ?? num("motion.appear.durationMs", 260),
+      delay: spec.delayMs ?? num("motion.appear.delayMs", 0),
       useNativeDriver: true,
     }).start();
   }, [v, spec]);
 
+  const travel = num("motion.appear.travel", 10);
   const transform =
-    spec.appear === "fadeInUp" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] :
-    spec.appear === "fadeInDown" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }] :
-    spec.appear === "scaleIn" ? [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }] :
+    spec.appear === "fadeInUp" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [travel, 0] }) }] :
+    spec.appear === "fadeInDown" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [-travel, 0] }) }] :
+    spec.appear === "scaleIn" ? [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [num("motion.appear.fromScale", 0.96), 1] }) }] :
     [];
 
   return <Animated.View style={{ opacity: v, transform }}>{children}</Animated.View>;

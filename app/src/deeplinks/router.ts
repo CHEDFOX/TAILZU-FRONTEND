@@ -11,6 +11,7 @@
  * URLs without a client update.
  */
 import * as Linking from "expo-linking";
+import { list, str } from "../sdui/knobs";
 
 export type LinkTarget =
   | { kind: "screen"; screenId: string; params?: Record<string, string> }
@@ -97,11 +98,11 @@ export function parseLink(url: string): LinkTarget {
     const rt = q.refresh_token ?? frag.refresh_token;
     if (at && rt) return { kind: "session", accessToken: at, refreshToken: rt };
 
-    if (parts[0] === "s" || parts[0] === "screen") {
+    if (list<string>("deeplink.screenPrefixes", ["s", "screen"]).includes(parts[0])) {
       const screenId = parts[1];
       if (screenId) return { kind: "screen", screenId, params: q };
     }
-    if (parts[0] === "action" && q.kind) {
+    if (parts[0] === str("deeplink.actionPrefix", "action") && q.kind) {
       return { kind: "action", actionKind: q.kind, params: q };
     }
   } catch {

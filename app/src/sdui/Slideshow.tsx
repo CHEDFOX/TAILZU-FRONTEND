@@ -28,14 +28,18 @@ import { View } from "react-native";
 import { MediaPlayer } from "../media/MediaPlayer";
 import type { MediaSpec } from "../media/resolveMedia";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 export const Slideshow = ({ props, style, fire }: CompProps): React.ReactElement | null => {
   const frames = (Array.isArray(props.frames) ? props.frames : []) as MediaSpec[];
-  const frameMs = Number(props.frameMs) || 120;
+  const frameMs = Number(props.frameMs) || K.num("ui.Slideshow.frameMs", 120);
   // `Number(0) || 1` coerced the documented "0 = infinite" to a single loop.
   // Preserve 0 (infinite) with a null-aware coercion.
-  const loops = props.loops == null ? 1 : Number(props.loops);
-  const contentFit = (props.contentFit as "contain" | "cover" | "fill" | undefined) ?? "cover";
+  const loops = props.loops == null ? K.num("ui.Slideshow.loops", 1) : Number(props.loops);
+  const contentFit = (props.contentFit ?? K.str("ui.Slideshow.contentFit", "cover")) as "contain" | "cover" | "fill";
+  /** Each frame's own playback: loop within a frame, and sound. */
+  const frameLoop = typeof props.frameLoop === "boolean" ? props.frameLoop : K.bool("ui.Slideshow.frameLoop", false);
+  const muted = typeof props.muted === "boolean" ? props.muted : K.bool("ui.Slideshow.muted", true);
 
   const [index, setIndex] = useState(0);
   const completedRef = useRef(false);
@@ -86,8 +90,8 @@ export const Slideshow = ({ props, style, fire }: CompProps): React.ReactElement
           style={{ position: "absolute", width: "100%", height: "100%", opacity: i === index ? 1 : 0 }}
           contentFit={contentFit}
           autoplay
-          loop={false}
-          muted
+          loop={frameLoop}
+          muted={muted}
         />
       ))}
     </View>
