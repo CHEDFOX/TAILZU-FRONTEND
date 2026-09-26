@@ -35,12 +35,17 @@ final class KBKnobs {
   }
 }
 
+/// Finite and bounded, or the fallback: "nan", "inf" or 1e300 from the
+/// server must not reach a timer, a frame or an Int conversion.
 func knobDouble(_ key: String, _ fallback: Double) -> Double {
+  let v: Double
   switch KBKnobs.shared.flag(key) {
-  case let n as NSNumber: return n.doubleValue
-  case let s as String: return Double(s) ?? fallback
+  case let n as NSNumber: v = n.doubleValue
+  case let s as String: v = Double(s) ?? fallback
   default: return fallback
   }
+  guard v.isFinite else { return fallback }
+  return min(1e9, max(-1e9, v))
 }
 
 /// Whole numbers. A non-finite or out-of-range value from the server falls

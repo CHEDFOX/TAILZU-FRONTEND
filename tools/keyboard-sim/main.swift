@@ -292,6 +292,32 @@ do {
   check("hold e, slide to the accent é, release", "é", got)
 }
 do {
+  // A thumb resting on a tray key while the other types: the rest is not a
+  // hold for the tray, and nothing typed by the other thumb is taken back.
+  let st = tap(probe, "e", at: 0.2, hold: 0.65, id: 0) + tap(probe, "s", at: 0.3, id: 1)
+  check("thumb rests on e while the other types s", "es", run(st).0)
+}
+do {
+  // A capital's tray offers capitals: the take-back returns the shift before
+  // the chips are built.
+  let r = probe.center("e")
+  let s2 = Session()
+  let tray0 = CGPoint(x: r.midX, y: r.midY)
+  var st: [Step] = tap(probe, "shift", at: 0.05, id: 1)
+  st.append(Step(t: 0.2, ev: .down(tray0), id: 0))
+  var t = 0.216
+  while t < 0.75 { st.append(Step(t: t, ev: .move(tray0), id: 0)); t += 0.016 }
+  s2.play(st.map { TimedEv(t: $0.t, id: $0.id, seq: 0, ev: $0.ev) })
+  var got = "(no tray)"
+  if let tray = s2.r.activeAccentTray, tray.subviews.count > 1 {
+    let chip = tray.subviews[2]
+    let c = s2.m.window.convert(CGPoint(x: chip.bounds.midX, y: chip.bounds.midY), from: chip)
+    s2.play([TimedEv(t: 0.8, id: 0, seq: 1, ev: .move(c)), TimedEv(t: 0.85, id: 0, seq: 2, ev: .up(c))])
+    got = s2.proxy.text
+  }
+  check("shift, hold E, slide to the accent, release", "É", got)
+}
+do {
   var st = tap(probe, "h", at: 0.2, hold: 0.25, id: 0, dx: 0, dy: 0)
   st = tap(probe, "shift", at: 0.2, hold: 0.25, id: 0) + tap(probe, "h", at: 0.3, id: 1) + tap(probe, "i", at: 0.6, id: 2)
   check("shift held while the other thumb types", "Hi", run(st).0)

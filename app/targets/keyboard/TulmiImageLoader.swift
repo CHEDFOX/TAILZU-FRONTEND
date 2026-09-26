@@ -100,7 +100,8 @@ enum TulmiImageLoader {
   /// anything that isn't a positive number keeps 256.
   private static var maxFrameEdge: CGFloat {
     let v = knobDouble("kb.images.maxEdgePx", 256)
-    return v.isFinite && v > 0 ? CGFloat(v) : 256
+    // Capped too: the extension's memory ceiling allows nothing near 2048.
+    return v.isFinite && v > 0 ? CGFloat(min(v, 2048)) : 256
   }
 
   /// Decode static or animated (GIF/APNG) image data, downscaling every frame
