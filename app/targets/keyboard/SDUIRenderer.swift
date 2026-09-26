@@ -3136,7 +3136,22 @@ struct KBFeatures: Decodable {
   let refine: Bool?
   let streaming: Bool?
   let sdui: Bool?
-  let liveVoice: Bool?
+  /// Every key the server sent under `features`, typed or not — what
+  /// features.* reads in conditions and binds, so a new feature switch needs
+  /// no new field here.
+  let raw: [String: KBJSON]
+
+  private enum CodingKeys: String, CodingKey { case voice, refine, streaming, sdui }
+
+  init(from decoder: Decoder) throws {
+    // The typed fields decode exactly as the synthesized init did.
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    voice = try c.decodeIfPresent(Bool.self, forKey: .voice)
+    refine = try c.decodeIfPresent(Bool.self, forKey: .refine)
+    streaming = try c.decodeIfPresent(Bool.self, forKey: .streaming)
+    sdui = try c.decodeIfPresent(Bool.self, forKey: .sdui)
+    raw = (try? decoder.singleValueContainer().decode([String: KBJSON].self)) ?? [:]
+  }
 }
 
 struct KBTheme: Decodable {
@@ -4455,9 +4470,13 @@ final class SDUIRenderer: NSObject {
       keyRow.gapRoutingEnabled = flagBool("kb.row.expandHitTargets", true)
     }
     stack.axis = axis
-    stack.alignment = .fill
-    stack.distribution = .fill
-    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble ?? 5)
+    // style.align (cross axis) and style.justify (main axis), as the catalog
+    // writes them. Absent → .fill / .fill, exactly as before.
+    stack.alignment = stackAlignment(node.style?["align"]?.asString, axis: axis)
+    let justify = (node.style?["justify"]?.asString ?? "fill").lowercased()
+    stack.distribution = stackDistribution(justify)
+    stack.spacing = CGFloat(node.style?["gap"]?.asDouble ?? node.style?["spacing"]?.asDouble
+      ?? flagDouble("kb.stack.defaultGap", 5))
 
     let kids = node.children ?? []
     var built: [(node: KBNode, view: UIView)] = []
@@ -4465,6 +4484,32 @@ final class SDUIRenderer: NSObject {
       let cv = render(node: child)
       stack.addArrangedSubview(cv)
       built.append((child, cv))
+    }
+    // start / center / end pack the children like CSS justify-content: a
+    // spacer that gives way before any child takes the free space.
+    if ["start", "flex-start", "center", "end", "flex-end"].contains(justify) {
+      func packer() -> UIView {
+        let s = UIView()
+        let give = UILayoutPriority(rawValue: UILayoutPriority.defaultLow.rawValue - 1)
+        s.setContentHuggingPriority(give, for: axis)
+        s.setContentCompressionResistancePriority(give, for: axis)
+        return s
+      }
+      switch justify {
+      case "start", "flex-start":
+        stack.addArrangedSubview(packer())
+      case "end", "flex-end":
+        stack.insertArrangedSubview(packer(), at: 0)
+      default:
+        let lead = packer(), trail = packer()
+        stack.insertArrangedSubview(lead, at: 0)
+        stack.addArrangedSubview(trail)
+        if axis == .horizontal {
+          trail.widthAnchor.constraint(equalTo: lead.widthAnchor).isActive = true
+        } else {
+          trail.heightAnchor.constraint(equalTo: lead.heightAnchor).isActive = true
+        }
+      }
     }
 
     // Second pass: apply proportional flex constraints. Sum every child's flex
@@ -4495,6 +4540,34 @@ final class SDUIRenderer: NSObject {
       }
     }
     return stack
+  }
+
+  /// style.align → UIStackView.alignment (start | center | end | fill, plus
+  /// the CSS spellings). Unknown or absent → .fill.
+  private func stackAlignment(_ raw: String?, axis: NSLayoutConstraint.Axis) -> UIStackView.Alignment {
+    switch (raw ?? "fill").lowercased() {
+    case "start", "flex-start", "leading", "top":
+      return axis == .horizontal ? .top : .leading
+    case "end", "flex-end", "trailing", "bottom":
+      return axis == .horizontal ? .bottom : .trailing
+    case "center":
+      return .center
+    case "baseline":
+      return axis == .horizontal ? .firstBaseline : .fill
+    default:
+      return .fill
+    }
+  }
+
+  /// style.justify → UIStackView.distribution. start / center / end keep
+  /// .fill and are packed with spacers by buildStack.
+  private func stackDistribution(_ justify: String) -> UIStackView.Distribution {
+    switch justify {
+    case "equal", "fill-equally":                      return .fillEqually
+    case "space-between":                              return .equalSpacing
+    case "space-around", "space-evenly":               return .equalCentering
+    default:                                           return .fill
+    }
   }
 
   /// An empty view that consumes remaining space in the parent stack, letting
@@ -4598,7 +4671,9 @@ final class SDUIRenderer: NSObject {
     case "refining":             return state.refining ? "true" : "false"
     case "shift":                return state.shift ? "true" : "false"
     case "capsLock":             return state.capsLock ? "true" : "false"
-    default:                     return nil
+    // Anything else: the general lookup the conditions use (state.user.*,
+    // micLevel, flags.*, features.*, labels.*, field.*, quota.*).
+    default:                     return bindLookup(key)
     }
   }
 
@@ -4955,8 +5030,12 @@ final class SDUIRenderer: NSObject {
     let wrap = UIView()
     let l = UILabel()
     l.text = text.uppercased()
-    l.font = .systemFont(ofSize: 10, weight: .bold)
-    l.textColor = UIColor(white: 1, alpha: 0.4)
+    l.font = .systemFont(ofSize: flagCGFloat("kb.tone.sheet.headerFontSize", 10), weight: .bold)
+    // Dim ink of the panel's own contrast: white on the dark panel, black on
+    // the light one (kb.tone.sheet.headerFg / .headerFgLight).
+    l.textColor = state.appearance == "light"
+      ? flagColor("kb.tone.sheet.headerFgLight", "#00000066")
+      : flagColor("kb.tone.sheet.headerFg", "#FFFFFF66")
     l.translatesAutoresizingMaskIntoConstraints = false
     wrap.addSubview(l)
     NSLayoutConstraint.activate([
@@ -4989,22 +5068,29 @@ final class SDUIRenderer: NSObject {
         action: #selector(WeakGRProxy.handle(_:))))
     toneSheetBlur = blur
 
-    // 2) The tone list.
+    // 2) The tone list. Every colour, size and timing is a kb.tone.sheet.*
+    // flag; the defaults are the shipped sheet. In light appearance the panel
+    // goes light and its ink dark (…Light flags) — white rows on a light
+    // keyboard were unreadable.
+    let light = state.appearance == "light"
     let container = UIView()
-    container.backgroundColor = UIColor(white: 0.09, alpha: 0.96)
-    container.layer.cornerRadius = 12
-    container.layer.shadowColor = UIColor.black.cgColor
-    container.layer.shadowOpacity = 0.35
-    container.layer.shadowRadius = 12
-    container.layer.shadowOffset = CGSize(width: 0, height: 6)
+    // #171717F5 is the old white 0.09 / alpha 0.96, to the nearest byte.
+    container.backgroundColor = light ? flagColor("kb.tone.sheet.bgLight", "#F9F9F9F5")
+                                      : flagColor("kb.tone.sheet.bg", "#171717F5")
+    container.layer.cornerRadius = flagCGFloat("kb.tone.sheet.radius", 12)
+    container.layer.shadowColor = flagColor("kb.tone.sheet.shadowColor", "#000000").cgColor
+    container.layer.shadowOpacity = Float(flagDouble("kb.tone.sheet.shadowOpacity", 0.35))
+    container.layer.shadowRadius = flagCGFloat("kb.tone.sheet.shadowRadius", 12)
+    container.layer.shadowOffset = CGSize(width: 0, height: flagCGFloat("kb.tone.sheet.shadowOffsetY", 6))
     container.translatesAutoresizingMaskIntoConstraints = false
 
     let vstack = UIStackView()
     vstack.axis = .vertical
-    vstack.spacing = 2
+    vstack.spacing = flagCGFloat("kb.tone.sheet.rowGap", 2)
     vstack.translatesAutoresizingMaskIntoConstraints = false
     vstack.isLayoutMarginsRelativeArrangement = true
-    vstack.layoutMargins = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+    let pad = flagCGFloat("kb.tone.sheet.padding", 6)
+    vstack.layoutMargins = UIEdgeInsets(top: pad, left: pad, bottom: pad, right: pad)
     // Scroll wrapper: voices + tones together can outgrow the keyboard's
     // height, and an extension can't draw past its frame — the sheet hugs its
     // content (high-priority equal-height) until the bottom clamp below stops
@@ -5030,6 +5116,14 @@ final class SDUIRenderer: NSObject {
     ])
 
     let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+    let rowFg = light ? flagColor("kb.tone.sheet.fgLight", "#000000")
+                      : flagColor("kb.tone.sheet.fg", "#FFFFFF")
+    let rowFont = flagCGFloat("kb.tone.sheet.fontSize", 14)
+    let rowPadV = flagCGFloat("kb.tone.sheet.rowPadV", 9)
+    let rowPadH = flagCGFloat("kb.tone.sheet.rowPadH", 16)
+    let check = flagString("kb.tone.sheet.checkSuffix", "  ✓")
+    // `host` is shadowed by the mount container in this function.
+    let copy = self.host
 
     // Keyboard voices first (when the user has pinned any): switch the whole
     // writing voice right from the keyboard — the app's "Keyboard voices" card
@@ -5037,30 +5131,30 @@ final class SDUIRenderer: NSObject {
     let voices = pinnedKeyboardVoices()
     if !voices.isEmpty {
       let activeVoice = localActiveVoiceId ?? config.flags?["kb.personality.activeId"]?.asString
-      vstack.addArrangedSubview(toneSheetHeader("Voices"))
+      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_voices", "Voices") ?? "Voices"))
       for v in voices {
         let isActive = v.id == activeVoice
         let btn = UIButton(type: .system)
-        btn.setTitle(isActive ? "\(v.name)  ✓" : v.name, for: .normal)
-        btn.setTitleColor(isActive ? accent : .white, for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: isActive ? .semibold : .medium)
-        btn.contentEdgeInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+        btn.setTitle(isActive ? "\(v.name)\(check)" : v.name, for: .normal)
+        btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
+        btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
         btn.contentHorizontalAlignment = .leading
         let pickedId = v.id, pickedTone = v.tone
         btn.addAction(UIAction { [weak self] _ in self?.selectVoice(id: pickedId, tone: pickedTone) },
                       for: .touchUpInside)
         vstack.addArrangedSubview(btn)
       }
-      vstack.addArrangedSubview(toneSheetHeader("Tones"))
+      vstack.addArrangedSubview(toneSheetHeader(copy?.hostLabel("tone_sheet_tones", "Tones") ?? "Tones"))
     }
 
     for tone in configuredTones() {
       let btn = UIButton(type: .system)
       let isActive = tone.label.caseInsensitiveCompare(state.tone) == .orderedSame
-      btn.setTitle(isActive ? "\(tone.label)  ✓" : tone.label, for: .normal)
-      btn.setTitleColor(isActive ? accent : .white, for: .normal)
-      btn.titleLabel?.font = .systemFont(ofSize: 14, weight: isActive ? .semibold : .medium)
-      btn.contentEdgeInsets = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+      btn.setTitle(isActive ? "\(tone.label)\(check)" : tone.label, for: .normal)
+      btn.setTitleColor(isActive ? accent : rowFg, for: .normal)
+      btn.titleLabel?.font = .systemFont(ofSize: rowFont, weight: isActive ? .semibold : .medium)
+      btn.contentEdgeInsets = UIEdgeInsets(top: rowPadV, left: rowPadH, bottom: rowPadV, right: rowPadH)
       btn.contentHorizontalAlignment = .leading
       let pickedId = tone.id, pickedLabel = tone.label
       btn.addAction(UIAction { [weak self] _ in self?.selectTone(id: pickedId, label: pickedLabel) },
@@ -5074,14 +5168,16 @@ final class SDUIRenderer: NSObject {
     // sheet DROPS DOWN over the (frosted) keys — going up would render above the
     // keyboard's own frame, where an extension can't draw, and get clipped.
     // Right-align to the pill (it lives on the right) and clamp to the host.
+    let edge = flagCGFloat("kb.tone.sheet.edgeInset", 8)
     NSLayoutConstraint.activate([
       container.trailingAnchor.constraint(equalTo: host.leadingAnchor, constant: anchorFrame.maxX),
-      container.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: 8),
-      container.topAnchor.constraint(equalTo: host.topAnchor, constant: anchorFrame.maxY + 6),
-      container.widthAnchor.constraint(greaterThanOrEqualToConstant: 150),
+      container.leadingAnchor.constraint(greaterThanOrEqualTo: host.leadingAnchor, constant: edge),
+      container.topAnchor.constraint(equalTo: host.topAnchor,
+                                     constant: anchorFrame.maxY + flagCGFloat("kb.tone.sheet.offsetY", 6)),
+      container.widthAnchor.constraint(greaterThanOrEqualToConstant: flagCGFloat("kb.tone.sheet.minWidth", 150)),
       // Never grow past the keyboard's own frame — the scroll wrapper takes
       // over when content is taller than this allows.
-      container.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor, constant: -8),
+      container.bottomAnchor.constraint(lessThanOrEqualTo: host.bottomAnchor, constant: -edge),
     ])
     toneSheetOverlay = container
 
@@ -5089,12 +5185,23 @@ final class SDUIRenderer: NSObject {
     // point at the pill and springs to full size.
     host.layoutIfNeeded()
     container.alpha = 0
-    container.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.08, y: 0.08)
-    UIView.animate(withDuration: 0.16) { blur.effect = UIBlurEffect(style: .systemThinMaterialDark) }
+    container.transform = toneSheetCollapsedTransform()
+    UIView.animate(withDuration: flagDouble("kb.tone.sheet.anim.blurMs", 160) / 1000.0) {
+      blur.effect = UIBlurEffect(style: .systemThinMaterialDark)
+    }
     UIView.animate(
-      withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0.6,
+      withDuration: flagDouble("kb.tone.sheet.anim.openMs", 420) / 1000.0, delay: 0,
+      usingSpringWithDamping: flagCGFloat("kb.tone.sheet.anim.damping", 0.72),
+      initialSpringVelocity: flagCGFloat("kb.tone.sheet.anim.velocity", 0.6),
       options: [.curveEaseOut, .allowUserInteraction],
       animations: { container.alpha = 1; container.transform = .identity })
+  }
+
+  /// Where the sheet grows from and shrinks back to: a speck at the pill.
+  private func toneSheetCollapsedTransform() -> CGAffineTransform {
+    let scale = flagCGFloat("kb.tone.sheet.anim.scale", 0.08)
+    return CGAffineTransform(translationX: 0, y: flagCGFloat("kb.tone.sheet.anim.liftPt", -10))
+      .scaledBy(x: scale, y: scale)
   }
 
   @objc private func toneScrimTapped(_ gr: UITapGestureRecognizer) {
@@ -5140,11 +5247,12 @@ final class SDUIRenderer: NSObject {
     guard animated, overlay != nil || blur != nil else {
       overlay?.removeFromSuperview(); blur?.removeFromSuperview(); return
     }
+    let collapsed = toneSheetCollapsedTransform()
     UIView.animate(
-      withDuration: 0.2, delay: 0, options: [.curveEaseIn],
+      withDuration: flagDouble("kb.tone.sheet.anim.closeMs", 200) / 1000.0, delay: 0, options: [.curveEaseIn],
       animations: {
         overlay?.alpha = 0
-        overlay?.transform = CGAffineTransform(translationX: 0, y: -10).scaledBy(x: 0.08, y: 0.08)
+        overlay?.transform = collapsed
         blur?.effect = nil
         blur?.alpha = 0
       },
@@ -5463,6 +5571,7 @@ final class SDUIRenderer: NSObject {
       }
     }
     bindTap(btn, node: node, defaultAction: nil)
+    attachLongPress(btn, node: node)
     return btn
   }
 
@@ -5493,7 +5602,16 @@ final class SDUIRenderer: NSObject {
     // Single-tap insertion fires on lift so slide-off cancels cleanly
     // (Apple's slide-off pattern); a near lift and a cancelled short tap
     // still count — see bindLift.
-    bindLift(btn) { [weak self] in self?.handleSpaceTap() }
+    //
+    // A node may replace the tap with its own on.onPress, but only when it
+    // also sets props.override = true: space's native tap (double-space
+    // period, trackpad release, word boundary, layer return) is too much to
+    // lose to a stray onPress. The trackpad hold below stays either way.
+    if node.props?["override"]?.asBool == true, let ref = node.on?["onPress"] {
+      bindLift(btn) { [weak self] in self?.run(ref) }
+    } else {
+      bindLift(btn) { [weak self] in self?.handleSpaceTap() }
+    }
 
     // Backend flags:
     //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
@@ -5863,6 +5981,12 @@ final class SDUIRenderer: NSObject {
     let btn = makeKeyButton()
     applyKeyGlyph(btn, node: node, flag: "kb.icon.backspace", fallbackSF: "delete.left")
     btn.tintColor = keyTextColor()
+    // on.onPress replaces the native delete only with props.override = true —
+    // hold-to-repeat, word acceleration and autocorrect revert live here.
+    if node.props?["override"]?.asBool == true, let ref = node.on?["onPress"] {
+      bindLift(btn) { [weak self] in self?.run(ref) }
+      return btn
+    }
     btn.addTarget(self, action: #selector(deleteDown), for: .touchDown)
     // .touchDragExit included: dragging off the held key must stop the
     // auto-repeat — without it the repeat kept deleting until lift.
@@ -5927,8 +6051,10 @@ final class SDUIRenderer: NSObject {
 
   private func deleteWordBoundary() {
     guard let p = host?.hostTextDocumentProxy else { return }
+    // kb.delete.wordMaxChars — one accelerated repeat never eats more.
+    let cap = Int(flagDouble("kb.delete.wordMaxChars", 64))
     var deleted = 0
-    while deleted < 64 {
+    while deleted < cap {
       let ctx = p.documentContextBeforeInput ?? ""
       guard let last = ctx.last else { break }
       p.deleteBackward()
@@ -5944,23 +6070,46 @@ final class SDUIRenderer: NSObject {
     updateAutoCap()
   }
 
-  /// Globe key — advances to next input mode (system behavior). Long-press
-  /// falls through to a `showLanguageMenu` action if `on.onLongPress` is set.
+  /// Globe key — the system keyboard switcher.
+  ///
+  /// With kb.globe.systemPicker (default true) every touch goes to
+  /// UIInputViewController.handleInputModeList(from:with:), the way Apple's
+  /// own sample wires it: a tap advances to the next keyboard, a hold shows
+  /// the system's keyboard list. Off, a tap just advances (the old wiring,
+  /// which never showed the list). A node with on.onPress runs that instead;
+  /// on.onLongPress still attaches its own hold action.
   private func buildGlobeKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
     applyKeyGlyph(btn, node: node, flag: "kb.icon.globe", fallbackSF: "globe")
     btn.tintColor = keyTextColor()
-    let action = UIAction { [weak self] _ in self?.host?.hostAdvanceInputMode() }
-    btn.addAction(action, for: .touchUpInside)
-    if let long = node.on?["onLongPress"] {
-      let lp = UILongPressGestureRecognizer(
-        target: WeakGRProxy(target: self, selector: #selector(longPressFired(_:))),
-        action: #selector(WeakGRProxy.handle(_:)))
-      lp.name = "kb.longPress.action"
-      btn.addGestureRecognizer(lp)
-      objc_setAssociatedObject(lp, &Self.longPressActionKey, long, .OBJC_ASSOCIATION_RETAIN)
+    if node.on?["onPress"] != nil {
+      bindTap(btn, node: node, defaultAction: nil)
+    } else if flagBool("kb.globe.systemPicker", true) {
+      btn.addTarget(self, action: #selector(globeInputModeList(_:event:)), for: .allTouchEvents)
+    } else {
+      let action = UIAction { [weak self] _ in self?.host?.hostAdvanceInputMode() }
+      btn.addAction(action, for: .touchUpInside)
     }
+    attachLongPress(btn, node: node)
     return btn
+  }
+
+  /// Every globe touch, handed to the system switcher (see buildGlobeKey).
+  @objc private func globeInputModeList(_ btn: UIButton, event: UIEvent?) {
+    guard let event = event else { return }
+    host?.hostHandleInputModeList(from: btn, with: event)
+  }
+
+  /// on.onLongPress — any key may carry a hold action.
+  private func attachLongPress(_ btn: UIButton, node: KBNode) {
+    guard let long = node.on?["onLongPress"] else { return }
+    let lp = UILongPressGestureRecognizer(
+      target: WeakGRProxy(target: self, selector: #selector(longPressFired(_:))),
+      action: #selector(WeakGRProxy.handle(_:)))
+    lp.name = "kb.longPress.action"
+    lp.minimumPressDuration = flagDouble("kb.longPress.ms", 500) / 1000.0
+    btn.addGestureRecognizer(lp)
+    objc_setAssociatedObject(lp, &Self.longPressActionKey, long, .OBJC_ASSOCIATION_RETAIN)
   }
   private static var longPressActionKey: UInt8 = 0
   @objc private func longPressFired(_ gr: UILongPressGestureRecognizer) {
@@ -6028,6 +6177,15 @@ final class SDUIRenderer: NSObject {
         let mark = markSpec.flatMap { TulmiMarkView.image(spec: $0, tint: tint, size: CGSize(width: 44, height: 44)) }
           ?? SDUIRenderer.tailzuMark()
         particles = MicParticleView(count: count, dotRadius: dotR, color: tint, sourceImage: mark)
+        // The swarm's physics, from the server (defaults: the shipped feel).
+        particles.burstMin = flagCGFloat("kb.mic.particles.burstMin", 55)
+        particles.burstMax = flagCGFloat("kb.mic.particles.burstMax", 110)
+        particles.drag = flagCGFloat("kb.mic.particles.drag", 0.99)
+        particles.minSpeed = flagCGFloat("kb.mic.particles.minSpeed", 24)
+        particles.stiffness = flagCGFloat("kb.mic.particles.stiffness", 26)
+        particles.damping = flagCGFloat("kb.mic.particles.damping", 0.8)
+        particles.settleDistance = flagCGFloat("kb.mic.particles.settlePt", 0.8)
+        particles.settleTimeout = flagCGFloat("kb.mic.particles.settleMs", 600) / 1000
         currentMicParticles = particles
       }
       particles.translatesAutoresizingMaskIntoConstraints = false
@@ -6152,13 +6310,19 @@ final class SDUIRenderer: NSObject {
     return btn
   }
 
-  /// Refine key — dispatches runRefine.
+  /// Refine key — dispatches runRefine, unless the node's on.onPress says
+  /// otherwise. on.onLongPress adds a hold action.
   private func buildRefineKey(node: KBNode) -> UIView {
     let btn = makeKeyButton()
     applyKeyGlyph(btn, node: node, flag: "kb.icon.refine", fallbackSF: "sparkles")
     btn.tintColor = keyTextColor()
-    let action = UIAction { [weak self] _ in self?.run(.inline(.runRefine)) }
-    btn.addAction(action, for: .touchUpInside)
+    if node.on?["onPress"] != nil {
+      bindTap(btn, node: node, defaultAction: nil)
+    } else {
+      let action = UIAction { [weak self] _ in self?.run(.inline(.runRefine)) }
+      btn.addAction(action, for: .touchUpInside)
+    }
+    attachLongPress(btn, node: node)
     return btn
   }
 
@@ -6437,8 +6601,9 @@ final class SDUIRenderer: NSObject {
   /// 1pt hairline divider.
   private func buildDivider(node: KBNode) -> UIView {
     let v = UIView()
-    v.backgroundColor = UIColor(white: 1, alpha: 0.08)
-    v.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
+    // #FFFFFF14 is the old white at 8%, to the nearest byte.
+    v.backgroundColor = flagColor("kb.divider.color", "#FFFFFF14")
+    v.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.divider.thicknessPx", 1) / UIScreen.main.scale).isActive = true
     return v
   }
 
@@ -7094,10 +7259,29 @@ final class SDUIRenderer: NSObject {
     guard let title = btn.title(for: .normal), title.count == 1,
           let ch = title.first, ch.isLetter else { hideKeyCallout(); return }
     let rect = container.convert(btn.bounds, from: btn)
-    let cv = calloutView ?? KeyCalloutView(frame: .zero)
-    calloutView = cv
+    let cv: KeyCalloutView
+    if let existing = calloutView {
+      cv = existing
+    } else {
+      // Built once per mount (remount drops it), so the flags are read here
+      // and not on every press.
+      cv = KeyCalloutView(frame: .zero)
+      cv.headExtraWidth = flagCGFloat("kb.callout.headExtraWidth", 28)
+      cv.headMinWidth = flagCGFloat("kb.callout.headMinWidth", 44)
+      cv.headExtraHeight = flagCGFloat("kb.callout.headExtraHeight", 8)
+      cv.neckHeight = flagCGFloat("kb.callout.neckHeight", 10)
+      cv.headRadius = flagCGFloat("kb.callout.radius", 7)
+      cv.edgeClamp = flagCGFloat("kb.callout.edgeInset", 3)
+      cv.setShadow(color: flagColor("kb.callout.shadowColor", "#000000"),
+                   opacity: Float(flagDouble("kb.callout.shadowOpacity", 0.18)),
+                   radius: flagCGFloat("kb.callout.shadowRadius", 5),
+                   offset: CGSize(width: flagCGFloat("kb.callout.shadowOffsetX", 0),
+                                  height: flagCGFloat("kb.callout.shadowOffsetY", 2)))
+      calloutView = cv
+    }
     cv.present(keyRect: rect, char: title, in: container,
-               bg: calloutBgColor(), text: calloutTextColor(), glyphSize: 24)
+               bg: calloutBgColor(), text: calloutTextColor(),
+               glyphSize: flagCGFloat("kb.callout.fontSize", 24))
   }
 
   private func hideKeyCallout() { calloutView?.isHidden = true }
@@ -7453,7 +7637,7 @@ final class SDUIRenderer: NSObject {
       if pendingAutoSpace {
         pendingAutoSpace = false
         if inserted.count == 1, let c = inserted.first,
-           ",.!?;:)]…\u{2019}\u{201D}".contains(c) {
+           flagString("kb.autoSpace.pullBackChars", ",.!?;:)]…’”").contains(c) {
           proxy?.deleteBackward()
           inserted = String(c) + " "
         }
@@ -7479,9 +7663,11 @@ final class SDUIRenderer: NSObject {
     case .deleteWord:
       guard let p = proxy else { return }
       // Delete back until a whitespace/newline or the document is empty.
-      // Bounded to avoid pathological loops on unusual editors.
+      // Bounded to avoid pathological loops on unusual editors
+      // (kb.deleteWord.maxChars).
+      let cap = Int(flagDouble("kb.deleteWord.maxChars", 1000))
       var deleted = 0
-      while deleted < 1000 {
+      while deleted < cap {
         let ctx = p.documentContextBeforeInput ?? ""
         guard let last = ctx.last else { break }
         p.deleteBackward()
@@ -7565,15 +7751,19 @@ final class SDUIRenderer: NSObject {
       persistTonePick(id: next.id)
       fireKeyHaptic("tone")
     case .openApp(let screenId):
-      // Apple restricts NSExtensionContext.open to Today extensions; keyboard
-      // extensions cannot launch URLs directly. We drop a tombstone in the
-      // shared App Group and the main app picks it up on next foreground.
+      // The tombstone in the App Group is the guaranteed half: the app reads
+      // it on its next foreground, however it gets there. The open is the
+      // other half — through the host's app-opening path, the same one the
+      // mic uses to reach Tailzu (a keyboard cannot call UIApplication.open).
+      // Writing only the tombstone left the tap doing nothing visible.
       let target = (screenId?.isEmpty == false) ? "screen/\(screenId!)" : ""
       writeDeepLinkTombstone(path: target)
+      openContainingApp(appURL(screen: screenId))
     case .openSettings:
-      // Same restriction — tombstone with a well-known path that the app
-      // routes to `openSettings()` on foreground.
+      // Tombstone with a well-known path the app routes to openSettings() on
+      // foreground; the open brings the app there (kb.deepLink.settingsUrl).
       writeDeepLinkTombstone(path: "openSettings")
+      openContainingApp(URL(string: flagString("kb.deepLink.settingsUrl", "tulmi://")))
     case .haptic(let style):
       fireHaptic(style)
     case .sequence(let actions):
@@ -7597,8 +7787,19 @@ final class SDUIRenderer: NSObject {
       _ = ms
     case .openUrl(let url, _):
       // Extensions can't UIApplication.open directly; drop a tombstone in the
-      // app group. Main app picks it up on next foreground.
+      // app group, then open through the host. A URL on one of the app's own
+      // schemes (kb.deepLink.openUrlSchemes, comma-separated) opens as
+      // itself; anything else opens the app — a keyboard may open its own
+      // app, not someone else's (App Review 4.4.1), and the tombstone carries
+      // the URL there.
       writeDeepLinkTombstone(path: "openUrl?u=\(url)")
+      let schemes = Set(flagString("kb.deepLink.openUrlSchemes", "tulmi")
+        .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+      if let u = URL(string: url), let scheme = u.scheme?.lowercased(), schemes.contains(scheme) {
+        openContainingApp(u)
+      } else {
+        openContainingApp(appURL(screen: nil))
+      }
     case .toast(let msg, let tone):
       showToast(message: msg, tone: tone)
     case .confetti:
@@ -7733,7 +7934,7 @@ final class SDUIRenderer: NSObject {
     toastView?.removeFromSuperview()
     let l = UILabel()
     l.text = message
-    l.textColor = .white
+    l.textColor = flagColor("kb.toast.fg", "#FFFFFF")
     l.textAlignment = .center
     l.font = .systemFont(ofSize: flagCGFloat("kb.toast.fontSize", 13), weight: .medium)
     let bg: UIColor = {
@@ -7744,7 +7945,7 @@ final class SDUIRenderer: NSObject {
       }
     }()
     l.backgroundColor = bg
-    l.layer.cornerRadius = 8
+    l.layer.cornerRadius = flagCGFloat("kb.toast.radius", 8)
     l.clipsToBounds = true
     l.translatesAutoresizingMaskIntoConstraints = false
     l.alpha = 0
@@ -7753,9 +7954,11 @@ final class SDUIRenderer: NSObject {
       l.centerXAnchor.constraint(equalTo: container.centerXAnchor),
       l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: flagCGFloat("kb.toast.offsetY", -18)),
       l.heightAnchor.constraint(equalToConstant: flagCGFloat("kb.toast.height", 32)),
-      l.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: 0.9),
+      l.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor,
+                               multiplier: flagCGFloat("kb.toast.maxWidthFraction", 0.9)),
     ])
-    l.layoutMargins = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+    l.layoutMargins = UIEdgeInsets(top: flagCGFloat("kb.toast.padV", 6), left: flagCGFloat("kb.toast.padH", 14),
+                                   bottom: flagCGFloat("kb.toast.padV", 6), right: flagCGFloat("kb.toast.padH", 14))
     toastView = l
     let fadeIn = flagDouble("kb.toast.fadeInMs", 180) / 1000.0
     let duration = flagDouble("kb.toast.durationMs", 2000) / 1000.0
@@ -8229,7 +8432,8 @@ final class SDUIRenderer: NSObject {
     // main ONLY if the document tail is still exactly word+boundary (a
     // generation counter + a fresh context read guard the race).
     let minLen = Int(flagDouble("kb.autocorrect.minLen", 3))
-    guard word.count >= minLen, word.count <= 24 else { return }
+    let maxLen = Int(flagDouble("kb.autocorrect.maxLen", 24))
+    guard word.count >= minLen, word.count <= maxLen else { return }
     // Plain ASCII letters (+apostrophe) only: digits, symbols, and accented
     // words (deliberately picked from the tray) are left alone.
     guard word.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
@@ -8241,6 +8445,8 @@ final class SDUIRenderer: NSObject {
     // static scorer running on the spell queue.
     let neighborCost = flagDouble("kb.autocorrect.neighborCost", 0.5)
     let punctCost = flagDouble("kb.autocorrect.punctCost", 0.5)
+    let maxGuesses = max(1, Int(flagDouble("kb.autocorrect.maxGuesses", 8)))
+    let maxLenDelta = max(0, Int(flagDouble("kb.autocorrect.maxLenDelta", 1)))
     let generation = typingGeneration
     let isNewline = boundary == "\n"
     Self.spellQueue.async { [weak self] in
@@ -8260,7 +8466,8 @@ final class SDUIRenderer: NSObject {
       let guesses = Self.bgChecker.guesses(forWordRange: full, in: word, language: lang) ?? []
       guard let corrected = SDUIRenderer.pickCorrection(
         for: word, from: guesses, neighbors: neighbors, maxDist: maxDist,
-        neighborCost: neighborCost, punctCost: punctCost) else { return }
+        neighborCost: neighborCost, punctCost: punctCost,
+        maxGuesses: maxGuesses, maxLenDelta: maxLenDelta) else { return }
       DispatchQueue.main.async {
         self?.applyAsyncCorrection(word: word, boundary: boundary, corrected: corrected,
                                    generation: generation, newlineBoundary: isNewline)
@@ -8329,11 +8536,14 @@ final class SDUIRenderer: NSObject {
                                      neighbors: [Character: Set<Character>],
                                      maxDist: Double,
                                      neighborCost: Double,
-                                     punctCost: Double) -> String? {
+                                     punctCost: Double,
+                                     maxGuesses: Int = 8,
+                                     maxLenDelta: Int = 1) -> String? {
     guard !guesses.isEmpty else { return nil }
     var best: (word: String, dist: Double)?
-    for g in guesses.prefix(8) {
-      guard !g.isEmpty, abs(g.count - typed.count) <= 1 else { continue }
+    // kb.autocorrect.maxGuesses / .maxLenDelta, captured on main.
+    for g in guesses.prefix(maxGuesses) {
+      guard !g.isEmpty, abs(g.count - typed.count) <= maxLenDelta else { continue }
       let d = weightedEditDistance(
         Array(typed.lowercased()), Array(g.lowercased()), neighbors: neighbors,
         neighborCost: neighborCost, punctCost: punctCost)
@@ -8392,10 +8602,12 @@ final class SDUIRenderer: NSObject {
       centers.append((c, CGPoint(x: f.midX, y: f.midY), f.width))
     }
     var m: [Character: Set<Character>] = [:]
+    // kb.autocorrect.neighborRadius — in key widths.
+    let reach = flagCGFloat("kb.autocorrect.neighborRadius", 1.8)
     for a in centers {
       var s = Set<Character>()
       for b in centers where b.ch != a.ch {
-        if hypot(a.p.x - b.p.x, a.p.y - b.p.y) < a.w * 1.8 { s.insert(b.ch) }
+        if hypot(a.p.x - b.p.x, a.p.y - b.p.y) < a.w * reach { s.insert(b.ch) }
       }
       m[a.ch] = s
     }
@@ -8425,7 +8637,7 @@ final class SDUIRenderer: NSObject {
     let avail = UITextChecker.availableLanguages
     let match = avail.first { $0.lowercased() == want }
       ?? avail.first { $0.lowercased().hasPrefix(want) }
-      ?? "en_US"
+      ?? flagString("kb.autocorrect.fallbackLang", "en_US")
     cachedCheckerLang = match
     return match
   }
@@ -8444,7 +8656,7 @@ final class SDUIRenderer: NSObject {
       }
       return
     }
-    guard currentWord.count >= 2,
+    guard currentWord.count >= Int(flagDouble("kb.suggestions.minChars", 2)),
           currentWord.allSatisfy({ ($0.isLetter && $0.isASCII) || $0 == "'" || $0 == "\u{2019}" })
     else {
       if !state.suggestions.isEmpty {
@@ -8591,7 +8803,10 @@ final class SDUIRenderer: NSObject {
   private var swipeWords: [String]?
   private func swipeLexicon() -> [String] {
     if let w = swipeWords { return w }
-    var words = Self.swipeCoreWords
+    // kb.swipe.coreWords replaces the embedded list wholesale when the server
+    // sends one (frequency order: rank drives the score). Empty → embedded.
+    let served = knobStrings("kb.swipe.coreWords", []).map { $0.lowercased() }.filter { !$0.isEmpty }
+    var words = served.isEmpty ? Self.swipeCoreWords : served
     if case .array(let extra)? = config.flags?["kb.swipe.extraWords"] {
       words.append(contentsOf: extra.compactMap { $0.asString?.lowercased() })
     }
@@ -8701,10 +8916,18 @@ final class SDUIRenderer: NSObject {
       return true
     }
 
+    // The scoring dial, kb.swipe.score.* — frequency, exactness, length
+    // affinity (and the swept-keys-per-letter ratio it assumes), pivot bonus.
+    let wFreq = flagDouble("kb.swipe.score.freq", 2.0)
+    let wExact = flagDouble("kb.swipe.score.exact", 1.5)
+    let wLength = flagDouble("kb.swipe.score.length", 0.6)
+    let keysPerLetter = flagDouble("kb.swipe.score.keysPerLetter", 1.6)
+    let wPivot = flagDouble("kb.swipe.score.pivot", 0.4)
+    let extraLetters = Int(flagDouble("kb.swipe.maxExtraLetters", 2))
     var scored: [(String, Double)] = []
     for (rank, word) in lexicon.enumerated() {
       let letters = Array(word.filter { $0 != "'" && $0 != "\u{2019}" })
-      guard letters.count >= 2, letters.count <= sweptChars.count + 2 else { continue }
+      guard letters.count >= 2, letters.count <= sweptChars.count + extraLetters else { continue }
       guard let wf = letters.first, let wl = letters.last,
             near(first, wf), near(last, wl) else { continue }
       guard coversPivots(letters) else { continue }
@@ -8714,14 +8937,15 @@ final class SDUIRenderer: NSObject {
       // words, just without a frequency prior.
       let freq = rank < total ? 1.0 - Double(rank) / Double(total) : 0.0
       let lengthAffinity = 1.0 - min(
-        1.0, abs(Double(sweptChars.count) - Double(letters.count) * 1.6) / Double(sweptChars.count))
+        1.0, abs(Double(sweptChars.count) - Double(letters.count) * keysPerLetter) / Double(sweptChars.count))
       // A word that uses MORE of the pivots is more likely the traced one.
       let pivotBonus = pivotChars.count > 2
-        ? min(1.0, Double(letters.count) / Double(max(1, pivotChars.count))) * 0.4
+        ? min(1.0, Double(letters.count) / Double(max(1, pivotChars.count))) * wPivot
         : 0
-      scored.append((word, freq * 2.0 + exactness * 1.5 + lengthAffinity * 0.6 + pivotBonus))
+      scored.append((word, freq * wFreq + exactness * wExact + lengthAffinity * wLength + pivotBonus))
     }
-    return scored.sorted { $0.1 > $1.1 }.prefix(4).map { $0.0 }
+    let top = max(1, Int(flagDouble("kb.swipe.candidates", 4)))
+    return scored.sorted { $0.1 > $1.1 }.prefix(top).map { $0.0 }
   }
 
   /// Real-dictionary candidates for THIS swipe.
@@ -8758,6 +8982,8 @@ final class SDUIRenderer: NSObject {
     // reads as a badly-misspelled word, which is precisely what guesses() is
     // built to fix.
     let lang = autocorrectLanguage()
+    // kb.swipe.dictGuesses — checker guesses taken per skeleton.
+    let dictGuesses = max(0, Int(flagDouble("kb.swipe.dictGuesses", 12)))
     let skeletons: [String] = {
       var s: [String] = [String(swept)]
       let pivotWord = pivots.compactMap { $0.lowercased().first }
@@ -8771,7 +8997,7 @@ final class SDUIRenderer: NSObject {
       // Bounded: this runs synchronously on the commit (once per swipe, not
       // per keystroke), so we take the top few and stop.
       let guesses = Self.bgChecker.guesses(forWordRange: range, in: skeleton, language: lang) ?? []
-      for g in guesses.prefix(12) { consider(g) }
+      for g in guesses.prefix(dictGuesses) { consider(g) }
     }
     return out
   }
@@ -8806,6 +9032,25 @@ final class SDUIRenderer: NSObject {
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
   }
 
+  /// The app's URL for a screen: kb.deepLink.urlTemplate with "{screen}"
+  /// replaced (the same template the host uses for the Flow arm); no screen
+  /// opens the app root, kb.deepLink.rootUrl.
+  private func appURL(screen: String?) -> URL? {
+    guard let s = screen, !s.isEmpty else {
+      return URL(string: flagString("kb.deepLink.rootUrl", "tulmi://"))
+    }
+    let enc = s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    let template = flagString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
+    return URL(string: template.replacingOccurrences(of: "{screen}", with: enc))
+  }
+
+  /// Open the containing app through the host. kb.deepLink.openApp = false
+  /// restores tombstone-only (the app then routes on its next foreground).
+  private func openContainingApp(_ url: URL?) {
+    guard flagBool("kb.deepLink.openApp", true), let url = url else { return }
+    host?.hostOpenURL(url)
+  }
+
   private func presentLanguageMenu() {
     guard let layouts = config.layouts, !layouts.isEmpty else { return }
     let sheet = UIAlertController(title: host?.hostLabel("language", "Language"),
@@ -8817,7 +9062,7 @@ final class SDUIRenderer: NSObject {
         self?.run(.inline(.switchLayout(language: layout.language)))
       })
     }
-    sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    sheet.addAction(UIAlertAction(title: host?.hostLabel("cancel", "Cancel") ?? "Cancel", style: .cancel))
     // iPad requires a sourceView for action sheets or presentation raises.
     // Anchoring on mountContainer keeps the popover on the keyboard surface.
     if let popover = sheet.popoverPresentationController {
@@ -8911,8 +9156,82 @@ final class SDUIRenderer: NSObject {
     case "flags":
       let key = parts.dropFirst().joined(separator: ".")
       return config.flags?[key] ?? .null
+    case "features":
+      // config.features, every key the server sent (features.voice, …).
+      let key = parts.dropFirst().joined(separator: ".")
+      return config.features?.raw[key] ?? .null
+    case "labels":
+      // The copy the server sent (labels.flow_start_hint, …) — so a tree can
+      // hide a row whose label the server blanked.
+      let key = parts.dropFirst().joined(separator: ".")
+      guard let text = config.labels?[key] else { return .null }
+      return .string(text)
+    case "field":
+      // The focused field's traits, read from the host when asked.
+      let key = parts.dropFirst().joined(separator: ".")
+      guard let host = host else { return .null }
+      switch key {
+      case "keyboardType":      return .string(host.hostKeyboardTypeName())
+      case "returnKeyType":     return .string(Self.returnKeyTypeName(host.hostReturnKeyType()))
+      case "autocapitalization": return .string(Self.autocapName(host.hostAutocapitalizationType()))
+      case "isSecure":          return .bool(host.hostIsSecureField())
+      case "isNumeric":         return .bool(host.hostIsNumericField())
+      case "kind":              return .string(host.hostFieldKind())
+      default:                  return .null
+      }
+    case "quota":
+      // quota.<x> is the kb.quota.<x> flag (quota.exhausted, quota.screenId…).
+      let key = parts.dropFirst().joined(separator: ".")
+      return config.flags?["kb.quota.\(key)"] ?? .null
     default:
       return .null
+    }
+  }
+
+  /// UIReturnKeyType by its UIKit name, for field.returnKeyType.
+  private static func returnKeyTypeName(_ t: UIReturnKeyType) -> String {
+    switch t {
+    case .default:       return "default"
+    case .go:            return "go"
+    case .google:        return "google"
+    case .join:          return "join"
+    case .next:          return "next"
+    case .route:         return "route"
+    case .search:        return "search"
+    case .send:          return "send"
+    case .yahoo:         return "yahoo"
+    case .done:          return "done"
+    case .emergencyCall: return "emergencyCall"
+    case .continue:      return "continue"
+    @unknown default:    return "default"
+    }
+  }
+
+  /// UITextAutocapitalizationType by its UIKit name, for field.autocapitalization.
+  private static func autocapName(_ t: UITextAutocapitalizationType) -> String {
+    switch t {
+    case .none:          return "none"
+    case .words:         return "words"
+    case .sentences:     return "sentences"
+    case .allCharacters: return "allCharacters"
+    @unknown default:    return "sentences"
+    }
+  }
+
+  /// A bind value for any key the fixed cases in stateValue(for:) don't
+  /// know: the same lookup the conditions use. A bare key is a state key
+  /// ("micLevel" → state.micLevel, "user.x" → state.user.x); a namespaced
+  /// one (flags. / features. / labels. / field. / quota.) reads there.
+  private func bindLookup(_ key: String) -> String? {
+    let namespaces: Set<String> = ["state", "flags", "features", "labels", "field", "quota"]
+    let head = key.split(separator: ".").first.map(String.init) ?? ""
+    let value = lookup(namespaces.contains(head) ? key : "state.\(key)")
+    switch value {
+    case .string(let s): return s
+    case .bool(let b):   return b ? "true" : "false"
+    case .number(let n):
+      return n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n)
+    case .null, .array, .object: return nil
     }
   }
   private func lookupNumber(_ path: String) -> Double? { lookup(path).asDouble }

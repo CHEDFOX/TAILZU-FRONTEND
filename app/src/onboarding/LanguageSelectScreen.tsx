@@ -22,27 +22,28 @@ import * as Localization from "expo-localization";
 import * as Haptics from "expo-haptics";
 import { typeRole } from "../sdui/components";
 import type { ThemeTokens } from "../sdui/types";
+import { color, list, num } from "../sdui/knobs";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 
+// Module scope, because the StyleSheet below is built from it once — after
+// App.tsx has pointed the knobs at the last bootstrap on disk, so the layout
+// follows the server from the launch after it changes it.
+//
 // Exactly two pills per row: inner width (screen − 18·2 side insets) minus one
 // 12pt column gap, split in two.
-const LIST_INSET = 18;
-const GRID_GAP = 12;
+const LIST_INSET = num("language.listInset", 18);
+const GRID_GAP = num("language.gridGap", 12);
 const BOX_W = (SW - LIST_INSET * 2 - GRID_GAP) / 2;
 
-const ARRIVAL_HOLD_MS = 2400;   // greeting sits centred…
-const ARRIVAL_MOVE_MS = 1100;   // …then glides up
-const ROTATE_INTERVAL_MS = 2400;
-const ROTATE_FADE_MS = 280;
+const GREETING_CENTER_Y = SH * num("language.greetingCenterY", 0.4);
+const GREETING_TOP_Y = SH * num("language.greetingTopY", 0.1);
+const LIST_TOP = SH * num("language.listTop", 0.36);
+const LIST_BOTTOM = SH * num("language.listBottom", 0.06);
+const PILL_H = num("language.pillHeight", 54);
 
-const GREETING_CENTER_Y = SH * 0.4;
-const GREETING_TOP_Y = SH * 0.1;
-const LIST_TOP = SH * 0.36;
-const LIST_BOTTOM = SH * 0.06;
-
-const WHITE = "#FFFFFF";
-const VOID = "#000000";
+const WHITE = color("language.color.ink", "#FFFFFF");
+const VOID = color("language.color.bg", "#000000");
 
 export interface Language {
   code: string;
@@ -56,32 +57,34 @@ export interface Language {
  * doesn't send `languages` in bootstrap — the backend list takes priority so
  * adding/reordering languages is a server-side change.
  */
-const FALLBACK_LANGUAGES: Language[] = [
-  { code: "en", name: "English", greeting: "Hello", regions: ["US", "GB", "CA", "AU", "IN"] },
-  { code: "hi", name: "हिन्दी", greeting: "नमस्ते", regions: ["IN"] },
-  { code: "es", name: "Español", greeting: "Hola", regions: ["ES", "MX", "AR"] },
-  { code: "fr", name: "Français", greeting: "Bonjour", regions: ["FR", "CA"] },
-  { code: "ar", name: "العربية", greeting: "مرحبا", regions: ["AE", "SA", "EG"] },
-  { code: "pt", name: "Português", greeting: "Olá", regions: ["PT", "BR"] },
-  { code: "de", name: "Deutsch", greeting: "Hallo", regions: ["DE"] },
-  { code: "it", name: "Italiano", greeting: "Ciao", regions: ["IT"] },
-  { code: "ru", name: "Русский", greeting: "Привет", regions: ["RU"] },
-  { code: "ja", name: "日本語", greeting: "こんにちは", regions: ["JP"] },
-  { code: "ko", name: "한국어", greeting: "안녕하세요", regions: ["KR"] },
-  { code: "zh", name: "中文", greeting: "你好", regions: ["CN"] },
-  { code: "bn", name: "বাংলা", greeting: "নমস্কার", regions: ["BD", "IN"] },
-  { code: "ta", name: "தமிழ்", greeting: "வணக்கம்", regions: ["IN", "LK"] },
-  { code: "te", name: "తెలుగు", greeting: "నమస్కారం", regions: ["IN"] },
-  { code: "mr", name: "मराठी", greeting: "नमस्कार", regions: ["IN"] },
-  { code: "gu", name: "ગુજરાતી", greeting: "નમસ્તે", regions: ["IN"] },
-  { code: "pa", name: "ਪੰਜਾਬੀ", greeting: "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ", regions: ["IN"] },
-  { code: "ur", name: "اردو", greeting: "السلام علیکم", regions: ["PK", "IN"] },
-  { code: "tr", name: "Türkçe", greeting: "Merhaba", regions: ["TR"] },
-  { code: "id", name: "Indonesia", greeting: "Halo", regions: ["ID"] },
-  { code: "vi", name: "Tiếng Việt", greeting: "Xin chào", regions: ["VN"] },
-  { code: "th", name: "ไทย", greeting: "สวัสดี", regions: ["TH"] },
-  { code: "nl", name: "Nederlands", greeting: "Hallo", regions: ["NL"] },
-];
+function fallbackLanguages(): Language[] {
+  return list<Language>("languages.fallback", [
+  { "code": "en", "name": "English", "greeting": "Hello", "regions": ["US", "GB", "CA", "AU", "IN"] },
+  { "code": "hi", "name": "हिन्दी", "greeting": "नमस्ते", "regions": ["IN"] },
+  { "code": "es", "name": "Español", "greeting": "Hola", "regions": ["ES", "MX", "AR"] },
+  { "code": "fr", "name": "Français", "greeting": "Bonjour", "regions": ["FR", "CA"] },
+  { "code": "ar", "name": "العربية", "greeting": "مرحبا", "regions": ["AE", "SA", "EG"] },
+  { "code": "pt", "name": "Português", "greeting": "Olá", "regions": ["PT", "BR"] },
+  { "code": "de", "name": "Deutsch", "greeting": "Hallo", "regions": ["DE"] },
+  { "code": "it", "name": "Italiano", "greeting": "Ciao", "regions": ["IT"] },
+  { "code": "ru", "name": "Русский", "greeting": "Привет", "regions": ["RU"] },
+  { "code": "ja", "name": "日本語", "greeting": "こんにちは", "regions": ["JP"] },
+  { "code": "ko", "name": "한국어", "greeting": "안녕하세요", "regions": ["KR"] },
+  { "code": "zh", "name": "中文", "greeting": "你好", "regions": ["CN"] },
+  { "code": "bn", "name": "বাংলা", "greeting": "নমস্কার", "regions": ["BD", "IN"] },
+  { "code": "ta", "name": "தமிழ்", "greeting": "வணக்கம்", "regions": ["IN", "LK"] },
+  { "code": "te", "name": "తెలుగు", "greeting": "నమస్కారం", "regions": ["IN"] },
+  { "code": "mr", "name": "मराठी", "greeting": "नमस्कार", "regions": ["IN"] },
+  { "code": "gu", "name": "ગુજરાતી", "greeting": "નમસ્તે", "regions": ["IN"] },
+  { "code": "pa", "name": "ਪੰਜਾਬੀ", "greeting": "ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ", "regions": ["IN"] },
+  { "code": "ur", "name": "اردو", "greeting": "السلام علیکم", "regions": ["PK", "IN"] },
+  { "code": "tr", "name": "Türkçe", "greeting": "Merhaba", "regions": ["TR"] },
+  { "code": "id", "name": "Indonesia", "greeting": "Halo", "regions": ["ID"] },
+  { "code": "vi", "name": "Tiếng Việt", "greeting": "Xin chào", "regions": ["VN"] },
+  { "code": "th", "name": "ไทย", "greeting": "สวัสดี", "regions": ["TH"] },
+  { "code": "nl", "name": "Nederlands", "greeting": "Hallo", "regions": ["NL"] }
+  ]);
+}
 
 /** Device language first, then same-region cluster, then a shuffled remainder. */
 function orderLanguages(list: Language[], deviceLang: string, deviceRegion: string): Language[] {
@@ -122,7 +125,7 @@ export default function LanguageSelectScreen({
   const deviceLang = useMemo(() => Localization.getLocales?.()?.[0]?.languageCode || "en", []);
   const deviceRegion = useMemo(() => Localization.getLocales?.()?.[0]?.regionCode || "", []);
   // Backend-provided list wins; the built-in list is only a fallback.
-  const source = languages && languages.length ? languages : FALLBACK_LANGUAGES;
+  const source = useMemo(() => (languages && languages.length ? languages : fallbackLanguages()), [languages]);
   const langs = useMemo(() => orderLanguages(source, deviceLang, deviceRegion), [source, deviceLang, deviceRegion]);
 
   const arrival = useRef(new Animated.Value(0)).current;
@@ -134,27 +137,27 @@ export default function LanguageSelectScreen({
     const t = setTimeout(() => {
       Animated.timing(arrival, {
         toValue: 1,
-        duration: ARRIVAL_MOVE_MS,
+        duration: num("language.arrivalMoveMs", 1100),   // …then glides up
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: true,
       }).start(() => setArrivalDone(true));
-    }, ARRIVAL_HOLD_MS);
+    }, num("language.arrivalHoldMs", 2400));   // greeting sits centred…
     return () => clearTimeout(t);
   }, [arrival, arrivalDone]);
 
   // Fade the new greeting in whenever the index changes.
   useEffect(() => {
-    Animated.timing(greetingFade, { toValue: 1, duration: ROTATE_FADE_MS, useNativeDriver: true }).start();
+    Animated.timing(greetingFade, { toValue: 1, duration: num("language.rotateFadeMs", 280), useNativeDriver: true }).start();
   }, [index, greetingFade]);
 
   // Rotate greetings on a timer (fade out → advance → fade in).
   useEffect(() => {
     if (langs.length < 2) return;
     const iv = setInterval(() => {
-      Animated.timing(greetingFade, { toValue: 0, duration: ROTATE_FADE_MS, useNativeDriver: true }).start(({ finished }) => {
+      Animated.timing(greetingFade, { toValue: 0, duration: num("language.rotateFadeMs", 280), useNativeDriver: true }).start(({ finished }) => {
         if (finished) setIndex((p) => (p + 1) % langs.length);
       });
-    }, ROTATE_INTERVAL_MS);
+    }, num("language.rotateIntervalMs", 2400));
     return () => clearInterval(iv);
   }, [langs.length, greetingFade]);
 
@@ -168,7 +171,7 @@ export default function LanguageSelectScreen({
   const greetingTranslateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [0, GREETING_TOP_Y - GREETING_CENTER_Y] });
   const listOpacity = arrival.interpolate({ inputRange: [0, 0.55, 1], outputRange: [0, 0, 1] });
   const textColor = text ?? WHITE;
-  const boxBorder = borderColor ?? "rgba(255,255,255,0.12)";
+  const boxBorder = borderColor ?? color("language.color.pillBorder", "rgba(255,255,255,0.12)");
   // This screen can draw before bootstrap returns, so the StyleSheet keeps a
   // copy of each role; when the theme is here, the theme wins.
   const greetingType = theme ? typeRole(theme, "langGreeting", s.greeting) : s.greeting;
@@ -205,7 +208,7 @@ const s = StyleSheet.create({
   listContainer: { position: "absolute", top: LIST_TOP, bottom: LIST_BOTTOM, left: LIST_INSET, right: LIST_INSET },
   listGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: GRID_GAP, paddingBottom: 18 },
   langBox: {
-    width: BOX_W, height: 54, borderRadius: 27,
+    width: BOX_W, height: PILL_H, borderRadius: PILL_H / 2,
     borderWidth: 0.5,
     justifyContent: "center", alignItems: "center",
   },

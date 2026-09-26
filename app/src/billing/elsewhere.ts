@@ -25,12 +25,33 @@
 /** The flags the bootstrap sends. Only the billing ones matter here. */
 export type BillingFlags = Record<string, unknown> | null | undefined;
 
+/**
+ * The words, from the server. The app passes the knobs' txt (labels
+ * billing.elsewhere.*); the default fills `{placeholders}` and keeps the
+ * fallback, so this file stays free of imports and the rule stays testable in
+ * plain node.
+ */
+export type Txt = (key: string, fallback: string, vars?: Record<string, string | number>) => string;
+const fallbackTxt: Txt = (_key, fallback, vars) =>
+  vars ? fallback.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : fallback;
+
 /** What to call the place, and what the button that goes there should say. */
-const WHERE: Record<string, { name: string; go: string }> = {
-  "billing.manage.apple": { name: "the App Store", go: "Open App Store" },
-  "billing.manage.google": { name: "Google Play", go: "Open Google Play" },
-  "billing.manage.web": { name: "the web", go: "Email support" },
-};
+function where(txt: Txt): Record<string, { name: string; go: string }> {
+  return {
+    "billing.manage.apple": {
+      name: txt("billing.elsewhere.apple.name", "the App Store"),
+      go: txt("billing.elsewhere.apple.go", "Open App Store"),
+    },
+    "billing.manage.google": {
+      name: txt("billing.elsewhere.google.name", "Google Play"),
+      go: txt("billing.elsewhere.google.go", "Open Google Play"),
+    },
+    "billing.manage.web": {
+      name: txt("billing.elsewhere.web.name", "the web"),
+      go: txt("billing.elsewhere.web.go", "Email support"),
+    },
+  };
+}
 
 /** The flag naming the store THIS device buys from. Its own is a tier change. */
 function ownStoreFlag(platform: string): string {
@@ -60,15 +81,16 @@ export type Elsewhere = {
  * direction: a wrong "go ahead" costs somebody money, a wrong stop costs an
  * email.
  */
-export function manageElsewhere(flags: BillingFlags, platform: string): Elsewhere | null {
+export function manageElsewhere(flags: BillingFlags, platform: string, txt: Txt = fallbackTxt): Elsewhere | null {
   if (!flags || !flags["billing.entitled"]) return null;
   if (flags[ownStoreFlag(platform)]) return null;
-  const key = Object.keys(WHERE).find((k) => flags[k]);
+  const places = where(txt);
+  const key = Object.keys(places).find((k) => flags[k]);
   const url = typeof flags["billing.manage.url"] === "string" ? String(flags["billing.manage.url"]) : "";
-  if (!key) return { message: "This account already has an active subscription." };
-  const w = WHERE[key];
+  if (!key) return { message: txt("billing.elsewhere.unknown", "This account already has an active subscription.") };
+  const w = places[key];
   return {
-    message: `Your subscription is with ${w.name}. Change or cancel it there — it covers every device.`,
+    message: txt("billing.elsewhere.message", "Your subscription is with {name}. Change or cancel it there — it covers every device.", { name: w.name }),
     ...(url ? { action: { label: w.go, url } } : {}),
   };
 }

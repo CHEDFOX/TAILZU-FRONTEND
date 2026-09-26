@@ -147,6 +147,9 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
          *  repeat-while-held; a plain letter leaves both unset. */
         val onPressStart: (() -> Unit)? = null,
         val onPressEnd: (() -> Unit)? = null,
+        /** Hold before [onLongPress] fires; 0 = the plane's default. Shift
+         *  sets it from kb.shift.longPressMs. */
+        val longPressMs: Long = 0L,
     ) {
         /** Filled in by the plane at layout time. */
         val rect = RectF()
@@ -474,7 +477,7 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             action()
         }
         armedLongPress = r
-        longPressHandler.postDelayed(r, LONG_PRESS_MS)
+        longPressHandler.postDelayed(r, if (k.longPressMs > 0L) k.longPressMs else LONG_PRESS_MS)
     }
 
     private fun cancelArmedLongPress() {
@@ -508,7 +511,19 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         var nearestDist = Float.MAX_VALUE
         for (i in 0 until childCount) {
             val c = getChildAt(i)
-            if (!isKey(c)) continue
+            if (!isKey(c)) {
+                // A touch that lands ON something with its own gestures — the
+                // backspace that repeats, the tone pill's hold, the mic, the
+                // scrolling suggestion strip — belongs to that view. Gap-filling
+                // used to hand it to the nearest KEY instead, so the plane took
+                // it: backspace typed the letter beside it, and a mic or chip
+                // tap in the tools row fired the tone pill.
+                if (c.visibility == VISIBLE && ownsItsTouches(c)) {
+                    c.getHitRect(hitRect)
+                    if (hitRect.contains(x.toInt(), y.toInt())) return null
+                }
+                continue
+            }
             c.getHitRect(hitRect)
             if (hitRect.contains(x.toInt(), y.toInt())) return c
             if (!fillGaps) continue
@@ -569,6 +584,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private fun isKey(v: View): Boolean =
         v.visibility == VISIBLE && v.isClickable && v !is android.view.ViewGroup &&
             v.tag != RAW_TOUCH
+
+    /** Not a key, but interactive: its area is its own, never a gap to fill.
+     *  A plain spacer is none of these, so a tap on one still reaches a key. */
+    private fun ownsItsTouches(v: View): Boolean =
+        v.tag == RAW_TOUCH || v.isClickable || v is android.view.ViewGroup
 
     /**
      * The rest colour of each key view, captured the first time it is pressed.

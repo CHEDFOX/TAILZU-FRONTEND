@@ -65,12 +65,12 @@ export default function OfflineScreen({ theme, onRetry, onDev }: {
         accessibilityRole="header"
       >
         <Text style={{ color: ink, fontSize: num("app.offline.titleSize", 22), fontWeight: "600",
-          textAlign: "center", marginBottom: 10 }}>
+          textAlign: "center", marginBottom: num("app.offline.titleGap", 10) }}>
           {txt("offline.title", "You're offline")}
         </Text>
       </Pressable>
-      <Text style={{ color: mute, fontSize: num("app.offline.bodySize", 15), lineHeight: 22,
-        textAlign: "center", maxWidth: 320, marginBottom: 28 }}>
+      <Text style={{ color: mute, fontSize: num("app.offline.bodySize", 15), lineHeight: num("app.offline.bodyLineHeight", 22),
+        textAlign: "center", maxWidth: num("app.offline.bodyMaxWidth", 320), marginBottom: num("app.offline.bodyGap", 28) }}>
         {txt("offline.body", "Tailzu can't reach its server right now. Check your connection. It will keep trying.")}
       </Text>
       <Pressable
@@ -78,15 +78,16 @@ export default function OfflineScreen({ theme, onRetry, onDev }: {
         disabled={busy}
         accessibilityRole="button"
         style={{ backgroundColor: accent, borderRadius: num("app.offline.buttonRadius", 22),
-          paddingHorizontal: 28, paddingVertical: 12, minWidth: 160, alignItems: "center", opacity: busy ? 0.7 : 1 }}
+          paddingHorizontal: num("app.offline.buttonPadX", 28), paddingVertical: num("app.offline.buttonPadY", 12),
+          minWidth: num("app.offline.buttonMinWidth", 160), alignItems: "center", opacity: busy ? num("app.offline.busyOpacity", 0.7) : 1 }}
       >
         {busy
           ? <ActivityIndicator color={color("app.offline.buttonText", "#000000")} />
-          : <Text style={{ color: color("app.offline.buttonText", "#000000"), fontSize: 16, fontWeight: "600" }}>
+          : <Text style={{ color: color("app.offline.buttonText", "#000000"), fontSize: num("app.offline.buttonTextSize", 16), fontWeight: "600" }}>
               {txt("offline.retry", "Try again")}
             </Text>}
       </Pressable>
-      <Text style={{ color: mute, fontSize: 13, marginTop: 14, minHeight: 18 }}>
+      <Text style={{ color: mute, fontSize: num("app.offline.noteSize", 13), marginTop: num("app.offline.noteGap", 14), minHeight: 18 }}>
         {busy ? txt("offline.checking", "Checking…") : wait > 0 ? txt("offline.retryIn", "Trying again in {s}s", { s: wait }) : ""}
       </Text>
     </View>

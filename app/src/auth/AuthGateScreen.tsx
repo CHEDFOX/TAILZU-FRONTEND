@@ -53,26 +53,39 @@ import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
 import { setAuthName } from "../storage";
-import { AUTH_METHODS, COUNTRIES, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
+import { AUTH_METHODS, countries, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";
 import Constants from "expo-constants";
+import { color, list, num, obj, str, txt, bool } from "../sdui/knobs";
 
 // Lets the OAuth popup hand the redirect back to the JS auth-session listener
 // when the browser closes. Safe no-op when there's no pending session.
 WebBrowser.maybeCompleteAuthSession();
 
 const { width: SW, height: SH } = Dimensions.get("window");
-const PILL_W = Math.min(320, SW - 56);
-const PILL_H = 56;
-const PILL_PAD = 5;
+// THE GEOMETRY IS THE SERVER'S TOO. Module scope, because the StyleSheet and
+// the pan responder below are built from it once — which is still after App.tsx
+// has pointed the knobs at the last bootstrap on disk, so these follow the
+// server from the launch after it changes them.
+const PILL_W = Math.min(num("auth.pill.maxWidth", 320), SW - num("auth.pill.sideInset", 56));
+const PILL_H = num("auth.pill.height", 56);
+const PILL_PAD = num("auth.pill.padding", 5);
 const BADGE = PILL_H - PILL_PAD * 2; // 46
-const SOCIAL_SIZE = 52;
-const SOCIAL_GAP = 16;
-const SHAKE = 8;
+const SOCIAL_SIZE = num("auth.social.size", 52);
+const SOCIAL_GAP = num("auth.social.gap", 16);
+const SHAKE = num("auth.anim.shakeDistance", 8);
 const MAX_DRAG = PILL_W - PILL_PAD * 2 - BADGE;
-const DRAG_THRESHOLD = MAX_DRAG * 0.6;
-const EMAIL_RX = /^\S+@\S+\.\S+$/;
-const CODE_LEN = 6;
+const DRAG_THRESHOLD = MAX_DRAG * num("auth.pill.commitFraction", 0.6);
+
+/** What counts as an address worth sending a code to. A bad pattern from the
+ *  server must never cost anyone the sign-in screen, so it falls back. */
+function emailRx(): RegExp {
+  try {
+    return new RegExp(str("auth.emailPattern", "^\\S+@\\S+\\.\\S+$"));
+  } catch {
+    return /^\S+@\S+\.\S+$/;
+  }
+}
 /**
  * How hard the app tries to get a code out before it admits it could not.
  *
@@ -81,21 +94,13 @@ const CODE_LEN = 6;
  * the time the failure is reported, so waiting before trying again spends the
  * user's time on nothing; the second will not be fixed by any amount of
  * waiting, and four attempts is enough to establish that.
- */
-const SEND_ATTEMPTS = 4;
-/** Waits before attempts 2, 3 and 4, in ms. Zero first: the retry is instant. */
-const SEND_BACKOFF_MS = [0, 900, 2600];
-/**
- * The same, when the server said RATE LIMIT.
  *
- * Retrying instantly against a rate limit is how a slow send becomes a blocked
- * address — the limiter counts the attempts, so hammering it makes the thing
- * it is measuring worse. This is the one failure that has to be waited out.
+ * The waits before attempts 2, 3 and 4 are auth.send.backoffMs — zero first,
+ * so the retry is instant — and auth.send.rateLimitBackoffMs when the server
+ * said RATE LIMIT: retrying instantly against a rate limit is how a slow send
+ * becomes a blocked address, because the limiter counts the attempts.
  */
-const RATE_LIMIT_BACKOFF_MS = [6_000, 15_000, 30_000];
-const WHITE = "#FFFFFF";
-/** The brand amber. The one colour on this screen that means "go". */
-const ACCENT = "#E8A23C";
+const WHITE = color("auth.color.ink", "#FFFFFF");
 /**
  * The target circle. A DIMMER amber than the brand's own.
  *
@@ -104,9 +109,23 @@ const ACCENT = "#E8A23C";
  * by a distance. Pulled down, it still says "go" and stops shouting it, and
  * the black arrow keeps its contrast either way.
  */
-const ACCENT_DIM = "#C9862B";
-const VOID = "#000000";
-const ABYSS = "#050508";
+const ACCENT_DIM = color("auth.color.target", "#C9862B");
+const VOID = color("auth.color.bg", "#000000");
+const ABYSS = color("auth.color.sheet", "#050508");
+
+/**
+ * A sign-in that failed, told to the person in the server's words.
+ *
+ * The raw reason (Supabase's message, a Google error code) used to be the
+ * alert's body — accurate, and meaningless to anyone but us. It goes to the
+ * log now; the server can put it back on screen with auth.errors.showDetail
+ * while a provider is being set up.
+ */
+function authFailed(title: string, body: string, detail: unknown): void {
+  const raw = String((detail as { message?: string } | null)?.message ?? detail ?? "");
+  console.warn(`[auth] ${title}: ${raw}`);
+  Alert.alert(title, bool("auth.errors.showDetail", false) && raw ? `${body}\n\n${raw}` : body);
+}
 // RN 0.85 removed StyleSheet.absoluteFillObject — spreading it yields {} and
 // the pill layers collapse to a zero-height centered hairline. Spell it out.
 const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
@@ -206,9 +225,10 @@ function CountryPickerModal({
 }: { visible: boolean; current: Country; onClose: () => void; onSelect: (c: Country) => void }) {
   const [q, setQ] = useState("");
   const term = q.trim().toLowerCase();
+  const all = countries();
   const data = term
-    ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(term) || c.dial.includes(term))
-    : COUNTRIES;
+    ? all.filter((c) => c.name.toLowerCase().includes(term) || c.dial.includes(term))
+    : all;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.modalRoot}>
@@ -219,8 +239,8 @@ function CountryPickerModal({
             style={[s.modalSearch, at("authSearch", null)]}
             value={q}
             onChangeText={setQ}
-            placeholder="Search"
-            placeholderTextColor="rgba(255,255,255,0.3)"
+            placeholder={txt("auth.country.search", "Search")}
+            placeholderTextColor={color("auth.country.searchPlaceholder", "rgba(255,255,255,0.3)")}
             autoCorrect={false}
             autoCapitalize="none"
           />
@@ -234,7 +254,7 @@ function CountryPickerModal({
               return (
                 <TouchableOpacity style={s.cRow} activeOpacity={0.6} onPress={() => { onSelect(item); onClose(); }}>
                   <Text style={s.cFlag}>{item.flag}</Text>
-                  <Text style={[s.cName, at("authPickName", null), sel ? { color: "#FFFFFF", fontWeight: "600" } : null]} numberOfLines={1}>{item.name}</Text>
+                  <Text style={[s.cName, at("authPickName", null), sel ? { color: WHITE, fontWeight: "600" } : null]} numberOfLines={1}>{item.name}</Text>
                   <Text style={[s.cDial, at("authPickDial", null)]}>{item.dial}</Text>
                 </TouchableOpacity>
               );
@@ -279,20 +299,20 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   const L: Required<PillLook> = {
     height: look?.height ?? PILL_H,
     radius: look?.radius ?? (look?.height ?? PILL_H) / 2,
-    background: look?.background ?? "rgba(255,255,255,0.06)",
-    borderColor: look?.borderColor ?? "rgba(255,255,255,0.10)",
+    background: look?.background ?? color("auth.pill.bg", "rgba(255,255,255,0.06)"),
+    borderColor: look?.borderColor ?? color("auth.pill.border", "rgba(255,255,255,0.10)"),
     textColor: look?.textColor ?? WHITE,
-    placeholderColor: look?.placeholderColor ?? "rgba(255,255,255,0.32)",
-    badgeBackground: look?.badgeBackground ?? "rgba(255,255,255,0.10)",
-    badgeBorderColor: look?.badgeBorderColor ?? "rgba(255,255,255,0.18)",
+    placeholderColor: look?.placeholderColor ?? color("auth.pill.placeholder", "rgba(255,255,255,0.32)"),
+    badgeBackground: look?.badgeBackground ?? color("auth.pill.badgeBg", "rgba(255,255,255,0.10)"),
+    badgeBorderColor: look?.badgeBorderColor ?? color("auth.pill.badgeBorder", "rgba(255,255,255,0.18)"),
     targetBackground: look?.targetBackground ?? ACCENT_DIM,
-    targetIconColor: look?.targetIconColor ?? "#000000",
-    fontSize: look?.fontSize ?? 15,
+    targetIconColor: look?.targetIconColor ?? color("auth.pill.targetIcon", "#000000"),
+    fontSize: look?.fontSize ?? num("auth.pill.fontSize", 15),
     paddingLeft: look?.paddingLeft ?? PILL_H + 6,
   };
   const isPhone = field.type === "phone";
   const [value, setValue] = useState("");
-  const region = Localization.getLocales?.()?.[0]?.regionCode || "US";
+  const region = Localization.getLocales?.()?.[0]?.regionCode || str("auth.defaultCountry", "US");
   const [country, setCountry] = useState<Country>(() => pickCountry(region));
   const [pickerOpen, setPickerOpen] = useState(false);
   // Phone: the number box does not open until a country is chosen. The flag
@@ -302,7 +322,9 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   const inputRef = useRef<TextInput>(null);
 
   const digits = value.replace(/\D/g, "");
-  const valid = isPhone ? digits.length >= 6 && digits.length <= 14 : EMAIL_RX.test(value.trim());
+  const valid = isPhone
+    ? digits.length >= num("auth.phone.minDigits", 6) && digits.length <= num("auth.phone.maxDigits", 14)
+    : emailRx().test(value.trim());
   const submitValue = isPhone ? `${country.dial}${digits}` : value.trim();
 
   const validRef = useRef(valid);
@@ -323,7 +345,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   useEffect(() => {
     Animated.timing(arrowAppear, {
       toValue: valid ? 1 : 0,
-      duration: 240,
+      duration: num("auth.anim.arrowFadeMs", 240),
       useNativeDriver: false,
     }).start();
   }, [valid, arrowAppear]);
@@ -358,10 +380,11 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   useEffect(() => {
     // Clear the keyboard, plus a little air. The screen's own bottom padding
     // already sits below the pill, so the full keyboard height overshoots.
-    const to = focused && kbHeight > 0 ? -(kbHeight - 34) : 0;
+    const to = focused && kbHeight > 0 ? -(kbHeight - num("auth.pill.keyboardOverlap", 34)) : 0;
+    const spring = obj("auth.anim.liftSpring", { damping: 20, stiffness: 190, mass: 0.7 });
     Animated.spring(lift, {
       toValue: to,
-      damping: 20, stiffness: 190, mass: 0.7,
+      damping: spring.damping, stiffness: spring.stiffness, mass: spring.mass,
       useNativeDriver: true,
     }).start();
   }, [focused, kbHeight, lift]);
@@ -372,7 +395,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   useEffect(() => {
     const t = setTimeout(() => {
       Animated.sequence([
-        Animated.spring(envX, { toValue: 22, friction: 5, tension: 90, useNativeDriver: false }),
+        Animated.spring(envX, { toValue: num("auth.anim.hintNudge", 22), friction: 5, tension: 90, useNativeDriver: false }),
         Animated.spring(envX, { toValue: 0, friction: 6, tension: 80, useNativeDriver: false }),
       ]).start();
     }, hintDelay);
@@ -392,7 +415,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
    * disc goes back to the start when the screen is returned to, and not before.
    */
   const commit = useCallback(() => {
-    Animated.timing(envX, { toValue: MAX_DRAG, duration: 230, easing: Easing.out(Easing.cubic), useNativeDriver: false })
+    Animated.timing(envX, { toValue: MAX_DRAG, duration: num("auth.anim.commitMs", 230), easing: Easing.out(Easing.cubic), useNativeDriver: false })
       .start(() => onSubmit(field, valRef.current));
   }, [envX, field, onSubmit]);
 
@@ -456,7 +479,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
           parked.current = true;
           Animated.timing(envX, {
-            toValue: MAX_DRAG, duration: 180, easing: Easing.out(Easing.cubic), useNativeDriver: false,
+            toValue: MAX_DRAG, duration: num("auth.anim.parkMs", 180), easing: Easing.out(Easing.cubic), useNativeDriver: false,
           }).start();
           return;
         }
@@ -489,9 +512,9 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
             activeOpacity={0.7}
             onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
             accessibilityRole="button"
-            accessibilityLabel="Choose your country"
+            accessibilityLabel={txt("auth.a11y.chooseCountry", "Choose your country")}
           >
-            <Text style={[s.pickText, at("authPrompt", null)]}>Phone</Text>
+            <Text style={[s.pickText, at("authPrompt", null)]}>{txt("auth.phone.prompt", "Phone")}</Text>
             <Chevron />
           </TouchableOpacity>
         )}
@@ -503,7 +526,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
           onChangeText={setValue}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          placeholder={isPhone ? "Number" : "Email"}
+          placeholder={isPhone ? txt("auth.phone.placeholder", "Number") : txt("auth.email.placeholder", "Email")}
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType={isPhone ? "phone-pad" : "email-address"}
@@ -528,7 +551,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
               onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel={`Country ${country.name}, change`}
+              accessibilityLabel={txt("auth.a11y.changeCountry", "Country {name}, change", { name: country.name })}
             >
               <Text style={s.badgeFlag}>{country.flag}</Text>
             </Pressable>
@@ -556,7 +579,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
             Haptics.selectionAsync().catch(() => {});
             // The modal is still closing; focus once it has let go of the
             // screen, or the keyboard fights the dismissal.
-            setTimeout(() => inputRef.current?.focus(), 260);
+            setTimeout(() => inputRef.current?.focus(), num("auth.anim.pickerFocusMs", 260));
           }}
         />
       )}
@@ -568,7 +591,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
 function MicroLoader() {
   const spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.loop(Animated.timing(spin, { toValue: 1, duration: 900, easing: Easing.linear, useNativeDriver: true })).start();
+    Animated.loop(Animated.timing(spin, { toValue: 1, duration: num("auth.anim.loaderSpinMs", 900), easing: Easing.linear, useNativeDriver: true })).start();
   }, [spin]);
   const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   return (
@@ -613,10 +636,15 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // until bootstrap answers, so the native tree is what renders on a cold
   // start and on any backend that cannot be reached.
   const [sduiTree, setSduiTree] = useState<Node | null>(null);
-  const [scrim, setScrim] = useState(0.42);
+  const [scrim, setScrim] = useState(() => num("auth.scrim", 0.42));
   // The entrance, from the server. Defaults match what the backend ships, so a
   // cold start with no network looks the same as a warm one.
-  const [suction, setSuction] = useState({ staggerMs: 95, durationMs: 780, fromY: 120 });
+  const [suction, setSuction] = useState(() => obj("auth.suction", { staggerMs: 95, durationMs: 780, fromY: 120 }));
+  // The server tree's ctx reads the same bootstrap as everything else.
+  const [authFlags, setAuthFlags] = useState<Record<string, unknown> | null>(null);
+  const [authLabels, setAuthLabels] = useState<Record<string, string> | null>(null);
+  // The code's length is the server's; the boxes and the auto-verify follow.
+  const CODE_LEN = Math.max(1, num("auth.codeLength", 6));
   const [reduceMotion, setReduceMotion] = useState(false);
   // Has the boot config answered yet? Until it has, neither tree is drawn.
   // Rendering the native one first and swapping when the server's arrived was
@@ -699,13 +727,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   ];
 
   useEffect(() => {
-    Animated.timing(arrival, { toValue: 1, duration: 900, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
+    Animated.timing(arrival, { toValue: 1, duration: num("auth.anim.arrivalMs", 900), easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
     // Someone who has asked the system for less motion gets the layout with no
     // travel, not a slower version of the same flight.
     AccessibilityInfo.isReduceMotionEnabled?.().then(setReduceMotion).catch(() => {});
     // Whatever the network does, something is on screen shortly.
-    const settle = setTimeout(() => setCfgSettled(true), 900);
+    const settle = setTimeout(() => setCfgSettled(true), num("auth.configWaitMs", 900));
     // Ask the backend whether phone sign-in is enabled (resilient; stays off on failure).
     let alive = true;
     fetchAuthConfig().then((cfg) => {
@@ -717,6 +745,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setBackgroundCode(cfg.backgroundCode);
       setCfgSettled(true);
       setAuthTheme((cfg.theme as ThemeTokens | null) ?? null);
+      setAuthFlags(cfg.flags);
+      setAuthLabels(cfg.labels);
       scale = (cfg.theme as ThemeTokens | null) ?? null;
       setScrim(cfg.scrim);
       // The app has the final say, not the flag. A tree naming a component
@@ -741,11 +771,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       } catch { /* diagnostics never break a boot */ }
       const su = cfg.suction;
       if (su && typeof su === "object") {
-        setSuction({
-          staggerMs: Number((su as any).staggerMs) || 95,
-          durationMs: Number((su as any).durationMs) || 780,
-          fromY: Number((su as any).fromY) || 120,
-        });
+        // Garbage in a field keeps what was there, which is the default.
+        setSuction((cur) => ({
+          staggerMs: Number((su as any).staggerMs) || cur.staggerMs,
+          durationMs: Number((su as any).durationMs) || cur.durationMs,
+          fromY: Number((su as any).fromY) || cur.fromY,
+        }));
       }
     }).catch(() => {});
     return () => { alive = false; clearTimeout(settle); };
@@ -754,30 +785,31 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   useEffect(() => {
     if (phase === "verify" || phase === "verifying") {
       Animated.parallel([
-        Animated.timing(entryFade, { toValue: 0, duration: 220, useNativeDriver: true }),
-        Animated.timing(verifyFade, { toValue: 1, duration: 320, delay: 80, useNativeDriver: true }),
+        Animated.timing(entryFade, { toValue: 0, duration: num("auth.anim.entryOutMs", 220), useNativeDriver: true }),
+        Animated.timing(verifyFade, { toValue: 1, duration: num("auth.anim.verifyInMs", 320), delay: num("auth.anim.verifyInDelayMs", 80), useNativeDriver: true }),
         // finished guard: an interrupted fade (user backed out mid-animation)
         // must not yank the keyboard open over the entry screen.
       ]).start(({ finished }) => { if (finished) codeRef.current?.focus?.(); });
     } else if (phase === "entry") {
       Animated.parallel([
-        Animated.timing(verifyFade, { toValue: 0, duration: 180, useNativeDriver: true }),
-        Animated.timing(entryFade, { toValue: 1, duration: 240, delay: 60, useNativeDriver: true }),
+        Animated.timing(verifyFade, { toValue: 0, duration: num("auth.anim.verifyOutMs", 180), useNativeDriver: true }),
+        Animated.timing(entryFade, { toValue: 1, duration: num("auth.anim.entryInMs", 240), delay: num("auth.anim.entryInDelayMs", 60), useNativeDriver: true }),
       ]).start();
     } else {
-      Animated.timing(entryFade, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+      Animated.timing(entryFade, { toValue: 0, duration: num("auth.anim.verifyingOutMs", 280), useNativeDriver: true }).start();
     }
   }, [phase, entryFade, verifyFade]);
 
   const flashError = useCallback(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
     setCodeError(true);
+    const step = num("auth.anim.shakeStepMs", 60);
     Animated.sequence([
-      Animated.timing(shake, { toValue: SHAKE, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: -SHAKE, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: SHAKE / 2, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 0, duration: 80, useNativeDriver: true }),
-    ]).start(() => setTimeout(() => setCodeError(false), 400));
+      Animated.timing(shake, { toValue: SHAKE, duration: step, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -SHAKE, duration: step, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: SHAKE / 2, duration: step, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 0, duration: num("auth.anim.shakeSettleMs", 80), useNativeDriver: true }),
+    ]).start(() => setTimeout(() => setCodeError(false), num("auth.anim.codeErrorMs", 400)));
   }, [shake]);
 
   /**
@@ -822,9 +854,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       msg = String(e?.message ?? e ?? "Network error");
     }
     const next = attempt + 1;
-    if (next < SEND_ATTEMPTS) {
+    if (next < num("auth.send.attempts", 4)) {
       const limited = /rate limit|too many|429/i.test(msg);
-      const wait = limited ? RATE_LIMIT_BACKOFF_MS[attempt] ?? 30_000 : SEND_BACKOFF_MS[attempt] ?? 4_000;
+      const wait = limited
+        ? list<number>("auth.send.rateLimitBackoffMs", [6000, 15000, 30000])[attempt] ?? num("auth.send.rateLimitBackoffMaxMs", 30000)
+        : list<number>("auth.send.backoffMs", [0, 900, 2600])[attempt] ?? num("auth.send.backoffMaxMs", 4000);
       setTimeout(() => {
         if (my === seq.current) void deliver(type, value, my, next);
       }, wait);
@@ -832,6 +866,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     }
     // Out of attempts. Say so ON THE CODE SCREEN — the user may still have an
     // older code that works, and the way back is the arrow they can already see.
+    console.warn("[auth] code could not be sent:", msg);
     setSending(false);
     setSendFailed(true);
     setSendError(msg);
@@ -963,7 +998,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw);
       if (error) {
         flashError();
-        Alert.alert("Couldn't sign in with Apple", String(error.message ?? error));
+        authFailed(
+          txt("auth.apple.errorTitle", "Couldn't sign in with Apple"),
+          txt("auth.apple.errorBody", "Apple sign-in didn't go through. Try again, or use your email."),
+          error,
+        );
         return;
       }
       // Apple gives the name only on first consent — stash it to pre-fill the
@@ -976,7 +1015,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     } catch (e: any) {
       if (e?.code !== "ERR_REQUEST_CANCELED") {
         flashError();
-        Alert.alert("Couldn't sign in with Apple", String(e?.message ?? e ?? "Sign-in error"));
+        authFailed(
+          txt("auth.apple.errorTitle", "Couldn't sign in with Apple"),
+          txt("auth.apple.errorBody", "Apple sign-in didn't go through. Try again, or use your email."),
+          e,
+        );
       }
     }
   }, [flashError, onAuthed]);
@@ -1014,7 +1057,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       await googlePrompt();
     } catch (e: any) {
       flashError();
-      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "OAuth error"));
+      authFailed(
+        txt("auth.google.errorTitle", "Couldn't sign in with Google"),
+        txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
+        e,
+      );
     }
   }, [googlePrompt, flashError, googleViaWeb, googleWeb, onAuthed]);
 
@@ -1027,7 +1074,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     googleHandled.current = googleResponse;
     if (googleResponse.type === "error") {
       flashError();
-      Alert.alert("Couldn't sign in with Google", String(googleResponse.error?.message ?? googleResponse.error ?? "OAuth error"));
+      authFailed(
+        txt("auth.google.errorTitle", "Couldn't sign in with Google"),
+        txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
+        googleResponse.error ?? "OAuth error",
+      );
       return;
     }
     if (googleResponse.type !== "success") return; // cancel / dismiss — silent
@@ -1035,7 +1086,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       || googleResponse.authentication?.idToken;
     if (!idToken) {
       flashError();
-      Alert.alert("Couldn't sign in with Google", "Google didn't return an identity token.");
+      authFailed(
+        txt("auth.google.errorTitle", "Couldn't sign in with Google"),
+        txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
+        "Google didn't return an identity token.",
+      );
       return;
     }
     (async () => {
@@ -1044,18 +1099,26 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       const { error } = await supabaseAuth.signInWithGoogle(idToken, googleRequest?.nonce ?? undefined);
       if (error) {
         flashError();
-        Alert.alert("Couldn't sign in with Google", String(error.message ?? error));
+        authFailed(
+          txt("auth.google.errorTitle", "Couldn't sign in with Google"),
+          txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
+          error,
+        );
         return;
       }
       onAuthed();
     })().catch((e: any) => {
       flashError();
-      Alert.alert("Couldn't sign in with Google", String(e?.message ?? e ?? "Network error"));
+      authFailed(
+        txt("auth.google.errorTitle", "Couldn't sign in with Google"),
+        txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
+        e ?? "Network error",
+      );
     });
   }, [googleResponse, googleRequest, flashError, onAuthed]);
 
-  const sduiCtx = useAuthSduiCtx();
-  const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const sduiCtx = useAuthSduiCtx(authFlags, authLabels);
+  const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [num("auth.anim.arrivalRise", 12), 0] });
   const onCode = phase === "verify" || phase === "verifying";
   // The code step's own art when there is some, the entry's otherwise — so one
   // upload still dresses the whole flow and a second is an option, not a duty.
@@ -1161,8 +1224,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             <Animated.View style={[s.block, { opacity: entryFade }]}>
               {fields.map((f, i) => (
                 <RiseView key={f.id} cfg={{ delayMs: suction.staggerMs * (2 - i), fromY: suction.fromY }} reduce={reduceMotion}>
-                  <View style={{ marginTop: i === 0 ? 0 : 18 }}>
-                    <MethodPill field={f} onSubmit={handleMethodSubmit} hintDelay={1100 + i * 160} resetAt={pillReset} />
+                  <View style={{ marginTop: i === 0 ? 0 : num("auth.pill.gap", 18) }}>
+                    <MethodPill
+                      field={f}
+                      onSubmit={handleMethodSubmit}
+                      hintDelay={num("auth.anim.hintDelayMs", 1100) + i * num("auth.anim.hintStaggerMs", 160)}
+                      resetAt={pillReset}
+                    />
                   </View>
                 </RiseView>
               ))}
@@ -1170,12 +1238,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               <View style={s.divider} />
               <View style={s.socialRow}>
                 {appleAvailable && (
-                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple} accessibilityRole="button" accessibilityLabel="Sign in with Apple">
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onApple} accessibilityRole="button" accessibilityLabel={txt("auth.a11y.apple", "Sign in with Apple")}>
                     <AppleMark />
                   </TouchableOpacity>
                 )}
                 {googleEnabled && (
-                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest && !googleViaWeb} accessibilityRole="button" accessibilityLabel="Sign in with Google">
+                  <TouchableOpacity style={s.social} activeOpacity={0.7} onPress={onGoogle} disabled={!googleRequest && !googleViaWeb} accessibilityRole="button" accessibilityLabel={txt("auth.a11y.google", "Sign in with Google")}>
                     <GoogleMark />
                   </TouchableOpacity>
                 )}
@@ -1219,8 +1287,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   : sendFailed
                     ? <Text style={[s.sendFailed, at("authNote", null)]} numberOfLines={1}>
                         {sendError && /rate limit|too many/i.test(sendError)
-                          ? "Too many requests. Wait a moment, then resend."
-                          : "Couldn't send a code. Tap resend."}
+                          ? txt("auth.send.rateLimited", "Too many requests. Wait a moment, then resend.")
+                          : txt("auth.send.failed", "Couldn't send a code. Tap resend.")}
                       </Text>
                     : null}
               </View>
@@ -1234,6 +1302,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
                   disabled={sending}
                   style={[s.social, sending ? s.socialBusy : null]}
                   activeOpacity={0.6}
+                  accessibilityRole="button"
+                  accessibilityLabel={txt("auth.a11y.resend", "Send the code again")}
                 ><Resend /></TouchableOpacity>
               </View>
             </Animated.View>
@@ -1246,7 +1316,10 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
       {/* top-left back arrow (code step) */}
       {onCode && (
-        <TouchableOpacity onPress={goBack} style={s.backTopLeft} activeOpacity={0.6} hitSlop={12}>
+        <TouchableOpacity
+          onPress={goBack} style={s.backTopLeft} activeOpacity={0.6} hitSlop={12}
+          accessibilityRole="button" accessibilityLabel={txt("auth.a11y.back", "Back")}
+        >
           <Back />
         </TouchableOpacity>
       )}
@@ -1304,10 +1377,10 @@ const s = StyleSheet.create({
   social: { width: SOCIAL_SIZE, height: SOCIAL_SIZE, borderRadius: SOCIAL_SIZE / 2, borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.03)", alignItems: "center", justifyContent: "center" },
   verifyActions: { flexDirection: "row", gap: SOCIAL_GAP },
 
-  codeRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 10 },
-  codeBox: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.02)", alignItems: "center", justifyContent: "center" },
+  codeRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: num("auth.code.gap", 10) },
+  codeBox: { width: num("auth.code.boxSize", 38), height: num("auth.code.boxSize", 38), borderRadius: num("auth.code.boxSize", 38) / 2, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.02)", alignItems: "center", justifyContent: "center" },
   codeBoxFilled: { borderColor: "rgba(255,255,255,0.85)", backgroundColor: "rgba(255,255,255,0.05)" },
-  codeBoxError: { borderColor: "rgba(255,90,60,0.85)" },
+  codeBoxError: { borderColor: color("auth.code.errorColor", "rgba(255,90,60,0.85)") },
   codeDigit: { fontSize: 17, fontWeight: "300", color: WHITE },
   hiddenInput: { position: "absolute", opacity: 0, width: 1, height: 1 },
   verifyStatus: { height: 28, marginTop: 24, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
@@ -1317,7 +1390,7 @@ const s = StyleSheet.create({
 
   modalRoot: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...FILL, backgroundColor: "rgba(0,0,0,0.55)" },
-  modalSheet: { height: SH * 0.72, backgroundColor: ABYSS, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingHorizontal: 18 },
+  modalSheet: { height: SH * num("auth.country.sheetHeight", 0.72), backgroundColor: ABYSS, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 8, paddingHorizontal: 18 },
   modalHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)", marginBottom: 12 },
   modalSearch: { height: 44, borderRadius: 12, paddingHorizontal: 12, backgroundColor: "rgba(255,255,255,0.06)", color: WHITE, fontSize: 15, marginBottom: 8 },
   cRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.06)" },

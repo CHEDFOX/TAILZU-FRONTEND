@@ -32,23 +32,20 @@ import { View } from "react-native";
 import { BlurMask, Canvas, Path, RadialGradient, Skia, vec, type SkPath } from "@shopify/react-native-skia";
 import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
-/** How fast the drawn level chases the target, per frame at 60fps. Overridable
- *  as `chase`: lower is heavier and laggier, higher snaps to every syllable. */
-const CHASE = 0.09;
-
-/**
- * Resting amplitude per state — what the bubble does when nothing is driving
- * it. `listening` sits low so an incoming level has somewhere to rise from;
- * `speaking` sits high and steady, because the app talking is a continuous
- * thing rather than a series of peaks.
+/*
+ * `chase` — how fast the drawn level chases the target, per frame at 60fps:
+ * lower is heavier and laggier, higher snaps to every syllable.
+ *
+ * `rest` — resting amplitude per state, what the bubble does when nothing is
+ * driving it. `listening` sits low so an incoming level has somewhere to rise
+ * from; `speaking` sits high and steady, because the app talking is a
+ * continuous thing rather than a series of peaks.
+ *
+ * Both, and every other number in the drawing, are the node's props first,
+ * then a ui.VoiceBubble.* knob, then the literal it always was.
  */
-const REST: Record<string, number> = {
-  idle: 0.06,
-  listening: 0.18,
-  thinking: 0.12,
-  speaking: 0.46,
-};
 
 /**
  * THE ORB IS NOT ONE GRADIENT. That is the whole difference between a sphere
@@ -91,27 +88,34 @@ export type Lobe = {
   opacity: number;
 };
 
-const LOBES: Lobe[] = [
-  // The warm body. Largest, nearly centred, barely moves — it is what the orb
-  // IS, and the others are weather on top of it.
+/*
+ * The default lobes (ui.VoiceBubble.lobes), in order:
+ *   the warm body — largest, nearly centred, barely moves; it is what the orb
+ *     IS, and the others are weather on top of it;
+ *   the brand, where the light lands — up and left, because a hot spot dead
+ *     centre reads as a ring;
+ *   magenta pooling into the lower right, the first step out of the light;
+ *   the cold lobe, upper left — the bite of violet that stops the whole thing
+ *     reading as a sunset gradient;
+ *   deep shadow, bottom right, holding the sphere down.
+ */
+const defaultLobes = (): Lobe[] => K.list<Lobe>("ui.VoiceBubble.lobes", [
   { color: "#F2612C", x: 0.02, y: 0.06, r: 0.92, orbit: 0.05, speed: 0.031, phase: 0.0, opacity: 1 },
-  // The brand, where the light lands. Up and left, because a hot spot dead
-  // centre reads as a ring.
   { color: "#E8A23C", x: -0.26, y: -0.30, r: 0.60, orbit: 0.10, speed: 0.047, phase: 1.7, opacity: 0.95 },
-  // Magenta pooling into the lower right, the first step out of the light.
   { color: "#C0388A", x: 0.34, y: 0.30, r: 0.68, orbit: 0.12, speed: 0.039, phase: 3.1, opacity: 0.9 },
-  // The cold lobe. Upper left in the reference — the bite of violet that stops
-  // the whole thing reading as a sunset gradient.
   { color: "#5E2E9E", x: -0.40, y: -0.10, r: 0.44, orbit: 0.14, speed: 0.053, phase: 4.4, opacity: 0.8 },
-  // Deep shadow, bottom right, holding the sphere down.
   { color: "#3F1E78", x: 0.30, y: 0.44, r: 0.50, orbit: 0.09, speed: 0.029, phase: 5.6, opacity: 0.7 },
-];
+]);
 
 export const VoiceBubble = ({ node, props, style, store }: CompProps): React.ReactElement => {
-  const size = Number(props?.size) || 190;
-  const tint = String(props?.tint ?? "#E8A23C");
-  const background = props?.background ? String(props.background) : "transparent";
-  const points = Math.max(24, Math.min(180, Number(props?.points) || 72));
+  const LOBES = defaultLobes();
+  const size = Number(props?.size) || K.num("ui.VoiceBubble.size", 190);
+  const tint = String(props?.tint ?? K.color("ui.VoiceBubble.tint", "#E8A23C"));
+  const background = props?.background ? String(props.background) : K.color("ui.VoiceBubble.background", "transparent");
+  const points = Math.max(
+    K.num("ui.VoiceBubble.minPoints", 24),
+    Math.min(K.num("ui.VoiceBubble.maxPoints", 180), Number(props?.points) || K.num("ui.VoiceBubble.points", 72)),
+  );
   /**
    * The lobes, whole or in part, from the server.
    *
@@ -122,7 +126,7 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
   const lobes: Lobe[] = Array.isArray(props?.lobes) && props.lobes.length
     ? (props.lobes as Partial<Lobe>[]).map((l, i) => ({ ...(LOBES[i] ?? LOBES[0]), ...l }) as Lobe)
     : props?.tint
-      ? [{ color: tint, x: 0, y: 0, r: 0.95, orbit: 0.05, speed: 0.03, phase: 0, opacity: 1 }]
+      ? [{ ...K.obj<Omit<Lobe, "color">>("ui.VoiceBubble.tintLobe", { x: 0, y: 0, r: 0.95, orbit: 0.05, speed: 0.03, phase: 0, opacity: 1 }), color: tint }]
       : LOBES;
   const shown = lobes.slice(0, MAX_LOBES);
   /**
@@ -133,13 +137,41 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
    * body of light with no border anyone can point at. Scaled off `size` so an
    * orb drawn at any size is equally soft, rather than crisp when large.
    */
-  const softness = props?.softness !== undefined ? Number(props.softness) : size * 0.055;
-  const chase = props?.chase !== undefined ? Number(props.chase) : CHASE;
+  const softness = props?.softness !== undefined ? Number(props.softness) : size * K.num("ui.VoiceBubble.softness", 0.055);
+  const chase = props?.chase !== undefined ? Number(props.chase) : K.num("ui.VoiceBubble.chase", 0.09);
   /** What the orb does when nothing is driving it, per state. Merged over the
    *  defaults, so the server can move one state without restating the rest. */
-  const rest: Record<string, number> = { ...REST, ...(props?.rest ?? {}) };
+  const rest: Record<string, number> = {
+    ...K.obj<Record<string, number>>("ui.VoiceBubble.rest", { idle: 0.06, listening: 0.18, thinking: 0.12, speaking: 0.46 }),
+    ...(props?.rest ?? {}),
+  };
   /** The halo. 0 removes it. */
-  const glow = props?.glow !== undefined ? Number(props.glow) : 0.5;
+  const glow = props?.glow !== undefined ? Number(props.glow) : K.num("ui.VoiceBubble.glow", 0.5);
+  /**
+   * The outline's three harmonics — frequency, drift speed and amplitude
+   * each — plus how much the level swells it, and the halo, lobe and
+   * specular geometry. One object each so the whole character of the orb can
+   * be moved together; `props.harmonics` / `halo` / `specular` merge over.
+   */
+  const H = {
+    ...K.obj("ui.VoiceBubble.harmonics", {
+      f1: 3, s1: 2.7, p1: 1.5, a1: 0.055,
+      f2: 5, s2: 3.5, a2: 0.035,
+      f3: 2, s3: 1.9, a3: 0.045,
+      wobbleBase: 0.6, wobbleLevel: 2.4, swell: 0.3, layerStep: 0.14,
+      lobeSwell: 0.22, lobeOrbitY: 1.37, lobeOrbitYScale: 0.8, lobeBlur: 1.5
+    }),
+    ...(props?.harmonics ?? {}),
+  };
+  const halo = {
+    ...K.obj("ui.VoiceBubble.halo", { radius: 1.9, blur: 2.4, fade: "#00000000" }),
+    ...(props?.halo ?? {}),
+  };
+  const spec = {
+    ...K.obj("ui.VoiceBubble.specular", { opacity: 0.42, dx: 0.34, dy: 0.46, radius: 0.66, color: "#FFF3DE", fade: "#FFF3DE00", blur: 0.9 }),
+    ...(props?.specular ?? {}),
+  };
+  const hKey = JSON.stringify(H);
 
   const levelKey = node.bind?.level;
   const stateKey = node.bind?.state;
@@ -187,14 +219,14 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
    * the blur to spill without being clipped by the canvas — raise it for a
    * tighter, fuller orb, lower it for more air around one.
    */
-  const base = size * (props?.fill !== undefined ? Number(props.fill) : 0.31);
+  const base = size * (props?.fill !== undefined ? Number(props.fill) : K.num("ui.VoiceBubble.fill", 0.31));
   /**
    * How much the outline breathes. The three amplitudes are summed at
    * unrelated frequencies, which is what stops it reading as a pulsing
    * circle; `wobble` scales all three together, so 0 gives a perfectly still
    * sphere and the colour inside still drifts.
    */
-  const wobble = props?.wobble !== undefined ? Number(props.wobble) : 1;
+  const wobble = props?.wobble !== undefined ? Number(props.wobble) : K.num("ui.VoiceBubble.wobble", 1);
 
   /**
    * One layer of the outline, built on the UI thread.
@@ -211,10 +243,10 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
     for (let i = 0; i <= points; i++) {
       const a = i * step;
       const wob = wobble * (
-        Math.sin(a * 3 + t * 2.7 + layer * 1.5) * 0.055 +
-        Math.sin(a * 5 - t * 3.5 + layer) * 0.035 +
-        Math.sin(a * 2 + t * 1.9) * 0.045);
-      const r = base * (1 + wob * (0.6 + lv * 2.4) + lv * 0.3 + layer * 0.14);
+        Math.sin(a * H.f1 + t * H.s1 + layer * H.p1) * H.a1 +
+        Math.sin(a * H.f2 - t * H.s2 + layer) * H.a2 +
+        Math.sin(a * H.f3 + t * H.s3) * H.a3);
+      const r = base * (1 + wob * (H.wobbleBase + lv * H.wobbleLevel) + lv * H.swell + layer * H.layerStep);
       const x = c + Math.cos(a) * r;
       const y = c + Math.sin(a) * r;
       if (i === 0) p.moveTo(x, y);
@@ -236,9 +268,9 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
     "worklet";
     const a = t * l.speed * Math.PI * 2 + l.phase;
     const cx = c + (l.x + Math.cos(a) * l.orbit) * base;
-    const cy = c + (l.y + Math.sin(a * 1.37) * l.orbit * 0.8) * base;
+    const cy = c + (l.y + Math.sin(a * H.lobeOrbitY) * l.orbit * H.lobeOrbitYScale) * base;
     const p = Skia.Path.Make();
-    p.addCircle(cx, cy, base * l.r * (1 + lv * 0.22));
+    p.addCircle(cx, cy, base * l.r * (1 + lv * H.lobeSwell));
     return p;
   }
 
@@ -258,22 +290,22 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
       const l = lobes[i];
       if (!l) return Skia.Path.Make();
       return lobePath(l, clock.value, level.value);
-    }, [base, c, lobes.length]);
+    }, [base, c, lobes.length, hKey]);
   }
 
   // Reading tick makes each of these rebuild every frame.
   const core = useDerivedValue<SkPath>(() => {
     tick.value;
     return ringPath(0, clock.value, level.value);
-  }, [points, base, c, wobble]);
+  }, [points, base, c, wobble, hKey]);
   const mid = useDerivedValue<SkPath>(() => {
     tick.value;
     return ringPath(1, clock.value, level.value);
-  }, [points, base, c]);
+  }, [points, base, c, hKey]);
   const outer = useDerivedValue<SkPath>(() => {
     tick.value;
     return ringPath(2, clock.value, level.value);
-  }, [points, base, c]);
+  }, [points, base, c, hKey]);
 
   return (
     <View
@@ -287,11 +319,11 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
           <Path path={outer} opacity={glow}>
             <RadialGradient
               c={vec(c, c)}
-              r={base * 1.9}
-              colors={[lobes[0].color, "#00000000"]}
+              r={base * Number(halo.radius)}
+              colors={[lobes[0]?.color ?? tint, String(halo.fade)]}
               positions={[0, 1]}
             />
-            <BlurMask blur={softness * 2.4} style="normal" />
+            <BlurMask blur={softness * Number(halo.blur)} style="normal" />
           </Path>
         ) : null}
 
@@ -303,20 +335,20 @@ export const VoiceBubble = ({ node, props, style, store }: CompProps): React.Rea
             stops. */}
         {shown.map((l, i) => (
           <Path key={i} path={lobePaths[i]} color={l.color} opacity={l.opacity}>
-            <BlurMask blur={softness * (1.5 + l.r)} style="normal" />
+            <BlurMask blur={softness * (H.lobeBlur + l.r)} style="normal" />
           </Path>
         ))}
 
         {/* The specular. A pale bloom where the light lands, small and soft —
             what tells the eye the surface is glossy rather than matte. */}
-        <Path path={mid} opacity={0.42}>
+        <Path path={mid} opacity={Number(spec.opacity)}>
           <RadialGradient
-            c={vec(c - base * 0.34, c - base * 0.46)}
-            r={base * 0.66}
-            colors={["#FFF3DE", "#FFF3DE00"]}
+            c={vec(c - base * Number(spec.dx), c - base * Number(spec.dy))}
+            r={base * Number(spec.radius)}
+            colors={[String(spec.color), String(spec.fade)]}
             positions={[0, 1]}
           />
-          <BlurMask blur={softness * 0.9} style="normal" />
+          <BlurMask blur={softness * Number(spec.blur)} style="normal" />
         </Path>
       </Canvas>
     </View>

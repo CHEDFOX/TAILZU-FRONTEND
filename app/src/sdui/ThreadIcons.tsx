@@ -28,8 +28,42 @@ import React, { useEffect, useId, useMemo, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
 import Svg, { ClipPath, Defs, G, Path, Rect } from "react-native-svg";
 import type { TabGlyph } from "./types";
+import * as K from "./knobs";
 
+/**
+ * The lit colour. Exported as a constant because SduiApp reads it outside
+ * this file; everything drawn HERE asks activeColor(), which is the
+ * ui.ThreadIcons.active knob over this same literal.
+ */
 export const THREAD_ACTIVE = "#E8A23C";
+const activeColor = () => K.color("ui.ThreadIcons.active", "#E8A23C");
+
+type PluckStep = { to: number; ms: number; ease?: string };
+/** The pluck's beats — where it throws to, how long each takes, and how it
+ *  eases — as the ui.ThreadIcons.pluck knob. */
+const pluckSteps = () => K.list<PluckStep>("ui.ThreadIcons.pluck", [
+  { to: 1, ms: 70, ease: "out" },
+  { to: -0.72, ms: 80, ease: "inOut" },
+  { to: 0.4, ms: 90, ease: "inOut" },
+  { to: 0, ms: 110, ease: "out" },
+]);
+function pluckEase(name: string | undefined) {
+  switch (name) {
+    case "in": return Easing.in(Easing.quad);
+    case "inOut": return Easing.inOut(Easing.quad);
+    case "linear": return Easing.linear;
+    default: return Easing.out(Easing.quad);
+  }
+}
+function pluckSequence(spin: Animated.Value, native: boolean) {
+  return Animated.sequence(pluckSteps().map((st) =>
+    Animated.timing(spin, {
+      toValue: Number(st.to) || 0,
+      duration: Number(st.ms) || 0,
+      easing: pluckEase(st.ease),
+      useNativeDriver: native,
+    })));
+}
 
 type Props = { active: boolean; color: string; size?: number };
 
@@ -46,14 +80,10 @@ function usePluck(active: boolean, nonce: number) {
   useEffect(() => {
     if (!active) return;
     spin.setValue(0);
-    Animated.sequence([
-      Animated.timing(spin, { toValue: 1, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.timing(spin, { toValue: -0.72, duration: 80, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.timing(spin, { toValue: 0.4, duration: 90, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      Animated.timing(spin, { toValue: 0, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-    ]).start();
+    pluckSequence(spin, true).start();
   }, [active, nonce, spin]);
-  return spin.interpolate({ inputRange: [-1, 1], outputRange: ["-9deg", "9deg"] });
+  const deg = pluckDegrees();
+  return spin.interpolate({ inputRange: [-1, 1], outputRange: [`${-deg}deg`, `${deg}deg`] });
 }
 
 /**
@@ -66,21 +96,17 @@ function usePluck(active: boolean, nonce: number) {
  * from JS and outputs a number, and the built-in icons keep the cheaper one.
  */
 /** How far the pluck throws, either side of rest. */
-const PLUCK_DEGREES = 9;
+const pluckDegrees = () => K.num("ui.ThreadIcons.pluckDegrees", 9);
 
 function usePluckDegrees(active: boolean, nonce: number) {
   const spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!active) return;
     spin.setValue(0);
-    Animated.sequence([
-      Animated.timing(spin, { toValue: 1, duration: 70, easing: Easing.out(Easing.quad), useNativeDriver: false }),
-      Animated.timing(spin, { toValue: -0.72, duration: 80, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
-      Animated.timing(spin, { toValue: 0.4, duration: 90, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
-      Animated.timing(spin, { toValue: 0, duration: 110, easing: Easing.out(Easing.quad), useNativeDriver: false }),
-    ]).start();
+    pluckSequence(spin, false).start();
   }, [active, nonce, spin]);
-  return spin.interpolate({ inputRange: [-1, 1], outputRange: [-PLUCK_DEGREES, PLUCK_DEGREES] });
+  const deg = pluckDegrees();
+  return spin.interpolate({ inputRange: [-1, 1], outputRange: [-deg, deg] });
 }
 
 /** A group that can be turned. The one animated thing inside the drawing. */
@@ -119,8 +145,10 @@ function Frame({ active, nonce, size, children, viewBox = "0 0 32 32", pluck = t
  * closed shape fills. Only two closed shapes exist here — the node and the tag
  * — so only two things ever fill, and the bar never lights up all at once.
  */
-const STROKE_NODE = 2.0;
-const STROKE_TAG = 1.7;
+/** Stroke widths for the built-in set, idle and lit — ui.ThreadIcons.strokes. */
+const strokes = () => K.obj("ui.ThreadIcons.strokes", {
+  node: 2.0, tag: 1.7, train: 2.2, trainActive: 2.7, stats: 2.0, statsActive: 2.5, punch: 1.7
+});
 
 /**
  * TRAIN — the thread passes through the node.
@@ -138,16 +166,17 @@ const TRAIN_NODE =
   "H13.16 A1.96 1.96 0 0 1 11.2 18.84 V13.16 A1.96 1.96 0 0 1 13.16 11.2 Z";
 const TRAIN_THREAD = "M3.2 25.8 L11.6 18.0 M20.4 14.0 L28.8 6.2";
 
-export function ThreadTrain({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
-  const c = active ? THREAD_ACTIVE : color;
+export function ThreadTrain({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
+  const c = active ? activeColor() : color;
+  const w = strokes();
   return (
     <Frame active={active} nonce={nonce} size={size}>
       <Path d={TRAIN_THREAD} fill="none" stroke={c} strokeLinecap="round"
-        strokeWidth={active ? 2.7 : 2.2} />
+        strokeWidth={active ? w.trainActive : w.train} />
       <Path d={TRAIN_NODE}
         fill={active ? c : "none"}
         stroke={active ? undefined : c}
-        strokeWidth={active ? undefined : STROKE_NODE}
+        strokeWidth={active ? undefined : w.node}
         strokeLinejoin="round" />
     </Frame>
   );
@@ -168,12 +197,13 @@ const STATS_FOLD =
   "M4.6 7.6 H23 A2.8 2.8 0 0 1 23 13.2 H9 A2.8 2.8 0 0 0 9 18.8 " +
   "H24 A2.8 2.8 0 0 1 24 24.4 H5.6";
 
-export function ThreadStats({ active, color, size = 26, nonce = 0 }: Props & { nonce?: number }) {
-  const c = active ? THREAD_ACTIVE : color;
+export function ThreadStats({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
+  const c = active ? activeColor() : color;
+  const w = strokes();
   return (
     <Frame active={active} nonce={nonce} size={size}>
       <Path d={STATS_FOLD} fill="none" stroke={c} strokeLinecap="round"
-        strokeWidth={active ? 2.5 : 2.0} />
+        strokeWidth={active ? w.statsActive : w.stats} />
     </Frame>
   );
 }
@@ -196,22 +226,23 @@ const YOU_TAG =
   "V13.4 A2.4 2.4 0 0 1 5.9 11.7 L11.7 5.9 A2.4 2.4 0 0 1 13.4 5.2 Z";
 const YOU_HOLE = "M19.3 10.5 A2.15 2.15 0 1 1 23.6 10.5 A2.15 2.15 0 1 1 19.3 10.5 Z";
 
-export function ThreadYou({ active, color, size = 26, nonce = 0, holeColor = "#000000" }:
+export function ThreadYou({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0, holeColor = K.color("ui.ThreadIcons.surface", "#000000") }:
   Props & { nonce?: number; holeColor?: string }) {
-  const c = active ? THREAD_ACTIVE : color;
+  const c = active ? activeColor() : color;
+  const w = strokes();
   return (
     <Frame active={active} nonce={nonce} size={size}>
       <Path d={YOU_TAG}
         fill={active ? c : "none"}
         stroke={active ? undefined : c}
-        strokeWidth={active ? undefined : STROKE_TAG}
+        strokeWidth={active ? undefined : w.tag}
         strokeLinejoin="round" />
       {/* Punched, not drawn: when the tag is solid the hole has to be the bar
           behind it, or it stops being a hole and becomes a dot. */}
       <Path d={YOU_HOLE}
         fill={active ? holeColor : "none"}
         stroke={active ? undefined : c}
-        strokeWidth={active ? undefined : STROKE_TAG} />
+        strokeWidth={active ? undefined : w.tag} />
     </Frame>
   );
 }
@@ -226,10 +257,11 @@ export function ThreadYou({ active, color, size = 26, nonce = 0, holeColor = "#0
  * bump and not a release. The built-in set below stays only as the fallback
  * for a server that sends nothing.
  */
-function GlyphIcon({ glyph, active, color, nonce, surface, size = 26 }: {
+function GlyphIcon({ glyph, active, color, nonce, surface, size = K.num("ui.ThreadIcons.size", 26) }: {
   glyph: TabGlyph; active: boolean; color: string; nonce: number; surface?: string; size?: number;
 }) {
-  const c = active ? THREAD_ACTIVE : color;
+  const c = active ? activeColor() : color;
+  const punchStroke = strokes().punch;
   const viewBox = glyph.viewBox ?? "0 0 32 32";
   const spin = usePluckDegrees(active, nonce);
   const centre = centreOf(viewBox);
@@ -239,8 +271,8 @@ function GlyphIcon({ glyph, active, color, nonce, surface, size = 26 }: {
     // outline too), the bar's own surface once that shape has gone solid.
     if (l.punch) {
       return active
-        ? <Path key={i} d={l.d} fill={surface ?? "#000000"} />
-        : <Path key={i} d={l.d} fill="none" stroke={c} strokeWidth={l.stroke ?? 1.7} />;
+        ? <Path key={i} d={l.d} fill={surface ?? K.color("ui.ThreadIcons.surface", "#000000")} />
+        : <Path key={i} d={l.d} fill="none" stroke={c} strokeWidth={l.stroke ?? punchStroke} />;
     }
     const filled = active ? !!l.activeFill : !!l.fill;
     const width = active ? (l.activeStroke ?? l.stroke) : l.stroke;
@@ -343,16 +375,30 @@ export function TabThreadIcon({ id, title, active, color, nonce, surface, glyph 
  */
 export const THREAD_RAIL_HEIGHT = 30;
 const RAIL_H = THREAD_RAIL_HEIGHT;
-/** Half the gap the thread leaves around each icon. Wider and the bar breaks
- *  into pieces; narrower and the thread collides with the glyphs. */
-const RAIL_GAP = 17;
-const RAIL_EDGE = 10;
+/*
+ * The rail's geometry — ui.ThreadRail.look. `gap` is half the gap the thread
+ * leaves around each icon: wider and the bar breaks into pieces, narrower and
+ * the thread collides with the glyphs. The wave is long and shallow (at an 11
+ * wavelength it read as a zigzag and fought the icons for attention; the
+ * thread is meant to be noticed second). The coil is spaced first and counted
+ * second — a tick count that ignores the run length is how the earlier
+ * attempts turned into blocks on short segments.
+ *
+ * The rail's HEIGHT is not here: SduiApp positions the rail with the exported
+ * THREAD_RAIL_HEIGHT at module load, and the two must agree.
+ */
+const railLook = () => K.obj("ui.ThreadRail.look", {
+  gap: 17, edge: 10,
+  waveAmp: 3.0, waveLength: 19.0, waveMin: 10,
+  coilSpacing: 8.5, coilAmp: 3.0, coilLean: 1.25, coilMin: 8,
+  waveWidth: 1.4, waveOpacity: 0.5, coilWidth: 1.2, coilOpacity: 0.42,
+  stiffness: 190, damping: 26, mass: 1
+});
+type RailLook = ReturnType<typeof railLook>;
 
-function railWave(x0: number, x1: number, y: number): string {
-  if (x1 - x0 < 10) return "";
-  // Long and shallow. At an 11 wavelength this read as a zigzag and fought the
-  // icons for attention; the thread is meant to be noticed second.
-  const amp = 3.0, lam = 19.0, steps = Math.max(8, Math.round((x1 - x0) / 2));
+function railWave(x0: number, x1: number, y: number, L: RailLook): string {
+  if (x1 - x0 < L.waveMin) return "";
+  const amp = L.waveAmp, lam = L.waveLength, steps = Math.max(8, Math.round((x1 - x0) / 2));
   const pts: string[] = [];
   for (let i = 0; i <= steps; i++) {
     const t = i / steps, x = x0 + (x1 - x0) * t;
@@ -361,13 +407,11 @@ function railWave(x0: number, x1: number, y: number): string {
   return `M${pts.join(" L")}`;
 }
 
-function railCoil(x0: number, x1: number, y: number): string {
+function railCoil(x0: number, x1: number, y: number, L: RailLook): string {
   const span = x1 - x0;
-  if (span < 8) return "";
-  // Spacing first, count second. A tick count that ignores the run length is
-  // how the earlier attempts turned into blocks on short segments.
-  const n = Math.max(2, Math.round(span / 8.5));
-  const amp = 3.0, lean = 1.25;
+  if (span < L.coilMin) return "";
+  const n = Math.max(2, Math.round(span / L.coilSpacing));
+  const amp = L.coilAmp, lean = L.coilLean;
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
     const x = x0 + (span * (i + 0.5)) / n;
@@ -382,6 +426,8 @@ export function ThreadRail({ width, count, index, color, top = 0 }: {
   width: number; count: number; index: number; color: string; top?: number;
 }) {
   const y = RAIL_H / 2;
+  const L = railLook();
+  const lookKey = JSON.stringify(L);
   // Clip ids live in one document-wide namespace on react-native-svg, so two
   // rails on screen would silently share one clip. Cheap to make unique.
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
@@ -393,14 +439,15 @@ export function ThreadRail({ width, count, index, color, top = 0 }: {
   // never move, so the path is built once and only the clip animates.
   const { wave, coil } = useMemo(() => {
     const segs: Array<[number, number]> = [];
-    let x = RAIL_EDGE;
-    for (const c of centres) { segs.push([x, c - RAIL_GAP]); x = c + RAIL_GAP; }
-    segs.push([x, width - RAIL_EDGE]);
+    let x = L.edge;
+    for (const c of centres) { segs.push([x, c - L.gap]); x = c + L.gap; }
+    segs.push([x, width - L.edge]);
     return {
-      wave: segs.map(([a, b]) => railWave(a, b, y)).filter(Boolean).join(" "),
-      coil: segs.map(([a, b]) => railCoil(a, b, y)).filter(Boolean).join(" "),
+      wave: segs.map(([a, b]) => railWave(a, b, y, L)).filter(Boolean).join(" "),
+      coil: segs.map(([a, b]) => railCoil(a, b, y, L)).filter(Boolean).join(" "),
     };
-  }, [centres, width, y]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centres, width, y, lookKey]);
 
   const edge = useRef(new Animated.Value(centres[index] ?? 0)).current;
   useEffect(() => {
@@ -408,9 +455,10 @@ export function ThreadRail({ width, count, index, color, top = 0 }: {
       toValue: centres[index] ?? 0,
       // Not bouncy: the boundary is reporting where you are, and a tab bar that
       // wobbles after every tap reads as unfinished rather than as alive.
-      stiffness: 190, damping: 26, mass: 1,
+      stiffness: L.stiffness, damping: L.damping, mass: L.mass,
       useNativeDriver: false,
     }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centres, index, edge]);
 
   if (width <= 0) return null;
@@ -426,10 +474,10 @@ export function ThreadRail({ width, count, index, color, top = 0 }: {
         </ClipPath>
       </Defs>
       <G clipPath={`url(#speech${uid})`}>
-        <Path d={wave} fill="none" stroke={color} strokeWidth={1.4} strokeLinecap="round" opacity={0.5} />
+        <Path d={wave} fill="none" stroke={color} strokeWidth={L.waveWidth} strokeLinecap="round" opacity={L.waveOpacity} />
       </G>
       <G clipPath={`url(#cloth${uid})`}>
-        <Path d={coil} fill="none" stroke={color} strokeWidth={1.2} strokeLinecap="round" opacity={0.42} />
+        <Path d={coil} fill="none" stroke={color} strokeWidth={L.coilWidth} strokeLinecap="round" opacity={L.coilOpacity} />
       </G>
     </Svg>
   );
@@ -442,12 +490,15 @@ export function ThreadRail({ width, count, index, color, top = 0 }: {
  * pictographs, and rendered at whatever weight the system font felt like.
  * Drawn as views so it is the same three strokes on both platforms.
  */
-export function SettingsLines({ color, size = 20 }: { color: string; size?: number }) {
-  const w = [0.5, 0.75, 1];
+export function SettingsLines({ color, size = K.num("ui.SettingsLines.size", 20) }: { color: string; size?: number }) {
+  /** The glyph: each line's length as a share of the width, short to long,
+   *  and how the lines are drawn — ui.SettingsLines.look. */
+  const g = K.obj("ui.SettingsLines.look", { lines: [0.5, 0.75, 1], gap: 4, thickness: 2, radius: 1, align: "flex-end" });
+  const w: number[] = Array.isArray(g.lines) ? g.lines.map(Number) : [0.5, 0.75, 1];
   return (
-    <View style={{ width: size, gap: 4, alignItems: "flex-end" }}>
+    <View style={{ width: size, gap: g.gap, alignItems: g.align as "flex-end" }}>
       {w.map((f, i) => (
-        <View key={i} style={{ width: size * f, height: 2, borderRadius: 1, backgroundColor: color }} />
+        <View key={i} style={{ width: size * f, height: g.thickness, borderRadius: g.radius, backgroundColor: color }} />
       ))}
     </View>
   );

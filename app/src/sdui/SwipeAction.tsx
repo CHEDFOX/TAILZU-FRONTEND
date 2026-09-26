@@ -30,43 +30,69 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, PanResponder, Pressable, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactElement => {
-  const label = String(props?.label ?? "");
-  const height = Number(props?.height) || 58;
+  // Every default below is a ui.SwipeAction.* knob: the node's prop wins, the
+  // knob moves every pill in the app at once, the literal is what it was.
+  const label = String(props?.label ?? K.txt("ui.SwipeAction.label", ""));
+  const height = Number(props?.height) || K.num("ui.SwipeAction.height", 58);
   const radius = props?.radius !== undefined ? Number(props.radius) : height / 2;
-  const background = String(props?.background ?? "#0B0B0D");
-  const color = String(props?.color ?? "#FFFFFF");
-  const fontSize = Number(props?.fontSize) || 12;
+  const background = String(props?.background ?? K.color("ui.SwipeAction.background", "#0B0B0D"));
+  const color = String(props?.color ?? K.color("ui.SwipeAction.color", "#FFFFFF"));
+  const fontSize = Number(props?.fontSize) || K.num("ui.SwipeAction.fontSize", 12);
   /** The label's weight. A tracked line at 12pt in regular reads as a caption
    *  on the pill; this is the way into the product and it should read as an
    *  instruction. */
-  const weight = String(props?.weight ?? "700") as "400" | "500" | "600" | "700" | "800";
-  const tracking = props?.tracking !== undefined ? Number(props.tracking) : 1.8;
+  const weight = String(props?.weight ?? K.str("ui.SwipeAction.weight", "700")) as "400" | "500" | "600" | "700" | "800";
+  const tracking = props?.tracking !== undefined ? Number(props.tracking) : K.num("ui.SwipeAction.tracking", 1.8);
   /** A hairline, for a pill that sits on ART rather than on a flat ground —
    *  without an edge, a translucent pill on a moving field has no shape. */
-  const borderWidth = props?.borderWidth !== undefined ? Number(props.borderWidth) : 0;
-  const borderColor = String(props?.borderColor ?? "transparent");
-  const disc = Number(props?.disc) || 46;
-  const discBackground = String(props?.discBackground ?? "rgba(255,255,255,0.14)");
+  const borderWidth = props?.borderWidth !== undefined ? Number(props.borderWidth) : K.num("ui.SwipeAction.borderWidth", 0);
+  const borderColor = String(props?.borderColor ?? K.color("ui.SwipeAction.borderColor", "transparent"));
+  const disc = Number(props?.disc) || K.num("ui.SwipeAction.disc", 46);
+  const discBackground = String(props?.discBackground ?? K.color("ui.SwipeAction.discBackground", "rgba(255,255,255,0.14)"));
   /** The mark inside each circle. 0 leaves them plain — which is the default
    *  look: two clean discs, nothing drawn in them. */
-  const dot = props?.dot !== undefined ? Number(props.dot) : 0;
-  const dotColor = String(props?.dotColor ?? "#FFFFFF");
+  const dot = props?.dot !== undefined ? Number(props.dot) : K.num("ui.SwipeAction.dot", 0);
+  const dotColor = String(props?.dotColor ?? K.color("ui.SwipeAction.dotColor", "#FFFFFF"));
   /** What the disc lands in. The one warm thing on the pill, so the end of the
    *  journey is visible from the start of it. */
-  const target = String(props?.targetBackground ?? "#C9862B");
-  const targetDot = String(props?.targetDotColor ?? "#000000");
-  const pad = Number(props?.padding) || 6;
+  const target = String(props?.targetBackground ?? K.color("ui.SwipeAction.targetBackground", "#C9862B"));
+  const targetDot = String(props?.targetDotColor ?? K.color("ui.SwipeAction.targetDotColor", "#000000"));
+  const pad = Number(props?.padding) || K.num("ui.SwipeAction.padding", 6);
   /** How far along counts as committed, 0..1 of the run. */
-  const threshold = Number(props?.threshold) || 0.62;
+  const threshold = Number(props?.threshold) || K.num("ui.SwipeAction.threshold", 0.62);
   /** When the disc nudges itself to advertise the drag. 0 disables the hint. */
-  const hintDelayMs = props?.hintDelayMs !== undefined ? Number(props.hintDelayMs) : 1200;
+  const hintDelayMs = props?.hintDelayMs !== undefined ? Number(props.hintDelayMs) : K.num("ui.SwipeAction.hintDelayMs", 1200);
   /** How far the hint nudge travels, px. */
-  const hintDistance = props?.hintDistance !== undefined ? Number(props.hintDistance) : 22;
+  const hintDistance = props?.hintDistance !== undefined ? Number(props.hintDistance) : K.num("ui.SwipeAction.hintDistance", 22);
   /** The spring the disc rides back on when a drag falls short. */
-  const friction = Number(props?.friction) || 6;
-  const tension = Number(props?.tension) || 80;
+  const friction = Number(props?.friction) || K.num("ui.SwipeAction.friction", 6);
+  const tension = Number(props?.tension) || K.num("ui.SwipeAction.tension", 80);
+  /** The hint's outbound spring, relative to the one above: looser and a
+   *  touch quicker, so the nudge reads as a flick rather than a drag. */
+  const hintFrictionDelta = Number(props?.hintFrictionDelta ?? K.num("ui.SwipeAction.hintFrictionDelta", -1));
+  const hintTensionDelta = Number(props?.hintTensionDelta ?? K.num("ui.SwipeAction.hintTensionDelta", 10));
+  /** The floor under a commit's travel time, ms. */
+  const minCommitMs = Number(props?.minCommitMs ?? K.num("ui.SwipeAction.minCommitMs", 140));
+  /** The commit's landing curve, as cubic-bezier control points. */
+  const easingPts = Array.isArray(props?.commitEasing) && props.commitEasing.length === 4
+    ? (props.commitEasing as unknown[]).map(Number)
+    : K.list<number>("ui.SwipeAction.commitEasing", [0.22, 1, 0.3, 1]);
+  const easingKey = easingPts.join(",");
+  /** Below this many points on both axes a release is a tap, not a drag. */
+  const tapSlop = Number(props?.tapSlop ?? K.num("ui.SwipeAction.tapSlop", 6));
+  /** How far a finger moves before the pan claims it. */
+  const panSlop = Number(props?.panSlop ?? K.num("ui.SwipeAction.panSlop", 4));
+  const discHitSlop = Number(props?.discHitSlop ?? K.num("ui.SwipeAction.discHitSlop", 14));
+  /** How far the disc has come when the label is fully gone, 0..1 of the run. */
+  const labelFadeAt = Number(props?.labelFadeAt ?? K.num("ui.SwipeAction.labelFadeAt", 0.45));
+  /** The target's opacity at rest, halfway, and arrived. */
+  const targetRamp = Array.isArray(props?.targetRamp) && props.targetRamp.length === 3
+    ? (props.targetRamp as unknown[]).map(Number)
+    : K.list<number>("ui.SwipeAction.targetRamp", [0.35, 0.7, 1]);
+  const pressedOpacity = Number(props?.pressedOpacity ?? K.num("ui.SwipeAction.pressedOpacity", 0.92));
   /**
    * How long the disc takes to cross the WHOLE pill once committed, ms.
    *
@@ -76,13 +102,13 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
    * exactly backwards, and it is what "it jumps when you tap it" is. The time
    * is per distance now, so both end at the same speed.
    */
-  const commitMs = Number(props?.commitMs) || 230;
+  const commitMs = Number(props?.commitMs) || K.num("ui.SwipeAction.commitMs", 230);
   /**
    * Put the disc back at the start this long after committing. 0 leaves it at
    * the end, which is the default and right whenever the commit navigates —
    * see commit() below.
    */
-  const resetAfterMs = Number(props?.resetAfterMs) || 0;
+  const resetAfterMs = Number(props?.resetAfterMs) || K.num("ui.SwipeAction.resetAfterMs", 0);
   /**
    * A tap commits too.
    *
@@ -93,7 +119,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
    * without the finger doing the work. Anyone who taps still SEES the gesture
    * they were meant to make, which teaches it for next time.
    */
-  const tapToo = props?.tap !== false;
+  const tapToo = props?.tap !== undefined ? props.tap !== false : K.bool("ui.SwipeAction.tap", true);
 
   // The pill's width is whatever the layout gives it, so the run is measured
   // rather than assumed — a fixed guess breaks on the first narrow phone.
@@ -154,12 +180,12 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       // the pill; animating it while they are dragging takes the disc off them.
       if (done.current || held.current) return;
       Animated.sequence([
-        Animated.spring(x, { toValue: hintDistance, friction: friction - 1, tension: tension + 10, useNativeDriver: true }),
+        Animated.spring(x, { toValue: hintDistance, friction: friction + hintFrictionDelta, tension: tension + hintTensionDelta, useNativeDriver: true }),
         Animated.spring(x, { toValue: 0, friction, tension, useNativeDriver: true }),
       ]).start();
     }, hintDelayMs);
     return () => clearTimeout(t);
-  }, [x, hintDelayMs, run, hintDistance, friction, tension]);
+  }, [x, hintDelayMs, run, hintDistance, friction, tension, hintFrictionDelta, hintTensionDelta]);
 
   const commit = useCallback(() => {
     done.current = true;
@@ -170,11 +196,11 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       toValue: r,
       // Proportional to what is left, with a floor so a commit from just short
       // of the end still reads as a movement rather than a jump.
-      duration: Math.max(140, Math.round(commitMs * left)),
+      duration: Math.max(minCommitMs, Math.round(commitMs * left)),
       // A long, soft landing rather than a cubic stop. The disc is carrying the
       // screen change with it, so the last third of its travel is where the
       // transition begins — it should settle, not arrive.
-      easing: Easing.bezier(0.22, 1, 0.3, 1),
+      easing: Easing.bezier(easingPts[0] ?? 0.22, easingPts[1] ?? 1, easingPts[2] ?? 0.3, easingPts[3] ?? 1),
       useNativeDriver: true,
     }).start(() => {
       /**
@@ -216,12 +242,17 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         setTimeout(() => { setLanded(false); x.setValue(0); done.current = false; }, resetAfterMs);
       }
     });
-  }, [x, fire, commitMs, resetAfterMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [x, fire, commitMs, resetAfterMs, minCommitMs, easingKey]);
 
   // Read inside the PanResponder, which is built once and would otherwise
   // close over the first render's value forever.
   const tapRef = useRef(tapToo);
   tapRef.current = tapToo;
+  // The same for the numbers the gesture reads, so a new bootstrap reaches a
+  // pill that is already on screen.
+  const feel = useRef({ threshold, tapSlop, panSlop });
+  feel.current = { threshold, tapSlop, panSlop };
 
   // Nothing sends a committed disc home. A spring that arrives after the
   // commit reads as the gesture being taken back, and it is the same picture
@@ -237,7 +268,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       // may have their own press or scroll handlers, and a pan that only
       // claims on MOVE has already lost the touch to an ancestor by then.
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > feel.current.panSlop && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderGrant: () => {
         // A second gesture on a pill that has already fired is a touch on the
         // way out of the screen, not a new drag.
@@ -259,7 +290,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         x.setValue(v);
         // A tick at the point of no return, so the commit is felt before it is
         // seen and nobody lets go one pixel short wondering if it took.
-        const mark = r * threshold;
+        const mark = r * feel.current.threshold;
         if (!crossed.current && v >= mark) { crossed.current = true; Haptics.selectionAsync().catch(() => {}); }
         else if (crossed.current && v < mark) crossed.current = false;
       },
@@ -268,9 +299,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         if (done.current) return;
         const r = runRef.current;
         const v = Math.max(0, Math.min(r, from.current + g.dx));
-        if (v >= r * threshold) commit();
+        if (v >= r * feel.current.threshold) commit();
         // Barely moved on either axis: that was a tap, not a failed drag.
-        else if (tapRef.current && Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6) commit();
+        else if (tapRef.current && Math.abs(g.dx) < feel.current.tapSlop && Math.abs(g.dy) < feel.current.tapSlop) commit();
         else springBack();
       },
       onPanResponderTerminate: () => { held.current = false; springBack(); },
@@ -280,13 +311,13 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
   // The label steps aside as the disc comes through, rather than being run
   // over by it.
   const labelOpacity = run
-    ? x.interpolate({ inputRange: [0, run * 0.45], outputRange: [1, 0], extrapolate: "clamp" })
+    ? x.interpolate({ inputRange: [0, run * labelFadeAt], outputRange: [1, 0], extrapolate: "clamp" })
     : 1;
   // The target warms up as the disc approaches — the pill answering the drag
   // instead of waiting to be finished with.
   const targetOpacity = run
-    ? x.interpolate({ inputRange: [0, run * 0.5, run], outputRange: [0.35, 0.7, 1], extrapolate: "clamp" })
-    : 0.35;
+    ? x.interpolate({ inputRange: [0, run * 0.5, run], outputRange: targetRamp, extrapolate: "clamp" })
+    : targetRamp[0];
 
   const body = (
     <>
@@ -334,7 +365,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         // A 46pt disc is a 46pt target and a thumb is wider than that. The slop
         // costs nothing — everything around it is the pill, whose only other
         // gesture is a tap that does the same thing.
-        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+        hitSlop={{ top: discHitSlop, bottom: discHitSlop, left: discHitSlop, right: discHitSlop }}
         style={{
           position: "absolute",
           left: pad,
@@ -382,7 +413,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
       accessibilityLabel={label}
       // The pill answers the finger before the disc has gone anywhere. Without
       // it a tap is a quarter-second of nothing followed by a screen change.
-      style={({ pressed }) => [frame, style, pressed && !landed ? { opacity: 0.92 } : null]}
+      style={({ pressed }) => [frame, style, pressed && !landed ? { opacity: pressedOpacity } : null]}
     >
       {body}
     </Pressable>

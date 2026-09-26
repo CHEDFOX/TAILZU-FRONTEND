@@ -5,7 +5,7 @@
  * (Sentry / PostHog / RevenueCat) no-op silently instead of throwing, so the
  * same binary works whether or not you fill env variables.
  */
-import { str } from "./knobs";
+import { list, num, str, txt } from "./knobs";
 import { Alert, Linking, Platform, Share, Vibration } from "react-native";
 import { manageElsewhere } from "../billing/elsewhere";
 import * as Haptics from "expo-haptics";
@@ -86,13 +86,16 @@ export function resolveValue(value: any, ctx: Ctx): any {
  * Returns true when it handled the tap.
  */
 function elsewhere(ctx: Ctx): boolean {
-  const e = manageElsewhere(ctx.flags, Platform.OS);
+  const e = manageElsewhere(ctx.flags, Platform.OS, txt);
   if (!e) return false;
   Alert.alert(
-    "You already subscribe",
+    txt("billing.elsewhere.title", "You already subscribe"),
     e.message,
     e.action
-      ? [{ text: "Not now", style: "cancel" }, { text: e.action.label, onPress: () => void Linking.openURL(e.action!.url) }]
+      ? [
+          { text: txt("billing.elsewhere.dismiss", "Not now"), style: "cancel" },
+          { text: e.action.label, onPress: () => void Linking.openURL(e.action!.url) },
+        ]
       : undefined,
   );
   return true;
@@ -194,13 +197,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "dismiss": ctx.nav.back(); break;
     case "switchTab": ctx.nav.switchTab(action.tabId); break;
     case "openUrl":
-      Linking.openURL(action.url).catch(() => ctx.toast("Couldn't open link", "error"));
+      Linking.openURL(action.url).catch(() => ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error"));
       break;
     case "openInAppBrowser":
-      try { await WebBrowser.openBrowserAsync(action.url); } catch { ctx.toast("Couldn't open link", "error"); }
+      try { await WebBrowser.openBrowserAsync(action.url); } catch { ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error"); }
       break;
     case "openSettings": {
-      const failed = () => ctx.toast("Couldn't open Settings", "error");
+      const failed = () => ctx.toast(txt("toast.openSettingsFailed", "Couldn't open Settings"), "error");
       if (Platform.OS === "android" && action.target === "keyboard") {
         Linking.sendIntent("android.settings.INPUT_METHOD_SETTINGS").catch(() => Linking.openSettings().catch(failed));
       } else {
@@ -325,11 +328,11 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         } catch { /* haptics blocked in some contexts — ignore */ }
       } else {
         Vibration.vibrate(
-          action.style === "heavy" ? 30
-          : action.style === "medium" ? 18
-          : action.style === "success" ? [0, 15, 40, 15]
-          : action.style === "error" ? [0, 15, 40, 15, 40, 15]
-          : 10,
+          action.style === "heavy" ? num("haptics.android.heavyMs", 30)
+          : action.style === "medium" ? num("haptics.android.mediumMs", 18)
+          : action.style === "success" ? list<number>("haptics.android.successPattern", [0, 15, 40, 15])
+          : action.style === "error" ? list<number>("haptics.android.errorPattern", [0, 15, 40, 15, 40, 15])
+          : num("haptics.android.lightMs", 10),
         );
       }
       break;
@@ -364,20 +367,20 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "share":
       try {
         await Share.share({ message: action.text ?? "", url: action.url, title: action.title });
-      } catch { ctx.toast("Couldn't open share sheet", "error"); }
+      } catch { ctx.toast(txt("toast.shareFailed", "Couldn't open share sheet"), "error"); }
       break;
     case "shareFile":
       try {
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(action.path, { mimeType: action.mimeType });
         }
-      } catch { ctx.toast("Couldn't share file", "error"); }
+      } catch { ctx.toast(txt("toast.shareFileFailed", "Couldn't share file"), "error"); }
       break;
     case "copyToClipboard":
       try {
         await Clipboard.setStringAsync(action.text);
         if (action.toastMessage) ctx.toast(action.toastMessage, "success");
-      } catch { ctx.toast("Couldn't copy", "error"); }
+      } catch { ctx.toast(txt("toast.copyFailed", "Couldn't copy"), "error"); }
       break;
     case "readClipboard":
       try {
@@ -386,17 +389,17 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       } catch { /* no clipboard access */ }
       break;
     case "sms":
-      Linking.openURL(`sms:${action.number ?? ""}${action.body ? `?body=${encodeURIComponent(action.body)}` : ""}`).catch(() => ctx.toast("Couldn't open Messages", "error"));
+      Linking.openURL(`sms:${action.number ?? ""}${action.body ? `?body=${encodeURIComponent(action.body)}` : ""}`).catch(() => ctx.toast(txt("toast.smsFailed", "Couldn't open Messages"), "error"));
       break;
     case "email":
-      Linking.openURL(`mailto:${action.to ?? ""}?subject=${encodeURIComponent(action.subject ?? "")}&body=${encodeURIComponent(action.body ?? "")}`).catch(() => ctx.toast("Couldn't open Mail", "error"));
+      Linking.openURL(`mailto:${action.to ?? ""}?subject=${encodeURIComponent(action.subject ?? "")}&body=${encodeURIComponent(action.body ?? "")}`).catch(() => ctx.toast(txt("toast.emailFailed", "Couldn't open Mail"), "error"));
       break;
     case "phone":
-      Linking.openURL(`tel:${action.number}`).catch(() => ctx.toast("Couldn't dial", "error"));
+      Linking.openURL(`tel:${action.number}`).catch(() => ctx.toast(txt("toast.phoneFailed", "Couldn't dial"), "error"));
       break;
     case "download": {
       try {
-        const fileName = action.filename ?? `tulmi-${Date.now()}`;
+        const fileName = action.filename ?? `${str("download.filePrefix", "tulmi-")}${Date.now()}`;
         const dest = `${FileSystem.cacheDirectory}${fileName}`;
         const res = await FileSystem.downloadAsync(action.url, dest);
         ctx.store.set("_lastDownload", res.uri);
@@ -409,10 +412,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "saveToPhotos": {
       try {
         const perm = await MediaLibrary.requestPermissionsAsync();
-        if (!perm.granted) { ctx.toast("Photos permission denied", "error"); break; }
+        if (!perm.granted) { ctx.toast(txt("toast.photosDenied", "Photos permission denied"), "error"); break; }
         await MediaLibrary.saveToLibraryAsync(action.path);
-        ctx.toast("Saved to Photos", "success");
-      } catch { ctx.toast("Couldn't save", "error"); }
+        ctx.toast(txt("toast.photosSaved", "Saved to Photos"), "success");
+      } catch { ctx.toast(txt("toast.photosFailed", "Couldn't save"), "error"); }
       break;
     }
 
@@ -420,9 +423,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "pickImage": {
       try {
         const source = action.source ?? "library";
+        const quality = num("media.pickImageQuality", 0.8);
         const pick = source === "camera"
-          ? await ImagePicker.launchCameraAsync({ quality: 0.8 })
-          : await ImagePicker.launchImageLibraryAsync({ quality: 0.8 });
+          ? await ImagePicker.launchCameraAsync({ quality })
+          : await ImagePicker.launchImageLibraryAsync({ quality });
         if (!pick.canceled && pick.assets && pick.assets[0]) {
           ctx.store.set(action.assignTo, pick.assets[0]);
           await runAction(action.onSuccess, ctx);
@@ -559,7 +563,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       try {
         const has = await LocalAuthentication.hasHardwareAsync();
         if (!has) { await runAction(action.onError, ctx); break; }
-        const res = await LocalAuthentication.authenticateAsync({ promptMessage: action.reason ?? "Authenticate" });
+        const res = await LocalAuthentication.authenticateAsync({ promptMessage: action.reason ?? txt("auth.biometric.prompt", "Authenticate") });
         await runAction(res.success ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
@@ -579,8 +583,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // user simply tapped Cancel. A cancel carries no reason and stays
         // quiet; everything else names itself, once, where it can be read.
         if (!res.ok && res.reason) {
-          console.warn("[iap] purchase failed:", res.reason);
-          Alert.alert("Couldn't start the purchase", res.reason);
+          console.warn("[iap] purchase failed:", res.detail ?? res.reason);
+          Alert.alert(txt("iap.error.title", "Couldn't start the purchase"), res.reason);
         }
         await runAction(res.ok ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
@@ -653,12 +657,14 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         await Calendar.createEventAsync(cal.id, {
           title: action.title,
           startDate: new Date(action.startsAtIso),
-          endDate: action.endsAtIso ? new Date(action.endsAtIso) : new Date(new Date(action.startsAtIso).getTime() + 60 * 60 * 1000),
+          endDate: action.endsAtIso
+            ? new Date(action.endsAtIso)
+            : new Date(new Date(action.startsAtIso).getTime() + num("calendar.defaultDurationMs", 3600000)),
           notes: action.notes,
           location: action.location,
         });
-        ctx.toast("Added to calendar", "success");
-      } catch { ctx.toast("Couldn't add event", "error"); }
+        ctx.toast(txt("toast.calendarAdded", "Added to calendar"), "success");
+      } catch { ctx.toast(txt("toast.calendarFailed", "Couldn't add event"), "error"); }
       break;
     }
 
@@ -681,10 +687,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // the cleaned text once /v1/transcribe-clean returns.
     case "completeKeyboardHandoff": {
       const sessionId = action.sessionId
-        ?? (ctx.store.get("handoffSessionId") as string | undefined)
+        ?? (ctx.store.get(str("kb.handoff.sessionPath", "handoffSessionId")) as string | undefined)
         ?? "";
       const text = action.text
-        ?? (ctx.store.get(action.textPath ?? "dictationSample") as string | undefined)
+        ?? (ctx.store.get(action.textPath ?? str("kb.handoff.textPath", "dictationSample")) as string | undefined)
         ?? "";
       if (sessionId && text) completeKeyboardHandoff(sessionId, text);
       await runAction(action.onSuccess, ctx);
@@ -692,7 +698,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     }
     case "cancelKeyboardHandoff": {
       const sessionId = action.sessionId
-        ?? (ctx.store.get("handoffSessionId") as string | undefined)
+        ?? (ctx.store.get(str("kb.handoff.sessionPath", "handoffSessionId")) as string | undefined)
         ?? "";
       if (sessionId) cancelKeyboardHandoff(sessionId);
       await runAction(action.onSuccess, ctx);
@@ -703,9 +709,11 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // screen (kb.mic.mode="flow") when it loads: the app holds the mic alive in
     // the background so the keyboard can drive dictation after the user swipes
     // back. iOS only; a no-op on Android (records in-process). idleTimeoutMs is
-    // backend-authored on the action (default 5 min).
+    // backend-authored on the action; without one, the same kb.flow.idleTimeoutMs
+    // the shell arms with (it used to fall back to 5 min here and 10 on the
+    // server, so an action without the field armed a shorter session).
     case "armFlowSession": {
-      const idleTimeoutMs = Number(action.idleTimeoutMs ?? 300000);
+      const idleTimeoutMs = Number(action.idleTimeoutMs ?? num("kb.flow.idleTimeoutMs", 600000));
       const [base, tok, lang] = await Promise.all([
         getBaseUrl(),
         getSupabaseAccessToken(),

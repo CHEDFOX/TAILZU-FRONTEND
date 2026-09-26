@@ -29,6 +29,7 @@ import { View } from "react-native";
 import { Canvas, Fill, Shader, Skia } from "@shopify/react-native-skia";
 import { useDerivedValue, useFrameCallback, useSharedValue } from "react-native-reanimated";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 /**
  * The palette, as a FALLBACK ONLY — the backend sends all three, and these are
@@ -40,25 +41,18 @@ import type { CompProps } from "./components";
  * peach there is what the eye names the colour by, and the object stops
  * reading as one material lit and starts reading as amber with a cream sheen.
  */
-const AMBER = "#E8A23C";
-const DEEP = "#4A1D08";
-const GOLD = "#F8C879";
+// ui.AuroraOrb.tint / deep / gold — the knob stands between a node that
+// sends nothing and the literal.
 
-/**
+/*
  * Resting level per state — what the orb does when nothing is driving it.
  * `listening` sits low so an incoming level has somewhere to rise from;
  * `speaking` sits high and steady, because the app talking is continuous
- * rather than a series of peaks.
+ * rather than a series of peaks. The ui.AuroraOrb.rest knob, then a node's
+ * `rest` over it.
+ *
+ * `chase` is how fast the drawn level chases the target, per frame at 60fps.
  */
-const REST: Record<string, number> = {
-  idle: 0.06,
-  listening: 0.18,
-  thinking: 0.12,
-  speaking: 0.46,
-};
-
-/** How fast the drawn level chases the target, per frame at 60fps. */
-const CHASE = 0.09;
 
 const SOURCE = `
 uniform float2 u_resolution;
@@ -150,7 +144,10 @@ function hexToVec(hex: unknown, fallback: number[]): number[] {
 }
 
 export const AuroraOrb = ({ node, props, store, style }: CompProps): React.ReactElement => {
-  const size = Number(props?.size) || 240;
+  const AMBER = K.color("ui.AuroraOrb.tint", "#E8A23C");
+  const DEEP = K.color("ui.AuroraOrb.deep", "#4A1D08");
+  const GOLD = K.color("ui.AuroraOrb.gold", "#F8C879");
+  const size = Number(props?.size) || K.num("ui.AuroraOrb.size", 240);
   /**
    * The sphere's radius in normalised units. The canvas is deliberately larger
    * than the ball so the rim has somewhere to fall off — at 0.32 the sphere is
@@ -158,16 +155,22 @@ export const AuroraOrb = ({ node, props, store, style }: CompProps): React.React
    * is nothing here that can spill past the canvas and get clipped into a
    * visible rectangle: the shader fades to alpha 0 well inside its own bounds.
    */
-  const radius = props?.radius !== undefined ? Number(props.radius) : 0.32;
+  const radius = props?.radius !== undefined ? Number(props.radius) : K.num("ui.AuroraOrb.radius", 0.32);
   /** 0 is bands alone; past ~0.45 the shimmer washes the band structure out. */
-  const shimmer = props?.shimmer !== undefined ? Number(props.shimmer) : 0.28;
-  const rim = props?.rim !== undefined ? Number(props.rim) : 0.75;
-  const chase = props?.chase !== undefined ? Number(props.chase) : CHASE;
-  const rest: Record<string, number> = { ...REST, ...(props?.rest ?? {}) };
+  const shimmer = props?.shimmer !== undefined ? Number(props.shimmer) : K.num("ui.AuroraOrb.shimmer", 0.28);
+  const rim = props?.rim !== undefined ? Number(props.rim) : K.num("ui.AuroraOrb.rim", 0.75);
+  const chase = props?.chase !== undefined ? Number(props.chase) : K.num("ui.AuroraOrb.chase", 0.09);
+  const rest: Record<string, number> = {
+    ...K.obj<Record<string, number>>("ui.AuroraOrb.rest", { idle: 0.06, listening: 0.18, thinking: 0.12, speaking: 0.46 }),
+    ...(props?.rest ?? {}),
+  };
 
-  const c1 = useMemo(() => hexToVec(props?.tint ?? AMBER, [0.91, 0.64, 0.24]), [props?.tint]);
-  const c2 = useMemo(() => hexToVec(props?.deep ?? DEEP, [0.29, 0.11, 0.03]), [props?.deep]);
-  const c3 = useMemo(() => hexToVec(props?.gold ?? GOLD, [0.97, 0.78, 0.47]), [props?.gold]);
+  const tint = props?.tint ?? AMBER;
+  const deep = props?.deep ?? DEEP;
+  const gold = props?.gold ?? GOLD;
+  const c1 = useMemo(() => hexToVec(tint, [0.91, 0.64, 0.24]), [tint]);
+  const c2 = useMemo(() => hexToVec(deep, [0.29, 0.11, 0.03]), [deep]);
+  const c3 = useMemo(() => hexToVec(gold, [0.97, 0.78, 0.47]), [gold]);
 
   const levelKey = node.bind?.level;
   const stateKey = node.bind?.state;
@@ -228,7 +231,7 @@ export const AuroraOrb = ({ node, props, store, style }: CompProps): React.React
           width: size * radius * 2,
           height: size * radius * 2,
           borderRadius: size * radius,
-          backgroundColor: String(props?.tint ?? AMBER),
+          backgroundColor: String(tint),
         }} />
       </View>
     );

@@ -36,6 +36,7 @@ import Svg, { Path } from "react-native-svg";
 import type { Field } from "../auth/AuthGateScreen";
 import { useAuthFlow } from "../auth/AuthFlowContext";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 /**
  * SwipePill — one sign-in method. Swipe the badge or tap the arrow.
@@ -78,7 +79,7 @@ export const SwipePill = ({ props, style }: CompProps): React.ReactElement | nul
     <MethodPill
       field={field}
       onSubmit={(f, value) => flow.submit(f.type, value)}
-      hintDelay={Number(props?.hintDelayMs) || 1100}
+      hintDelay={Number(props?.hintDelayMs) || K.num("ui.SwipePill.hintDelayMs", 1100)}
       look={look}
       style={style}
     />
@@ -96,11 +97,17 @@ export const SwipePill = ({ props, style }: CompProps): React.ReactElement | nul
 export const AppleSignIn = ({ props, style }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
   if (!flow || !flow.appleAvailable || Platform.OS !== "ios") return null;
-  const size = Number(props?.size) || 52;
+  const size = Number(props?.size) || K.num("ui.AppleSignIn.size", 52);
+  // Apple's own variants, by name: SIGN_IN | CONTINUE | SIGN_UP, and
+  // WHITE | WHITE_OUTLINE | BLACK. An unknown name keeps the default.
+  const types = AppleAuthentication.AppleAuthenticationButtonType as unknown as Record<string, number>;
+  const styles = AppleAuthentication.AppleAuthenticationButtonStyle as unknown as Record<string, number>;
+  const typeName = String(props?.buttonType ?? K.str("ui.AppleSignIn.buttonType", "SIGN_IN"));
+  const styleName = String(props?.buttonStyle ?? K.str("ui.AppleSignIn.buttonStyle", "WHITE"));
   return (
     <AppleAuthentication.AppleAuthenticationButton
-      buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+      buttonType={(types[typeName] ?? AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN) as AppleAuthentication.AppleAuthenticationButtonType}
+      buttonStyle={(styles[styleName] ?? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE) as AppleAuthentication.AppleAuthenticationButtonStyle}
       cornerRadius={Number(props?.radius ?? size / 2)}
       style={[{ width: Number(props?.width) || size, height: size }, style]}
       onPress={flow.signInApple}
@@ -115,23 +122,25 @@ export const AppleSignIn = ({ props, style }: CompProps): React.ReactElement | n
 export const GoogleSignIn = ({ props, style, children }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
   if (!flow || !flow.googleEnabled) return null;
-  const size = Number(props?.size) || 52;
+  const size = Number(props?.size) || K.num("ui.GoogleSignIn.size", 52);
+  const logo = Number(props?.logoSize ?? K.num("ui.GoogleSignIn.logoSize", 20));
+  const pressedOpacity = Number(props?.pressedOpacity ?? K.num("ui.GoogleSignIn.pressedOpacity", 0.7));
   return (
     <Pressable
       onPress={flow.signInGoogle}
       accessibilityRole="button"
-      accessibilityLabel={String(props?.label ?? "Continue with Google")}
+      accessibilityLabel={String(props?.label ?? K.txt("ui.GoogleSignIn.label", "Continue with Google"))}
       style={({ pressed }) => [
         {
           width: Number(props?.width) || size,
           height: size,
           borderRadius: Number(props?.radius ?? size / 2),
-          backgroundColor: String(props?.background ?? "rgba(255,255,255,0.06)"),
-          borderWidth: 1,
-          borderColor: String(props?.borderColor ?? "rgba(255,255,255,0.13)"),
+          backgroundColor: String(props?.background ?? K.color("ui.GoogleSignIn.background", "rgba(255,255,255,0.06)")),
+          borderWidth: Number(props?.borderWidth ?? K.num("ui.GoogleSignIn.borderWidth", 1)),
+          borderColor: String(props?.borderColor ?? K.color("ui.GoogleSignIn.borderColor", "rgba(255,255,255,0.13)")),
           alignItems: "center",
           justifyContent: "center",
-          opacity: pressed ? 0.7 : 1,
+          opacity: pressed ? pressedOpacity : 1,
         },
         style,
       ]}
@@ -144,7 +153,7 @@ export const GoogleSignIn = ({ props, style, children }: CompProps): React.React
           `??` never fell through and this button rendered blank. Length is the
           only honest test. */}
       {React.Children.count(children) > 0 ? children : (
-        <Svg width={20} height={20} viewBox="0 0 48 48">
+        <Svg width={logo} height={logo} viewBox="0 0 48 48">
           <Path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
           <Path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
           <Path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
@@ -189,64 +198,75 @@ export const CodeEntry = ({ props, style }: CompProps): React.ReactElement | nul
     return () => { onShow.remove(); onHide.remove(); };
   }, []);
 
+  // The lift: how far above the keyboard the pill rides (its overlap with the
+  // keyboard's own top, in points) and the spring that carries it there.
+  const liftLook = K.obj("ui.CodeEntry.lift", { overlap: 34, damping: 20, stiffness: 190, mass: 0.7 });
   useEffect(() => {
     Animated.spring(lift, {
-      toValue: focused && kbHeight > 0 ? -(kbHeight - 34) : 0,
-      damping: 20, stiffness: 190, mass: 0.7,
+      toValue: focused && kbHeight > 0 ? -(kbHeight - liftLook.overlap) : 0,
+      damping: liftLook.damping, stiffness: liftLook.stiffness, mass: liftLook.mass,
       useNativeDriver: true,
     }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused, kbHeight, lift]);
 
   const errored = flow?.codeError ?? false;
   useEffect(() => {
     if (!errored) return;
-    Animated.sequence([
-      Animated.timing(shake, { toValue: 8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: -8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 4, duration: 60, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: 0, duration: 80, useNativeDriver: true }),
-    ]).start();
+    // The wrong-code shake, beat by beat: where it throws to and for how long.
+    const beats = K.list<{ to: number; ms: number }>("ui.CodeEntry.shake", [
+      { to: 8, ms: 60 }, { to: -8, ms: 60 }, { to: 4, ms: 60 }, { to: 0, ms: 80 },
+    ]);
+    Animated.sequence(beats.map((b) =>
+      Animated.timing(shake, { toValue: Number(b.to) || 0, duration: Number(b.ms) || 0, useNativeDriver: true }),
+    )).start();
   }, [errored, shake]);
 
   // The caret belongs here the moment the code step opens — this IS the step.
+  const focusDelayMs = Number(props?.focusDelayMs ?? K.num("ui.CodeEntry.focusDelayMs", 320));
   useEffect(() => {
-    const t = setTimeout(() => input.current?.focus?.(), 320);
+    const t = setTimeout(() => input.current?.focus?.(), focusDelayMs);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!flow) return null;
 
-  const h = Number(props?.height) || 56;
+  const h = Number(props?.height) || K.num("ui.CodeEntry.height", 56);
   const len = flow.codeLength;
   const complete = flow.code.length === len;
-  const shown = flow.code.padEnd(len, "·").split("").join(" ");
+  const blank = String(props?.blankGlyph ?? K.txt("ui.CodeEntry.blankGlyph", "·")) || "·";
+  const spacer = String(props?.digitSeparator ?? K.txt("ui.CodeEntry.digitSeparator", " "));
+  const shown = flow.code.padEnd(len, blank).split("").join(spacer);
+  const badgeInset = Number(props?.badgeInset ?? K.num("ui.CodeEntry.badgeInset", 10));
+  const badge = h - badgeInset;
 
   return (
     <Animated.View style={[{ transform: [{ translateY: lift }, { translateX: shake }] }, style]}>
       <Pressable
         onPress={() => input.current?.focus?.()}
         accessibilityRole="button"
-        accessibilityLabel={String(props?.label ?? "Enter the code we sent you")}
+        accessibilityLabel={String(props?.label ?? K.txt("ui.CodeEntry.label", "Enter the code we sent you"))}
         style={{
           height: h,
           borderRadius: Number(props?.radius ?? h / 2),
-          backgroundColor: String(props?.background ?? "rgba(255,255,255,0.06)"),
-          borderWidth: 1,
+          backgroundColor: String(props?.background ?? K.color("ui.CodeEntry.background", "rgba(255,255,255,0.06)")),
+          borderWidth: Number(props?.borderWidth ?? K.num("ui.CodeEntry.borderWidth", 1)),
           borderColor: errored
-            ? String(props?.errorColor ?? "rgba(255,90,60,0.85)")
-            : String(props?.borderColor ?? "rgba(255,255,255,0.10)"),
+            ? String(props?.errorColor ?? K.color("ui.CodeEntry.errorColor", "rgba(255,90,60,0.85)"))
+            : String(props?.borderColor ?? K.color("ui.CodeEntry.borderColor", "rgba(255,255,255,0.10)")),
           flexDirection: "row",
           alignItems: "center",
-          paddingLeft: Number(props?.paddingLeft) || 20,
-          paddingRight: 5,
+          paddingLeft: Number(props?.paddingLeft) || K.num("ui.CodeEntry.paddingLeft", 20),
+          paddingRight: Number(props?.paddingRight ?? K.num("ui.CodeEntry.paddingRight", 5)),
         }}
       >
         <Text
           style={{
             flex: 1,
-            color: "#FFFFFF",
-            fontSize: Number(props?.fontSize) || 17,
-            letterSpacing: Number(props?.letterSpacing ?? 6),
+            color: String(props?.textColor ?? K.color("ui.CodeEntry.textColor", "#FFFFFF")),
+            fontSize: Number(props?.fontSize) || K.num("ui.CodeEntry.fontSize", 17),
+            letterSpacing: Number(props?.letterSpacing ?? K.num("ui.CodeEntry.letterSpacing", 6)),
             fontVariant: ["tabular-nums"],
           }}
         >
@@ -257,17 +277,29 @@ export const CodeEntry = ({ props, style }: CompProps): React.ReactElement | nul
             so the pill always offers exactly one next move. */}
         <Pressable
           onPress={() => (complete ? flow.verify(flow.code) : flow.resend())}
-          hitSlop={8}
+          hitSlop={Number(props?.badgeHitSlop ?? K.num("ui.CodeEntry.badgeHitSlop", 8))}
           accessibilityRole="button"
-          accessibilityLabel={complete ? "Continue" : "Send the code again"}
+          accessibilityLabel={complete
+            ? String(props?.continueLabel ?? K.txt("ui.CodeEntry.continueLabel", "Continue"))
+            : String(props?.resendLabel ?? K.txt("ui.CodeEntry.resendLabel", "Send the code again"))}
           style={{
-            width: h - 10, height: h - 10, borderRadius: (h - 10) / 2,
-            backgroundColor: complete ? "#FFFFFF" : "rgba(255,255,255,0.1)",
+            width: badge, height: badge, borderRadius: badge / 2,
+            backgroundColor: complete
+              ? String(props?.badgeReadyBackground ?? K.color("ui.CodeEntry.badgeReadyBackground", "#FFFFFF"))
+              : String(props?.badgeBackground ?? K.color("ui.CodeEntry.badgeBackground", "rgba(255,255,255,0.1)")),
             alignItems: "center", justifyContent: "center",
           }}
         >
-          <Text style={{ color: complete ? "#000000" : "#FFFFFF", fontSize: 16, fontWeight: "600" }}>
-            {complete ? "\u2192" : "\u21bb"}
+          <Text style={{
+            color: complete
+              ? String(props?.badgeReadyColor ?? K.color("ui.CodeEntry.badgeReadyColor", "#000000"))
+              : String(props?.badgeColor ?? K.color("ui.CodeEntry.badgeColor", "#FFFFFF")),
+            fontSize: Number(props?.badgeFontSize ?? K.num("ui.CodeEntry.badgeFontSize", 16)),
+            fontWeight: String(props?.badgeWeight ?? K.str("ui.CodeEntry.badgeWeight", "600")) as "600",
+          }}>
+            {complete
+              ? String(props?.continueGlyph ?? K.txt("ui.CodeEntry.continueGlyph", "\u2192"))
+              : String(props?.resendGlyph ?? K.txt("ui.CodeEntry.resendGlyph", "\u21bb"))}
           </Text>
         </Pressable>
 

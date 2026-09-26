@@ -18,6 +18,7 @@ import "react-native-url-polyfill/auto";
 import { createClient, type Session } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseConfig";
+import { bool, str } from "../sdui/knobs";
 
 // SecureStore caps values at ~2048 bytes; Supabase sessions exceed that. Split
 // large values across `${key}__0..n` with a `${key}__n` count, falling back to
@@ -94,7 +95,7 @@ export const supabaseAuth = {
    * letting it dead-end.
    */
   sendEmailCode: (email: string, captchaToken?: string) =>
-    supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, captchaToken } }),
+    supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: bool("auth.allowSignup", true), captchaToken } }),
   verifyEmailCode: (email: string, token: string) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
 
@@ -110,7 +111,7 @@ export const supabaseAuth = {
    *  between that and a bot — see ./captcha.tsx. Undefined is accepted so the
    *  app keeps working before Attack Protection is switched on in Supabase. */
   sendPhoneCode: (phone: string, captchaToken?: string) =>
-    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true, captchaToken } }),
+    supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: bool("auth.allowSignup", true), captchaToken } }),
   /** No captcha: GoTrue challenges the endpoints that SEND, not /verify, and
    *  asking a user to solve a second one to type a code they already have is
    *  friction that buys nothing. */
@@ -170,7 +171,7 @@ export const supabaseAuth = {
   signInWithGoogleWeb: (redirectTo: string) =>
     supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo, skipBrowserRedirect: true, queryParams: { prompt: "select_account" } },
+      options: { redirectTo, skipBrowserRedirect: true, queryParams: { prompt: str("auth.google.prompt", "select_account") } },
     }),
 
   getSession: () => supabase.auth.getSession(),

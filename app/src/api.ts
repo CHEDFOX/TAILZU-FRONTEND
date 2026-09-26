@@ -13,6 +13,8 @@ import { getSupabaseAccessToken as getAccessToken } from "./auth/supabaseClient"
 // SDK 56 moved the classic file-system functions to the /legacy entry — same
 // namespace actions.ts uses. We need uploadAsync from here (see transcribeClean).
 import * as FileSystem from "expo-file-system/legacy";
+import { HttpError } from "./sdui/client";
+import { str, list, txt } from "./sdui/knobs";
 
 export type LanguageHint = "auto" | "hi" | "en" | "hinglish" | string;
 export type TargetApp = string;
@@ -67,8 +69,18 @@ async function jsonRequest<T>(method: string, path: string, body: unknown): Prom
     headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${await safeText(res)}`);
+  if (!res.ok) throw failed(res.status, `${method} ${path} failed: ${res.status} ${await safeText(res)}`);
   return (await res.json()) as T;
+}
+
+/**
+ * A refused call, worded for a person; the raw path, status and body go to the
+ * log. Components show a thrown message as it stands, so this is what users
+ * read — it used to be "/v1/refine failed: 500 {…}".
+ */
+function failed(status: number, detail: string): HttpError {
+  console.warn(`[api] ${detail}`);
+  return new HttpError(status, detail);
 }
 
 async function safeText(res: Response): Promise<string> {
@@ -83,14 +95,13 @@ async function safeText(res: Response): Promise<string> {
 
 export async function health(): Promise<{ status: string; service: string; version: string }> {
   const base = await getBaseUrl();
-  const res = await fetch(`${base}/healthz`);
-  if (!res.ok) throw new Error(`health failed: ${res.status}`);
+  const res = await fetch(`${base}${str("net.healthPath", "/healthz")}`);
+  if (!res.ok) throw failed(res.status, `health failed: ${res.status}`);
   return res.json();
 }
 
 // --- Typing: refine typed text ---------------------------------------------
 
-const LLM_TONES = new Set(["formal", "casual", "very-casual", "excited"]);
 
 export async function refine(
   text: string,
@@ -101,11 +112,12 @@ export async function refine(
   // the selected tone. "none" → the basic/skip-refine endpoint; a known LLM tone
   // → its dedicated route; anything else → the catch-all /v1/refine.
   const toneId = String(tone ?? "").trim().toLowerCase().replace(/\s+/g, "-");
-  const path = LLM_TONES.has(toneId)
-    ? `/v1/refine/${toneId}`
+  const tones = list<string>("net.refine.llmTones", ["formal", "casual", "very-casual", "excited"]);
+  const path = tones.includes(toneId)
+    ? `${str("net.refinePath", "/v1/refine")}/${toneId}`
     : toneId === "none"
-      ? "/v1/refine/none"
-      : "/v1/refine";
+      ? str("net.refineNonePath", "/v1/refine/none")
+      : str("net.refinePath", "/v1/refine");
   return jsonPost(path, { text, ...rest });
 }
 
@@ -128,7 +140,7 @@ export async function transcribeClean(
   if (opts.language) parameters.language = String(opts.language);
   if (opts.personality) parameters.personality = JSON.stringify(opts.personality);
 
-  const res = await FileSystem.uploadAsync(`${base}/v1/transcribe-clean`, audioUri, {
+  const res = await FileSystem.uploadAsync(`${base}${str("net.transcribeCleanPath", "/v1/transcribe-clean")}`, audioUri, {
     httpMethod: "POST",
     uploadType: FileSystem.FileSystemUploadType.MULTIPART,
     fieldName: "audio", // backend reads the "audio" part; format falls back to m4a
@@ -137,7 +149,7 @@ export async function transcribeClean(
     headers: { ...(await authHeaders()) },
   });
   if (res.status < 200 || res.status >= 300) {
-    throw new Error(`transcribe failed: ${res.status} ${res.body ?? ""}`);
+    throw failed(res.status, `transcribe failed: ${res.status} ${res.body ?? ""}`);
   }
   // A 2xx with a body that is not JSON means something between us and the
   // backend answered instead of the backend — a proxy landing page, a captive
@@ -151,11 +163,13 @@ export async function transcribeClean(
       usage: Usage;
     };
   } catch {
-    throw new Error(
-      `transcribe: the server returned ${res.status} but not JSON — check the ` +
+    // The diagnosis is for the log; the person gets words they can act on.
+    console.warn(
+      `[api] transcribe: the server returned ${res.status} but not JSON — check the ` +
       `backend URL is reaching Tailzu and not a proxy or parked domain. ` +
       `First bytes: ${String(res.body ?? "").slice(0, 80)}`,
     );
+    throw new Error(txt("error.badResponse", "Tailzu's server sent something unexpected. Try again in a moment."));
   }
 }
 
@@ -172,7 +186,7 @@ export async function streamConfig(): Promise<{ url: string; token: string }> {
   const ws = base.replace(/^http/, "ws");
   const lang = await getLanguage();
   const query = lang ? `?language=${encodeURIComponent(lang)}` : "";
-  return { url: `${ws}/v1/transcribe-stream${query}`, token: await getToken() };
+  return { url: `${ws}${str("net.transcribeStreamPath", "/v1/transcribe-stream")}${query}`, token: await getToken() };
 }
 
 // --- Screen: draft a personalized reply -------------------------------------
@@ -182,15 +196,15 @@ export async function draft(
   intent: string,
   opts: Options & { recipient?: string } = {},
 ): Promise<{ draftText: string; usage: Usage }> {
-  return jsonPost("/v1/draft", { screenContent, intent, ...opts });
+  return jsonPost(str("net.draftPath", "/v1/draft"), { screenContent, intent, ...opts });
 }
 
 // --- Personality ------------------------------------------------------------
 
 export async function getPersonality(): Promise<Personality> {
   const base = await getBaseUrl();
-  const res = await fetch(`${base}/v1/personality`, { headers: await authHeaders() });
-  if (!res.ok) throw new Error(`get personality failed: ${res.status}`);
+  const res = await fetch(`${base}${str("net.personalityPath", "/v1/personality")}`, { headers: await authHeaders() });
+  if (!res.ok) throw failed(res.status, `get personality failed: ${res.status}`);
   const json = (await res.json()) as { personality: Personality };
   return json.personality ?? {};
 }
@@ -199,6 +213,6 @@ export async function putPersonality(personality: Personality): Promise<Personal
   // PUT, because that is what the route is. This was a POST, which the server
   // answers with a 404 — the call has no caller today, so nothing broke, but
   // the first thing to reach for it would have.
-  const json = await jsonRequest<{ personality: Personality }>("PUT", "/v1/personality", personality);
+  const json = await jsonRequest<{ personality: Personality }>("PUT", str("net.personalityPath", "/v1/personality"), personality);
   return json.personality ?? {};
 }

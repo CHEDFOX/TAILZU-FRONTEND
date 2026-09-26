@@ -38,8 +38,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var shiftButton: UIButton?
   private var pageToggleButton: UIButton?         // bottom-left 123 / ABC
   private var undoButton: UIButton!               // top-bar undo — reverts the last insert
-  private var currentTone = "Formal"
-  private let tones = ["Formal", "Casual", "Very Casual", "Excited"]
+  // The hand-built (non-SDUI) fallback's tone pill. Read when it is built —
+  // the knobs hold the last config fetched.
+  private lazy var currentTone: String = knobString("kb.legacy.defaultTone", "Formal")
+  private var tones: [String] {
+    knobStrings("kb.legacy.tones", ["Formal", "Casual", "Very Casual", "Excited"])
+  }
 
   // Last insert tracking for the top-bar UNDO. Whenever we insert cleaned voice
   // text, refined text, or a paste, we record what we inserted here so a single
@@ -364,7 +368,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// now rejects non-2xx), so an expired-token 401 can't clobber a good config.
   private func fetchRemoteConfig() {
     let now = Date().timeIntervalSince1970
-    guard now - lastConfigFetchAt > 3 else { return }
+    guard now - lastConfigFetchAt > knobDouble("kb.config.minRefetchMs", 3000) / 1000.0 else { return }
     lastConfigFetchAt = now
     // [weak self]: this completion captures the controller across a network
     // round-trip. A strong capture pins the whole keyboard view tree alive for
@@ -441,20 +445,25 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Re-attach statusLabel as a floating overlay pinned to the top of the
     // keyboard view. Sits above whatever SDUI has mounted so error/status
     // strings show up regardless of the tree shape.
+    // kb.status.overlay.* — its look, from the server (#000000BF is the old
+    // black at 75%, to the nearest byte).
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
-    statusLabel.backgroundColor = UIColor(white: 0, alpha: 0.75)
-    statusLabel.textColor = .white
+    statusLabel.backgroundColor = UIColor(tulmiHex: knobString("kb.status.overlay.bg", "#000000BF"))
+    statusLabel.textColor = UIColor(tulmiHex: knobString("kb.status.overlay.fg", "#FFFFFF"))
     statusLabel.textAlignment = .center
-    statusLabel.font = .systemFont(ofSize: 12, weight: .medium)
-    statusLabel.numberOfLines = 2
-    statusLabel.layer.cornerRadius = 8
+    statusLabel.font = .systemFont(ofSize: CGFloat(knobDouble("kb.status.overlay.fontSize", 12)), weight: .medium)
+    statusLabel.numberOfLines = knobInt("kb.status.overlay.maxLines", 2)
+    statusLabel.layer.cornerRadius = CGFloat(knobDouble("kb.status.overlay.radius", 8))
     statusLabel.layer.masksToBounds = true
     view.addSubview(statusLabel)
+    let side = CGFloat(knobDouble("kb.status.overlay.insetX", 12))
     NSLayoutConstraint.activate([
-      statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-      statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-      statusLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
-      statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 24),
+      statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: side),
+      statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -side),
+      statusLabel.topAnchor.constraint(equalTo: view.topAnchor,
+                                       constant: CGFloat(knobDouble("kb.status.overlay.insetTop", 4))),
+      statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant:
+                                            CGFloat(knobDouble("kb.status.overlay.minHeight", 24))),
     ])
     // Kept invisible by default; setStatus() reveals it when text non-empty.
     statusLabel.isHidden = true
@@ -761,12 +770,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       shiftButton = b
       return b
     case .numbers:
-      let b = makeKeyButton(title: "#+=")
+      let b = makeKeyButton(title: label("legacy_symbols", "#+="))
       b.titleLabel?.font = .systemFont(ofSize: 15)
       b.addTarget(self, action: #selector(symbolToggleTapped), for: .touchUpInside)
       return b
     case .symbols:
-      let b = makeKeyButton(title: "123")
+      let b = makeKeyButton(title: label("legacy_numbers", "123"))
       b.titleLabel?.font = .systemFont(ofSize: 15)
       b.addTarget(self, action: #selector(symbolToggleTapped), for: .touchUpInside)
       return b
@@ -775,7 +784,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
   private func buildBottomRow() {
     let bottom = makeRowStack()
-    let numBtn = makeKeyButton(title: "123")
+    let numBtn = makeKeyButton(title: label("legacy_numbers", "123"))
     numBtn.titleLabel?.font = .systemFont(ofSize: 15)
     numBtn.addTarget(self, action: #selector(pageToggleTapped), for: .touchUpInside)
     pageToggleButton = numBtn
@@ -783,7 +792,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     globeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
     globeBtn.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
     nextKeyboardButton = globeBtn
-    let space = makeKeyButton(title: "Tailzu")
+    let space = makeKeyButton(title: label("legacy_space", "Tailzu"))
     space.titleLabel?.font = .systemFont(ofSize: 14)
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
@@ -796,7 +805,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     spaceCursor.minimumPressDuration = 0.25
     spaceCursor.allowableMovement = .greatestFiniteMagnitude
     space.addGestureRecognizer(spaceCursor)
-    let ret = makeKeyButton(title: "return")
+    let ret = makeKeyButton(title: label("return", "return"))
     ret.backgroundColor = .white            // white "button" (overridden by cfg.accent)
     ret.setTitleColor(.black, for: .normal) // dark text for contrast on white/light accents
     ret.addTarget(self, action: #selector(returnTapped), for: .touchUpInside)
@@ -1049,7 +1058,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   @objc private func pageToggleTapped() {
     page = (page == .letters) ? .numbers : .letters
     rebuildKeyArea()
-    pageToggleButton?.setTitle(page == .letters ? "123" : "ABC", for: .normal)
+    pageToggleButton?.setTitle(page == .letters ? label("legacy_numbers", "123") : label("legacy_letters", "ABC"),
+                               for: .normal)
   }
 
   @objc private func symbolToggleTapped() {
@@ -1220,7 +1230,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
               actionable: true)
-    attemptOpenApp(URL(string: "tulmi://s/\(screen)")) { [weak self] _, _ in
+    attemptOpenApp(appURL(screen: screen)) { [weak self] _, _ in
       self?.resetMicButtonAppearance()
     }
   }
@@ -1352,7 +1362,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // the written sentence still fits the draft it's joining — the same context
     // the streaming path passes to /v1/refine itself.
     if let ug = UserDefaults(suiteName: TulmiFlow.appGroup) {
-      let before = String((textDocumentProxy.documentContextBeforeInput ?? "").suffix(600))
+      let contextChars = max(0, knobInt("kb.dictation.contextChars", 600))
+      let before = String((textDocumentProxy.documentContextBeforeInput ?? "").suffix(contextChars))
       ug.set(before.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "tulmi.flow.context")
       ug.set((kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind(),
              forKey: "tulmi.flow.targetApp")
@@ -1375,7 +1386,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // animating into a dead mic: bail and re-open to re-arm. This "did it advance"
     // test is what the old absolute-age check missed: a just-died app's last
     // stamp can still look fresh for a couple of seconds, so the tap slipped past.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { [weak self] in
+    // kb.flow.livenessCheckMs — how long the app gets to prove it's alive.
+    DispatchQueue.main.asyncAfter(deadline: .now() + knobDouble("kb.flow.livenessCheckMs", 1300) / 1000.0) { [weak self] in
       guard let self = self, self.flowRecording, token == self.flowDictationToken else { return }
       if !self.flow.isSessionActive || self.flow.heartbeatStamp == hbAtStart {
         self.abandonDeadFlowDictation()
@@ -1461,7 +1473,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         ug?.removeObject(forKey: "tulmi.flow.failed")
         self.setStatus(self.label("dictation_failed", "Couldn't hear that — try again"))
         KeyboardTelemetry.bump(.refineFailed)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + knobDouble("kb.status.transientMs", 2500) / 1000.0) { [weak self] in
           guard let self = self, self.flowTailToken == token else { return }
           self.setStatus("")
         }
@@ -1608,8 +1620,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// the SDUI "flow_arm" screen, which calls armFlowSession) AND try the
   /// responder-chain open for an instant hop.
   private func openAppToArmFlow() {
+    // kb.flow.armScreenId — the app screen that arms the session. The app
+    // special-cases "flow_arm"; change it only together with the app.
+    let armScreen = knobString("kb.flow.armScreenId", "flow_arm")
     let d = UserDefaults(suiteName: "group.com.tulmi.app")
-    d?.set("screen/flow_arm", forKey: "tulmi.kb.pendingDeepLink")
+    d?.set("screen/\(armScreen)", forKey: "tulmi.kb.pendingDeepLink")
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
     // The mic is a UIButton(type:.system): tapping it toward an app-switch can
     // leave its auto-highlight stuck (the "greyed out, no response" you saw).
@@ -1629,7 +1644,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       return
     }
     setStatus(label("flow_arming_return", "Turning on Flow — swipe back into your app."), actionable: true)
-    attemptOpenApp(URL(string: "tulmi://s/flow_arm")) { [weak self] opened, diag in
+    attemptOpenApp(appURL(screen: armScreen)) { [weak self] opened, diag in
       guard let self = self else { return }
       // A tap that rides into an app switch can leave the system button stuck
       // in its grey highlight — clear it whenever the attempt settles.
@@ -1649,9 +1664,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // Insurance for the same grey-mic stick when the completion is slow: UIKit
     // re-applies the highlight as the touch sequence ends, after our sync
     // reset above ran. One more pass on the next runloop turn clears it.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + knobDouble("kb.mic.resetSecondPassMs", 600) / 1000.0) { [weak self] in
       self?.resetMicButtonAppearance()
     }
+  }
+
+  /// The containing app's URL for a screen: kb.deepLink.urlTemplate with
+  /// "{screen}" replaced — the renderer's openApp action builds it the same
+  /// way. The app routes tulmi://s/<id> to that SDUI screen.
+  private func appURL(screen: String) -> URL? {
+    let enc = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
+    let template = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
+    return URL(string: template.replacingOccurrences(of: "{screen}", with: enc))
   }
 
   /// Best-effort open of the containing app.
@@ -1722,7 +1746,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
     let hostBundle = parentBundleIdentifier() ?? ""
     isHandoffActive = true
-    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    micButton.setImage(UIImage(systemName: knobString("kb.mic.stopGlyph", "stop.fill")), for: .normal)
     setStatus(handoff.isAppWarm
               ? label("mic_handoff_warm", "Speak in Tailzu — swipe back when done")
               : label("mic_handoff_cold", "Opening Tailzu — grant mic once, then swipe back"))
@@ -1830,7 +1854,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     pendingPartial = ""
     dictatedSomething = false
     isStreaming = true
-    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    micButton.setImage(UIImage(systemName: knobString("kb.mic.stopGlyph", "stop.fill")), for: .normal)
     setStatus("")  // transient — mic button animation is the visible cue
     sduiRenderer?.reflectDictating(true)
     let s = TulmiStream { [weak self] event in
@@ -1911,8 +1935,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // now filters these, but this is the last line of defense: such a string must
   // NEVER land on the typepad. Precise + length-bounded so a real short
   // dictation is never dropped. Mirrors the backend looksLikeMeta guard.
-  private static let fillerPatterns: [NSRegularExpression] = {
-    let pats = [
+  //
+  // kb.dictation.fillerPatterns (case-insensitive regexes) and
+  // kb.dictation.fillerMaxLen come from the server; the lists below are the
+  // fallback. Compiled once per distinct list, not per check.
+  private var fillerCache: (source: [String], compiled: [NSRegularExpression])?
+  private var fillerPatterns: [NSRegularExpression] {
+    let pats = knobStrings("kb.dictation.fillerPatterns", [
       "\\bi (didn'?t|couldn'?t|can'?t|could not|did not) (catch|hear|understand|make out) (that|it|you|anything)\\b",
       "\\bi (don'?t|didn'?t) get anything\\b",
       "\\b(could|can) you (say (that|it) again|repeat that)\\b",
@@ -1920,15 +1949,18 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       "\\b(please )?repeat that\\b",
       "\\bno (speech|audio|input|sound) (was )?(detected|found|received|captured)\\b",
       "\\bnothing (was said|to transcribe|was detected|was captured)\\b",
-    ]
-    return pats.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
-  }()
+    ])
+    if let c = fillerCache, c.source == pats { return c.compiled }
+    let compiled = pats.compactMap { try? NSRegularExpression(pattern: $0, options: .caseInsensitive) }
+    fillerCache = (pats, compiled)
+    return compiled
+  }
 
   private func looksLikeFiller(_ text: String) -> Bool {
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !t.isEmpty, t.count <= 140 else { return false }
+    guard !t.isEmpty, t.count <= knobInt("kb.dictation.fillerMaxLen", 140) else { return false }
     let r = NSRange(t.startIndex..., in: t)
-    return Self.fillerPatterns.contains { $0.firstMatch(in: t, options: [], range: r) != nil }
+    return fillerPatterns.contains { $0.firstMatch(in: t, options: [], range: r) != nil }
   }
 
   /// Remove whatever provisional partial is currently showing at the cursor.
@@ -2128,7 +2160,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     audioRecorder = live
     recordingURL = url
     isRecording = true
-    micButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
+    micButton.setImage(UIImage(systemName: knobString("kb.mic.stopGlyph", "stop.fill")), for: .normal)
     setStatus("")  // transient — mic button animation is the visible cue
     sduiRenderer?.reflectDictating(true)
   }
@@ -2186,11 +2218,39 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// a Supabase session itself, so the fix is to open the app once (which
   /// re-shares a fresh token on foreground). Everything else is the generic
   /// "backend unavailable" copy.
+  ///
+  /// Which status each failure shows is the server's: kb.errors.statusByCode
+  /// maps an HTTP code ("401"), a class ("5xx") or "network" (no response at
+  /// all) to a label key. A code the map doesn't name shows nothing — the
+  /// old "generic hiccup is cosmetic" rule, now the server's to change.
   private func statusForBackendError(_ error: Error) -> String {
-    if case TulmiBackend.BackendError.http(let code, _) = error, code == 401 {
-      return label("auth_expired", "Open Tailzu once to sign in again")
+    let map: [String: String] = {
+      if let raw = kbConfig?.flags["kb.errors.statusByCode"] as? [String: Any] {
+        return raw.compactMapValues { $0 as? String }
+      }
+      return ["401": "auth_expired", "429": "words_out_status", "5xx": "voice_unavailable"]
+    }()
+    let key: String?
+    if case TulmiBackend.BackendError.http(let code, _) = error {
+      key = map[String(code)] ?? map["\(code / 100)xx"]
+    } else {
+      key = map["network"]
     }
-    return "" // generic backend hiccup is cosmetic — suppress (no 222 code)
+    guard let k = key, !k.isEmpty else { return "" }
+    return statusText(forLabelKey: k)
+  }
+
+  /// The copy for a status label key, with the literal each one has always
+  /// had as its fallback.
+  private func statusText(forLabelKey key: String) -> String {
+    switch key {
+    case "auth_expired":        return label("auth_expired", "Open Tailzu once to sign in again")
+    case "words_out_status":    return label("words_out_status", "Out of free words — open Tailzu to get more.")
+    case "voice_unavailable":   return label("voice_unavailable", "Voice is unavailable right now — try again soon.")
+    case "voice_not_listening": return label("voice_not_listening", "444 : Not Listening")
+    case "dictation_failed":    return label("dictation_failed", "Couldn't hear that — try again")
+    default:                    return kbConfig?.labels[key] ?? ""
+    }
   }
 
   // MARK: - Refine
@@ -2281,7 +2341,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
 
     // Cap at a reasonable length so a paragraph-long refine doesn't queue
     // 500 animations — the eye reads "typing wave" in the first ~30 keys.
-    let charLimit = 40
+    let charLimit = max(0, knobInt("kb.flash.maxChars", 40))
     let chars = Array(text.lowercased().prefix(charLimit))
 
     for (i, ch) in chars.enumerated() {
@@ -2518,12 +2578,50 @@ extension KeyboardViewController: KBHostControllerProtocol {
     }
   }
 
+  /// kb.field.numericKeyboardTypes — the keyboardType names that get the
+  /// number pad.
   func hostIsNumericField() -> Bool {
+    knobStrings("kb.field.numericKeyboardTypes", ["numberPad", "phonePad", "decimalPad", "asciiCapableNumberPad"])
+      .contains(hostKeyboardTypeName())
+  }
+
+  /// The field's keyboardType by its UIKit name — what field.keyboardType
+  /// reads in the tree's conditions, and what the numeric list above names.
+  func hostKeyboardTypeName() -> String {
     switch (textDocumentProxy as? UITextInputTraits)?.keyboardType ?? .default {
-    case .numberPad, .phonePad, .decimalPad, .asciiCapableNumberPad:
-      return true
-    default:
-      return false
+    case .default:               return "default"
+    case .asciiCapable:          return "asciiCapable"
+    case .numbersAndPunctuation: return "numbersAndPunctuation"
+    case .URL:                   return "URL"
+    case .numberPad:             return "numberPad"
+    case .phonePad:              return "phonePad"
+    case .namePhonePad:          return "namePhonePad"
+    case .emailAddress:          return "emailAddress"
+    case .decimalPad:            return "decimalPad"
+    case .twitter:               return "twitter"
+    case .webSearch:             return "webSearch"
+    case .asciiCapableNumberPad: return "asciiCapableNumberPad"
+    @unknown default:            return "default"
+    }
+  }
+
+  /// True in a password field (field.isSecure in the tree's conditions).
+  func hostIsSecureField() -> Bool {
+    (textDocumentProxy as? UITextInputTraits)?.isSecureTextEntry ?? false
+  }
+
+  /// The globe key's touches, forwarded to the system switcher — Apple's
+  /// sample wires its globe to exactly this for .allTouchEvents.
+  func hostHandleInputModeList(from view: UIView, with event: UIEvent) {
+    handleInputModeList(from: view, with: event)
+  }
+
+  /// openApp / openSettings / openUrl from the tree: the same app-opening
+  /// path the mic uses to reach Tailzu. The renderer has already written the
+  /// App-Group tombstone, which stays the guaranteed half.
+  func hostOpenURL(_ url: URL) {
+    attemptOpenApp(url) { opened, diag in
+      NSLog("[Tailzu][kb] action open %@: %@", url.absoluteString, opened ? "ok" : diag)
     }
   }
 
@@ -2560,7 +2658,9 @@ extension KeyboardViewController: KBHostControllerProtocol {
       localeLang = Locale.current.languageCode
     }
     let raw = textInputMode?.primaryLanguage ?? localeLang
-    guard let head = raw?.split(separator: "-").first, !head.isEmpty else { return "EN" }
+    guard let head = raw?.split(separator: "-").first, !head.isEmpty else {
+      return knobString("kb.space.languageFallback", "EN")
+    }
     return head.uppercased()
   }
 }

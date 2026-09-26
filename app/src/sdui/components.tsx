@@ -37,12 +37,19 @@ import { DictionaryEditor, WordChips } from "./dictionary";
 import { Image as ExpoImage } from "expo-image";
 import { resolveMedia } from "../media/resolveMedia";
 import { useFocusFill } from "../media/focusFill";
+import * as K from "./knobs";
 
 /**
  * The platform serif — what the "display" slot draws in until the backend
  * names a face (theme.font.display, or theme.font.family for the whole app).
+ * The two faces are knobs too, for a server that wants a different fallback
+ * without naming one in the theme.
  */
-const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "serif" });
+const serif = () => Platform.select({
+  ios: K.str("ui.font.serifIos", "Georgia"),
+  android: K.str("ui.font.serifAndroid", "serif"),
+  default: K.str("ui.font.serifAndroid", "serif"),
+});
 
 /**
  * Resolve a role's family SLOT to a face. "body" is the running face, which
@@ -52,7 +59,7 @@ const SERIF = Platform.select({ ios: "Georgia", android: "serif", default: "seri
  */
 export function fontSlot(theme: ThemeTokens, slot: string | undefined): string | undefined {
   if (!slot || slot === "body") return theme.font?.family;
-  if (slot === "display") return theme.font?.display ?? theme.font?.family ?? SERIF;
+  if (slot === "display") return theme.font?.display ?? theme.font?.family ?? serif();
   return slot;
 }
 
@@ -119,11 +126,13 @@ export function tok(value: any, theme: ThemeTokens): any {
  */
 function readableOn(bg: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec((bg || "").trim());
-  if (!m) return "#fff";
+  if (!m) return K.color("ui.readableOn.unknown", "#fff");
   const n = parseInt(m[1], 16);
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
   const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.6 ? "#000000" : "#ffffff";
+  return lum > K.num("ui.readableOn.threshold", 0.6)
+    ? K.color("ui.readableOn.dark", "#000000")
+    : K.color("ui.readableOn.light", "#ffffff");
 }
 
 /**
@@ -359,7 +368,8 @@ const Screen = ({ props, children, style }: CompProps) => {
         {
           paddingHorizontal: theme.space.content ?? theme.space.lg,
           paddingTop: theme.space.contentTop ?? theme.space.lg,
-          paddingBottom: 120, // airy scroll buffer (clears the tab bar)
+          // Airy scroll buffer (clears the tab bar).
+          paddingBottom: Number(props?.paddingBottom ?? K.num("ui.Screen.paddingBottom", 120)),
         },
         content,
       ]}
@@ -407,7 +417,7 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
   // pressable — the allow pill, the plan rows, the deck cards are all one —
   // so the one number that says "this was pressed" cannot be fixed in the
   // binary. 1 disables the dim for anything that shows its press another way.
-  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : 0.6;
+  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : K.num("ui.Stack.pressOpacity", 0.6);
   /**
    * AN EDGE THAT ONLY EXISTS WHILE A FINGER IS ON IT.
    *
@@ -422,7 +432,7 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
    */
   const pressBorderColor = props?.pressBorderColor ? String(props.pressBorderColor) : "";
   const pressBorderWidth = props?.pressBorderWidth !== undefined
-    ? Number(props.pressBorderWidth) : 1;
+    ? Number(props.pressBorderWidth) : K.num("ui.Stack.pressBorderWidth", 1);
   /**
    * HOW FAR PAST ITS OWN EDGE IT STILL ANSWERS.
    *
@@ -471,14 +481,16 @@ function humanTime(iso: string): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return iso;
   const secs = Math.max(0, (Date.now() - then) / 1000);
-  if (secs < 45) return "just now";
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  if (secs < 7 * 86400) return `${Math.round(secs / 86400)}d ago`;
+  // The words and the cut-offs are the server's (ui.time.*): the thresholds
+  // in seconds, the phrases with {n} for the count.
+  if (secs < K.num("ui.time.justNowSecs", 45)) return K.txt("ui.time.justNow", "just now");
+  if (secs < 3600) return K.txt("ui.time.minutesAgo", "{n}m ago", { n: Math.round(secs / 60) });
+  if (secs < 86400) return K.txt("ui.time.hoursAgo", "{n}h ago", { n: Math.round(secs / 3600) });
+  if (secs < K.num("ui.time.relativeDays", 7) * 86400) return K.txt("ui.time.daysAgo", "{n}d ago", { n: Math.round(secs / 86400) });
   const d = new Date(then);
   const sameYear = d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString(undefined, {
-    day: "numeric", month: "short", ...(sameYear ? {} : { year: "numeric" }),
+    day: "numeric", month: K.str("ui.time.month", "short") as "short", ...(sameYear ? {} : { year: "numeric" }),
   });
 }
 
@@ -491,7 +503,10 @@ const TextC = ({ node, props, style }: CompProps) => {
   const shown =
     props.format === "relative" && typeof raw === "string" ? humanTime(raw)
     : props.format === "datetime" && typeof raw === "string" && Number.isFinite(Date.parse(raw))
-      ? new Date(raw).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+      ? new Date(raw).toLocaleString(undefined, {
+          dateStyle: String(props.dateStyle ?? K.str("ui.Text.dateStyle", "medium")) as "medium",
+          timeStyle: String(props.timeStyle ?? K.str("ui.Text.timeStyle", "short")) as "short",
+        })
     : raw;
   return (
     <Text
@@ -534,9 +549,9 @@ const ImageC = ({ props, style }: CompProps) => {
   const base: Record<string, any> = {};
   if (s.width == null && !pinned) base.width = "100%";
   if (s.aspectRatio == null && s.height == null && !pinned) {
-    base.aspectRatio = props.aspectRatio ?? 1.6;
+    base.aspectRatio = props.aspectRatio ?? K.num("ui.Image.aspectRatio", 1.6);
   }
-  if (s.borderRadius == null) base.borderRadius = 10;
+  if (s.borderRadius == null) base.borderRadius = Number(props.radius ?? K.num("ui.Image.radius", 10));
   if (!src) return <View style={[base, style] as any} />;
   // FOCUS PLACEMENT, the same as Video. When the backend says where the
   // subject sits in the art and where it should land, the still is sized and
@@ -557,7 +572,7 @@ const ImageC = ({ props, style }: CompProps) => {
       </View>
     );
   }
-  return <ExpoImage source={src as any} contentFit={props.contentFit ?? "cover"} style={[base, style] as any} />;
+  return <ExpoImage source={src as any} contentFit={props.contentFit ?? K.str("ui.Image.contentFit", "cover")} style={[base, style] as any} />;
 };
 
 const Icon = ({ props, style }: CompProps) => {
@@ -567,7 +582,8 @@ const Icon = ({ props, style }: CompProps) => {
 
 // The brand accent — the warm amber the keyboard flashes on every key press.
 // Buttons app-wide flash it on tap ("typing has our color" carried into the
-// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED.
+// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED. Read
+// through the ui.Button.flashColor / ui.Chip.flashColor knobs at each press.
 export const BRAND_ACCENT = "#E8A23C";
 
 const Button = ({ props, style, fire }: CompProps) => {
@@ -576,7 +592,7 @@ const Button = ({ props, style, fire }: CompProps) => {
   const isGhost = props.variant === "ghost";
   const bg =
     props.variant === "danger" ? theme.color.danger :
-    isGhost || isSecondary ? "transparent" : theme.color.primary;
+    isGhost || isSecondary ? K.color("ui.Button.clearBackground", "transparent") : theme.color.primary;
   // Secondary was a hard-coded near-white, which is invisible on a light
   // theme — the tone editor's Edit and Cancel rendered as empty pills for
   // anyone whose phone was in light mode. The theme's own text colour reads
@@ -590,23 +606,28 @@ const Button = ({ props, style, fire }: CompProps) => {
       // The press flash. Amber by default because that is the brand's "we
       // heard that"; "none" removes it for a button whose own colour change
       // already says so.
-      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? BRAND_ACCENT)}
+      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Button.flashColor", "#E8A23C"))}
+      pressScale={props.pressScale !== undefined ? Number(props.pressScale) : undefined}
       style={[
         // paddingHorizontal matters: a hug-width button without it renders the
         // label touching the pill's edges ("Allow Microphone" overflow bug).
         {
           backgroundColor: bg,
-          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.pill,
-          paddingVertical: props.paddingVertical !== undefined ? Number(props.paddingVertical) : 17,
-          paddingHorizontal: props.paddingHorizontal !== undefined ? Number(props.paddingHorizontal) : 28,
+          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.pill ?? K.num("ui.Button.radius", 999),
+          paddingVertical: props.paddingVertical !== undefined ? Number(props.paddingVertical) : K.num("ui.Button.paddingVertical", 17),
+          paddingHorizontal: props.paddingHorizontal !== undefined ? Number(props.paddingHorizontal) : K.num("ui.Button.paddingHorizontal", 28),
           alignItems: "center",
           justifyContent: "center",
-          opacity: props.disabled ? 0.5 : 1,
+          opacity: props.disabled ? Number(props.disabledOpacity ?? K.num("ui.Button.disabledOpacity", 0.5)) : 1,
         },
         // Secondary: a quiet hairline outline (the editorial look the auth
         // screen's social circles use) — the old solid gray chip read heavy
         // and cheap next to the white primary.
-        isSecondary ? { borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "rgba(255,255,255,0.04)" } : null,
+        isSecondary ? {
+          borderWidth: Number(props.borderWidth ?? K.num("ui.Button.secondaryBorderWidth", 1)),
+          borderColor: String(props.borderColor ?? K.color("ui.Button.secondaryBorder", "rgba(255,255,255,0.18)")),
+          backgroundColor: String(props.background ?? K.color("ui.Button.secondaryFill", "rgba(255,255,255,0.04)")),
+        } : null,
         style,
       ]}
     >
@@ -641,15 +662,21 @@ const TextField = ({ node, props, style, store, fire }: CompProps) => {
         fire("onChange", t);
       }}
       placeholder={props.placeholder}
-      placeholderTextColor={theme.color.muted}
+      placeholderTextColor={props.placeholderColor ?? theme.color.muted}
       multiline={props.multiline}
       autoCapitalize={props.autoCapitalize}
       autoCorrect={props.autoCorrect}
       style={[
         {
-          backgroundColor: theme.color.inputBg, color: theme.color.text, borderRadius: theme.radius.md,
-          paddingHorizontal: 12, paddingVertical: 10, minHeight: props.multiline ? 80 : 44,
-          borderWidth: 1, borderColor: theme.color.border, textAlignVertical: props.multiline ? "top" : "center",
+          backgroundColor: props.background ?? theme.color.inputBg, color: props.color ?? theme.color.text,
+          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.md ?? K.num("ui.TextField.radius", 13),
+          paddingHorizontal: Number(props.paddingHorizontal ?? K.num("ui.TextField.paddingHorizontal", 12)),
+          paddingVertical: Number(props.paddingVertical ?? K.num("ui.TextField.paddingVertical", 10)),
+          minHeight: props.multiline
+            ? Number(props.minHeightMultiline ?? K.num("ui.TextField.minHeightMultiline", 80))
+            : Number(props.minHeight ?? K.num("ui.TextField.minHeight", 44)),
+          borderWidth: Number(props.borderWidth ?? K.num("ui.TextField.borderWidth", 1)),
+          borderColor: props.borderColor ?? theme.color.border, textAlignVertical: props.multiline ? "top" : "center",
         },
         style,
       ]}
@@ -667,11 +694,14 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
         fire("onPress");
       }}
       // Chips get a slightly gentler press than buttons — they're smaller.
-      pressScale={0.92}
-      flashColor={BRAND_ACCENT}
+      pressScale={Number(props.pressScale ?? K.num("ui.Chip.pressScale", 0.92))}
+      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Chip.flashColor", "#E8A23C"))}
       style={[
         {
-          paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.radius.pill, borderWidth: 1,
+          paddingHorizontal: Number(props.paddingHorizontal ?? K.num("ui.Chip.paddingHorizontal", 14)),
+          paddingVertical: Number(props.paddingVertical ?? K.num("ui.Chip.paddingVertical", 8)),
+          borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.pill ?? K.num("ui.Chip.radius", 999),
+          borderWidth: Number(props.borderWidth ?? K.num("ui.Chip.borderWidth", 1)),
           backgroundColor: selected ? theme.color.primary : theme.color.inputBg,
           borderColor: selected ? theme.color.primary : theme.color.border,
         },
@@ -686,9 +716,15 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
   );
 };
 
-const Card = ({ node, children, style, fire }: CompProps) => {
+const Card = ({ node, props, children, style, fire }: CompProps) => {
   const theme = useTheme();
-  const base = { backgroundColor: theme.color.card, borderRadius: theme.radius.md, padding: 14, borderWidth: 1, borderColor: theme.color.border };
+  const base = {
+    backgroundColor: props?.background ?? theme.color.card,
+    borderRadius: props?.radius !== undefined ? Number(props.radius) : theme.radius.md ?? K.num("ui.Card.radius", 13),
+    padding: Number(props?.padding ?? K.num("ui.Card.padding", 14)),
+    borderWidth: Number(props?.borderWidth ?? K.num("ui.Card.borderWidth", 1)),
+    borderColor: props?.borderColor ?? theme.color.border,
+  };
   // A Card with an onPress handler is tappable. The old Card ignored `fire`
   // entirely, so every Card that carried `on.onPress` (the tone cards on the
   // You tab, media cards, etc.) was silently dead. Wrap it in a gentle
@@ -702,7 +738,7 @@ const Card = ({ node, children, style, fire }: CompProps) => {
       <SpringPressable
         onPress={node.on?.onPress ? () => fire("onPress") : undefined}
         onLongPress={node.on?.onLongPress ? () => fire("onLongPress") : undefined}
-        pressScale={0.98}
+        pressScale={Number(props?.pressScale ?? K.num("ui.Card.pressScale", 0.98))}
         style={[base, style]}
       >
         {children}
@@ -712,9 +748,15 @@ const Card = ({ node, children, style, fire }: CompProps) => {
   return <View style={[base, style]}>{children}</View>;
 };
 
-const Divider = ({ style }: CompProps) => {
+const Divider = ({ props, style }: CompProps) => {
   const theme = useTheme();
-  return <View style={[{ height: 1, backgroundColor: theme.color.border, marginVertical: 8 }, style]} />;
+  return (
+    <View style={[{
+      height: Number(props?.thickness ?? K.num("ui.Divider.thickness", 1)),
+      backgroundColor: props?.color ?? theme.color.border,
+      marginVertical: Number(props?.marginVertical ?? K.num("ui.Divider.marginVertical", 8)),
+    }, style]} />
+  );
 };
 
 const ProgressBar = ({ style }: CompProps) => {
@@ -758,7 +800,15 @@ const Badge = ({ props, style }: CompProps) => {
   const tone = props.tone === "accent" || props.tone === "brand" ? theme.color.primary : theme.color.label;
   const content = props.label ?? props.text ?? "";
   return (
-    <View style={[{ alignSelf: "flex-start", paddingHorizontal: 11, paddingVertical: 5, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: tone, marginBottom: 24 }, style]}>
+    <View style={[{
+      alignSelf: "flex-start",
+      paddingHorizontal: Number(props.paddingHorizontal ?? K.num("ui.Badge.paddingHorizontal", 11)),
+      paddingVertical: Number(props.paddingVertical ?? K.num("ui.Badge.paddingVertical", 5)),
+      borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.pill ?? K.num("ui.Badge.radius", 999),
+      borderWidth: Number(props.borderWidth ?? K.num("ui.Badge.borderWidth", 1)),
+      borderColor: tone,
+      marginBottom: Number(props.marginBottom ?? K.num("ui.Badge.marginBottom", 24)),
+    }, style]}>
       <Text style={[typeRole(theme, "badge", { fontSize: theme.font.sizes.overline, fontWeight: "500", letterSpacing: 2.5, textTransform: "uppercase" }), { color: tone }]}>{content}</Text>
     </View>
   );
@@ -767,7 +817,12 @@ const Badge = ({ props, style }: CompProps) => {
 const KeyValue = ({ props, style }: CompProps) => {
   const theme = useTheme();
   return (
-    <View style={[{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.color.border }, style]}>
+    <View style={[{
+      flexDirection: "row", justifyContent: "space-between",
+      paddingVertical: Number(props.paddingVertical ?? K.num("ui.KeyValue.paddingVertical", 8)),
+      borderBottomWidth: Number(props.dividerWidth ?? K.num("ui.KeyValue.dividerWidth", 1)),
+      borderBottomColor: props.dividerColor ?? theme.color.border,
+    }, style]}>
       <Text style={typeRole(theme, "keyValueLabel", { color: theme.color.muted, fontSize: theme.font.sizes.body })}>{props.label ?? ""}</Text>
       <Text style={typeRole(theme, "keyValueValue", { color: theme.color.text, fontSize: theme.font.sizes.body, fontWeight: "600" })}>{props.value ?? ""}</Text>
     </View>
@@ -777,11 +832,18 @@ const KeyValue = ({ props, style }: CompProps) => {
 const Hero = ({ props, style }: CompProps) => {
   const theme = useTheme();
   return (
-    <View style={[{ borderRadius: theme.radius.md, overflow: "hidden", backgroundColor: theme.color.card, borderWidth: 1, borderColor: theme.color.border, marginBottom: 12 }, style]}>
+    <View style={[{
+      borderRadius: props.radius !== undefined ? Number(props.radius) : theme.radius.md ?? K.num("ui.Hero.radius", 13),
+      overflow: "hidden",
+      backgroundColor: props.background ?? theme.color.card,
+      borderWidth: Number(props.borderWidth ?? K.num("ui.Hero.borderWidth", 1)),
+      borderColor: props.borderColor ?? theme.color.border,
+      marginBottom: Number(props.marginBottom ?? K.num("ui.Hero.marginBottom", 12)),
+    }, style]}>
       {props.image ? (
-        <Image source={{ uri: props.image }} style={{ width: "100%", height: 140 }} />
+        <Image source={{ uri: props.image }} style={{ width: "100%", height: Number(props.imageHeight ?? K.num("ui.Hero.imageHeight", 140)) }} />
       ) : null}
-      <View style={{ padding: 16 }}>
+      <View style={{ padding: Number(props.padding ?? K.num("ui.Hero.padding", 16)) }}>
         {props.title ? <Text style={typeRole(theme, "heroTitle", { color: theme.color.text, fontSize: theme.font.sizes.h1, fontWeight: "800" })}>{props.title}</Text> : null}
         {props.subtitle ? <Text style={typeRole(theme, "heroSubtitle", { color: theme.color.muted, fontSize: theme.font.sizes.body, marginTop: 4 })}>{props.subtitle}</Text> : null}
       </View>

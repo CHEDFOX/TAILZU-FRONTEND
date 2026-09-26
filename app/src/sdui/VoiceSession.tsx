@@ -40,20 +40,45 @@ import { isStreamAvailable, startStream, type LiveSession } from "../../modules/
 import * as api from "../api";
 import { callEndpoint } from "./client";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 type Turn = { role: "user" | "assistant"; text: string };
 
-/** How often the decay timer runs while listening. */
-const LEVEL_TICK_MS = 90;
-/** Where the level lands on a word, and where it falls back to. */
-const LEVEL_ON_SPEECH = 0.8;
-const LEVEL_FLOOR = 0.15;
-const LEVEL_DECAY = 0.86;
+/*
+ * The level's shape — how often the decay timer runs while listening, where
+ * the level lands on a word, where it falls back to and how fast, and where it
+ * sits while thinking and speaking — is the node's props first, then the
+ * ui.VoiceSession.* knobs, then these literals.
+ */
 
 export const VoiceSession = ({ props, store, fire }: CompProps): null => {
-  const endpoint = String(props?.path ?? "/v1/train/converse");
-  const silenceMs = Math.max(600, Number(props?.silenceMs) || 1500);
-  const maxTurns = Math.max(2, Number(props?.maxTurns) || 40);
+  const endpoint = String(props?.path ?? K.str("ui.VoiceSession.path", "/v1/train/converse"));
+  const silenceMs = Math.max(K.num("ui.VoiceSession.minSilenceMs", 600), Number(props?.silenceMs) || K.num("ui.VoiceSession.silenceMs", 1500));
+  const maxTurns = Math.max(2, Number(props?.maxTurns) || K.num("ui.VoiceSession.maxTurns", 40));
+
+  // Read by the running loop through a ref, so a retune reaches a session in
+  // progress without tearing the conversation down and starting it again.
+  const tuneNow = {
+    tickMs: Number(props?.levelTickMs ?? K.num("ui.VoiceSession.levelTickMs", 90)),
+    onSpeech: Number(props?.levelOnSpeech ?? K.num("ui.VoiceSession.levelOnSpeech", 0.8)),
+    floor: Number(props?.levelFloor ?? K.num("ui.VoiceSession.levelFloor", 0.15)),
+    decay: Number(props?.levelDecay ?? K.num("ui.VoiceSession.levelDecay", 0.86)),
+    thinking: Number(props?.levelThinking ?? K.num("ui.VoiceSession.levelThinking", 0.12)),
+    speaking: Number(props?.levelSpeaking ?? K.num("ui.VoiceSession.levelSpeaking", 0.5)),
+  };
+  const tune = useRef(tuneNow);
+  tune.current = tuneNow;
+  // The words said out loud when something fails — the node's first, then
+  // the knob, then these.
+  const errsNow = {
+    micStopped: String(props?.errorMicStopped ?? K.txt("ui.VoiceSession.errorMicStopped", "The microphone stopped.")),
+    startFailed: String(props?.errorStartFailed ?? K.txt("ui.VoiceSession.errorStartFailed", "Couldn't start listening.")),
+    serverFailed: String(props?.errorServer ?? K.txt("ui.VoiceSession.errorServer", "Couldn't reach the server.")),
+    needsUpdate: String(props?.errorNeedsUpdate ?? K.txt("ui.VoiceSession.errorNeedsUpdate", "Live voice needs the latest app version.")),
+    permission: String(props?.errorPermission ?? K.txt("ui.VoiceSession.errorPermission", "Microphone permission denied")),
+  };
+  const errs = useRef(errsNow);
+  errs.current = errsNow;
   const language = props?.language ? String(props.language) : undefined;
   // What the phone SPEAKS in: a locale ("hi-IN"), where `language` is the hint
   // the recogniser and the partner get ("hi", "hinglish"). The server sends
@@ -154,7 +179,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
 
     /** Speech arrived: push the bubble up and restart the clock. */
     const heard = () => {
-      setLevel(LEVEL_ON_SPEECH);
+      setLevel(tune.current.onSpeech);
       armSilence();
     };
 
@@ -168,7 +193,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       r.committed = "";
       r.partial = "";
       setState("listening");
-      setLevel(LEVEL_FLOOR);
+      setLevel(tune.current.floor);
       // The reply was spoken under a play-only category. The mic needs the
       // recording one back, and it needs it before the stream opens — not
       // after, which would be a session change under a live capture.
@@ -180,8 +205,9 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       // between them, which is a true signal about speech even though it is
       // not loudness.
       r.decay = setInterval(() => {
-        if (r.level > LEVEL_FLOOR) setLevel(Math.max(LEVEL_FLOOR, r.level * LEVEL_DECAY));
-      }, LEVEL_TICK_MS);
+        const t = tune.current;
+        if (r.level > t.floor) setLevel(Math.max(t.floor, r.level * t.decay));
+      }, tune.current.tickMs);
 
       try {
         // Taken from the warm-up when it is there — it was started at mount
@@ -204,20 +230,20 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
               r.partial = "";
               heard();
             },
-            onError: (m) => fail(m || "The microphone stopped."),
+            onError: (m) => fail(m || errs.current.micStopped),
             onClosed: () => { r.session = null; },
           },
         );
         armSilence();
       } catch (e) {
-        fail(e instanceof Error ? e.message : "Couldn't start listening.");
+        fail(e instanceof Error ? e.message : errs.current.startFailed);
       }
     }
 
     async function respond(): Promise<void> {
       if (!r.alive) return;
       setState("thinking");
-      setLevel(0.12);
+      setLevel(tune.current.thinking);
       try {
         const res = (await callEndpoint("POST", endpoint, {
           turns: r.turns,
@@ -228,7 +254,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         if (!reply) { void listen(); return; }
         say("assistant", reply);
         setState("speaking");
-        setLevel(0.5);
+        setLevel(tune.current.speaking);
         // OUT LOUD, AND THE CATEGORY IS THE ONLY THING THAT DECIDES IT.
         //
         // Listening runs on .playAndRecord, because one session has to serve
@@ -257,13 +283,13 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
           onError: () => { if (r.alive) void listen(); },
         });
       } catch (e) {
-        fail(e instanceof Error ? e.message : "Couldn't reach the server.");
+        fail(e instanceof Error ? e.message : errs.current.serverFailed);
       }
     }
 
     void (async () => {
       if (!isStreamAvailable()) {
-        fail("Live voice needs the latest app version.");
+        fail(errs.current.needsUpdate);
         return;
       }
 
@@ -302,7 +328,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       const greeting = String(props?.greeting ?? "").trim();
       if (greeting) {
         setState("speaking");
-        setLevel(0.5);
+        setLevel(tune.current.speaking);
         store.set(linePath, greeting);
         // Already in `turns` from the seed; saying it again would double it.
         if (!r.turns.some((t) => t.text === greeting)) say("assistant", greeting);
@@ -328,7 +354,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       const perm = await permission.catch(() => ({ granted: false }));
       if (!r.alive) return;
       if (!perm.granted) {
-        fail("Microphone permission denied");
+        fail(errs.current.permission);
         return;
       }
       await listen();

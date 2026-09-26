@@ -25,23 +25,32 @@
  *     fetches and hands to the OS; it should not be able to be anything else.
  */
 import * as Font from "expo-font";
+import { bool, list, num } from "./knobs";
 
 const loaded = new Set<string>();
 const inFlight = new Set<string>();
 
 /** A plausible font: https, and a real font extension. */
 function usable(name: string, url: string): boolean {
-  if (!name || !/^[A-Za-z0-9 _-]{1,64}$/.test(name)) return false;
+  if (!name || name.length > num("fonts.maxNameLength", 64) || !/^[A-Za-z0-9 _-]+$/.test(name)) return false;
   if (!/^https:\/\//i.test(url)) return false;
-  return /\.(ttf|otf|woff|woff2)(\?|$)/i.test(url);
+  // The extension list can only ever be font types: the server may narrow it,
+  // not turn a font URL into something else.
+  const allowed = list<string>("fonts.extensions", ["ttf", "otf", "woff", "woff2"])
+    .filter((e) => FONT_TYPES.includes(String(e).toLowerCase()));
+  const ext = (/\.([a-z0-9]+)(\?|$)/i.exec(url)?.[1] ?? "").toLowerCase();
+  return allowed.includes(ext);
 }
+
+/** Every type the app knows how to hand the OS as a font. The ceiling. */
+const FONT_TYPES = ["ttf", "otf", "woff", "woff2"];
 
 /**
  * Register whatever the backend sent. Safe to call on every bootstrap: names
  * already loaded, or already being loaded, are skipped.
  */
 export function loadRemoteFonts(fonts: Record<string, unknown> | undefined): void {
-  if (!fonts) return;
+  if (!fonts || !bool("fonts.remote", true)) return;
   for (const name of Object.keys(fonts)) {
     const url = String(fonts[name] ?? "");
     if (loaded.has(name) || inFlight.has(name)) continue;

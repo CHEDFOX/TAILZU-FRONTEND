@@ -18,6 +18,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { CompProps } from "./components";
+import * as K from "./knobs";
 
 export type PreviewKey = {
   /** What the key shows. */
@@ -59,26 +60,26 @@ type Preview = {
   pressOpacity?: number;
   fontSize?: number;
   longFontSize?: number;
+  fontWeight?: string;
+  minFontScale?: number;
+  /** Labels longer than this many characters take `longFontSize`. */
+  longLabelChars?: number;
+  labelPadding?: number;
 };
 
-/**
- * Defaults only. EVERY ONE OF THESE IS A PROP.
+/*
+ * Defaults only. EVERY ONE OF THESE IS A PROP, and behind the prop a
+ * ui.KeyboardPreview.* knob.
  *
  * They were constants, which meant the haptics screen's entire look — the two
  * key fills, both label colours, the gaps, the corner — could only change with
  * a build, on a screen whose whole job is showing what the keyboard looks like.
  * A keyboard that cannot be restyled from the catalog is a keyboard that will
  * disagree with the real one the first time the real one changes.
+ *
+ * Unlit ordinary key and unlit function key are the two fills a keyboard has;
+ * the three labels are on a lit key, an ordinary key and a function key.
  */
-const GAP = 6;
-const RADIUS = 5;
-/** Unlit ordinary key, and unlit function key — the two fills a keyboard has. */
-const KEY_FILL = "#FFFFFF8C";
-const FN_FILL = "#FFFFFF26";
-/** Label on a lit key, on an ordinary key, on a function key. */
-const LIT_LABEL = "#000000";
-const KEY_LABEL = "#111114";
-const FN_LABEL = "#FFFFFF";
 
 export default function KeyboardPreview({ props: raw, style, fire }: CompProps) {
   const props = (raw ?? {}) as Preview;
@@ -117,19 +118,23 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
   }, [serverKey, flipped]);
 
   const all = props?.all === true;
-  const h = Number(props?.keyHeight) > 0 ? Number(props.keyHeight) : 44;
-  const accent = String(props?.accent ?? "#E8A23C");
-  const gap = Number(props?.gap) >= 0 ? Number(props.gap) : GAP;
-  const radius = Number(props?.radius) >= 0 ? Number(props.radius) : RADIUS;
-  const keyFill = String(props?.keyFill ?? KEY_FILL);
-  const fnFill = String(props?.fnFill ?? FN_FILL);
-  const litLabel = String(props?.litLabel ?? LIT_LABEL);
-  const keyLabel = String(props?.keyLabel ?? KEY_LABEL);
-  const fnLabel = String(props?.fnLabel ?? FN_LABEL);
-  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : 0.6;
+  const h = Number(props?.keyHeight) > 0 ? Number(props.keyHeight) : K.num("ui.KeyboardPreview.keyHeight", 44);
+  const accent = String(props?.accent ?? K.color("ui.KeyboardPreview.accent", "#E8A23C"));
+  const gap = Number(props?.gap) >= 0 ? Number(props.gap) : K.num("ui.KeyboardPreview.gap", 6);
+  const radius = Number(props?.radius) >= 0 ? Number(props.radius) : K.num("ui.KeyboardPreview.radius", 5);
+  const keyFill = String(props?.keyFill ?? K.color("ui.KeyboardPreview.keyFill", "#FFFFFF8C"));
+  const fnFill = String(props?.fnFill ?? K.color("ui.KeyboardPreview.fnFill", "#FFFFFF26"));
+  const litLabel = String(props?.litLabel ?? K.color("ui.KeyboardPreview.litLabel", "#000000"));
+  const keyLabel = String(props?.keyLabel ?? K.color("ui.KeyboardPreview.keyLabel", "#111114"));
+  const fnLabel = String(props?.fnLabel ?? K.color("ui.KeyboardPreview.fnLabel", "#FFFFFF"));
+  const pressOpacity = props?.pressOpacity !== undefined ? Number(props.pressOpacity) : K.num("ui.KeyboardPreview.pressOpacity", 0.6);
   /** Long labels ("return", "space") step down so they are not clipped. */
-  const fontSize = Number(props?.fontSize) || 17;
-  const longFontSize = Number(props?.longFontSize) || 13;
+  const fontSize = Number(props?.fontSize) || K.num("ui.KeyboardPreview.fontSize", 17);
+  const longFontSize = Number(props?.longFontSize) || K.num("ui.KeyboardPreview.longFontSize", 13);
+  const fontWeight = String(props?.fontWeight ?? K.str("ui.KeyboardPreview.fontWeight", "500")) as "500";
+  const minFontScale = Number(props?.minFontScale ?? K.num("ui.KeyboardPreview.minFontScale", 0.7));
+  const longLabelChars = Number(props?.longLabelChars ?? K.num("ui.KeyboardPreview.longLabelChars", 2));
+  const labelPadding = Number(props?.labelPadding ?? K.num("ui.KeyboardPreview.labelPadding", 2));
 
   return (
     <View style={[{ gap }, style]}>
@@ -176,12 +181,12 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
                   // "space") from being clipped in a narrow key, which is what
                   // made the first attempt unreadable.
                   adjustsFontSizeToFit
-                  minimumFontScale={0.7}
+                  minimumFontScale={minFontScale}
                   style={{
                     color: lit ? litLabel : (k.fn ? fnLabel : keyLabel),
-                    fontSize: k.label.length > 2 ? longFontSize : fontSize,
-                    fontWeight: "500",
-                    paddingHorizontal: 2,
+                    fontSize: k.label.length > longLabelChars ? longFontSize : fontSize,
+                    fontWeight,
+                    paddingHorizontal: labelPadding,
                   }}
                 >
                   {k.label}

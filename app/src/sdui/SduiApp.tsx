@@ -18,7 +18,11 @@ import {
 } from "react-native";
 import * as Updates from "expo-updates";
 import { publishWidgetMonth } from "../widgets/month";
-import { bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens, refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION } from "./client";
+import {
+  bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens,
+  refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION,
+  bootstrapIsFresh, userErrorMessage, errorDetail, primeKnobsFromDisk,
+} from "./client";
 import {
   TabThreadIcon, SettingsLines, ThreadRail, THREAD_ACTIVE, THREAD_RAIL_HEIGHT,
 } from "./ThreadIcons";
@@ -30,12 +34,12 @@ import { Store } from "./state";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
-import type { ActionSpec, BootstrapResponse, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
-import { setKnobs, txt, num, bool, str, color, obj } from "./knobs";
+import type { ActionSpec, BootstrapResponse, LanguageOption, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
+import { setKnobs, txt, num, bool, str, color, obj, list } from "./knobs";
 import * as Notifications from "expo-notifications";
 import OfflineScreen from "./OfflineScreen";
 import { hasSeenCard, markCardSeen } from "./launchCard";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall, getPushAsked, setPushAsked } from "../storage";
+import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall, getPushAsked, setPushAsked, setOnboarded } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
@@ -66,6 +70,10 @@ interface Toast { message: string; tone?: string }
  * Kept to a small, side-effect-safe set: an arbitrary/unknown kind from a URL
  * is ignored, never dispatched. These take no complex object params, so the
  * URL query (`Record<string,string>`) maps straight onto the ActionSpec.
+ *
+ * This set is the CEILING. The server can narrow it (deeplink.allowedActions)
+ * — turn one off while it is misbehaving — but never widen it: what a link
+ * from anywhere on the internet may do is decided by the binary.
  */
 const DEEPLINK_ACTIONS = new Set<string>([
   "iap.restore",
@@ -74,14 +82,21 @@ const DEEPLINK_ACTIONS = new Set<string>([
   "openSettings",
 ]);
 
+function deepLinkActionAllowed(kind: string): boolean {
+  if (!DEEPLINK_ACTIONS.has(kind)) return false;
+  return list<string>("deeplink.allowedActions", ["iap.restore", "iap.showPaywall", "requestReview", "openSettings"])
+    .includes(kind);
+}
+
 /**
  * Apply the layout direction the backend asked for (RTL for Arabic/Hebrew/…).
  * React Native only flips layout after a reload, so when the direction actually
  * changes we force it and restart the bundle. It's a no-op when already correct,
  * so this never loops.
  */
-async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
-  const wantRTL = flags?.textDirection === "rtl";
+async function applyDirection(): Promise<boolean> {
+  // Reads the bootstrap the knobs point at — callers setKnobs(b) first.
+  const wantRTL = str("textDirection", "ltr") === "rtl";
   if (I18nManager.isRTL === wantRTL) return false;
   try {
     I18nManager.allowRTL(wantRTL);
@@ -99,19 +114,26 @@ async function applyDirection(flags?: Record<string, any>): Promise<boolean> {
  * Region is dropped ("hi-IN" → "hi"): the choice drives recognition and
  * writing, where the language matters and the region does not. An
  * unsupported language returns null and the user stays on "auto".
+ *
+ * "Supported" is the SERVER's list — the bootstrap's `languages`, the same
+ * list the picker offers. It was a set compiled in here, which disagreed with
+ * that list in both directions: a language the picker offered was never taken
+ * from the phone, and one the server had dropped still could be. Only a
+ * bootstrap with no list falls back to languages.systemDefaultable.
  */
-const SUPPORTED_SYSTEM_LANGUAGES = new Set([
-  "hi", "mr", "ta", "te", "bn", "gu", "pa", "kn", "ml", "ur",
-  "en", "es", "fr", "de", "pt", "ar", "ja", "ko", "zh", "ru",
-]);
-
-function inferSystemLanguage(): string | null {
+function inferSystemLanguage(languages?: LanguageOption[]): string | null {
   try {
+    const supported = languages && languages.length
+      ? languages.map((l) => String(l?.code ?? "").toLowerCase())
+      : list<string>("languages.systemDefaultable", [
+          "hi", "mr", "ta", "te", "bn", "gu", "pa", "kn", "ml", "ur",
+          "en", "es", "fr", "de", "pt", "ar", "ja", "ko", "zh", "ru",
+        ]);
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Localization = require("expo-localization");
     const tag = Localization.getLocales?.()?.[0]?.languageCode;
     const code = String(tag ?? "").trim().toLowerCase().split("-")[0];
-    return SUPPORTED_SYSTEM_LANGUAGES.has(code) ? code : null;
+    return code && supported.includes(code) ? code : null;
   } catch {
     return null;   // module absent — the user keeps "auto"
   }
@@ -124,7 +146,7 @@ function inferSystemLanguage(): string | null {
  * where it does not — a cold install on a bad connection — because a splash
  * that waits forever is worse than the black it was holding back.
  */
-const SPLASH_MEDIA_WAIT_MS = 1500;
+const splashMediaWaitMs = () => num("app.splash.mediaWaitMs", 1500);
 
 /**
  * How long a FIRST run may hold the splash while it fetches what the opening
@@ -136,10 +158,10 @@ const SPLASH_MEDIA_WAIT_MS = 1500;
  * across the first three screens. It is still a ceiling, not a promise: when
  * it expires the app opens regardless.
  */
-const FIRST_RUN_MEDIA_WAIT_MS = 4500;
+const firstRunMediaWaitMs = () => num("app.splash.firstRunMediaWaitMs", 4500);
 
 /** How often to refresh cached screens while the app is open and in front. */
-const LIVE_REFRESH_MS = 5 * 60_000;
+const liveRefreshMs = () => num("app.liveRefreshMs", 300000);
 
 /**
  * How long the whole boot may take before the app stops waiting and offers a
@@ -147,7 +169,15 @@ const LIVE_REFRESH_MS = 5 * 60_000;
  * seconds, and interrupting a boot that would have worked is its own bug. What
  * this catches is the boot that was never going to finish.
  */
-const BOOT_WATCHDOG_MS = 12000;
+const bootWatchdogMs = () => num("app.boot.watchdogMs", 12000);
+
+/**
+ * Screens that only make sense while the keyboard is driving — the mic
+ * handoff and the Flow arming screen. A normal open must never land on one,
+ * and "back" from one with nothing under it goes home.
+ */
+const transientScreenIds = () =>
+  list<string>("nav.transientScreenIds", ["keyboard_record", "keyboard_primer", "flow_arm"]);
 
 /**
  * The first remote picture on a screen, if it has one.

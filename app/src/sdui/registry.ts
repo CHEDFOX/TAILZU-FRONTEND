@@ -5,6 +5,20 @@
  * This list is the KITCHEN-SINK build — every component/action we might want
  * to server-drive within 12 months. The renderer implementations live in
  * components.tsx (nodes) and actions.ts (actions).
+ *
+ * THE LIST IS A PROMISE, SO IT ONLY NAMES WHAT ACTUALLY WORKS. The server
+ * withholds anything this bundle does not advertise and draws a fallback
+ * instead — which is exactly right for a placeholder, and exactly wrong for a
+ * real component that was simply never added here. So:
+ *
+ *   - registered components are listed (FlipText, ChatThread, … were drawn
+ *     all along but never advertised, so the server could not rely on them);
+ *   - placeholders are NOT listed (Audio, Camera, QRScanner, LottieAnimation,
+ *     SwipeableRow and Tabs render a stand-in, not the thing) — they stay in
+ *     the registry so an old screen still draws something, and come back here
+ *     the day they are real;
+ *   - actions that do nothing (playMedia, keyboard.reload, keyboard.setLayout)
+ *     are not listed either, and the implemented ones that were missing are.
  */
 export const CORE_COMPONENTS = [
   // v1 primitives
@@ -19,12 +33,12 @@ export const CORE_COMPONENTS = [
 
   // v2 settings row + dictionary
   "Row",
-  "DictionaryEditor", "WordChips", "LanguageGreetingGrid",
+  "DictionaryEditor", "WordChips", "LanguageGreetingGrid", "FlipText",
 
   // v3 layout / navigation
   "Grid", "MasonryGrid", "Modal", "BottomSheet", "ActionSheet",
-  "Popover", "Tooltip", "Collapsible", "StickyHeader", "SwipeableRow",
-  "PullToRefresh", "SafeArea", "Tabs",
+  "Popover", "Tooltip", "Collapsible", "StickyHeader",
+  "PullToRefresh", "SafeArea",
 
   // v3 inputs
   "Switch", "Slider", "Stepper", "SegmentedControl", "SearchField",
@@ -35,7 +49,7 @@ export const CORE_COMPONENTS = [
   "StatCard", "Waveform", "PieChart", "DonutChart",
 
   // v3 media
-  "Video", "Audio", "Camera", "QRScanner", "ImagePickerButton",
+  "Video", "ImagePickerButton",
   "Avatar", "AvatarStack",
   // Slideshow — cycles through a MediaSpec[] at a backend-defined speed.
   // Powers intro sequences, paywall carousels, onboarding walkthroughs.
@@ -59,7 +73,7 @@ export const CORE_COMPONENTS = [
 
   // v3 feedback
   "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
-  "EmptyState", "Countdown", "LottieAnimation",
+  "EmptyState", "Countdown",
 
   // SwipeAction — a pill whose disc is dragged to the far end to commit. The
   // sign-in pills' gesture, made general.
@@ -78,6 +92,12 @@ export const CORE_COMPONENTS = [
   // AuroraOrb — the spoken screen's sphere, drawn as one Skia fragment shader.
   // Supersedes VoiceBubble, which stays registered as its fallback.
   "AuroraOrb",
+  // The spoken screen and the thread it writes into.
+  "ChatThread", "VoiceBubble", "VoiceSession",
+  // The sign-in screen's pieces, drawn from the server's auth tree.
+  "SwipePill", "AppleSignIn", "GoogleSignIn", "CodeEntry", "AuthPhase",
+  // Entrance motion, and the neural field backdrop.
+  "Rise", "NeuralField",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
@@ -92,8 +112,9 @@ export const CORE_ACTIONS = [
   "callEndpoint", "refresh",
   // state
   "setState", "toggleState", "incrementState", "clearState",
+  "toggleInArray", "appendState",
   // feedback
-  "haptic", "toast", "snackbar", "playMedia", "stopMedia", "speak", "confetti",
+  "haptic", "toast", "snackbar", "stopMedia", "speak", "confetti",
   // system / share / clipboard
   "share", "shareFile", "copyToClipboard", "readClipboard",
   "sms", "email", "phone", "download", "saveToPhotos",
@@ -114,11 +135,9 @@ export const CORE_ACTIONS = [
   "calendar.addEvent",
   // review
   "requestReview",
-  // keyboard bridge
-  "keyboard.reload", "keyboard.setLayout",
   // mic handoff — main app records + refines, keyboard inserts (see
   // targets/keyboard/TulmiHandoff.swift and modules/tulmi-bridge).
-  "completeKeyboardHandoff", "cancelKeyboardHandoff", "armFlowSession",
+  "completeKeyboardHandoff", "cancelKeyboardHandoff", "armFlowSession", "endFlowSession",
   // cache / dev
   "clearCache", "reloadApp",
   // composition

@@ -23,9 +23,32 @@ import type { CompProps } from "./components";
 import { useStoreVersion } from "./state";
 import { resolveMedia, type MediaSpec } from "../media/resolveMedia";
 import { MediaPlayer } from "../media/MediaPlayer";
+import * as K from "./knobs";
 
 const MARK = require("../../assets/tailzu-mark.png");
-const SPRING = { friction: 7, tension: 120, useNativeDriver: true };
+/** The mark ⇄ line morph's spring. */
+const spring = () => ({
+  friction: K.num("ui.VoiceToggle.morphFriction", 7),
+  tension: K.num("ui.VoiceToggle.morphTension", 120),
+  useNativeDriver: true,
+});
+/**
+ * The press every control here shares: down to a scale on a stiff spring,
+ * back up on a softer one. The scale differs per control (a round mic dips
+ * further than a wide pad); the springs are one feel.
+ */
+const pressDown = (toValue: number) => ({
+  toValue,
+  friction: K.num("ui.morph.pressDownFriction", 8),
+  tension: K.num("ui.morph.pressDownTension", 300),
+  useNativeDriver: true,
+});
+const pressUp = () => ({
+  toValue: 1,
+  friction: K.num("ui.morph.pressUpFriction", 6),
+  tension: K.num("ui.morph.pressUpTension", 220),
+  useNativeDriver: true,
+});
 
 // App-wide recording lock. The Home Pager mounts BOTH of its pages at once
 // (RN ScrollView pagingEnabled renders every child), so two VoiceToggles —
@@ -133,7 +156,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const [voiceSpeed, setVoiceSpeed] = useState(1);
   const voiceSpeedRef = useRef(1);
   const bindPath = node.bind?.value;
-  const size = Number(props.size) || 38;
+  const size = Number(props.size) || K.num("ui.VoiceToggle.size", 38);
 
   // Backend-supplied media for the idle and recording states. Each accepts
   // either a raw MediaSpec (media-store key / url / asset / emoji / data URI)
@@ -147,21 +170,24 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
   const idleMic = normaliseMic(props.iconIdle ?? props.icon);
   const recordingMic = normaliseMic(props.iconRecording);
   const useCustomMedia = idleMic != null && hasResolvableSource(idleMic.source);
-  const bg = String(props.background ?? "#fff");
-  const contentScale = Number(props.contentScale) || 0.7;
+  const bg = String(props.background ?? K.color("ui.VoiceToggle.background", "#fff"));
+  const contentScale = Number(props.contentScale) || K.num("ui.VoiceToggle.contentScale", 0.7);
+  /** The meter: how often it is sampled, and the floor read when it is silent. */
+  const meterMs = Number(props.meterIntervalMs ?? K.num("ui.VoiceToggle.meterIntervalMs", 33));
+  const meterFloor = K.num("ui.VoiceToggle.meterFloorDb", -160);
 
   const collapse = useRef(new Animated.Value(0)).current; // 0 soundwave, 1 line
   const press = useRef(new Animated.Value(1)).current;
-  const morphTo = useCallback((v: number) => Animated.spring(collapse, { toValue: v, ...SPRING }).start(), [collapse]);
+  const morphTo = useCallback((v: number) => Animated.spring(collapse, { toValue: v, ...spring() }).start(), [collapse]);
 
   // Pull config for the voice-reactive path off whichever media is currently
   // relevant (recording state — that's when the mic actually samples). Falls
   // back to sane defaults when the backend hasn't opted in.
   const activeReactive = recordingMic ?? idleMic;
   const voiceReactive = !!activeReactive?.voiceReactive;
-  const speedRange = activeReactive?.speedRange ?? [0.5, 2.0];
-  const levelRange = activeReactive?.levelRange ?? [-45, -5];
-  const smoothing = Math.max(0, Math.min(0.98, activeReactive?.speedSmoothing ?? 0.7));
+  const speedRange = activeReactive?.speedRange ?? (K.list<number>("ui.VoiceToggle.speedRange", [0.5, 2.0]) as [number, number]);
+  const levelRange = activeReactive?.levelRange ?? (K.list<number>("ui.VoiceToggle.levelRange", [-45, -5]) as [number, number]);
+  const smoothing = Math.max(0, Math.min(0.98, activeReactive?.speedSmoothing ?? K.num("ui.VoiceToggle.speedSmoothing", 0.7)));
 
   // Poll the recorder's metering while recording — we sample at ~30Hz which
   // is plenty for a visible effect without churning the JS thread. The value
@@ -178,7 +204,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
         // isMeteringEnabled was set on the preset (we do that above).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status: any = (recorder as any).getStatus?.();
-        const db: number = typeof status?.metering === "number" ? status.metering : -160;
+        const db: number = typeof status?.metering === "number" ? status.metering : meterFloor;
         const t = levelToUnit(db, levelRange);
         const target = minS + t * (maxS - minS);
         const next = voiceSpeedRef.current * smoothing + target * (1 - smoothing);
@@ -187,9 +213,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       } catch {
         /* recorder unavailable — leave speed as-is */
       }
-    }, 33);
+    }, meterMs);
     return () => { alive = false; clearInterval(id); };
-  }, [recording, voiceReactive, recorder, speedRange, levelRange, smoothing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recording, voiceReactive, recorder, speedRange[0], speedRange[1], levelRange[0], levelRange[1], smoothing, meterMs]);
 
   // When we leave recording, snap the speed back to the authored value so
   // the idle animation isn't stuck in whatever the last loud moment left.
@@ -213,16 +240,20 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recorder]);
 
-  const errPermission = String(props.errorPermission ?? "Microphone permission denied");
-  const errMic = String(props.errorMic ?? "mic error");
-  const errNoAudio = String(props.errorNoAudio ?? "No audio captured");
-  const errTranscribe = String(props.errorTranscribe ?? "transcription failed");
+  const errPermission = String(props.errorPermission ?? K.txt("ui.VoiceToggle.errorPermission", "Microphone permission denied"));
+  const errMic = String(props.errorMic ?? K.txt("ui.VoiceToggle.errorMic", "mic error"));
+  const errNoAudio = String(props.errorNoAudio ?? K.txt("ui.VoiceToggle.errorNoAudio", "No audio captured"));
+  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceToggle.errorTranscribe", "transcription failed"));
+  /** How a real error's own message is framed. {message} is the error's. */
+  const errMicTemplate = String(props.errorMicTemplate ?? K.txt("ui.VoiceToggle.errorMicTemplate", "Mic error: {message}"));
+  const errVoiceTemplate = String(props.errorVoiceTemplate ?? K.txt("ui.VoiceToggle.errorVoiceTemplate", "Voice error: {message}"));
+  const frame = (tpl: string, message: string) => tpl.replace(/\{message\}/g, message);
 
   const errPermissionSettings = String(
     props.errorPermissionSettings ??
-      "Microphone access is off. Turn it on in Settings › Tailzu › Microphone, then try again.",
+      K.txt("ui.VoiceToggle.errorPermissionSettings", "Microphone access is off. Turn it on in Settings › Tailzu › Microphone, then try again."),
   );
-  const errMicBusy = String(props.errorMicBusy ?? "Already recording — finish that first.");
+  const errMicBusy = String(props.errorMicBusy ?? K.txt("ui.VoiceToggle.errorMicBusy", "Already recording — finish that first."));
 
   const start = useCallback(async () => {
     // Another VoiceToggle on this screen is already recording — the Pager keeps
@@ -262,9 +293,10 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       micRecordingActive = false;
       // eslint-disable-next-line no-console
       console.warn("[Tailzu][mic] start failed:", e);
-      fire("onError", e?.message ? `Mic error: ${e.message}` : errMic);
+      fire("onError", e?.message ? frame(errMicTemplate, String(e.message)) : errMic);
     }
-  }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic, errMicTemplate]);
 
   // autoStart — the keyboard's mic handoff.
   //
@@ -306,20 +338,29 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     } catch (e: any) {
       // eslint-disable-next-line no-console
       console.warn("[Tailzu][mic] stop/transcribe failed:", e);
-      fire("onError", e?.message ? `Voice error: ${e.message}` : errTranscribe);
+      fire("onError", e?.message ? frame(errVoiceTemplate, String(e.message)) : errTranscribe);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
     }
-  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo, errNoAudio, errTranscribe]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo, errNoAudio, errTranscribe, errVoiceTemplate]);
 
+  // The morph's shape: where the mark has gone, how flat it squashes, where
+  // the line appears and how short it starts — ui.VoiceToggle.morph.
+  const M = K.obj("ui.VoiceToggle.morph", { markGoneAt: 0.7, markScaleY: 0.06, lineFrom: 0.5, lineScaleX: 0.2 });
   const markStyle = {
-    opacity: collapse.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 0, 0] }),
-    transform: [{ scaleY: collapse.interpolate({ inputRange: [0, 1], outputRange: [1, 0.06] }) }],
+    opacity: collapse.interpolate({ inputRange: [0, M.markGoneAt, 1], outputRange: [1, 0, 0] }),
+    transform: [{ scaleY: collapse.interpolate({ inputRange: [0, 1], outputRange: [1, M.markScaleY] }) }],
   };
   const lineStyle = {
-    opacity: collapse.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] }),
-    transform: [{ scaleX: collapse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }],
+    opacity: collapse.interpolate({ inputRange: [0, M.lineFrom, 1], outputRange: [0, 0, 1] }),
+    transform: [{ scaleX: collapse.interpolate({ inputRange: [0, 1], outputRange: [M.lineScaleX, 1] }) }],
+  };
+  const line = {
+    width: Number(props.lineWidth ?? K.num("ui.VoiceToggle.lineWidth", 0.5)),
+    height: Number(props.lineHeight ?? K.num("ui.VoiceToggle.lineHeight", 2.6)),
+    radius: Number(props.lineRadius ?? K.num("ui.VoiceToggle.lineRadius", 2)),
   };
 
   // Backend-supplied media path — swap the built-in mark → line morph for
@@ -350,8 +391,8 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       : undefined;
     return (
       <Pressable
-        onPressIn={() => Animated.spring(press, { toValue: 0.9, friction: 8, tension: 300, useNativeDriver: true }).start()}
-        onPressOut={() => Animated.spring(press, { toValue: 1, friction: 6, tension: 220, useNativeDriver: true }).start()}
+        onPressIn={() => Animated.spring(press, pressDown(Number(props.mediaPressScale ?? K.num("ui.VoiceToggle.mediaPressScale", 0.9)))).start()}
+        onPressOut={() => Animated.spring(press, pressUp()).start()}
         onPress={() => (recording ? stop() : start())}
         disabled={busy}
       >
@@ -391,8 +432,8 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
 
   return (
     <Pressable
-      onPressIn={() => Animated.spring(press, { toValue: 0.88, friction: 8, tension: 300, useNativeDriver: true }).start()}
-      onPressOut={() => Animated.spring(press, { toValue: 1, friction: 6, tension: 220, useNativeDriver: true }).start()}
+      onPressIn={() => Animated.spring(press, pressDown(Number(props.pressScale ?? K.num("ui.VoiceToggle.pressScale", 0.88)))).start()}
+      onPressOut={() => Animated.spring(press, pressUp()).start()}
       onPress={() => (recording ? stop() : start())}
       disabled={busy}
     >
@@ -403,24 +444,30 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
         ]}
       >
         <Animated.Image source={MARK} resizeMode="contain" style={[{ width: size * contentScale, height: size * contentScale, position: "absolute" }, markStyle]} />
-        <Animated.View style={[{ position: "absolute", width: size * 0.5, height: 2.6, borderRadius: 2, backgroundColor: String(props.lineColor ?? "#000") }, lineStyle]} />
+        <Animated.View style={[{ position: "absolute", width: size * line.width, height: line.height, borderRadius: line.radius, backgroundColor: String(props.lineColor ?? K.color("ui.VoiceToggle.lineColor", "#000")) }, lineStyle]} />
       </Animated.View>
     </Pressable>
   );
 };
 
 // ── Shared morphing button ───────────────────────────────────────────────────
-const N = 26;
+/** The pad's line: how many points, how wide a share of the pad, how tall,
+ *  and the zig-zag's irregularity — ui.MorphPad.shape. */
+type PadShape = { points: number; widthShare: number; amp: number; zigBase: number; zigVary: number; zigFreq: number };
+const padShape = (): PadShape => K.obj("ui.MorphPad.shape", {
+  points: 26, widthShare: 0.42, amp: 8, zigBase: 0.55, zigVary: 0.45, zigFreq: 1.9
+});
 
 /** SVG path for the morph: m = 0 zig-zag → 1 wave, f = 0 normal → 1 line. */
-function shapePath(W: number, H: number, m: number, f: number): string {
-  const pathW = W * 0.42;
-  const cx = W / 2, cy = H / 2, half = pathW / 2, amp = 8;
+function shapePath(W: number, H: number, m: number, f: number, S: PadShape): string {
+  const N = Math.max(2, Math.round(S.points));
+  const pathW = W * S.widthShare;
+  const cx = W / 2, cy = H / 2, half = pathW / 2, amp = S.amp;
   let d = "";
   for (let i = 0; i <= N; i++) {
     const t = i / N;
     const x = cx - half + t * pathW;
-    const zig = (i % 2 === 0 ? -1 : 1) * amp * (0.55 + 0.45 * Math.sin(i * 1.9));
+    const zig = (i % 2 === 0 ? -1 : 1) * amp * (S.zigBase + S.zigVary * Math.sin(i * S.zigFreq));
     const wave = Math.sin(t * Math.PI * 2) * amp;
     const y = cy + ((1 - m) * zig + m * wave) * (1 - f);
     d += i === 0 ? `M ${x.toFixed(1)} ${y.toFixed(1)}` : ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
@@ -437,10 +484,15 @@ function MorphPad({
   const pathRef = useRef<any>(null);
   const mRef = useRef(0);
   const fRef = useRef(0);
+  const S = padShape();
+  const shapeKey = JSON.stringify(S);
+  const sRef = useRef(S);
+  sRef.current = S;
 
   const redraw = useCallback(() => {
-    pathRef.current?.setNativeProps?.({ d: shapePath(W, H, mRef.current, fRef.current) });
-  }, [W, H]);
+    pathRef.current?.setNativeProps?.({ d: shapePath(W, H, mRef.current, fRef.current, sRef.current) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [W, H, shapeKey]);
 
   useEffect(() => {
     const idM = morph.addListener(({ value }) => { mRef.current = value; redraw(); });
@@ -450,28 +502,37 @@ function MorphPad({
   }, [morph, flat, redraw]);
 
   useEffect(() => {
-    Animated.spring(morph, { toValue: working ? 1 : 0, friction: 8, tension: 120, useNativeDriver: false }).start();
+    Animated.spring(morph, {
+      toValue: working ? 1 : 0,
+      friction: K.num("ui.MorphPad.morphFriction", 8), tension: K.num("ui.MorphPad.morphTension", 120),
+      useNativeDriver: false,
+    }).start();
   }, [working, morph]);
   useEffect(() => {
-    Animated.spring(flat, { toValue: recording ? 1 : 0, friction: 8, tension: 140, useNativeDriver: false }).start();
+    Animated.spring(flat, {
+      toValue: recording ? 1 : 0,
+      friction: K.num("ui.MorphPad.flatFriction", 8), tension: K.num("ui.MorphPad.flatTension", 140),
+      useNativeDriver: false,
+    }).start();
   }, [recording, flat]);
 
-  const initialD = useMemo(() => shapePath(W, H, 0, 0), [W, H]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const initialD = useMemo(() => shapePath(W, H, 0, 0, sRef.current), [W, H, shapeKey]);
 
   return (
     <Pressable
-      onPressIn={() => { if (!disabled) Animated.spring(press, { toValue: 0.94, friction: 8, tension: 300, useNativeDriver: true }).start(); }}
-      onPressOut={() => Animated.spring(press, { toValue: 1, friction: 6, tension: 220, useNativeDriver: true }).start()}
+      onPressIn={() => { if (!disabled) Animated.spring(press, pressDown(K.num("ui.MorphPad.pressScale", 0.94))).start(); }}
+      onPressOut={() => Animated.spring(press, pressUp()).start()}
       onPress={onPress}
     >
       <Animated.View
         style={[
-          { width: W, height: H, borderRadius: H / 2, backgroundColor: bg ?? "#fff", alignItems: "center", justifyContent: "center" },
+          { width: W, height: H, borderRadius: H / 2, backgroundColor: bg ?? K.color("ui.MorphPad.background", "#fff"), alignItems: "center", justifyContent: "center" },
           { transform: [{ scale: press }] },
         ]}
       >
         <Svg width={W} height={H}>
-          <Path ref={pathRef} d={initialD} stroke={stroke ?? "#000"} strokeWidth={2.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <Path ref={pathRef} d={initialD} stroke={stroke ?? K.color("ui.MorphPad.stroke", "#000")} strokeWidth={K.num("ui.MorphPad.strokeWidth", 2.6)} fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </Animated.View>
     </Pressable>
@@ -484,12 +545,28 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
   const recording = !!store.get("recording");
   const bindPath = node.bind?.value;
   const [working, setWorking] = useState(false);
-  const W = Number(props.width) || 150;
-  const H = Number(props.height) || 50;
-  const label = String(props.label ?? "Refine");
+  const W = Number(props.width) || K.num("ui.RefineButton.width", 150);
+  const H = Number(props.height) || K.num("ui.RefineButton.height", 50);
+  const label = String(props.label ?? K.txt("ui.RefineButton.label", "Refine"));
 
-  const errEmpty = String(props.errorEmpty ?? "Type or speak something first");
-  const errFail = String(props.errorFail ?? "refine failed");
+  const errEmpty = String(props.errorEmpty ?? K.txt("ui.RefineButton.errorEmpty", "Type or speak something first"));
+  const errFail = String(props.errorFail ?? K.txt("ui.RefineButton.errorFail", "refine failed"));
+
+  /**
+   * The suction, as numbers — how small the word shrinks, how long it takes
+   * to go and come back, how deep it sinks, how the working dot breathes.
+   * ui.RefineButton.motion, with the node's `motion` over it.
+   */
+  const A = {
+    ...K.obj("ui.RefineButton.motion", {
+      suckScale: 0.08, suckMs: 260, fadeMs: 230, sinkMs: 260, sink: 0.34,
+      dotInMs: 160, dotLow: 0.35, dotBeatMs: 520, dotOutMs: 120,
+      backFriction: 6, backTension: 150, backFadeMs: 240
+    }),
+    ...(props.motion ?? {}),
+  };
+  const aRef = useRef(A);
+  aRef.current = A;
 
   // Suction physics: on press the "Refine" text is SUCKED into the button —
   // scaling to a point, sinking down, and fading; while the backend refines, a
@@ -502,27 +579,29 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
   const pulse = useRef<Animated.CompositeAnimation | null>(null);
 
   const suckIn = useCallback(() => {
+    const a = aRef.current;
     Animated.parallel([
-      Animated.timing(scale, { toValue: 0.08, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 0, duration: 230, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-      Animated.timing(sink, { toValue: 1, duration: 260, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(scale, { toValue: Number(a.suckScale), duration: Number(a.suckMs), easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0, duration: Number(a.fadeMs), easing: Easing.in(Easing.quad), useNativeDriver: true }),
+      Animated.timing(sink, { toValue: 1, duration: Number(a.sinkMs), easing: Easing.in(Easing.cubic), useNativeDriver: true }),
     ]).start(() => {
-      Animated.timing(dot, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+      Animated.timing(dot, { toValue: 1, duration: Number(a.dotInMs), useNativeDriver: true }).start();
       pulse.current = Animated.loop(Animated.sequence([
-        Animated.timing(dot, { toValue: 0.35, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(dot, { toValue: 1, duration: 520, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(dot, { toValue: Number(a.dotLow), duration: Number(a.dotBeatMs), easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(dot, { toValue: 1, duration: Number(a.dotBeatMs), easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]));
       pulse.current.start();
     });
   }, [scale, opacity, sink, dot]);
 
   const springBack = useCallback(() => {
+    const a = aRef.current;
     pulse.current?.stop();
-    Animated.timing(dot, { toValue: 0, duration: 120, useNativeDriver: true }).start();
+    Animated.timing(dot, { toValue: 0, duration: Number(a.dotOutMs), useNativeDriver: true }).start();
     Animated.parallel([
-      Animated.spring(scale, { toValue: 1, friction: 6, tension: 150, useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 1, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-      Animated.spring(sink, { toValue: 0, friction: 6, tension: 150, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: Number(a.backFriction), tension: Number(a.backTension), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: Number(a.backFadeMs), easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(sink, { toValue: 0, friction: Number(a.backFriction), tension: Number(a.backTension), useNativeDriver: true }),
     ]).start();
   }, [scale, opacity, sink, dot]);
 
@@ -551,8 +630,11 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recording, working, bindPath, store, props.targetApp, props.language, props.tone, fire, errEmpty, errFail, suckIn, springBack]);
 
-  const translateY = sink.interpolate({ inputRange: [0, 1], outputRange: [0, H * 0.34] });
-  const bg = String(props.bg ?? "#FFFFFF");
+  const translateY = sink.interpolate({ inputRange: [0, 1], outputRange: [0, H * Number(A.sink)] });
+  const bg = String(props.bg ?? K.color("ui.RefineButton.background", "#FFFFFF"));
+  const labelColor = String(props.labelColor ?? K.color("ui.RefineButton.labelColor", "#000000"));
+  const dotColor = String(props.dotColor ?? K.color("ui.RefineButton.dotColor", "#000000"));
+  const dotSize = Number(props.dotSize ?? K.num("ui.RefineButton.dotSize", 7));
 
   return (
     <Pressable
@@ -561,13 +643,20 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
       style={{ width: W, height: H, borderRadius: H / 2, backgroundColor: bg, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
     >
       <Animated.Text
-        style={{ color: "#000000", fontWeight: "700", fontSize: 16, letterSpacing: 0.5, opacity, transform: [{ scale }, { translateY }] }}
+        style={{
+          color: labelColor,
+          fontWeight: String(props.fontWeight ?? K.str("ui.RefineButton.fontWeight", "700")) as "700",
+          fontSize: Number(props.fontSize ?? K.num("ui.RefineButton.fontSize", 16)),
+          letterSpacing: Number(props.tracking ?? K.num("ui.RefineButton.tracking", 0.5)),
+          ...(props.fontFamily ? { fontFamily: String(props.fontFamily) } : null),
+          opacity, transform: [{ scale }, { translateY }],
+        }}
       >
         {label}
       </Animated.Text>
       <Animated.View
         pointerEvents="none"
-        style={{ position: "absolute", width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#000000", opacity: dot, transform: [{ scale: dot }] }}
+        style={{ position: "absolute", width: dotSize, height: dotSize, borderRadius: dotSize / 2, backgroundColor: dotColor, opacity: dot, transform: [{ scale: dot }] }}
       />
     </Pressable>
   );
@@ -581,11 +670,11 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
   const intentKey = node.bind?.value || props.intentKey || "intent";
   const resultKey = props.resultKey || "result";
   const [working, setWorking] = useState(false);
-  const W = Number(props.width) || 150;
-  const H = Number(props.height) || 50;
+  const W = Number(props.width) || K.num("ui.DraftButton.width", 150);
+  const H = Number(props.height) || K.num("ui.DraftButton.height", 50);
 
-  const errEmpty = String(props.errorEmpty ?? "Paste a message and say your intent");
-  const errFail = String(props.errorFail ?? "draft failed");
+  const errEmpty = String(props.errorEmpty ?? K.txt("ui.DraftButton.errorEmpty", "Paste a message and say your intent"));
+  const errFail = String(props.errorFail ?? K.txt("ui.DraftButton.errorFail", "draft failed"));
 
   const onPress = useCallback(async () => {
     if (recording || working) return;
