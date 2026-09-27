@@ -2,12 +2,17 @@ name: desktop-build
 
 # Builds the desktop installers on GitHub's runners — including the macOS .dmg,
 # which can ONLY be built on a Mac (electron-builder can't cross-build it).
-# This removes the "need to own a Mac" problem: run the workflow, download the
-# artifacts from the run page, scp them into ~/tulmi/downloads/ on the server,
-# and the /download page picks them up (stable filenames, no link changes).
 #
-# Runs on any push touching desktop/, or manually from the Actions tab
-# ("Run workflow").
+# AND PUBLISHES THEM. With the DOWNLOADS_SSH_KEY secret set, each job sends its
+# installer straight to ~/tulmi/downloads on the server, where /download serves
+# it (stable filenames, no link changes). The key is pinned on the server to
+# deploy/receive-download.sh (backend repo), so all it can do is drop one of
+# the three installer files. Without the secret the files stay as artifacts on
+# the run page, as before.
+#
+# Publishes on a manual run ("Run workflow"), and on a push to the default
+# branch or to the branch named in the DOWNLOADS_BRANCH repository variable.
+# A push to any other branch builds and keeps the artifacts only.
 
 on:
   push:
@@ -44,6 +49,20 @@ jobs:
           name: Tailzu-mac
           path: desktop/dist/Tailzu.dmg
           if-no-files-found: error
+      - name: Publish to tailzu.space
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch || github.ref_name == vars.DOWNLOADS_BRANCH }}
+        shell: bash
+        env:
+          KEY: ${{ secrets.DOWNLOADS_SSH_KEY }}
+          HOST: ${{ vars.DOWNLOADS_HOST || '91.108.104.168' }}
+        run: |
+          if [ -z "$KEY" ]; then echo "No DOWNLOADS_SSH_KEY secret: kept as an artifact only."; exit 0; fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/tailzu_ci
+          chmod 600 ~/.ssh/tailzu_ci
+          ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new "root@$HOST" Tailzu.dmg < desktop/dist/Tailzu.dmg
+          rm -f ~/.ssh/tailzu_ci
 
   win:
     runs-on: windows-latest
@@ -63,6 +82,20 @@ jobs:
           name: Tailzu-win
           path: desktop/dist/Tailzu-Setup.exe
           if-no-files-found: error
+      - name: Publish to tailzu.space
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch || github.ref_name == vars.DOWNLOADS_BRANCH }}
+        shell: bash
+        env:
+          KEY: ${{ secrets.DOWNLOADS_SSH_KEY }}
+          HOST: ${{ vars.DOWNLOADS_HOST || '91.108.104.168' }}
+        run: |
+          if [ -z "$KEY" ]; then echo "No DOWNLOADS_SSH_KEY secret: kept as an artifact only."; exit 0; fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/tailzu_ci
+          chmod 600 ~/.ssh/tailzu_ci
+          ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new "root@$HOST" Tailzu-Setup.exe < desktop/dist/Tailzu-Setup.exe
+          rm -f ~/.ssh/tailzu_ci
 
   linux:
     runs-on: ubuntu-latest
@@ -82,3 +115,17 @@ jobs:
           name: Tailzu-linux
           path: desktop/dist/Tailzu.AppImage
           if-no-files-found: error
+      - name: Publish to tailzu.space
+        if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch || github.ref_name == vars.DOWNLOADS_BRANCH }}
+        shell: bash
+        env:
+          KEY: ${{ secrets.DOWNLOADS_SSH_KEY }}
+          HOST: ${{ vars.DOWNLOADS_HOST || '91.108.104.168' }}
+        run: |
+          if [ -z "$KEY" ]; then echo "No DOWNLOADS_SSH_KEY secret: kept as an artifact only."; exit 0; fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/tailzu_ci
+          chmod 600 ~/.ssh/tailzu_ci
+          ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new "root@$HOST" Tailzu.AppImage < desktop/dist/Tailzu.AppImage
+          rm -f ~/.ssh/tailzu_ci
