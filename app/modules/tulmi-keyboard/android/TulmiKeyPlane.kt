@@ -1693,6 +1693,16 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** kb.touch.edgeToMargin — a row's outermost keys own the margin beside
      *  them out to the keyboard's edge (the corners beside a and l). */
     var edgeToMargin: Boolean = true
+    /** kb.touch.bottomToEdge — the bottom row owns everything below it, down to
+     *  the keyboard's bottom edge, as on the system keyboard. Off: the bottom
+     *  row's slop alone. */
+    var bottomToEdge: Boolean = true
+    /** kb.touch.topStopsAtToolbar — the top row's upward reach ends at the
+     *  tools row's controls, so the gap under them types and the empty tools
+     *  row beside the mic and the tone pill does not. */
+    var topStopsAtToolbar: Boolean = true
+    /** The bottom of the bottom row, for bottomToEdge. */
+    private var bottomRowBottom = Float.MAX_VALUE
     /** kb.touch.sideReach — past half its own width, sideways. */
     var sideReachPx: Float = 6f * context.resources.displayMetrics.density
     /** kb.touch.rowTolerance — keys whose centres sit this close are a row. */
@@ -1866,7 +1876,9 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             val r = f.rect
             val ri = rowOf[i]
             val up = if (ri == 0) topRowUpSlopPx else vSlopPx
-            val down = if (ri == lastRow) bottomRowDownSlopPx else vSlopPx
+            val down = if (ri != lastRow) vSlopPx
+                else if (bottomToEdge) max(bottomRowDownSlopPx, height - r.bottom)
+                else bottomRowDownSlopPx
             val reach = r.width() / 2f + sideReachPx
             var left = r.left - reach
             var right = r.right + reach
@@ -1899,8 +1911,28 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             top = min(top, f.rect.top)
             bottom = max(bottom, f.rect.bottom)
         }
-        if (top > bottom) gridBand.setEmpty() else gridBand.set(0f, top - topRowUpSlopPx, w, bottom + bottomRowDownSlopPx)
+        // The tools row's controls bound the band from above, so they are
+        // measured first.
         refreshObstacleRects()
+        if (top > bottom) {
+            gridBand.setEmpty()
+            bottomRowBottom = Float.MAX_VALUE
+        } else {
+            var bandTop = top - topRowUpSlopPx
+            if (topStopsAtToolbar) {
+                // The lowest control wholly above the keys: the mic, the tone
+                // pill, a suggestion chip. The band starts there, not higher.
+                var ceiling = -Float.MAX_VALUE
+                for (i in 0 until obstacleCount) {
+                    val o = obstacleRects[i]
+                    if (o.bottom <= top + 1f) ceiling = max(ceiling, o.bottom)
+                }
+                if (ceiling > -Float.MAX_VALUE) bandTop = max(bandTop, min(ceiling, top))
+            }
+            val bandBottom = if (bottomToEdge) max(bottom + bottomRowDownSlopPx, height.toFloat()) else bottom + bottomRowDownSlopPx
+            gridBand.set(0f, bandTop, w, bandBottom)
+            bottomRowBottom = bottom
+        }
     }
 
     /**
@@ -1977,9 +2009,12 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         return dx + dy
     }
 
-    private fun inRoleSlop(r: RectF, x: Float, y: Float): Boolean =
-        x >= r.left - hitSlopXPx && x < r.right + hitSlopXPx &&
-            y >= r.top - hitSlopYPx && y < r.bottom + hitSlopYPx
+    private fun inRoleSlop(r: RectF, x: Float, y: Float): Boolean {
+        // A bottom-row role key (123) reaches the keyboard's edge too.
+        val below = if (bottomToEdge && r.bottom >= bottomRowBottom - rowTolerancePx) max(hitSlopYPx, gridBand.bottom - r.bottom) else hitSlopYPx
+        return x >= r.left - hitSlopXPx && x < r.right + hitSlopXPx &&
+            y >= r.top - hitSlopYPx && y < r.bottom + below
+    }
 
     /**
      * Is this point the grid's at all? Same yes/no as "some key or role key

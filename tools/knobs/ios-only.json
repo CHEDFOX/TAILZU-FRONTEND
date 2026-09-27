@@ -15,7 +15,8 @@
     "kb.mic.stopGlyph": "An SF Symbols name.",
     "kb.mic.resetSecondPassMs": "A second pass clearing a UIKit button highlight that sticks after the Flow arm's app switch. Android arms nothing and switches to no app to record.",
     "kb.field.numericKeyboardTypes": "UIKit keyboard type names. Android reads the field's inputType class.",
-    "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations."
+    "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations.",
+    "kb.keyPlane.touchColor": "The iOS keyboard's touch layer must paint to receive touches: a custom keyboard is composited into the host app and only gets touches where it has drawn. Android views receive touches on transparent pixels."
   },
   "labelPrefixes": {
     "flow_": "The Flow Session (see kb.flow.).",

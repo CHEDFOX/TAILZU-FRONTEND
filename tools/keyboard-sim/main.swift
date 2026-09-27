@@ -60,7 +60,7 @@ do {
       let got = grid[y][x]
       if p.y < blockTop {
         toolsArea += 1
-        if got.count == 1, got != " " { toolsTyped += 1 }
+        if got.count == 1, got != " ", got != "∅" { toolsTyped += 1 }
         continue
       }
       total += 1

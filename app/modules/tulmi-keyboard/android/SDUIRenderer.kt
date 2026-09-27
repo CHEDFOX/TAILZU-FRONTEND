@@ -1369,13 +1369,18 @@ class SDUIRenderer(
         g.topRowUpSlopPx = flagFloat("kb.touch.topRowUpSlop", 12f) * d
         g.bottomRowDownSlopPx = flagFloat("kb.touch.bottomRowDownSlop", 10f) * d
         g.edgeToMargin = flagBoolean("kb.touch.edgeToMargin", true)
+        g.bottomToEdge = flagBoolean("kb.touch.bottomToEdge", true)
+        g.topStopsAtToolbar = flagBoolean("kb.touch.topStopsAtToolbar", true)
         g.sideReachPx = flagFloat("kb.touch.sideReach", 6f) * d
         g.rowTolerancePx = flagFloat("kb.touch.rowTolerance", 8f).coerceAtLeast(0f) * d
         g.keyHeightCapPx = flagFloat("kb.touch.maxKeyHeight", 64f).coerceAtLeast(1f) * d
         g.roleReachPx = flagFloat("kb.touch.roleReach", 20f) * d
         g.totalResolve = flagBoolean("kb.touch.totalResolve", true)
         g.alwaysRefresh = flagBoolean("kb.touch.alwaysRefresh", true)
-        g.sheet = flagBoolean("kb.keyPlane.sheet", true)
+        // The sheet's extra re-measure after every touch was carried over from
+        // iOS, where it was thought to cure dead gaps; the cure there was the
+        // debug sheet's paint (see iOS kb.keyPlane.touchColor). Off, as there.
+        g.sheet = flagBoolean("kb.keyPlane.redrawOnTouch", false)
         // Swipe is OFF unless the backend turns it on. A swipe that guesses
         // the wrong word costs far more trust than no swipe at all, so it
         // ships dark and gets enabled per cohort once the revert counter says
