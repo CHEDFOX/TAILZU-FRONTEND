@@ -158,8 +158,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val word = before.takeLastWhile { !it.isWhitespace() }
+        suggestedLength = word.length
         corrections?.suggest(word)
     }
+
+    /** How long the word the bar was last asked about is: under
+     *  kb.suggestions.minChars it shows nothing (autocorrect still hears). */
+    private var suggestedLength = 0
 
     /**
      * Turn a traced path into a word.
@@ -171,66 +176,85 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * backs the suggestion bar, in the languages the device actually has, so a
      * swipe works in Hindi or Marathi for anyone who installed them. Words the
      * server lists (kb.swipe.extraWords) and the user's own vocabulary are
-     * offered first: no device dictionary knows the product's name or a
+     * weighed too: no device dictionary knows the product's name or a
      * colleague's.
      *
-     * A guess is only taken if it starts and ends on the letters the finger
-     * genuinely started and ended on. Those two are the ones the user was
-     * deliberate about; everything between them was travel. The runners-up
-     * (up to kb.swipe.maxAlternates) stay in the bar, so a wrong guess is one
-     * tap from the right word.
+     * A word is only taken if it starts and ends on (or beside) the keys the
+     * finger started and ended on, and accounts for every key it turned on —
+     * those are the ones the user was deliberate about; everything between
+     * was travel. See TulmiSwipe. The runners-up (up to kb.swipe.maxAlternates)
+     * stay in the bar, so a wrong guess is one tap from the right word.
      */
-    override fun onSwipe(letters: String) {
-        val corr = corrections ?: return
-        val first = letters.first()
-        val last = letters.last()
-        corr.resolve(letters) { candidates ->
-            fun fits(w: String) = w.length >= 2 &&
-                w.first().lowercaseChar() == first && w.last().lowercaseChar() == last
-            val extra = (knobStrings("kb.swipe.extraWords", listOf()) + corr.vocabulary)
-                .filter { fits(it) && tracedBy(it, letters) }
-            val ranked = (extra + candidates.filter { fits(it) })
-                .distinctBy { it.lowercase() }
-            val word = ranked.firstOrNull() ?: return@resolve
-            val ic = currentInputConnection ?: return@resolve
-            // Replace whatever partial word the trace started on, then leave a
-            // space — a swiped word is a finished word.
-            val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
-            val partial = before.takeLastWhile { !it.isWhitespace() }
-            if (partial.isNotEmpty()) ic.deleteSurroundingText(partial.length, 0)
-            ic.commitText("$word ", 1)
-            TulmiTelemetry.bump(TulmiTelemetry.SWIPE_COMMITTED)
-            corr.clear()
-            val alternates = ranked.drop(1).take(knobInt("kb.swipe.maxAlternates", 0).coerceAtLeast(0))
-            if (alternates.isNotEmpty() && suggestionsEnabled) {
-                // The committed word leads, its runners-up follow; tapping one
-                // swaps it in for the word just swiped.
-                lastSwipe = word
-                kbState.suggestionKind = "candidates"
-                kbState.suggestions = listOf(word) + alternates
-            } else {
-                kbState.suggestions = emptyList()
-            }
-            sduiRenderer?.stateChanged()
+    override fun onSwipe(letters: String) = onSwipe(letters, "")
+
+    /**
+     * The same, with the letters the finger turned on. The ranking is iOS's
+     * (TulmiSwipe): the core list, the server's words and the user's own, then
+     * the device dictionary's guesses for the trace's letters and for its
+     * turns — kb.swipe.dictGuesses of each — all weighed on one dial.
+     */
+    override fun onSwipe(letters: String, pivots: String) {
+        if (letters.length < 2) return
+        val corr = corrections
+        val guesses = knobInt("kb.swipe.dictGuesses", 12).coerceIn(0, 256)
+        val skeletons = if (pivots.length >= 2) listOf(letters, pivots) else listOf(letters)
+        // A password's letters are never sent to the spell checker.
+        if (corr == null || guesses == 0 || kbState.secured) commitSwipe(letters, pivots, emptyList())
+        else corr.resolve(skeletons, guesses) { commitSwipe(letters, pivots, it) }
+    }
+
+    private fun commitSwipe(letters: String, pivots: String, guesses: List<String>) {
+        val corr = corrections
+        val ranked = TulmiSwipe.decode(
+            letters, pivots,
+            extra = knobStrings("kb.swipe.extraWords", listOf()),
+            dictionary = (corr?.vocabulary ?: emptyList()) + guesses,
+            near = TulmiAutocorrect::near,
+        )
+        var word = ranked.firstOrNull() ?: return
+        // "i" and its contractions capitalise themselves; otherwise the shift
+        // the trace began under decides, as for a typed letter.
+        if (word == "i" || word.startsWith("i'")) word = "I" + word.drop(1)
+        if (kbState.capsLock) word = word.uppercase()
+        else if (kbState.shift) word = word.replaceFirstChar { it.uppercaseChar() }
+        val ic = currentInputConnection ?: return
+        // Replace whatever partial word the trace started on, then leave a
+        // space — a swiped word is a finished word.
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: ""
+        val partial = before.takeLastWhile { !it.isWhitespace() }
+        if (partial.isNotEmpty()) ic.deleteSurroundingText(partial.length, 0)
+        ic.commitText("$word ", 1)
+        if (kbState.shift && !kbState.capsLock) kbState.shift = false
+        // Punctuation typed next goes before that space (kb.autoSpace.pullBackChars).
+        pendingAutoSpace = true
+        TulmiTelemetry.bump(TulmiTelemetry.SWIPE_COMMITTED)
+        corr?.clear()
+        val lead = word
+        val alternates = ranked.drop(1).take(knobInt("kb.swipe.maxAlternates", 0).coerceAtLeast(0))
+            .map { if (lead.first().isUpperCase()) it.replaceFirstChar { c -> c.uppercaseChar() } else it }
+        if (alternates.isNotEmpty() && suggestionsEnabled && !kbState.secured) {
+            // The committed word leads, its runners-up follow; tapping one
+            // swaps it in for the word just swiped.
+            lastSwipe = word
+            kbState.suggestionKind = "candidates"
+            kbState.suggestions = listOf(word) + alternates
+        } else {
+            kbState.suggestions = emptyList()
         }
+        sduiRenderer?.stateChanged()
     }
 
     /** The word the last swipe committed, while its alternates are on offer. */
     private var lastSwipe: String? = null
 
-    /** Could a trace over [path] have typed [word]? Its letters, doubles
-     *  collapsed, must appear along the path in order. */
-    private fun tracedBy(word: String, path: String): Boolean {
-        var i = 0
-        var prev = ' '
-        for (ch in word.lowercase()) {
-            if (ch == prev) continue
-            prev = ch
-            i = path.indexOf(ch, i)
-            if (i < 0) return false
-            i += 1
-        }
-        return true
+    /** A suggestion or a swipe just typed "word ": the next punctuation key
+     *  pulls that space back behind it. Taken once (see takeAutoSpace). */
+    private var pendingAutoSpace = false
+
+    override fun takeAutoSpace(): Boolean {
+        val p = pendingAutoSpace
+        pendingAutoSpace = false
+        return p
     }
 
     /**
@@ -241,6 +265,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private var boundaryPending = false
 
     override fun onTextInserted() {
+        pendingAutoSpace = false
         // A new word starts: swipe alternates no longer apply to anything.
         if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
         if (boundaryPending) {
@@ -256,6 +281,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     override fun onTextDeleted() {
+        pendingAutoSpace = false
         if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
         lastCorrection = null
         // The word just changed under the bar. Re-ask, or it keeps offering
@@ -335,13 +361,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // fails for a reason the user cannot see.
         if (kbState.secured) return
         val ic = currentInputConnection ?: return
-        val candidate = corrections?.topCandidate ?: return
+        val corr = corrections ?: return
         val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
         val typed = before.takeLastWhile { !it.isWhitespace() }
         if (typed.isEmpty()) return
-        // Only a candidate computed for exactly this word.
-        if (corrections?.topCandidateFor != typed.trim()) return
-        if (!TulmiAutocorrect.accepts(typed, candidate)) return
+        // Only candidates computed for exactly this word.
+        if (corr.topCandidateFor != typed.trim()) return
+        val candidate = TulmiAutocorrect.pick(typed, corr.candidates) ?: return
 
         ic.deleteSurroundingText(typed.length, 0)
         ic.commitText(candidate, 1)
@@ -387,6 +413,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         ic.commitText("$word ", 1)
         lastSwipe = null
         kbState.suggestionKind = ""
+        pendingAutoSpace = true
         TulmiTelemetry.bump(TulmiTelemetry.SUGGESTION_ACCEPTED)
         corrections?.clear()
         kbState.suggestions = emptyList()
@@ -403,10 +430,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         TulmiTelemetry.bump(TulmiTelemetry.COLD_STARTS)
         if (corrections == null) {
             corrections = TulmiCorrections(this) { words ->
-                // topCandidate is already set inside TulmiCorrections by now;
-                // the bar is the only thing the flag hides.
+                // The candidates are already set inside TulmiCorrections by
+                // now; the bar is the only thing the flags hide — all of it, or
+                // a word shorter than kb.suggestions.minChars.
                 if (lastSwipe == null) kbState.suggestionKind = ""
-                kbState.suggestions = if (suggestionsEnabled) words else emptyList()
+                val long = suggestedLength >= knobInt("kb.suggestions.minChars", 2).coerceIn(0, 64)
+                kbState.suggestions = if (suggestionsEnabled && long) words else emptyList()
                 sduiRenderer?.stateChanged()
             }
         }
@@ -811,6 +840,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // them all along; Android simply never looked, so the bar could be
         // neither turned off nor resized from the server.
         corrections?.maxSuggestions = knobInt("kb.suggestions.max", 3)
+        // The dictionary's language may have changed (kb.autocorrect.lang).
+        corrections?.refreshLanguage()
         // The cost model's weights are read by TulmiAutocorrect itself, from
         // the knobs (kb.autocorrect.*), each time it decides.
         autocorrectEnabled = knobBool("kb.autocorrect.enabled", true)
@@ -1530,7 +1561,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // wave" was a grey one. It is its own knob now, brand amber by default.
         if (!knobBool("kb.flash.enabled", true)) return
         val root = rootView ?: return
-        val letters = text.lowercase().toCharArray().toSet()
+        // Only the start of it (kb.flash.maxChars): the eye reads a typing wave
+        // in the first few dozen keys, and a paragraph lit every key there is.
+        val letters = text.lowercase().take(knobInt("kb.flash.maxChars", 40).coerceAtLeast(0)).toCharArray().toSet()
         if (letters.isEmpty()) return
         val hits = mutableListOf<TextView>()
         walkLetterKeys(root, letters, hits)
@@ -1710,7 +1743,23 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         Net.load(this)
         loadDictionary()
         refreshAutoCap()
+        refreshPrimaryLanguage()
         refreshReturnKeyLabel(info)
+    }
+
+    /**
+     * The input language's code, upper-cased ("EN"), for the space bar and
+     * state.primaryLanguage: this keyboard's subtype, else the device's own
+     * language, else kb.space.languageFallback — as iOS reads its input mode.
+     */
+    private fun refreshPrimaryLanguage() {
+        val tag = runCatching {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.currentInputMethodSubtype?.languageTag
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: runCatching { resources.configuration.locales.get(0)?.toLanguageTag() }.getOrNull()
+        val head = tag?.split('-', '_')?.firstOrNull()?.takeIf { it.isNotBlank() && it != "und" }
+        kbState.primaryLanguage = head?.uppercase() ?: knobString("kb.space.languageFallback", "EN")
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

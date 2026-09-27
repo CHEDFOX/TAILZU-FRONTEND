@@ -93,6 +93,12 @@ class KBState(
      */
     var hasMultipleKeyboards: Boolean = false,
     /**
+     * The active input language's code, upper-cased ("EN") — what the space
+     * bar says when there is more than one keyboard to tell apart, as on iOS.
+     * kb.space.languageFallback when the system names none.
+     */
+    var primaryLanguage: String = "EN",
+    /**
      * The focused field is a password / secure field.
      *
      * Android, unlike iOS, hands a third-party keyboard the password box like
@@ -162,6 +168,14 @@ interface KBHost {
     fun onTextInserted()
     /** A trace crossed these letters, in order. The host decodes them to a word. */
     fun onSwipe(letters: String)
+    /** The same, with the letters the finger TURNED on (the pivots). */
+    fun onSwipe(letters: String, pivots: String) = onSwipe(letters)
+    /**
+     * A suggestion or a swipe just typed "word ". True once, and only then:
+     * a punctuation key typed next pulls that space back behind it
+     * (kb.autoSpace.pullBackChars).
+     */
+    fun takeAutoSpace(): Boolean = false
     fun rootView(): View?
     fun onStateChanged()
     /**
@@ -647,6 +661,8 @@ class SDUIRenderer(
             row.requestLayout()
         }
         row.tag = suggestionTag(words)
+        // The chips are controls the key grid must not take touches from.
+        keyGrid?.setObstaclesDirty()
     }
 
     /** Fingerprint of every tree input EXCEPT shift/caps. When this is unchanged
@@ -655,7 +671,7 @@ class SDUIRenderer(
         val s = host.state()
         return listOf(
             s.layoutId, s.dictating, s.refining, s.status, s.returnLabel, s.returnAction,
-            s.hasMultipleKeyboards, s.appearance,
+            s.hasMultipleKeyboards, s.appearance, s.primaryLanguage,
             // A password box hides the mic and Refine (visibleIf state.secured).
             // Unfingerprinted, moving from a normal field into one took the
             // fast-shift path and left both on screen.
@@ -784,6 +800,7 @@ class SDUIRenderer(
     /** Swap in a freshly-fetched config (e.g. background refetch returned). */
     fun updateConfig(cfg: KBConfig) {
         kbConfig = cfg
+        bigrams = null
         cfg.root?.let { rootNode = it }
         refreshTone()
         redraw()
@@ -820,13 +837,21 @@ class SDUIRenderer(
         drawnShiftKey = null
         drawnPlanes.clear()
         lockableRows.clear()
+        keyPlanes.clear()
+        gridKeyRefs.clear()
         // Dropped with the tree that owned them; renderSuggestionBar re-registers
         // if the fresh tree still has a bar.
         suggestionRow = null
         suggestionChipBackground = null
-        container.removeAllViews()
+        // Everything but the key grid. It stays attached, with any finger it
+        // holds: a layer-peek rebuilds the tree under that finger, and the grid
+        // rebinds to the new keys once they are drawn.
+        for (i in container.childCount - 1 downTo 0) {
+            if (container.getChildAt(i) !== keyGrid) container.removeViewAt(i)
+        }
         applyEffect(container, theme.backgroundEffect ?: KBEffect.Solid(theme.background))
         rootNode?.let { render(it, container) }
+        mountKeyGrid()
         // A toast still on screen outlives the rebuild instead of vanishing
         // with the tree it was drawn over.
         toastView?.let { t -> if (t.parent == null) container.addView(t, t.layoutParams) }
@@ -928,7 +953,7 @@ class SDUIRenderer(
      * touched, on a tree that asks for 6pt between keys and 10pt between rows.
      */
     private fun applyStackStyle(ll: LinearLayout, style: Map<String, Any?>) {
-        val gap = numFromStyle(style["gap"]) ?: 0f
+        val gap = stackGap(style)
         if (gap > 0f) {
             val px = dp(gap)
             ll.dividerDrawable = GradientDrawable().apply {
@@ -939,6 +964,12 @@ class SDUIRenderer(
         }
         gravityFor(style["align"] as? String, ll.orientation == LinearLayout.HORIZONTAL)?.let { ll.gravity = it }
     }
+
+    /** A stack's gap in dp: its own `gap` (or `spacing`, iOS's other name for
+     *  it), else kb.stack.defaultGap — what iOS spaces a stack by when the
+     *  tree says nothing. */
+    private fun stackGap(style: Map<String, Any?>): Float =
+        numFromStyle(style["gap"]) ?: numFromStyle(style["spacing"]) ?: flagFloat("kb.stack.defaultGap", 5f)
 
     /** `align` as a gravity: start / center / end, on the stack's cross axis
      *  for a stack and on both axes' reading line for text. */
@@ -959,33 +990,42 @@ class SDUIRenderer(
         // a Button, so rows carrying a scrolling strip or the personality row
         // behave exactly as before; rows of keys gain gap-filling, drift
         // tolerance and cancelled-tap rescue. See TulmiKeyPlane.
+        val density = host.context().resources.displayMetrics.density
         val ll = TulmiKeyPlane(host.context()).apply {
             orientation = LinearLayout.HORIZONTAL
             planeEnabled = flagBoolean("kb.keyPlane.enabled", true)
-            fillGaps = flagBoolean("kb.touch.fillGaps", true)
+            // A row resolves what the key grid leaves it — the faces of space,
+            // return and backspace, the tools row, every key when the grid is
+            // off. So it is iOS's button path: its gap filling is the row's own
+            // (KeyRowStackView), and what it fires, fires on lift, like iOS's
+            // lift keys — a cancelled short tap still near the key is rescued,
+            // and any key landing elsewhere types a held one first.
+            fillGaps = flagBoolean("kb.row.expandHitTargets", true)
             holdMultiplier = flagFloat("kb.touch.holdMultiplier", 1.35f)
-            cancelCommitMaxMs = flagFloat("kb.touch.cancelCommit.maxMs", 300f).toLong()
-            cancelCommitMaxDriftPx =
-                flagFloat("kb.touch.cancelCommit.maxDriftPt", 12f) *
-                    host.context().resources.displayMetrics.density
+            cancelCommitMaxMs = flagFloat("kb.key.cancelMs", 250f).toLong()
+            liftSlopPx = flagFloat("kb.key.liftSlop", 14f).coerceAtLeast(0f) * density
+            rolloverCommit = flagBoolean("kb.key.liftRollover", true)
+            onClaim = planeClaimed
+            pressFadeMs = flagFloat("kb.press.fadeMs", 120f).toLong().coerceAtLeast(0L)
+            configureKeyTouch(this)
             // Deliberately no haptic or counter here: the plane decides WHICH
             // key and WHEN, the key's own listener decides what that means. A
             // mic or tone key is not a keystroke, and firing feedback here as
             // well as in the listener buzzes twice for one tap.
             //
-            // Swipe is OFF unless the backend turns it on. A swipe that guesses
-            // the wrong word costs far more trust than no swipe at all, so it
-            // ships dark and gets enabled per cohort once the revert counter
-            // says it earns its place.
-            swipeEnabled = flagBoolean("kb.swipe.enabled", false)
-            // The plane hands back the LETTERS it crossed — it knows them in
-            // both modes, where the old Button cast only worked in one.
-            onSwipe = { letters ->
-                val word = letters.joinToString("")
-                // kb.swipe.minKeys: how many distinct keys a trace must cross
-                // before it is read as a word rather than a sloppy tap.
-                if (letters.size >= flagInt("kb.swipe.minKeys", 2).coerceAtLeast(2)) host.onSwipe(word)
-            }
+            // Swipe lives on the key grid, which sees every letter on every row.
+        }
+        keyPlanes += ll
+        // theme.keyShadow: the hairline under each key (kb.key.shadow.*). It
+        // hangs below the row's own bounds, so the stack must not clip it.
+        if (theme.keyShadow) {
+            ll.setKeyShadow(
+                flagColor("kb.key.shadow.color", "#000000"),
+                flagFloat("kb.key.shadow.opacity", 0.4f),
+                flagFloat("kb.key.shadow.offsetY", 1f) * density,
+                flagFloat("kb.key.shadow.radius", 0f).coerceAtLeast(0f) * density,
+            )
+            parent.clipChildren = false
         }
         // Held keys: the accent tray, the space-bar trackpad, and the pop-up.
         configureHolds(ll)
@@ -993,7 +1033,7 @@ class SDUIRenderer(
         // ever set on the drawn path, which is off by default — so on Android
         // a pressed key changed colour for nobody, and the theme's keyPressed
         // did nothing.
-        ll.pressedFill = parseHex(theme.keyPressed)
+        ll.pressedFill = pressedColor()
         applyBackgroundEffect(ll, node)
         addChildWithStyle(parent, ll, node.style, isRow = parent.isHorizontal())
         applyPadding(ll, node.style)
@@ -1047,6 +1087,10 @@ class SDUIRenderer(
             blocksTouches = flagBoolean("kb.dictation.dim.blocksTouches", true),
             fadeMs = flagFloat("kb.dictation.dim.fadeMs", 250f),
         )
+        // The grid declines everything while locked, so the locked rows eat
+        // it; it follows the same switches as the rows.
+        keyGrid?.locked = active && flagBoolean("kb.dictation.dim.enabled", true) &&
+            flagBoolean("kb.dictation.dim.blocksTouches", true)
     }
 
     /** Drawn letter keys, so the fast-shift path can re-label without a rebuild. */
@@ -1095,7 +1139,7 @@ class SDUIRenderer(
                 "LetterKey" -> if (raw.length == 1 && c.bind["content"] == null) {
                     if (upper) raw.uppercase() else raw.lowercase()
                 } else raw
-                "SpaceKey" -> label("space", "space")
+                "SpaceKey" -> spaceLabel()
                 "ReturnKey" -> returnKeyLabel()
                 "ShiftKey" -> shiftGlyph()
                 "BackspaceKey" -> "\u232B"
@@ -1147,6 +1191,7 @@ class SDUIRenderer(
                 onPressEnd = { pressEnd?.invoke() },
                 longPressMs = if (c.type == "ShiftKey") flagFloat("kb.shift.longPressMs", 500f).toLong() else 0L,
                 pressedFill = (c.style["pressedBg"] as? String)?.takeIf { it.isNotBlank() }?.let { parseHex(it) } ?: 0,
+                downCommit = c.type == "LetterKey" && typesOnContact(c, raw, c.bind["content"] != null),
             )
 
             // Backspace repeats while held. Wired through press start/end
@@ -1163,6 +1208,7 @@ class SDUIRenderer(
             }
 
             keys += key
+            registerGridKey(plane, key, c, raw.takeIf { c.bind["content"] == null })
             // Hold space to steer the caret, unless the server gave it a hold.
             if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress")) trackpadDrawn += key
             if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
@@ -1171,17 +1217,232 @@ class SDUIRenderer(
             if (c.type == "ShiftKey") drawnShiftKey = key
         }
 
-        plane.drawnGapPx = (numFromStyle(node.style["gap"]) ?: 0f) * dm.density
+        plane.drawnGapPx = stackGap(node.style) * dm.density
         // Rows can own the band between them: see TulmiKeyPlane.drawnVInsetPx.
         // Backend-set, 0 by default, so this is inert until it is turned on.
         plane.drawnVInsetPx = flagFloat("kb.touch.vInsetPx", 0f) * dm.density
-        plane.pressedFill = parseHex(theme.keyPressed)
+        plane.pressedFill = pressedColor()
         plane.setDrawnKeys(keys)
         drawnPlanes += plane
         return true
     }
 
     private var drawnShiftKey: TulmiKeyPlane.DrawnKey? = null
+
+    // -----------------------------------------------------------------------
+    // The key grid — the Android half of iOS's KeyPlaneView. One plane over
+    // the whole keyboard resolves every touch that lands among the keys into
+    // the rows beneath it (TulmiKeyPlane.gridMode); the rows keep painting the
+    // keys and running what they do. kb.keyPlane.enabled turns it off with
+    // the rest of the planes.
+    // -----------------------------------------------------------------------
+
+    private var keyGrid: TulmiKeyPlane? = null
+
+    /** The keys the grid resolves to, gathered as the tree renders. */
+    private val gridKeyRefs = ArrayList<TulmiKeyPlane.GridKey>()
+
+    /** Every plane on the keyboard, for press-order rollover between them. */
+    private val keyPlanes = ArrayList<TulmiKeyPlane>()
+    private var planeScratch = arrayOfNulls<TulmiKeyPlane>(16)
+
+    /** A plane claimed a finger: every other plane's held keys go first. */
+    private val planeClaimed: (TulmiKeyPlane) -> Unit = { rolloverFrom(it) }
+
+    /**
+     * A key is going down on [from] (null: a key with its own touch, the
+     * backspace). Every other plane types what it still holds, in press
+     * order — so space held by one thumb lands before the letter the other
+     * thumb types on contact ("hello world", not "hellow orld").
+     */
+    private fun rolloverFrom(from: TulmiKeyPlane?) {
+        val n = keyPlanes.size
+        if (n == 0) return
+        // A copy: a flushed key's listener can rebuild the tree, and the list
+        // with it. Reused, so a key down allocates nothing.
+        if (planeScratch.size < n) planeScratch = arrayOfNulls(n * 2)
+        for (i in 0 until n) planeScratch[i] = keyPlanes[i]
+        for (i in 0 until n) {
+            val p = planeScratch[i]
+            planeScratch[i] = null
+            if (p != null && p !== from) p.otherKeyDown()
+        }
+    }
+
+    private fun switchesLayout(node: KBNode): Boolean =
+        node.on["onPress"]?.let { resolve(it) } is KBActionSpec.SwitchLayout
+
+    /**
+     * Hand a key in a row to the grid, as what it is there: a character
+     * (typed, rolled onto, swiped through), shift or a layer key (a finger
+     * starts there and may slide on — kb.keyPlane.shift, kb.layerPeek.enabled),
+     * or space / return / backspace (kb.keyPlane.actionKeys: they own the gaps
+     * around them, their face stays theirs). Anything else in a row — the mic,
+     * the tone pill, the globe — is not the grid's, and vetoes it.
+     */
+    private fun registerGridKey(parent: ViewGroup, target: Any, node: KBNode, raw: String?) {
+        val row = parent as? TulmiKeyPlane ?: return
+        val kind = when (node.type) {
+            "ShiftKey" -> if (flagBoolean("kb.keyPlane.shift", true)) TulmiKeyPlane.KIND_SHIFT else return
+            "SpaceKey", "ReturnKey", "BackspaceKey" ->
+                if (flagBoolean("kb.keyPlane.actionKeys", true)) TulmiKeyPlane.KIND_ACTION else return
+            else -> when {
+                switchesLayout(node) ->
+                    if (flagBoolean("kb.layerPeek.enabled", true)) TulmiKeyPlane.KIND_LAYER else return
+                node.type == "LetterKey" && !node.on.containsKey("onPress") &&
+                    raw != null && raw.length == 1 && raw.isNotBlank() -> TulmiKeyPlane.KIND_CHAR
+                else -> return
+            }
+        }
+        val ch = if (kind == TulmiKeyPlane.KIND_CHAR) raw?.lowercase() ?: "" else ""
+        gridKeyRefs += TulmiKeyPlane.GridKey(row, target, kind, ch)
+    }
+
+    /**
+     * kb.key.commitOnDown — a key on a row's own path types when the finger
+     * lands, as iOS's letter buttons do, unless a hold means something for it:
+     * an accent tray, or a hold of its own. Keys that act (onPress) keep the
+     * lift, so a finger can still slide off them.
+     */
+    private fun typesOnContact(node: KBNode, raw: String, bound: Boolean): Boolean =
+        flagBoolean("kb.key.commitOnDown", true) && !bound && raw.isNotEmpty() &&
+            !node.on.containsKey("onPress") && !node.on.containsKey("onLongPress") && !hasAccents(raw)
+
+    private fun hasAccents(raw: String): Boolean {
+        if (raw.length != 1) return false
+        return when (val a = (kbConfig.flags["kb.accents"] as? JSONObject)?.opt(raw.lowercase())) {
+            is JSONArray -> a.length() > 0
+            is String -> a.isNotEmpty()
+            else -> false
+        }
+    }
+
+    /** Hit slop and hold timing, shared by the rows and the grid. */
+    private fun configureKeyTouch(p: TulmiKeyPlane) {
+        val d = host.context().resources.displayMetrics.density
+        // x defaults to half the 5pt gap: at slop >= gap both neighbours cover
+        // the whole gap and the one checked first always wins it.
+        p.hitSlopXPx = flagFloat("kb.key.hitSlop.x", 2f).coerceAtLeast(0f) * d
+        p.hitSlopYPx = flagFloat("kb.key.hitSlop.y", 8f).coerceAtLeast(0f) * d
+        p.longPressMs = flagFloat("kb.longPress.ms", 500f).toLong().coerceAtLeast(50L)
+    }
+
+    /**
+     * A finished trace from the grid: the letters it crossed and the ones it
+     * turned on. kb.swipe.minKeys: how many distinct keys a trace must cross
+     * before it is read as a word rather than a sloppy tap.
+     */
+    private val swipeHandler: (List<String>, List<String>) -> Unit = { letters, pivots ->
+        if (letters.size >= flagInt("kb.swipe.minKeys", 2).coerceAtLeast(2)) {
+            host.onSwipe(letters.joinToString(""), pivots.joinToString(""))
+        }
+    }
+
+    /** Put the grid over the tree just rendered, with the server's numbers. */
+    private fun mountKeyGrid() {
+        val existing = keyGrid
+        if (!flagBoolean("kb.keyPlane.enabled", true) || gridKeyRefs.isEmpty()) {
+            if (existing != null) {
+                existing.clearGrid()
+                container.removeView(existing)
+                keyGrid = null
+            }
+            return
+        }
+        val g = existing ?: TulmiKeyPlane(host.context()).also { it.gridMode = true; keyGrid = it }
+        val d = host.context().resources.displayMetrics.density
+        configureHolds(g)
+        configureKeyTouch(g)
+        g.fillGaps = flagBoolean("kb.touch.fillGaps", true)
+        g.holdMultiplier = flagFloat("kb.touch.holdMultiplier", 1.35f)
+        g.cancelCommitMaxMs = flagFloat("kb.touch.cancelCommit.maxMs", 300f).toLong()
+        g.cancelCommitMaxDriftPx = flagFloat("kb.touch.cancelCommit.maxDriftPt", 12f) * d
+        g.rolloverCommit = flagBoolean("kb.keyPlane.rolloverCommit", true)
+        g.commitOnDown = flagBoolean("kb.keyPlane.commitOnDown", false)
+        // Off unless the server turns it on, and then only for touches that
+        // were ambiguous anyway (kb.touch.bigrams says what is likely).
+        g.lmBiasPx = if (flagBoolean("kb.touch.lmBias.enabled", false)) {
+            flagFloat("kb.touch.lmBias.pt", 3f).coerceAtLeast(0f) * d
+        } else 0f
+        // The geometry: row-aware reach, edge capture, clamps, fallbacks.
+        g.vSlopPx = flagFloat("kb.touch.vSlop", 8f) * d
+        g.topRowUpSlopPx = flagFloat("kb.touch.topRowUpSlop", 12f) * d
+        g.bottomRowDownSlopPx = flagFloat("kb.touch.bottomRowDownSlop", 10f) * d
+        g.edgeToMargin = flagBoolean("kb.touch.edgeToMargin", true)
+        g.sideReachPx = flagFloat("kb.touch.sideReach", 6f) * d
+        g.rowTolerancePx = flagFloat("kb.touch.rowTolerance", 8f).coerceAtLeast(0f) * d
+        g.keyHeightCapPx = flagFloat("kb.touch.maxKeyHeight", 64f).coerceAtLeast(1f) * d
+        g.roleReachPx = flagFloat("kb.touch.roleReach", 20f) * d
+        g.totalResolve = flagBoolean("kb.touch.totalResolve", true)
+        g.alwaysRefresh = flagBoolean("kb.touch.alwaysRefresh", true)
+        g.sheet = flagBoolean("kb.keyPlane.sheet", true)
+        // Swipe is OFF unless the backend turns it on. A swipe that guesses
+        // the wrong word costs far more trust than no swipe at all, so it
+        // ships dark and gets enabled per cohort once the revert counter says
+        // it earns its place.
+        g.swipeEnabled = flagBoolean("kb.swipe.enabled", false)
+        g.onSwipe = swipeHandler
+        val pathCap = flagFloat("kb.swipe.pathCap", 128f).toInt().coerceIn(8, 4096)
+        g.swipePathCap = pathCap
+        g.swipePathTrim = flagFloat("kb.swipe.pathTrim", 64f).toInt().coerceIn(1, pathCap)
+        g.pivotWindow = flagFloat("kb.swipe.pivot.window", 3f).toInt().coerceIn(1, 64)
+        g.pivotMinTravelPx = flagFloat("kb.swipe.pivot.minTravelPt", 8f) * d
+        g.pivotMaxCos = flagFloat("kb.swipe.pivot.maxCos", 0.57f)
+        g.trailColor = flagColor("kb.swipe.trail.color", "#FFFFFFD9")
+        g.trailWidthPx = flagFloat("kb.swipe.trail.width", 7f).coerceAtLeast(0f) * d
+        g.trailFadeMs = flagFloat("kb.swipe.trail.fadeMs", 260f).toLong().coerceAtLeast(0L)
+        g.trailMaxPoints = flagFloat("kb.swipe.trail.maxPoints", 40f).toInt().coerceIn(2, 1024)
+        g.onClaim = planeClaimed
+        // Topmost, over the whole keyboard. It declines every touch that is
+        // not among the keys, so the controls beneath still get theirs.
+        if (g.parent !== container) {
+            (g.parent as? ViewGroup)?.removeView(g)
+            container.addView(g, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else if (container.indexOfChild(g) != container.childCount - 1) {
+            container.bringChildToFront(g)
+        }
+        g.rebind(ArrayList(gridKeyRefs))
+        keyPlanes += g
+    }
+
+    /**
+     * The press colour: the theme's keyPressed, else kb.press.fallbackColor,
+     * else the translucent grey iOS presses to (white 0.5 at 30%).
+     */
+    private fun pressedColor(): Int {
+        theme.keyPressed.takeIf { it.isNotBlank() }?.let { return parseHex(it) }
+        val hex = flagString("kb.press.fallbackColor", "")
+        return if (hex.isBlank()) Color.argb(0x4D, 0x80, 0x80, 0x80) else parseHex(hex)
+    }
+
+    // --- What the grid asks of the renderer ---------------------------------
+
+    /** The last character a key typed; kb.touch.bigrams is keyed by it. */
+    private var lastInsertedChar: Char? = null
+    private var bigrams: Map<Char, String>? = null
+
+    /** Exactly what the last key insert put in the field, and a char taken
+     *  back for a tray that has not opened yet. */
+    private var lastKeyInsert: String? = null
+    private var retracted: String? = null
+
+    /** The letters likely after the last one typed (kb.touch.bigrams), for
+     *  the grid's language-model bias. Parsed once per config. */
+    private fun likelyNext(): String {
+        // A password is not language: nothing typed there steers the next key.
+        if (host.state().secured) return ""
+        val prev = lastInsertedChar ?: return ""
+        val table = bigrams ?: HashMap<Char, String>().also { out ->
+            (kbConfig.flags["kb.touch.bigrams"] as? JSONObject)?.let { t ->
+                for (k in t.keys()) {
+                    val v = t.optString(k, "")
+                    if (k.isNotEmpty() && v.isNotEmpty()) out[k.lowercase()[0]] = v.lowercase()
+                }
+            }
+            bigrams = out
+        }
+        return table[prev] ?: ""
+    }
 
     // -----------------------------------------------------------------------
     // Held keys and the pop-up — the Android half of iOS's key callout, accent
@@ -1433,6 +1694,51 @@ class SDUIRenderer(
             trackpadAnchor = -1
             trackpadWindow = ""
         }
+
+        /**
+         * A letter typed on contact is being held for its tray: take it back,
+         * so the release chooses. Only while it is still the last thing typed
+         * and the field still ends with it — never someone else's text.
+         */
+        override fun retract(owner: Any, label: String?): Boolean {
+            val ins = lastKeyInsert ?: return false
+            if (label == null || !ins.equals(label, ignoreCase = true)) return false
+            if (accentsFor(label) == null || keyPop?.trayOpen == true) return false
+            val ic = host.ic() ?: return false
+            if (ic.getTextBeforeCursor(ins.length, 0)?.toString() != ins) return false
+            ic.deleteSurroundingText(ins.length, 0)
+            lastKeyInsert = null
+            lastInsertedChar = null
+            retracted = ins
+            host.onTextDeleted()
+            // A one-shot shift went with the letter: give it back for the
+            // accent, which is cased from it.
+            val s = host.state()
+            if (!s.capsLock && !s.shift && ins.length == 1 && ins[0].isUpperCase()) {
+                s.shift = true
+                host.onStateChanged()
+            }
+            return true
+        }
+
+        override fun restoreRetracted() {
+            val r = retracted ?: return
+            retracted = null
+            host.ic()?.commitText(r, 1)
+            lastKeyInsert = r
+            lastInsertedChar = r.lastOrNull()?.lowercaseChar()
+            host.onTextInserted()
+            val s = host.state()
+            if (s.shift && !s.capsLock) { s.shift = false; host.onStateChanged() }
+        }
+
+        override fun likelyNext(): String = this@SDUIRenderer.likelyNext()
+
+        override fun layoutId(): String? = host.state().layoutId
+
+        override fun peekReturn(layout: String) {
+            if (host.state().layoutId != layout) host.switchLayout(layout)
+        }
     }
 
     /**
@@ -1569,10 +1875,23 @@ class SDUIRenderer(
                 hapticTap(b, "tone")
                 showToneSheet(b)
             }
-        } else {
-            b.setOnLongClickListener { invokeEvent(node, "onLongPress"); true }
+        } else if (node.on.containsKey("onLongPress")) {
+            // Through the row's plane, after kb.longPress.ms: a long-click
+            // listener never fired there, because the plane types with
+            // performClick().
+            bindHold(parent, b, flagFloat("kb.longPress.ms", 500f).toLong()) { invokeEvent(node, "onLongPress") }
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        registerGridKey(parent, b, node, raw.takeIf { bound == null })
+        if (!isTonePill && typesOnContact(node, raw, bound != null)) {
+            (parent as? TulmiKeyPlane)?.setCommitOnDown(b)
+            // With the planes off the key takes its own touches: it types on
+            // contact there too, and the rest of the press is spent.
+            b.setOnTouchListener { v, e ->
+                if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) v.performClick()
+                true
+            }
+        }
     }
 
     /**
@@ -1641,13 +1960,18 @@ class SDUIRenderer(
             hapticTap(view)
             invokeEvent(node, "onPress")
         }
-        view.setOnLongClickListener { invokeEvent(node, "onLongPress"); true }
+        // on.onLongPress after kb.longPress.ms, as iOS's attachLongPress.
+        if (node.on.containsKey("onLongPress")) {
+            bindHold(parent, view, flagFloat("kb.longPress.ms", 500f).toLong()) { invokeEvent(node, "onLongPress") }
+        }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
+        // A layer key drawn as an icon peeks like any other.
+        registerGridKey(parent, view, node, null)
     }
 
     /** SpaceKey — wide button using labels.space or "space" as fallback. */
     private fun renderSpaceKey(node: KBNode, parent: ViewGroup) {
-        val b = keyButton(label("space", "space"), node)
+        val b = keyButton(spaceLabel(), node)
         b.setOnClickListener {
             hapticTap(b, "space")
             pressSpace()
@@ -1657,6 +1981,15 @@ class SDUIRenderer(
         // gave space a hold of its own.
         if (!node.on.containsKey("onLongPress")) trackpadViews += b
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        registerGridKey(parent, b, node, null)
+    }
+
+    /** What space says: the input language when there is more than one
+     *  keyboard to tell apart, as the system's does; else labels.space. */
+    private fun spaceLabel(): String {
+        val s = host.state()
+        return if (s.hasMultipleKeyboards && s.primaryLanguage.isNotEmpty()) s.primaryLanguage
+        else label("space", "space")
     }
 
     /**
@@ -1748,6 +2081,7 @@ class SDUIRenderer(
             invokeEvent(node, "onLongPress")
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        registerGridKey(parent, b, node, null)
         // After the node style: its fg is the RESTING colour, and a locked
         // shift is drawn in kb.shift.lockedColor over it.
         shiftRestColor = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(theme.keyText)
@@ -1800,6 +2134,7 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
+        registerGridKey(parent, b, node, null)
         // After the node style, which would otherwise repaint it plain.
         if (returnIsAccent()) {
             (b.background as? GradientDrawable)?.setColor(flagColor("kb.returnKey.actionBg", "#007AFF"))
@@ -1815,6 +2150,10 @@ class SDUIRenderer(
      * — a whole code point, so an emoji is never cut in half.
      */
     private fun deleteBackwardOnce(checkSelection: Boolean = true) {
+        // What comes next is unknown now: the likely-letter bias is off until
+        // the next key, and nothing left can be taken back for a tray.
+        lastInsertedChar = null
+        lastKeyInsert = null
         if (host.onBackspace()) return
         val ic = host.ic() ?: return
         val selected = if (checkSelection) ic.getSelectedText(0) else null
@@ -1845,7 +2184,9 @@ class SDUIRenderer(
                 if (count == 0) onFirst()
                 count += 1
                 if (wordAfter > 0 && count > wordAfter) {
-                    if (!host.onBackspace()) { deleteWord(); host.onTextDeleted() }
+                    // kb.delete.wordMaxChars — one accelerated step never eats more.
+                    val cap = flagFloat("kb.delete.wordMaxChars", 64f).toInt().coerceIn(0, 100_000)
+                    if (!host.onBackspace()) { deleteWord(cap); host.onTextDeleted() }
                 } else {
                     deleteBackwardOnce(checkSelection = false)
                 }
@@ -1878,6 +2219,9 @@ class SDUIRenderer(
         view.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 android.view.MotionEvent.ACTION_DOWN -> {
+                    // Press order holds for a key with its own touch too: a
+                    // letter still held by the other thumb goes in first.
+                    rolloverFrom(null)
                     repeated = false
                     val r = deleteRepeater(onFirst = {
                         repeated = true
@@ -1901,9 +2245,15 @@ class SDUIRenderer(
             }
         }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
+        registerGridKey(parent, view, node, null)
     }
 
-    /** GlobeKey — press = system IME picker; long-press = cycle layouts. */
+    /**
+     * GlobeKey — the system's keyboard switcher, as iOS wires it with
+     * kb.globe.systemPicker: a tap moves to the next keyboard, a hold shows the
+     * system's list of them. Off, the hold cycles this keyboard's own layouts
+     * instead. A node's own on.onPress / on.onLongPress runs in place of either.
+     */
     private fun renderGlobeKey(node: KBNode, parent: ViewGroup) {
         val resId = iconRegistry["globe"]
         val view: View = if (resId != null) {
@@ -1914,19 +2264,49 @@ class SDUIRenderer(
         } else {
             keyButton(label("globe", "\u2295"), node)   // circled plus, a text mark not a pictograph
         }
+        val systemPicker = flagBoolean("kb.globe.systemPicker", true)
         view.setOnClickListener {
             hapticTap(view, "globe")
-            val imm = host.context().getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showInputMethodPicker()
-            invokeEvent(node, "onPress")
+            if (node.on.containsKey("onPress")) invokeEvent(node, "onPress") else nextInputMethod()
         }
-        view.setOnLongClickListener {
+        // Held through the row's plane (a long-click listener never fired
+        // there), after kb.longPress.ms.
+        bindHold(parent, view, flagFloat("kb.longPress.ms", 500f).toLong()) {
             hapticTap(view, "globe")
-            host.cycleLayout()
-            invokeEvent(node, "onLongPress")
-            true
+            when {
+                node.on.containsKey("onLongPress") -> invokeEvent(node, "onLongPress")
+                systemPicker -> showInputMethodPicker()
+                else -> host.cycleLayout()
+            }
         }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
+    }
+
+    /** The next enabled keyboard, as the system's own globe does. When the
+     *  system has nowhere to go (or will not say), its list instead — the key
+     *  is never a dead one. */
+    private fun nextInputMethod() {
+        val ims = host.context() as? android.inputmethodservice.InputMethodService
+        val moved = try {
+            when {
+                ims == null -> false
+                Build.VERSION.SDK_INT >= 28 -> ims.switchToNextInputMethod(false)
+                else -> {
+                    val token = ims.window?.window?.attributes?.token
+                    val imm = ims.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                    @Suppress("DEPRECATION")
+                    token != null && imm?.switchToNextInputMethod(token, false) == true
+                }
+            }
+        } catch (_: Throwable) { false }
+        if (!moved) showInputMethodPicker()
+    }
+
+    private fun showInputMethodPicker() {
+        try {
+            val imm = host.context().getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            imm?.showInputMethodPicker()
+        } catch (_: Throwable) { /* nothing to show it over; the key simply did nothing */ }
     }
 
     /**
@@ -2110,12 +2490,18 @@ class SDUIRenderer(
         addChildWithStyle(parent, tv, node.style, isRow = parent.isHorizontal())
     }
 
-    /** Divider — hairline strip. Uses theme.keyText @ low alpha unless overridden. */
+    /**
+     * Divider — a hairline. The node's own bg when it sets one, else
+     * kb.divider.color (the old white at 8%, to the nearest byte);
+     * kb.divider.thicknessPx thick in PHYSICAL pixels, so 1 is a true
+     * hairline on every screen, as on iOS.
+     */
     private fun renderDivider(node: KBNode, parent: ViewGroup) {
         val v = View(host.context())
-        val bg = (node.style["bg"] as? String) ?: theme.keyText
-        v.setBackgroundColor(parseHex(bg) and 0x33FFFFFF.toInt())
-        val h = dp(1)
+        val bg = (node.style["bg"] as? String)?.takeIf { it.isNotBlank() }?.let { parseHex(it) }
+            ?: flagColor("kb.divider.color", "#FFFFFF14")
+        v.setBackgroundColor(bg)
+        val h = Math.round(flagFloat("kb.divider.thicknessPx", 1f)).coerceAtLeast(1)
         val lp: ViewGroup.LayoutParams = if (parent.isHorizontal()) {
             LinearLayout.LayoutParams(h, ViewGroup.LayoutParams.MATCH_PARENT)
         } else {
@@ -2484,6 +2870,13 @@ class SDUIRenderer(
         numFromStyle(style["opacity"])?.let { v.alpha = it.coerceIn(0f, 1f) }
         (style["fg"] as? String)?.let { if (v is TextView) v.setTextColor(parseHex(it)) }
         parent.addView(v, lp)
+        // A key in a row casts the theme's shadow (theme.keyShadow), painted
+        // by the row under it — see TulmiKeyPlane.setKeyShadow.
+        if (theme.keyShadow && parent is TulmiKeyPlane && v !is LinearLayout) {
+            (v.background as? GradientDrawable)?.let { gd ->
+                parent.addShadow(v, gd.cornerRadius, Color.alpha(gd.color?.defaultColor ?: 0))
+            }
+        }
     }
 
     private fun applyTextStyle(v: TextView, style: Map<String, Any?>) {
@@ -2544,7 +2937,12 @@ class SDUIRenderer(
             is KBActionSpec.InsertText -> insertText(spec.text)
             is KBActionSpec.InsertKey -> insertText(spec.char)
             is KBActionSpec.DeleteBackward -> deleteBackwardOnce()
-            is KBActionSpec.DeleteWord -> { deleteWord(); host.onTextDeleted() }
+            // kb.deleteWord.maxChars bounds it on an editor that reports
+            // something unusual before the caret.
+            is KBActionSpec.DeleteWord -> {
+                deleteWord(flagFloat("kb.deleteWord.maxChars", 1000f).toInt().coerceIn(0, 100_000))
+                host.onTextDeleted()
+            }
             is KBActionSpec.Shift -> pressShift()
             is KBActionSpec.CapsLock -> holdShift()
             is KBActionSpec.Return -> pressReturn()
@@ -2600,7 +2998,23 @@ class SDUIRenderer(
     }
 
     private fun insertText(text: String) {
-        host.ic()?.commitText(text, 1)
+        var out = text
+        // Auto-space pull-back: a suggestion or a swipe just typed "word " —
+        // terminal punctuation typed next goes before that space, not after it
+        // ("word ," → "word, "), as the system keyboard does for an accepted
+        // prediction. kb.autoSpace.pullBackChars says which characters.
+        if (host.takeAutoSpace() && text.length == 1 &&
+            flagString("kb.autoSpace.pullBackChars", ",.!?;:)]…’”").contains(text)) {
+            val ic = host.ic()
+            if (ic != null && ic.getTextBeforeCursor(1, 0)?.toString() == " ") {
+                ic.deleteSurroundingText(1, 0)
+                out = "$text "
+            }
+        }
+        host.ic()?.commitText(out, 1)
+        lastKeyInsert = out
+        retracted = null
+        lastInsertedChar = out.lastOrNull()?.lowercaseChar()
         TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
         // SDUI keys commit straight through here and never reach onKey(), so
         // this — not the legacy key handler — is where the suggestion bar has
@@ -2766,12 +3180,14 @@ class SDUIRenderer(
         pickTone(item)
     }
 
-    /** Look back for a word boundary and delete that many chars. */
-    private fun deleteWord() {
+    /** Look back for a word boundary and delete that many chars — never more
+     *  than [maxChars], which is also as far as it looks. */
+    private fun deleteWord(maxChars: Int) {
+        lastInsertedChar = null
+        lastKeyInsert = null
+        if (maxChars <= 0) return
         val ic = host.ic() ?: return
-        // 1024-char lookback is plenty for any real word (longest German
-        // compound is ~64 chars). Bigger buffers just waste an IPC roundtrip.
-        val before = ic.getTextBeforeCursor(1024, 0)?.toString() ?: return
+        val before = ic.getTextBeforeCursor(maxChars, 0)?.toString() ?: return
         if (before.isEmpty()) return
         var i = before.length - 1
         while (i >= 0 && before[i].isWhitespace()) i--
@@ -3235,6 +3651,7 @@ class SDUIRenderer(
             "refining" -> s.refining
             "hasFullAccess" -> s.hasFullAccess
             "hasMultipleKeyboards" -> s.hasMultipleKeyboards
+            "primaryLanguage" -> s.primaryLanguage
             "secured" -> s.secured
             "trackpadActive" -> s.trackpadActive
             "appearance" -> s.appearance
@@ -4540,7 +4957,9 @@ class SDUIRenderer(
             key = t.optString("key", "#2b2b33"),
             keyText = t.optString("keyText", "#ffffff"),
             accent = t.optString("accent", "#ffffff"),
-            keyPressed = t.optString("keyPressed", "#3a3a45"),
+            // Blank when the theme sends none: kb.press.fallbackColor decides
+            // then (SDUIRenderer.pressedColor), as on iOS.
+            keyPressed = t.optString("keyPressed", ""),
             backgroundEffect = parseEffect(t.optJSONObject("backgroundEffect")),
             keyEffect = parseEffect(t.optJSONObject("keyEffect")),
             keyRadius = t.optDouble("keyRadius", 6.0).toFloat(),
