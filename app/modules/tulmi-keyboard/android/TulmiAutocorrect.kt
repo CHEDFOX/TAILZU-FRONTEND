@@ -44,8 +44,11 @@ object TulmiAutocorrect {
      *   kb.autocorrect.distantCost     swapping it for a distant one
      *   kb.autocorrect.punctCost       inserting or removing punctuation
      *   kb.autocorrect.maxCostPerChar  total cost allowed per typed character
+     *   kb.autocorrect.maxDistance     total cost allowed at all, however long the word
      *   kb.autocorrect.minLen          words this short are left alone
-     *   kb.autocorrect.maxLengthDelta  a candidate this much longer/shorter is a different word
+     *   kb.autocorrect.maxLen          words this long are left alone too
+     *   kb.autocorrect.maxLenDelta     a candidate this much longer/shorter is a different word
+     *   kb.autocorrect.maxGuesses      how many of the checker's guesses are weighed
      *   kb.autocorrect.punctChars      which characters count as punctuation
      */
     private class Weights(
@@ -86,24 +89,53 @@ object TulmiAutocorrect {
         return hypot(pa.x - pb.x, pa.y - pb.y) <= neighbourRadius
     }
 
+    /** The same key, or one beside it on the layout as drawn. The swipe
+     *  decoder's tolerance for a corner that landed a key off. */
+    fun near(a: Char, b: Char): Boolean = a == b || areNeighbours(a, b)
+
     /**
      * Should `typed` be replaced by `candidate`?
      *
      * Case and punctuation-only differences are treated generously; anything
      * requiring the user to have missed by a long way is refused.
      */
-    fun accepts(typed: String, candidate: String): Boolean {
+    fun accepts(typed: String, candidate: String): Boolean = cost(typed, candidate) != null
+
+    /**
+     * The correction to make, from the checker's guesses in the checker's own
+     * order: the cheapest of the first kb.autocorrect.maxGuesses that the cost
+     * model accepts, or null to leave the word alone — as iOS picks its own.
+     * Taking the first guess instead let the checker's ranking overrule the
+     * one question that matters here: which of these is a slip of the finger.
+     */
+    fun pick(typed: String, guesses: List<String>): String? {
+        val n = knobInt("kb.autocorrect.maxGuesses", 8).coerceIn(1, 64)
+        var best: String? = null
+        var bestCost = Float.MAX_VALUE
+        for (g in guesses.take(n)) {
+            val c = cost(typed, g) ?: continue
+            if (c < bestCost) { best = g; bestCost = c }
+        }
+        return best
+    }
+
+    /** What replacing `typed` with `candidate` would cost, or null when the
+     *  replacement is refused outright. */
+    private fun cost(typed: String, candidate: String): Float? {
         val a = typed.trim()
         val b = candidate.trim()
-        if (a.isEmpty() || b.isEmpty()) return false
-        if (a.equals(b, ignoreCase = true)) return false
-        if (a.length < knobInt("kb.autocorrect.minLen", 3)) return false
+        if (a.isEmpty() || b.isEmpty()) return null
+        if (a.equals(b, ignoreCase = true)) return null
+        if (a.length < knobInt("kb.autocorrect.minLen", 3)) return null
+        // A word past kb.autocorrect.maxLen is a URL, a code or a compound the
+        // dictionary does not know, not a slip of the finger.
+        if (a.length > knobInt("kb.autocorrect.maxLen", 24).coerceIn(1, 256)) return null
         // A candidate that is a wildly different length is a different word, not
         // a repair of this one.
-        if (kotlin.math.abs(a.length - b.length) > knobInt("kb.autocorrect.maxLengthDelta", 2)) return false
+        if (kotlin.math.abs(a.length - b.length) > knobInt("kb.autocorrect.maxLenDelta", 1).coerceIn(0, 16)) return null
         // Never "correct" something the user capitalised deliberately — a name
         // they typed with a capital is a name.
-        if (a.first().isUpperCase() && !b.first().isUpperCase()) return false
+        if (a.first().isUpperCase() && !b.first().isUpperCase()) return null
 
         val w = Weights(
             neighbour = knobFloat("kb.autocorrect.neighborCost", 0.4f),
@@ -112,7 +144,11 @@ object TulmiAutocorrect {
             punctChars = knobString("kb.autocorrect.punctChars", "'\u2019-."),
         )
         val cost = weightedDistance(a.lowercase(), b.lowercase(), w)
-        return cost <= knobFloat("kb.autocorrect.maxCostPerChar", 0.5f) * a.length
+        if (cost > knobFloat("kb.autocorrect.maxCostPerChar", 0.5f) * a.length) return null
+        // And a ceiling however long the word: a correction that needs more
+        // slips than kb.autocorrect.maxDistance is a different word.
+        if (cost > knobFloat("kb.autocorrect.maxDistance", 2.0f)) return null
+        return cost
     }
 
     /**
