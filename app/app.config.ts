@@ -91,7 +91,7 @@ const config: ExpoConfig = {
   // side — three bridge functions and two new signatures, the widget
   // extension with its Live Activity and Control, and the reworked keyboards
   // — so an update written for it must never reach a binary without them.
-  runtimeVersion: "tailzu-2026-09-k41-a3",
+  runtimeVersion: "tailzu-2026-09-k42-a3",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the

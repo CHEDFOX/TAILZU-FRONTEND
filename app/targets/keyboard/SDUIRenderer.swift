@@ -195,6 +195,16 @@ final class KeyPlaneView: UIView {
   /// all the way to the keyboard edge (the dead corners beside "a" and "l"
   /// on the indented middle row — native types the edge letter there).
   var edgeToMargin = true
+  /// kb.touch.bottomToEdge — the bottom row owns everything below it, down to
+  /// the keyboard's own bottom edge: the padding above the home indicator is
+  /// the space bar's, the return key's, 123's, as on the system keyboard.
+  /// Off: bottomRowDownSlop alone.
+  var bottomToEdge = true
+  /// kb.touch.topStopsAtToolbar — the top row's upward reach ends at the
+  /// toolbar's controls, so the gap under the toolbar types and the empty
+  /// toolbar beside the mic and the tone pill does not. Off: topRowUpSlop
+  /// alone decides.
+  var topStopsAtToolbar = true
   /// kb.shift.longPressMs — hold-to-caps-lock threshold for the plane-managed
   /// shift key (its old gesture recognizer is dead once the plane owns it).
   var shiftLongPressMs: Double = 350
@@ -727,7 +737,9 @@ final class KeyPlaneView: UIView {
       let (b, ch, r) = entry
       let i = rowOf[n]
       let up = i == 0 ? topRowUpSlop : vSlop
-      let down = i == lastRow ? bottomRowDownSlop : vSlop
+      let down = i == lastRow
+        ? (bottomToEdge ? max(bottomRowDownSlop, bounds.maxY - r.maxY) : bottomRowDownSlop)
+        : vSlop
       let sideReach = r.width / 2 + sideReachExtra
       var left = r.minX - sideReach
       var right = r.maxX + sideReach
@@ -762,14 +774,40 @@ final class KeyPlaneView: UIView {
     // margins beside the outer keys are theirs too.
     var span = CGRect.null
     for f in out where f.2.intersects(bounds) { span = span.union(f.2) }
+    // The toolbar's controls bound the band from above, so they are needed
+    // before it is drawn.
+    refreshObstacleRects()
     if span.isNull {
       gridBand = .zero
+      bottomRowMaxY = .greatestFiniteMagnitude
     } else {
-      gridBand = CGRect(x: bounds.minX, y: span.minY - topRowUpSlop,
-                        width: bounds.width,
-                        height: span.height + topRowUpSlop + bottomRowDownSlop)
+      var top = span.minY - topRowUpSlop
+      if topStopsAtToolbar {
+        // The lowest control that sits wholly above the keys: the mic, the
+        // tone pill, a suggestion chip. The band starts there and not higher.
+        let ceiling = obstacleRects.filter { $0.maxY <= span.minY + 1 }.map(\.maxY).max()
+        if let c = ceiling { top = max(top, min(c, span.minY)) }
+      }
+      let bottom = bottomToEdge ? max(span.maxY + bottomRowDownSlop, bounds.maxY) : span.maxY + bottomRowDownSlop
+      gridBand = CGRect(x: bounds.minX, y: top, width: bounds.width, height: bottom - top)
+      bottomRowMaxY = span.maxY
     }
-    refreshObstacleRects()
+  }
+
+  /// The bottom of the bottom row, for bottomToEdge; unset until the grid is.
+  private var bottomRowMaxY: CGFloat = .greatestFiniteMagnitude
+
+  /// A role key's touch rect (shift, 123): its own slop, and on the bottom row
+  /// with bottomToEdge, everything below it to the keyboard's edge.
+  private func roleTouchRect(_ f: (button: UIButton, role: Role, rect: CGRect)) -> CGRect {
+    let slop = (f.button as? KeyHitButton)?.hitSlop
+      ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
+    var r = f.rect.inset(by: UIEdgeInsets(
+      top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+    if bottomToEdge, f.rect.maxY >= bottomRowMaxY - rowTolerance, gridBand.maxY > r.maxY {
+      r.size.height = gridBand.maxY - r.minY
+    }
+    return r
   }
 
   /// The character key nearest `point`, but only when `point` genuinely lands
@@ -860,10 +898,7 @@ final class KeyPlaneView: UIView {
   private func roleKeyAt(_ point: CGPoint) -> (button: UIButton, role: Role)? {
     var best: (button: UIButton, role: Role, dist: CGFloat)?
     for f in roleFrames {
-      let slop = (f.button as? KeyHitButton)?.hitSlop
-        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
-      let expanded = f.rect.inset(by: UIEdgeInsets(
-        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
+      let expanded = roleTouchRect(f)
       let dx = max(0, max(f.rect.minX - point.x, point.x - f.rect.maxX))
       let dy = max(0, max(f.rect.minY - point.y, point.y - f.rect.maxY))
       let d = dx + dy
@@ -979,13 +1014,7 @@ final class KeyPlaneView: UIView {
   /// keypress, before the real resolve in touchesBegan did it again.
   private func owns(_ point: CGPoint) -> Bool {
     for o in obstacleRects where o.contains(point) { return false }
-    for f in roleFrames {
-      let slop = (f.button as? KeyHitButton)?.hitSlop
-        ?? UIEdgeInsets(top: 8, left: 2, bottom: 8, right: 2)
-      let expanded = f.rect.inset(by: UIEdgeInsets(
-        top: -slop.top, left: -slop.left, bottom: -slop.bottom, right: -slop.right))
-      if expanded.contains(point) { return true }
-    }
+    for f in roleFrames where roleTouchRect(f).contains(point) { return true }
     if frames.isEmpty { return false }
     // The whole rule, when gaps are filled: inside the key area and not on a
     // control means it is ours, and keyAt gives it to the nearest key. It
@@ -4114,6 +4143,8 @@ final class SDUIRenderer: NSObject {
         plane.topRowUpSlop = flagCGFloat("kb.touch.topRowUpSlop", 12)
         plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
         plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
+        plane.bottomToEdge = flagBool("kb.touch.bottomToEdge", true)
+        plane.topStopsAtToolbar = flagBool("kb.touch.topStopsAtToolbar", true)
         plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
         plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
         plane.swipeMinKeys = clampInt(flagDouble("kb.swipe.minKeys", 3), 2, 64)
@@ -4129,9 +4160,23 @@ final class SDUIRenderer: NSObject {
         // The sheet without its paint — see KeyPlaneView.sheet. It keeps the
         // display passes the overlay asked for, and .redraw with them, because
         // the keyboard has only ever worked reliably with those in place.
-        plane.sheet = flagBool("kb.keyPlane.sheet", true)
-        plane.backgroundColor = .clear
+        //
+        // THE DEAD GAPS WERE NEVER THE GEOMETRY. A custom keyboard is drawn in
+        // its own process and composited into the host app, and iOS hands it a
+        // touch only where it has painted something. The plane was .clear and
+        // the space between keys paints nothing, so a tap there never reached
+        // the keyboard, whatever hitTest and keyAt would have said. Key centres
+        // are painted, so they always worked: "centres perfect, gaps dead". It
+        // is also why the green debug sheet cured it every time it was tried
+        // and its paint-free copy (the sheet below) never did: the cure was the
+        // paint. A tint no one can see does the same, over the whole plane.
+        plane.backgroundColor = planeTouchColor()
         plane.isOpaque = false
+        // The sheet's display passes, kept since K35 on the belief that they
+        // were the cure, cost a full-surface redraw on every hit test, i.e.
+        // every keystroke, on the main thread, while typing fast. Off; a new
+        // key, so builds that still depend on the old one keep it.
+        plane.sheet = flagBool("kb.keyPlane.redrawOnTouch", false)
         plane.contentMode = (plane.debugRects || plane.sheet) ? .redraw : .scaleToFill
         plane.holdMultiplier = flagCGFloat("kb.touch.holdMultiplier", 1.0)
         plane.cancelCommitMaxMs = flagDouble("kb.touch.cancelCommit.maxMs", 300)
@@ -4236,7 +4281,7 @@ final class SDUIRenderer: NSObject {
   /// K41: the mic ring moves with the voice (the app sends the level), and
   /// password boxes — secure or marked by content type — get no mic, no
   /// Refine and no autocorrect.
-  static let buildStamp = "K41"
+  static let buildStamp = "K42"
 
   /// The bundled brand mark.
   ///
@@ -4798,6 +4843,17 @@ final class SDUIRenderer: NSObject {
   }
   private func flagColor(_ key: String, _ def: String) -> UIColor {
     UIColor(tulmiHex: flagString(key, def))
+  }
+  /// The key plane's paint: invisible, and never clear (see remount). Under
+  /// 2/255 of alpha a composited pixel rounds to nothing, which is a clear
+  /// plane again, so a server value that thin is raised to it; and a value a
+  /// person could see (or one that does not parse, which reads as opaque
+  /// grey) is held to 4%, so no setting can ever cover the keys.
+  private func planeTouchColor() -> UIColor {
+    let c = flagColor("kb.keyPlane.touchColor", "#00000005")
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    guard c.getRed(&r, green: &g, blue: &b, alpha: &a) else { return UIColor(white: 0, alpha: 5.0 / 255.0) }
+    return UIColor(red: r, green: g, blue: b, alpha: min(max(a, 2.0 / 255.0), 0.04))
   }
   /// Icon-spec flag — resolves to a UIImage via the same resolver used by
   /// IconKey. Backend can pass { sf: "..." } / { asset: "..." } / { url: "..." }
