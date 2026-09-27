@@ -201,10 +201,10 @@ final class KeyPlaneView: UIView {
   /// Off: bottomRowDownSlop alone.
   var bottomToEdge = true
   /// kb.touch.topStopsAtToolbar — the top row's upward reach ends at the
-  /// toolbar's controls, so the gap under the toolbar types and the empty
-  /// toolbar beside the mic and the tone pill does not. Off: topRowUpSlop
-  /// alone decides.
-  var topStopsAtToolbar = true
+  /// toolbar's controls, so the empty toolbar beside the mic and the tone pill
+  /// types nothing. OFF by decision: every point on the keyboard belongs to
+  /// some key, the toolbar's spaces included, and topRowUpSlop reaches them.
+  var topStopsAtToolbar = false
   /// kb.shift.longPressMs — hold-to-caps-lock threshold for the plane-managed
   /// shift key (its old gesture recognizer is dead once the plane owns it).
   var shiftLongPressMs: Double = 350
@@ -4144,7 +4144,7 @@ final class SDUIRenderer: NSObject {
         plane.bottomRowDownSlop = flagCGFloat("kb.touch.bottomRowDownSlop", 10)
         plane.edgeToMargin = flagBool("kb.touch.edgeToMargin", true)
         plane.bottomToEdge = flagBool("kb.touch.bottomToEdge", true)
-        plane.topStopsAtToolbar = flagBool("kb.touch.topStopsAtToolbar", true)
+        plane.topStopsAtToolbar = flagBool("kb.touch.topStopsAtToolbar", false)
         plane.shiftLongPressMs = flagDouble("kb.shift.longPressMs", 350)
         plane.swipeEnabled = flagBool("kb.swipe.enabled", false)
         plane.swipeMinKeys = clampInt(flagDouble("kb.swipe.minKeys", 3), 2, 64)

@@ -1698,9 +1698,9 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
      *  row's slop alone. */
     var bottomToEdge: Boolean = true
     /** kb.touch.topStopsAtToolbar — the top row's upward reach ends at the
-     *  tools row's controls, so the gap under them types and the empty tools
-     *  row beside the mic and the tone pill does not. */
-    var topStopsAtToolbar: Boolean = true
+     *  tools row's controls. Off by decision: every point belongs to some key,
+     *  the tools row's spaces included. */
+    var topStopsAtToolbar: Boolean = false
     /** The bottom of the bottom row, for bottomToEdge. */
     private var bottomRowBottom = Float.MAX_VALUE
     /** kb.touch.sideReach — past half its own width, sideways. */

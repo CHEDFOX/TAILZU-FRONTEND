@@ -2,7 +2,7 @@
  "schemaVersion": 1,
  "cacheVersion": "mui4se79.kzz",
  "theme": {
-  "background": "#00000000",
+  "background": "#00000005",
   "key": "#FFFFFF8C",
   "keyText": "#FFFFFF",
   "accent": "#8E8E93",
@@ -11,7 +11,7 @@
   "keyShadow": true
  },
  "themeDark": {
-  "background": "#00000000",
+  "background": "#00000005",
   "key": "#FFFFFF8C",
   "keyText": "#FFFFFF",
   "accent": "#8E8E93",
@@ -20,7 +20,7 @@
   "keyShadow": true
  },
  "themeLight": {
-  "background": "#00000000",
+  "background": "#00000005",
   "key": "#FFFFFFE6",
   "keyText": "#000000",
   "accent": "#8E8E93",
@@ -2633,7 +2633,7 @@
   "kb.key.liftSlop": 14,
   "kb.key.cancelMs": 250,
   "kb.key.liftRollover": true,
-  "kb.touch.roleReach": 20,
+  "kb.touch.roleReach": 32,
   "kb.key.shadow.color": "#000000",
   "kb.key.shadow.offsetY": 1,
   "kb.key.shadow.opacity": 0.4,
@@ -2713,7 +2713,7 @@
   "kb.mic.liveText": false,
   "kb.keyPlane.rolloverCommit": true,
   "kb.keyPlane.commitOnDown": true,
-  "kb.keyPlane.sheet": true,
+  "kb.keyPlane.sheet": false,
   "kb.keyPlane.accentTrays": true,
   "kb.autocorrect.enabled": true,
   "kb.autocorrect.minLen": 3,
@@ -2754,7 +2754,7 @@
   "kb.debug.showTouchRects": false,
   "kb.touch.vSlop": 12,
   "kb.touch.topRowUpSlop": 52,
-  "kb.touch.bottomRowDownSlop": 14,
+  "kb.touch.bottomRowDownSlop": 40,
   "kb.touch.edgeToMargin": true,
   "kb.trackpad.enabled": true,
   "kb.trackpad.longPressMs": 300,

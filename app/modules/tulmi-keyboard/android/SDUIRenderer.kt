@@ -1370,7 +1370,7 @@ class SDUIRenderer(
         g.bottomRowDownSlopPx = flagFloat("kb.touch.bottomRowDownSlop", 10f) * d
         g.edgeToMargin = flagBoolean("kb.touch.edgeToMargin", true)
         g.bottomToEdge = flagBoolean("kb.touch.bottomToEdge", true)
-        g.topStopsAtToolbar = flagBoolean("kb.touch.topStopsAtToolbar", true)
+        g.topStopsAtToolbar = flagBoolean("kb.touch.topStopsAtToolbar", false)
         g.sideReachPx = flagFloat("kb.touch.sideReach", 6f) * d
         g.rowTolerancePx = flagFloat("kb.touch.rowTolerance", 8f).coerceAtLeast(0f) * d
         g.keyHeightCapPx = flagFloat("kb.touch.maxKeyHeight", 64f).coerceAtLeast(1f) * d
