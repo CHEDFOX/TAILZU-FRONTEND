@@ -44,10 +44,12 @@ const FILMS = [
 ];
 const VOICES = ["signature", "professional", "friendly", "witty", "concise", "gentle", "playful", "romantic", "concise-boss", "explainer", "excited", "poetic", "bard", "pirate", "trailer", "noir"];
 const POSTERS = [
-  ...VOICES.map((id) => ({ id, w: 1200, h: 750, file: `you-voice-${id}.png`, key: `you.voice.${id}` })),
-  { id: "train", w: 1200, h: 750, file: "you-train.png", key: "you.train" },
-  { id: "dictionary", w: 1200, h: 750, file: "you-dictionary.png", key: "you.dictionary" },
-  { id: "languages", w: 1200, h: 750, file: "you-languages.png", key: "you.languages" },
+  // WebP: a poster is about 16 KB this way against about 220 KB as PNG, and
+  // the text stays sharp at card size.
+  ...VOICES.map((id) => ({ id, w: 1200, h: 750, file: `you-voice-${id}.webp`, key: `you.voice.${id}` })),
+  { id: "train", w: 1200, h: 750, file: "you-train.webp", key: "you.train" },
+  { id: "dictionary", w: 1200, h: 750, file: "you-dictionary.webp", key: "you.dictionary" },
+  { id: "languages", w: 1200, h: 750, file: "you-languages.webp", key: "you.languages" },
 ];
 
 fs.mkdirSync(out, { recursive: true });
@@ -97,9 +99,14 @@ for (const f of FILMS) {
 if (only.includes("posters")) {
   for (const p of POSTERS) {
     const page = await open("poster", p.id, p.w, p.h);
-    await page.screenshot({ path: path.join(out, stills ? path.join("stills", p.file) : p.file) });
+    if (stills) await page.screenshot({ path: path.join(out, "stills", p.file.replace(/\.webp$/, ".png")) });
+    else {
+      // Encoded by the page's own canvas: Chromium writes WebP natively.
+      const data = await page.evaluate(() => document.querySelector("canvas").toDataURL("image/webp", 0.82));
+      fs.writeFileSync(path.join(out, p.file), Buffer.from(data.split(",")[1], "base64"));
+    }
     if (!stills) console.log(`${p.file}  ${p.w}x${p.h}  ${(fs.statSync(path.join(out, p.file)).size / 1e3).toFixed(0)} KB`);
-    manifest.push({ file: p.file, key: p.key, contentType: "image/png", present: { fit: "cover" } });
+    manifest.push({ file: p.file, key: p.key, contentType: "image/webp", present: { fit: "cover" } });
     await page.close();
   }
 }
@@ -108,7 +115,7 @@ if (!stills) {
   const mf = path.join(out, "manifest.json");
   const prev = fs.existsSync(mf) ? JSON.parse(fs.readFileSync(mf, "utf8")) : [];
   // Files rendered by an earlier run keep their entry, so a partial render never drops a key.
-  const known = [...FILMS.map((f) => ({ file: f.file, key: f.key, contentType: "video/mp4", present: f.present })), ...POSTERS.map((p) => ({ file: p.file, key: p.key, contentType: "image/png", present: { fit: "cover" } }))];
+  const known = [...FILMS.map((f) => ({ file: f.file, key: f.key, contentType: "video/mp4", present: f.present })), ...POSTERS.map((p) => ({ file: p.file, key: p.key, contentType: "image/webp", present: { fit: "cover" } }))];
   const merged = [...manifest, ...prev.filter((e) => !manifest.some((m) => m.key === e.key)), ...known.filter((e) => !manifest.some((m) => m.key === e.key) && !prev.some((m) => m.key === e.key))]
     .filter((e) => fs.existsSync(path.join(out, e.file)));
   fs.writeFileSync(mf, JSON.stringify(merged, null, 2) + "\n");
