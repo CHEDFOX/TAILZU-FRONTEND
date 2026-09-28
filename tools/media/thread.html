@@ -4,26 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tailzu Motion</title>
-<meta name="description" content="The way into Tailzu, screen by screen, with its films and posters: black glass and light.">
+<meta name="description" content="The way into Tailzu, screen by screen, with its films and posters: the words themselves.">
 <!--
-  BLACK GLASS AND LIGHT — the media the app carries, and the screens it sits in.
+  THE WORDS THEMSELVES — the media the app carries, and the screens it sits in.
+
+  Tailzu makes sentences: in your language, spelled the way you speak. So the
+  art is typography, live. The sign-in greets in the scripts the app already
+  greets in, each writing itself. The mic screen dictates a sentence word by
+  word. The keyboard screen draws the keyboard exactly and lets the keys
+  leave. Every voice's poster is that voice's own sentence.
 
   Every screen here is built at its true size in the app's own construction
-  (the catalog's sizes, copy, colours and controls) and scaled to fit, so the
-  film or poster is judged where it lives, not in a loose frame. Every film
-  and poster is drawn from time on a canvas: the same function previews here
-  and renders the MP4s and PNGs the app is served (tools/media/render.mjs).
+  and scaled, so the media is judged where it lives. Every film and poster is
+  drawn from time on a canvas; the same function previews here and renders
+  the MP4s and PNGs the app is served (tools/media/render.mjs). The renderer
+  reads its type from node_modules (see package.json); the page, when viewed,
+  from Google Fonts. The opening film is unchanged.
 
-  The material is one: the app's warm black as glass, its pale as light, and
-  the amber only where something is live. Nothing is typeset in the media, so
-  no font can go missing on a phone. The opening film is unchanged.
+  Amber is the app's rule: the caret while the mic is open, the words just
+  born. Nothing else is amber.
 
   ?render=film&id=auth&w=1080&h=2340    one canvas, window.__frame(t) draws it
   ?render=poster&id=signature&w=1200&h=560
 -->
 <style>
   :root { --ink: #0B0A09; --pale: #F3E2C6; --grey: rgba(243,226,198,.6); --dim: rgba(243,226,198,.42); --rule: rgba(243,226,198,.1); --amber: #E8A23C;
-          --display: Georgia, 'Times New Roman', serif; --sans: -apple-system, 'SF Pro Text', 'Helvetica Neue', Inter, system-ui, sans-serif; }
+          --display: 'Newsreader', Georgia, 'Times New Roman', serif; --ui: Georgia, 'Times New Roman', serif; --sans: -apple-system, 'SF Pro Text', 'Helvetica Neue', Inter, system-ui, sans-serif; }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--ink); color: var(--pale); }
   body { font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
@@ -40,7 +46,6 @@
   .scene p { color: var(--grey); margin: 0 0 12px; }
   .meta { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); line-height: 1.8; }
   .devices { display: flex; gap: 32px; align-items: flex-end; flex-wrap: wrap; }
-  /* True-size screens, scaled. The phone is 390×844, the window 1120×780. */
   .phone { width: 296px; height: 640px; flex: none; position: relative; }
   .phone .bezel { position: absolute; inset: 0; border-radius: 46px; background: #050505; box-shadow: 0 30px 80px rgba(0,0,0,.6), inset 0 0 0 2px #2a2725, inset 0 0 0 5px #0a0a0a; }
   .phone .screen { position: absolute; left: 8px; top: 8px; width: 390px; height: 844px; transform: scale(.7179); transform-origin: 0 0; border-radius: 52px; overflow: hidden; background: #000; }
@@ -50,12 +55,11 @@
   .desk .bar { position: absolute; left: 0; right: 0; top: 0; height: 40px; background: #121110; border-bottom: 1px solid #1e1c1a; z-index: 3; }
   .desk .bar i { position: absolute; top: 14px; width: 12px; height: 12px; border-radius: 6px; background: #2c2a28; } .desk .bar i:nth-child(1) { left: 16px; } .desk .bar i:nth-child(2) { left: 36px; } .desk .bar i:nth-child(3) { left: 56px; }
   canvas.film { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  /* The app's own construction. */
   .status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; align-items: flex-end; justify-content: space-between; padding: 0 30px 6px; font: 600 15px/1 var(--sans); color: #fff; z-index: 5; }
   .home { position: absolute; bottom: 8px; left: 50%; width: 134px; height: 5px; margin-left: -67px; border-radius: 3px; background: rgba(255,255,255,.85); z-index: 5; }
   .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.42); }
   .brand { position: absolute; left: 28px; right: 28px; top: 72px; }
-  .brand b { display: block; font: 400 34px/1 var(--display); color: #fff; letter-spacing: -.01em; }
+  .brand b { display: block; font: 400 34px/1 var(--ui); color: #fff; letter-spacing: -.01em; }
   .brand span { display: block; margin-top: 6px; font-size: 14px; color: rgba(255,255,255,.62); }
   .signin { position: absolute; left: 28px; right: 28px; bottom: 42px; }
   .spill { height: 64px; border-radius: 999px; background: #F4F4F2; padding: 6px; display: flex; align-items: center; margin-bottom: 12px; box-shadow: 0 8px 18px rgba(0,0,0,.34); }
@@ -66,7 +70,7 @@
   .deskform { position: absolute; top: 40px; bottom: 0; right: 0; width: 46%; display: flex; flex-direction: column; justify-content: center; padding: 0 110px 0 60px; }
   .deskform .brand, .deskform .signin { position: static; }
   .ob { position: absolute; inset: 0; padding: 76px 28px 48px; display: flex; flex-direction: column; align-items: center; }
-  .ob .title { font: 400 34px/42px var(--display); color: #fff; text-align: center; letter-spacing: -.01em; }
+  .ob .title { font: 400 34px/42px var(--ui); color: #fff; text-align: center; letter-spacing: -.01em; }
   .ob .title b { color: var(--amber); font-weight: 400; }
   .ob .mid { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
   .ob .mid canvas { display: block; }
@@ -75,7 +79,7 @@
   .allow em { width: 54px; height: 100%; display: flex; align-items: center; justify-content: center; font-style: normal; color: #141416; font-size: 20px; }
   .allow span { flex: 1; height: 52px; border-radius: 26px; background: #0D0D0F; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 500; letter-spacing: .1px; }
   .kb { position: absolute; inset: 0; padding: 66px 28px 0; overflow: hidden; }
-  .kb .title { font: 400 34px/42px var(--display); color: #fff; margin: 0 0 21px; }
+  .kb .title { font: 400 34px/42px var(--ui); color: #fff; margin: 0 0 21px; }
   .kb .hero { width: 100%; aspect-ratio: 4 / 3; border-radius: 28px; overflow: hidden; position: relative; margin: 0 0 21px; }
   .steps { border: 1px solid var(--amber); border-radius: 12px; padding: 11px 12px; }
   .steps .t { font-size: 12.5px; line-height: 18px; color: #fff; margin: 0 0 11px; }
@@ -83,10 +87,10 @@
   .kb .allow { margin-top: 34px; }
   .you { position: absolute; inset: 0; padding: 62px 18px 0; }
   .greet { display: flex; justify-content: space-between; align-items: flex-start; margin: 0 0 10px; }
-  .greet .h { font: 400 15px/18px var(--display); color: rgba(255,255,255,.5); font-style: italic; }
-  .greet .n { font: 800 30px/34px var(--display); color: #fff; margin-top: 2px; }
+  .greet .h { font: italic 400 15px/18px var(--ui); color: rgba(255,255,255,.5); }
+  .greet .n { font: 800 30px/34px var(--ui); color: #fff; margin-top: 2px; }
   .gear { width: 38px; height: 38px; border-radius: 19px; background: rgba(255,255,255,.06); position: relative; } .gear::after { content: ""; position: absolute; left: 12px; top: 12px; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,.6); border-radius: 50%; }
-  .portrait { font: 400 21px/26px var(--display); color: #fff; margin: 10px 0 20px; } .portrait i { color: var(--amber); }
+  .portrait { font: 400 21px/26px var(--ui); color: #fff; margin: 10px 0 20px; } .portrait i { color: var(--amber); }
   .card { height: 168px; border-radius: 22px; overflow: hidden; position: relative; background: #17161A; border: 1px solid rgba(255,255,255,.07); margin: 0 0 20px; }
   .card.train { height: 212px; background: #000; }
   .card canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -95,7 +99,7 @@
   .card .text { position: absolute; left: 20px; right: 20px; bottom: 20px; } .card.train .text { left: 18px; right: 18px; bottom: 18px; }
   .card .k { display: flex; align-items: center; gap: 8px; font-size: 8px; letter-spacing: 2.4px; text-transform: uppercase; color: rgba(255,255,255,.56); }
   .card .k i { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
-  .card .name { font: 800 34px/1 var(--display); color: #fff; margin: 9px 0 0; }
+  .card .name { font: 800 34px/1 var(--ui); color: #fff; margin: 9px 0 0; }
   .card .tag { font-size: 13px; line-height: 18px; color: rgba(255,255,255,.56); margin: 9px 0 0; }
   .card.train .name { font: 300 26px/1 var(--sans); letter-spacing: -.3px; margin-top: 6px; } .card.train .tag { font-size: 12px; margin-top: 4px; }
   .card.train .btn { margin-top: 14px; height: 46px; border-radius: 23px; background: #F4F4F2; color: #0D0D0F; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 500; }
@@ -124,29 +128,15 @@ const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
 const seg = (t, a, b) => clamp((t - a) / (b - a));
 const lerp = (a, b, t) => a + (b - a) * t;
 const E = { io: t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2, out: t => 1 - Math.pow(1 - t, 3), in: t => t * t * t,
-  back: t => { const c = 1.70158, d = c + 1; return 1 + d * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); },
-  sine: t => 0.5 - 0.5 * Math.cos(t * Math.PI) };
+  back: t => { const c = 1.70158, d = c + 1; return 1 + d * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); } };
 const n1 = (x, s = 0) => Math.sin(x * 1.3 + s) * .5 + Math.sin(x * 2.71 + s * 1.7 + 1.2) * .3 + Math.sin(x * 5.13 + s * .31 + 2.3) * .2;
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${clamp(a)})`; };
+const mix = (h1, h2, t) => { const a = parseInt(h1.slice(1), 16), b = parseInt(h2.slice(1), 16); const ch = s => Math.round(lerp(a >> s & 255, b >> s & 255, t)); return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`; };
 function rng(seed) { let s = (Math.imul(seed | 0, 2654435761) >>> 0) || 7; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
 function rrect(ctx, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
-function glow(ctx, x, y, r, color, a, stops) {
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  (stops || [[0, 1], [0.35, 0.45], [0.7, 0.12], [1, 0]]).forEach(([p, k]) => g.addColorStop(p, rgba(color, a * k)));
-  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
-}
-/** A wide, low bloom: a glow squashed to a horizon. */
-function bloom(ctx, x, y, rx, ry, color, a) { ctx.save(); ctx.translate(x, y); ctx.scale(1, ry / rx); glow(ctx, 0, 0, rx, color, a); ctx.restore(); }
-/** A soft band of light along fn(u): the same stroke laid down wider and fainter, six times. */
-function softStroke(ctx, fn, width, color, a, N = 90, passes = 6) {
-  ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round"; ctx.lineJoin = "round";
-  for (let k = passes - 1; k >= 0; k--) {
-    ctx.lineWidth = width * (1 + k * 1.1); ctx.strokeStyle = rgba(color, a * Math.pow(0.5, k) * (k ? 0.5 : 1));
-    ctx.beginPath(); for (let j = 0; j <= N; j++) { const [x, y] = fn(j / N); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
-  }
-  ctx.restore();
-}
 function ground(ctx, w, h, color = "#0F0D0B") { ctx.fillStyle = color; ctx.fillRect(0, 0, w, h); }
+function glow(ctx, x, y, r, color, a) { const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0)); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2); }
+function grain(ctx, w, h, a, seed) { const r = rng(seed * 97 + 13), n = Math.round(w * h / 160); for (let i = 0; i < n; i++) { const x = r() * w, y = r() * h, k = r(); ctx.fillStyle = k < .5 ? `rgba(243,226,198,${a * (0.3 + k)})` : `rgba(0,0,0,${a * k})`; ctx.fillRect(x, y, 1, 1); } }
 /** A stroke with a hand in it: a polyline through fn(u), width by w(u). The opening uses it. */
 function ribbon(ctx, fn, wf, color, N = 160, alpha = 1) {
   ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = color; ctx.globalAlpha = alpha;
@@ -154,23 +144,48 @@ function ribbon(ctx, fn, wf, color, N = 160, alpha = 1) {
   for (let j = 1; j <= N; j++) { const u = j / N, q = fn(u); ctx.lineWidth = Math.max(0.5, wf(u)); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); p = q; }
   ctx.restore();
 }
-function grain(ctx, w, h, a, seed) {
-  const r = rng(seed * 97 + 13), n = Math.round(w * h / 150);
-  for (let i = 0; i < n; i++) { const x = r() * w, y = r() * h, k = r(); ctx.fillStyle = k < .5 ? `rgba(243,226,198,${a * (0.3 + k)})` : `rgba(0,0,0,${a * k})`; ctx.fillRect(x, y, 1, 1); }
+
+// ---- TYPE --------------------------------------------------------------------
+const F = '"Newsreader","Noto Sans Devanagari","Noto Sans Bengali","Noto Sans Tamil","Noto Naskh Arabic","Noto Sans JP","Noto Sans KR","Noto Sans SC",Georgia,serif';
+const font = (px, o = {}) => `${o.italic ? "italic " : ""}${o.weight || 400} ${px}px ${o.family || F}`;
+function wrap(ctx, text, maxW) {
+  const words = text.split(" "), lines = []; let line = "";
+  for (const wd of words) { const test = line ? line + " " + wd : wd; if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = wd; } else line = test; }
+  if (line) lines.push(line); return lines;
 }
-function vignette(ctx, w, h, a) { const S = Math.max(w, h); const v = ctx.createRadialGradient(w / 2, h / 2, S * 0.3, w / 2, h / 2, S * 0.85); v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, `rgba(0,0,0,${a})`); ctx.fillStyle = v; ctx.fillRect(0, 0, w, h); }
-/** Dust in light: a few soft discs at three depths, drifting up almost imperceptibly. Periodic in D. */
-function dust(ctx, w, h, t, D, n, seed, a, room) {
-  const r = rng(seed); ctx.save(); ctx.globalCompositeOperation = "lighter";
-  for (let i = 0; i < n; i++) {
-    const depth = r(), x0 = r() * w, y0 = r() * h, ph = r() * TAU, sp = (0.4 + depth) * h / D * 0.12;
-    const y = ((y0 - t * sp * (D / 8)) % h + h) % h, x = x0 + Math.sin(t / D * TAU + ph) * w * 0.01;
-    const k = room ? room(x, y) : 1; if (k <= 0.01) continue;
-    const rad = (2 + depth * depth * 26) * Math.min(w, h) / 1000, al = a * (0.25 + 0.75 * depth) * (0.7 + 0.3 * Math.sin(t / D * TAU * 2 + ph)) * k;
-    glow(ctx, x, y, rad, C.cream, al, [[0, 1], [0.5, 0.5], [1, 0]]);
-  }
-  ctx.restore();
-}
+/** The greetings the app itself cycles through on the You tab. */
+const HELLOS = ["Hello", "नमस्ते", "Hola", "你好", "Bonjour", "مرحبا", "こんにちは", "নমস্কার", "வணக்கம்", "안녕하세요"];
+const SAID = [
+  "Can you send the file tonight? It's fairly urgent.",
+  "Main das minute late ho jaunga, tum order kar dena.",
+];
+/** The same request, in every voice: the catalog's own tone samples where it has them. */
+const LINES = {
+  signature: "Can you send the file tonight? It's fairly urgent.",
+  professional: "Could you please send the file this evening? It is time-sensitive.",
+  friendly: "Hey, could you send the file tonight? Kind of urgent.",
+  witty: "Send the file tonight, or I'll assume it's travelling by boat.",
+  concise: "File tonight, please. Urgent.",
+  gentle: "Whenever you get a chance tonight, could you send the file? It's a little urgent.",
+  playful: "Fiiile tonight?? Pretty urgent. No pressure. Some pressure.",
+  romantic: "Send me the file tonight. I'll be waiting up.",
+  "concise-boss": "File by tonight. Non-negotiable.",
+  explainer: "Could you send the file tonight? The review starts tomorrow, so it's fairly urgent.",
+  excited: "Can you send the file tonight?! I can't wait to dig in!",
+  poetic: "Tonight, the file, before the lamps go out. It is fairly urgent.",
+  bard: "Prithee, send the file ere night doth fall. 'Tis most urgent.",
+  pirate: "Arr, send the file tonight, matey. It be urgent.",
+  trailer: "One file. One night. And time is running out.",
+  noir: "The file. Tonight. In this town, urgent means yesterday.",
+  train: "I don't know how you sound yet. Just talk, and I'll listen.",
+};
+const ITALIC = new Set(["romantic", "poetic", "bard", "noir"]);
+const FIELDS = {
+  signature: ["#141110", "#050403"], professional: ["#1A1C2C", "#07070C"], friendly: ["#3A2410", "#120A03"], witty: ["#3A1020", "#100408"],
+  concise: ["#0E0E0E", "#000000"], gentle: ["#152230", "#060A0F"], playful: ["#33280A", "#0F0B02"], romantic: ["#3E1226", "#12040B"],
+  "concise-boss": ["#0C0C0C", "#000000"], explainer: ["#0E4C46", "#03201D"], excited: ["#4A2606", "#150A02"], poetic: ["#241C4A", "#0B0818"],
+  bard: ["#26246E", "#0B0A28"], pirate: ["#08302C", "#020E0D"], trailer: ["#0A0A0A", "#000000"], noir: ["#0C0C0C", "#000000"], train: ["#0B0A09", "#000000"],
+};
 
 // ---- THE MARK, from the site's own geometry (viewBox 170 228 680 512) ------
 const MARK = { sq: [[308, 269], [558, 478], [178, 598]], l1: [346, 402, 270, 598], link: [444, 394, 554, 486], l2: [668, 478, 828, 243] };
@@ -184,111 +199,41 @@ function drawMark(ctx, cx, cy, W, p) {
     ctx.strokeStyle = color; ctx.lineWidth = width * s; ctx.lineCap = dash ? "butt" : "round"; ctx.setLineDash(dash ? dash.map(d => d * s) : []); ctx.stroke(); ctx.setLineDash([]);
   };
   line(MARK.l1, p.l1, "#E9CBA2", 9); line(MARK.l2, p.l2, "#C77A3A", 9);
-  if (p.link > 0) { const [ax, ay] = M(444, 394), [bx, by] = M(554, 486); ctx.save(); ctx.globalCompositeOperation = "lighter"; glow(ctx, lerp(ax, bx, .5), lerp(ay, by, .5), 110 * s, C.amber, .3 * p.link); ctx.restore(); }
+  if (p.link > 0) { const [ax, ay] = M(444, 394), [bx, by] = M(554, 486); glow(ctx, lerp(ax, bx, .5), lerp(ay, by, .5), 90 * s, C.amber, .22 * p.link); }
   line(MARK.link, p.link, C.amber, 30, [9, 11]);
   if (p.dot > 0) { const [dx, dy] = M(828, 243); ctx.beginPath(); ctx.arc(dx, dy, 11 * s * E.back(p.dot), 0, TAU); ctx.fillStyle = "#B06240"; ctx.fill(); }
   MARK.sq.forEach(([x, y], i) => { const k = p.sq ? p.sq[i] : 1; if (!(k > 0)) return; const [px, py] = M(x + 66, y + 66), sz = 132 * s * E.back(k); rrect(ctx, px - sz / 2, py - sz / 2, sz, sz, 28 * s * E.back(k)); ctx.fillStyle = C.key; ctx.fill(); });
   ctx.restore();
 }
 
-// ---- GLASS -------------------------------------------------------------------
-/** A frosted-glass key on black: body, rim, top light, shadow below, and a reflection on the floor. `lit` is how much light is on it. */
-function glassKey(ctx, x, y, w, h, r, lit, alpha, solid = 0, shadow = 1) {
-  if (alpha <= 0.003) return;
-  ctx.save(); ctx.globalAlpha = alpha;
-  ctx.shadowColor = `rgba(0,0,0,${0.65 * shadow})`; ctx.shadowBlur = h * 0.45; ctx.shadowOffsetY = h * 0.16;
-  const g = ctx.createLinearGradient(0, y, 0, y + h);
-  g.addColorStop(0, rgba(C.cream, lerp(0.2 + 0.45 * lit, 1, solid))); g.addColorStop(1, rgba(C.pale, lerp(0.07 + 0.3 * lit, 0.96, solid)));
-  rrect(ctx, x, y, w, h, r); ctx.fillStyle = g; ctx.fill();
-  ctx.shadowColor = "transparent";
-  const top = ctx.createLinearGradient(0, y, 0, y + h * 0.45);
-  top.addColorStop(0, rgba(C.white, (0.22 + 0.35 * lit) * (1 - solid * 0.6))); top.addColorStop(1, rgba(C.white, 0));
-  rrect(ctx, x + 1, y + 1, w - 2, h * 0.45, r); ctx.fillStyle = top; ctx.fill();
-  rrect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, r); ctx.lineWidth = 1; ctx.strokeStyle = rgba(C.white, 0.28 + 0.45 * lit); ctx.stroke();
-  const ref = ctx.createLinearGradient(0, y + h * 1.12, 0, y + h * 1.8);
-  ref.addColorStop(0, rgba(C.pale, (0.07 + 0.12 * lit) * (1 - solid))); ref.addColorStop(1, rgba(C.pale, 0));
-  rrect(ctx, x, y + h * 1.12, w, h * 0.7, r); ctx.fillStyle = ref; ctx.fill();
-  ctx.restore();
-}
-/** A frosted-glass sphere with light moving inside it, rim-lit, breathing. */
-function orb(ctx, cx, cy, R, t, D) {
-  const breath = 1 + 0.025 * Math.sin(t / D * TAU * 2 - 1.2), r = R * breath;
-  ctx.save(); ctx.globalCompositeOperation = "lighter";
-  bloom(ctx, cx, cy + r * 1.35, r * 1.6, r * 0.42, C.amber, 0.22);                       // light on the floor
-  glow(ctx, cx, cy, r * 2.4, C.cream, 0.16 + 0.05 * Math.sin(t / D * TAU * 2));           // bloom around the glass
-  ctx.restore();
-  const base = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.1, cx, cy, r);
-  base.addColorStop(0, "#2A2118"); base.addColorStop(0.7, "#120E0A"); base.addColorStop(1, "#070605");
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fillStyle = base; ctx.fill();
-  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.clip(); ctx.globalCompositeOperation = "lighter";
-  const blobs = [[C.amber, 0.95, 0.9, 0.0], [C.cream, 0.85, 0.7, 2.1], [C.amber, 0.75, 1.3, 4.2], [C.white, 0.5, 1.1, 1.0], [C.cream, 0.6, 0.5, 3.3]];
-  blobs.forEach(([col, rad, sp, ph], i) => {
-    const a = t / D * TAU * sp + ph, bx = cx + Math.cos(a) * r * 0.36 * Math.sin(a * 0.5 + i), by = cy + Math.sin(a * 0.8 + i) * r * 0.36;
-    glow(ctx, bx, by, r * rad, col, 0.3, [[0, 1], [0.35, 0.55], [0.7, 0.18], [1, 0]]);
-  });
-  glow(ctx, cx, cy + r * 0.95, r * 0.9, C.amber, 0.28);                                    // the ember low in the glass
-  ctx.restore();
-  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.clip();
-  const inner = ctx.createRadialGradient(cx, cy + r * 0.35, r * 0.45, cx, cy, r * 1.05); inner.addColorStop(0, "rgba(0,0,0,0)"); inner.addColorStop(1, "rgba(0,0,0,0.55)");
-  ctx.fillStyle = inner; ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-  const spec = ctx.createRadialGradient(cx - r * 0.42, cy - r * 0.52, 0, cx - r * 0.42, cy - r * 0.52, r * 0.5); spec.addColorStop(0, "rgba(255,255,255,0.32)"); spec.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = spec; ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-  ctx.restore();
-  ctx.save(); ctx.lineWidth = Math.max(1, r * 0.012);
-  const rim = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r); rim.addColorStop(0, "rgba(255,255,255,0.85)"); rim.addColorStop(0.5, "rgba(255,255,255,0.12)"); rim.addColorStop(1, "rgba(255,240,214,0.45)");
-  ctx.strokeStyle = rim; ctx.beginPath(); ctx.arc(cx, cy, r - r * 0.006, 0, TAU); ctx.stroke(); ctx.restore();
-  return r;
-}
-
-// ---- THE POSTERS: light on material, one per voice ---------------------------
-const MATERIALS = {
-  signature:      { a: "#141110", b: "#050403", light: C.cream, lx: .66, ly: .3, lr: .9, la: .16, folds: [[C.cream, .55, .03, 1], [C.cream, .35, .022, 2]], ember: [.8, .72] },
-  professional:   { a: "#1A1C2C", b: "#07070C", light: "#DCEBF7", lx: .7, ly: .2, lr: .8, la: .13, folds: [["#DCEBF7", .34, .04, 3]], rule: .68 },
-  friendly:       { a: "#3A2410", b: "#120A03", light: "#F4A72C", lx: .62, ly: .38, lr: .95, la: .28, folds: [["#F7C46A", .4, .05, 4], ["#F4A72C", .28, .03, 5]] },
-  witty:          { a: "#3A1020", b: "#100408", light: "#E4587B", lx: .75, ly: .25, lr: .7, la: .22, edge: true },
-  concise:        { a: "#0E0E0E", b: "#000000", light: "#FBF8F2", lx: .5, ly: .5, lr: .2, la: .0, slit: .62 },
-  gentle:         { a: "#152230", b: "#060A0F", light: "#DCEBF7", lx: .5, ly: .45, lr: 1.2, la: .18, folds: [["#DCEBF7", .2, .09, 6]] },
-  playful:        { a: "#33280A", b: "#0F0B02", light: "#F7CF4A", lx: .55, ly: .4, lr: .8, la: .12, party: true },
-  romantic:       { a: "#3E1226", b: "#12040B", light: "#E4587B", lx: .6, ly: .72, lr: .9, la: .3, folds: [["#F4B0C3", .3, .04, 7]] },
-  "concise-boss": { a: "#0C0C0C", b: "#000000", light: "#FBF8F2", lx: .5, ly: .4, lr: .6, la: .05, horizon: .36 },
-  explainer:      { a: "#0E4C46", b: "#03201D", light: "#DDF3E3", lx: .7, ly: .3, lr: .8, la: .14, bands: 3 },
-  excited:        { a: "#4A2606", b: "#150A02", light: "#F4A72C", lx: .6, ly: .5, lr: .7, la: .55, burst: true },
-  poetic:         { a: "#241C4A", b: "#0B0818", light: "#F3E2C6", lx: .66, ly: .48, lr: .5, la: .12, moon: true },
-  bard:           { a: "#26246E", b: "#0B0A28", light: "#F7CF4A", lx: .62, ly: .25, lr: .8, la: .16, folds: [["#F7CF4A", .5, .028, 8], ["#F7CF4A", .3, .02, 9], ["#F7CF4A", .2, .016, 10]] },
-  pirate:         { a: "#08302C", b: "#020E0D", light: "#DDF3E3", lx: .6, ly: .55, lr: .9, la: .12, sea: .56 },
-  trailer:        { a: "#0A0A0A", b: "#000000", light: "#F7CF4A", lx: .5, ly: .52, lr: 1.1, la: .18, letterbox: true },
-  noir:           { a: "#0C0C0C", b: "#000000", light: "#F3E2C6", lx: .66, ly: .4, lr: .5, la: .1, window: true },
-  train:          { a: "#0B0A09", b: "#000000", light: C.cream, lx: .5, ly: .45, lr: 1, la: .08, network: true },
-};
+// ---- THE POSTERS: the voice, in its own words -------------------------------
 function poster(ctx, w, h, id) {
-  const M = MATERIALS[id] || MATERIALS.signature, S = Math.min(w, h) * 1.1;
-  const g = ctx.createLinearGradient(0, 0, w * 0.4, h); g.addColorStop(0, M.a); g.addColorStop(1, M.b); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  ctx.save(); ctx.globalCompositeOperation = "lighter";
-  if (M.la > 0) glow(ctx, M.lx * w, M.ly * h, M.lr * S, M.light, M.la);
-  (M.folds || []).forEach(([col, a, wd, seed], i) => {
-    const r = rng(seed * 7 + 1), y0 = h * (0.25 + r() * 0.5), amp = h * (0.08 + r() * 0.16), ph = r() * TAU, f = 0.6 + r() * 0.8;
-    softStroke(ctx, u => [u * w * 1.1 - w * 0.05, y0 + Math.sin(u * f * TAU + ph) * amp + n1(u * 3, seed) * h * 0.04], wd * S, col, a, 120, 6);
+  const [a, b] = FIELDS[id] || FIELDS.signature, line = LINES[id] || LINES.signature;
+  const g = ctx.createLinearGradient(0, 0, w * 0.3, h); g.addColorStop(0, a); g.addColorStop(1, b); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  // The card's own words live in the bottom half, and a window crops the top
+  // fifth: the sentence sits in the band between, two lines at most.
+  const inset = w * 0.06, maxW = w - inset * 2, top = h * 0.215, italic = ITALIC.has(id);
+  let size = Math.round(w * 0.052), lines;
+  for (;;) { ctx.font = font(size, { italic }); lines = wrap(ctx, line, maxW); if (lines.length <= 2 || size <= 36) break; size -= 3; }
+  const lh = size * 1.22;
+  ctx.fillStyle = rgba(C.pale, 0.22); ctx.fillRect(inset, top - size * 0.35, w * 0.16, 1);
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.01em";
+  lines.forEach((ln, i) => {
+    const y = top + size * 0.95 + i * lh, last = i === lines.length - 1;
+    const body = last ? ln.slice(0, -1) : ln, end = last ? ln.slice(-1) : "";
+    ctx.fillStyle = rgba(C.pale, 0.94); ctx.fillText(body, inset, y);
+    if (end) { ctx.fillStyle = C.amber; ctx.fillText(end, inset + ctx.measureText(body).width, y); }   // the last mark, just born
   });
-  if (M.edge) { const e = ctx.createLinearGradient(w * 0.3, h, w * 0.75, 0); e.addColorStop(0.48, rgba(M.light, 0)); e.addColorStop(0.5, rgba(M.light, 0.85)); e.addColorStop(0.53, rgba(M.light, 0.1)); e.addColorStop(0.7, rgba(M.light, 0)); ctx.fillStyle = e; ctx.fillRect(0, 0, w, h); }
-  if (M.slit) { const x = w * M.slit; for (let k = 5; k >= 0; k--) { ctx.fillStyle = rgba(M.light, (k ? 0.06 : 0.95) * Math.pow(0.6, k)); ctx.fillRect(x - S * 0.004 * (1 + k * 2.5), h * 0.1, S * 0.008 * (1 + k * 2.5), h * 0.8); } }
-  if (M.horizon) { const y = h * M.horizon; bloom(ctx, w * 0.5, y, w * 0.6, h * 0.16, M.light, 0.35); ctx.fillStyle = M.light; ctx.fillRect(w * 0.08, y - 1, w * 0.84, 2); }
-  if (M.bands) for (let i = 0; i < M.bands; i++) { const y = h * (0.28 + i * 0.2); bloom(ctx, w * 0.55, y, w * 0.5, h * 0.06, M.light, 0.22); ctx.fillStyle = rgba(M.light, 0.7); ctx.fillRect(w * 0.16, y - 0.75, w * (0.32 + i * 0.16), 1.5); }
-  if (M.burst) { const r = rng(42); for (let i = 0; i < 12; i++) { const a = i / 12 * TAU + 0.35, L = S * (0.25 + r() * 0.45); const e = ctx.createLinearGradient(w * 0.6, h * 0.5, w * 0.6 + Math.cos(a) * L, h * 0.5 + Math.sin(a) * L); e.addColorStop(0, rgba(M.light, 0.5)); e.addColorStop(1, rgba(M.light, 0)); ctx.strokeStyle = e; ctx.lineWidth = S * 0.006; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(w * 0.6, h * 0.5); ctx.lineTo(w * 0.6 + Math.cos(a) * L, h * 0.5 + Math.sin(a) * L); ctx.stroke(); } glow(ctx, w * 0.6, h * 0.5, S * 0.42, M.light, 0.45); glow(ctx, w * 0.6, h * 0.5, S * 0.14, C.cream, 0.8); }
-  if (M.moon) { const cx = w * 0.66, cy = h * 0.46, R = S * 0.3; glow(ctx, cx, cy, R * 1.7, M.light, 0.16); ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip(); const m = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.3, R * 0.1, cx, cy, R); m.addColorStop(0, rgba(M.light, 0.55)); m.addColorStop(1, rgba(M.light, 0.06)); ctx.fillStyle = m; ctx.fillRect(cx - R, cy - R, R * 2, R * 2); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = M.a; ctx.beginPath(); ctx.arc(cx + R * 0.45, cy - R * 0.2, R * 0.86, 0, TAU); ctx.fill(); ctx.restore(); }
-  if (M.sea) { const y = h * M.sea; bloom(ctx, w * 0.6, y, w * 0.55, h * 0.1, M.light, 0.3); ctx.fillStyle = rgba(M.light, 0.8); ctx.fillRect(w * 0.1, y - 0.75, w * 0.8, 1.5); const r = rng(5); for (let i = 0; i < 40; i++) { const yy = y + h * 0.04 + r() * h * 0.3, x = w * (0.2 + r() * 0.6), L = w * (0.02 + r() * 0.08); ctx.fillStyle = rgba(M.light, 0.25 * (1 - (yy - y) / (h * 0.34))); ctx.fillRect(x, yy, L, 1); } }
-  if (M.letterbox) { bloom(ctx, w * 0.5, h * 0.52, w * 0.7, h * 0.14, M.light, 0.4); ctx.fillStyle = rgba(M.light, 0.9); ctx.fillRect(w * 0.06, h * 0.52 - 1, w * 0.88, 2); glow(ctx, w * 0.82, h * 0.52, S * 0.09, C.white, 0.5); }
-  if (M.window) { const x = w * 0.58, y = h * 0.12, ww = w * 0.24, hh = h * 0.62; glow(ctx, x + ww / 2, y + hh / 2, S * 0.5, M.light, 0.14); ctx.fillStyle = rgba(M.light, 0.16); ctx.fillRect(x, y, ww, hh); ctx.fillStyle = rgba(M.light, 0.18); for (let i = 0; i < 9; i++) ctx.fillRect(x, y + i * hh / 9, ww, hh / 18); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = M.a; ctx.fillRect(x + ww * 0.48, y, ww * 0.04, hh); }
-  if (M.party) { const r = rng(11); for (let i = 0; i < 18; i++) { const x = w * (0.15 + r() * 0.7), y = h * (0.15 + r() * 0.7), rad = S * (0.02 + r() * 0.07); glow(ctx, x, y, rad, i % 3 ? M.light : C.cream, 0.5, [[0, 0.9], [0.6, 0.6], [1, 0]]); } }
-  if (M.network) { const r = rng(77), pts = []; for (let i = 0; i < 26; i++) pts.push([w * (0.1 + r() * 0.8), h * (0.1 + r() * 0.8), r()]); ctx.lineWidth = 1; pts.forEach((p, i) => { pts.map((q, j) => [Math.hypot(p[0] - q[0], p[1] - q[1]), j]).filter(x => x[1] !== i).sort((a, b) => a[0] - b[0]).slice(0, 2).forEach(([, j]) => { ctx.strokeStyle = rgba(M.light, 0.22); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke(); }); }); pts.forEach((p, i) => { const em = i === 9; glow(ctx, p[0], p[1], S * (0.012 + p[2] * 0.03) * (em ? 2.2 : 1), em ? C.amber : M.light, em ? 0.9 : 0.55, [[0, 1], [0.25, 0.5], [1, 0]]); }); }
-  if (M.ember) { glow(ctx, w * M.ember[0], h * M.ember[1], S * 0.12, C.amber, 0.7); ctx.fillStyle = C.amber; ctx.beginPath(); ctx.arc(w * M.ember[0], h * M.ember[1], S * 0.011, 0, TAU); ctx.fill(); }
-  if (M.rule) { ctx.fillStyle = rgba(M.light, 0.7); ctx.fillRect(w * 0.16, h * M.rule, w * 0.62, 1); }
-  ctx.restore();
-  dust(ctx, w, h, 0, 8, 14, id.length * 5 + 3, 0.5);
-  const fall = ctx.createLinearGradient(0, h * 0.4, 0, h); fall.addColorStop(0, "rgba(0,0,0,0)"); fall.addColorStop(1, "rgba(0,0,0,0.5)"); ctx.fillStyle = fall; ctx.fillRect(0, 0, w, h);
-  vignette(ctx, w, h, 0.35); grain(ctx, w, h, 0.05, id.length * 3);
+  const fall = ctx.createLinearGradient(0, h * 0.45, 0, h); fall.addColorStop(0, "rgba(0,0,0,0)"); fall.addColorStop(1, "rgba(0,0,0,0.42)"); ctx.fillStyle = fall; ctx.fillRect(0, 0, w, h);
+  grain(ctx, w, h, 0.035, id.length * 3);
 }
 
 // ---- THE FILMS ---------------------------------------------------------------
+/** An amber caret after a run of text: solid while writing, blinking at rest. */
+function caret(ctx, x, y, size, t, writing, alpha = 1) {
+  if (!writing && Math.floor(t * 2) % 2) return;
+  ctx.fillStyle = rgba(C.amber, alpha); ctx.fillRect(x + size * 0.06, y - size * 0.72, Math.max(2, size * 0.055), size * 0.86);
+}
 const FILMS = {
   /** The opening: breath, thread, mark. Plays once and holds. */
   intro: { duration: 3.0, loop: false, draw(ctx, t, w, h) {
@@ -323,108 +268,149 @@ const FILMS = {
   } },
 
   /**
-   * Sign in: dawn under glass. A low horizon of light breathes behind the
-   * form; dust drifts in it; once a loop, a single hairline of light writes
-   * itself across the dark and dissolves. 10s, seamless.
+   * Sign in: the greetings the app knows, in their own scripts, rising out of
+   * the dark where the form is and writing themselves as they come. The one
+   * being written carries the caret. 16s; the column loops exactly once.
    */
-  auth: { duration: 10, loop: true, draw(ctx, t, w, h) {
-    const D = 10, S = Math.min(w, h), wide = w > h;
-    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#0A0908"); g.addColorStop(0.55, "#171009"); g.addColorStop(1, "#030302");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    const hx = wide ? w * 0.36 : w * 0.5, hy = wide ? h * 0.62 : h * 0.58, br = 1 + 0.08 * Math.sin(t / D * TAU - 1);
-    ctx.save(); ctx.globalCompositeOperation = "lighter";
-    bloom(ctx, hx, hy, w * (wide ? 0.62 : 0.95) * br, h * (wide ? 0.4 : 0.16) * br, C.amber, 0.5);
-    bloom(ctx, hx, hy - h * 0.02, w * (wide ? 0.34 : 0.5) * br, h * (wide ? 0.2 : 0.07) * br, C.cream, 0.55);
-    glow(ctx, hx, hy, S * 0.12 * br, C.white, 0.35);
-    glow(ctx, wide ? w * 0.15 : w * 0.2, h * 0.12, S * 0.6, "#DCEBF7", 0.05);                  // a cool edge, high and far
-    ctx.restore();
-    const room = (x, y) => wide ? 1 - seg(x, w * 0.5, w * 0.66) : 1 - seg(y, h * 0.66, h * 0.8);
-    dust(ctx, w, h, t, D, wide ? 40 : 34, 19, 0.7, room);
-    // The hairline: a long signature of light, written over five seconds, gone in three.
-    const write = E.io(seg(t, 0.8, 6.0)), fade = 1 - E.io(seg(t, 6.2, 8.6));
-    if (write > 0 && fade > 0) {
-      const y0 = wide ? h * 0.36 : h * 0.34, L = wide ? w * 0.42 : w * 0.7, x0 = wide ? w * 0.13 : w * 0.15;
-      const P = u => { const lp = Math.exp(-Math.pow((u - 0.58) * 9, 2)); return [x0 + u * L - S * 0.055 * Math.sin(u * TAU) * lp * 3, y0 + S * 0.06 * Math.sin(u * TAU * 0.9 + 0.4) - S * 0.05 * Math.cos(u * TAU) * lp * 3 + S * 0.012 * n1(u * 3, 3)]; };
-      softStroke(ctx, u => P(u * write), Math.max(1, S * 0.0022), C.cream, 0.9 * fade, 200, 5);
-      if (write < 1) { const [x, y] = P(write); ctx.save(); ctx.globalCompositeOperation = "lighter"; glow(ctx, x, y, S * 0.06, C.cream, 0.7); glow(ctx, x, y, S * 0.012, C.white, 1); ctx.restore(); }
+  auth: { duration: 16, loop: true, draw(ctx, t, w, h) {
+    const D = 16, wide = w > h, S = Math.min(w, h), n = HELLOS.length;
+    ctx.fillStyle = "#0A0908"; ctx.fillRect(0, 0, w, h);
+    const step = wide ? h * 0.235 : h * 0.135, colH = n * step, x = wide ? w * 0.09 : w * 0.1, off = (t / D) * colH;
+    const bandLo = wide ? h * 0.86 : h * 0.66, bandH = wide ? h * 0.14 : h * 0.09;                  // where they are written: the edge of the dark
+    const sizes = wide ? [S * 0.15, S * 0.105, S * 0.078] : [w * 0.19, w * 0.13, w * 0.095], depths = [0.94, 0.6, 0.38];
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.02em";
+    for (let k = -1; k <= 1; k++) for (let i = 0; i < n; i++) {
+      const y = h * 0.5 + i * step - off + k * colH; if (y < -step || y > h + step) continue;
+      const size = sizes[i % 3], p = E.out(seg(bandLo - y, 0, bandH)), word = HELLOS[i];
+      const fadeTop = seg(y, h * 0.06, h * 0.2), fadeBottom = wide ? 1 - seg(y, h * 0.9, h * 0.99) : 1 - seg(y, h * 0.7, h * 0.79);
+      const alpha = depths[i % 3] * fadeTop * fadeBottom * (p < 1 ? 1.05 : 1); if (alpha <= 0.01 || p <= 0) continue;
+      ctx.font = font(size);
+      const chars = Math.max(1, Math.round(p * word.length)), shown = word.slice(0, chars);
+      const body = p < 1 ? shown.slice(0, -1) : shown, born = p < 1 ? shown.slice(-1) : "";
+      ctx.fillStyle = rgba(C.pale, alpha); ctx.fillText(body, x, y);
+      let end = x + ctx.measureText(body).width;
+      if (born) { ctx.fillStyle = rgba(C.amber, alpha); ctx.fillText(born, end, y); end += ctx.measureText(born).width; }
+      if (p < 1) caret(ctx, end, y, size, t, true, alpha);
     }
-    vignette(ctx, w, h, 0.4); grain(ctx, w, h, 0.045, 23);
+    grain(ctx, w, h, 0.035, 23);
   } },
 
   /**
-   * The microphone: the orb. A frosted-glass sphere with light moving inside
-   * it, breathing on black; thin rings leave its edge like sound leaving
-   * glass. The ember in the glass is the app's amber, and it is alive. 6s.
+   * The microphone: said, then written. A sentence arrives word by word at
+   * the rhythm of speech; the newest word is amber, which is the app's rule
+   * for the words just born, and the caret stays amber while the mic is open.
+   * A hairline waveform answers the voice beneath. Two sentences, one of them
+   * Hinglish in English letters, which is the product. 9s.
    */
-  mic: { duration: 6, loop: true, draw(ctx, t, w, h) {
-    const D = 6, S = Math.min(w, h), cx = w / 2, cy = h * 0.47, R = S * 0.27;
+  mic: { duration: 9, loop: true, draw(ctx, t, w, h) {
     ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
-    ctx.save(); ctx.globalCompositeOperation = "lighter"; bloom(ctx, cx, h * 0.8, w * 0.42, h * 0.1, "#3A2812", 0.5); ctx.restore();
-    dust(ctx, w, h, t, D, 22, 31, 0.35);
-    ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = Math.max(1, S * 0.0016);
-    for (let k = 0; k < 3; k++) {
-      const p = ((t / D + k / 3) % 1 + 1) % 1, rr = R * (1.06 + E.out(p) * 1.3), a = (1 - p) * (1 - p) * 0.5;
-      ctx.strokeStyle = rgba(C.cream, a); ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke();
+    const inset = w * 0.08, size = Math.round(w * 0.082), lh = size * 1.18, top = h * 0.17;
+    const plan = [[0.6, 0.36, 0, 4.4, 4.9], [5.1, 0.33, 1, 8.4, 8.9]];
+    const jit = [0, 0.04, -0.03, 0.1, 0.02, 0.28, 0.05, 0.06, 0.03, 0.12];
+    const timesOf = (start, gap, words) => words.map((_, i) => start + i * gap + (jit[i] || 0) + (i > 0 && /[?.,]$/.test(words[i - 1]) ? 0.22 : 0));
+    let caretX = inset, caretY = top + size * 0.95, writing = false, lastBorn = -9, caretAlpha = 1;
+    ctx.font = font(size); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.015em";
+    for (const [start, gap, si, holdTo, gone] of plan) {
+      if (t < start - 0.05 || t > gone) continue;
+      const words = SAID[si].split(" "), alpha = 1 - E.io(seg(t, holdTo, gone)), times = timesOf(start, gap, words);
+      let x = inset, y = top + size * 0.95;
+      words.forEach((wd, i) => {
+        const tw = times[i]; if (t < tw) return;
+        if (x + ctx.measureText(wd).width > w - inset) { x = inset; y += lh; }
+        const born = 1 - E.out(seg(t - tw, 0, 0.55));
+        ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, alpha);
+        ctx.fillText(wd, x, y);
+        x += ctx.measureText(wd + " ").width; caretX = x - ctx.measureText(" ").width; caretY = y; lastBorn = Math.max(lastBorn, tw);
+      });
+      caretAlpha = alpha; if (alpha <= 0.02) { caretX = inset; caretY = top + size * 0.95; caretAlpha = 1; }
+      writing = t - lastBorn < 0.45;
     }
-    ctx.restore();
-    orb(ctx, cx, cy, R, t, D);
-    vignette(ctx, w, h, 0.5); grain(ctx, w, h, 0.04, 11);
+    caret(ctx, caretX, caretY, size, t, writing, caretAlpha);
+    // The waveform: hairlines, answering each word as it lands.
+    const y0 = h * 0.86, N = 76, x0 = inset, x1 = w - inset;
+    let env = 0.04;
+    for (const [start, gap, si] of plan) { const words = SAID[si].split(" "); timesOf(start, gap, words).forEach(tw => { env = Math.max(env, clamp(1 - Math.abs(t - tw - 0.1) / 0.32)); }); }
+    ctx.fillStyle = rgba(C.pale, 0.16); ctx.fillRect(x0, y0 - 0.5, x1 - x0, 1);
+    ctx.lineCap = "round"; ctx.lineWidth = Math.max(1.5, w * 0.0022); ctx.strokeStyle = rgba(C.pale, 0.55);
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1), x = x0 + u * (x1 - x0), bell = Math.sin(u * Math.PI);
+      const hh = h * 0.08 * env * (0.25 + 0.75 * Math.abs(n1(i * 0.9 + t * 10, 5))) * (0.3 + 0.7 * bell) + 1;
+      ctx.beginPath(); ctx.moveTo(x, y0 - hh); ctx.lineTo(x, y0 + hh); ctx.stroke();
+    }
+    grain(ctx, w, h, 0.03, 11);
   } },
 
   /**
-   * The keyboard: glass keys. Twelve frosted keys on black; a light passes
-   * over them; they lift away as streaks of light. Three stay, turn solid,
-   * and the mark closes over them. 7s, seamless.
+   * The keyboard: drawn exactly, then let go. It fades in, types "say it",
+   * and the keys leave, row by row. The mic key stays, comes to the middle,
+   * and opens: an amber point in a pale ring, the app's own rule. 8s.
    */
-  keys: { duration: 7, loop: true, draw(ctx, t, w, h) {
-    const D = 7, cols = 4, rows = 3, k = w * 0.15, gap = w * 0.035, r = k * 0.2;
-    ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
-    ctx.save(); ctx.globalCompositeOperation = "lighter"; bloom(ctx, w / 2, h * 0.74, w * 0.4, h * 0.1, "#2E2216", 0.5); ctx.restore();
-    const gw = cols * k + (cols - 1) * gap, gh = rows * k + (rows - 1) * gap, gx = (w - gw) / 2, gy = h * 0.44 - gh / 2;
-    const arrive = E.out(seg(t, 0, 0.9)), leave = E.io(seg(t, 6.3, D));
-    const sweep = seg(t, 0.9, 3.0), sx = lerp(gx - k, gx + gw + k, sweep);
-    const MW = w * 0.5, s = MW / 680, M = markMap(w / 2, h * 0.48, s);
-    const keep = { "0,1": 0, "1,3": 1, "2,0": 2 };
-    ctx.save(); ctx.globalCompositeOperation = "lighter";
-    if (sweep > 0 && sweep < 1) { ctx.save(); ctx.translate(sx, h * 0.45); ctx.rotate(-0.35); bloom(ctx, 0, 0, w * 0.06, h * 0.7, C.cream, 0.5 * Math.sin(sweep * Math.PI)); ctx.restore(); }
-    ctx.restore();
-    const streaks = [];
-    for (let rr = 0; rr < rows; rr++) for (let c = 0; c < cols; c++) {
-      let x = gx + c * (k + gap), y = gy + rr * (k + gap), size = k, rad = r, alpha = arrive * (1 - leave), lit = 0, solid = 0, shadow = 1;
-      const dx = (x + k / 2) - sx, near = Math.exp(-(dx * dx) / (2 * (k * 0.9) * (k * 0.9)));
-      lit = sweep > 0 && sweep < 1 ? near : 0;
-      const id = keep[rr + "," + c];
-      if (id !== undefined) {
-        const gl = E.io(seg(t, 3.6, 4.7)), [tx, ty] = M(MARK.sq[id][0] + 66, MARK.sq[id][1] + 66);
-        x = lerp(x, tx - 132 * s / 2, gl); y = lerp(y, ty - 132 * s / 2, gl); size = lerp(k, 132 * s, gl); rad = lerp(r, 28 * s, gl); solid = E.io(seg(t, 4.2, 5.0)) * (1 - leave);
-      } else {
-        const rel = 1.9 + (c / cols) * 1.2 + rr * 0.15, a = seg(t, rel, rel + 0.9);
-        y -= E.in(a) * h * 0.5; alpha *= 1 - E.io(seg(a, 0.15, 1)); lit = Math.max(lit, a > 0 ? 1 - a : 0); shadow = 1 - seg(a, 0, 0.3);
-        if (a > 0 && a < 1) streaks.push([x + k / 2, y + k / 2, k, a]);
-      }
-      glassKey(ctx, x, y, size, size, rad, lit, alpha, solid, shadow);
+  keys: { duration: 8, loop: true, draw(ctx, t, w, h) {
+    const D = 8; ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+    const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
+    const kw = w * 0.079, kh = kw * 1.2, gap = w * 0.012, r = kw * 0.2, top = h * 0.2, rowH = kh + gap * 1.4;
+    const typed = ["S", "A", "Y", " ", "I", "T"], typeStart = 1.1, typeGap = 0.26;
+    const litOf = key => { const i = typed.indexOf(key); if (i < 0) return 0; const tk = typeStart + i * typeGap; return t >= tk ? 1 - E.out(seg(t - tk, 0, 0.5)) : 0; };
+    const gone = row => E.io(seg(t, 3.0 + row * 0.28, 3.9 + row * 0.28)), arrive = row => E.out(seg(t, 0.1 + row * 0.14, 0.7 + row * 0.14)), leave = E.io(seg(t, 7.3, D));
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const drawKey = (x, y, ww, hh, label, lit, alpha, radius = r) => {
+      if (alpha <= 0.005) return; ctx.globalAlpha = alpha;
+      rrect(ctx, x, y, ww, hh, radius); ctx.fillStyle = lit > 0 ? rgba(C.pale, 0.08 + 0.9 * lit) : rgba(C.pale, 0.07); ctx.fill();
+      ctx.lineWidth = Math.max(1, w * 0.0014); ctx.strokeStyle = rgba(C.pale, 0.34 + 0.4 * lit); ctx.stroke();
+      if (label) { ctx.font = font(kw * 0.34, { family: '"Instrument Sans", system-ui, sans-serif', weight: 500 }); ctx.fillStyle = lit > 0.5 ? "#0B0A09" : rgba(C.pale, 0.85); ctx.fillText(label, x + ww / 2, y + hh / 2 + kw * 0.02); }
+      ctx.globalAlpha = 1;
+    };
+    rows.forEach((row, ri) => {
+      const rw = row.length * kw + (row.length - 1) * gap, x0 = (w - rw) / 2, g = gone(ri), a = arrive(ri) * (1 - g) * (1 - leave);
+      row.forEach((key, ci) => drawKey(x0 + ci * (kw + gap), top + ri * rowH - g * kh * 0.5, kw, kh, key, litOf(key), a * (1 - g * 0.5)));
+    });
+    // The bottom row: a small key, the space bar in two halves, a small key, and the mic between them.
+    const by = top + 3 * rowH, g3 = gone(3), a3 = arrive(3) * (1 - g3) * (1 - leave), small = kw * 1.5, mic = kh * 1.05;
+    const total = small * 2 + gap * 4 + kw * 5.4 + mic, bx = (w - total) / 2;
+    drawKey(bx, by - g3 * kh * 0.5, small, kh, "123", 0, a3);
+    drawKey(bx + small + gap, by - g3 * kh * 0.5, kw * 2.7, kh, "", litOf(" "), a3);
+    drawKey(bx + small + gap * 3 + kw * 2.7 + mic, by - g3 * kh * 0.5, kw * 2.7, kh, "", litOf(" "), a3);
+    drawKey(bx + total - small, by - g3 * kh * 0.5, small, kh, "return", 0, a3);
+    // The mic key: it stays, comes to the middle, and opens.
+    const mx0 = bx + small + gap * 2 + kw * 2.7 + mic / 2, my0 = by + kh / 2, rise = E.io(seg(t, 4.3, 5.4));
+    const mx = lerp(mx0, w / 2, rise), my = lerp(my0, h * 0.5, rise), mr = lerp(mic / 2, h * 0.21, rise), open = E.out(seg(t, 5.3, 6.0)), breath = 1 + 0.03 * Math.sin(t * TAU * 0.5);
+    ctx.globalAlpha = arrive(3) * (1 - leave);
+    ctx.beginPath(); ctx.arc(mx, my, mr * breath, 0, TAU); ctx.fillStyle = rgba(C.pale, 0.07); ctx.fill(); ctx.lineWidth = Math.max(1, w * 0.0016); ctx.strokeStyle = rgba(C.pale, 0.5 + 0.3 * open); ctx.stroke();
+    if (open > 0) {
+      glow(ctx, mx, my, mr * 1.4, C.amber, 0.26 * open);
+      ctx.beginPath(); ctx.arc(mx, my, mr * 0.12 * E.back(open), 0, TAU); ctx.fillStyle = C.amber; ctx.fill();
+      ctx.lineWidth = Math.max(1, w * 0.0012); ctx.strokeStyle = rgba(C.amber, 0.5 * open * (0.7 + 0.3 * Math.sin(t * TAU * 0.5))); ctx.beginPath(); ctx.arc(mx, my, mr * (0.72 + 0.04 * Math.sin(t * TAU * 0.5)), 0, TAU); ctx.stroke();
+    } else if (rise < 1) {
+      ctx.beginPath(); ctx.arc(mx, my, mr * 0.11, 0, TAU); ctx.fillStyle = rgba(C.pale, 0.6); ctx.fill();
     }
-    ctx.save(); ctx.globalCompositeOperation = "lighter";
-    for (const [x, y, kk, a] of streaks) { const L = kk * (0.6 + a * 2.4); ctx.save(); ctx.translate(x, y + L * 0.4); ctx.scale(kk * 0.22 / (L * 0.6), 1); glow(ctx, 0, 0, L * 0.6, C.cream, 0.5 * (1 - a), [[0, 1], [0.5, 0.35], [1, 0]]); ctx.restore(); }
-    const lock = E.io(seg(t, 4.6, 5.3)) * (1 - leave);
-    if (lock > 0) glow(ctx, w / 2, h * 0.48, MW * 0.8, C.cream, 0.2 * lock);
-    ctx.restore();
-    drawMark(ctx, w / 2, h * 0.48, MW, { sq: [0, 0, 0], l1: E.io(seg(t, 4.8, 5.2)), l2: E.io(seg(t, 4.9, 5.3)), link: E.io(seg(t, 5.15, 5.5)), dot: seg(t, 5.4, 5.6), alpha: 1 - leave });
-    vignette(ctx, w, h, 0.45); grain(ctx, w, h, 0.04, 5);
+    ctx.globalAlpha = 1;
+    grain(ctx, w, h, 0.03, 5);
   } },
 };
 
 // ---- WIRING ------------------------------------------------------------------
 function fit(canvas, w, h, dpr) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); canvas.style.width = w + "px"; canvas.style.height = h + "px"; return canvas.getContext("2d"); }
-const q = new URLSearchParams(location.search);
-window.TZ = { FILMS, MATERIALS, poster };
-if (q.get("render")) {
+const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
+// Type: the renderer reads it from node_modules; the page, when viewed, from Google Fonts.
+const links = RENDER
+  ? ["newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/500", "noto-sans-devanagari/400", "noto-sans-bengali/400", "noto-sans-tamil/400", "noto-naskh-arabic/400", "noto-sans-jp/400", "noto-sans-kr/400", "noto-sans-sc/400"].map(p => `node_modules/@fontsource/${p}.css`)
+  : ["https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&family=Caveat:wght@600&family=Instrument+Sans:wght@500&family=Noto+Sans+Devanagari&family=Noto+Sans+Bengali&family=Noto+Sans+Tamil&family=Noto+Naskh+Arabic&family=Noto+Sans+JP&family=Noto+Sans+KR&family=Noto+Sans+SC&display=swap"];
+for (const href of links) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = href; document.head.appendChild(l); }
+async function fontsReady() {
+  const wait = Promise.all([...HELLOS.map(wd => document.fonts.load(font(40), wd)), document.fonts.load(font(40, { italic: true }), "a"), document.fonts.load('600 40px "Caveat"', "k"), document.fonts.load('500 40px "Instrument Sans"', "Q")]);
+  await Promise.race([wait, new Promise(res => setTimeout(res, RENDER ? 20000 : 6000))]);
+}
+window.TZ = { FILMS, LINES, poster };
+if (RENDER) {
   document.body.className = "render";
   const W = +q.get("w") || 1080, H = +q.get("h") || 2340, id = q.get("id") || "auth";
   const canvas = document.createElement("canvas"); document.body.appendChild(canvas); const ctx = fit(canvas, W, H, 1);
-  if (q.get("render") === "poster") { poster(ctx, W, H, id); window.__frame = () => {}; }
-  else window.__frame = t => { ctx.setTransform(1, 0, 0, 1, 0, 0); FILMS[id].draw(ctx, t, W, H); };
-  window.__frame(0); window.__ready = true; return;
+  fontsReady().then(() => {
+    if (q.get("render") === "poster") { poster(ctx, W, H, id); window.__frame = () => {}; }
+    else window.__frame = t => { ctx.setTransform(1, 0, 0, 1, 0, 0); FILMS[id].draw(ctx, t, W, H); };
+    window.__frame(0); window.__ready = true;
+  });
+  return;
 }
 
 // ---- THE SCREENS, as the app builds them ---------------------------------------
@@ -443,33 +429,33 @@ document.body.insertAdjacentHTML("beforeend", `
 <div class="wrap">
 <header>
   <p class="eye">Tailzu · the way in</p>
-  <h1>Black glass, and light.</h1>
-  <p class="lede">Every screen below is the app's own construction at true size: its type, its copy, its controls. The films and posters sit where they live. One material throughout: the app's warm black as glass, its pale as light, and the amber only where something is alive. The opening film is unchanged.</p>
+  <h1>The words themselves.</h1>
+  <p class="lede">Tailzu makes sentences: in your language, spelled the way you speak. So the art is that, and only that: type, live. Every screen below is the app's own construction at true size, with the film or poster where it lives. Amber is the app's rule: the caret while the mic is open, the words just born. Nothing else. The opening film is unchanged.</p>
 </header>
 
 <h2>Sign in</h2>
-<p class="sub">Dawn under glass. A low horizon of light breathes behind the form; dust drifts in it; once a loop, a single hairline of light writes itself across the dark and dissolves. The app lays its 42% scrim over it, as it does over every backdrop.</p>
-${scene("The first screen", "Warm light where the eye rests, darkness where the hands work. On the phone the horizon sits above the pills; in the window it sits to the left of them.", "hero.auth · 1080×2340<br>hero.auth.desktop · 1600×1000<br>10s · loops · muted",
+<p class="sub">The greetings the app already knows, in their own scripts: Hello, नमस्ते, Hola, 你好, Bonjour, مرحبا, こんにちは, নমস্কার, வணக்கம், 안녕하세요. They rise out of the dark where the form is and write themselves as they come; the one being written carries the caret. Under the app's 42% scrim, as every backdrop is.</p>
+${scene("The first screen", "One column of type, moving at the pace of credits. On the phone it writes at the edge of the form; in the window it writes low on the left and the form has the right.", "hero.auth · 1080×2340<br>hero.auth.desktop · 1600×1000<br>16s · loops · muted",
   phone(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div>${signForm}`) +
   desk(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="deskform"><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div><div style="height:48px"></div>${signForm}</div>`))}
 
 <h2>The microphone</h2>
-<p class="sub">The orb. A frosted-glass sphere with light moving inside it, breathing on black; thin rings leave its edge like sound leaving glass. Its edges are the screen's own black, so nothing reads as a box: the glass floats in the room.</p>
-${scene("Permission, asked once", "The headline the app sets, the orb in the middle it leaves for the art, the line under it, and the allow pill. The ember inside the glass is the app's amber, and it is alive.", "onboarding.hero · 1080×1200<br>6s · loops · phones only",
-  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="mic" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
+<p class="sub">Said, then written. A sentence arrives word by word at the rhythm of speech; the newest word is amber and settles to pale; the caret stays amber while the mic is open; a hairline waveform answers beneath. The second sentence is Hinglish in English letters, which is the product.</p>
+${scene("Permission, asked once", "The headline the app sets, the sentence in the middle it leaves for the art, the line under it, and the allow pill. Its black is the screen's black, so nothing reads as a box.", "onboarding.hero · 1080×1200<br>9s · loops · phones only",
+  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="mic" data-w="334" data-h="371"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>The keyboard</h2>
-<p class="sub">Glass keys. Twelve frosted keys on black; a light passes over them; they lift away as streaks of light. Three stay, turn solid, and the mark closes over them: a keyboard with the keys taken out.</p>
-${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, and its black is the screen's black.", "hero.onboarding_keyboard · 1200×900<br>7s · loops · phones only",
+<p class="sub">Drawn exactly, then let go. The keyboard fades in, types <i>say it</i>, and the keys leave, row by row. The mic key stays, comes to the middle, and opens: an amber point in a pale ring.</p>
+${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, and its black is the screen's black.", "hero.onboarding_keyboard · 1200×900<br>8s · loops · phones only",
   phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keys"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>You</h2>
-<p class="sub">Light on material. Each voice is a poster of one material lit one way: Zu is black silk with a cream fold and a single ember; Professional is graphite with a cool edge and a rule; Noir is a window with the blinds down. The card's own words sit on top, unchanged.</p>
+<p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. The training card carries the first thing training says.</p>
 ${scene("The You tab", "The greeting, the portrait line, the voice card, the training card, and the three rows, as the app lays them out. The window keeps the phone's column and takes the air.", "you.voice.<id> · 1200×560 × 16<br>you.train · 1200×720",
   phone(`<div class="you">${youBody}</div>${dock}`) + desk(`<div class="deskyou"><div class="col">${youBody}</div></div>`))}
 
 <h2>Every voice</h2>
-<p class="sub">Sixteen materials, one light.</p>
+<p class="sub">Sixteen voices, one request.</p>
 <div class="gallery">${voices.map(v => voiceCard(v[0], v[1], v[2])).join("")}</div>
 
 <h2>What goes where</h2>
@@ -484,25 +470,26 @@ ${scene("The You tab", "The greeting, the portrait line, the voice card, the tra
 </div>`);
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
-document.querySelectorAll("[data-poster]").forEach(el => {
-  const c = el.querySelector("canvas"), w = el.clientWidth, h = el.clientHeight;
-  const train = el.dataset.poster === "train", pw = 1200, ph = train ? 720 : 560;
-  const off = document.createElement("canvas"); off.width = pw; off.height = ph; poster(off.getContext("2d"), pw, ph, el.dataset.poster);
-  const ctx = fit(c, w, h, dpr), sc = Math.max(w / pw, h / ph), dw = pw * sc, dh = ph * sc;
-  ctx.drawImage(off, (w - dw) / 2 * dpr, (h - dh) / 2 * dpr, dw * dpr, dh * dpr);
+fontsReady().then(() => {
+  document.querySelectorAll("[data-poster]").forEach(el => {
+    const c = el.querySelector("canvas"), w = el.clientWidth, h = el.clientHeight, train = el.dataset.poster === "train", pw = 1200, ph = train ? 720 : 560;
+    const off = document.createElement("canvas"); off.width = pw; off.height = ph; poster(off.getContext("2d"), pw, ph, el.dataset.poster);
+    const ctx = fit(c, w, h, dpr), sc = Math.max(w / pw, h / ph), dw = pw * sc, dh = ph * sc;
+    ctx.drawImage(off, (w - dw) / 2 * dpr, (h - dh) / 2 * dpr, dw * dpr, dh * dpr);
+  });
+  const live = [];
+  document.querySelectorAll("canvas[data-film]").forEach(c => {
+    const w = +c.dataset.w || c.parentElement.clientWidth, h = +c.dataset.h || c.parentElement.clientHeight;
+    live.push({ ctx: fit(c, w, h, dpr), id: c.dataset.film, w, h });
+  });
+  const t0 = performance.now(), reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function tick() {
+    const t = (performance.now() - t0) / 1000;
+    for (const f of live) { const F = FILMS[f.id]; f.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); F.draw(f.ctx, reduced ? 3.5 : (F.loop ? t % F.duration : Math.min(F.duration, t % (F.duration + 1.6))), f.w, f.h); }
+    if (!reduced) requestAnimationFrame(tick);
+  }
+  tick();
 });
-const live = [];
-document.querySelectorAll("canvas[data-film]").forEach(c => {
-  const w = +c.dataset.w || c.parentElement.clientWidth, h = +c.dataset.h || c.parentElement.clientHeight;
-  live.push({ ctx: fit(c, w, h, dpr), id: c.dataset.film, w, h });
-});
-const t0 = performance.now(), reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-function tick() {
-  const t = (performance.now() - t0) / 1000;
-  for (const f of live) { const F = FILMS[f.id]; f.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); F.draw(f.ctx, reduced ? 2.5 : (F.loop ? t % F.duration : Math.min(F.duration, t % (F.duration + 1.6))), f.w, f.h); }
-  if (!reduced) requestAnimationFrame(tick);
-}
-tick();
 })();
 </script>
 </body>
