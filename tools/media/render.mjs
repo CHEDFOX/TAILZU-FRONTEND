@@ -27,7 +27,7 @@ const { chromium } = require("playwright");
 
 const out = process.argv[2];
 if (!out) { console.error("usage: render.mjs <outDir> [--only a,b] [--stills]"); process.exit(1); }
-const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=auth,intro,mic,keys,posters").slice(7).split(",");
+const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=auth,intro,micA,keysA,keysAndroid,posters").slice(7).split(",");
 const stills = process.argv.includes("--stills");
 const FPS = 30;
 
@@ -38,8 +38,9 @@ const FILMS = [
   { id: "intro", w: 1080, h: 2340, file: "intro.mp4", key: "intro", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
   { id: "intro", w: 1440, h: 1000, file: "intro-desktop.mp4", key: "intro.desktop", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
   // Phones only: a window never asks for the mic or the keyboard. Their black is the screen's, so no box shows.
-  { id: "mic", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#000000" } },
-  { id: "keys", w: 1200, h: 900, file: "keys.mp4", key: "hero.onboarding_keyboard", present: { fit: "cover", loop: true, background: "#000000" } },
+  { id: "micA", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#E5931D" } },
+  { id: "keysA", w: 1200, h: 900, file: "keys-ios.mp4", key: "hero.onboarding_keyboard.card", present: { fit: "cover", loop: true, background: "#1A1748" } },
+  { id: "keysAndroid", w: 1200, h: 900, file: "keys-android.mp4", key: "hero.onboarding_keyboard.card.android", present: { fit: "cover", loop: true, background: "#1A1748" } },
 ];
 const VOICES = ["signature", "professional", "friendly", "witty", "concise", "gentle", "playful", "romantic", "concise-boss", "explainer", "excited", "poetic", "bard", "pirate", "trailer", "noir"];
 const POSTERS = [
