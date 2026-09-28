@@ -35,9 +35,9 @@ const FILMS = [
   // `present` is what the registry stores beside the file: how the slot shows it.
   { id: "auth", w: 1080, h: 2340, file: "auth.mp4", key: "hero.auth", present: { fit: "cover", background: "#0A0908", loop: true } },
   { id: "auth", w: 1600, h: 1000, file: "auth-desktop.mp4", key: "hero.auth.desktop", present: { fit: "cover", background: "#0A0908", loop: true } },
-  // NO OPENING HERE. The app opens on the in-app mic's own media
-  // (mic.animation); a file under `intro` would replace it. The page's intro
-  // film is for looking at, never for the seed.
+  // NO OPENING HERE. The app opens on the splash film under `intro`, set by
+  // hand; a file seeded under that key replaces it. The page's intro film is
+  // for looking at, never for the seed.
   // Phones only: a window never asks for the mic or the keyboard. Their black is the screen's, so no box shows.
   { id: "micA", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#E5931D" } },
   { id: "keysA", w: 1080, h: 1400, file: "keys-ios.mp4", key: "hero.onboarding_keyboard.card", present: { fit: "cover", loop: true, background: "#000000" } },
