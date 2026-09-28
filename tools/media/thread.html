@@ -59,6 +59,10 @@
   .ob .mid canvas { border-radius: 22px; }
   .ob .line { font-size: 8.5px; line-height: 1.5; color: rgba(255,255,255,.62); text-align: center; margin: 0 0 12px; max-width: 200px; }
   .desk .ob .line { font-size: 11px; max-width: 320px; }
+  .form { position: absolute; left: 14px; right: 14px; bottom: 22px; display: flex; flex-direction: column; gap: 6px; }
+  .form.deskform { left: auto; right: 30px; bottom: 60px; width: 180px; }
+  .fpill { height: 28px; border-radius: 14px; background: #F3E2C6; color: #0F0D0B; font-size: 9px; font-weight: 500; display: flex; align-items: center; justify-content: center; }
+  .fpill.ghost { background: rgba(243,226,198,.12); color: #F3E2C6; }
   .pill { width: 100%; max-width: 300px; height: 30px; border-radius: 15px; background: #F3E2C6; color: #0F0D0B; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 500; }
   .desk .pill { height: 36px; font-size: 11px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(354px, 100%), 354px)); gap: 18px; }
@@ -193,64 +197,155 @@ const FILMS = {
     grain(ctx, w, h, 0.05, 7);
   } },
 
-  /** The mic screen: rings from a live point, combed into lines of text. Loops. */
-  mic: { duration: 4, loop: true, draw(ctx, t, w, h) {
-    ground(ctx, w, h);
-    const S = Math.min(w, h), D = 4, sx = w * 0.3, sy = h * 0.5, Rmax = S * 0.62, speed = Rmax / 2.1;
-    const breath = 1 + 0.14 * Math.sin(t / D * TAU * 2 - 1);
-    glow(ctx, sx, sy, S * 0.22 * breath, C.amber, 0.28);
-    ctx.save(); ctx.lineWidth = Math.max(1, S * 0.0022);
-    for (let k = 0; k < 6; k++) {
-      const age = ((t - k * D / 6) % D + D) % D, r = age * speed; if (r > Rmax) continue;
-      ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.strokeStyle = rgba(C.pale, Math.pow(1 - r / Rmax, 1.7) * 0.55); ctx.stroke();
+  /**
+   * The sign-in backdrop: every language, rising. A field of calligraphic
+   * gestures, no alphabet's own, lifts slowly through warm light. The form
+   * sits low on a phone and right in a window, so the field goes dark there.
+   * Loops in 8s by construction.
+   */
+  auth: { duration: 8, loop: true, draw(ctx, t, w, h) {
+    const D = 8, S = Math.min(w, h), wide = w > h;
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, "#0F0D0B"); g.addColorStop(0.42, "#1C130B"); g.addColorStop(1, "#050403");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const ex = wide ? w * 0.34 : w * 0.5, ey = wide ? h * 0.56 : h * 0.5;
+    glow(ctx, ex, ey, S * 0.95, "#E8A23C", 0.22); glow(ctx, ex, ey, S * 0.3, "#F2B558", 0.16);
+    // Where the words go: a phone's form is the bottom, a window's the right.
+    const room = (x, y) => wide ? 1 - seg(x, w * 0.5, w * 0.68) : 1 - seg(y, h * 0.5, h * 0.7);
+    const r = rng(19);
+    ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (let i = 0; i < 52; i++) {
+      const depth = [0.15, 0.55, 1][i % 3] * (0.85 + r() * 0.15), x0 = r() * w, y0 = r() * h, kind = Math.floor(r() * 3.3), ph = r() * TAU, sway = r();
+      const speed = h / D * (0.35 + depth * 0.65) / 2;              // two heights per loop at most, whole
+      const y = ((y0 - t * speed) % h + h) % h;
+      const x = x0 + Math.sin(t / D * TAU * (1 + Math.round(sway * 2)) + ph) * S * 0.02 * (0.5 + depth);
+      const sz = S * (0.05 + depth * 0.16), a = (0.1 + depth * 0.75) * room(x, y) * (0.75 + 0.25 * Math.sin(t / D * TAU * 2 + ph));
+      if (a <= 0.01) continue;
+      ctx.strokeStyle = rgba("#F3E2C6", a); ctx.lineWidth = Math.max(1, sz * 0.09);
+      ctx.beginPath();
+      if (kind === 0) for (let j = 0; j <= 40; j++) { const u = j / 40; const px = x + u * sz - sz * 0.22 * Math.sin(u * 1.5 * TAU), py = y - sz * 0.22 * Math.cos(u * 1.5 * TAU); j ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      else if (kind === 1) { ctx.moveTo(x, y + sz * 0.3); ctx.quadraticCurveTo(x + sz * 0.1, y - sz * 0.4, x + sz * 0.55, y - sz * 0.1); ctx.quadraticCurveTo(x + sz * 0.8, y + sz * 0.1, x + sz, y - sz * 0.3); }
+      else if (kind === 2) { ctx.moveTo(x, y); ctx.bezierCurveTo(x + sz * 0.3, y - sz * 0.5, x + sz * 0.6, y + sz * 0.5, x + sz, y - sz * 0.1); }
+      else { ctx.moveTo(x, y + sz * 0.1); ctx.quadraticCurveTo(x + sz * 0.3, y - sz * 0.35, x + sz * 0.5, y + sz * 0.05); ctx.moveTo(x + sz * 0.72, y - sz * 0.02); ctx.lineTo(x + sz * 0.74, y); }
+      ctx.stroke();
+      if (depth > 0.8) glow(ctx, x + sz * 0.5, y, sz * 0.5, "#F3E2C6", 0.08 * room(x, y));
     }
     ctx.restore();
-    ctx.beginPath(); ctx.arc(sx, sy, S * 0.02 * breath, 0, TAU); ctx.fillStyle = C.amber; ctx.fill();
-    const lx = w * 0.5, lx1 = w * 0.9, lw = Math.max(2, S * 0.011);
-    ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = lw;
-    for (let j = 0; j < 6; j++) {
-      const y = sy + (j - 2.5) * S * 0.078, dist = Math.hypot(lx - sx, y - sy), arrive = j * D / 6 + dist / speed;
-      const age = ((t - arrive) % D + D) % D;
-      const typed = E.out(seg(age, 0, 0.6)), alpha = (1 - E.io(seg(age, 2.4, 3.4))) * 0.85;
-      if (!(typed > 0 && alpha > 0)) continue;
-      const r = rng(j * 31 + 5); let x = lx; const end = lx + (lx1 - lx) * typed;
-      ctx.strokeStyle = rgba(C.pale, alpha);
-      while (x < end) { const wl = S * (0.03 + r() * 0.08); const x2 = Math.min(x + wl, end); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y); ctx.stroke(); x = x2 + S * 0.022; }
-    }
-    ctx.restore();
-    grain(ctx, w, h, 0.045, 11);
+    grain(ctx, w, h, 0.05, 23);
   } },
 
-  /** The keyboard screen: the keys go; three stay and become the mark. Loops. */
-  keys: { duration: 4, loop: true, draw(ctx, t, w, h) {
-    ground(ctx, w, h);
-    const D = 4, cols = 10, rows = 4, k = w * 0.062, g = w * 0.015, stag = [0, 0.35, 0.7, 0.2];
-    const gridW = cols * k + (cols - 1) * g, gx = (w - gridW) / 2 - k * 0.35, gy = h / 2 - (rows * k + (rows - 1) * g) / 2;
-    const all = E.out(seg(t, 0, 0.35)) * (1 - E.io(seg(t, 3.7, D)));
-    const MW = Math.min(w * 0.42, h * 0.6), s = MW / 680, M = markMap(w / 2, h / 2, s);
-    const keep = { "1,3": 0, "2,6": 1, "3,1": 2 };
-    const sweep = seg(t, 0.75, 2.45);
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      let x = gx + c * (k + g) + stag[r] * k + k / 2, y = gy + r * (k + g) + k / 2, size = k, rad = k * 0.22, alpha = all;
-      const id = keep[r + "," + c];
+  /**
+   * The mic screen: the voice, lit. An amber core breathes at the foot of
+   * the frame; pressure rings roll off it; hundreds of sparks stream up and
+   * settle into lines of text at the top, word by word. Loops in 4s.
+   */
+  mic: { duration: 4, loop: true, draw(ctx, t, w, h) {
+    const D = 4, S = Math.min(w, h), ox = w * 0.5, oy = h * 0.68;
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#0F0D0B"); g.addColorStop(1, "#1B1108");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const breath = 1 + 0.1 * Math.sin(t / D * TAU * 2 - 1);
+    glow(ctx, ox, oy, S * 0.75, "#E8A23C", 0.34); glow(ctx, ox, oy, S * 0.32 * breath, "#F2B558", 0.35);
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    // Pressure rings, thick and fading, four in flight at once.
+    const Rmax = S * 0.7, speed = Rmax / 2.2;
+    for (let k = 0; k < 5; k++) {
+      const age = ((t - k * D / 5) % D + D) % D, r0 = age * speed; if (r0 > Rmax) continue;
+      const p = r0 / Rmax; ctx.lineWidth = S * 0.028 * (1 - p) + 1; ctx.strokeStyle = rgba("#F3E2C6", 0.42 * Math.pow(1 - p, 1.4));
+      ctx.beginPath(); ctx.arc(ox, oy, r0, 0, TAU); ctx.stroke();
+    }
+    // The text, typed in rows as the sparks arrive.
+    const rows = 6, ry = j => h * 0.12 + j * h * 0.056, x0 = w * 0.14, x1 = w * 0.86;
+    ctx.lineCap = "round"; ctx.lineWidth = S * 0.015;
+    for (let j = 0; j < rows; j++) {
+      const ph = ((t / D + j * 0.137) % 1 + 1) % 1, typed = E.out(seg(ph, 0, 0.4)), a = (1 - E.io(seg(ph, 0.7, 1))) * 0.8;
+      if (!(typed > 0 && a > 0)) continue;
+      const r = rng(j * 31 + 5); let x = x0; const end = x0 + (x1 - x0) * typed;
+      ctx.strokeStyle = rgba("#F3E2C6", a);
+      while (x < end) { const wl = S * (0.035 + r() * 0.1), x2 = Math.min(x + wl, end); ctx.beginPath(); ctx.moveTo(x, ry(j)); ctx.lineTo(x2, ry(j)); ctx.stroke(); x = x2 + S * 0.026; }
+      if (typed < 1) glow(ctx, end, ry(j), S * 0.05, "#F3E2C6", 0.7);
+    }
+    // Sparks: born at the core, rising in a twist, landing on a row.
+    const r = rng(3);
+    for (let i = 0; i < 460; i++) {
+      const s0 = r(), s1 = r(), s2 = r(), s3 = r();
+      const age = ((t + s0 * D) % D + D) % D, u = age / D;
+      const a0 = -Math.PI / 2 + (s1 - 0.5) * 1.6, dist = E.out(u) * (oy - h * 0.1);
+      const row = Math.floor(s2 * rows), land = E.io(seg(u, 0.55, 0.85));
+      let x = ox + Math.cos(a0) * dist * 0.9 + Math.sin(u * 9 + s3 * TAU) * S * 0.04 * u;
+      let y = oy + Math.sin(a0) * dist;
+      x = lerp(x, x0 + s3 * (x1 - x0), land); y = lerp(y, ry(row), land);
+      const a = Math.sin(u * Math.PI) * (0.35 + s2 * 0.6) * (1 - E.io(seg(u, 0.85, 1)));
+      const sz = S * (0.002 + s1 * 0.005);
+      ctx.fillStyle = rgba(u < 0.25 ? "#F2B558" : "#F3E2C6", a); ctx.beginPath(); ctx.arc(x, y, sz, 0, TAU); ctx.fill();
+      if (s1 > 0.9) glow(ctx, x, y, sz * 5, "#F3E2C6", a * 0.5);
+    }
+    ctx.restore();
+    // The core.
+    const cr = S * 0.09 * breath, cg = ctx.createRadialGradient(ox - cr * 0.2, oy - cr * 0.25, 0, ox, oy, cr);
+    cg.addColorStop(0, "#FFF0CC"); cg.addColorStop(0.35, "#F5C070"); cg.addColorStop(0.8, "#E8A23C"); cg.addColorStop(1, rgba("#E8A23C", 0.2));
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(ox, oy, cr, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "lighter"; ctx.lineWidth = S * 0.006; ctx.strokeStyle = rgba("#FFE6B8", 0.5);
+    ctx.beginPath(); ctx.arc(ox, oy, cr * (1.45 + 0.08 * Math.sin(t / D * TAU * 4)), 0, TAU); ctx.stroke(); ctx.globalCompositeOperation = "source-over";
+    const v = ctx.createRadialGradient(w / 2, h / 2, S * 0.4, w / 2, h / 2, S * 1.1); v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(1, "rgba(0,0,0,0.5)"); ctx.fillStyle = v; ctx.fillRect(0, 0, w, h);
+    grain(ctx, w, h, 0.05, 11);
+  } },
+
+  /**
+   * The keyboard screen: the keys go, in depth. A field of keys recedes into
+   * fog. A ribbon of light flies through it; every key it passes lifts off
+   * and burns out. Three near the front rise instead, grow, and lock into
+   * the mark. Loops in 4.5s.
+   */
+  keys: { duration: 4.5, loop: true, draw(ctx, t, w, h) {
+    const D = 4.5, cols = 14, rows = 9;
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#0F0D0B"); g.addColorStop(0.5, "#151110"); g.addColorStop(1, "#0F0D0B");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    glow(ctx, w * 0.5, h * 0.62, w * 0.6, "#F3E2C6", 0.06);
+    const all = E.out(seg(t, 0, 0.4)) * (1 - E.io(seg(t, 4.1, D)));
+    const sc = rr => lerp(0.4, 1, rr / (rows - 1)), kw = rr => w * 0.062 * sc(rr);
+    const rowY = []; let y = h * 0.22; for (let rr = 0; rr < rows; rr++) { rowY.push(y); y += kw(rr) * 1.36; }
+    const path = u => [w * (0.12 + 0.76 * u) + w * 0.1 * Math.sin(u * TAU * 0.8), h * 0.2 + u * h * 0.68];
+    const MW = w * 0.6, s = MW / 680, M = markMap(w / 2, h * 0.52, s);
+    const keep = { "5,5": 0, "6,8": 1, "7,4": 2 };
+    const sweep = seg(t, 0.35, 2.35);
+    const sparks = [];
+    for (let rr = 0; rr < rows; rr++) for (let c = 0; c < cols; c++) {
+      const k = kw(rr), pitch = k * 1.24, stag = ((rr * 0.37) % 1) * k;
+      let x = w / 2 + (c - (cols - 1) / 2) * pitch + stag - k * 0.2, yy = rowY[rr], size = k, rad = k * 0.22;
+      let alpha = all * lerp(0.3, 1, sc(rr)), lift = 0;
+      const id = keep[rr + "," + c];
       if (id !== undefined) {
-        const gl = E.back(seg(t, 1.9, 2.7)), [tx, ty] = M(MARK.sq[id][0] + 66, MARK.sq[id][1] + 66);
-        x = lerp(x, tx, gl); y = lerp(y, ty, gl); size = lerp(k, 132 * s, gl); rad = lerp(rad, 28 * s, gl);
+        const gl = E.back(seg(t, 2.3, 3.1)), [tx, ty] = M(MARK.sq[id][0] + 66, MARK.sq[id][1] + 66);
+        x = lerp(x, tx, gl); yy = lerp(yy, ty, gl); size = lerp(k, 132 * s, gl); rad = lerp(rad, 28 * s, gl); alpha = all;
       } else {
-        const rel = 0.75 + (c / cols) * 1.6 + r * 0.07, a = seg(t, rel, rel + 0.65);
-        y -= E.out(a) * h * 0.24; size *= 1 - 0.6 * E.in(a); alpha *= 1 - E.io(a);
+        const u = seg(yy, h * 0.2, h * 0.88), [px] = path(u);
+        const rel = 0.35 + u * 1.7 + Math.abs(x - px) / w * 0.4, a = seg(t, rel, rel + 0.6);
+        lift = a; yy -= E.out(a) * h * 0.18; size *= 1 - 0.5 * E.in(a); alpha *= 1 - E.io(a);
+        if (a > 0 && a < 1) for (let q = 0; q < 4; q++) sparks.push([x + (q - 1.5) * k * 0.3, yy - a * k * (1 + q * 0.6), k * 0.06 * (1 - a), (1 - a) * all]);
       }
       if (alpha <= 0.005) continue;
-      ctx.globalAlpha = alpha; rrect(ctx, x - size / 2, y - size / 2, size, size, rad); ctx.fillStyle = C.key; ctx.fill();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "#B9A98F"; rrect(ctx, x - size / 2, yy - size / 2 + size * 0.1, size, size, rad); ctx.fill();   // the key's side
+      ctx.fillStyle = C.key; rrect(ctx, x - size / 2, yy - size / 2, size, size * 0.92, rad); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.35)"; rrect(ctx, x - size * 0.4, yy - size * 0.42, size * 0.8, size * 0.16, rad * 0.6); ctx.fill();
     }
     ctx.globalAlpha = 1;
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (const [sx, sy, sr, sa] of sparks) { ctx.fillStyle = rgba("#F3E2C6", sa * 0.8); ctx.beginPath(); ctx.arc(sx, sy, Math.max(0.5, sr), 0, TAU); ctx.fill(); }
     if (sweep > 0 && sweep < 1) {
-      const x = gx + sweep * (gridW + k), a = Math.sin(sweep * Math.PI);
-      ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = Math.max(1, w * 0.003); ctx.beginPath();
-      for (let j = 0; j <= 60; j++) { const u = j / 60, yy = gy - k + u * (rows * (k + g) + k), xx = x + w * 0.02 * n1(u * 5 + t * 3, 2); j ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
-      ctx.strokeStyle = rgba(C.pale, 0.7 * a * all); ctx.stroke(); ctx.restore();
+      const head = sweep, [hx, hy] = path(head);
+      for (let j = 0; j < 40; j++) {
+        const u0 = head - (j / 40) * 0.28, u1 = head - ((j + 1) / 40) * 0.28; if (u1 < 0) break;
+        const [x0, y0] = path(u0), [x1, y1] = path(u1), f = 1 - j / 40;
+        ctx.strokeStyle = rgba("#F3E2C6", 0.8 * f * all); ctx.lineWidth = w * 0.014 * f + 1; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+      glow(ctx, hx, hy, w * 0.12, "#F3E2C6", 0.6 * all); glow(ctx, hx, hy, w * 0.03, "#FFFFFF", 0.9 * all);
     }
-    drawMark(ctx, w / 2, h / 2, MW, { sq: [0, 0, 0], l1: E.io(seg(t, 2.65, 2.9)), l2: E.io(seg(t, 2.72, 2.98)), link: E.io(seg(t, 2.88, 3.12)), dot: seg(t, 3.02, 3.18), alpha: all });
+    const lock = E.io(seg(t, 2.9, 3.4));
+    if (lock > 0) glow(ctx, w / 2, h * 0.52, MW * 0.75, "#F3E2C6", 0.22 * lock * all);
+    ctx.restore();
+    drawMark(ctx, w / 2, h * 0.52, MW, { sq: [0, 0, 0], l1: E.io(seg(t, 3.0, 3.3)), l2: E.io(seg(t, 3.08, 3.38)), link: E.io(seg(t, 3.25, 3.5)), dot: seg(t, 3.42, 3.58), alpha: all });
     grain(ctx, w, h, 0.045, 5);
   } },
 };
@@ -340,7 +435,7 @@ const voices = [
 const card = (id, name, tag, wide) => `<div class="card${wide ? " wide" : ""}" data-poster="${id}"><canvas></canvas><div class="scrim"></div><div class="text"><div class="k"><i></i>Writing as</div><div class="name">${name}</div><div class="tag">${tag}</div></div></div>`;
 const trainCard = wide => `<div class="card train${wide ? " wide" : ""}" data-poster="train"><canvas></canvas><div class="text"><div class="k">It learns you</div><div class="name">Just talk.</div><div class="tag">Talk once and it starts learning you.</div><div class="btn">Start training</div></div></div>`;
 const film = (id, title, copy, meta, phone, desk) => `<section class="film"><div><h3>${title}</h3><p>${copy}</p><div class="meta">${meta}</div></div><div class="devices">${phone}${desk}</div></section>`;
-const obPhone = (id, title, line) => `<div class="phone"><div class="screen"><div class="ob"><div class="title">${title}</div><div class="mid"><canvas data-film="${id}" data-w="${id === "mic" ? 200 : 200}" data-h="${id === "mic" ? 200 : 125}"></canvas></div><div class="line">${line}</div><div class="pill">Allow access</div></div></div></div>`;
+const obPhone = (id, title, line) => `<div class="phone"><div class="screen"><div class="ob"><div class="title">${title}</div><div class="mid"><canvas data-film="${id}" data-w="200" data-h="${id === "mic" ? 222 : 150}"></canvas></div><div class="line">${line}</div><div class="pill">${id === "mic" ? "Allow access" : "Open Settings"}</div></div></div></div>`;
 const obDesk = (id, title, line) => `<div class="desk"><div class="screen"><div class="ob"><div class="title">${title}</div><div class="mid"><canvas data-film="${id}" data-w="${id === "mic" ? 190 : 300}" data-h="${id === "mic" ? 190 : 188}"></canvas></div><div class="line">${line}</div><div class="pill">Allow access</div></div></div></div>`;
 
 document.body.insertAdjacentHTML("beforeend", `
@@ -352,16 +447,17 @@ document.body.insertAdjacentHTML("beforeend", `
 </header>
 
 <h2>Onboarding, in motion</h2>
-<p class="sub">Rendered as silent MP4s the app already knows how to play, on the phone and in the desktop window. Nothing in them is typeset, so no font can go missing.</p>
+<p class="sub">Rendered as silent MP4s the app already knows how to play. The sign-in and the opening have a phone cut and a desktop cut; the two permission screens are phone-only, because a window never asks for them. Nothing is typeset, so no font can go missing.</p>
+${film("auth", "0 · Sign in", "Before anything is said: every language, rising. A field of calligraphic gestures that belong to no alphabet lifts slowly through warm light, and goes dark where the sign-in form sits. Ambient, eight seconds, endless.", "hero.auth · 1080×2340 phone · 1600×1000 desktop · 8s · loops",
+  `<div class="phone"><div class="screen full"><canvas data-film="auth" data-w="222" data-h="494"></canvas><div class="form"><div class="fpill">Continue with Apple</div><div class="fpill">Continue with Google</div><div class="fpill ghost">Use email</div></div></div></div>`,
+  `<div class="desk"><div class="screen full"><canvas data-film="auth" data-w="496" data-h="325"></canvas><div class="form deskform"><div class="fpill">Continue with Apple</div><div class="fpill">Continue with Google</div><div class="fpill ghost">Use email</div></div></div></div>`)}
 ${film("intro", "1 · The opening", "Seven strands breathe in, gather into one thread, write, and the writing becomes the mark: three keys, the link going live, the point. Plays once and holds; the app moves on at 2.8 seconds.", "intro · 1080×2340 phone · 1440×1000 desktop · 3.0s · once",
   `<div class="phone"><div class="screen full"><canvas data-film="intro" data-w="222" data-h="494"></canvas></div></div>`,
   `<div class="desk"><div class="screen full"><canvas data-film="intro" data-w="496" data-h="325"></canvas></div></div>`)}
-${film("mic", "2 · The microphone", "A point is live. Rings breathe out from it and, as they reach the page, they are combed into lines of text, word by word. The one amber thing on the screen is the open mic, which is the app's own rule for amber.", "onboarding.hero · 1000×1000 · 4s · loops",
-  obPhone("mic", "Say it. It's <b>written.</b>", "The mic is what makes that possible — in every app you type in."),
-  obDesk("mic", "Say it. It's <b>written.</b>", "The mic is what makes that possible — in every app you type in."))}
-${film("keys", "3 · The keyboard", "Forty keys, and a thread passes through them. The keys lift away as it goes. Three stay, slide into place, and the mark closes over them: this is a keyboard with the keys taken out.", "hero.onboarding_keyboard · 1200×750 · 4s · loops",
-  obPhone("keys", "A keyboard, <b>keyless.</b>", "Turn it on in Settings, and it follows you into every app."),
-  obDesk("keys", "A keyboard, <b>keyless.</b>", "Turn it on in Settings, and it follows you into every app."))}
+${film("mic", "2 · The microphone", "The voice, lit. An amber core breathes at the foot of the frame; pressure rings roll off it; hundreds of sparks stream up and settle into lines of text at the top, word by word. The core is the open mic, the app's own rule for amber. Phones only: a window never asks.", "onboarding.hero · 1080×1200 · 4s · loops",
+  obPhone("mic", "Say it. It's <b>written.</b>", "The mic is what makes that possible — in every app you type in."), "")}
+${film("keys", "3 · The keyboard", "The keys go, in depth. A field of keys recedes into fog and a ribbon of light flies through it; every key it passes lifts off and burns out. Three near the front rise instead, grow, and lock into the mark: a keyboard with the keys taken out. Phones only.", "hero.onboarding_keyboard · 1200×900 · 4.5s · loops",
+  obPhone("keys", "Bring it <b>everywhere.</b>", "Turn it on in Settings, and it follows you into every app."), "")}
 
 <h2>The You tab, postered</h2>
 <p class="sub">One gesture of the thread per voice, on that voice's own dark field, so the card's white words always read. Zu is the pale thread with the one amber point. The training card gets the network it grows.</p>
@@ -371,6 +467,7 @@ ${film("keys", "3 · The keyboard", "Forty keys, and a thread passes through the
 <h2>What goes where</h2>
 <p class="sub">Every file is served from the media registry under its key; the app and the desktop draw whatever is there, no build.</p>
 <ul class="files">
+  <li><b>auth.mp4</b> hero.auth (phone)</li><li><b>auth-desktop.mp4</b> hero.auth.desktop</li>
   <li><b>intro.mp4</b> intro (phone)</li><li><b>intro-desktop.mp4</b> intro.desktop</li>
   <li><b>mic.mp4</b> onboarding.hero</li><li><b>keys.mp4</b> hero.onboarding_keyboard</li>
   <li><b>you-voice-&lt;id&gt;.png</b> you.voice.&lt;id&gt; × 16</li><li><b>you-train.png</b> you.train</li>
