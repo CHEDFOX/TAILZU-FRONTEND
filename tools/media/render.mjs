@@ -33,13 +33,13 @@ const FPS = 30;
 
 const FILMS = [
   // `present` is what the registry stores beside the file: how the slot shows it.
-  { id: "auth", w: 1080, h: 2340, file: "auth.mp4", key: "hero.auth", present: { fit: "cover", background: "#0F0D0B", loop: true } },
-  { id: "auth", w: 1600, h: 1000, file: "auth-desktop.mp4", key: "hero.auth.desktop", present: { fit: "cover", background: "#0F0D0B", loop: true } },
+  { id: "auth", w: 1080, h: 2340, file: "auth.mp4", key: "hero.auth", present: { fit: "cover", background: "#0A0908", loop: true } },
+  { id: "auth", w: 1600, h: 1000, file: "auth-desktop.mp4", key: "hero.auth.desktop", present: { fit: "cover", background: "#0A0908", loop: true } },
   { id: "intro", w: 1080, h: 2340, file: "intro.mp4", key: "intro", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
   { id: "intro", w: 1440, h: 1000, file: "intro-desktop.mp4", key: "intro.desktop", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
-  // Phones only: a window never asks for the mic or the keyboard.
-  { id: "mic", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true } },
-  { id: "keys", w: 1200, h: 900, file: "keys.mp4", key: "hero.onboarding_keyboard", present: { fit: "cover", loop: true } },
+  // Phones only: a window never asks for the mic or the keyboard. Their black is the screen's, so no box shows.
+  { id: "mic", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#000000" } },
+  { id: "keys", w: 1200, h: 900, file: "keys.mp4", key: "hero.onboarding_keyboard", present: { fit: "cover", loop: true, background: "#000000" } },
 ];
 const VOICES = ["signature", "professional", "friendly", "witty", "concise", "gentle", "playful", "romantic", "concise-boss", "explainer", "excited", "poetic", "bard", "pirate", "trailer", "noir"];
 const POSTERS = [
@@ -72,7 +72,7 @@ for (const f of FILMS) {
   const n = Math.round(duration * FPS);
   if (stills) {
     const dir = path.join(out, "stills"); fs.mkdirSync(dir, { recursive: true });
-    for (const t of [0.3, 0.9, 1.5, 2.1, 2.6, 3.3, duration - 0.05].filter((x) => x < duration)) {
+    for (const t of [0.2, 1.2, 2.4, 3.6, 4.8, 6, 7.5, 9].filter((x) => x < duration)) {
       await page.evaluate((t) => window.__frame(t), t);
       await page.screenshot({ path: path.join(dir, `${f.file.replace(".mp4", "")}-${t.toFixed(2)}s.png`) });
     }
@@ -101,4 +101,9 @@ if (only.includes("posters")) {
   }
 }
 await browser.close();
-if (!stills) fs.writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
+if (!stills) {
+  const mf = path.join(out, "manifest.json");
+  const prev = fs.existsSync(mf) ? JSON.parse(fs.readFileSync(mf, "utf8")) : [];
+  const merged = [...prev.filter((e) => !manifest.some((m) => m.key === e.key)), ...manifest].filter((e) => fs.existsSync(path.join(out, e.file)));
+  fs.writeFileSync(mf, JSON.stringify(merged, null, 2) + "\n");
+}
