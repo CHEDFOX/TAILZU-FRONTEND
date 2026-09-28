@@ -231,11 +231,18 @@ function poster(ctx, w, h, id) {
 }
 
 // ---- THE FILMS ---------------------------------------------------------------
-/** An amber caret after a run of text: solid while writing, blinking at rest. */
-function caret(ctx, x, y, size, t, writing, alpha = 1) {
+/** A caret after a run of text: solid while writing, blinking at rest. Amber while the mic is open. */
+function caret(ctx, x, y, size, t, writing, alpha = 1, color = C.amber) {
   if (!writing && Math.floor(t * 2) % 2) return;
-  ctx.fillStyle = rgba(C.amber, alpha); ctx.fillRect(x + size * 0.06, y - size * 0.72, Math.max(2, size * 0.055), size * 0.86);
+  ctx.fillStyle = rgba(color, alpha); ctx.fillRect(x + size * 0.06, y - size * 0.72, Math.max(2, size * 0.055), size * 0.86);
 }
+// ---- MOTION: words arrive with weight, and leave the same way ----------------
+const expo = t => t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+/** Alpha and rise (in fractions of a size) from birth t0 over dur. */
+const arrive = (t, t0, dur = 0.8) => { const u = clamp((t - t0) / dur), e = expo(u); return { a: e, dy: (1 - e) * 0.18 }; };
+const leaveF = (t, t0, dur = 0.7) => { const u = E.io(clamp((t - t0) / dur)); return { a: 1 - u, dy: -u * 0.2 }; };
+/** Said in its own script, written in English letters: the product's own trick. */
+const SAID_WRITTEN = [["नमस्ते", "Namaste"], ["வணக்கம்", "Vanakkam"], ["مرحبا", "Marhaba"], ["こんにちは", "Konnichiwa"], ["안녕하세요", "Annyeonghaseyo"], ["你好", "Ni hao"], ["নমস্কার", "Nomoskar"]];
 const FILMS = {
   /** The opening: breath, thread, mark. Plays once and holds. */
   intro: { duration: 3.0, loop: false, draw(ctx, t, w, h) {
@@ -270,122 +277,125 @@ const FILMS = {
   } },
 
   /**
-   * Sign in: the greetings the app knows, in their own scripts, rising out of
-   * the dark where the form is and writing themselves as they come. The one
-   * being written carries the caret. 16s; the column loops exactly once.
+   * Sign in: said, then written. A word arrives in its own script, and half
+   * a second later the same word is written beneath it in English letters,
+   * which is what the product does. The pairs rise out of the dark where the
+   * form is; the caret follows the one being written. 18s, one exact loop.
    */
-  auth: { duration: 16, loop: true, draw(ctx, t, w, h) {
-    const D = 16, wide = w > h, S = Math.min(w, h), n = HELLOS.length;
+  auth: { duration: 18, loop: true, draw(ctx, t, w, h) {
+    const D = 18, wide = w > h, S = Math.min(w, h), pairs = SAID_WRITTEN, n = pairs.length;
     ctx.fillStyle = "#0A0908"; ctx.fillRect(0, 0, w, h);
-    const step = wide ? h * 0.235 : h * 0.135, colH = n * step, x = wide ? w * 0.09 : w * 0.1, off = (t / D) * colH;
-    const bandLo = wide ? h * 0.86 : h * 0.66, bandH = wide ? h * 0.14 : h * 0.09;                  // where they are written: the edge of the dark
-    const sizes = wide ? [S * 0.15, S * 0.105, S * 0.078] : [w * 0.19, w * 0.13, w * 0.095], depths = [0.94, 0.6, 0.38];
-    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.02em";
+    const step = wide ? h * 0.36 : h * 0.2, colH = n * step, x = wide ? w * 0.09 : w * 0.1, off = (t / D) * colH;
+    const bandY = wide ? h * 0.78 : h * 0.58, big = wide ? S * 0.15 : w * 0.17, small = big * 0.42;
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
     for (let k = -1; k <= 1; k++) for (let i = 0; i < n; i++) {
-      const y = h * 0.5 + i * step - off + k * colH; if (y < -step || y > h + step) continue;
-      const size = sizes[i % 3], p = E.out(seg(bandLo - y, 0, bandH)), word = HELLOS[i];
-      const fadeTop = wide ? seg(y, h * 0.08, h * 0.22) : seg(y, h * 0.2, h * 0.32), fadeBottom = wide ? 1 - seg(y, h * 0.9, h * 0.99) : 1 - seg(y, h * 0.7, h * 0.79);
-      const alpha = depths[i % 3] * fadeTop * fadeBottom * (p < 1 ? 1.05 : 1); if (alpha <= 0.01 || p <= 0) continue;
-      ctx.font = font(size);
-      const chars = Math.max(1, Math.round(p * word.length)), shown = word.slice(0, chars);
-      const body = p < 1 ? shown.slice(0, -1) : shown, born = p < 1 ? shown.slice(-1) : "";
-      ctx.fillStyle = rgba(C.pale, alpha); ctx.fillText(body, x, y);
-      let end = x + ctx.measureText(body).width;
-      if (born) { ctx.fillStyle = rgba(C.amber, alpha); ctx.fillText(born, end, y); end += ctx.measureText(born).width; }
-      if (p < 1) caret(ctx, end, y, size, t, true, alpha);
+      const base = h * 0.5 + i * step + k * colH, y = base - off; if (y < -step || y > h + step) continue;
+      const tb = (base - bandY) / colH * D; if (t < tb) continue;                                   // born as it crosses the band
+      const fadeTop = wide ? seg(y, h * 0.08, h * 0.24) : seg(y, h * 0.2, h * 0.34), fadeBottom = wide ? 1 - seg(y, h * 0.9, h * 0.99) : 1 - seg(y, h * 0.72, h * 0.8);
+      const vis = fadeTop * fadeBottom; if (vis <= 0.01) continue;
+      const [said, written] = pairs[i], s1 = arrive(t, tb, 1.0);
+      ctx.font = font(big); ctx.letterSpacing = "-0.02em";
+      ctx.fillStyle = rgba(C.pale, 0.92 * vis * s1.a); ctx.fillText(said, x, y + s1.dy * big);
+      const yw = y + big * 0.62, words = written.split(" "), t0 = tb + 0.6; let xx = x, endX = x;
+      ctx.font = font(small); ctx.letterSpacing = "0em";
+      words.forEach((wd, j) => {
+        const tw = t0 + j * 0.3; if (t >= tw) { const ar = arrive(t, tw, 0.8), born = 1 - E.out(seg(t - tw, 0, 1.2));
+          ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.82 * vis * ar.a); ctx.fillText(wd, xx, yw + ar.dy * small); endX = xx + ctx.measureText(wd).width; }
+        xx += ctx.measureText(wd + " ").width;
+      });
+      const doneAt = t0 + (words.length - 1) * 0.3 + 0.8;
+      if (t >= t0 - 0.15 && t < doneAt + 1.6) caret(ctx, endX, yw, small, t, t < doneAt, 0.9 * vis * (1 - seg(t, doneAt + 1.0, doneAt + 1.6)));
     }
     grain(ctx, w, h, 0.035, 23);
   } },
 
   /**
-   * The microphone: said, then written. A sentence arrives word by word at
-   * the rhythm of speech; the newest word is amber, which is the app's rule
-   * for the words just born, and the caret stays amber while the mic is open.
-   * A hairline waveform answers the voice beneath. Two sentences, one of them
-   * Hinglish in English letters, which is the product. 9s.
+   * The microphone: at rest, a still line with an amber point on it, the mic
+   * open. Speech ripples the line, and the sentence gathers in the middle,
+   * phrase by phrase, each word arriving with weight, the newest amber. It
+   * settles, dissolves, and the second sentence comes: Hinglish in English
+   * letters, which is the product. 10s.
    */
-  mic: { duration: 9, loop: true, draw(ctx, t, w, h) {
+  mic: { duration: 10, loop: true, draw(ctx, t, w, h) {
     ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
-    const inset = w * 0.08, size = Math.round(w * 0.082), lh = size * 1.18, top = h * 0.17;
-    const plan = [[0.6, 0.36, 0, 4.4, 4.9], [5.1, 0.33, 1, 8.4, 8.9]];
-    const jit = [0, 0.04, -0.03, 0.1, 0.02, 0.28, 0.05, 0.06, 0.03, 0.12];
-    const timesOf = (start, gap, words) => words.map((_, i) => start + i * gap + (jit[i] || 0) + (i > 0 && /[?.,]$/.test(words[i - 1]) ? 0.22 : 0));
-    let caretX = inset, caretY = top + size * 0.95, writing = false, lastBorn = -9, caretAlpha = 1;
-    ctx.font = font(size); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.015em";
-    for (const [start, gap, si, holdTo, gone] of plan) {
-      if (t < start - 0.05 || t > gone) continue;
-      const words = SAID[si].split(" "), alpha = 1 - E.io(seg(t, holdTo, gone)), times = timesOf(start, gap, words);
-      let x = inset, y = top + size * 0.95;
-      words.forEach((wd, i) => {
-        const tw = times[i]; if (t < tw) return;
-        if (x + ctx.measureText(wd).width > w - inset) { x = inset; y += lh; }
-        const born = 1 - E.out(seg(t - tw, 0, 0.55));
-        ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, alpha);
-        ctx.fillText(wd, x, y);
-        x += ctx.measureText(wd + " ").width; caretX = x - ctx.measureText(" ").width; caretY = y; lastBorn = Math.max(lastBorn, tw);
+    const size = Math.round(w * 0.084), lh = size * 1.2, cx = w / 2, inset = w * 0.09, maxW = w - inset * 2;
+    const plan = [{ s: SAID[0], t0: 0.9, holdTo: 4.2, gone: 4.9 }, { s: SAID[1], t0: 5.5, holdTo: 8.9, gone: 9.6 }];
+    const timesOf = (s, t0) => { const ws = s.split(" "); let tt = t0; return ws.map((_, i) => { if (i) tt += /[?.,!]$/.test(ws[i - 1]) ? 0.62 : 0.24 + (i % 3 === 0 ? 0.06 : 0); return tt; }); };
+    ctx.font = font(size); ctx.textBaseline = "alphabetic"; ctx.letterSpacing = "-0.015em";
+    for (const P of plan) {
+      if (t < P.t0 || t > P.gone) continue;
+      const times = timesOf(P.s, P.t0), lines = wrap(ctx, P.s, maxW), lv = leaveF(t, P.holdTo, P.gone - P.holdTo);
+      const y0 = h * 0.42 - (lines.length * lh) / 2 + size * 0.8; let wi = 0;
+      lines.forEach((ln, li) => {
+        let x = cx - ctx.measureText(ln).width / 2; const y = y0 + li * lh;
+        ln.split(" ").forEach(wd => {
+          const tw = times[wi++];
+          if (t >= tw) { const ar = arrive(t, tw, 0.85), born = 1 - E.out(seg(t - tw, 0, 1.1));
+            ctx.textAlign = "left"; ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.96 * ar.a * lv.a);
+            ctx.fillText(wd, x, y + (ar.dy + lv.dy) * size); }
+          x += ctx.measureText(wd + " ").width;
+        });
       });
-      caretAlpha = alpha; if (alpha <= 0.02) { caretX = inset; caretY = top + size * 0.95; caretAlpha = 1; }
-      writing = t - lastBorn < 0.45;
     }
-    caret(ctx, caretX, caretY, size, t, writing, caretAlpha);
-    // The waveform: hairlines, answering each word as it lands.
-    const y0 = h * 0.86, N = 76, x0 = inset, x1 = w - inset;
-    let env = 0.04;
-    for (const [start, gap, si] of plan) { const words = SAID[si].split(" "); timesOf(start, gap, words).forEach(tw => { env = Math.max(env, clamp(1 - Math.abs(t - tw - 0.1) / 0.32)); }); }
-    ctx.fillStyle = rgba(C.pale, 0.16); ctx.fillRect(x0, y0 - 0.5, x1 - x0, 1);
-    ctx.lineCap = "round"; ctx.lineWidth = Math.max(1.5, w * 0.0022); ctx.strokeStyle = rgba(C.pale, 0.55);
-    for (let i = 0; i < N; i++) {
-      const u = i / (N - 1), x = x0 + u * (x1 - x0), bell = Math.sin(u * Math.PI);
-      const hh = h * 0.08 * env * (0.25 + 0.75 * Math.abs(n1(i * 0.9 + t * 10, 5))) * (0.3 + 0.7 * bell) + 1;
-      ctx.beginPath(); ctx.moveTo(x, y0 - hh); ctx.lineTo(x, y0 + hh); ctx.stroke();
+    // The line: still at rest, rippling with each word.
+    const ly = h * 0.8, x0 = w * 0.18, x1 = w * 0.82; let env = 0.03;
+    for (const P of plan) timesOf(P.s, P.t0).forEach(tw => { env = Math.max(env, clamp(1 - Math.abs(t - tw - 0.12) / 0.42)); });
+    ctx.lineWidth = Math.max(1.5, w * 0.0024); ctx.strokeStyle = rgba(C.pale, 0.5); ctx.lineCap = "round"; ctx.beginPath();
+    for (let i = 0; i <= 140; i++) {
+      const u = i / 140, xx = x0 + u * (x1 - x0), win = Math.pow(Math.sin(u * Math.PI), 1.3);
+      const yy = ly + win * env * h * 0.05 * (Math.sin(u * 24 + t * 15) * 0.5 + Math.sin(u * 41 - t * 24) * 0.3 + n1(u * 9 + t * 6, 2) * 0.5);
+      i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy);
     }
+    ctx.stroke();
+    const breath = 1 + 0.16 * Math.sin(t * TAU * 0.5);
+    glow(ctx, cx, ly, size * 0.55 * breath, C.amber, 0.32); ctx.beginPath(); ctx.arc(cx, ly, Math.max(3, w * 0.0065) * breath, 0, TAU); ctx.fillStyle = C.amber; ctx.fill();
     grain(ctx, w, h, 0.03, 11);
   } },
 
   /**
-   * The keyboard: drawn exactly, then let go. It fades in, types "say it",
-   * and the keys leave, row by row. The mic key stays, comes to the middle,
-   * and opens: an amber point in a pale ring, the app's own rule. 8s.
+   * The keyboard: drawn exactly. The keys type "Say it", letter by letter,
+   * and then leave, row by row. The line takes the room they left, the caret
+   * turns amber, and "and it's written." arrives by voice. 9.2s.
    */
-  keys: { duration: 8, loop: true, draw(ctx, t, w, h) {
-    const D = 8; ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  keys: { duration: 9.2, loop: true, draw(ctx, t, w, h) {
+    const D = 9.2; ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
     const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
-    const kw = w * 0.079, kh = kw * 1.2, gap = w * 0.012, r = kw * 0.2, top = h * 0.2, rowH = kh + gap * 1.4;
-    const typed = ["S", "A", "Y", " ", "I", "T"], typeStart = 1.1, typeGap = 0.26;
-    const litOf = key => { const i = typed.indexOf(key); if (i < 0) return 0; const tk = typeStart + i * typeGap; return t >= tk ? 1 - E.out(seg(t - tk, 0, 0.5)) : 0; };
-    const gone = row => E.io(seg(t, 3.0 + row * 0.28, 3.9 + row * 0.28)), arrive = row => E.out(seg(t, 0.1 + row * 0.14, 0.7 + row * 0.14)), leave = E.io(seg(t, 7.3, D));
+    const kw = w * 0.079, kh = kw * 1.15, gap = w * 0.012, r = kw * 0.2, rowH = kh + gap * 1.4, top = h * 0.36;
+    const typed = "Say it", typeStart = 1.2, typeGap = 0.26, keyOf = ch => ch === " " ? " " : ch.toUpperCase();
+    const litOf = key => { let best = 0; [...typed].forEach((ch, i) => { if (keyOf(ch) !== key) return; const tk = typeStart + i * typeGap; if (t >= tk) best = Math.max(best, 1 - E.out(seg(t - tk, 0, 0.45))); }); return best; };
+    const arriveRow = row => expo(seg(t, 0.1 + row * 0.12, 1.0 + row * 0.12)), goneRow = row => E.io(seg(t, 3.1 + row * 0.22, 4.0 + row * 0.22)), leave = E.io(seg(t, 8.6, D));
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    const drawKey = (x, y, ww, hh, label, lit, alpha, radius = r) => {
+    const drawKey = (x, y, ww, hh, label, lit, alpha) => {
       if (alpha <= 0.005) return; ctx.globalAlpha = alpha;
-      rrect(ctx, x, y, ww, hh, radius); ctx.fillStyle = lit > 0 ? rgba(C.pale, 0.08 + 0.9 * lit) : rgba(C.pale, 0.07); ctx.fill();
+      rrect(ctx, x, y, ww, hh, r); ctx.fillStyle = rgba(C.pale, 0.07 + 0.9 * lit); ctx.fill();
       ctx.lineWidth = Math.max(1, w * 0.0014); ctx.strokeStyle = rgba(C.pale, 0.34 + 0.4 * lit); ctx.stroke();
       if (label) { ctx.font = font(kw * 0.34, { family: '"Instrument Sans", system-ui, sans-serif', weight: 500 }); ctx.fillStyle = lit > 0.5 ? "#0B0A09" : rgba(C.pale, 0.85); ctx.fillText(label, x + ww / 2, y + hh / 2 + kw * 0.02); }
       ctx.globalAlpha = 1;
     };
     rows.forEach((row, ri) => {
-      const rw = row.length * kw + (row.length - 1) * gap, x0 = (w - rw) / 2, g = gone(ri), a = arrive(ri) * (1 - g) * (1 - leave);
-      row.forEach((key, ci) => drawKey(x0 + ci * (kw + gap), top + ri * rowH - g * kh * 0.5, kw, kh, key, litOf(key), a * (1 - g * 0.5)));
+      const rw = row.length * kw + (row.length - 1) * gap, x0 = (w - rw) / 2, ar = arriveRow(ri), g = goneRow(ri), a = ar * (1 - g) * (1 - leave);
+      row.forEach((key, ci) => drawKey(x0 + ci * (kw + gap), top + ri * rowH - (1 - ar) * kh * 0.25 - g * kh * 0.5, kw, kh, key, litOf(key), a));
     });
-    // The bottom row: a small key, the space bar in two halves, a small key, and the mic between them.
-    const by = top + 3 * rowH, g3 = gone(3), a3 = arrive(3) * (1 - g3) * (1 - leave), small = kw * 1.5, mic = kh * 1.05;
-    const total = small * 2 + gap * 4 + kw * 5.4 + mic, bx = (w - total) / 2;
-    drawKey(bx, by - g3 * kh * 0.5, small, kh, "123", 0, a3);
-    drawKey(bx + small + gap, by - g3 * kh * 0.5, kw * 2.7, kh, "", litOf(" "), a3);
-    drawKey(bx + small + gap * 3 + kw * 2.7 + mic, by - g3 * kh * 0.5, kw * 2.7, kh, "", litOf(" "), a3);
-    drawKey(bx + total - small, by - g3 * kh * 0.5, small, kh, "return", 0, a3);
-    // The mic key: it stays, comes to the middle, and opens.
-    const mx0 = bx + small + gap * 2 + kw * 2.7 + mic / 2, my0 = by + kh / 2, rise = E.io(seg(t, 4.3, 5.4));
-    const mx = lerp(mx0, w / 2, rise), my = lerp(my0, h * 0.5, rise), mr = lerp(mic / 2, h * 0.21, rise), open = E.out(seg(t, 5.3, 6.0)), breath = 1 + 0.03 * Math.sin(t * TAU * 0.5);
-    ctx.globalAlpha = arrive(3) * (1 - leave);
-    ctx.beginPath(); ctx.arc(mx, my, mr * breath, 0, TAU); ctx.fillStyle = rgba(C.pale, 0.07); ctx.fill(); ctx.lineWidth = Math.max(1, w * 0.0016); ctx.strokeStyle = rgba(C.pale, 0.5 + 0.3 * open); ctx.stroke();
-    if (open > 0) {
-      glow(ctx, mx, my, mr * 1.4, C.amber, 0.26 * open);
-      ctx.beginPath(); ctx.arc(mx, my, mr * 0.12 * E.back(open), 0, TAU); ctx.fillStyle = C.amber; ctx.fill();
-      ctx.lineWidth = Math.max(1, w * 0.0012); ctx.strokeStyle = rgba(C.amber, 0.5 * open * (0.7 + 0.3 * Math.sin(t * TAU * 0.5))); ctx.beginPath(); ctx.arc(mx, my, mr * (0.72 + 0.04 * Math.sin(t * TAU * 0.5)), 0, TAU); ctx.stroke();
-    } else if (rise < 1) {
-      ctx.beginPath(); ctx.arc(mx, my, mr * 0.11, 0, TAU); ctx.fillStyle = rgba(C.pale, 0.6); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+    const by = top + 3 * rowH, ar3 = arriveRow(3), g3 = goneRow(3), a3 = ar3 * (1 - g3) * (1 - leave), small = kw * 1.5, space = kw * 5.4 + gap * 2;
+    const total = small * 2 + gap * 2 + space, bx = (w - total) / 2, byy = by - (1 - ar3) * kh * 0.25 - g3 * kh * 0.5;
+    drawKey(bx, byy, small, kh, "123", 0, a3); drawKey(bx + small + gap, byy, space, kh, "", litOf(" "), a3); drawKey(bx + total - small, byy, small, kh, "return", 0, a3);
+    // The line: the typed letters, then the spoken words. It drifts to the middle as the keys leave.
+    const size = Math.round(w * 0.07); ctx.font = font(size); ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; ctx.letterSpacing = "-0.015em";
+    const typedN = [...typed].filter((_, i) => t >= typeStart + i * typeGap + 0.04).length, shown = typed.slice(0, typedN);
+    const spoken = ["and", "it's", "written."], spokenT = [5.1, 5.42, 5.76], micOpen = seg(t, 4.7, 5.0);
+    const lineY = lerp(h * 0.19, h * 0.5, E.io(seg(t, 3.7, 4.9))), lv = leaveF(t, 8.3, 0.7), x0 = (w - ctx.measureText("Say it, and it's written.").width) / 2;
+    let x = x0, endX = x0;
+    if (shown) { ctx.fillStyle = rgba(C.pale, 0.96 * lv.a); ctx.fillText(shown, x, lineY + lv.dy * size); endX = x + ctx.measureText(shown).width; }
+    x += ctx.measureText(typed).width;
+    if (t >= spokenT[0]) { const arc = arrive(t, spokenT[0], 0.8); ctx.fillStyle = rgba(C.pale, 0.96 * arc.a * lv.a); ctx.fillText(",", x, lineY + (arc.dy + lv.dy) * size); }
+    x += ctx.measureText(", ").width;
+    spoken.forEach((wd, i) => {
+      const tw = spokenT[i];
+      if (t >= tw) { const ar = arrive(t, tw, 0.85), born = 1 - E.out(seg(t - tw, 0, 1.1)); ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.96 * ar.a * lv.a); ctx.fillText(wd, x, lineY + (ar.dy + lv.dy) * size); endX = x + ctx.measureText(wd).width; }
+      x += ctx.measureText(wd + " ").width;
+    });
+    const writing = (t >= typeStart - 0.1 && t <= typeStart + typed.length * typeGap + 0.2) || (t >= spokenT[0] - 0.15 && t <= spokenT[2] + 0.9);
+    if (t >= 0.7 && lv.a > 0.02) caret(ctx, endX, lineY + lv.dy * size, size, t, writing, (micOpen > 0 ? 1 : 0.7) * lv.a, micOpen > 0 ? C.amber : C.pale);
     grain(ctx, w, h, 0.03, 5);
   } },
 };
@@ -436,19 +446,19 @@ document.body.insertAdjacentHTML("beforeend", `
 </header>
 
 <h2>Sign in</h2>
-<p class="sub">The greetings the app already knows, in their own scripts: Hello, नमस्ते, Hola, 你好, Bonjour, مرحبا, こんにちは, নমস্কার, வணக்கம், 안녕하세요. They rise out of the dark where the form is and write themselves as they come; the one being written carries the caret. Under the app's 42% scrim, as every backdrop is.</p>
-${scene("The first screen", "One column of type, moving at the pace of credits. On the phone it writes at the edge of the form; in the window it writes low on the left and the form has the right.", "hero.auth · 1080×2340<br>hero.auth.desktop · 1600×1000<br>16s · loops · muted",
+<p class="sub">Said, then written: the product's own trick. A word arrives in its own script, and half a second later the same word is written beneath it in English letters: नमस्ते and Namaste, வணக்கம் and Vanakkam, مرحبا and Marhaba. The pairs rise out of the dark where the form is; the caret follows the one being written. Under the app's 42% scrim, as every backdrop is.</p>
+${scene("The first screen", "One column of type, moving at the pace of credits. On the phone it writes at the edge of the form; in the window it writes low on the left and the form has the right.", "hero.auth · 1080×2340<br>hero.auth.desktop · 1600×1000<br>18s · loops · muted",
   phone(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div>${signForm}`) +
   desk(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="deskform"><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div><div style="height:48px"></div>${signForm}</div>`))}
 
 <h2>The microphone</h2>
-<p class="sub">Said, then written. A sentence arrives word by word at the rhythm of speech; the newest word is amber and settles to pale; the caret stays amber while the mic is open; a hairline waveform answers beneath. The second sentence is Hinglish in English letters, which is the product.</p>
-${scene("Permission, asked once", "The headline the app sets, the sentence in the middle it leaves for the art, the line under it, and the allow pill. Its black is the screen's black, so nothing reads as a box.", "onboarding.hero · 1080×1200<br>9s · loops · phones only",
+<p class="sub">At rest, a still line with an amber point on it: the mic, open. Speech ripples the line, and the sentence gathers in the middle, phrase by phrase, each word arriving with weight, the newest amber. It settles, dissolves, and the second sentence comes: Hinglish in English letters, which is the product.</p>
+${scene("Permission, asked once", "The headline the app sets, the sentence in the middle it leaves for the art, the line under it, and the allow pill. Its black is the screen's black, so nothing reads as a box.", "onboarding.hero · 1080×1200<br>10s · loops · phones only",
   phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="mic" data-w="334" data-h="371"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>The keyboard</h2>
-<p class="sub">Drawn exactly, then let go. The keyboard fades in, types <i>say it</i>, and the keys leave, row by row. The mic key stays, comes to the middle, and opens: an amber point in a pale ring.</p>
-${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, and its black is the screen's black.", "hero.onboarding_keyboard · 1200×900<br>8s · loops · phones only",
+<p class="sub">Drawn exactly, then let go. The keys type <i>Say it</i>, letter by letter, and leave, row by row. The line takes the room they left, the caret turns amber, and <i>and it's written.</i> arrives by voice.</p>
+${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, and its black is the screen's black.", "hero.onboarding_keyboard · 1200×900<br>9.2s · loops · phones only",
   phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keys"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>You</h2>
