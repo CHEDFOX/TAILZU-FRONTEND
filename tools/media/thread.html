@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tailzu Motion</title>
+<meta name="description" content="The onboarding films and the You-tab posters, drawn from one idea: the thread.">
+<!--
+  THE THREAD — every piece of media the app carries, drawn from one idea.
+
+  Something said comes in as breath, travels as a single thread, and lands as
+  the mark: three keys, a link, a point. The films play that; the posters
+  hold one gesture of it per voice. Nothing here is typeset, so no font can
+  go missing on a phone, and everything is drawn from time, so the same code
+  previews here and renders the MP4s and PNGs the app is served
+  (tools/media/render.mjs).
+
+  Palette is the app's and the site's: warm near-black, one pale, and the
+  amber only where something is live — the mark's own link, the open mic.
+
+  ?render=film&id=intro&w=1080&h=2340   one canvas, window.__frame(t) draws it
+  ?render=poster&id=signature&w=1200&h=560
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..500&family=Instrument+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+  :root { --ink: #0F0D0B; --card: #17161A; --pale: #F3E2C6; --grey: rgba(243,226,198,.62); --dim: rgba(243,226,198,.46); --rule: rgba(243,226,198,.12); --amber: #E8A23C;
+          --serif: 'Newsreader', Georgia, serif; --sans: 'Instrument Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--pale); }
+  body { font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  body.render { overflow: hidden; }
+  body.render canvas { display: block; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 56px 0 28px; }
+  .eye { font-family: var(--mono); font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); margin: 0 0 14px; }
+  h1 { font-family: var(--serif); font-weight: 350; font-size: clamp(38px, 6vw, 64px); line-height: 1.02; letter-spacing: -.028em; margin: 0 0 14px; text-wrap: balance; }
+  .lede { color: var(--grey); max-width: 56ch; margin: 0; font-size: 17px; }
+  h2 { font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: -.015em; margin: 64px 0 6px; }
+  .sub { color: var(--grey); margin: 0 0 26px; max-width: 64ch; }
+  .film { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; margin: 0 0 44px; padding: 0 0 44px; border-bottom: 1px solid var(--rule); }
+  .film h3 { font-family: var(--serif); font-weight: 400; font-size: 22px; margin: 0 0 6px; }
+  .film p { color: var(--grey); margin: 0 0 12px; max-width: 46ch; }
+  .meta { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .devices { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+  .phone { width: 234px; height: 506px; border-radius: 30px; background: #000; border: 6px solid #1c1a19; overflow: hidden; position: relative; flex: none; }
+  .desk { width: 504px; height: 351px; border-radius: 10px; background: #000; border: 4px solid #1c1a19; overflow: hidden; position: relative; flex: none; }
+  .desk::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 22px; background: #141211; border-bottom: 1px solid #221f1d; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; }
+  .desk .screen { top: 22px; }
+  .screen canvas { display: block; }
+  .full canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
+  .ob { padding: 44px 17px 26px; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; }
+  .desk .ob { padding: 30px 40px 24px; }
+  .ob .title { font-family: var(--serif); font-weight: 400; font-size: 20px; line-height: 1.2; text-align: center; letter-spacing: -.01em; color: #fff; }
+  .desk .ob .title { font-size: 24px; }
+  .ob .title b { color: var(--amber); font-weight: 400; }
+  .ob .mid { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; }
+  .ob .mid canvas { border-radius: 22px; }
+  .ob .line { font-size: 8.5px; line-height: 1.5; color: rgba(255,255,255,.62); text-align: center; margin: 0 0 12px; max-width: 200px; }
+  .desk .ob .line { font-size: 11px; max-width: 320px; }
+  .pill { width: 100%; max-width: 300px; height: 30px; border-radius: 15px; background: #F3E2C6; color: #0F0D0B; display: flex; align-items: center; justify-content: center; font-size: 9.5px; font-weight: 500; }
+  .desk .pill { height: 36px; font-size: 11px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(354px, 100%), 354px)); gap: 18px; }
+  .card { width: 100%; max-width: 354px; height: 168px; border-radius: 22px; overflow: hidden; position: relative; background: var(--card); border: 1px solid rgba(255,255,255,.07); }
+  .card.wide { max-width: 560px; }
+  .card.train { height: 212px; }
+  .card canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .card .scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(232,162,60,.10), rgba(232,162,60,.03) 50%, rgba(0,0,0,0)); }
+  .card .text { position: absolute; left: 20px; right: 20px; bottom: 20px; }
+  .card .k { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 8px; letter-spacing: 2.4px; text-transform: uppercase; color: rgba(255,255,255,.56); }
+  .card .k i { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+  .card .name { font-family: var(--serif); font-size: 34px; line-height: 1; color: #fff; margin: 9px 0 0; letter-spacing: -.01em; }
+  .card .tag { font-size: 13px; line-height: 18px; color: rgba(255,255,255,.56); margin: 9px 0 0; }
+  .card.train .name { font-weight: 300; font-size: 26px; font-family: var(--sans); letter-spacing: -.3px; }
+  .card.train .k { color: rgba(255,255,255,.56); }
+  .card.train .btn { margin-top: 14px; height: 46px; border-radius: 23px; background: #F3E2C6; color: #0F0D0B; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 18px; }
+  .files { margin: 24px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 6px 24px; font-family: var(--mono); font-size: 12px; color: var(--grey); }
+  .files b { color: var(--pale); font-weight: 400; }
+  footer { padding: 56px 0 72px; color: var(--dim); font-size: 13px; }
+  @media (max-width: 800px) { .film { grid-template-columns: 1fr; } .desk { width: 100%; max-width: 504px; height: auto; aspect-ratio: 504 / 351; } }
+  @media (prefers-reduced-motion: reduce) { .motion-note { display: block; } }
+</style>
+</head>
+<body>
+<script>
+(function () {
+"use strict";
+const TAU = Math.PI * 2;
+const C = { ground: "#0F0D0B", pale: "#F3E2C6", amber: "#E8A23C", key: "#F4F1EA" };
+const clamp = (v, a = 0, b = 1) => v < a ? a : v > b ? b : v;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, t) => a + (b - a) * t;
+const E = {
+  io: t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+  out: t => 1 - Math.pow(1 - t, 3),
+  in: t => t * t * t,
+  back: t => { const c = 1.70158, d = c + 1; return 1 + d * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); },
+};
+const n1 = (x, s = 0) => Math.sin(x * 1.3 + s) * .5 + Math.sin(x * 2.71 + s * 1.7 + 1.2) * .3 + Math.sin(x * 5.13 + s * .31 + 2.3) * .2;
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${clamp(a)})`; };
+function rng(seed) { let s = (Math.imul(seed | 0, 2654435761) >>> 0) || 7; return () => { s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296; }; }
+function rrect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+function ground(ctx, w, h, color = C.ground) {
+  ctx.fillStyle = color; ctx.fillRect(0, 0, w, h);
+}
+function glow(ctx, x, y, r, color, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba(color, a)); g.addColorStop(1, rgba(color, 0));
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+/** Printed, not rendered: a seeded dusting of pale and dark specks. */
+function grain(ctx, w, h, a, seed) {
+  const r = rng(seed * 97 + 13); const n = Math.round(w * h / 140);
+  for (let i = 0; i < n; i++) {
+    const x = r() * w, y = r() * h, k = r();
+    ctx.fillStyle = k < .5 ? `rgba(243,226,198,${a * (0.4 + k)})` : `rgba(0,0,0,${a * k})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+}
+/** A stroke with a hand in it: a polyline through fn(u), width by w(u). */
+function ribbon(ctx, fn, wf, color, N = 160, alpha = 1) {
+  ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = color; ctx.globalAlpha = alpha;
+  let p = fn(0);
+  for (let j = 1; j <= N; j++) {
+    const u = j / N, q = fn(u);
+    ctx.lineWidth = Math.max(0.5, wf(u)); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); p = q;
+  }
+  ctx.restore();
+}
+
+// ---- THE MARK, from the site's own geometry (viewBox 170 228 680 512) ------
+const MARK = { sq: [[308, 269], [558, 478], [178, 598]], l1: [346, 402, 270, 598], link: [444, 394, 554, 486], l2: [668, 478, 828, 243], dot: [828, 243, 11] };
+const markMap = (cx, cy, s) => (x, y) => [cx + (x - 510) * s, cy + (y - 484) * s];
+function drawMark(ctx, cx, cy, W, p) {
+  const s = W / 680, M = markMap(cx, cy, s);
+  ctx.save(); ctx.globalAlpha = p.alpha ?? 1;
+  const line = (l, prog, color, width, dash) => {
+    if (!(prog > 0)) return;
+    const [ax, ay] = M(l[0], l[1]), [bx, by] = M(l[2], l[3]);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lerp(ax, bx, prog), lerp(ay, by, prog));
+    ctx.strokeStyle = color; ctx.lineWidth = width * s; ctx.lineCap = dash ? "butt" : "round";
+    ctx.setLineDash(dash ? dash.map(d => d * s) : []); ctx.stroke(); ctx.setLineDash([]);
+  };
+  line(MARK.l1, p.l1, "#E9CBA2", 9); line(MARK.l2, p.l2, "#C77A3A", 9);
+  if (p.link > 0) { const [ax, ay] = M(444, 394), [bx, by] = M(554, 486); glow(ctx, lerp(ax, bx, .5), lerp(ay, by, .5), 90 * s, C.amber, .22 * p.link); }
+  line(MARK.link, p.link, C.amber, 30, [9, 11]);
+  if (p.dot > 0) { const [dx, dy] = M(828, 243); ctx.beginPath(); ctx.arc(dx, dy, 11 * s * E.back(p.dot), 0, TAU); ctx.fillStyle = "#B06240"; ctx.fill(); }
+  MARK.sq.forEach(([x, y], i) => {
+    const k = p.sq ? p.sq[i] : 1; if (!(k > 0)) return;
+    const [px, py] = M(x + 66, y + 66), sz = 132 * s * E.back(k);
+    rrect(ctx, px - sz / 2, py - sz / 2, sz, sz, 28 * s * E.back(k)); ctx.fillStyle = C.key; ctx.fill();
+  });
+  ctx.restore();
+}
+
+// ---- THE FILMS ---------------------------------------------------------------
+const FILMS = {
+  /** The opening: breath, thread, mark. Plays once and holds. */
+  intro: { duration: 3.0, loop: false, draw(ctx, t, w, h) {
+    ground(ctx, w, h);
+    const S = Math.min(w * 0.5, h * 0.34), cx = w / 2, cy = h / 2;
+    glow(ctx, cx, cy, S * 1.3, C.pale, 0.05);
+    const L = Math.min(w * 0.8, S * 2.4), x0 = cx - L / 2;
+    const aIn = E.out(seg(t, 0, 0.45)), collapse = E.io(seg(t, 0.9, 1.45)), gone = E.io(seg(t, 1.25, 1.55));
+    if (t < 1.55) {
+      const gap = S * 0.055 * (1 - collapse), A = S * 0.05 * (1 - collapse) + S * 0.012;
+      ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = Math.max(1, S * 0.006);
+      for (let i = 0; i < 7; i++) {
+        ctx.beginPath();
+        for (let j = 0; j <= 160; j++) {
+          const u = j / 160, x = x0 + u * L, env = Math.sin(u * Math.PI);
+          const y = cy + (i - 3) * gap * env + A * env * n1(u * 6 + t * 2.4, i * 7.1);
+          j ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.strokeStyle = rgba(C.pale, aIn * (0.62 - Math.abs(i - 3) * 0.07) * (1 - gone)); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    const pw = E.io(seg(t, 1.2, 2.05)), fade = 1 - E.io(seg(t, 1.95, 2.25));
+    if (pw > 0 && fade > 0) {
+      const loops = 2.5, r = S * 0.11;
+      const P = u => [x0 + S * 0.18 + u * (L - S * 0.36) - r * Math.sin(u * loops * TAU), cy - r * 0.85 * Math.cos(u * loops * TAU) + S * 0.015 * n1(u * 4, 3)];
+      ribbon(ctx, u => P(u * pw), u => S * 0.013 * (0.6 + 0.4 * Math.sin(u * Math.PI)), C.pale, 220, 0.92 * fade);
+      if (pw < 1) { const [x, y] = P(pw); glow(ctx, x, y, S * 0.05, C.pale, .5 * fade); ctx.beginPath(); ctx.arc(x, y, S * 0.013, 0, TAU); ctx.fillStyle = C.pale; ctx.fill(); }
+    }
+    drawMark(ctx, cx, cy, S, { sq: [seg(t, 1.95, 2.25), seg(t, 2.03, 2.33), seg(t, 2.11, 2.41)], l1: E.io(seg(t, 2.2, 2.42)), l2: E.io(seg(t, 2.26, 2.5)), link: E.io(seg(t, 2.38, 2.6)), dot: seg(t, 2.5, 2.66) });
+    grain(ctx, w, h, 0.05, 7);
+  } },
+
+  /** The mic screen: rings from a live point, combed into lines of text. Loops. */
+  mic: { duration: 4, loop: true, draw(ctx, t, w, h) {
+    ground(ctx, w, h);
+    const S = Math.min(w, h), D = 4, sx = w * 0.3, sy = h * 0.5, Rmax = S * 0.62, speed = Rmax / 2.1;
+    const breath = 1 + 0.14 * Math.sin(t / D * TAU * 2 - 1);
+    glow(ctx, sx, sy, S * 0.22 * breath, C.amber, 0.28);
+    ctx.save(); ctx.lineWidth = Math.max(1, S * 0.0022);
+    for (let k = 0; k < 6; k++) {
+      const age = ((t - k * D / 6) % D + D) % D, r = age * speed; if (r > Rmax) continue;
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.strokeStyle = rgba(C.pale, Math.pow(1 - r / Rmax, 1.7) * 0.55); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(sx, sy, S * 0.02 * breath, 0, TAU); ctx.fillStyle = C.amber; ctx.fill();
+    const lx = w * 0.5, lx1 = w * 0.9, lw = Math.max(2, S * 0.011);
+    ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = lw;
+    for (let j = 0; j < 6; j++) {
+      const y = sy + (j - 2.5) * S * 0.078, dist = Math.hypot(lx - sx, y - sy), arrive = j * D / 6 + dist / speed;
+      const age = ((t - arrive) % D + D) % D;
+      const typed = E.out(seg(age, 0, 0.6)), alpha = (1 - E.io(seg(age, 2.4, 3.4))) * 0.85;
+      if (!(typed > 0 && alpha > 0)) continue;
+      const r = rng(j * 31 + 5); let x = lx; const end = lx + (lx1 - lx) * typed;
+      ctx.strokeStyle = rgba(C.pale, alpha);
+      while (x < end) { const wl = S * (0.03 + r() * 0.08); const x2 = Math.min(x + wl, end); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y); ctx.stroke(); x = x2 + S * 0.022; }
+    }
+    ctx.restore();
+    grain(ctx, w, h, 0.045, 11);
+  } },
+
+  /** The keyboard screen: the keys go; three stay and become the mark. Loops. */
+  keys: { duration: 4, loop: true, draw(ctx, t, w, h) {
+    ground(ctx, w, h);
+    const D = 4, cols = 10, rows = 4, k = w * 0.062, g = w * 0.015, stag = [0, 0.35, 0.7, 0.2];
+    const gridW = cols * k + (cols - 1) * g, gx = (w - gridW) / 2 - k * 0.35, gy = h / 2 - (rows * k + (rows - 1) * g) / 2;
+    const all = E.out(seg(t, 0, 0.35)) * (1 - E.io(seg(t, 3.7, D)));
+    const MW = Math.min(w * 0.42, h * 0.6), s = MW / 680, M = markMap(w / 2, h / 2, s);
+    const keep = { "1,3": 0, "2,6": 1, "3,1": 2 };
+    const sweep = seg(t, 0.75, 2.45);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      let x = gx + c * (k + g) + stag[r] * k + k / 2, y = gy + r * (k + g) + k / 2, size = k, rad = k * 0.22, alpha = all;
+      const id = keep[r + "," + c];
+      if (id !== undefined) {
+        const gl = E.back(seg(t, 1.9, 2.7)), [tx, ty] = M(MARK.sq[id][0] + 66, MARK.sq[id][1] + 66);
+        x = lerp(x, tx, gl); y = lerp(y, ty, gl); size = lerp(k, 132 * s, gl); rad = lerp(rad, 28 * s, gl);
+      } else {
+        const rel = 0.75 + (c / cols) * 1.6 + r * 0.07, a = seg(t, rel, rel + 0.65);
+        y -= E.out(a) * h * 0.24; size *= 1 - 0.6 * E.in(a); alpha *= 1 - E.io(a);
+      }
+      if (alpha <= 0.005) continue;
+      ctx.globalAlpha = alpha; rrect(ctx, x - size / 2, y - size / 2, size, size, rad); ctx.fillStyle = C.key; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    if (sweep > 0 && sweep < 1) {
+      const x = gx + sweep * (gridW + k), a = Math.sin(sweep * Math.PI);
+      ctx.save(); ctx.lineCap = "round"; ctx.lineWidth = Math.max(1, w * 0.003); ctx.beginPath();
+      for (let j = 0; j <= 60; j++) { const u = j / 60, yy = gy - k + u * (rows * (k + g) + k), xx = x + w * 0.02 * n1(u * 5 + t * 3, 2); j ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); }
+      ctx.strokeStyle = rgba(C.pale, 0.7 * a * all); ctx.stroke(); ctx.restore();
+    }
+    drawMark(ctx, w / 2, h / 2, MW, { sq: [0, 0, 0], l1: E.io(seg(t, 2.65, 2.9)), l2: E.io(seg(t, 2.72, 2.98)), link: E.io(seg(t, 2.88, 3.12)), dot: seg(t, 3.02, 3.18), alpha: all });
+    grain(ctx, w, h, 0.045, 5);
+  } },
+};
+
+// ---- THE POSTERS: one gesture of the thread per voice ----------------------
+const G = {
+  loops: (n, r, ky = 0.85) => (b, j) => u => [b.x0 + u * b.L - r * b.S * Math.sin(u * n * TAU), b.cy - r * b.S * ky * Math.cos(u * n * TAU) + b.S * 0.012 * n1(u * 5, j)],
+  wave: (f, a) => (b, j) => u => [b.x0 + u * b.L, b.cy + a * b.S * Math.sin(u * f * TAU + 0.6) + b.S * 0.01 * n1(u * 4, j)],
+  spiral: (b, j) => u => { const r = b.S * 0.42 * (1 - u * 0.78), a = u * 2.6 * TAU - 1; return u < 0.82 ? [b.cx + r * Math.cos(a), b.cy + r * 0.8 * Math.sin(a)] : [b.cx + r * Math.cos(a) + (u - 0.82) * b.L * 1.4, b.cy + r * 0.8 * Math.sin(a)]; },
+  // One open stroke around a heart, from the point and back to it.
+  heart: (b, j) => u => { const a = Math.PI + (u * 0.96 + 0.02) * TAU, k = b.S * 0.021; return [b.cx + k * 16 * Math.pow(Math.sin(a), 3) + b.S * 0.008 * n1(u * 5, j), b.cy - k * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) + b.S * 0.02]; },
+};
+function poly(pts) { return (b) => u => { const n = pts.length - 1, i = Math.min(n - 1, Math.floor(u * n)), f = u * n - i; const p = pts[i], q = pts[i + 1]; return [b.x0 + lerp(p[0], q[0], f) * b.L, b.cy + lerp(p[1], q[1], f) * b.S]; }; }
+const VOICES = {
+  signature: { field: "#0F0D0B", ink: "#F3E2C6", g: G.loops(2.5, 0.16), amber: true, w: 0.026 },
+  professional: { field: "#17163F", ink: "#DCEBF7", g: poly([[0, 0.05], [0.22, 0.05], [0.22, -0.32], [0.52, -0.32], [0.52, 0.28], [0.78, 0.28], [0.78, -0.08], [1, -0.08]]), rules: true, w: 0.022, sharp: true },
+  friendly: { field: "#2B1B08", ink: "#F4A72C", g: G.loops(1.5, 0.22, 0.7), w: 0.03 },
+  witty: { field: "#2A0F18", ink: "#E4587B", g: poly([[0, 0.2], [0.18, -0.3], [0.32, 0.3], [0.46, -0.3], [0.6, 0.3], [0.74, -0.3], [0.88, 0.3], [1, -0.1]]), w: 0.024, sharp: true },
+  concise: { field: "#111111", ink: "#FBF8F2", g: (b) => u => [b.cx - b.L * 0.2 + u * b.L * 0.4, b.cy + b.S * 0.008 * n1(u * 3, 1)], w: 0.06 },
+  gentle: { field: "#0E1B26", ink: "#DCEBF7", g: G.wave(1, 0.12), w: 0.018 },
+  playful: { field: "#2A2208", ink: "#F7CF4A", g: G.loops(5, 0.1, 1.1), w: 0.02 },
+  romantic: { field: "#3B0F22", ink: "#E4587B", g: G.heart, w: 0.028 },
+  "concise-boss": { field: "#000000", ink: "#FBF8F2", g: (b) => u => [b.x0 + b.L * 0.1 + u * b.L * 0.55, b.cy + b.S * 0.18], dotEnd: true, w: 0.05 },
+  explainer: { field: "#0C4F47", ink: "#DDF3E3", g: poly([[0, 0.3], [0.2, 0.3], [0.2, 0.1], [0.42, 0.1], [0.42, -0.1], [0.64, -0.1], [0.64, -0.3], [0.86, -0.3], [1, -0.3]]), w: 0.022, sharp: true },
+  excited: { field: "#3A1E04", ink: "#F4A72C", burst: true, w: 0.026 },
+  poetic: { field: "#1C1640", ink: "#F3E2C6", moon: true, w: 0.012 },
+  bard: { field: "#2A2878", ink: "#F7CF4A", g: G.spiral, w: 0.018 },
+  pirate: { field: "#062E29", ink: "#F3E2C6", rope: true, w: 0.02 },
+  trailer: { field: "#000000", ink: "#F7CF4A", bars: true, w: 0.01 },
+  noir: { field: "#0A0A0A", ink: "#F3E2C6", rain: true, w: 0.01 },
+  train: { field: "#000000", ink: "#F3E2C6", network: true, w: 0.01 },
+};
+function poster(ctx, w, h, id) {
+  const V = VOICES[id] || VOICES.signature, S = Math.min(w, h) * 1.05, b = { S, cx: w / 2, cy: h / 2, L: w * 0.62, x0: w * 0.19 };
+  ground(ctx, w, h, V.field);
+  glow(ctx, w * 0.62, h * 0.45, S * 0.9, V.ink, 0.07);
+  ctx.save();
+  if (V.rules) { ctx.strokeStyle = rgba(V.ink, 0.1); ctx.lineWidth = 1; for (let y = h * 0.14; y < h; y += h * 0.12) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } }
+  const wf = u => V.w * S * (V.sharp ? 1 : 0.6 + 0.4 * Math.sin(u * Math.PI));
+  if (V.g) {
+    const fn = V.g(b, 1);
+    if (V.sharp) { ctx.strokeStyle = V.ink; ctx.lineWidth = V.w * S; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath(); for (let j = 0; j <= 200; j++) { const [x, y] = fn(j / 200); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); }
+    else ribbon(ctx, fn, wf, V.ink, 220);
+    if (V.amber) { const [x, y] = fn(1); glow(ctx, x, y, S * 0.12, C.amber, 0.35); ctx.beginPath(); ctx.arc(x, y, S * 0.022, 0, TAU); ctx.fillStyle = C.amber; ctx.fill(); }
+    if (V.dotEnd) { const [x, y] = fn(1); ctx.beginPath(); ctx.arc(x + S * 0.09, y, S * 0.035, 0, TAU); ctx.fillStyle = V.ink; ctx.fill(); }
+  }
+  if (V.burst) { const r = rng(42); ctx.lineCap = "round"; for (let i = 0; i < 16; i++) { const a = -0.15 + i / 16 * TAU, l = S * (0.14 + r() * 0.22), r0 = S * 0.07; ctx.lineWidth = S * V.w * (0.5 + r() * 0.6); ctx.strokeStyle = rgba(V.ink, 0.85 + r() * 0.15); ctx.beginPath(); ctx.moveTo(w * 0.6 + Math.cos(a) * r0, h * 0.5 + Math.sin(a) * r0); ctx.lineTo(w * 0.6 + Math.cos(a) * (r0 + l), h * 0.5 + Math.sin(a) * (r0 + l)); ctx.stroke(); } }
+  if (V.moon) { ctx.strokeStyle = rgba(V.ink, 0.9); ctx.lineWidth = S * V.w; ctx.beginPath(); ctx.arc(w * 0.66, h * 0.44, S * 0.3, 0.2, TAU - 0.9); ctx.stroke(); ctx.fillStyle = rgba(V.ink, 0.8); for (let i = 0; i < 26; i++) { ctx.beginPath(); ctx.arc(w * 0.16 + i * w * 0.028, h * 0.78 + S * 0.02 * Math.sin(i * 0.7), S * 0.006, 0, TAU); ctx.fill(); } }
+  if (V.rope) { for (const ph of [0, Math.PI]) ribbon(ctx, u => [b.x0 + u * b.L, b.cy + S * 0.07 * Math.sin(u * 5 * TAU + ph)], () => S * V.w, V.ink, 200, 0.95); ctx.lineCap = "round"; ctx.lineWidth = S * 0.02; ctx.strokeStyle = V.ink; const x = w * 0.84, y = h * 0.3, d = S * 0.045; ctx.beginPath(); ctx.moveTo(x - d, y - d); ctx.lineTo(x + d, y + d); ctx.moveTo(x + d, y - d); ctx.lineTo(x - d, y + d); ctx.stroke(); }
+  if (V.bars) { ctx.fillStyle = rgba("#F3E2C6", 0.1); ctx.fillRect(0, 0, w, h * 0.16); ctx.fillRect(0, h * 0.84, w, h * 0.16); ribbon(ctx, u => [w * 0.12 + u * w * 0.76, h * 0.5 + S * 0.004 * n1(u * 6, 2)], () => S * 0.012, V.ink, 160, 1); glow(ctx, w * 0.88, h * 0.5, S * 0.14, V.ink, 0.5); ctx.beginPath(); ctx.arc(w * 0.88, h * 0.5, S * 0.02, 0, TAU); ctx.fillStyle = V.ink; ctx.fill(); }
+  if (V.rain) { const r = rng(9); ctx.lineCap = "round"; ctx.lineWidth = Math.max(1, S * 0.004); for (let i = 0; i < 140; i++) { const x = r() * w, y = r() * h, l = S * (0.05 + r() * 0.12); ctx.strokeStyle = rgba(V.ink, 0.12 + r() * 0.25); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - l * 0.35, y + l); ctx.stroke(); } ctx.fillStyle = rgba(V.ink, 0.16); ctx.fillRect(w * 0.6, h * 0.16, w * 0.16, h * 0.5); ctx.fillStyle = V.field; ctx.fillRect(w * 0.6 + w * 0.075, h * 0.16, S * 0.012, h * 0.5); ctx.fillRect(w * 0.6, h * 0.16 + h * 0.24, w * 0.16, S * 0.012); }
+  if (V.network) {
+    const r = rng(77), pts = []; for (let i = 0; i < 30; i++) pts.push([w * (0.12 + r() * 0.76), h * (0.1 + r() * 0.8), 2 + r() * 5]);
+    ctx.lineWidth = Math.max(1, S * 0.003);
+    pts.forEach((p, i) => { const near = pts.map((q, j) => [Math.hypot(p[0] - q[0], p[1] - q[1]), j]).filter(x => x[1] !== i).sort((a, b) => a[0] - b[0]).slice(0, 2); near.forEach(([d, j]) => { ctx.strokeStyle = rgba(V.ink, 0.35); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke(); }); });
+    pts.forEach((p, i) => { ctx.beginPath(); ctx.arc(p[0], p[1], p[2] * S / 560, 0, TAU); ctx.fillStyle = i === 11 ? C.amber : rgba(V.ink, 0.9); ctx.fill(); if (i === 11) glow(ctx, p[0], p[1], S * 0.12, C.amber, 0.4); });
+  }
+  ctx.restore();
+  // The card's words sit bottom-left; a quiet fall of the field's own dark keeps them readable.
+  const gl = ctx.createLinearGradient(0, h * 0.35, 0, h); gl.addColorStop(0, "rgba(0,0,0,0)"); gl.addColorStop(1, "rgba(0,0,0,0.42)"); ctx.fillStyle = gl; ctx.fillRect(0, 0, w, h);
+  grain(ctx, w, h, 0.06, id.length * 3);
+}
+
+// ---- WIRING ------------------------------------------------------------------
+function fit(canvas, w, h, dpr) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); canvas.style.width = w + "px"; canvas.style.height = h + "px"; return canvas.getContext("2d"); }
+const q = new URLSearchParams(location.search);
+window.TZ = { FILMS, VOICES, poster };
+
+if (q.get("render")) {
+  document.body.className = "render";
+  const W = +q.get("w") || 1080, H = +q.get("h") || 2340, id = q.get("id") || "intro";
+  const canvas = document.createElement("canvas"); document.body.appendChild(canvas);
+  const ctx = fit(canvas, W, H, 1);
+  if (q.get("render") === "poster") { poster(ctx, W, H, id); window.__frame = () => {}; }
+  else window.__frame = t => { ctx.setTransform(1, 0, 0, 1, 0, 0); FILMS[id].draw(ctx, t, W, H); };
+  window.__frame(0); window.__ready = true;
+  return;
+}
+
+const voices = [
+  ["signature", "Zu", "Your own voice, learned"], ["professional", "Professional", "Boardroom-ready"], ["friendly", "Friendly", "Warm and easy"],
+  ["witty", "Witty", "Dry humour, sharp corners"], ["concise", "Concise", "Every word earns its space"], ["gentle", "Gentle", "Soft, careful, considered"],
+  ["playful", "Playful", "Group-chat energy"], ["romantic", "Romantic", "Present, tender, unguarded"], ["concise-boss", "Boss", "Decision-first, no fluff"],
+  ["explainer", "Explainer", "Clear, structured, patient"], ["excited", "Excited", "Big feelings, on purpose"], ["poetic", "Poetic", "Image-first, cadence-second"],
+  ["bard", "Bard", "Thee, thou, and a deadline"], ["pirate", "Pirate", "Arr, but make it useful"], ["trailer", "Trailer", "In a world…"], ["noir", "Noir", "Rain on the window, file on the desk"],
+];
+const card = (id, name, tag, wide) => `<div class="card${wide ? " wide" : ""}" data-poster="${id}"><canvas></canvas><div class="scrim"></div><div class="text"><div class="k"><i></i>Writing as</div><div class="name">${name}</div><div class="tag">${tag}</div></div></div>`;
+const trainCard = wide => `<div class="card train${wide ? " wide" : ""}" data-poster="train"><canvas></canvas><div class="text"><div class="k">It learns you</div><div class="name">Just talk.</div><div class="tag">Talk once and it starts learning you.</div><div class="btn">Start training</div></div></div>`;
+const film = (id, title, copy, meta, phone, desk) => `<section class="film"><div><h3>${title}</h3><p>${copy}</p><div class="meta">${meta}</div></div><div class="devices">${phone}${desk}</div></section>`;
+const obPhone = (id, title, line) => `<div class="phone"><div class="screen"><div class="ob"><div class="title">${title}</div><div class="mid"><canvas data-film="${id}" data-w="${id === "mic" ? 200 : 200}" data-h="${id === "mic" ? 200 : 125}"></canvas></div><div class="line">${line}</div><div class="pill">Allow access</div></div></div></div>`;
+const obDesk = (id, title, line) => `<div class="desk"><div class="screen"><div class="ob"><div class="title">${title}</div><div class="mid"><canvas data-film="${id}" data-w="${id === "mic" ? 190 : 300}" data-h="${id === "mic" ? 190 : 188}"></canvas></div><div class="line">${line}</div><div class="pill">Allow access</div></div></div></div>`;
+
+document.body.insertAdjacentHTML("beforeend", `
+<div class="wrap">
+<header>
+  <p class="eye">Tailzu · media</p>
+  <h1>The thread.</h1>
+  <p class="lede">Something said comes in as breath, travels as one thread, and lands as the mark. Three films for the way in, and a poster for every voice on the You tab, all drawn from that one idea, in the app's own palette. Amber only where something is live.</p>
+</header>
+
+<h2>Onboarding, in motion</h2>
+<p class="sub">Rendered as silent MP4s the app already knows how to play, on the phone and in the desktop window. Nothing in them is typeset, so no font can go missing.</p>
+${film("intro", "1 · The opening", "Seven strands breathe in, gather into one thread, write, and the writing becomes the mark: three keys, the link going live, the point. Plays once and holds; the app moves on at 2.8 seconds.", "intro · 1080×2340 phone · 1440×1000 desktop · 3.0s · once",
+  `<div class="phone"><div class="screen full"><canvas data-film="intro" data-w="222" data-h="494"></canvas></div></div>`,
+  `<div class="desk"><div class="screen full"><canvas data-film="intro" data-w="496" data-h="325"></canvas></div></div>`)}
+${film("mic", "2 · The microphone", "A point is live. Rings breathe out from it and, as they reach the page, they are combed into lines of text, word by word. The one amber thing on the screen is the open mic, which is the app's own rule for amber.", "onboarding.hero · 1000×1000 · 4s · loops",
+  obPhone("mic", "Say it. It's <b>written.</b>", "The mic is what makes that possible — in every app you type in."),
+  obDesk("mic", "Say it. It's <b>written.</b>", "The mic is what makes that possible — in every app you type in."))}
+${film("keys", "3 · The keyboard", "Forty keys, and a thread passes through them. The keys lift away as it goes. Three stay, slide into place, and the mark closes over them: this is a keyboard with the keys taken out.", "hero.onboarding_keyboard · 1200×750 · 4s · loops",
+  obPhone("keys", "A keyboard, <b>keyless.</b>", "Turn it on in Settings, and it follows you into every app."),
+  obDesk("keys", "A keyboard, <b>keyless.</b>", "Turn it on in Settings, and it follows you into every app."))}
+
+<h2>The You tab, postered</h2>
+<p class="sub">One gesture of the thread per voice, on that voice's own dark field, so the card's white words always read. Zu is the pale thread with the one amber point. The training card gets the network it grows.</p>
+<div class="row">${card("signature", "Zu", "Your own voice, learned", true)}${trainCard(true)}</div>
+<div class="grid">${voices.map(v => card(v[0], v[1], v[2])).join("")}${trainCard(false)}</div>
+
+<h2>What goes where</h2>
+<p class="sub">Every file is served from the media registry under its key; the app and the desktop draw whatever is there, no build.</p>
+<ul class="files">
+  <li><b>intro.mp4</b> intro (phone)</li><li><b>intro-desktop.mp4</b> intro.desktop</li>
+  <li><b>mic.mp4</b> onboarding.hero</li><li><b>keys.mp4</b> hero.onboarding_keyboard</li>
+  <li><b>you-voice-&lt;id&gt;.png</b> you.voice.&lt;id&gt; × 16</li><li><b>you-train.png</b> you.train</li>
+</ul>
+<footer>Rendered by tools/media/render.mjs from this same page; published by scripts/seed-media.sh on the server.</footer>
+</div>`);
+
+const dpr = Math.min(2, window.devicePixelRatio || 1);
+document.querySelectorAll("[data-poster]").forEach(el => {
+  const c = el.querySelector("canvas"), r = el.getBoundingClientRect();
+  const w = Math.round(r.width), h = Math.round(r.height);
+  // The poster is one file for every width: render at its own shape and let the card crop it, as the app does.
+  const pw = el.classList.contains("train") ? 1200 : 1200, ph = el.classList.contains("train") ? 720 : 560;
+  const off = document.createElement("canvas"); off.width = pw; off.height = ph; poster(off.getContext("2d"), pw, ph, el.dataset.poster);
+  const ctx = fit(c, w, h, dpr); const sc = Math.max(w / pw, h / ph), dw = pw * sc, dh = ph * sc;
+  ctx.drawImage(off, (w - dw) / 2 * dpr, (h - dh) / 2 * dpr, dw * dpr, dh * dpr);
+});
+const live = [];
+document.querySelectorAll("canvas[data-film]").forEach(c => {
+  const w = +c.dataset.w, h = +c.dataset.h, ctx = fit(c, w, h, dpr);
+  live.push({ ctx, id: c.dataset.film, w, h });
+});
+const t0 = performance.now(); const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function tick() {
+  const t = (performance.now() - t0) / 1000;
+  for (const f of live) {
+    const F = FILMS[f.id], tt = F.loop ? t % F.duration : Math.min(F.duration, t % (F.duration + 1.6));
+    f.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); F.draw(f.ctx, reduced ? F.duration : tt, f.w, f.h);
+  }
+  if (!reduced) requestAnimationFrame(tick);
+}
+tick();
+})();
+</script>
+</body>
+</html>
