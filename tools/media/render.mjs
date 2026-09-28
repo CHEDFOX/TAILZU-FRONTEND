@@ -46,6 +46,8 @@ const VOICES = ["signature", "professional", "friendly", "witty", "concise", "ge
 const POSTERS = [
   ...VOICES.map((id) => ({ id, w: 1200, h: 750, file: `you-voice-${id}.png`, key: `you.voice.${id}` })),
   { id: "train", w: 1200, h: 750, file: "you-train.png", key: "you.train" },
+  { id: "dictionary", w: 1200, h: 750, file: "you-dictionary.png", key: "you.dictionary" },
+  { id: "languages", w: 1200, h: 750, file: "you-languages.png", key: "you.languages" },
 ];
 
 fs.mkdirSync(out, { recursive: true });
