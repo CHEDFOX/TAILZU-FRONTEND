@@ -2,7 +2,7 @@
 /**
  * Render thread.html into the files the app is served.
  *
- *   node tools/media/render.mjs <outDir> [--only intro,mic,keys,posters] [--stills]
+ *   node tools/media/render.mjs <outDir> [--only auth,micA,keysA,keysAndroid,posters] [--stills]
  *
  * Films are captured frame by frame from the page's own draw function at a
  * fixed clock, so the MP4 is exactly the preview; posters are one capture
@@ -27,7 +27,7 @@ const { chromium } = require("playwright");
 
 const out = process.argv[2];
 if (!out) { console.error("usage: render.mjs <outDir> [--only a,b] [--stills]"); process.exit(1); }
-const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=auth,intro,micA,keysA,keysAndroid,posters").slice(7).split(",");
+const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=auth,micA,keysA,keysAndroid,posters").slice(7).split(",");
 const stills = process.argv.includes("--stills");
 const FPS = 30;
 
@@ -35,8 +35,9 @@ const FILMS = [
   // `present` is what the registry stores beside the file: how the slot shows it.
   { id: "auth", w: 1080, h: 2340, file: "auth.mp4", key: "hero.auth", present: { fit: "cover", background: "#0A0908", loop: true } },
   { id: "auth", w: 1600, h: 1000, file: "auth-desktop.mp4", key: "hero.auth.desktop", present: { fit: "cover", background: "#0A0908", loop: true } },
-  { id: "intro", w: 1080, h: 2340, file: "intro.mp4", key: "intro", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
-  { id: "intro", w: 1440, h: 1000, file: "intro-desktop.mp4", key: "intro.desktop", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
+  // NO OPENING HERE. The app opens on the in-app mic's own media
+  // (mic.animation); a file under `intro` would replace it. The page's intro
+  // film is for looking at, never for the seed.
   // Phones only: a window never asks for the mic or the keyboard. Their black is the screen's, so no box shows.
   { id: "micA", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#E5931D" } },
   { id: "keysA", w: 1080, h: 1400, file: "keys-ios.mp4", key: "hero.onboarding_keyboard.card", present: { fit: "cover", loop: true, background: "#000000" } },
