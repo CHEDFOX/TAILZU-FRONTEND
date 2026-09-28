@@ -91,7 +91,7 @@
   .greet .n { font: 800 30px/34px var(--ui); color: #fff; margin-top: 2px; }
   .gear { width: 38px; height: 38px; border-radius: 19px; background: rgba(255,255,255,.06); position: relative; } .gear::after { content: ""; position: absolute; left: 12px; top: 12px; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,.6); border-radius: 50%; }
   .portrait { font: 400 21px/26px var(--ui); color: #fff; margin: 10px 0 20px; } .portrait i { color: var(--amber); }
-  .card { height: 168px; border-radius: 22px; overflow: hidden; position: relative; background: #17161A; border: 1px solid rgba(255,255,255,.07); margin: 0 0 20px; }
+  .card { height: 220px; border-radius: 22px; overflow: hidden; position: relative; background: #17161A; border: 1px solid rgba(255,255,255,.07); margin: 0 0 20px; }
   .card.train { height: 212px; background: #000; }
   .card canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .card .fall { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(232,162,60,.1), rgba(232,162,60,.03) 50%, rgba(0,0,0,0)); }
@@ -210,12 +210,14 @@ function drawMark(ctx, cx, cy, W, p) {
 function poster(ctx, w, h, id) {
   const [a, b] = FIELDS[id] || FIELDS.signature, line = LINES[id] || LINES.signature;
   const g = ctx.createLinearGradient(0, 0, w * 0.3, h); g.addColorStop(0, a); g.addColorStop(1, b); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-  // The card's own words live in the bottom half, and a window crops the top
+  // The card's own words live in its bottom half (its kicker starts 55% down
+  // a voice card, 34% down the training card), and a window crops the top
   // fifth: the sentence sits in the band between, two lines at most.
-  const inset = w * 0.06, maxW = w - inset * 2, top = h * 0.215, italic = ITALIC.has(id);
-  let size = Math.round(w * 0.052), lines;
-  for (;;) { ctx.font = font(size, { italic }); lines = wrap(ctx, line, maxW); if (lines.length <= 2 || size <= 36) break; size -= 3; }
-  const lh = size * 1.22;
+  const train = id === "train", inset = w * 0.06, maxW = w - inset * 2, top = h * 0.2, italic = ITALIC.has(id);
+  const bandH = h * (train ? 0.13 : 0.32);
+  let size = Math.round(w * (train ? 0.038 : 0.07)), lines;
+  for (;;) { ctx.font = font(size, { italic }); lines = wrap(ctx, line, maxW); if ((lines.length <= 2 && size * (0.95 + 1.18 * (lines.length - 1)) <= bandH) || size <= 30) break; size -= 3; }
+  const lh = size * 1.18;
   ctx.fillStyle = rgba(C.pale, 0.22); ctx.fillRect(inset, top - size * 0.35, w * 0.16, 1);
   ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.01em";
   lines.forEach((ln, i) => {
@@ -282,7 +284,7 @@ const FILMS = {
     for (let k = -1; k <= 1; k++) for (let i = 0; i < n; i++) {
       const y = h * 0.5 + i * step - off + k * colH; if (y < -step || y > h + step) continue;
       const size = sizes[i % 3], p = E.out(seg(bandLo - y, 0, bandH)), word = HELLOS[i];
-      const fadeTop = seg(y, h * 0.06, h * 0.2), fadeBottom = wide ? 1 - seg(y, h * 0.9, h * 0.99) : 1 - seg(y, h * 0.7, h * 0.79);
+      const fadeTop = wide ? seg(y, h * 0.08, h * 0.22) : seg(y, h * 0.2, h * 0.32), fadeBottom = wide ? 1 - seg(y, h * 0.9, h * 0.99) : 1 - seg(y, h * 0.7, h * 0.79);
       const alpha = depths[i % 3] * fadeTop * fadeBottom * (p < 1 ? 1.05 : 1); if (alpha <= 0.01 || p <= 0) continue;
       ctx.font = font(size);
       const chars = Math.max(1, Math.round(p * word.length)), shown = word.slice(0, chars);
@@ -450,8 +452,8 @@ ${scene("The last step", "Above the walk through Settings the app already draws.
   phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keys"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>You</h2>
-<p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. The training card carries the first thing training says.</p>
-${scene("The You tab", "The greeting, the portrait line, the voice card, the training card, and the three rows, as the app lays them out. The window keeps the phone's column and takes the air.", "you.voice.<id> · 1200×560 × 16<br>you.train · 1200×720",
+<p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. A voice card wearing a poster grows from 168 to 220 points to give the sentence its room. The training card carries the first thing training says.</p>
+${scene("The You tab", "The greeting, the portrait line, the voice card, the training card, and the three rows, as the app lays them out. The window keeps the phone's column and takes the air.", "you.voice.<id> · 1200×750 × 16<br>you.train · 1200×720",
   phone(`<div class="you">${youBody}</div>${dock}`) + desk(`<div class="deskyou"><div class="col">${youBody}</div></div>`))}
 
 <h2>Every voice</h2>
@@ -464,7 +466,7 @@ ${scene("The You tab", "The greeting, the portrait line, the voice card, the tra
   <li><b>auth.mp4</b> hero.auth</li><li><b>auth-desktop.mp4</b> hero.auth.desktop</li>
   <li><b>intro.mp4</b> intro (unchanged)</li><li><b>intro-desktop.mp4</b> intro.desktop (unchanged)</li>
   <li><b>mic.mp4</b> onboarding.hero</li><li><b>keys.mp4</b> hero.onboarding_keyboard</li>
-  <li><b>you-voice-&lt;id&gt;.png</b> you.voice.&lt;id&gt; × 16</li><li><b>you-train.png</b> you.train</li>
+  <li><b>you-voice-&lt;id&gt;.png</b> you.voice.&lt;id&gt; × 16 · 1200×750</li><li><b>you-train.png</b> you.train</li>
 </ul>
 <footer>Rendered by tools/media/render.mjs from this page; published by scripts/seed-media.sh on the server.</footer>
 </div>`);
@@ -472,7 +474,7 @@ ${scene("The You tab", "The greeting, the portrait line, the voice card, the tra
 const dpr = Math.min(2, window.devicePixelRatio || 1);
 fontsReady().then(() => {
   document.querySelectorAll("[data-poster]").forEach(el => {
-    const c = el.querySelector("canvas"), w = el.clientWidth, h = el.clientHeight, train = el.dataset.poster === "train", pw = 1200, ph = train ? 720 : 560;
+    const c = el.querySelector("canvas"), w = el.clientWidth, h = el.clientHeight, train = el.dataset.poster === "train", pw = 1200, ph = train ? 720 : 750;
     const off = document.createElement("canvas"); off.width = pw; off.height = ph; poster(off.getContext("2d"), pw, ph, el.dataset.poster);
     const ctx = fit(c, w, h, dpr), sc = Math.max(w / pw, h / ph), dw = pw * sc, dh = ph * sc;
     ctx.drawImage(off, (w - dw) / 2 * dpr, (h - dh) / 2 * dpr, dw * dpr, dh * dpr);
