@@ -398,6 +398,214 @@ const FILMS = {
     if (t >= 0.7 && lv.a > 0.02) caret(ctx, endX, lineY + lv.dy * size, size, t, writing, (micOpen > 0 ? 1 : 0.7) * lv.a, micOpen > 0 ? C.amber : C.pale);
     grain(ctx, w, h, 0.03, 5);
   } },
+
+  // ================= DIRECTION A: the product in motion =====================
+  /**
+   * The mic screen, as the product: a chat, the Tailzu tray beneath it. The
+   * mic key goes amber, the message composes itself in the field, word by
+   * word, and sends. On the site's saffron field. 10s.
+   */
+  micA: { duration: 10, loop: true, draw(ctx, t, w, h) {
+    const D = 10, U = '"Instrument Sans", system-ui, sans-serif';
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#F7B13F"); g.addColorStop(1, "#E5931D"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const a0 = expo(seg(t, 0, 0.9)), leave = E.io(seg(t, 8.9, 9.7)), rise = (1 - a0) * h * 0.04;
+    ctx.save(); ctx.globalAlpha = a0 * (1 - leave); ctx.translate(0, rise);
+    const px = w * 0.08, pw = w * 0.84, py = h * 0.08, pr = w * 0.085;
+    ctx.shadowColor = "rgba(60,30,0,0.35)"; ctx.shadowBlur = w * 0.09; ctx.shadowOffsetY = w * 0.035;
+    rrect(ctx, px, py, pw, h * 1.2, pr); ctx.fillStyle = "#0F0D0B"; ctx.fill(); ctx.shadowColor = "transparent";
+    // Header
+    ctx.beginPath(); ctx.arc(px + pw * 0.1, py + h * 0.07, w * 0.03, 0, TAU); ctx.fillStyle = rgba(C.pale, 0.16); ctx.fill();
+    ctx.font = `500 ${Math.round(w * 0.036)}px ${U}`; ctx.textBaseline = "middle"; ctx.textAlign = "left"; ctx.fillStyle = rgba(C.pale, 0.92); ctx.fillText("Priya", px + pw * 0.19, py + h * 0.07);
+    ctx.fillStyle = rgba(C.pale, 0.08); ctx.fillRect(px, py + h * 0.12, pw, 1);
+    // The thread
+    const bubble = (text, x, y, out, alpha = 1) => {
+      ctx.font = `500 ${Math.round(w * 0.036)}px ${U}`; const tw = ctx.measureText(text).width, bw = tw + w * 0.09, bh = h * 0.075, bx = out ? x - bw : x;
+      ctx.globalAlpha *= 1; rrect(ctx, bx, y, bw, bh, w * 0.036); ctx.fillStyle = out ? rgba(C.pale, alpha) : rgba("#221E1A", alpha); ctx.fill();
+      ctx.fillStyle = out ? rgba("#0F0D0B", alpha) : rgba(C.pale, 0.92 * alpha); ctx.textBaseline = "middle"; ctx.fillText(text, bx + w * 0.045, y + bh / 2);
+    };
+    bubble("Deploy ho gaya?", px + pw * 0.06, py + h * 0.15, false);
+    // The tray and the field
+    const kbY = py + h * 0.47, trayH = h * 0.62, kx = px, kw = pw;
+    const live = t >= 0.9 && t < 4.5, said = "Priya, deploy ho gaya hai. Testing abhi baaki hai.", words = said.split(" ");
+    const times = words.map((_, i) => 1.15 + i * 0.27 + (i > 0 && /[.,]$/.test(words[i - 1]) ? 0.45 : 0));
+    const sent = seg(t, 4.85, 5.55), sentE = expo(sent);
+    ctx.font = `500 ${Math.round(w * 0.036)}px ${U}`;
+    const fieldY = kbY - h * 0.105, fieldH = h * 0.08, fieldX = px + pw * 0.05, fieldW = pw * 0.9;
+    rrect(ctx, fieldX, fieldY, fieldW, fieldH, fieldH / 2); ctx.fillStyle = "#1A1714"; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = rgba(C.pale, 0.12); ctx.stroke();
+    const shown = words.filter((_, i) => t >= times[i]);
+    if (sent === 0) {
+      let x = fieldX + w * 0.045; const y = fieldY + fieldH / 2; ctx.textBaseline = "middle";
+      if (!shown.length && !live) { ctx.fillStyle = rgba(C.pale, 0.35); ctx.fillText("Message", x, y); }
+      words.forEach((wd, i) => { if (t < times[i]) return; const ar = arrive(t, times[i], 0.5), born = 1 - E.out(seg(t - times[i], 0, 0.9)); const ww = ctx.measureText(wd + " ").width;
+        if (x + ww > fieldX + fieldW - w * 0.02) return; ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.95 * ar.a); ctx.fillText(wd, x, y - ar.dy * w * 0.03); x += ww; });
+      if (live) { const cx = x - ctx.measureText(" ").width * (shown.length ? 1 : 0); caret(ctx, cx, y + w * 0.013, w * 0.036, t, t - (times[shown.length - 1] ?? -9) < 0.5, 1, C.amber); }
+    } else {
+      // Sent: the words lift out of the field into a bubble in the thread.
+      const y0 = fieldY, y1 = py + h * 0.245; bubble(said.slice(0, 26) + "…", px + pw * 0.94, lerp(y0, y1, sentE), true, 1);
+    }
+    if (t >= 5.6) { ctx.font = `500 ${Math.round(w * 0.026)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.4 * expo(seg(t, 5.6, 6.2))); ctx.textAlign = "right"; ctx.fillText("Delivered", px + pw * 0.94, py + h * 0.34); ctx.textAlign = "left"; }
+    // Tray
+    rrect(ctx, kx, kbY, kw, trayH, w * 0.06); ctx.fillStyle = "#17140F"; ctx.fill();
+    const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
+    const kkw = kw * 0.086, kkh = kkw * 1.1, kg = kw * 0.012, rowH = kkh + kg * 1.6, top = kbY + h * 0.04;
+    ctx.font = `500 ${Math.round(w * 0.03)}px ${U}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    rows.forEach((row, ri) => { const rw = row.length * kkw + (row.length - 1) * kg, x0 = kx + (kw - rw) / 2; row.forEach((key, ci) => { rrect(ctx, x0 + ci * (kkw + kg), top + ri * rowH, kkw, kkh, kkw * 0.2); ctx.fillStyle = "#2B2723"; ctx.fill(); ctx.fillStyle = rgba(C.pale, 0.85); ctx.fillText(key, x0 + ci * (kkw + kg) + kkw / 2, top + ri * rowH + kkh / 2); }); });
+    // The bottom row: 123, the mic key, return
+    const by = top + 3 * rowH, sw = kkw * 1.6, mw = kw - sw * 2 - kg * 4 - kw * 0.06, mx = kx + kw * 0.03 + sw + kg * 2;
+    rrect(ctx, kx + kw * 0.03, by, sw, kkh, kkw * 0.2); ctx.fillStyle = "#2B2723"; ctx.fill(); ctx.fillStyle = rgba(C.pale, 0.7); ctx.font = `500 ${Math.round(w * 0.024)}px ${U}`; ctx.fillText("123", kx + kw * 0.03 + sw / 2, by + kkh / 2);
+    rrect(ctx, kx + kw * 0.97 - sw, by, sw, kkh, kkw * 0.2); ctx.fillStyle = "#2B2723"; ctx.fill(); ctx.fillText("return", kx + kw * 0.97 - sw / 2, by + kkh / 2);
+    const tap = 1 + 0.06 * Math.sin(Math.PI * seg(t, 0.85, 1.15)), lv = live ? expo(seg(t, 0.9, 1.3)) : 1 - expo(seg(t, 4.5, 4.9));
+    ctx.save(); ctx.translate(mx + mw / 2, by + kkh / 2); ctx.scale(tap, tap); ctx.translate(-(mx + mw / 2), -(by + kkh / 2));
+    rrect(ctx, mx, by, mw, kkh, kkh / 2); ctx.fillStyle = mix(C.pale, C.amber, lv); ctx.fill();
+    if (lv > 0.5) { for (let i = 0; i < 11; i++) { const bx = mx + mw / 2 + (i - 5) * mw * 0.055, hh = kkh * (0.12 + 0.3 * Math.abs(n1(i * 0.8 + t * 12, 3)) * (shown.length && t - times[shown.length - 1] < 0.6 ? 1 : 0.35)); ctx.fillStyle = "#0F0D0B"; rrect(ctx, bx - w * 0.004, by + kkh / 2 - hh / 2, w * 0.008, hh, w * 0.004); ctx.fill(); } }
+    else { ctx.beginPath(); ctx.arc(mx + mw / 2, by + kkh / 2, kkh * 0.14, 0, TAU); ctx.fillStyle = "#0F0D0B"; ctx.fill(); }
+    ctx.restore();
+    ctx.restore();
+    grain(ctx, w, h, 0.03, 41);
+  } },
+
+  /**
+   * The keyboard screen, as the product: a note in another app, the system
+   * tray up; the globe key is tapped and the Tailzu tray slides in under it;
+   * the mic key goes amber and the line writes itself. On indigo. 10s.
+   */
+  keysA: { duration: 10, loop: true, draw(ctx, t, w, h) {
+    const D = 10, U = '"Instrument Sans", system-ui, sans-serif';
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#302E8C"); g.addColorStop(1, "#1A1748"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const a0 = expo(seg(t, 0, 0.9)), leave = E.io(seg(t, 8.9, 9.7));
+    ctx.save(); ctx.globalAlpha = a0 * (1 - leave); ctx.translate(0, (1 - a0) * h * 0.04);
+    const px = w * 0.12, pw = w * 0.76, py = h * 0.08, pr = w * 0.05;
+    ctx.shadowColor = "rgba(0,0,40,0.45)"; ctx.shadowBlur = w * 0.07; ctx.shadowOffsetY = w * 0.025;
+    rrect(ctx, px, py, pw, h * 1.2, pr); ctx.fillStyle = "#0F0D0B"; ctx.fill(); ctx.shadowColor = "transparent";
+    ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.45); ctx.fillText("Notes", px + pw * 0.05, py + h * 0.06);
+    ctx.font = `500 ${Math.round(w * 0.034)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.95); ctx.fillText("Tomorrow", px + pw * 0.05, py + h * 0.13);
+    // The line that writes itself, once the mic is open
+    const said = "Transfer 2500 rupees to Ramesh tomorrow.", words = said.split(" "), times = words.map((_, i) => 3.2 + i * 0.3), live = t >= 2.95 && t < 5.6;
+    ctx.font = `400 ${Math.round(w * 0.026)}px ${U}`; let x = px + pw * 0.05; const ly = py + h * 0.22;
+    words.forEach((wd, i) => { if (t < times[i]) return; const ar = arrive(t, times[i], 0.5), born = 1 - E.out(seg(t - times[i], 0, 0.9)); ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.9 * ar.a); ctx.fillText(wd, x, ly - ar.dy * w * 0.02); x += ctx.measureText(wd + " ").width; });
+    const shownN = words.filter((_, i) => t >= times[i]).length;
+    if (t >= 0.9) caret(ctx, shownN ? x - ctx.measureText(" ").width : x, ly + w * 0.009, w * 0.026, t, live && t - (times[shownN - 1] ?? -9) < 0.5, 1, live ? C.amber : C.pale);
+    // Two trays: the system's, then Tailzu's
+    const swap = expo(seg(t, 1.75, 2.45)), trayH = h * 0.5, kbY = py + h * 0.4;
+    const tray = (y, kind, alpha) => {
+      if (alpha <= 0.01) return; ctx.save(); ctx.globalAlpha *= alpha;
+      const bg = kind === "sys" ? "#2A2A2E" : "#17140F", key = kind === "sys" ? "#4C4C51" : "#2B2723", ink = kind === "sys" ? "#FFFFFF" : C.pale;
+      rrect(ctx, px, y, pw, trayH, w * 0.03); ctx.fillStyle = bg; ctx.fill();
+      const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
+      const kkw = pw * 0.086, kkh = kkw * 1.05, kg = pw * 0.012, rowH = kkh + kg * 1.6, top = y + h * 0.03;
+      ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.textAlign = "center";
+      rows.forEach((row, ri) => { const rw = row.length * kkw + (row.length - 1) * kg, x0 = px + (pw - rw) / 2; row.forEach((k, ci) => { rrect(ctx, x0 + ci * (kkw + kg), top + ri * rowH, kkw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.9); ctx.fillText(k, x0 + ci * (kkw + kg) + kkw / 2, top + ri * rowH + kkh / 2); }); });
+      const by = top + 3 * rowH, sw = kkw * 1.5, gw = kkw * 1.2;
+      if (kind === "sys") {
+        const globeLit = 1 - E.out(seg(t - 1.5, 0, 0.5)) * (t >= 1.5 ? 1 : 0) * 1 + (t >= 1.5 && t < 2.0 ? 0 : 0);
+        const lit = t >= 1.5 ? 1 - E.out(seg(t - 1.5, 0, 0.6)) : 0;
+        rrect(ctx, px + pw * 0.03, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.8); ctx.fillText("123", px + pw * 0.03 + sw / 2, by + kkh / 2);
+        rrect(ctx, px + pw * 0.03 + sw + kg, by, gw, kkh, kkw * 0.2); ctx.fillStyle = mix(key, "#FFFFFF", lit * 0.9); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + pw * 0.03 + sw + kg + gw / 2, by + kkh / 2, kkh * 0.2, 0, TAU); ctx.lineWidth = 1.5; ctx.strokeStyle = lit > 0.5 ? "#2A2A2E" : rgba(ink, 0.85); ctx.stroke();   // the globe
+        ctx.beginPath(); ctx.moveTo(px + pw * 0.03 + sw + kg + gw / 2 - kkh * 0.2, by + kkh / 2); ctx.lineTo(px + pw * 0.03 + sw + kg + gw / 2 + kkh * 0.2, by + kkh / 2); ctx.stroke();
+        const spx = px + pw * 0.03 + sw + kg * 2 + gw, spw = pw * 0.94 - sw * 2 - gw - kg * 3;
+        rrect(ctx, spx, by, spw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill();
+        rrect(ctx, px + pw * 0.97 - sw, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.8); ctx.fillText("return", px + pw * 0.97 - sw / 2, by + kkh / 2);
+      } else {
+        rrect(ctx, px + pw * 0.03, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.7); ctx.fillText("123", px + pw * 0.03 + sw / 2, by + kkh / 2);
+        rrect(ctx, px + pw * 0.97 - sw, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillText("return", px + pw * 0.97 - sw / 2, by + kkh / 2);
+        const mx = px + pw * 0.03 + sw + kg, mw = pw * 0.94 - sw * 2 - kg * 2, lv = live ? expo(seg(t, 2.95, 3.3)) : 1 - expo(seg(t, 5.6, 6.0));
+        rrect(ctx, mx, by, mw, kkh, kkh / 2); ctx.fillStyle = mix(C.pale, C.amber, lv); ctx.fill();
+        if (lv > 0.5) { for (let i = 0; i < 11; i++) { const bx = mx + mw / 2 + (i - 5) * mw * 0.05, hh = kkh * (0.12 + 0.3 * Math.abs(n1(i * 0.8 + t * 12, 3)) * (shownN && t - times[shownN - 1] < 0.6 ? 1 : 0.35)); ctx.fillStyle = "#0F0D0B"; rrect(ctx, bx - w * 0.003, by + kkh / 2 - hh / 2, w * 0.006, hh, w * 0.003); ctx.fill(); } }
+        else { ctx.beginPath(); ctx.arc(mx + mw / 2, by + kkh / 2, kkh * 0.14, 0, TAU); ctx.fillStyle = "#0F0D0B"; ctx.fill(); }
+      }
+      ctx.restore();
+    };
+    tray(kbY + swap * trayH * 0.5, "sys", 1 - swap);
+    tray(kbY + (1 - swap) * trayH, "tailzu", swap);
+    ctx.restore();
+    grain(ctx, w, h, 0.03, 43);
+  } },
+
+  // ================= DIRECTION B: colour and illustration ===================
+  /**
+   * The mic screen, illustrated: sound arcs on the left, and a speech bubble
+   * that grows and fills with words, row by row, as you speak; then it sends.
+   * Ink on saffron, no UI. 9.5s.
+   */
+  micB: { duration: 9.5, loop: true, draw(ctx, t, w, h) {
+    const D = 9.5, INK = "#1B1712", PAPER = "#FBF8F2", DEEP = "#B8650C";
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#F7B13F"); g.addColorStop(1, "#E5931D"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const leave = E.io(seg(t, 8.7, 9.4));
+    ctx.save(); ctx.globalAlpha = 1 - leave;
+    // The bubble, growing from its tail
+    const bx = w * 0.3, by = h * 0.26, bw = w * 0.6, bh = h * 0.42, r = w * 0.09, tailX = bx + w * 0.02, tailY = by + bh;
+    const grow = E.back(seg(t, 0.4, 1.3)) * (1 - E.in(seg(t, 7.4, 8.2)));
+    ctx.save(); ctx.translate(tailX, tailY); ctx.scale(grow, grow); ctx.translate(-tailX, -tailY);
+    ctx.shadowColor = "rgba(60,30,0,0.28)"; ctx.shadowBlur = w * 0.06; ctx.shadowOffsetY = w * 0.025;
+    ctx.beginPath(); ctx.moveTo(bx + r, by); ctx.arcTo(bx + bw, by, bx + bw, by + bh, r); ctx.arcTo(bx + bw, by + bh, bx, by + bh, r);
+    ctx.lineTo(bx + w * 0.12, by + bh); ctx.quadraticCurveTo(bx + w * 0.04, by + bh + h * 0.02, bx - w * 0.04, by + bh + h * 0.07); ctx.quadraticCurveTo(bx + w * 0.005, by + bh - h * 0.01, bx, by + bh - h * 0.05);
+    ctx.lineTo(bx, by + r); ctx.arcTo(bx, by, bx + r, by, r); ctx.closePath(); ctx.fillStyle = PAPER; ctx.fill(); ctx.shadowColor = "transparent";
+    // The words, as rows of bars
+    const rr = rng(8), rows = 4, x0 = bx + w * 0.07, x1 = bx + bw - w * 0.07, barH = w * 0.024, rowGap = h * 0.075, firstY = by + h * 0.07;
+    let n = 0, born = -9;
+    for (let i = 0; i < rows; i++) { let x = x0; const y = firstY + i * rowGap; while (x < x1 - w * 0.05) { const L = w * (0.05 + rr() * 0.12), tw = 1.5 + n * 0.22; n++;
+      if (t >= tw) { const ar = arrive(t, tw, 0.45), fresh = 1 - E.out(seg(t - tw, 0, 0.7)); born = Math.max(born, tw);
+        rrect(ctx, x, y - ar.dy * w * 0.02, Math.min(L, x1 - x), barH, barH / 2); ctx.fillStyle = rgba(fresh > 0 ? mix(INK, DEEP, fresh) : INK, 0.9 * ar.a); ctx.fill(); }
+      x += L + w * 0.03; } }
+    ctx.restore();
+    // Sound, from the left: three arcs that breathe while the words come
+    const speaking = t >= 1.2 && t - born < 0.5 && t < 6.5 ? 1 : 0, env = 0.35 + 0.65 * (speaking ? 1 : 0.15 + 0.15 * Math.sin(t * TAU * 0.5));
+    ctx.lineCap = "round"; ctx.lineWidth = w * 0.014; const ox = w * 0.17, oy = h * 0.52;
+    for (let k = 0; k < 3; k++) { const rad = w * (0.055 + k * 0.05), a = env * (1 - k * 0.22) * (0.75 + 0.25 * Math.sin(t * 9 - k)); ctx.strokeStyle = rgba(INK, a); ctx.beginPath(); ctx.arc(ox, oy, rad, -0.7, 0.7); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(ox, oy, w * 0.018, 0, TAU); ctx.fillStyle = INK; ctx.fill();
+    ctx.restore();
+    grain(ctx, w, h, 0.03, 45);
+  } },
+
+  /**
+   * The keyboard screen, illustrated: dimensional keys that fold away, row
+   * by row, until only the mic key is left; it comes to the middle, opens,
+   * and letters of every script float up out of it. Pale on indigo. 10s.
+   */
+  keysB: { duration: 10, loop: true, draw(ctx, t, w, h) {
+    const D = 10, U = '"Instrument Sans", system-ui, sans-serif';
+    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#302E8C"); g.addColorStop(1, "#1A1748"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    const leave = E.io(seg(t, 9.2, 9.9)); ctx.save(); ctx.globalAlpha = 1 - leave;
+    const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
+    const kw = w * 0.072, kh = kw * 0.95, gap = w * 0.014, rowH = kh + gap * 1.8, top = h * 0.24, depth = kh * 0.14;
+    const cap = (x, y, ww, hh, label, fold, drop, press) => {
+      // fold: 0 up, 1 folded flat; drop: arrival from above; press: a dip
+      const sy = Math.max(0.02, 1 - fold), yy = y - drop * h * 0.06 + press * depth * 0.5;
+      ctx.save(); ctx.globalAlpha *= (1 - drop) * (1 - seg(fold, 0.8, 1)); ctx.translate(x, yy + hh); ctx.scale(1, sy); ctx.translate(-x, -(yy + hh));
+      ctx.shadowColor = "rgba(0,0,30,0.35)"; ctx.shadowBlur = w * 0.02; ctx.shadowOffsetY = w * 0.01;
+      rrect(ctx, x, yy + depth * (1 - press), ww, hh, kw * 0.18); ctx.fillStyle = mix("#B8A78D", "#1A1748", fold * 0.6); ctx.fill(); ctx.shadowColor = "transparent";
+      rrect(ctx, x, yy - depth * press * 0.5, ww, hh, kw * 0.18); ctx.fillStyle = mix("#F4F1EA", "#3A3890", fold * 0.7); ctx.fill();
+      if (label) { ctx.font = `500 ${Math.round(kw * 0.34)}px ${U}`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = rgba("#1B1712", 0.8 * (1 - fold)); ctx.fillText(label, x + ww / 2, yy + hh / 2 - depth * press * 0.5); }
+      ctx.restore();
+    };
+    const wave = seg(t, 1.4, 2.6);
+    rows.forEach((row, ri) => {
+      const rw = row.length * kw + (row.length - 1) * gap, x0 = (w - rw) / 2, drop = 1 - expo(seg(t, 0.05 + ri * 0.12, 0.85 + ri * 0.12));
+      row.forEach((k, ci) => { const u = ci / row.length; const press = Math.max(0, Math.sin(Math.PI * clamp((wave * 1.4 - u - ri * 0.08) / 0.4))) * (wave > 0 && wave < 1 ? 1 : 0);
+        const fold = E.io(seg(t, 2.9 + ri * 0.38 + ci * 0.03, 3.6 + ri * 0.38 + ci * 0.03)); cap(x0 + ci * (kw + gap), top + ri * rowH, kw, kh, k, fold, drop, press); });
+    });
+    // The bottom row: 123 and return fold too; the mic key stays
+    const by = top + 3 * rowH, sw = kw * 1.5, drop3 = 1 - expo(seg(t, 0.41, 1.21)), fold3 = E.io(seg(t, 4.1, 4.8));
+    cap(w / 2 - kw * 3.7 - gap - sw, by, sw, kh, "123", fold3, drop3, 0); cap(w / 2 + kw * 3.7 + gap, by, sw, kh, "return", fold3, drop3, 0);
+    const glide = E.io(seg(t, 4.9, 5.9)), mx = lerp(w / 2 - kw * 3.7, w / 2 - w * 0.17, glide), my = lerp(by - drop3 * h * 0.06, h * 0.46, glide), mw = lerp(kw * 7.4, w * 0.34, glide), mh = lerp(kh, kh * 1.3, glide);
+    ctx.save(); ctx.globalAlpha *= 1 - drop3;
+    ctx.shadowColor = "rgba(0,0,30,0.35)"; ctx.shadowBlur = w * 0.02; ctx.shadowOffsetY = w * 0.01;
+    rrect(ctx, mx, my + depth, mw, mh, mh / 2); ctx.fillStyle = "#B8A78D"; ctx.fill(); ctx.shadowColor = "transparent";
+    rrect(ctx, mx, my, mw, mh, mh / 2); ctx.fillStyle = "#F4F1EA"; ctx.fill();
+    const open = expo(seg(t, 6.0, 6.5)), breath = 1 + 0.12 * Math.sin(t * TAU * 0.6);
+    if (open > 0) { glow(ctx, mx + mw / 2, my + mh / 2, mh * 0.9 * breath, C.amber, 0.35 * open); ctx.beginPath(); ctx.arc(mx + mw / 2, my + mh / 2, mh * 0.16 * E.back(open) * breath, 0, TAU); ctx.fillStyle = C.amber; ctx.fill(); }
+    else { ctx.beginPath(); ctx.arc(mx + mw / 2, my + mh / 2, mh * 0.14, 0, TAU); ctx.fillStyle = "#1B1712"; ctx.fill(); }
+    ctx.restore();
+    // Letters of every script rise out of it
+    const glyphs = ["a", "क", "あ", "م", "க", "한", "ব", "e"];
+    ctx.font = font(w * 0.05); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    glyphs.forEach((gl, i) => { const t0 = 6.4 + i * 0.28, age = t - t0; if (age < 0 || age > 2.6) return; const u = age / 2.6; const x = mx + mw * (0.2 + (i % 4) * 0.2) + Math.sin(age * 2 + i) * w * 0.02, y = my - u * h * 0.34;
+      ctx.fillStyle = rgba(C.pale, Math.sin(u * Math.PI) * 0.95); ctx.fillText(gl, x, y); });
+    ctx.restore();
+    grain(ctx, w, h, 0.03, 47);
+  } },
 };
 
 // ---- WIRING ------------------------------------------------------------------
@@ -451,15 +659,19 @@ ${scene("The first screen", "One column of type, moving at the pace of credits. 
   phone(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div>${signForm}`) +
   desk(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="deskform"><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div><div style="height:48px"></div>${signForm}</div>`))}
 
-<h2>The microphone</h2>
-<p class="sub">At rest, a still line with an amber point on it: the mic, open. Speech ripples the line, and the sentence gathers in the middle, phrase by phrase, each word arriving with weight, the newest amber. It settles, dissolves, and the second sentence comes: Hinglish in English letters, which is the product.</p>
-${scene("Permission, asked once", "The headline the app sets, the sentence in the middle it leaves for the art, the line under it, and the allow pill. Its black is the screen's black, so nothing reads as a box.", "onboarding.hero · 1080×1200<br>10s · loops · phones only",
-  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="mic" data-w="334" data-h="371"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
+<h2>The microphone, two ways</h2>
+<p class="sub">Left, <b>A · the product in motion</b>: a real chat, the Tailzu tray beneath it; the mic key goes amber, the message composes itself in the field and sends. Right, <b>B · colour and illustration</b>: sound arcs and a speech bubble that grows and fills with words, ink on saffron, no UI. Both sit in the real screen, at true size.</p>
+${scene("Permission, asked once", "The headline the app sets, the card in the middle it leaves for the art, the line under it, and the allow pill. The card is a colour field now, so it reads as a picture on the screen rather than the screen itself.", "onboarding.hero · 1080×1200<br>A 10s · B 9.5s · loops · phones only",
+  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="micA" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`) +
+  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="micB" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
-<h2>The keyboard</h2>
-<p class="sub">Drawn exactly, then let go. The keys type <i>Say it</i>, letter by letter, and leave, row by row. The line takes the room they left, the caret turns amber, and <i>and it's written.</i> arrives by voice.</p>
-${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, and its black is the screen's black.", "hero.onboarding_keyboard · 1200×900<br>9.2s · loops · phones only",
-  phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keys"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
+<h2>The keyboard, two ways</h2>
+<p class="sub">Left, <b>A</b>: a note in another app with the system tray up; the globe key is tapped, the Tailzu tray slides in under it, the mic key goes amber and the line writes itself. Right, <b>B</b>: dimensional keys that fold away row by row until only the mic key is left; it comes to the middle, opens, and letters of every script float up out of it.</p>
+${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, on indigo.", "hero.onboarding_keyboard · 1200×900<br>A 10s · B 10s · loops · phones only",
+  phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keysA"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`) +
+  phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keysB"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
+
+<p class="sub"><b>C · cinematic generated footage</b> could not be made: the Higgsfield account has 0 credits and no unlimited allowance. Top it up and I will produce two clips graded to the palette.</p>
 
 <h2>You</h2>
 <p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. A voice card wearing a poster grows from 168 to 220 points to give the sentence its room. The training card carries the first thing training says.</p>
