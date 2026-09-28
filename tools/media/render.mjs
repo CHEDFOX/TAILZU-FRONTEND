@@ -104,6 +104,9 @@ await browser.close();
 if (!stills) {
   const mf = path.join(out, "manifest.json");
   const prev = fs.existsSync(mf) ? JSON.parse(fs.readFileSync(mf, "utf8")) : [];
-  const merged = [...prev.filter((e) => !manifest.some((m) => m.key === e.key)), ...manifest].filter((e) => fs.existsSync(path.join(out, e.file)));
+  // Files rendered by an earlier run keep their entry, so a partial render never drops a key.
+  const known = [...FILMS.map((f) => ({ file: f.file, key: f.key, contentType: "video/mp4", present: f.present })), ...POSTERS.map((p) => ({ file: p.file, key: p.key, contentType: "image/png", present: { fit: "cover" } }))];
+  const merged = [...manifest, ...prev.filter((e) => !manifest.some((m) => m.key === e.key)), ...known.filter((e) => !manifest.some((m) => m.key === e.key) && !prev.some((m) => m.key === e.key))]
+    .filter((e) => fs.existsSync(path.join(out, e.file)));
   fs.writeFileSync(mf, JSON.stringify(merged, null, 2) + "\n");
 }

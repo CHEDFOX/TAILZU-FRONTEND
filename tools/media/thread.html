@@ -147,6 +147,13 @@ function softStroke(ctx, fn, width, color, a, N = 90, passes = 6) {
   ctx.restore();
 }
 function ground(ctx, w, h, color = "#0F0D0B") { ctx.fillStyle = color; ctx.fillRect(0, 0, w, h); }
+/** A stroke with a hand in it: a polyline through fn(u), width by w(u). The opening uses it. */
+function ribbon(ctx, fn, wf, color, N = 160, alpha = 1) {
+  ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.strokeStyle = color; ctx.globalAlpha = alpha;
+  let p = fn(0);
+  for (let j = 1; j <= N; j++) { const u = j / N, q = fn(u); ctx.lineWidth = Math.max(0.5, wf(u)); ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); p = q; }
+  ctx.restore();
+}
 function grain(ctx, w, h, a, seed) {
   const r = rng(seed * 97 + 13), n = Math.round(w * h / 150);
   for (let i = 0; i < n; i++) { const x = r() * w, y = r() * h, k = r(); ctx.fillStyle = k < .5 ? `rgba(243,226,198,${a * (0.3 + k)})` : `rgba(0,0,0,${a * k})`; ctx.fillRect(x, y, 1, 1); }
