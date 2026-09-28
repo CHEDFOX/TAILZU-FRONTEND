@@ -27,16 +27,19 @@ const { chromium } = require("playwright");
 
 const out = process.argv[2];
 if (!out) { console.error("usage: render.mjs <outDir> [--only a,b] [--stills]"); process.exit(1); }
-const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=intro,mic,keys,posters").slice(7).split(",");
+const only = (process.argv.find((a) => a.startsWith("--only=")) || "--only=auth,intro,mic,keys,posters").slice(7).split(",");
 const stills = process.argv.includes("--stills");
 const FPS = 30;
 
 const FILMS = [
   // `present` is what the registry stores beside the file: how the slot shows it.
+  { id: "auth", w: 1080, h: 2340, file: "auth.mp4", key: "hero.auth", present: { fit: "cover", background: "#0F0D0B", loop: true } },
+  { id: "auth", w: 1600, h: 1000, file: "auth-desktop.mp4", key: "hero.auth.desktop", present: { fit: "cover", background: "#0F0D0B", loop: true } },
   { id: "intro", w: 1080, h: 2340, file: "intro.mp4", key: "intro", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
   { id: "intro", w: 1440, h: 1000, file: "intro-desktop.mp4", key: "intro.desktop", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
-  { id: "mic", w: 1000, h: 1000, file: "mic.mp4", key: "onboarding.hero", present: { shape: "card", boxWidth: 300, aspectRatio: 1, radius: 32, fit: "cover", loop: true } },
-  { id: "keys", w: 1200, h: 750, file: "keys.mp4", key: "hero.onboarding_keyboard", present: { shape: "card", boxWidth: 320, aspectRatio: 1.6, radius: 28, fit: "cover", loop: true } },
+  // Phones only: a window never asks for the mic or the keyboard.
+  { id: "mic", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true } },
+  { id: "keys", w: 1200, h: 900, file: "keys.mp4", key: "hero.onboarding_keyboard", present: { fit: "cover", loop: true } },
 ];
 const VOICES = ["signature", "professional", "friendly", "witty", "concise", "gentle", "playful", "romantic", "concise-boss", "explainer", "excited", "poetic", "bard", "pirate", "trailer", "noir"];
 const POSTERS = [
@@ -69,7 +72,7 @@ for (const f of FILMS) {
   const n = Math.round(duration * FPS);
   if (stills) {
     const dir = path.join(out, "stills"); fs.mkdirSync(dir, { recursive: true });
-    for (const t of [0.3, 0.9, 1.5, 2.1, 2.6, duration - 0.05]) {
+    for (const t of [0.3, 0.9, 1.5, 2.1, 2.6, 3.3, duration - 0.05].filter((x) => x < duration)) {
       await page.evaluate((t) => window.__frame(t), t);
       await page.screenshot({ path: path.join(dir, `${f.file.replace(".mp4", "")}-${t.toFixed(2)}s.png`) });
     }
