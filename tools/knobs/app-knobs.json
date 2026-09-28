@@ -2431,15 +2431,15 @@
     },
     "boot.firstRun": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1634"
+      "at": "app/src/sdui/SduiApp.tsx:1609"
     },
     "postLanguageScreenId": {
       "kind": "str",
-      "at": "app/src/sdui/SduiApp.tsx:1662"
+      "at": "app/src/sdui/SduiApp.tsx:1631"
     },
     "profile.complete": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1123"
+      "at": "app/src/sdui/SduiApp.tsx:1098"
     }
   }
 }
