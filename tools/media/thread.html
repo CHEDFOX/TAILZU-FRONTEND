@@ -243,6 +243,75 @@ const arrive = (t, t0, dur = 0.8) => { const u = clamp((t - t0) / dur), e = expo
 const leaveF = (t, t0, dur = 0.7) => { const u = E.io(clamp((t - t0) / dur)); return { a: 1 - u, dy: -u * 0.2 }; };
 /** Said in its own script, written in English letters: the product's own trick. */
 const SAID_WRITTEN = [["नमस्ते", "Namaste"], ["வணக்கம்", "Vanakkam"], ["مرحبا", "Marhaba"], ["こんにちは", "Konnichiwa"], ["안녕하세요", "Annyeonghaseyo"], ["你好", "Ni hao"], ["নমস্কার", "Nomoskar"]];
+
+/**
+ * The keyboard screen, as the product, per device: a note in another app
+ * with the system tray up (iOS's or Android's); the globe key is tapped and
+ * the system keys disperse, folding away row by row, while the Tailzu tray
+ * rises in under them; the mic key goes amber and the line writes itself.
+ * On indigo. 10s.
+ */
+function keysScene(ctx, t, w, h, platform) {
+  const U = '"Instrument Sans", system-ui, sans-serif', ios = platform === "ios";
+  const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#302E8C"); g.addColorStop(1, "#1A1748"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  const a0 = expo(seg(t, 0, 0.9)), leave = E.io(seg(t, 8.9, 9.7));
+  ctx.save(); ctx.globalAlpha = a0 * (1 - leave); ctx.translate(0, (1 - a0) * h * 0.04);
+  const px = w * 0.12, pw = w * 0.76, py = h * 0.08, pr = w * 0.05;
+  ctx.shadowColor = "rgba(0,0,40,0.45)"; ctx.shadowBlur = w * 0.07; ctx.shadowOffsetY = w * 0.025;
+  rrect(ctx, px, py, pw, h * 1.2, pr); ctx.fillStyle = "#0F0D0B"; ctx.fill(); ctx.shadowColor = "transparent";
+  ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.45); ctx.fillText(ios ? "Notes" : "Keep", px + pw * 0.05, py + h * 0.06);
+  ctx.font = `500 ${Math.round(w * 0.034)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.95); ctx.fillText("Tomorrow", px + pw * 0.05, py + h * 0.13);
+  // The line that writes itself, once the mic is open
+  const said = "Transfer 2500 rupees to Ramesh tomorrow.", words = said.split(" "), times = words.map((_, i) => 3.7 + i * 0.3), live = t >= 3.45 && t < 6.1;
+  ctx.font = `400 ${Math.round(w * 0.026)}px ${U}`; let x = px + pw * 0.05; const ly = py + h * 0.22;
+  words.forEach((wd, i) => { if (t < times[i]) return; const ar = arrive(t, times[i], 0.5), born = 1 - E.out(seg(t - times[i], 0, 0.9)); ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.9 * ar.a); ctx.fillText(wd, x, ly - ar.dy * w * 0.02); x += ctx.measureText(wd + " ").width; });
+  const shownN = words.filter((_, i) => t >= times[i]).length;
+  if (t >= 0.9) caret(ctx, shownN ? x - ctx.measureText(" ").width : x, ly + w * 0.009, w * 0.026, t, live && t - (times[shownN - 1] ?? -9) < 0.5, 1, live ? C.amber : C.pale);
+  // The trays
+  const trayH = h * 0.5, kbY = py + h * 0.4, kkw = pw * 0.086, kkh = kkw * 1.05, kg = pw * 0.012, rowH = kkh + kg * 1.6;
+  const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
+  const key = (x, y, ww, hh, label, fill, ink, fold = 0, lit = 0) => {
+    // fold: the key folds flat about its bottom edge and goes, B's dispersion
+    const al = 1 - seg(fold, 0.75, 1); if (al <= 0.01) return;
+    ctx.save(); ctx.globalAlpha *= al; ctx.translate(x, y + hh); ctx.scale(1, Math.max(0.02, 1 - fold)); ctx.translate(-x, -(y + hh));
+    rrect(ctx, x, y, ww, hh, ios ? kkw * 0.2 : kkw * 0.12); ctx.fillStyle = mix(fill, "#FFFFFF", lit * 0.9); ctx.fill();
+    if (label) { ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.textAlign = "center"; ctx.fillStyle = lit > 0.5 ? "#202124" : rgba(ink, 0.9 * (1 - fold)); ctx.fillText(label, x + ww / 2, y + hh / 2); }
+    ctx.restore();
+  };
+  // The system tray: its keys disperse after the globe is tapped.
+  const sysBg = ios ? "#2A2A2E" : "#202124", sysKey = ios ? "#4C4C51" : "#3C4043", sysGone = E.io(seg(t, 2.4, 3.2)), globeLit = t >= 1.5 ? 1 - E.out(seg(t - 1.5, 0, 0.6)) : 0;
+  ctx.save(); ctx.globalAlpha *= 1 - sysGone;
+  rrect(ctx, px, kbY, pw, trayH, w * 0.03); ctx.fillStyle = sysBg; ctx.fill();
+  const top = kbY + h * 0.03;
+  const fold = (ri, ci) => E.io(seg(t, 1.8 + ri * 0.28 + ci * 0.03, 2.5 + ri * 0.28 + ci * 0.03));
+  rows.forEach((row, ri) => { const rw = row.length * kkw + (row.length - 1) * kg, x0 = px + (pw - rw) / 2; row.forEach((k, ci) => key(x0 + ci * (kkw + kg), top + ri * rowH, kkw, kkh, k, sysKey, "#FFFFFF", fold(ri, ci))); });
+  const by = top + 3 * rowH, sw = kkw * 1.5, gw = kkw * 1.2, f3 = fold(3, 0);
+  key(px + pw * 0.03, by, sw, kkh, ios ? "123" : "?123", sysKey, "#FFFFFF", f3);
+  key(px + pw * 0.03 + sw + kg, by, gw, kkh, "", sysKey, "#FFFFFF", f3, globeLit);
+  { const gx = px + pw * 0.03 + sw + kg + gw / 2, gy = by + kkh / 2, gr = kkh * 0.2; ctx.save(); ctx.globalAlpha *= 1 - seg(f3, 0.75, 1); ctx.translate(gx, gy + kkh / 2); ctx.scale(1, Math.max(0.02, 1 - f3)); ctx.translate(-gx, -(gy + kkh / 2));
+    ctx.lineWidth = 1.5; ctx.strokeStyle = globeLit > 0.5 ? "#202124" : "rgba(255,255,255,0.85)"; ctx.beginPath(); ctx.arc(gx, gy, gr, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(gx - gr, gy); ctx.lineTo(gx + gr, gy); ctx.moveTo(gx, gy - gr); ctx.lineTo(gx, gy + gr); ctx.stroke(); ctx.beginPath(); ctx.ellipse(gx, gy, gr * 0.45, gr, 0, 0, TAU); ctx.stroke(); ctx.restore(); }
+  const spx = px + pw * 0.03 + sw + kg * 2 + gw, spw = pw * 0.94 - sw * 2 - gw - kg * 3 - (ios ? 0 : kkw + kg);
+  key(spx, by, spw, kkh, "", sysKey, "#FFFFFF", f3);
+  if (!ios) key(spx + spw + kg, by, kkw, kkh, ".", sysKey, "#FFFFFF", f3);
+  key(px + pw * 0.97 - sw, by, sw, kkh, ios ? "return" : "↵", sysKey, "#FFFFFF", f3);
+  ctx.restore();
+  // The Tailzu tray rises in under the dispersing keys.
+  const up = expo(seg(t, 2.2, 3.0)), ty = kbY + (1 - up) * trayH;
+  ctx.save(); ctx.globalAlpha *= up;
+  rrect(ctx, px, ty, pw, trayH, w * 0.03); ctx.fillStyle = "#17140F"; ctx.fill();
+  const ttop = ty + h * 0.03;
+  rows.forEach((row, ri) => { const rw = row.length * kkw + (row.length - 1) * kg, x0 = px + (pw - rw) / 2; row.forEach((k, ci) => key(x0 + ci * (kkw + kg), ttop + ri * rowH, kkw, kkh, k, "#2B2723", C.pale)); });
+  const tby = ttop + 3 * rowH;
+  key(px + pw * 0.03, tby, sw, kkh, "123", "#2B2723", C.pale); key(px + pw * 0.97 - sw, tby, sw, kkh, "return", "#2B2723", C.pale);
+  const mx = px + pw * 0.03 + sw + kg, mw = pw * 0.94 - sw * 2 - kg * 2, lv = live ? expo(seg(t, 3.45, 3.8)) : 1 - expo(seg(t, 6.1, 6.5));
+  rrect(ctx, mx, tby, mw, kkh, kkh / 2); ctx.fillStyle = mix(C.pale, C.amber, lv); ctx.fill();
+  if (lv > 0.5) { for (let i = 0; i < 11; i++) { const bx = mx + mw / 2 + (i - 5) * mw * 0.05, hh = kkh * (0.12 + 0.3 * Math.abs(n1(i * 0.8 + t * 12, 3)) * (shownN && t - times[shownN - 1] < 0.6 ? 1 : 0.35)); ctx.fillStyle = "#0F0D0B"; rrect(ctx, bx - w * 0.003, tby + kkh / 2 - hh / 2, w * 0.006, hh, w * 0.003); ctx.fill(); } }
+  else { ctx.beginPath(); ctx.arc(mx + mw / 2, tby + kkh / 2, kkh * 0.14, 0, TAU); ctx.fillStyle = "#0F0D0B"; ctx.fill(); }
+  ctx.restore();
+  ctx.restore();
+  grain(ctx, w, h, 0.03, 43);
+}
 const FILMS = {
   /** The opening: breath, thread, mark. Plays once and holds. */
   intro: { duration: 3.0, loop: false, draw(ctx, t, w, h) {
@@ -464,64 +533,8 @@ const FILMS = {
     grain(ctx, w, h, 0.03, 41);
   } },
 
-  /**
-   * The keyboard screen, as the product: a note in another app, the system
-   * tray up; the globe key is tapped and the Tailzu tray slides in under it;
-   * the mic key goes amber and the line writes itself. On indigo. 10s.
-   */
-  keysA: { duration: 10, loop: true, draw(ctx, t, w, h) {
-    const D = 10, U = '"Instrument Sans", system-ui, sans-serif';
-    const g = ctx.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#302E8C"); g.addColorStop(1, "#1A1748"); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-    const a0 = expo(seg(t, 0, 0.9)), leave = E.io(seg(t, 8.9, 9.7));
-    ctx.save(); ctx.globalAlpha = a0 * (1 - leave); ctx.translate(0, (1 - a0) * h * 0.04);
-    const px = w * 0.12, pw = w * 0.76, py = h * 0.08, pr = w * 0.05;
-    ctx.shadowColor = "rgba(0,0,40,0.45)"; ctx.shadowBlur = w * 0.07; ctx.shadowOffsetY = w * 0.025;
-    rrect(ctx, px, py, pw, h * 1.2, pr); ctx.fillStyle = "#0F0D0B"; ctx.fill(); ctx.shadowColor = "transparent";
-    ctx.textBaseline = "middle"; ctx.textAlign = "left";
-    ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.45); ctx.fillText("Notes", px + pw * 0.05, py + h * 0.06);
-    ctx.font = `500 ${Math.round(w * 0.034)}px ${U}`; ctx.fillStyle = rgba(C.pale, 0.95); ctx.fillText("Tomorrow", px + pw * 0.05, py + h * 0.13);
-    // The line that writes itself, once the mic is open
-    const said = "Transfer 2500 rupees to Ramesh tomorrow.", words = said.split(" "), times = words.map((_, i) => 3.2 + i * 0.3), live = t >= 2.95 && t < 5.6;
-    ctx.font = `400 ${Math.round(w * 0.026)}px ${U}`; let x = px + pw * 0.05; const ly = py + h * 0.22;
-    words.forEach((wd, i) => { if (t < times[i]) return; const ar = arrive(t, times[i], 0.5), born = 1 - E.out(seg(t - times[i], 0, 0.9)); ctx.fillStyle = rgba(born > 0 ? mix(C.pale, C.amber, born) : C.pale, 0.9 * ar.a); ctx.fillText(wd, x, ly - ar.dy * w * 0.02); x += ctx.measureText(wd + " ").width; });
-    const shownN = words.filter((_, i) => t >= times[i]).length;
-    if (t >= 0.9) caret(ctx, shownN ? x - ctx.measureText(" ").width : x, ly + w * 0.009, w * 0.026, t, live && t - (times[shownN - 1] ?? -9) < 0.5, 1, live ? C.amber : C.pale);
-    // Two trays: the system's, then Tailzu's
-    const swap = expo(seg(t, 1.75, 2.45)), trayH = h * 0.5, kbY = py + h * 0.4;
-    const tray = (y, kind, alpha) => {
-      if (alpha <= 0.01) return; ctx.save(); ctx.globalAlpha *= alpha;
-      const bg = kind === "sys" ? "#2A2A2E" : "#17140F", key = kind === "sys" ? "#4C4C51" : "#2B2723", ink = kind === "sys" ? "#FFFFFF" : C.pale;
-      rrect(ctx, px, y, pw, trayH, w * 0.03); ctx.fillStyle = bg; ctx.fill();
-      const rows = [["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"], ["A", "S", "D", "F", "G", "H", "J", "K", "L"], ["Z", "X", "C", "V", "B", "N", "M"]];
-      const kkw = pw * 0.086, kkh = kkw * 1.05, kg = pw * 0.012, rowH = kkh + kg * 1.6, top = y + h * 0.03;
-      ctx.font = `500 ${Math.round(w * 0.02)}px ${U}`; ctx.textAlign = "center";
-      rows.forEach((row, ri) => { const rw = row.length * kkw + (row.length - 1) * kg, x0 = px + (pw - rw) / 2; row.forEach((k, ci) => { rrect(ctx, x0 + ci * (kkw + kg), top + ri * rowH, kkw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.9); ctx.fillText(k, x0 + ci * (kkw + kg) + kkw / 2, top + ri * rowH + kkh / 2); }); });
-      const by = top + 3 * rowH, sw = kkw * 1.5, gw = kkw * 1.2;
-      if (kind === "sys") {
-        const globeLit = 1 - E.out(seg(t - 1.5, 0, 0.5)) * (t >= 1.5 ? 1 : 0) * 1 + (t >= 1.5 && t < 2.0 ? 0 : 0);
-        const lit = t >= 1.5 ? 1 - E.out(seg(t - 1.5, 0, 0.6)) : 0;
-        rrect(ctx, px + pw * 0.03, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.8); ctx.fillText("123", px + pw * 0.03 + sw / 2, by + kkh / 2);
-        rrect(ctx, px + pw * 0.03 + sw + kg, by, gw, kkh, kkw * 0.2); ctx.fillStyle = mix(key, "#FFFFFF", lit * 0.9); ctx.fill();
-        ctx.beginPath(); ctx.arc(px + pw * 0.03 + sw + kg + gw / 2, by + kkh / 2, kkh * 0.2, 0, TAU); ctx.lineWidth = 1.5; ctx.strokeStyle = lit > 0.5 ? "#2A2A2E" : rgba(ink, 0.85); ctx.stroke();   // the globe
-        ctx.beginPath(); ctx.moveTo(px + pw * 0.03 + sw + kg + gw / 2 - kkh * 0.2, by + kkh / 2); ctx.lineTo(px + pw * 0.03 + sw + kg + gw / 2 + kkh * 0.2, by + kkh / 2); ctx.stroke();
-        const spx = px + pw * 0.03 + sw + kg * 2 + gw, spw = pw * 0.94 - sw * 2 - gw - kg * 3;
-        rrect(ctx, spx, by, spw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill();
-        rrect(ctx, px + pw * 0.97 - sw, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.8); ctx.fillText("return", px + pw * 0.97 - sw / 2, by + kkh / 2);
-      } else {
-        rrect(ctx, px + pw * 0.03, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillStyle = rgba(ink, 0.7); ctx.fillText("123", px + pw * 0.03 + sw / 2, by + kkh / 2);
-        rrect(ctx, px + pw * 0.97 - sw, by, sw, kkh, kkw * 0.2); ctx.fillStyle = key; ctx.fill(); ctx.fillText("return", px + pw * 0.97 - sw / 2, by + kkh / 2);
-        const mx = px + pw * 0.03 + sw + kg, mw = pw * 0.94 - sw * 2 - kg * 2, lv = live ? expo(seg(t, 2.95, 3.3)) : 1 - expo(seg(t, 5.6, 6.0));
-        rrect(ctx, mx, by, mw, kkh, kkh / 2); ctx.fillStyle = mix(C.pale, C.amber, lv); ctx.fill();
-        if (lv > 0.5) { for (let i = 0; i < 11; i++) { const bx = mx + mw / 2 + (i - 5) * mw * 0.05, hh = kkh * (0.12 + 0.3 * Math.abs(n1(i * 0.8 + t * 12, 3)) * (shownN && t - times[shownN - 1] < 0.6 ? 1 : 0.35)); ctx.fillStyle = "#0F0D0B"; rrect(ctx, bx - w * 0.003, by + kkh / 2 - hh / 2, w * 0.006, hh, w * 0.003); ctx.fill(); } }
-        else { ctx.beginPath(); ctx.arc(mx + mw / 2, by + kkh / 2, kkh * 0.14, 0, TAU); ctx.fillStyle = "#0F0D0B"; ctx.fill(); }
-      }
-      ctx.restore();
-    };
-    tray(kbY + swap * trayH * 0.5, "sys", 1 - swap);
-    tray(kbY + (1 - swap) * trayH, "tailzu", swap);
-    ctx.restore();
-    grain(ctx, w, h, 0.03, 43);
-  } },
+  keysA: { duration: 10, loop: true, draw: (ctx, t, w, h) => keysScene(ctx, t, w, h, "ios") },
+  keysAndroid: { duration: 10, loop: true, draw: (ctx, t, w, h) => keysScene(ctx, t, w, h, "android") },
 
   // ================= DIRECTION B: colour and illustration ===================
   /**
@@ -659,19 +672,16 @@ ${scene("The first screen", "One column of type, moving at the pace of credits. 
   phone(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div>${signForm}`) +
   desk(`<canvas class="film" data-film="auth"></canvas><div class="scrim"></div><div class="deskform"><div class="brand"><b>Tailzu</b><span>You talk. It writes.</span></div><div style="height:48px"></div>${signForm}</div>`))}
 
-<h2>The microphone, two ways</h2>
-<p class="sub">Left, <b>A · the product in motion</b>: a real chat, the Tailzu tray beneath it; the mic key goes amber, the message composes itself in the field and sends. Right, <b>B · colour and illustration</b>: sound arcs and a speech bubble that grows and fills with words, ink on saffron, no UI. Both sit in the real screen, at true size.</p>
-${scene("Permission, asked once", "The headline the app sets, the card in the middle it leaves for the art, the line under it, and the allow pill. The card is a colour field now, so it reads as a picture on the screen rather than the screen itself.", "onboarding.hero · 1080×1200<br>A 10s · B 9.5s · loops · phones only",
-  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="micA" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`) +
-  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="micB" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
+<h2>The microphone</h2>
+<p class="sub">The product in motion: a real chat on the site's saffron field, the Tailzu tray beneath it. The mic key goes amber with a live waveform, the message composes itself in the field, word by word, the newest word amber, and sends.</p>
+${scene("Permission, asked once", "The headline the app sets, the card in the middle it leaves for the art, the line under it, and the allow pill. The card is a colour field, so it reads as a picture on the screen rather than the screen itself.", "onboarding.hero · 1080×1200<br>10s · loops · phones only",
+  phone(`<div class="ob"><div class="title">Say it. It's <b>written.</b></div><div class="mid"><canvas data-film="micA" data-w="334" data-h="371" style="border-radius:28px"></canvas></div><div class="line">The mic is what makes that possible — in every app you type in.</div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
-<h2>The keyboard, two ways</h2>
-<p class="sub">Left, <b>A</b>: a note in another app with the system tray up; the globe key is tapped, the Tailzu tray slides in under it, the mic key goes amber and the line writes itself. Right, <b>B</b>: dimensional keys that fold away row by row until only the mic key is left; it comes to the middle, opens, and letters of every script float up out of it.</p>
-${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, on indigo.", "hero.onboarding_keyboard · 1200×900<br>A 10s · B 10s · loops · phones only",
+<h2>The keyboard, by device</h2>
+<p class="sub">A note in another app with the system tray up. The globe key is tapped and the system keys disperse, folding away row by row, while the Tailzu tray rises in under them; the mic key goes amber and the line writes itself. Two cuts, each served only to its platform: iOS with its tray, Android with its own. The steps below the card are the app's, and it already shows each device its own.</p>
+${scene("The last step", "Above the walk through Settings the app already draws. The card is 4:3, the width of the column, on indigo. Left, iPhone; right, Android, with Android's steps.", "hero.onboarding_keyboard.card · 1200×900 · iOS<br>hero.onboarding_keyboard.card.android · 1200×900<br>10s · loops · phones only",
   phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keysA"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`) +
-  phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keysB"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Open Settings, then tap General.</div><div class="s"><b>2</b>Tap Keyboard → Keyboards → Add New Keyboard.</div><div class="s"><b>3</b>Choose Tailzu from the list.</div><div class="s"><b>4</b>Tap Tailzu again and turn on “Allow Full Access”.</div><div class="s" style="margin:0"><b>5</b>Return to Tailzu — the globe key switches keyboards.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
-
-<p class="sub"><b>C · cinematic generated footage</b> could not be made: the Higgsfield account has 0 credits and no unlimited allowance. Top it up and I will produce two clips graded to the palette.</p>
+  phone(`<div class="kb"><div class="title">Bring it everywhere.</div><div class="hero"><canvas class="film" data-film="keysAndroid"></canvas></div><div class="steps"><div class="t">A moment in Settings, and Tailzu writes with you in every app.</div><div class="s"><b>1</b>Tap the button below — it opens your keyboard list.</div><div class="s"><b>2</b>Turn on Tailzu.</div><div class="s"><b>3</b>Android warns that a keyboard can read what you type. Accept it — that is how every keyboard works.</div><div class="s" style="margin:0"><b>4</b>Come back, then tap the globe key to switch to Tailzu.</div></div><div class="allow"><em>✕</em><span>Allow access</span></div></div>`))}
 
 <h2>You</h2>
 <p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. A voice card wearing a poster grows from 168 to 220 points to give the sentence its room. The training card carries the first thing training says.</p>
@@ -687,7 +697,7 @@ ${scene("The You tab", "The greeting, the portrait line, the voice card, the tra
 <ul class="files">
   <li><b>auth.mp4</b> hero.auth</li><li><b>auth-desktop.mp4</b> hero.auth.desktop</li>
   <li><b>intro.mp4</b> intro (unchanged)</li><li><b>intro-desktop.mp4</b> intro.desktop (unchanged)</li>
-  <li><b>mic.mp4</b> onboarding.hero</li><li><b>keys.mp4</b> hero.onboarding_keyboard</li>
+  <li><b>mic.mp4</b> onboarding.hero</li><li><b>keys-ios.mp4</b> hero.onboarding_keyboard.card</li><li><b>keys-android.mp4</b> hero.onboarding_keyboard.card.android</li>
   <li><b>you-voice-&lt;id&gt;.png</b> you.voice.&lt;id&gt; × 16 · 1200×750</li><li><b>you-train.png</b> you.train</li>
 </ul>
 <footer>Rendered by tools/media/render.mjs from this page; published by scripts/seed-media.sh on the server.</footer>
