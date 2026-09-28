@@ -36,6 +36,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { Image as RNImage, Text, View, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import { Image as ExpoImage, ImageContentFit } from "expo-image";
 import { resolveMedia, MediaSpec } from "./resolveMedia";
+import { firstFrameSeen } from "./firstFrame";
 import * as K from "../sdui/knobs";
 
 // Lottie + video are heavy — require them lazily so a bundle that never plays
@@ -337,6 +338,19 @@ function VideoPlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, mut
     };
   }, [player, onEnd]);
 
+  // THE FIRST FRAME, REPORTED. The splash waits on it (media/firstFrame).
+  // onFirstFrameRender is the exact moment; readyToPlay plus a beat is the
+  // floor for a native module that predates the event, so a splash waiting
+  // on this clip is never left to its timeout.
+  useEffect(() => {
+    if (!player) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const sub = player.addListener?.("statusChange", (status: { status: string }) => {
+      if (status.status === "readyToPlay") t = setTimeout(() => firstFrameSeen(uri), 120);
+    });
+    return () => { sub?.remove?.(); if (t) clearTimeout(t); };
+  }, [player, uri]);
+
   if (!ExpoVideo) return null;
   return (
     <ExpoVideo
@@ -344,6 +358,7 @@ function VideoPlayerInner({ uri, style, contentFit, shouldPlay, loop, speed, mut
       style={style}
       contentFit={contentFit}
       nativeControls={false}
+      onFirstFrameRender={() => firstFrameSeen(uri)}
       testID={testID}
     />
   );

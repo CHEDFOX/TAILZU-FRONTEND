@@ -41,6 +41,7 @@ import OfflineScreen from "./OfflineScreen";
 import { hasSeenCard, markCardSeen } from "./launchCard";
 import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall, getPushAsked, setPushAsked, setOnboarded } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
+import { whenFirstFrame } from "../media/firstFrame";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
@@ -238,6 +239,30 @@ function firstRemoteImage(node: unknown): string | null {
     if (hit) return hit;
   }
   return firstRemoteImage(n.fallback);
+}
+
+/**
+ * The first remote CLIP on a screen, as the uri its player is given.
+ *
+ * A clip cannot be prefetched into its player, so waiting on its download is
+ * not waiting on the picture: the splash has to wait for the player to say it
+ * has painted a frame (media/firstFrame). The Video node unwraps a
+ * `{ source }` object, so the uri is that inner string when there is one.
+ */
+function firstRemoteVideo(node: unknown): string | null {
+  if (!node || typeof node !== "object") return null;
+  const n = node as { type?: string; props?: Record<string, any>; children?: unknown[] };
+  if (n.type === "Video") {
+    const raw = n.props?.source;
+    const inner = raw && typeof raw === "object" && "source" in raw ? raw.source : raw;
+    const url = typeof inner === "string" ? inner : inner?.url;
+    if (typeof url === "string" && /^https?:\/\//i.test(url)) return url;
+  }
+  for (const c of n.children ?? []) {
+    const hit = firstRemoteVideo(c);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 export default function SduiApp() {
@@ -1610,8 +1635,14 @@ export default function SduiApp() {
     const urls = first
       ? allRemoteMedia((screen as ScreenResponse).root)
       : [firstRemoteImage((screen as ScreenResponse).root)].filter(Boolean) as string[];
+    // THE OPENING FILM, ON SCREEN. A downloaded clip is not a painted one:
+    // lifting the splash when the file lands showed the empty ground for the
+    // beat it takes the player to decode a frame, which is the blink between
+    // the splash and the film. So a screen that opens on a clip holds the
+    // splash until that clip has painted, on every launch, not only the first.
+    const film = firstRemoteVideo((screen as ScreenResponse).root);
 
-    if (!urls.length && !first) { drop(); return; }
+    if (!urls.length && !first && !film) { drop(); return; }
     timer = setTimeout(drop, first ? firstRunMediaWaitMs() : splashMediaWaitMs());
 
     void (async () => {
@@ -1636,7 +1667,10 @@ export default function SduiApp() {
             }
           }
         }
-        await Promise.all(urls.map((u) => warm(u).catch(() => {})));
+        await Promise.all([
+          ...urls.map((u) => warm(u).catch(() => {})),
+          ...(film ? [whenFirstFrame(film)] : []),
+        ]);
         drop();
       } catch { drop(); }
     })();

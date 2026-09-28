@@ -51,6 +51,7 @@ const POSTERS = [
   { id: "train", w: 1200, h: 750, file: "you-train.webp", key: "you.train" },
   { id: "dictionary", w: 1200, h: 750, file: "you-dictionary.webp", key: "you.dictionary" },
   { id: "languages", w: 1200, h: 750, file: "you-languages.webp", key: "you.languages" },
+  { id: "haptics", w: 1200, h: 750, file: "you-haptics.webp", key: "you.haptics" },
 ];
 
 fs.mkdirSync(out, { recursive: true });

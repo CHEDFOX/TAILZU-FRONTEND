@@ -180,6 +180,7 @@ const LINES = {
   train: "I don't know how you sound yet. Just talk, and I'll listen.",
   dictionary: "Priya · Ramesh · Bengaluru · deploy · chai · Koramangala",
   languages: "नमस्ते · வணக்கம் · مرحبا · こんにちは · Hello",
+  haptics: "Every key, felt.",
 };
 const ITALIC = new Set(["romantic", "poetic", "bard", "noir"]);
 const FIELDS = {
@@ -187,7 +188,7 @@ const FIELDS = {
   concise: ["#0E0E0E", "#000000"], gentle: ["#152230", "#060A0F"], playful: ["#33280A", "#0F0B02"], romantic: ["#3E1226", "#12040B"],
   "concise-boss": ["#0C0C0C", "#000000"], explainer: ["#0E4C46", "#03201D"], excited: ["#4A2606", "#150A02"], poetic: ["#241C4A", "#0B0818"],
   bard: ["#26246E", "#0B0A28"], pirate: ["#08302C", "#020E0D"], trailer: ["#0A0A0A", "#000000"], noir: ["#0C0C0C", "#000000"], train: ["#0B0A09", "#000000"],
-  dictionary: ["#1E1712", "#070504"], languages: ["#1C1640", "#0B0818"],
+  dictionary: ["#1E1712", "#070504"], languages: ["#1C1640", "#0B0818"], haptics: ["#1A2226", "#06090A"],
 };
 
 // ---- THE MARK, from the site's own geometry (viewBox 170 228 680 512) ------
@@ -837,7 +838,7 @@ const signForm = `<div class="signin"><div class="spill"><i></i><span>Email addr
 const voiceCard = (id, name, tag) => `<div class="card" data-poster="${id}"><canvas></canvas><div class="fall"></div><div class="text"><div class="k"><i></i>Writing as</div><div class="name">${name}</div><div class="tag">${tag}</div></div></div>`;
 const settingCard = (id, kicker, value, line) => `<div class="card" data-poster="${id}"><canvas></canvas><div class="fall"></div><div class="text"><div class="k">${kicker}</div><div class="name">${value}</div><div class="tag">${line}</div></div></div>`;
 const trainCard = `<div class="card train" data-poster="train"><canvas></canvas><div class="fall"></div><div class="text"><div class="k">It learns you</div><div class="name">Just talk.</div><div class="tag">Talk once and it starts learning you.</div><div class="btn">Start training</div></div></div>`;
-const youBody = `<div class="greet"><div><div class="h">नमस्ते</div><div class="n">Ashish</div></div><div class="gear"></div></div><div class="portrait">Writes as <i>Zu</i>. English, Hindi. 212 words of yours.</div>${voiceCard("signature", "Zu", "Your own voice, learned")}${trainCard}${settingCard("dictionary", "Dictionary", "212 words", "Names and words it spells your way.")}${settingCard("languages", "Languages", "English, Hindi", "Say it in any of them. It writes the way you type.")}<div class="row"><b>Haptics</b><span>On</span><i></i></div>`;
+const youBody = `<div class="greet"><div><div class="h">नमस्ते</div><div class="n">Ashish</div></div><div class="gear"></div></div><div class="portrait">Writes as <i>Zu</i>. English, Hindi. 212 words of yours.</div>${voiceCard("signature", "Zu", "Your own voice, learned")}${trainCard}${settingCard("dictionary", "Dictionary", "212 words", "Names and words it spells your way.")}${settingCard("languages", "Languages", "English, Hindi", "Say it in any of them. It writes the way you type.")}${settingCard("haptics", "Haptics", "On", "Feel every key as you type.")}`;
 const dock = `<div class="dock"><i>Stats</i><i class="on">You</i></div>`;
 const scene = (title, copy, meta, devices) => `<section class="scene"><div><h3>${title}</h3><p>${copy}</p><div class="meta">${meta}</div></div><div class="devices">${devices}</div></section>`;
 const phone = inner => `<div class="phone"><div class="bezel"></div><div class="screen">${status}${inner}<div class="home"></div></div></div>`;
@@ -870,7 +871,7 @@ ${scene("The last step", "The film sits where the heading and the card were, the
 
 <h2>You</h2>
 <p class="sub">The voice, in its own words. Every poster is the same request, said in that voice: the catalog's own tone samples where it has them. Two lines at most, set above the card's words, with the last mark in amber. A voice card wearing a poster grows from 168 to 220 points to give the sentence its room. The training card carries the first thing training says.</p>
-${scene("The You tab", "The greeting, the portrait line well clear of the name, then one column of one shape: the voice, training, dictionary and languages as cards of one height, and haptics, a switch, as a row. The window keeps the phone's column and takes the air.", "you.voice.<id> · 1200×750 × 16<br>you.train · 1200×720",
+${scene("The You tab", "The greeting, the portrait line well clear of the name, then one column of one shape: the voice, training, dictionary, languages and haptics as cards of one height. The window keeps the phone's column and takes the air.", "you.voice.<id> · 1200×750 × 16<br>you.train · 1200×720",
   phone(`<div class="you">${youBody}</div>${dock}`) + desk(`<div class="deskyou"><div class="col">${youBody}</div></div>`))}
 
 <h2>Every voice</h2>
