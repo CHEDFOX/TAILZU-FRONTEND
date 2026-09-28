@@ -39,13 +39,13 @@ const FILMS = [
   { id: "intro", w: 1440, h: 1000, file: "intro-desktop.mp4", key: "intro.desktop", present: { shape: "full", fit: "cover", holdMs: 2800, loop: false, background: "#0F0D0B" } },
   // Phones only: a window never asks for the mic or the keyboard. Their black is the screen's, so no box shows.
   { id: "micA", w: 1080, h: 1200, file: "mic.mp4", key: "onboarding.hero", present: { shape: "full", aspectRatio: 0.9, radius: 28, fit: "cover", loop: true, background: "#E5931D" } },
-  { id: "keysA", w: 1200, h: 900, file: "keys-ios.mp4", key: "hero.onboarding_keyboard.card", present: { fit: "cover", loop: true, background: "#1A1748" } },
-  { id: "keysAndroid", w: 1200, h: 900, file: "keys-android.mp4", key: "hero.onboarding_keyboard.card.android", present: { fit: "cover", loop: true, background: "#1A1748" } },
+  { id: "keysA", w: 1080, h: 1400, file: "keys-ios.mp4", key: "hero.onboarding_keyboard.card", present: { fit: "cover", loop: true, background: "#000000" } },
+  { id: "keysAndroid", w: 1080, h: 1400, file: "keys-android.mp4", key: "hero.onboarding_keyboard.card.android", present: { fit: "cover", loop: true, background: "#000000" } },
 ];
 const VOICES = ["signature", "professional", "friendly", "witty", "concise", "gentle", "playful", "romantic", "concise-boss", "explainer", "excited", "poetic", "bard", "pirate", "trailer", "noir"];
 const POSTERS = [
   ...VOICES.map((id) => ({ id, w: 1200, h: 750, file: `you-voice-${id}.png`, key: `you.voice.${id}` })),
-  { id: "train", w: 1200, h: 720, file: "you-train.png", key: "you.train" },
+  { id: "train", w: 1200, h: 750, file: "you-train.png", key: "you.train" },
 ];
 
 fs.mkdirSync(out, { recursive: true });
