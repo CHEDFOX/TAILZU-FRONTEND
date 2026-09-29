@@ -53,7 +53,7 @@ const P = {
   ink: "#0F0D0B", wash: "#141110", card: "#211C17", pale: "#F3E2C6", amber: "#E8A23C", key: "#F4F1EA",
   violet: "#1C1640", violetHi: "#241C52", violetLo: "#0F0B24",
   paper: "#FBF8F2", ink2: "#1B1712", saffron: "#F4A72C", saffronDeep: "#B8650C",
-  indigo: "#2A2878", indigoDeep: "#17163F", teal: "#167D71", tealDeep: "#0C4F47", sun: "#F7CF4A",
+  indigo: "#2A2878", indigoDeep: "#17163F", teal: "#167D71", tealDeep: "#0C4F47", sun: "#F7CF4A", rose: "#E4587B",
 };
 const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${clamp(a)})`; };
 const mix = (h1, h2, t) => { const a = parseInt(h1.slice(1), 16), b = parseInt(h2.slice(1), 16); const ch = s => Math.round(lerp(a >> s & 255, b >> s & 255, clamp(t))); return `#${((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1)}`; };
@@ -132,7 +132,7 @@ function push(ctx, w, h, t, dur, amt = .035) { const s = 1 + amt * E.soft(clamp(
 const MK = { sq: [[308, 269], [558, 478], [178, 598]], l1: [346, 402, 270, 598], link: [444, 394, 554, 486], l2: [668, 478, 828, 243] };
 /** The mark, assembling: squares first, the lines drawn between them, the
  *  amber link last — the only amber that is the brand's own. p: 0..1. */
-function mark(ctx, cx, cy, W, p = 1, alpha = 1) {
+function mark(ctx, cx, cy, W, p = 1, alpha = 1, sq = P.key) {
   const s = W / 680, M = (x, y) => [cx + (x - 510) * s, cy + (y - 484) * s];
   ctx.save(); alpha *= ctx.globalAlpha; ctx.globalAlpha = alpha; ctx.lineCap = "round";
   const line = (l, q, color, width, dash) => {
@@ -147,7 +147,7 @@ function mark(ctx, cx, cy, W, p = 1, alpha = 1) {
   MK.sq.forEach(([x, y], i) => {
     const q = E.out(seg(p, i * .09, i * .09 + .35)); if (!(q > 0)) return;
     const [sx, sy] = M(x + 66, y + 66), sz = 132 * s * lerp(.55, 1, q);
-    ctx.globalAlpha = alpha * q; ctx.fillStyle = P.key; rr(ctx, sx - sz / 2, sy - sz / 2, sz, sz, 28 * s); ctx.fill(); ctx.globalAlpha = alpha;
+    ctx.globalAlpha = alpha * q; ctx.fillStyle = sq; rr(ctx, sx - sz / 2, sy - sz / 2, sz, sz, 28 * s); ctx.fill(); ctx.globalAlpha = alpha;
   });
   ctx.restore();
 }
@@ -620,9 +620,757 @@ POSTERS.desktop = { w: 1080, h: 1350, draw(ctx, w, h) {
   brandFoot(ctx, w, h, P.pale, "Desktop"); grain(ctx, w, h, .045, 5);
 } };
 
+// =====================================================================================
+// V2 · MADE FOR THE THUMB THAT IS SCROLLING.
+//
+// A feed gives a film one second. So each of these opens on something a person
+// already knows from their own day, in words big enough to read with the sound
+// off: Mummy's texts, the boss at 11 PM, a thumb on the clock, a friend who
+// only speaks Spanish. The phone is one they hold every day. The product
+// arrives as the relief, never the premise, and the last beat asks for one
+// thing: the address.
+//
+// Nothing is claimed that the product does not do. The voices are
+// personalityPresets.ts; the spoken instruction ("spanish mein likho") is the
+// site's own example; the taps are counted from the taps drawn, not asserted.
+// Autocorrect is nobody's in particular.
+// =====================================================================================
+
+/** The phone's own light and dark. Outgoing is the site's indigo. */
+const TH = {
+  light: { screen: "#FFFFFF", text: "#16130F", sub: "rgba(22,19,15,.46)", inBub: "#EFEDE9", inText: "#16130F", outBub: P.indigo, outText: "#FFFFFF",
+    field: "#F2F0EC", board: "#D8D5D0", key: "#FFFFFF", keyShade: "rgba(22,19,15,.22)", keyText: "#16130F", keyAlt: "#B8B4AD", line: "rgba(22,19,15,.08)", chip: "rgba(22,19,15,.07)" },
+  dark: { screen: "#0D0C10", text: "#F3EFE8", sub: "rgba(243,239,232,.46)", inBub: "#25222C", inText: "#F3EFE8", outBub: "#3F3AB4", outText: "#FFFFFF",
+    field: "#1C1A21", board: "#141217", key: "#37343D", keyShade: "rgba(0,0,0,.5)", keyText: "#F3EFE8", keyAlt: "#26242B", line: "rgba(243,239,232,.08)", chip: "rgba(243,239,232,.08)" },
+};
+
+/** A hook: lines set big, a word at a time, each landing with a little weight.
+ *  "*word*" sets that word in italic, the one place the eye should stop. */
+function hook(ctx, lines, x, y, size, color, t0, t, o = {}) {
+  const lh = size * (o.lh ?? 1.08), st = o.stagger ?? .065; let n = 0;
+  ctx.save(); const base = ctx.globalAlpha; ctx.textBaseline = "alphabetic"; ctx.fillStyle = color;
+  lines.forEach((ln, li) => {
+    // "*" opens an italic run and a word ending in "*" closes it, so a
+    // whole phrase can lean: "*Your keyboard does.*"
+    let on = false; const words = ln.split(" "), fonts = words.map(wd => {
+      if (wd.startsWith("*")) on = true; const it = on;
+      if (wd.replace(/[.,!?]+$/, "").endsWith("*") || wd.indexOf("*", 1) > 0) on = false;
+      return f(size, o.fam ?? SERIF, o.weight ?? 400, it);
+    }), bare = words.map(wd => wd.replace(/\*/g, ""));
+    const widths = bare.map((wd, k) => { ctx.font = fonts[k]; return [ctx.measureText(wd).width, ctx.measureText(" ").width]; });
+    const total = widths.reduce((a, [m, sp], k) => a + m + (k < bare.length - 1 ? sp : 0), 0);
+    let cx = o.align === "center" ? x - total / 2 : x;
+    bare.forEach((wd, k) => {
+      const a0 = t0 + n * st, kIn = E.expo(seg(t, a0, a0 + (o.dur ?? .5)));
+      const out = o.out != null ? E.in(seg(t, o.out + n * .025, o.out + n * .025 + .3)) : 0; n++;
+      const a = kIn * (1 - out);
+      if (a > .002) {
+        ctx.font = fonts[k]; ctx.globalAlpha = base * a;
+        ctx.filter = (kIn < .98 || out > 0) ? `blur(${((1 - kIn) * .6 + out) * size * .07}px)` : "none";
+        const sc = lerp(1.14, 1, kIn), yy = y + li * lh + (1 - kIn) * size * .16 - out * size * .14;
+        ctx.save(); ctx.translate(cx, yy); ctx.scale(sc, sc); ctx.fillText(wd, 0, 0); ctx.restore();
+      }
+      cx += widths[k][0] + widths[k][1];
+    });
+  });
+  ctx.restore();
+}
+
+/** The phone, held up to the camera: body, a rim of light, the screen it
+ *  returns. It runs off the foot of the frame the way a held phone does. */
+function phone(ctx, x, y, pw, ph, th) {
+  const r = pw * .135, inset = pw * .024;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = pw * .14; ctx.shadowOffsetY = pw * .06;
+  ctx.fillStyle = "#0B0A09"; rr(ctx, x, y, pw, ph, r); ctx.fill(); ctx.restore();
+  const g = ctx.createLinearGradient(x, y, x + pw, y + ph * .35); g.addColorStop(0, "rgba(255,255,255,.3)"); g.addColorStop(.5, "rgba(255,255,255,.05)"); g.addColorStop(1, "rgba(255,255,255,.16)");
+  ctx.save(); ctx.strokeStyle = g; ctx.lineWidth = 3; rr(ctx, x + 1.5, y + 1.5, pw - 3, ph - 3, r - 1.5); ctx.stroke(); ctx.restore();
+  const s = { x: x + inset, y: y + inset, w: pw - inset * 2, h: ph - inset * 2, r: r - inset };
+  ctx.fillStyle = th.screen; rr(ctx, s.x, s.y, s.w, s.h, s.r); ctx.fill();
+  return s;
+}
+function clipScreen(ctx, s) { ctx.beginPath(); ctx.roundRect(s.x, s.y, s.w, s.h, s.r); ctx.clip(); }
+function island(ctx, s) { ctx.fillStyle = "#000"; rr(ctx, s.x + s.w * .36, s.y + s.w * .028, s.w * .28, s.w * .075, s.w * .0375); ctx.fill(); }
+function statusBar(ctx, s, th, time) {
+  const y = s.y + s.w * .076, fs = s.w * .037;
+  text(ctx, time, s.x + s.w * .14, y, f(fs, SANS, 600), th.text, 1, "center");
+  const bx = s.x + s.w * .77;
+  for (let i = 0; i < 4; i++) { const bh = fs * (.32 + i * .17); ctx.fillStyle = th.text; rr(ctx, bx + i * fs * .3, y - bh, fs * .2, bh, 1.5); ctx.fill(); }
+  ctx.strokeStyle = th.sub; ctx.lineWidth = 2; rr(ctx, s.x + s.w * .865, y - fs * .74, fs * 1.3, fs * .66, fs * .18); ctx.stroke();
+  ctx.fillStyle = th.text; rr(ctx, s.x + s.w * .865 + 3.5, y - fs * .74 + 3.5, fs * 1.3 * .72, fs * .66 - 7, fs * .1); ctx.fill();
+}
+/** Who the thread is with. Returns where the messages may begin. */
+function chatHeader(ctx, s, th, who, sub) {
+  const top = s.y + s.w * .11, hgt = s.w * .15, cy = top + hgt / 2;
+  ctx.save(); ctx.strokeStyle = th.outBub; ctx.lineWidth = s.w * .009; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(s.x + s.w * .07, cy - s.w * .026); ctx.lineTo(s.x + s.w * .045, cy); ctx.lineTo(s.x + s.w * .07, cy + s.w * .026); ctx.stroke(); ctx.restore();
+  const ax = s.x + s.w * .16, ar = s.w * .056;
+  ctx.fillStyle = who.color; ctx.beginPath(); ctx.arc(ax, cy, ar, 0, TAU); ctx.fill();
+  text(ctx, who.name[0], ax, cy + ar * .36, f(ar * 1.02, SANS, 600), "#FFFFFF", 1, "center");
+  text(ctx, who.name, ax + ar + s.w * .035, cy - s.w * .004, f(s.w * .046, SANS, 600), th.text);
+  text(ctx, sub, ax + ar + s.w * .035, cy + s.w * .042, f(s.w * .032, SANS, 400), sub === "typing…" ? th.outBub : th.sub);
+  ctx.fillStyle = th.line; ctx.fillRect(s.x, top + hgt, s.w, 2);
+  return top + hgt;
+}
+
+/**
+ * The thread, stacked up from `bottom`, newest lowest. Each message lands
+ * with a small pop from its own corner and lifts the ones above it by its
+ * own height as it does. A `flag` draws a wavy underline under chosen
+ * words: the damage, marked the way a spellchecker marks it.
+ */
+function thread(ctx, s, th, msgs, t, top, bottom) {
+  const fs = s.w * .046, lh = fs * 1.3, padX = fs * .62, padY = fs * .42, gap = fs * .3, maxW = s.w * .68;
+  ctx.save(); ctx.beginPath(); ctx.rect(s.x, top, s.w, bottom - top); ctx.clip();
+  let y = bottom;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]; if (t < m.at) continue;
+    const gone = m.until != null ? seg(t, m.until, m.until + .1) : 0; if (gone >= 1) continue;
+    const k = E.out(seg(t, m.at, m.at + .3)) * (1 - gone), out = m.from === "out";
+    let lay = null, bw, bh;
+    if (m.typing) { bw = fs * 3.2; bh = lh + padY * 2; }
+    else { lay = layout(ctx, m.text, f(fs, SANS, 400), maxW - padX * 2, lh); bw = lay.width + padX * 2; bh = lay.lines.length * lh + padY * 2; }
+    y -= (bh + gap) * k;
+    const bx = out ? s.x + s.w * .955 - bw : s.x + s.w * .045, ax = out ? bx + bw : bx, ay = y + bh;
+    ctx.save(); ctx.globalAlpha *= clamp(k * 1.5);
+    const sc = lerp(.7, 1, E.out(seg(t, m.at, m.at + .42)) * (1 - gone));
+    ctx.translate(ax, ay); ctx.scale(sc, sc); ctx.translate(-ax, -ay);
+    const R = fs * .95, tail = fs * .26;
+    ctx.fillStyle = out ? th.outBub : th.inBub; ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, out ? [R, R, tail, R] : [R, R, R, tail]); ctx.fill();
+    if (m.typing) {
+      for (let d = 0; d < 3; d++) { const b = Math.max(0, Math.sin((t - m.at) * 8 - d * .8)); ctx.fillStyle = th.sub; ctx.beginPath(); ctx.arc(bx + bw * (.3 + d * .2), y + bh / 2 - b * fs * .14, fs * .13, 0, TAU); ctx.fill(); }
+    } else {
+      const base = (li) => y + padY + li * lh + lh * .5 + fs * .35;
+      lay.lines.forEach((ln, li) => text(ctx, ln, bx + padX, base(li), lay.font, out ? th.outText : th.inText));
+      const p = m.flag ? E.io(seg(t, m.flag.at, m.flag.at + .7)) : 0;
+      if (p > 0) {
+        ctx.save(); ctx.font = lay.font; ctx.strokeStyle = m.flag.color; ctx.lineWidth = fs * .085; ctx.lineCap = "round";
+        lay.lines.forEach((ln, li) => { let acc = ""; ln.split(" ").forEach(wd => {
+          const x0 = bx + padX + ctx.measureText(acc).width; acc += wd + " ";
+          const b = wd.replace(/[^\p{L}]/gu, ""); if (!m.flag.words.includes(b)) return;
+          const ww = ctx.measureText(b).width, yy0 = base(li) + fs * .2;
+          ctx.beginPath(); for (let q = 0; q <= 24 * p; q++) { const u = q / 24, xx = x0 + u * ww; ctx.lineTo(xx, yy0 + Math.sin(u * ww / (fs * .09)) * fs * .055); } ctx.stroke();
+        }); });
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/** Where a message is written before it is sent, and the send button. The
+ *  field grows up from the keyboard as its text does. */
+const FIELD = (s) => { const fs = s.w * .046; return { fs, lh: fs * 1.32, padY: fs * .5 }; };
+function composer(ctx, s, th, boardTop, lines, o = {}) {
+  const { fs, lh, padY } = FIELD(s), hgt = Math.max(1, lines) * lh + padY * 2, y = boardTop - s.w * .03 - hgt;
+  const x = s.x + s.w * .04, w = s.w * .78;
+  ctx.fillStyle = th.field; ctx.beginPath(); ctx.roundRect(x, y, w, hgt, Math.min(hgt / 2, lh * .5 + padY)); ctx.fill();
+  const d = s.w * .1, cx = s.x + s.w * .9, cy = y + hgt - (lh * .5 + padY), sc = 1 - .14 * (o.press ?? 0);
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(sc, sc);
+  ctx.fillStyle = o.ready ? th.outBub : th.keyAlt; ctx.beginPath(); ctx.arc(0, 0, d / 2, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = d * .09; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(0, d * .2); ctx.lineTo(0, -d * .2); ctx.moveTo(-d * .16, -d * .04); ctx.lineTo(0, -d * .2); ctx.lineTo(d * .16, -d * .04); ctx.stroke();
+  ctx.restore();
+  return { x: x + fs * .75, top: y, w: w - fs * 1.5, h: hgt, fs, lh, line: (i) => y + padY + i * lh + lh * .5 + fs * .35 };
+}
+
+/** A phone keyboard's keys, placed. Ids are letters, or shift, back, 123,
+ *  globe, space, return. */
+function keyRects(x0, top, W, kh, gap) {
+  const kw = W / 10, K = {}, put = (id, x, y, w) => { K[id] = { x: x + gap / 2, y, w: w - gap, h: kh }; };
+  [..."qwertyuiop"].forEach((c, i) => put(c, x0 + i * kw, top, kw));
+  [..."asdfghjkl"].forEach((c, i) => put(c, x0 + kw * .5 + i * kw, top + (kh + gap), kw));
+  const r3 = top + 2 * (kh + gap), r4 = top + 3 * (kh + gap);
+  put("shift", x0, r3, kw * 1.4); [..."zxcvbnm"].forEach((c, i) => put(c, x0 + kw * 1.5 + i * kw, r3, kw)); put("back", x0 + kw * 8.6, r3, kw * 1.4);
+  put("123", x0, r4, kw * 1.3); put("globe", x0 + kw * 1.3, r4, kw * 1.1); put("space", x0 + kw * 2.4, r4, kw * 5.2); put("return", x0 + kw * 7.6, r4, kw * 2.4);
+  return K;
+}
+function keyIcon(ctx, id, k, color) {
+  const cx = k.x + k.w / 2, cy = k.y + k.h / 2, u = Math.min(k.w, k.h);
+  ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = u * .055; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (id === "shift") { ctx.beginPath(); ctx.moveTo(cx, cy - u * .22); ctx.lineTo(cx + u * .2, cy); ctx.lineTo(cx + u * .09, cy); ctx.lineTo(cx + u * .09, cy + u * .18); ctx.lineTo(cx - u * .09, cy + u * .18); ctx.lineTo(cx - u * .09, cy); ctx.lineTo(cx - u * .2, cy); ctx.closePath(); ctx.stroke(); }
+  else if (id === "back") { ctx.beginPath(); ctx.moveTo(cx - u * .26, cy); ctx.lineTo(cx - u * .1, cy - u * .16); ctx.lineTo(cx + u * .24, cy - u * .16); ctx.lineTo(cx + u * .24, cy + u * .16); ctx.lineTo(cx - u * .1, cy + u * .16); ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - u * .01, cy - u * .07); ctx.lineTo(cx + u * .13, cy + u * .07); ctx.moveTo(cx + u * .13, cy - u * .07); ctx.lineTo(cx - u * .01, cy + u * .07); ctx.stroke(); }
+  else if (id === "globe") { ctx.lineWidth = u * .045; ctx.beginPath(); ctx.arc(cx, cy, u * .2, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.ellipse(cx, cy, u * .08, u * .2, 0, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - u * .2, cy); ctx.lineTo(cx + u * .2, cy); ctx.stroke(); }
+  else { const lab = id === "space" ? "space" : id === "return" ? "send" : id; text(ctx, lab, cx, cy + u * .1, f(u * .26, SANS, 400), color, 1, "center"); }
+  ctx.restore();
+}
+/**
+ * The keyboard everybody already has. `press` is the key under the thumb
+ * and how hard; a letter pressed lifts its bubble above the thumb. `sugg`
+ * is the bar above the keys, and `suggHi` lights its middle word: the one
+ * autocorrect is about to put in.
+ */
+function qwerty(ctx, x0, top, W, th, o = {}) {
+  const kw = W / 10, kh = o.kh ?? kw * 1.3, gap = kw * .13, sh = o.sugg ? kw * .95 : 0;
+  if (o.bg !== false) { ctx.fillStyle = th.board; ctx.fillRect(x0, top, W, o.height ?? W * 2); }
+  if (o.sugg) {
+    o.sugg.forEach((wd, i) => {
+      const cx = x0 + W * (i + .5) / 3, hi = i === 1 && o.suggHi;
+      if (hi) { ctx.fillStyle = th.key; rr(ctx, x0 + W / 3 + 8, top + sh * .14, W / 3 - 16, sh * .72, sh * .2); ctx.fill(); }
+      text(ctx, wd, cx, top + sh * .64, f(kw * .36, SANS, hi ? 600 : 400), hi ? th.text : th.sub, 1, "center");
+      if (i < 2 && !hi && !(i === 0 && o.suggHi)) { ctx.fillStyle = th.line; ctx.fillRect(x0 + W * (i + 1) / 3, top + sh * .25, 2, sh * .5); }
+    });
+  }
+  const K = keyRects(x0, top + sh + gap * .6, W, kh, gap), p = o.press;
+  for (const [id, k] of Object.entries(K)) {
+    const alt = id.length > 1, down = p && p.id === id ? p.k : 0;
+    ctx.fillStyle = th.keyShade; rr(ctx, k.x, k.y + 2.5, k.w, k.h, kw * .1); ctx.fill();
+    ctx.fillStyle = down ? mix(alt ? th.keyAlt : th.key, alt ? th.key : th.keyAlt, down) : alt ? th.keyAlt : th.key; rr(ctx, k.x, k.y, k.w, k.h, kw * .1); ctx.fill();
+    if (alt) keyIcon(ctx, id, k, th.keyText);
+    else text(ctx, id, k.x + k.w / 2, k.y + k.h * .66, f(kw * .46, SANS, 400), th.keyText, 1, "center");
+  }
+  if (p && p.k > 0 && p.id.length === 1 && K[p.id]) {
+    const k = K[p.id], pw = k.w * 1.45, ph = k.h * 2.1, px = k.x + k.w / 2 - pw / 2, py = k.y + k.h - ph;
+    ctx.save(); ctx.globalAlpha *= clamp(p.k * 2); ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 14; ctx.shadowOffsetY = 3;
+    ctx.fillStyle = th.key; ctx.beginPath(); ctx.roundRect(px, py, pw, ph, kw * .16); ctx.fill(); ctx.shadowColor = "transparent";
+    text(ctx, p.ch ?? p.id, k.x + k.w / 2, py + ph * .38, f(kw * .7, SANS, 400), th.keyText, 1, "center");
+    ctx.restore();
+  }
+  return K;
+}
+
+/**
+ * The Tailzu keyboard: one key. The voices it can write in along the top,
+ * the mic in the middle. While it listens (and only then) it is amber: a
+ * ring that breathes with the voice and bars either side. Returns where the
+ * mic is, so the last card can open out of it.
+ */
+function tzBoard(ctx, x0, top, W, th, o = {}) {
+  ctx.fillStyle = th.board; ctx.fillRect(x0, top, W, o.height ?? W * 2);
+  const fs = W * .036, cy = top + W * .08;
+  if (o.chips) {
+    ctx.save(); ctx.font = f(fs, SANS, 500);
+    const pos = []; let cx = 0;
+    o.chips.forEach((name) => { const cw = ctx.measureText(name).width + fs * 1.7; pos.push([cx, cw]); cx += cw + fs * .5; });
+    const scrollFor = (i) => clamp(pos[i][0] + pos[i][1] / 2 - W * .5, 0, Math.max(0, cx - W * .92));
+    const sc = lerp(scrollFor(o.prev ?? o.sel ?? 0), scrollFor(o.sel ?? 0), E.io(o.selK ?? 1));
+    o.chips.forEach((name, i) => {
+      const [px, cw] = pos[i], x = x0 + W * .04 + px - sc, sel = i === o.sel ? E.out(o.selK ?? 1) : i === o.prev ? 1 - E.out(o.selK ?? 1) : 0;
+      const tap = i === o.sel ? Math.sin(Math.PI * clamp((o.selK ?? 1) * 2.5)) * .06 : 0;
+      ctx.save(); ctx.translate(x + cw / 2, cy); ctx.scale(1 - tap, 1 - tap); ctx.translate(-(x + cw / 2), -cy);
+      ctx.fillStyle = th.chip; rr(ctx, x, cy - fs * 1.05, cw, fs * 2.1, fs * 1.05); ctx.fill();
+      if (sel > 0) { ctx.globalAlpha = sel; ctx.fillStyle = th.text; rr(ctx, x, cy - fs * 1.05, cw, fs * 2.1, fs * 1.05); ctx.fill(); ctx.globalAlpha = 1; }
+      text(ctx, name, x + cw / 2, cy + fs * .36, f(fs, SANS, 500), mix(th.text, th.screen, sel), 1, "center");
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+  const mx = x0 + W / 2, my = top + (o.micY ?? W * .3), d = W * .25, L = o.listening ?? 0, press = o.press ?? 0;
+  if (L > 0) {
+    const lvl = Math.abs(n1((o.lt ?? 0) * 7, 3));
+    ctx.save(); ctx.strokeStyle = rgba(P.amber, .9 * L); ctx.lineWidth = d * .035;
+    ctx.beginPath(); ctx.arc(mx, my, d * (.58 + .07 * lvl), 0, TAU); ctx.stroke();
+    ctx.strokeStyle = rgba(P.amber, .35 * L); ctx.beginPath(); ctx.arc(mx, my, d * (.72 + .12 * lvl), 0, TAU); ctx.stroke(); ctx.restore();
+    for (let side = -1; side <= 1; side += 2) for (let b = 0; b < 5; b++) {
+      const hgt = d * .08 * (1 + 3 * Math.abs(n1((o.lt ?? 0) * 9 + b * 1.3 + side, b))) * L;
+      ctx.fillStyle = rgba(P.amber, .9 * L); rr(ctx, mx + side * (d * .95 + b * d * .12) - d * .025, my - hgt / 2, d * .05, hgt, d * .025); ctx.fill();
+    }
+  }
+  const sc = 1 - .08 * press;
+  ctx.save(); ctx.translate(mx, my); ctx.scale(sc, sc);
+  ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = d * .2; ctx.shadowOffsetY = d * .06;
+  const g = ctx.createLinearGradient(0, -d / 2, 0, d / 2); g.addColorStop(0, "#2A2420"); g.addColorStop(1, "#15110E");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, d / 2, 0, TAU); ctx.fill(); ctx.shadowColor = "transparent";
+  mark(ctx, 0, 0, d * .56, 1); ctx.restore();
+  if (o.label) text(ctx, o.label, mx, my + d * .5 + W * .085, f(W * .034, SANS, 500), L > .5 ? P.amber : th.sub, 1, "center");
+  return { mx, my, d };
+}
+
+/** A thumb on the keyboard everybody has, as taps: letters, spaces (where
+ *  autocorrect gets its say), backspaces ("\b"), and the symbols key before a
+ *  comma or a question mark. Numbers between strings are pauses. */
+function thumb(seq, start, rate, seed = 1) {
+  const r = rng(seed), ev = []; let t = start;
+  for (const s of seq) {
+    if (typeof s === "number") { t += s; continue; }
+    for (const ch of s) {
+      if (ch === "\b") { ev.push({ t, id: "back" }); t += rate * .75; continue; }
+      if (ch === "?" || ch === ",") { ev.push({ t, id: "123" }); t += rate * .9; ev.push({ t, id: ch === "?" ? "m" : "n", ch, sym: true }); }
+      else ev.push({ t, id: ch === " " ? "space" : ch.toLowerCase(), ch });
+      t += rate * (.65 + r() * .7);
+    }
+  }
+  return { ev, last: ev[ev.length - 1].t };
+}
+/** The taps replayed to a moment: the text so far (capitalised where a phone
+ *  capitalises it, "corrected" where autocorrect would), the count, the key. */
+function replay(S, t, fixes) {
+  let buf = "", taps = 0, last = null;
+  for (const e of S.ev) {
+    if (e.t > t) break; taps++; last = e;
+    if (e.id === "back") { buf = buf.slice(0, -1); continue; }
+    if (e.id === "123") continue;
+    if (e.ch === " " || e.sym) { const m = buf.match(/(\S+)$/), fx = fixes && m && fixes[m[1].toLowerCase()]; if (fx) buf = buf.slice(0, -m[1].length) + fx; buf += e.ch; continue; }
+    buf += buf.length === 0 ? e.ch.toUpperCase() : e.ch;
+  }
+  return { buf, taps, press: last ? { id: last.id, ch: last.ch, k: 1 - seg(t, last.t + .06, last.t + .2) } : null };
+}
+
+/** The last card of every v2 film: the brand's violet opens out of the mic
+ *  (or wherever the film ends), the mark assembles, the line, one thing to
+ *  do — the address — and where it runs. Kept inside every feed's safe area. */
+function endCard2(ctx, w, h, t, o = {}) {
+  const R = Math.hypot(w, h) * 1.05 * E.io(seg(t, 0, .8));
+  ctx.save(); ctx.beginPath(); ctx.arc(o.ox ?? w / 2, o.oy ?? h / 2, Math.max(1, R), 0, TAU); ctx.clip();
+  field(ctx, w, h, P.violetHi, P.violetLo, .1); glow(ctx, w * .5, h * .38, w, P.pale, .07);
+  const u = Math.min(w, h), cy = h * (o.y ?? .42);
+  mark(ctx, w / 2, cy - u * .2, u * .26, E.out(seg(t, .35, 1.45)));
+  arrive(ctx, "Talk. It writes.", w / 2, cy + u * .07, f(u * .118, SERIF, 300), P.pale, .75, t, { align: "center", stagger: .1 });
+  if (o.sub) arrive(ctx, o.sub, w / 2, cy + u * .15, f(u * .042, SANS, 400), rgba(P.pale, .78), 1.2, t, { align: "center", stagger: .035 });
+  const k = E.out(seg(t, 1.6, 2.2)), ls = u * .034;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + u * .13, bh = u * .1, bx = w / 2 - bw / 2, by = cy + u * .22;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, bx, by + (1 - k) * u * .02, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", w / 2 + ls * .11, by + bh * .6 + (1 - k) * u * .02, f(ls, MONO), P.violet, k, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android · Windows · Mac", w / 2, by + bh + u * .075, u * .02, P.pale, k * .6, "center");
+  ctx.restore();
+}
+/** Where a point drawn under the current transform lands on the frame. */
+const onFrame = (ctx, x, y) => { const p = ctx.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x, p.y]; };
+
+/** Underline characters [from, to) of a laid-out line, a stroke per line it
+ *  runs across, drawn left to right as p goes 0..1. */
+function underline(ctx, lay, from, to, ox, oy, dy, p, color, width) {
+  if (!(p > 0)) return;
+  ctx.save(); ctx.font = lay.font; ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = "round";
+  const runs = []; for (let i = from; i < to; i++) { const c = lay.chars[i]; if (!c || c.ch === " " && (!lay.chars[i + 1] || lay.chars[i + 1].y !== c.y)) continue; const last = runs[runs.length - 1];
+    const x1 = c.x + ctx.measureText(c.ch).width; if (last && last.y === c.y) last.x1 = x1; else runs.push({ y: c.y, x0: c.x, x1 }); }
+  const total = runs.reduce((a, r) => a + r.x1 - r.x0, 0); let left = total * p;
+  runs.forEach(r => { if (left <= 0) return; const len = Math.min(left, r.x1 - r.x0); left -= len;
+    ctx.beginPath(); ctx.moveTo(ox + r.x0, oy + r.y + dy); ctx.lineTo(ox + r.x0 + len, oy + r.y + dy - 2); ctx.stroke(); });
+  ctx.restore();
+}
+
+// ---- V2 FILMS -------------------------------------------------------------------
+
+/**
+ * AUTOCORRECT VS HINGLISH. "POV: you text Mummy in Hinglish." The thumb types
+ * it, the keyboard "fixes" it, and Mummy is worried about the rash. Then the
+ * globe key, the Tailzu keyboard, and the same sentence said: written the way
+ * it was meant, sent, and Mummy is warming the food.
+ */
+const MUM = {
+  fixes: { haan: "Hand", aa: "as", raha: "rash", khana: "Ghana" },
+  said: "haan mummy aa raha hoon khana rakh do", wrote: "Haan mummy, aa raha hoon. Khana rakh do.",
+};
+MUM.taps = thumb(["haan mummy aa raha hu, khana rakh do"], 1.0, .082, 5);
+MUM.sent = replay(MUM.taps, 99, MUM.fixes).buf;
+FILMS.mummy = { w: 1080, h: 1920, duration: 16.6, v2: true, draw(ctx, t, w, h) {
+  field(ctx, w, h, "#F7B843", "#E0870E", .15); glow(ctx, w * .15, h * .1, w, "#FFFFFF", .18);
+  const th = TH.light, send1 = 4.55, send2 = 11.95, voice = 9.1;
+  ctx.save(); push(ctx, w, h, t, 16.6, .03);
+  const hs = w * .098, hx = w * .08, hy = h * .115;
+  hook(ctx, ["POV: you text", "*Mummy* in Hinglish."], hx, hy, hs, P.ink2, -.3, t, { out: 6.85 });
+  hook(ctx, ["Autocorrect doesn't", "speak *Hinglish.*"], hx, hy, hs, P.ink2, 7.1, t, { out: 8.55 });
+  hook(ctx, ["*Tailzu* does."], hx, hy, hs, P.ink2, 8.75, t);
+  const rise = (1 - E.out(seg(t, -.35, .6))) * h * .14 + Math.sin(t * .9) * 3;
+  const s = phone(ctx, w * .1, h * .27 + rise, w * .8, w * .8 * 2.1, th);
+  ctx.save(); clipScreen(ctx, s);
+  statusBar(ctx, s, th, "8:47");
+  const mumTyping = (t > 4.95 && t < 5.6) || (t > 12.35 && t < 12.95);
+  const top = chatHeader(ctx, s, th, { name: "Mummy", color: P.rose }, mumTyping ? "typing…" : "online");
+  const boardTop = s.y + s.w * .92;
+  // The keyboard everybody has, then the globe key, then the one with one key.
+  const r = replay(MUM.taps, Math.min(t, send1 - .01), MUM.fixes);
+  const out1 = seg(t, 8.45, 8.75), in2 = E.out(seg(t, 8.7, 9.05));
+  let tz = null;
+  if (out1 < 1) {
+    const partial = t < send1 ? (r.buf.match(/(\S+)$/) || [])[1] : null, fixKey = partial && partial.length >= 2 && Object.keys(MUM.fixes).find(k => k.startsWith(partial.toLowerCase()));
+    const sugg = fixKey ? [`“${partial}”`, MUM.fixes[fixKey], MUM.fixes[fixKey] + "s"] : ["I", "the", "I'm"];
+    const press = t < send1 ? r.press : t > 8.3 ? { id: "globe", k: 1 - seg(t, 8.4, 8.55) } : null;
+    ctx.save(); ctx.translate(0, E.in(out1) * s.w * .9);
+    qwerty(ctx, s.x, boardTop, s.w, th, { sugg, suggHi: !!fixKey, press });
+    ctx.restore();
+  }
+  if (in2 > 0) {
+    const L = seg(t, voice + .05, voice + .25) * (1 - seg(t, 10.55, 10.75));
+    ctx.save(); ctx.translate(0, (1 - in2) * s.w * .9);
+    tz = tzBoard(ctx, s.x, boardTop, s.w, th, { chips: ["Zu", "Professional", "Friendly", "Witty"], sel: 0, listening: L, lt: t, press: 1 - seg(t, voice, voice + .2) * (t > voice ? 1 : 0) - (t < voice ? 1 : 0), label: L > .5 ? "Listening" : "Press. Say anything." });
+    tz.at = onFrame(ctx, tz.mx, tz.my);
+    ctx.restore();
+  }
+  // The field: typed, then sent; later said, written, sent.
+  const saidLay = layout(ctx, MUM.said, f(FIELD(s).fs * 1.12, HAND, 600), s.w * .66, FIELD(s).lh);
+  const wroteLay = layout(ctx, MUM.wrote, f(FIELD(s).fs, SANS, 400), s.w * .66, FIELD(s).lh);
+  const typedLay = layout(ctx, r.buf || " ", f(FIELD(s).fs, SANS, 400), s.w * .66, FIELD(s).lh);
+  const voiceLines = Math.max(saidLay.lines.length, wroteLay.lines.length);
+  const lines = t < send1 ? typedLay.lines.length : t > voice && t < send2 ? voiceLines : 1;
+  const hasText = (t > 1 && t < send1) || (t > voice + .2 && t < send2);
+  const c = composer(ctx, s, th, boardTop, lines, { ready: hasText, press: (1 - seg(t, send1, send1 + .2)) * (t > send1 ? 1 : 0) + (1 - seg(t, send2, send2 + .2)) * (t > send2 ? 1 : 0) });
+  if (t < send1) {
+    if (!r.buf) text(ctx, "Message", c.x, c.line(0), f(c.fs, SANS, 400), th.sub);
+    typedLay.lines.forEach((ln, li) => text(ctx, ln, c.x, c.line(li), typedLay.font, th.text));
+    ctx.font = typedLay.font; const last = typedLay.lines[typedLay.lines.length - 1] ?? "";
+    if (Math.floor(t * 2.4) % 2 === 0 || t < 4.4) { ctx.fillStyle = P.amber; ctx.fillRect(c.x + (r.buf ? ctx.measureText(last).width : 0) + 3, c.line(typedLay.lines.length - 1) - c.fs * .8, 3.5, c.fs * 1.02); }
+  } else if (t > voice && t < send2 + .15) {
+    ctx.save(); ctx.globalAlpha = 1 - seg(t, send2, send2 + .15);
+    if (!MUM.pairs) MUM.pairs = align(MUM.said, MUM.wrote);
+    if (t < 10.6) handwrite(ctx, saidLay, c.x, c.line(0), th.sub, voice + .2, t, .036);
+    else morph(ctx, saidLay, wroteLay, c.x, c.line(0), c.x, c.line(0), t - 10.6, { pairs: MUM.pairs, saidColor: th.sub, writtenColor: th.text, writtenFamily: SANS, settle: 1.2 });
+    ctx.restore();
+  }
+  thread(ctx, s, th, [
+    { from: "in", text: "Khana kha liya? Kab aa rahe ho?", at: .45 },
+    { from: "out", text: MUM.sent, at: send1 + .05, flag: { words: ["Hand", "as", "rash", "Ghana"], at: 7.25, color: P.rose } },
+    { from: "in", typing: true, at: 4.95, until: 5.6 },
+    { from: "in", text: "Ghana??", at: 5.6 },
+    { from: "in", text: "Rash?? Beta theek ho?", at: 6.15 },
+    { from: "out", text: MUM.wrote, at: send2 + .05 },
+    { from: "in", typing: true, at: 12.35, until: 12.95 },
+    { from: "in", text: "Aaja beta, garam kar rahi hoon.", at: 12.95 },
+  ], t, top + 4, c.top - s.w * .025);
+  island(ctx, s);
+  ctx.restore(); ctx.restore();
+  if (t > 13.9) endCard2(ctx, w, h, t - 13.9, { ox: tz?.at[0], oy: tz?.at[1], sub: "Hinglish stays Hinglish." });
+  grain(ctx, w, h, .04, t);
+} };
+
+/**
+ * TYPED VS SAID. The site's own race, as a film: the same message, a thumb
+ * against a voice, each on a clock. The thumb makes the ordinary mistakes (a
+ * wrong letter, three backspaces, a pause before the last word) and every
+ * tap is counted. The voice is done and waits. Two numbers are left.
+ */
+const RACE = { said: "can we push the call to four", wrote: "Can we push the call to four?", T0: .6 };
+RACE.taps = thumb(["can we pish", .42, "\b\b\b", "ush the call to", .55, " four?"], RACE.T0, .228, 11);
+RACE.said0 = RACE.T0; RACE.saidDone = 3.2; RACE.typedDone = RACE.taps.last;
+FILMS.race = { w: 1080, h: 1920, duration: +(RACE.taps.last + 5.4).toFixed(1), v2: true, draw(ctx, t, w, h) {
+  field(ctx, w, h, "#17130F", "#0A0807", .2); glow(ctx, w * .5, h * .38, w * .9, P.pale, .045);
+  const th = TH.dark, done = RACE.typedDone, fin = E.io(seg(t, done + .5, done + 1.1));
+  ctx.save(); push(ctx, w, h, t, FILMS.race.duration, .025);
+  hook(ctx, ["Same message.", "*Two ways.*"], w * .08, h * .1, w * .1, P.pale, -.3, t, { out: done + .45 });
+  hook(ctx, ["Just *say it.*"], w * .08, h * .1, w * .1, P.pale, done + .75, t);
+  const px = w * .06, pw = w * .88;
+  const card = (y, hh) => { ctx.fillStyle = rgba(P.pale, .035); rr(ctx, px, y, pw, hh, w * .04); ctx.fill(); ctx.strokeStyle = rgba(P.pale, .08); ctx.lineWidth = 2; ctx.stroke(); };
+  const clock = (s) => `${Math.max(0, s).toFixed(1)}s`;
+  // TYPED.
+  const ay = h * .2, ah = h * .39, r = replay(RACE.taps, t);
+  const tA = clamp(t, RACE.T0, done) - RACE.T0;
+  ctx.save(); ctx.globalAlpha = 1 - fin; if (fin > 0) ctx.filter = `blur(${fin * 14}px)`;
+  card(ay, ah);
+  label(ctx, "Typed", px + pw * .055, ay + w * .08, w * .026, P.rose, .95);
+  label(ctx, `${r.taps} ${r.taps === 1 ? "tap" : "taps"}`, px + pw * .055, ay + w * .125, w * .022, P.pale, .55);
+  text(ctx, clock(tA), px + pw * .945, ay + w * .115, f(w * .085, MONO), P.rose, 1, "right");
+  const fx = px + pw * .04, fw = pw * .92, fy = ay + w * .17, fh = w * .1;
+  ctx.fillStyle = th.field; rr(ctx, fx, fy, fw, fh, fh / 2); ctx.fill();
+  const tf = f(w * .042, SANS, 400);
+  text(ctx, r.buf || "Message", fx + w * .04, fy + fh * .64, tf, r.buf ? th.text : th.sub);
+  ctx.font = tf; if (t < done + .3 && (Math.floor(t * 2.4) % 2 === 0 || (t > RACE.T0 && t < done))) { ctx.fillStyle = P.amber; ctx.fillRect(fx + w * .04 + (r.buf ? ctx.measureText(r.buf).width : 0) + 3, fy + fh * .28, 3.5, fh * .46); }
+  qwerty(ctx, fx, ay + w * .3, fw, th, { kh: fw / 10 * 1.02, bg: false, press: t > RACE.T0 && t < done + .3 ? r.press : null });
+  ctx.restore();
+  // SAID.
+  const by = ay + ah + h * .018, bh = h * .215, L = seg(t, RACE.T0 + .1, RACE.T0 + .25) * (1 - seg(t, 2.35, 2.55));
+  const tB = clamp(t, RACE.T0, RACE.saidDone) - RACE.T0;
+  ctx.save(); ctx.globalAlpha = 1 - fin; if (fin > 0) ctx.filter = `blur(${fin * 14}px)`;
+  card(by, bh);
+  label(ctx, "Said", px + pw * .055, by + w * .08, w * .026, L > .5 ? P.amber : P.pale, .95);
+  label(ctx, t > RACE.T0 ? "1 tap" : "0 taps", px + pw * .055, by + w * .125, w * .022, P.pale, .55);
+  text(ctx, clock(tB), px + pw * .945, by + w * .115, f(w * .085, MONO), P.pale, 1, "right");
+  ctx.fillStyle = th.field; rr(ctx, fx, by + w * .17, pw * .72, fh, fh / 2); ctx.fill();
+  const said = layout(ctx, RACE.said, f(w * .048, HAND, 600), pw * .66, w * .06), wrote = layout(ctx, RACE.wrote, tf, pw * .66, w * .06);
+  if (!RACE.pairs) RACE.pairs = align(RACE.said, RACE.wrote);
+  const sx = fx + w * .04, sy = by + w * .17 + fh * .64;
+  if (t < 2.4) { if (t < RACE.T0 + .15) text(ctx, "Message", sx, sy, tf, th.sub); handwrite(ctx, said, sx, sy, th.sub, RACE.T0 + .2, t, .05); }
+  else morph(ctx, said, wrote, sx, sy, sx, sy, t - 2.4, { pairs: RACE.pairs, saidColor: th.sub, writtenColor: th.text, writtenFamily: SANS, stagger: .004, span: .5, settle: .9 });
+  const mx = fx + pw * .72 + (fw - pw * .72) / 2, my = by + w * .17 + fh / 2, d = fh * 1.05;
+  if (L > 0) { ctx.strokeStyle = rgba(P.amber, .9 * L); ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(mx, my, d * (.6 + .08 * Math.abs(n1(t * 7, 2))), 0, TAU); ctx.stroke(); }
+  ctx.save(); ctx.translate(mx, my); const sc = 1 - .1 * (t > RACE.T0 ? 1 - seg(t, RACE.T0, RACE.T0 + .2) : 0); ctx.scale(sc, sc);
+  ctx.fillStyle = "#2A2420"; ctx.beginPath(); ctx.arc(0, 0, d / 2, 0, TAU); ctx.fill(); mark(ctx, 0, 0, d * .56, 1); ctx.restore();
+  // Done, and then only waiting.
+  const wait = seg(t, RACE.saidDone + .2, RACE.saidDone + .6) * (1 - seg(t, done, done + .3));
+  const dots = ".".repeat(1 + Math.floor(t * 3) % 3);
+  label(ctx, `Done. Waiting on Typed${dots}`, px + pw * .055, by + w * .345, w * .022, P.pale, .6 * wait);
+  label(ctx, "Done.", px + pw * .055, by + w * .345, w * .022, P.pale, .6 * seg(t, done, done + .3));
+  ctx.restore();
+  // The two numbers, left standing.
+  if (fin > 0) {
+    const cols = [[w * .27, "Typed", clock(done - RACE.T0), `${RACE.taps.ev.length} taps`, P.rose], [w * .71, "Said", clock(RACE.saidDone - RACE.T0), "1 tap", P.pale]].map(([x, ...r], i) => [i ? w * .73 : x, ...r]);
+    cols.forEach(([cx, lab, num, taps, col], i) => {
+      const k = E.expo(seg(t, done + .6 + i * .18, done + 1.3 + i * .18));
+      ctx.save(); ctx.globalAlpha = k;
+      label(ctx, lab, cx, h * .4, w * .028, col, .9, "center");
+      text(ctx, num, cx, h * .4 + w * .2 + (1 - k) * w * .04, f(w * .17, SERIF, 300), col, 1, "center");
+      label(ctx, taps, cx, h * .4 + w * .28, w * .024, P.pale, .55, "center");
+      ctx.restore();
+    });
+    ctx.fillStyle = rgba(P.pale, .15 * fin); ctx.fillRect(w / 2 - 1, h * .375, 2, w * .3);
+  }
+  ctx.restore();
+  if (t > done + 2.6) endCard2(ctx, w, h, t - done - 2.6, { ox: w / 2, oy: h * .5, sub: "Press. Say anything." });
+  grain(ctx, w, h, .045, t);
+} };
+
+/**
+ * THE BOSS, 11 PM. What you would say is not what you would send. Said once,
+ * then the voices along the top of the Tailzu keyboard, one tap each:
+ * Pirate, Shakespeare, Movie Trailer, Noir, and at last Professional. Sent.
+ * "Great, thanks!" They'll never know.
+ */
+const BOSS = {
+  said: "bro chill its almost done sending in 5", zu: "Bro, chill. It's almost done, sending in 5.",
+  voices: [
+    ["Pirate", "Arr, the report be nearly done, cap'n. Sailin' yer way in five."],
+    ["Shakespeare", "Fear not, my liege. The report is well nigh done, and shall reach thee anon."],
+    ["Movie Trailer", "One report. Five minutes. Everything changes."],
+    ["Noir", "The report's almost done. Five minutes. In this town, that's a lifetime."],
+    ["Professional", "Almost done. I'll send the report in five minutes."],
+  ],
+  chips: ["Zu", "Professional", "Shakespeare", "Pirate", "Movie Trailer", "Noir"],
+  v0: 4.6, slot: 1.2,
+};
+FILMS.boss = { w: 1080, h: 1920, duration: 15.7, v2: true, draw(ctx, t, w, h) {
+  field(ctx, w, h, "#1B1A52", "#07061A", .1); glow(ctx, w * .82, h * .06, w * .7, "#DCEBF7", .1);
+  const th = TH.dark, send = 10.6, B = BOSS;
+  ctx.save(); push(ctx, w, h, t, 15.7, .03);
+  const hs = w * .098, hx = w * .08, hy = h * .115;
+  hook(ctx, ["When your boss", "texts at *11 PM.*"], hx, hy, hs, P.pale, -.3, t, { out: 3.6 });
+  hook(ctx, ["Don't send *that.*"], hx, hy, hs, P.pale, 3.8, t, { out: B.v0 - .15 });
+  const vi = Math.floor((t - B.v0) / B.slot);
+  if (t >= B.v0 && vi < B.voices.length) {
+    const lt = t - B.v0 - vi * B.slot, name = B.voices[vi][0];
+    label(ctx, "Voice", hx, h * .1, w * .024, P.pale, .55 * seg(t, B.v0, B.v0 + .3) * (1 - seg(t, send - .3, send)));
+    hook(ctx, [`*${name}.*`], hx, h * .1 + hs * 1.3, hs * 1.25, P.pale, 0, lt, { out: vi < B.voices.length - 1 ? B.slot - .22 : send - B.v0 - vi * B.slot - .2, stagger: .05, dur: .35 });
+  }
+  hook(ctx, ["They'll never *know.*"], hx, hy, hs, P.pale, send + .5, t);
+  const rise = (1 - E.out(seg(t, -.35, .6))) * h * .14 + Math.sin(t * .9) * 3;
+  const s = phone(ctx, w * .1, h * .27 + rise, w * .8, w * .8 * 2.1, th);
+  ctx.save(); clipScreen(ctx, s);
+  statusBar(ctx, s, th, "11:04");
+  const typing = t > 11.05 && t < 11.7;
+  const top = chatHeader(ctx, s, th, { name: "Boss", color: P.teal }, typing ? "typing…" : "online");
+  const boardTop = s.y + s.w * .92;
+  // Which voice is lit on the keyboard: Zu while it is said, then each in turn.
+  const chipOf = (name) => B.chips.indexOf(name);
+  let sel = 0, prev = 0, selK = 1;
+  if (t >= B.v0) { const k = Math.min(vi, B.voices.length - 1); sel = chipOf(B.voices[k][0]); prev = k ? chipOf(B.voices[k - 1][0]) : 0; selK = seg(t - B.v0 - k * B.slot, 0, .35); }
+  const L = seg(t, 1.3, 1.45) * (1 - seg(t, 2.8, 3.0));
+  const tz = tzBoard(ctx, s.x, boardTop, s.w, th, { chips: B.chips, sel, prev, selK, listening: L, lt: t, press: t > 1.2 ? 1 - seg(t, 1.2, 1.4) : 0, label: L > .5 ? "Listening" : "Press. Say anything." });
+  const micAt = onFrame(ctx, tz.mx, tz.my);
+  // The field: three lines, enough for Shakespeare.
+  const F = FIELD(s), maxW = s.w * .66, font = f(F.fs, SANS, 400);
+  const c = composer(ctx, s, th, boardTop, t > 1.3 && t < send ? 3 : 1, { ready: t > 1.4 && t < send, press: t > send ? 1 - seg(t, send, send + .2) : 0 });
+  const saidLay = layout(ctx, B.said, f(F.fs * 1.12, HAND, 600), maxW, F.lh), zuLay = layout(ctx, B.zu, font, maxW, F.lh);
+  if (!B.pairs) B.pairs = align(B.said, B.zu);
+  ctx.save(); ctx.globalAlpha = 1 - seg(t, send, send + .15);
+  if (t < 1.3) text(ctx, "Message", c.x, c.line(0), font, th.sub);
+  else if (t < 2.9) handwrite(ctx, saidLay, c.x, c.line(0), th.sub, 1.35, t, .036);
+  else if (t < B.v0) morph(ctx, saidLay, zuLay, c.x, c.line(0), c.x, c.line(0), t - 2.9, { pairs: B.pairs, saidColor: th.sub, writtenColor: th.text, writtenFamily: SANS, settle: 1.1 });
+  if (t >= B.v0 - .01 && t < send + .15) {
+    // Each voice rewrites the line: the last one's words drop away, the new one's arrive.
+    const k = Math.min(Math.max(vi, 0), B.voices.length - 1), lt = t - B.v0 - k * B.slot;
+    const prevText = k === 0 ? B.zu : B.voices[k - 1][1], nextText = B.voices[k][1];
+    if (lt < .35) layout(ctx, prevText, font, maxW, F.lh).lines.forEach((ln, li) => arrive(ctx, ln, c.x, c.line(li), font, th.text, -9, lt, { out: 0 }));
+    layout(ctx, nextText, font, maxW, F.lh).lines.forEach((ln, li) => arrive(ctx, ln, c.x, c.line(li), font, th.text, .12 + li * .06, lt, { stagger: .03, dur: .4 }));
+  }
+  ctx.restore();
+  thread(ctx, s, th, [
+    { from: "in", text: "Is the report done?", at: .5 },
+    { from: "out", text: B.voices[4][1], at: send + .05 },
+    { from: "in", typing: true, at: 11.05, until: 11.7 },
+    { from: "in", text: "Great, thanks!", at: 11.7 },
+  ], t, top + 4, c.top - s.w * .025);
+  island(ctx, s);
+  ctx.restore(); ctx.restore();
+  if (t > 12.9) endCard2(ctx, w, h, t - 12.9, { ox: micAt[0], oy: micAt[1], sub: "16 voices. One tap." });
+  grain(ctx, w, h, .045, t);
+} };
+
+/**
+ * HINGLISH IN, SPANISH OUT. Marta only speaks Spanish. You don't. Say it the
+ * way you would say it, with the instruction on the end — the site's own
+ * example — and it is written in Spanish.
+ */
+const MARTA = { said: "Marta ko bolo main das minute late hoon, spanish mein likho", cmd: "spanish mein likho", wrote: "Marta, llego diez minutos tarde." };
+FILMS.spanish = { w: 1080, h: 1920, duration: 12.3, v2: true, draw(ctx, t, w, h) {
+  field(ctx, w, h, "#1A8A7D", P.tealDeep, .15); glow(ctx, w * .2, h * .08, w, "#FFFFFF", .1);
+  const th = TH.light, voice = 2.1, heard = 4.6, send = 6.9;
+  ctx.save(); push(ctx, w, h, t, 12.3, .03);
+  const hs = w * .098, hx = w * .08, hy = h * .115;
+  hook(ctx, ["Marta only", "speaks *Spanish.*"], hx, hy, hs, P.pale, -.3, t, { out: 4.85 });
+  hook(ctx, ["You don't."], hx, hy + hs * 1.08 * 2, hs, rgba(P.pale, .7), 1.5, t, { out: 4.9 });
+  hook(ctx, ["Say it in *Hinglish.*"], hx, hy, hs, P.pale, 5.1, t);
+  hook(ctx, ["It writes *Spanish.*"], hx, hy + hs * 1.08, hs, P.pale, 5.75, t);
+  const rise = (1 - E.out(seg(t, -.35, .6))) * h * .14 + Math.sin(t * .9) * 3;
+  const s = phone(ctx, w * .1, h * .27 + rise, w * .8, w * .8 * 2.1, th);
+  ctx.save(); clipScreen(ctx, s);
+  statusBar(ctx, s, th, "7:52");
+  const typing = t > 7.35 && t < 7.95;
+  const top = chatHeader(ctx, s, th, { name: "Marta", color: "#D98A1C" }, typing ? "typing…" : "online");
+  const boardTop = s.y + s.w * .92;
+  const L = seg(t, voice + .05, voice + .2) * (1 - seg(t, heard, heard + .2));
+  const tz = tzBoard(ctx, s.x, boardTop, s.w, th, { chips: ["Zu", "Professional", "Friendly", "Witty"], sel: 0, listening: L, lt: t, press: t > voice ? 1 - seg(t, voice, voice + .2) : 0, label: L > .5 ? "Listening" : "Press. Say anything." });
+  const micAt = onFrame(ctx, tz.mx, tz.my);
+  const F = FIELD(s), maxW = s.w * .66, font = f(F.fs, SANS, 400);
+  const saidLay = layout(ctx, MARTA.said, f(F.fs * 1.12, HAND, 600), maxW, F.lh), wroteLay = layout(ctx, MARTA.wrote, font, maxW, F.lh);
+  const c = composer(ctx, s, th, boardTop, t > voice && t < send ? saidLay.lines.length : 1, { ready: t > voice + .2 && t < send, press: t > send ? 1 - seg(t, send, send + .2) : 0 });
+  ctx.save(); ctx.globalAlpha = 1 - seg(t, send, send + .15);
+  if (t < voice + .1) text(ctx, "Message", c.x, c.line(0), font, th.sub);
+  else if (t < 5.6) {
+    // Said. The instruction on the end is underlined as it is heard: an
+    // instruction, not a word to be written. Then all of it goes.
+    const leave = E.in(seg(t, 4.95, 5.5));
+    ctx.save(); ctx.globalAlpha *= 1 - leave; ctx.filter = leave > 0 ? `blur(${leave * 8}px)` : "none"; ctx.translate(0, leave * F.fs * .6);
+    handwrite(ctx, saidLay, c.x, c.line(0), th.sub, voice + .15, t, .036);
+    const at = MARTA.said.indexOf(MARTA.cmd);
+    underline(ctx, saidLay, at, at + MARTA.cmd.length, c.x, c.line(0), F.fs * .3, E.io(seg(t, heard - .1, heard + .4)), th.outBub, F.fs * .08);
+    ctx.restore();
+  }
+  if (t > 5.3) {
+    // Written, in Spanish. The last mark is born amber and settles.
+    wroteLay.lines.forEach((ln, li) => {
+      const last = li === wroteLay.lines.length - 1, body = last ? ln.slice(0, -1) : ln;
+      arrive(ctx, body, c.x, c.line(li), font, th.text, 5.35 + li * .1, t, { stagger: .07, dur: .5 });
+      if (last) { ctx.font = font; const k = E.out(seg(t, 5.9, 6.2)); text(ctx, ln.slice(-1), c.x + ctx.measureText(body).width, c.line(li), font, mix(P.amber, th.text, seg(t, 6.4, 7)), k); }
+    });
+  }
+  ctx.restore();
+  thread(ctx, s, th, [
+    { from: "in", text: "¿Dónde estás?", at: .5 },
+    { from: "out", text: MARTA.wrote, at: send + .05 },
+    { from: "in", typing: true, at: 7.35, until: 7.95 },
+    { from: "in", text: "¡Perfecto! Te espero.", at: 7.95 },
+  ], t, top + 4, c.top - s.w * .025);
+  island(ctx, s);
+  ctx.restore(); ctx.restore();
+  if (t > 9.4) endCard2(ctx, w, h, t - 9.4, { ox: micAt[0], oy: micAt[1], sub: "22 Indian languages and 23 more." });
+  grain(ctx, w, h, .04, t);
+} };
+
+// ---- V2 POSTERS: a feed that reads as a set, one colour each ------------------------
+/** The foot of every v2 poster: the mark and the name at the left, the
+ *  address at the right, one line above the rule saying what is true. */
+function foot2(ctx, w, h, color, line, sq) {
+  const dark = color !== P.pale;
+  ctx.fillStyle = rgba(dark ? P.ink2 : P.pale, .16); ctx.fillRect(w * .08, h * .885, w * .84, 1.5);
+  if (line) label(ctx, line, w * .08, h * .86, w * .021, color, .7);
+  mark(ctx, w * .08 + w * .04, h * .935, w * .08, 1, 1, sq ?? (dark ? P.ink2 : P.key));
+  text(ctx, "Tailzu", w * .08 + w * .1, h * .945, f(w * .045, SERIF, 400), color);
+  label(ctx, "tailzu.space", w * .92, h * .942, w * .022, color, .75, "right");
+}
+/** A message on its own, off the phone: the bubble and its words. */
+function bubble(ctx, x, y, str, o) {
+  const fs = o.fs, lh = fs * (o.lh ?? 1.3), padX = fs * .7, padY = fs * .5, out = o.out;
+  const lay = layout(ctx, str, f(fs, SANS, 400), o.maxW - padX * 2, lh), bw = lay.width + padX * 2, bh = lay.lines.length * lh + padY * 2;
+  const bx = out ? x - bw : x, R = fs * .95, tail = fs * .26;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.18)"; ctx.shadowBlur = fs * .8; ctx.shadowOffsetY = fs * .2;
+  ctx.fillStyle = o.fill; ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, out ? [R, R, tail, R] : [R, R, R, tail]); ctx.fill(); ctx.restore();
+  lay.lines.forEach((ln, li) => text(ctx, ln, bx + padX, y + padY + li * lh + lh * .5 + fs * .35, lay.font, o.color));
+  return { x: bx, y, w: bw, h: bh, lay, padX, padY, lh, line: (li) => y + padY + li * lh + lh * .5 + fs * .35 };
+}
+POSTERS.autocorrect = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, "#F7B843", "#E0870E", .15); glow(ctx, w * .1, h * .05, w, "#FFFFFF", .2);
+  hook(ctx, ["Autocorrect", "doesn't speak", "*Hinglish.*"], w * .08, h * .135, w * .125, P.ink2, 0, 99);
+  // The sent message, proofed the way an editor proofs it: each word the
+  // keyboard "fixed" struck through, the word that was meant written above.
+  const fs = w * .056, b = bubble(ctx, w * .92, h * .415, MUM.sent, { fs, lh: 2.2, maxW: w * .84, out: true, fill: P.indigo, color: "#FFFFFF" });
+  const fixes = { Hand: "haan", as: "aa", rash: "raha", Ghana: "khana" };
+  ctx.save(); ctx.font = b.lay.font;
+  b.lay.lines.forEach((ln, li) => { let acc = ""; ln.split(" ").forEach(wd => {
+    const x0 = b.x + b.padX + ctx.measureText(acc).width; acc += wd + " ";
+    const bare = wd.replace(/[^\p{L}]/gu, ""); if (!fixes[bare]) return;
+    const ww = ctx.measureText(bare).width, y = b.line(li) - fs * .3, r = rng(bare.length * 7);
+    ctx.strokeStyle = P.rose; ctx.lineWidth = fs * .11; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x0 - fs * .08, y + r() * 4); ctx.lineTo(x0 + ww + fs * .08, y - 4 + r() * 4); ctx.stroke();
+    text(ctx, fixes[bare], x0 + ww / 2, b.line(li) - fs * 1.1, f(fs * 1.1, HAND, 600), "#FFF3C2", 1, "center");
+  }); });
+  ctx.restore();
+  bubble(ctx, w * .08, b.y + b.h + w * .035, "Ghana?? Beta theek ho?", { fs: w * .046, maxW: w * .8, out: false, fill: "#FFFFFF", color: P.ink2 });
+  text(ctx, "Tailzu does.", w * .08, h * .83, f(w * .075, SERIF, 400, true), P.ink2);
+  foot2(ctx, w, h, P.ink2, null); grain(ctx, w, h, .04, 11);
+} };
+POSTERS.taps = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, "#17130F", "#0A0807", .2); glow(ctx, w * .5, h * .25, w * .9, P.pale, .05);
+  // Thirty taps, counted the way a wall is counted.
+  const gw = w * .23, gh = h * .1, r = rng(30);
+  for (let g = 0; g < 6; g++) {
+    const gx = w * .08 + (g % 3) * (gw + w * .075), gy = h * .08 + Math.floor(g / 3) * (gh + h * .04);
+    ctx.strokeStyle = rgba(P.pale, .82); ctx.lineWidth = w * .011; ctx.lineCap = "round";
+    for (let k = 0; k < 4; k++) { const x = gx + gw * (.12 + k * .22) + (r() - .5) * 6; ctx.beginPath(); ctx.moveTo(x + (r() - .5) * 8, gy + (r() - .5) * 8); ctx.quadraticCurveTo(x + (r() - .5) * 10, gy + gh * .5, x + (r() - .5) * 8, gy + gh + (r() - .5) * 8); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(gx - gw * .02, gy + gh * .78 + (r() - .5) * 8); ctx.lineTo(gx + gw * 1.02, gy + gh * .2 + (r() - .5) * 8); ctx.stroke();
+  }
+  text(ctx, "30 taps.", w * .075, h * .49, f(w * .21, SERIF, 300), P.pale);
+  hook(ctx, ["Or just *say it.*"], w * .08, h * .585, w * .1, P.pale, 0, 99);
+  label(ctx, "One sentence, typed on a phone", w * .08, h * .685, w * .022, P.rose, .95);
+  text(ctx, "Can we push the call to four?", w * .08, h * .745, f(w * .058, SERIF, 400, true), rgba(P.pale, .85));
+  label(ctx, "Every letter, every space, 123, ?", w * .08, h * .79, w * .019, P.pale, .45);
+  foot2(ctx, w, h, P.pale, null); vignette(ctx, w, h, .35); grain(ctx, w, h, .05, 12);
+} };
+POSTERS.boss = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, "#1B1A52", "#07061A", .1); glow(ctx, w * .85, h * .05, w * .7, "#DCEBF7", .12);
+  hook(ctx, ["Reply to your", "boss in", "*Shakespeare.*"], w * .08, h * .13, w * .12, P.pale, 0, 99);
+  const fs = w * .046;
+  label(ctx, "Boss · 11:04 PM", w * .08, h * .43, w * .02, P.pale, .5);
+  const a = bubble(ctx, w * .08, h * .445, "Is the report done?", { fs, maxW: w * .7, out: false, fill: "#25222C", color: P.pale });
+  const b = bubble(ctx, w * .92, a.y + a.h + w * .035, BOSS.voices[1][1], { fs, maxW: w * .74, out: true, fill: "#3F3AB4", color: "#FFFFFF" });
+  // The voices, as the keyboard shows them, Shakespeare lit.
+  ctx.save(); const cf = f(w * .03, SANS, 500); ctx.font = cf; let cx = w * .08; const cy = b.y + b.h + w * .07;
+  ["Zu", "Professional", "Shakespeare", "Pirate", "Noir"].forEach((name) => {
+    const cw = ctx.measureText(name).width + w * .05, on = name === "Shakespeare";
+    ctx.fillStyle = on ? P.pale : rgba(P.pale, .1); rr(ctx, cx, cy - w * .032, cw, w * .064, w * .032); ctx.fill();
+    text(ctx, name, cx + cw / 2, cy + w * .011, cf, on ? P.violet : rgba(P.pale, .8), 1, "center"); cx += cw + w * .018;
+  });
+  ctx.restore();
+  foot2(ctx, w, h, P.pale, "Or Professional. 16 voices, one tap"); vignette(ctx, w, h, .35); grain(ctx, w, h, .045, 13);
+} };
+POSTERS.spanish = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, "#1A8A7D", P.tealDeep, .15); glow(ctx, w * .15, h * .05, w, "#FFFFFF", .1);
+  hook(ctx, ["You don't speak", "Spanish.", "*Your keyboard does.*"], w * .08, h * .13, w * .095, P.pale, 0, 99);
+  const x = w * .08, fs = w * .054;
+  label(ctx, "Said", x, h * .47, w * .021, P.pale, .6);
+  const s = layout(ctx, MARTA.said, f(fs * 1.08, HAND, 600), w * .84, fs * 1.35);
+  s.chars.forEach(c => text(ctx, c.ch, x + c.x, h * .47 + fs * 1.35 + c.y, s.font, rgba(P.pale, .72)));
+  const at = MARTA.said.indexOf(MARTA.cmd);
+  underline(ctx, s, at, at + MARTA.cmd.length, x, h * .47 + fs * 1.35, fs * .3, 1, "#FFF3C2", fs * .08);
+  const y2 = h * .47 + fs * 1.35 + s.height + w * .05;
+  label(ctx, "Written", x, y2, w * .021, P.pale, .6);
+  const body = MARTA.wrote.slice(0, -1), wf = f(fs * 1.12, SERIF, 400);
+  text(ctx, body, x, y2 + fs * 1.5, wf, P.pale); ctx.font = wf; text(ctx, ".", x + ctx.measureText(body).width, y2 + fs * 1.5, wf, P.amber);
+  foot2(ctx, w, h, P.pale, "22 Indian languages and 23 more"); vignette(ctx, w, h, .3); grain(ctx, w, h, .045, 14);
+} };
+POSTERS.messy = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, P.paper, "#EFE6D6", .2);
+  hook(ctx, ["Say it *messy.*", "Send it *clean.*"], w * .08, h * .16, w * .13, P.ink2, 0, 99);
+  const x = w * .08, fs = w * .062;
+  label(ctx, "Said", x, h * .38, w * .021, P.ink2, .55);
+  const said = "um so like can we push the call to four", s = layout(ctx, said, f(fs * 1.1, HAND, 600), w * .84, fs * 1.4);
+  s.chars.forEach(c => text(ctx, c.ch, x + c.x, h * .38 + fs * 1.45 + c.y, s.font, rgba(P.ink2, .62)));
+  // The filler, struck by hand.
+  ctx.font = s.font; const filler = [[0, 2], [3, 5], [6, 10]], r = rng(8);
+  filler.forEach(([i, j]) => { const A = s.chars[i], Z = s.chars[j - 1], y = h * .38 + fs * 1.45 + A.y - fs * .3;
+    ctx.strokeStyle = P.rose; ctx.lineWidth = fs * .1; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x + A.x - 6, y + r() * 6); ctx.lineTo(x + Z.x + ctx.measureText(Z.ch).width + 6, y - 3 + r() * 6); ctx.stroke(); });
+  const y2 = h * .38 + fs * 1.45 + s.height + w * .07;
+  label(ctx, "Written", x, y2, w * .021, P.ink2, .55);
+  const wf = f(fs, SERIF, 400), body = "Can we push the call to four";
+  const wl = layout(ctx, body + "?", wf, w * .84, fs * 1.3);
+  wl.lines.forEach((ln, li) => { const last = li === wl.lines.length - 1, b = last ? ln.slice(0, -1) : ln, yy = y2 + fs * 1.45 + li * fs * 1.3;
+    text(ctx, b, x, yy, wf, P.ink2); if (last) { ctx.font = wf; text(ctx, "?", x + ctx.measureText(b).width, yy, wf, P.amber); } });
+  foot2(ctx, w, h, P.ink2, "Filler gone. Punctuation in"); grain(ctx, w, h, .035, 15);
+} };
+POSTERS.onekey = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
+  field(ctx, w, h, P.violetHi, P.violetLo, .1); glow(ctx, w * .5, h * .62, w * .8, P.pale, .08);
+  hook(ctx, ["The fastest", "keyboard has", "*one key.*"], w * .08, h * .13, w * .125, P.pale, 0, 99);
+  // The rest of the keyboard, coming apart around the one that stays.
+  const cx = w / 2, cy = h * .66, k = w * .3, r = rng(41);
+  for (let i = 0; i < 26; i++) {
+    const a = r() * TAU, d = k * (.9 + r() * 1.1), x = cx + Math.cos(a) * d * 1.2, y = cy + Math.sin(a) * d * .55, sz = k * (.18 + r() * .12);
+    if (y > h * .8 || y < h * .47) continue;
+    ctx.save(); ctx.globalAlpha = .08 + r() * .12; ctx.translate(x, y); ctx.rotate((r() - .5) * .6);
+    ctx.strokeStyle = P.pale; ctx.lineWidth = 2; rr(ctx, -sz / 2, -sz * .6, sz, sz * 1.2, sz * .16); ctx.stroke();
+    text(ctx, "qwertyuiopasdfghjklzxcvbnm"[i], 0, sz * .18, f(sz * .45, SANS, 400), P.pale, .9, "center"); ctx.restore();
+    for (let p = 0; p < 14; p++) { ctx.fillStyle = rgba(P.pale, .1 + r() * .25); const s = 1.5 + r() * 3; ctx.fillRect(x + (r() - .5) * sz * 2.4, y + (r() - .5) * sz * 1.6 - r() * sz, s, s); }
+  }
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+  const g = ctx.createLinearGradient(0, cy - k / 2, 0, cy + k / 2); g.addColorStop(0, "#2B2520"); g.addColorStop(1, "#15110E");
+  ctx.fillStyle = g; rr(ctx, cx - k / 2, cy - k * .42, k, k * .84, k * .18); ctx.fill(); ctx.restore();
+  ctx.strokeStyle = rgba(P.pale, .14); ctx.lineWidth = 2; rr(ctx, cx - k / 2, cy - k * .42, k, k * .84, k * .18); ctx.stroke();
+  mark(ctx, cx, cy, k * .6, 1);
+  foot2(ctx, w, h, P.pale, "Press. Say anything."); vignette(ctx, w, h, .35); grain(ctx, w, h, .045, 16);
+} };
+
 // ---- WIRING ------------------------------------------------------------------------
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
-const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "ibm-plex-mono/400",
+const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
   "noto-sans-devanagari/400", "noto-sans-bengali/400", "noto-sans-tamil/400", "noto-sans-telugu/400", "noto-sans-kannada/400", "noto-sans-malayalam/400",
   "noto-sans-gujarati/400", "noto-sans-gurmukhi/400", "noto-sans-oriya/400", "noto-naskh-arabic/400", "noto-sans-ol-chiki/400", "noto-sans-meetei-mayek/400",
   "noto-sans-jp/400", "noto-sans-kr/400", "noto-sans-sc/400"];
@@ -632,7 +1380,7 @@ const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "cav
 const SHEETS = FONTS.map((p) => new Promise((res) => { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = `node_modules/@fontsource/${p}.css`; l.onload = res; l.onerror = res; document.head.appendChild(l); }));
 async function fontsReady() {
   await Promise.all(SHEETS);
-  const probes = [[f(40, SERIF, 300), "Talk"], [f(40, SERIF, 400), "Talk"], [f(40, SERIF, 400, true), "Talk"], [f(40, HAND, 600), "said"], [f(40, SANS, 400), "Q"], [f(40, SANS, 500), "Q"], [f(40, MONO), "T"],
+  const probes = [[f(40, SERIF, 300), "Talk"], [f(40, SERIF, 400), "Talk"], [f(40, SERIF, 400, true), "Talk"], [f(40, HAND, 600), "said"], [f(40, SANS, 400), "Q"], [f(40, SANS, 500), "Q"], [f(40, SANS, 600), "Q"], [f(40, SANS, 400), "¿Dónde estás? ¡Perfecto!"], [f(40, MONO), "T"],
     ...INDIA.map(([n]) => [f(40, SERIF), n]), ...RIVER.map(s => [f(40, HAND, 600), s])];
   await Promise.race([Promise.all(probes.map(([ft, s]) => document.fonts.load(ft, s))), new Promise(r => setTimeout(r, RENDER ? 25000 : 8000))]);
   await document.fonts.ready;
