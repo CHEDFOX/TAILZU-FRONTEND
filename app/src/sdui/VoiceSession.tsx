@@ -248,8 +248,12 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         const res = (await callEndpoint("POST", endpoint, {
           turns: r.turns,
           language,
-        })) as { reply?: string } | null;
+        })) as { reply?: string; speak?: string } | null;
         const reply = (res?.reply ?? "").trim();
+        // The voice for THIS reply, when the server read one from its script:
+        // someone who switched to Bengali is answered in Bengali, and a
+        // Bengali sentence read by the voice the screen opened with is noise.
+        const voice = typeof res?.speak === "string" && res.speak ? res.speak : speakLanguage;
         if (!r.alive) return;
         if (!reply) { void listen(); return; }
         say("assistant", reply);
@@ -275,7 +279,7 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
         // Listening puts .playAndRecord back before it opens the mic again.
         await speakerOnly();
         Speech.speak(reply, {
-          language: speakLanguage,
+          language: voice,
           onDone: () => { if (r.alive) void listen(); },
           // A synthesiser that fails silently would strand the conversation in
           // "speaking" forever, so both exits go back to listening.
