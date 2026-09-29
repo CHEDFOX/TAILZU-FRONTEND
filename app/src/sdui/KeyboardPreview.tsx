@@ -119,7 +119,7 @@ export default function KeyboardPreview({ props: raw, style, fire }: CompProps) 
 
   const all = props?.all === true;
   const h = Number(props?.keyHeight) > 0 ? Number(props.keyHeight) : K.num("ui.KeyboardPreview.keyHeight", 44);
-  const accent = String(props?.accent ?? K.color("ui.KeyboardPreview.accent", "#E8A23C"));
+  const accent = String(props?.accent ?? K.color("ui.KeyboardPreview.accent", "#F3E2C6"));
   const gap = Number(props?.gap) >= 0 ? Number(props.gap) : K.num("ui.KeyboardPreview.gap", 6);
   const radius = Number(props?.radius) >= 0 ? Number(props.radius) : K.num("ui.KeyboardPreview.radius", 5);
   const keyFill = String(props?.keyFill ?? K.color("ui.KeyboardPreview.keyFill", "#FFFFFF8C"));

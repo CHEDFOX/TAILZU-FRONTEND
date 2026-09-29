@@ -77,7 +77,9 @@ export default function ProfileGate({ onDone, mediaUri, theme }: {
 
   const WHITE = knobColor("profile.color.ink", "#FFFFFF");
   const MUTED = knobColor("profile.color.muted", "rgba(255,255,255,0.42)");
-  const ORANGE = knobColor("profile.color.accent", "#E8A23C"); // brand (icon background) color
+  // "Hello," — pale ink on the dark card, not amber: amber is only for what
+  // is live (recording, listening), and a greeting is not.
+  const HELLO = knobColor("profile.color.accent", "#F3E2C6");
   const GENDERS = list<{ key: Gender; label: string }>("profile.genders", [
     { "key": "male", "label": "Male" },
     { "key": "female", "label": "Female" },
@@ -143,7 +145,7 @@ export default function ProfileGate({ onDone, mediaUri, theme }: {
             </>
           ) : null}
 
-          <Text style={[theme ? typeRole(theme, "profileHello", styles.hello) : styles.hello, { color: ORANGE }]}>{txt("profile.hello", "Hello,")}</Text>
+          <Text style={[theme ? typeRole(theme, "profileHello", styles.hello) : styles.hello, { color: HELLO }]}>{txt("profile.hello", "Hello,")}</Text>
 
           <TextInput
             style={[styles.nameBox, theme ? typeRole(theme, "profileName", styles.nameInput) : styles.nameInput, { color: WHITE }]}

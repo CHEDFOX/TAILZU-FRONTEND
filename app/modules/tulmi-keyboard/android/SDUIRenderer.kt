@@ -586,8 +586,8 @@ class SDUIRenderer(
         // typed, and painting "keep what I wrote" in brand amber says the
         // opposite of what it is.
         val lead = flagBoolean("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
-        val leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
-        val leadFg = flagColor("kb.suggestion.leadFg", "#000000")
+        val leadBg = flagColor("kb.suggestion.leadBg", "#F3E2C6")
+        val leadFg = flagColor("kb.suggestion.leadFg", "#1B1712")
         val dividerColor = flagString("kb.suggestion.dividerColor", "").takeIf { it.isNotBlank() }?.let { parseHex(it) }
             ?: ((parseHex(theme.keyText) and 0x00FFFFFF) or 0x24000000)
         val dividerH = dp(flagFloat("kb.suggestion.dividerHeight", 18f))
@@ -736,7 +736,7 @@ class SDUIRenderer(
     }
 
     private fun shiftColor(rest: Int): Int =
-        if (host.state().capsLock) flagColor("kb.shift.lockedColor", "#E8A23C") else rest
+        if (host.state().capsLock) flagColor("kb.shift.lockedColor", "#8E8E93") else rest
 
     private fun glyphFor(name: String, fallback: String): String = when (name) {
         "arrowtriangle.up" -> "\u25B3"
@@ -2352,8 +2352,8 @@ class SDUIRenderer(
                 count = flagFloat("kb.mic.particles.count", 40f).toInt(),
                 // dp, as it is points on iOS.
                 dotRadius = flagFloat("kb.mic.particles.radius", 1.5f) * host.context().resources.displayMetrics.density,
-                // The mark's own ink, as on iOS: the tools-row mic is dark on
-                // amber, and theme-coloured dots would not be its dots.
+                // The mark's own ink, as on iOS: the tools-row mic sets its own
+                // ink on its circle, and theme-coloured dots would not be its dots.
                 dotColor = fg,
                 mark = mark,
             ).also { currentMicParticles = it }
@@ -3081,7 +3081,7 @@ class SDUIRenderer(
         // not picked yet, rather than on nothing.
         val current = TulmiTone.current(ctx, kbConfig.flags)
         val light = host.state().appearance == "light"
-        val accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+        val accent = flagColor("kb.tone.sheet.accent", "#8E8E93")
         val rowFg = if (light) flagColor("kb.tone.sheet.fgLight", "#000000") else flagColor("kb.tone.sheet.fg", "#FFFFFF")
         val headerFg = if (light) flagColor("kb.tone.sheet.headerFgLight", "#00000066")
             else flagColor("kb.tone.sheet.headerFg", "#FFFFFF66")

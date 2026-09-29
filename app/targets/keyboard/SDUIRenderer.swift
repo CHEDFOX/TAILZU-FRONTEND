@@ -5269,7 +5269,7 @@ final class SDUIRenderer: NSObject {
       hug,
     ])
 
-    let accent = flagColor("kb.tone.sheet.accent", "#E8A23C")
+    let accent = flagColor("kb.tone.sheet.accent", "#8E8E93")
     let rowFg = light ? flagColor("kb.tone.sheet.fgLight", "#000000")
                       : flagColor("kb.tone.sheet.fg", "#FFFFFF")
     let rowFont = flagCGFloat("kb.tone.sheet.fontSize", 14)
@@ -5915,7 +5915,7 @@ final class SDUIRenderer: NSObject {
   ///   kb.shift.iconUpperLocked    (default "arrowtriangle.up.fill")
   ///   kb.shift.iconSize           (default 16)      — SF Symbol point size
   ///   kb.shift.iconWeight         (default "semibold")
-  ///   kb.shift.lockedColor        (default "#E8A23C") — arrow tint when locked
+  ///   kb.shift.lockedColor        (default "#8E8E93") — arrow tint when locked
   private func applyShiftKeyVisual(_ btn: UIButton) {
     let icon: String = {
       if state.capsLock {
@@ -5934,7 +5934,7 @@ final class SDUIRenderer: NSObject {
     btn.setImage(UIImage(systemName: icon, withConfiguration: cfg), for: .normal)
     btn.setTitle(nil, for: .normal)
     btn.tintColor = state.capsLock
-      ? flagColor("kb.shift.lockedColor", "#E8A23C")
+      ? flagColor("kb.shift.lockedColor", "#8E8E93")
       : keyTextColor()
     btn.contentHorizontalAlignment = .center
     btn.contentVerticalAlignment = .center
@@ -6250,7 +6250,7 @@ final class SDUIRenderer: NSObject {
 
   /// Mic key — toggles startDictation / stopDictation based on state.dictating.
   /// Icon tint respects node.style.fg (backend can override the theme's white
-  /// keyText — the tools-row mic uses black-on-orange). Stop-dictation now
+  /// keyText — the tools-row mic sets its own ink for its circle). Stop-dictation now
   /// auto-fires runRefine so the captured message moves straight into the
   /// refinement pipeline without a second button press.
   ///
@@ -6275,7 +6275,7 @@ final class SDUIRenderer: NSObject {
     //     and each other (MicParticleView). Backend can disable it via
     //     kb.mic.particles=false to fall back to the animated media.
     //   • IDLE      → the CLEAN brand mark (bundled TailzuMark, else SF mic) on
-    //     the amber circle — "the structure".
+    //     the key's circle — "the structure".
     let particlesOn = flagBool("kb.mic.particles", true)
     // THE MARK, FROM THE SERVER: its shapes and its motion travel on the node.
     // Absent — a backend older than this — the bundled asset stands in, which
@@ -6548,8 +6548,8 @@ final class SDUIRenderer: NSObject {
     let kind = state.suggestionKind
     let isRevert = kind == "revert"
     let leadEnabled = flagBool("kb.suggestion.emphasizeFirst", true) && kind == "candidates"
-    let leadBg = flagColor("kb.suggestion.leadBg", "#E8A23C")
-    let leadFg = flagColor("kb.suggestion.leadFg", "#000000")
+    let leadBg = flagColor("kb.suggestion.leadBg", "#F3E2C6")
+    let leadFg = flagColor("kb.suggestion.leadFg", "#1B1712")
 
     // The bar can also render as a plain divided row (native's three-slot
     // strip) instead of pills — kb.suggestion.style, so the whole shape is a

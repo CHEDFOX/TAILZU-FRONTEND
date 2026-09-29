@@ -31,9 +31,10 @@ import type { TabGlyph } from "./types";
 import * as K from "./knobs";
 
 /**
- * The lit colour. Exported as a constant because SduiApp reads it outside
- * this file; everything drawn HERE asks activeColor(), which is the
- * ui.ThreadIcons.active knob over this same literal.
+ * The lit colour — the selected tab icon's lit layer, and nothing else (it is
+ * the one owner-kept exception to "amber only for what is live"; the app's
+ * loading spinner no longer borrows it). Everything drawn HERE asks
+ * activeColor(), which is the ui.ThreadIcons.active knob over this literal.
  */
 export const THREAD_ACTIVE = "#E8A23C";
 const activeColor = () => K.color("ui.ThreadIcons.active", "#E8A23C");

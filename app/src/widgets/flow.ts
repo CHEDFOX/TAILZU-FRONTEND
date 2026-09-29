@@ -21,14 +21,14 @@ import { bool, num, obj, str, txt } from "../sdui/knobs";
 export function flowActivityCopy(): FlowActivityCopy {
   return {
     listening: txt("widget.flow.listening", "Listening"),
-    writing: txt("widget.flow.writing", "Writing"),
-    ready: txt("widget.flow.ready", "Flow is on"),
-    // No hint unless the server sends one: the banner stays one word.
-    readyHint: txt("widget.flow.readyHint", ""),
-    words: txt("widget.flow.words", "{n} words"),
+    writing: txt("widget.flow.writing", "Writing it up"),
+    ready: txt("widget.flow.ready", "Ready in any app"),
+    // What to do, not what state it is in.
+    readyHint: txt("widget.flow.readyHint", "Tap the mic on your keyboard and talk."),
+    words: txt("widget.flow.words", "{n} words so far"),
     stop: txt("widget.flow.stop", "Stop"),
     end: txt("widget.flow.end", "End"),
-    compact: txt("widget.flow.compact", "Flow"),
+    compact: txt("widget.flow.compact", "Ready"),
     iconListening: str("widget.flow.icon.listening", "waveform"),
     iconIdle: str("widget.flow.icon.idle", "mic"),
     iconMinimal: str("widget.flow.icon.minimal", "waveform"),

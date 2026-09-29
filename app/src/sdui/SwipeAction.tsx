@@ -56,9 +56,9 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
    *  look: two clean discs, nothing drawn in them. */
   const dot = props?.dot !== undefined ? Number(props.dot) : K.num("ui.SwipeAction.dot", 0);
   const dotColor = String(props?.dotColor ?? K.color("ui.SwipeAction.dotColor", "#FFFFFF"));
-  /** What the disc lands in. The one warm thing on the pill, so the end of the
-   *  journey is visible from the start of it. */
-  const target = String(props?.targetBackground ?? K.color("ui.SwipeAction.targetBackground", "#C9862B"));
+  /** What the disc lands in: solid pale ink, so the end of the journey is
+   *  visible from the start of it. Not amber — nothing here is live. */
+  const target = String(props?.targetBackground ?? K.color("ui.SwipeAction.targetBackground", "#F3E2C6"));
   const targetDot = String(props?.targetDotColor ?? K.color("ui.SwipeAction.targetDotColor", "#000000"));
   const pad = Number(props?.padding) || K.num("ui.SwipeAction.padding", 6);
   /** How far along counts as committed, 0..1 of the run. */

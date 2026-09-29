@@ -2480,7 +2480,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let flags = kbConfig?.flags ?? [:]
     if (flags["kb.flash.enabled"] as? Bool) == false { return }
 
-    let colorHex = flags["kb.flash.color"] as? String ?? kbConfig?.accent ?? "#E8A23C"
+    let colorHex = flags["kb.flash.color"] as? String ?? kbConfig?.accent ?? "#8E8E93"
     let flashColor = UIColor(tulmiHex: colorHex)
     let durationMs = flags["kb.flash.durationMs"] as? Double ?? 260
     let staggerMs = flags["kb.flash.staggerMs"] as? Double ?? 32

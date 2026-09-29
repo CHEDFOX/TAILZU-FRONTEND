@@ -580,10 +580,10 @@ const Icon = ({ props, style }: CompProps) => {
   return <Text style={[typeRole(theme, "icon", { fontSize: 20, color: theme.color.text }), style]}>{props.name}</Text>;
 };
 
-// The brand accent — the warm amber the keyboard flashes on every key press.
-// Buttons app-wide flash it on tap ("typing has our color" carried into the
-// app). Matches the backend's ACCENT_AMBER / keyboard KEY_PRESSED. It is the
-// ui.Button.flashColor / ui.Chip.flashColor knobs now, read at each press.
+// The press flash: a neutral pale-ink veil, like the keyboard's KEY_PRESSED.
+// Not the brand amber — amber is only for what is live (recording, listening),
+// and a tap is not. It is the ui.Button.flashColor / ui.Chip.flashColor knobs,
+// read at each press.
 
 const Button = ({ props, style, fire }: CompProps) => {
   const theme = useTheme();
@@ -602,10 +602,10 @@ const Button = ({ props, style, fire }: CompProps) => {
       onPress={() => fire("onPress")}
       disabled={props.disabled}
       impactOnRelease={!isSecondary && !isGhost}
-      // The press flash. Amber by default because that is the brand's "we
-      // heard that"; "none" removes it for a button whose own colour change
-      // already says so.
-      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Button.flashColor", "#E8A23C"))}
+      // The press flash, a neutral veil by default ("we heard that" without
+      // the live colour); "none" removes it for a button whose own colour
+      // change already says so.
+      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Button.flashColor", "rgba(243,226,198,0.18)"))}
       pressScale={props.pressScale !== undefined ? Number(props.pressScale) : undefined}
       style={[
         // paddingHorizontal matters: a hug-width button without it renders the
@@ -694,7 +694,7 @@ const Chip = ({ props, style, store, fire }: CompProps) => {
       }}
       // Chips get a slightly gentler press than buttons — they're smaller.
       pressScale={Number(props.pressScale ?? K.num("ui.Chip.pressScale", 0.92))}
-      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Chip.flashColor", "#E8A23C"))}
+      flashColor={props.flashColor === "none" ? undefined : String(props.flashColor ?? K.color("ui.Chip.flashColor", "rgba(243,226,198,0.18)"))}
       style={[
         {
           paddingHorizontal: Number(props.paddingHorizontal ?? K.num("ui.Chip.paddingHorizontal", 14)),
