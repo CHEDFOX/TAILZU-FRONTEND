@@ -28,13 +28,17 @@ const postersOnly = process.argv.includes("--posters");
 const FPS = 30;
 
 const FILMS = [
+  { id: "mummy", file: "tailzu-autocorrect-vs-hinglish-9x16.mp4" },
+  { id: "race", file: "tailzu-typed-vs-said-9x16.mp4" },
+  { id: "boss", file: "tailzu-boss-at-11pm-9x16.mp4" },
+  { id: "spanish", file: "tailzu-hinglish-to-spanish-9x16.mp4" },
   { id: "river", file: "tailzu-heard-9x16.mp4" },
   { id: "cleanup", file: "tailzu-said-written-9x16.mp4" },
   { id: "keyless", file: "tailzu-keyless-9x16.mp4" },
   { id: "tones", file: "tailzu-your-tone-1x1.mp4" },
   { id: "languages", file: "tailzu-22-languages-1x1.mp4" },
 ];
-const POSTERS = ["talk", "hinglish", "keyless", "tones", "languages", "desktop"];
+const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
 fs.mkdirSync(out, { recursive: true });
 const url = "file://" + path.join(here, "social.html");
@@ -86,7 +90,7 @@ if (!postersOnly) for (const F of FILMS) {
   await page.close();
 }
 if (!stills || postersOnly) for (const id of POSTERS) {
-  if (only && !only.includes(id) && !postersOnly) continue;
+  if (only && !only.includes(id)) continue;
   const { page, w, h } = await open("poster", id);
   const file = `tailzu-${id}-4x5.png`;
   await page.locator("canvas").screenshot({ path: path.join(out, file) });
