@@ -17,6 +17,7 @@ struct TailzuWidgetBundle: WidgetBundle {
   var body: some Widget {
     MonthWidget()
     FlowActivityWidget()
+    SetupActivityWidget()
     if #available(iOS 18.0, *) {
       DictateControl()
     }

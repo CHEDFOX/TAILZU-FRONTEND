@@ -19,7 +19,7 @@ import { Platform } from "react-native";
 import { setWidgetDictatePath, setWidgetMonth } from "../../modules/tulmi-bridge";
 import { bool, color, num, setKnobs, str, txt } from "../sdui/knobs";
 import type { BootstrapResponse } from "../sdui/types";
-import { publishFlowCopy } from "./flow";
+import { publishFlowCopy, publishSetupActivity } from "./flow";
 
 /** The widget's words. `{n}` is a count the widget fills in. */
 export function widgetMonthLabels(): Record<string, string> {
@@ -105,6 +105,7 @@ export function publishWidgetMonth(
   // itself, so there is no background Flow session to show or to arm.
   if (Platform.OS === "ios") {
     publishFlowCopy();
+    publishSetupActivity();
     setWidgetDictatePath(str("widget.dictate.path", "screen/flow_arm"));
   }
 }
