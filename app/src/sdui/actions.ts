@@ -78,6 +78,32 @@ export function resolveValue(value: any, ctx: Ctx): any {
 }
 
 /**
+ * Words an action puts in front of someone — a toast, a copied line. An
+ * "@key" is the catalog's copy; "$state.x" inside a sentence is filled in.
+ *
+ * resolveValue only rewrites a string that IS a reference, so these reached
+ * the screen as written: "@history.detail.toast", "Writing as $state.vcName.".
+ * A key the catalog lacks, or a value that is not there, gives "" — the caller
+ * shows nothing rather than an identifier. Only the ACTION's own literal is
+ * looked up: a row's text that starts with "@" is a sentence, not a key.
+ */
+export function fillText(value: any, ctx: Ctx): string {
+  if (typeof value !== "string") {
+    const v = resolveValue(value, ctx);
+    return v == null ? "" : typeof v === "string" ? v : String(v);
+  }
+  if (value.startsWith("@")) return ctx.labels[value.slice(1)] ?? "";
+  if (value === "$event" || /^\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]$/.test(value)) {
+    const v = resolveValue(value, ctx);
+    return v == null ? "" : String(v);
+  }
+  return value.replace(/\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]/g, (m) => {
+    const v = resolveValue(m, ctx);
+    return v == null ? "" : String(v);
+  });
+}
+
+/**
  * Refuse a purchase that belongs to another store, and say where it lives.
  *
  * The rule itself is in billing/elsewhere.ts, free of react-native so it can
@@ -344,12 +370,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // Resolve placeholders ($event / $state.x / …) so an action can echo the
       // real reason it was fired — e.g. onError toasts can show the actual mic
       // failure instead of a hardcoded generic string.
-      ctx.toast(String(resolveValue(action.message, ctx) ?? action.message), action.tone);
+      // Nothing to say is said by no toast at all.
+      { const m = fillText(action.message, ctx); if (m) ctx.toast(m, action.tone); }
       break;
     case "snackbar":
       // Reuse toast under the hood — the Snackbar UI treatment can be added
       // via an OTA once the SDUI screen using it is authored.
-      ctx.toast(String(resolveValue(action.message, ctx) ?? action.message), "info");
+      { const m = fillText(action.message, ctx); if (m) ctx.toast(m, "info"); }
       break;
     case "speak":
       try { Speech.speak(action.text, { voice: action.voice }); } catch { /* no-op */ }
@@ -382,8 +409,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     case "copyToClipboard":
       try {
-        await Clipboard.setStringAsync(action.text);
-        if (action.toastMessage) ctx.toast(action.toastMessage, "success");
+        // A row copies its own text: "$state.item.output" is the line, not
+        // the words to put on the clipboard.
+        const text = fillText(action.text, ctx);
+        if (!text) break;
+        await Clipboard.setStringAsync(text);
+        const said = fillText(action.toastMessage, ctx);
+        if (said) ctx.toast(said, "success");
       } catch { ctx.toast(txt("toast.copyFailed", "Couldn't copy"), "error"); }
       break;
     case "readClipboard":
