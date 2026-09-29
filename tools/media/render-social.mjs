@@ -6,7 +6,7 @@
  *
  * Films are captured frame by frame from the page's own draw function at a
  * fixed clock, so the MP4 is the design exactly; H.264, 30fps, faststart,
- * silent (music is added where it is posted). Posters are one capture each.
+ * silent (music is added where it is posted), a few MB each. Posters are one capture each.
  * --stills writes a handful of frames per film to <outDir>/stills instead.
  */
 import { createRequire } from "node:module";
@@ -73,7 +73,11 @@ if (!postersOnly) for (const F of FILMS) {
       await page.locator("canvas").screenshot({ path: path.join(dir, `f${String(i).padStart(4, "0")}.png`) });
     }
     const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", path.join(dir, "f%04d.png"),
-      "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "slow",
+      // The grain is drawn fresh every frame, which at a high quality setting
+      // makes an 80 MB file that every platform then re-compresses into
+      // blotches. A light temporal denoise keeps the look and lands at a few MB.
+      "-vf", "hqdn3d=4:3:8:6",
+      "-c:v", "libx264", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "slow",
       "-movflags", "+faststart", "-an", path.join(out, F.file)]);
     fs.rmSync(dir, { recursive: true, force: true });
     if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
