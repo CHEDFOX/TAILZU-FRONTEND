@@ -177,7 +177,6 @@ const LINES = {
   pirate: "Arr, send the file tonight, matey. It be urgent.",
   trailer: "One file. One night. And time is running out.",
   noir: "The file. Tonight. In this town, urgent means yesterday.",
-  train: "I don't know how you sound yet. Just talk, and I'll listen.",
   dictionary: "Priya · Ramesh · Bengaluru · deploy · chai · Koramangala",
   languages: "नमस्ते · வணக்கம் · مرحبا · こんにちは · Hello",
   haptics: "Every key, felt.",
@@ -222,7 +221,10 @@ function poster(ctx, w, h, id) {
   let size = Math.round(w * (train ? 0.038 : 0.07)), lines;
   for (;;) { ctx.font = font(size, { italic }); lines = wrap(ctx, line, maxW); if ((lines.length <= 2 && size * (0.95 + 1.18 * (lines.length - 1)) <= bandH) || size <= 30) break; size -= 3; }
   const lh = size * 1.18;
-  ctx.fillStyle = rgba(C.pale, 0.22); ctx.fillRect(inset, top - size * 0.35, w * 0.16, 1);
+  // The training card's art carries no sentence: the card says its own words,
+  // and a line drawn into the picture showed through behind them.
+  if (train) lines = [];
+  if (lines.length) { ctx.fillStyle = rgba(C.pale, 0.22); ctx.fillRect(inset, top - size * 0.35, w * 0.16, 1); }
   ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.letterSpacing = "-0.01em";
   lines.forEach((ln, i) => {
     const y = top + size * 0.95 + i * lh, last = i === lines.length - 1;
