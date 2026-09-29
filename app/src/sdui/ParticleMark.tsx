@@ -125,7 +125,7 @@ export const ParticleMark = ({ props, style }: CompProps): React.ReactElement | 
   const size = Number(props?.size) || 128;
   const count = Math.max(2, Number(props?.count) || 90);
   const dotRadius = Number(props?.dotRadius) || 1.6;
-  const color = String(props?.color ?? "#E8A23C");
+  const color = String(props?.color ?? "#F3E2C6");
   const speed = Number(props?.speed) > 0 ? Number(props.speed) : 1;
   const circular = props?.circular !== false;
   const holdMark = props?.holdMark !== false;

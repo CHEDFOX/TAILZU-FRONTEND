@@ -87,7 +87,7 @@ function BootFailure({ error }: { error: unknown }) {
   const { txt, num, bool, color } = knobFns();
   return (
     <View style={{ flex: 1, backgroundColor: color("boot.failure.bg", "#0e0e12"), paddingTop: num("boot.failure.paddingTop", 90), paddingHorizontal: 24 }}>
-      <Text style={{ color: color("boot.failure.titleColor", "#E8A23C"), fontSize: num("boot.failure.titleSize", 19), fontWeight: "700", marginBottom: 10 }}>
+      <Text style={{ color: color("boot.failure.titleColor", "#F3E2C6"), fontSize: num("boot.failure.titleSize", 19), fontWeight: "700", marginBottom: 10 }}>
         {txt("boot.failure.title", "Tailzu couldn't start")}
       </Text>
       <Text style={{ color: color("boot.failure.bodyColor", "rgba(255,255,255,0.62)"), fontSize: num("boot.failure.bodySize", 14), lineHeight: 20, marginBottom: 18 }}>

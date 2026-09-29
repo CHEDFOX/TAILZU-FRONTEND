@@ -102,14 +102,13 @@ function emailRx(): RegExp {
  */
 const WHITE = color("auth.color.ink", "#FFFFFF");
 /**
- * The target circle. A DIMMER amber than the brand's own.
+ * The target circle, in pale ink.
  *
- * Full #E8A23C on a dark screen with nothing else coloured on it reads as a
- * warning rather than an invitation — it is the brightest thing in the window
- * by a distance. Pulled down, it still says "go" and stops shouting it, and
- * the black arrow keeps its contrast either way.
+ * Not amber, not even a dimmed one: amber is reserved for what is live right
+ * now (recording, listening), and signing in is not. Pale still says "go"
+ * on the dark screen, and the black arrow keeps its contrast on it.
  */
-const ACCENT_DIM = color("auth.color.target", "#C9862B");
+const ACCENT_DIM = color("auth.color.target", "#F3E2C6");
 const VOID = color("auth.color.bg", "#000000");
 const ABYSS = color("auth.color.sheet", "#050508");
 
@@ -559,7 +558,7 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
         </View>
       </Animated.View>
 
-      {/* The amber target. Tapping it runs the same commit the swipe does,
+      {/* The target. Tapping it runs the same commit the swipe does,
           so the badge travels across to meet it either way — the tap is not a
           shortcut past the gesture, it IS the gesture, played for you. */}
       <Animated.View style={[s.arrowWrap, { opacity: arrowOpacity }]} pointerEvents={valid ? "auto" : "none"}>
@@ -1364,8 +1363,9 @@ const s = StyleSheet.create({
   envWrap: { position: "absolute", left: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE, zIndex: 5 },
   envCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: "rgba(255,255,255,0.10)", borderWidth: 0.5, borderColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
   arrowWrap: { position: "absolute", right: PILL_PAD, top: PILL_PAD, width: BADGE, height: BADGE },
-  // Amber, not white. It is the one thing on the screen that means "go", and
-  // white made it another pale circle beside a pale badge.
+  // Solid pale ink, not a translucent white. It is the one thing on the
+  // screen that means "go", and a tint made it another faint circle beside a
+  // faint badge. Not amber: signing in is not something live.
   arrowCircle: { width: BADGE, height: BADGE, borderRadius: BADGE / 2, backgroundColor: ACCENT_DIM, alignItems: "center", justifyContent: "center" },
 
   // 48/48 was proportioned against a heading that no longer exists. Bottom

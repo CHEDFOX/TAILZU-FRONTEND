@@ -24,7 +24,7 @@ import {
   bootstrapIsFresh, userErrorMessage, errorDetail, primeKnobsFromDisk,
 } from "./client";
 import {
-  TabThreadIcon, SettingsLines, ThreadRail, THREAD_ACTIVE, THREAD_RAIL_HEIGHT,
+  TabThreadIcon, SettingsLines, ThreadRail, THREAD_RAIL_HEIGHT,
 } from "./ThreadIcons";
 import { loadRemoteFonts } from "./remoteFonts";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1887,7 +1887,8 @@ export default function SduiApp() {
         )}
         {screenLoading && (
           <View style={styles.loadingOverlay} pointerEvents="none">
-            <ActivityIndicator color={THREAD_ACTIVE} />
+            {/* Pale ink, not the tab's lit amber: loading is waiting, not live. */}
+            <ActivityIndicator color="#F3E2C6" />
           </View>
         )}
       </View>

@@ -100,7 +100,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
           onPress={this.retry}
           accessibilityRole="button"
           style={{
-            backgroundColor: color("errorBoundary.accent", "#E8A23C"),
+            backgroundColor: color("errorBoundary.accent", "#F3E2C6"),
             paddingHorizontal: 28, paddingVertical: 13,
             borderRadius: num("errorBoundary.buttonRadius", 26), marginBottom: 14,
           }}

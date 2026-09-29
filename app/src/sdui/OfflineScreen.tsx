@@ -25,7 +25,7 @@ export default function OfflineScreen({ theme, onRetry, onDev }: {
   const bg = color("app.offline.bg", c.bg ?? "#000000");
   const ink = color("app.offline.text", c.text ?? "#FFFFFF");
   const mute = color("app.offline.muted", c.muted ?? "#8A857C");
-  const accent = color("app.offline.accent", c.primary ?? "#E8A23C");
+  const accent = color("app.offline.accent", c.primary ?? "#F3E2C6");   // pale ink, not amber: offline is not live
   const [busy, setBusy] = useState(false);
   const [wait, setWait] = useState(0);
   const attempts = useRef(0);

@@ -1557,8 +1557,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     private fun flashKeysForText(text: String) {
         // kb.flash.*: on/off, colour, cadence. The colour used to be the
-        // theme's accent, which the server sets to a grey — so the "orange
-        // wave" was a grey one. It is its own knob now, brand amber by default.
+        // theme's accent, which the server sets to a grey. It is its own knob
+        // now, and neutral grey by default as on iOS (its theme accent): amber
+        // is only for what is live, and a finished refine is not.
         if (!knobBool("kb.flash.enabled", true)) return
         val root = rootView ?: return
         // Only the start of it (kb.flash.maxChars): the eye reads a typing wave
@@ -1568,7 +1569,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val hits = mutableListOf<TextView>()
         walkLetterKeys(root, letters, hits)
         if (hits.isEmpty()) return
-        val accent = SDUIRenderer.parseHex(knobString("kb.flash.color", "#E8A23C").ifBlank { "#E8A23C" })
+        val accent = SDUIRenderer.parseHex(knobString("kb.flash.color", "#8E8E93").ifBlank { "#8E8E93" })
         val perStagger = knobLong("kb.flash.staggerMs", 25L)
         val flashMs = knobLong("kb.flash.durationMs", 260L)
         hits.sortBy { locationX(it) }
