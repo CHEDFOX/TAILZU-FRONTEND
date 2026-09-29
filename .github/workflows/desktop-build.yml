@@ -70,7 +70,12 @@ jobs:
           # Best effort: Git Bash's ssh-keyscan on the Windows runner can fail
           # where ssh itself works, and a failed scan must not stop the upload.
           ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || echo "keyscan failed; ssh accepts the key on first use"
-          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" Tailzu.dmg < desktop/dist/Tailzu.dmg
+          # The version rides with the name; the server writes it beside the
+          # installer and tells every older install, in its window. A receiver
+          # from before versions refuses the pair (exit 2): send the name alone.
+          V=$(node -p "require('./desktop/package.json').version")
+          up() { ssh -i "$HOME/.ssh/tailzu_ci" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" "$1" < desktop/dist/Tailzu.dmg; }
+          up "Tailzu.dmg $V" || { rc=$?; if [ "$rc" -eq 2 ]; then up "Tailzu.dmg"; else exit "$rc"; fi; }
           rm -f ~/.ssh/tailzu_ci
 
   win:
@@ -106,7 +111,12 @@ jobs:
           # Best effort: Git Bash's ssh-keyscan on the Windows runner can fail
           # where ssh itself works, and a failed scan must not stop the upload.
           ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || echo "keyscan failed; ssh accepts the key on first use"
-          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" Tailzu-Setup.exe < desktop/dist/Tailzu-Setup.exe
+          # The version rides with the name; the server writes it beside the
+          # installer and tells every older install, in its window. A receiver
+          # from before versions refuses the pair (exit 2): send the name alone.
+          V=$(node -p "require('./desktop/package.json').version")
+          up() { ssh -i "$HOME/.ssh/tailzu_ci" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" "$1" < desktop/dist/Tailzu-Setup.exe; }
+          up "Tailzu-Setup.exe $V" || { rc=$?; if [ "$rc" -eq 2 ]; then up "Tailzu-Setup.exe"; else exit "$rc"; fi; }
           rm -f ~/.ssh/tailzu_ci
 
   linux:
@@ -142,5 +152,10 @@ jobs:
           # Best effort: Git Bash's ssh-keyscan on the Windows runner can fail
           # where ssh itself works, and a failed scan must not stop the upload.
           ssh-keyscan -T 20 "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || echo "keyscan failed; ssh accepts the key on first use"
-          ssh -i ~/.ssh/tailzu_ci -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" Tailzu.AppImage < desktop/dist/Tailzu.AppImage
+          # The version rides with the name; the server writes it beside the
+          # installer and tells every older install, in its window. A receiver
+          # from before versions refuses the pair (exit 2): send the name alone.
+          V=$(node -p "require('./desktop/package.json').version")
+          up() { ssh -i "$HOME/.ssh/tailzu_ci" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 "root@$HOST" "$1" < desktop/dist/Tailzu.AppImage; }
+          up "Tailzu.AppImage $V" || { rc=$?; if [ "$rc" -eq 2 ]; then up "Tailzu.AppImage"; else exit "$rc"; fi; }
           rm -f ~/.ssh/tailzu_ci
