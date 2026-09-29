@@ -30,6 +30,7 @@ import type { Node, NodeEvent, ThemeTokens } from "./types";
 import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
 import * as api from "../api";
+import { errorDetail, streamErrorMessage, userErrorMessage } from "./client";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
 import { SpringPressable } from "./motion";
@@ -876,11 +877,19 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   const wantLive = props.live === true && isStreamAvailable();
 
   // What a failure says. The node's words first, then the ui.VoiceButton.*
-  // knobs, then these.
+  // knobs, then these. These are the ONLY words a failure shows: an error's
+  // own message is written for a developer ("Mic start: Error Domain=…") and
+  // goes to the log.
   const errPermission = String(props.errorPermission ?? K.txt("ui.VoiceButton.errorPermission", "Microphone permission denied"));
-  const errMic = String(props.errorMic ?? K.txt("ui.VoiceButton.errorMic", "mic error"));
+  const errMic = String(props.errorMic ?? K.txt("ui.VoiceButton.errorMic", "Couldn't start the microphone. Try again."));
   const errNoAudio = String(props.errorNoAudio ?? K.txt("ui.VoiceButton.errorNoAudio", "No audio captured"));
-  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceButton.errorTranscribe", "transcription failed"));
+  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceButton.errorTranscribe", "Couldn't turn that into text. Try again."));
+  /** A caught failure, worded; its raw detail goes to the log. */
+  const failWith = (e: unknown, fallback: string) => {
+    // eslint-disable-next-line no-console
+    console.warn("[Tailzu][VoiceButton]", errorDetail(e));
+    fire("onError", userErrorMessage(e, fallback));
+  };
 
   // Stop the recorder + live stream on unmount if we're still recording, so a
   // tab switch / navigation / SDUI refetch mid-dictation doesn't leak the mic
@@ -918,8 +927,8 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
             live.current.committed += t.endsWith(" ") ? t : `${t} `;
             write(live.current.committed);
           },
-          onError: (m) => {
-            fire("onError", m);
+          onError: (m, failure) => {
+            fire("onError", streamErrorMessage(m, failure.code, { permission: errPermission, other: errMic }));
             endLive();
           },
           onClosed: async () => {
@@ -947,8 +956,8 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
           },
         },
       );
-    } catch (e: any) {
-      fire("onError", e?.message ?? errMic);
+    } catch (e) {
+      failWith(e, errMic);
       endLive();
     }
   }
@@ -975,8 +984,8 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
       await recorder.prepareToRecordAsync();
       recorder.record();
       setRecording(true);
-    } catch (e: any) {
-      fire("onError", e?.message ?? errMic);
+    } catch (e) {
+      failWith(e, errMic);
     }
   }
 
@@ -986,7 +995,10 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri) throw new Error(errNoAudio);
+      if (!uri) {
+        fire("onError", errNoAudio);
+        return;
+      }
       const { cleanedText } = await api.transcribeClean(uri, {
         targetApp: props.targetApp,
         language: props.language,
@@ -997,8 +1009,8 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         if (bindPath) store.set(bindPath, cleanedText);
         fire("onChange", cleanedText);
       }
-    } catch (e: any) {
-      fire("onError", e?.message ?? errTranscribe);
+    } catch (e) {
+      failWith(e, errTranscribe);
     } finally {
       setBusy(false);
     }

@@ -104,7 +104,7 @@ private class Streamer(
 
       override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
         stopCapture()
-        emit("onError", mapOf("message" to (t.message ?: "stream failed")))
+        emit("onError", mapOf("code" to "network", "message" to (t.message ?: "stream failed")))
       }
 
       override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -127,7 +127,13 @@ private class Streamer(
         // it doesn't stay hot if the JS onError handler forgets to call cancel().
         "error" -> {
           stopCapture()
-          emit("onError", mapOf("message" to o.optString("message", "stream error")))
+          // The server's `code` rides with its message, so JS can tell the
+          // server's sentence from this module's own notes (each of which
+          // carries a device code). See classify() in index.ts.
+          val code = o.optString("code", "")
+          val payload = mutableMapOf<String, Any?>("message" to o.optString("message", "stream error"))
+          if (code.isNotEmpty()) payload["code"] = code
+          emit("onError", payload)
         }
       }
     } catch (_: Exception) { /* ignore malformed frames */ }
@@ -148,12 +154,12 @@ private class Streamer(
         bufSize * 2,
       )
     } catch (e: SecurityException) {
-      emit("onError", mapOf("message" to "Microphone permission denied"))
+      emit("onError", mapOf("code" to "permission", "message" to "Microphone permission denied"))
       return
     }
     if (rec.state != AudioRecord.STATE_INITIALIZED) {
       rec.release()
-      emit("onError", mapOf("message" to "Mic unavailable"))
+      emit("onError", mapOf("code" to "mic", "message" to "Mic unavailable"))
       return
     }
     record = rec

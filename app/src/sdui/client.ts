@@ -251,9 +251,14 @@ export function httpErrorText(status: number): string {
 
 /**
  * Any failure, as something a person can read. Raw detail never reaches the
- * screen from here; callers log it themselves (see logError).
+ * screen from here; callers log it themselves (see errorDetail).
+ *
+ * `fallback` is the caller's own sentence for a failure this cannot name — a
+ * native module's, the OS's, a bug's. A mic control says "Couldn't start the
+ * microphone" there rather than the generic line, and never the error's own
+ * message ("Mic start: Error Domain=NSOSStatusErrorDomain …").
  */
-export function userErrorMessage(err: unknown): string {
+export function userErrorMessage(err: unknown, fallback?: string): string {
   if (err instanceof HttpError) return err.message;
   if (err instanceof QuotaExceededError) {
     return txt("error.quota", "You've used this month's free words.");
@@ -262,7 +267,28 @@ export function userErrorMessage(err: unknown): string {
   if (err instanceof TypeError) {
     return txt("error.network", "Couldn't reach Tailzu. Check your connection and try again.");
   }
-  return txt("error.generic", "Something went wrong. Try again.");
+  return fallback ?? txt("error.generic", "Something went wrong. Try again.");
+}
+
+/**
+ * A live stream's failure (modules/tulmi-stream), as something a person can
+ * read. `message` is the server's sentence when it sent one; the rest are
+ * named by code, and anything else gets the caller's `other`.
+ */
+export function streamErrorMessage(
+  message: string,
+  code: string | undefined,
+  words: { permission: string; other: string },
+): string {
+  if (code === "permission") return words.permission;
+  // The server keeps its sign-in refusal in the keyboards' old wording, which
+  // is not for people, so this one is always said here.
+  if (code === "unauthorized") return httpErrorText(401);
+  if (message) return message;
+  if (code === "network") {
+    return txt("error.network", "Couldn't reach Tailzu. Check your connection and try again.");
+  }
+  return words.other;
 }
 
 /** The raw detail of a failure, for logs only. */
