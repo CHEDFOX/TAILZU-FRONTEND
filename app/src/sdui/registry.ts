@@ -86,6 +86,13 @@ export const CORE_COMPONENTS = [
    * way in does nothing.
    */
   "ScreenHoldTouches",
+  /**
+   * NOT A COMPONENT — a declaration that this bundle's toast, snackbar and
+   * copy fill in what they say: "@key" from the catalog's copy, "$state.x"
+   * inside a sentence, a row's own text on the clipboard. The backend sends
+   * those only to a bundle that says this.
+   */
+  "ActionText",
   // Coverflow — a deck of cards turned in depth, dragged and thrown.
   // Reels — one child per screenful, snapped vertically.
   "Coverflow", "Reels",
