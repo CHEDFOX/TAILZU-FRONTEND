@@ -220,6 +220,17 @@ public class TulmiBridgeModule: Module {
     // end, compact, and the SF Symbols) from the server's labels; the widget
     // extension reads it from the App Group, each word falling back to the one
     // it replaced. A running activity is redrawn so the change shows now.
+    // The setup Live Activity (SetupLiveActivity.swift): the server's step as
+    // JSON, or an empty string / "null" to end it. Only ever starts while the
+    // app is in front, which is when a bootstrap calls this.
+    Function("setSetupActivity") { (json: String) in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        SetupLiveActivity.shared.apply(SetupLiveActivity.state(from: json))
+      }
+      #endif
+    }
+
     Function("setFlowActivityCopy") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.flow.copy")

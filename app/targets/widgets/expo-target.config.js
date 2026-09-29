@@ -7,6 +7,8 @@
  *   • The Flow session — a Live Activity while the background microphone is
  *                        armed: ready, listening (with the words so far),
  *                        writing; Stop and End buttons.
+ *   • Setup            — a Live Activity while setup is unfinished: the step
+ *                        someone left off at, until it is done.
  *   • Dictate          — an iOS 18 Control for Control Center, the Lock
  *                        Screen and the Action Button: arms the microphone.
  *

@@ -92,6 +92,7 @@ interface TulmiBridgeNative {
   isFlowActive?(): boolean;
   setWidgetMonth?(json: string): void;
   setFlowActivityCopy?(json: string): void;
+  setSetupActivity?(json: string): void;
   setWidgetDictatePath?(path: string): void;
 }
 
@@ -400,6 +401,28 @@ export function setFlowActivityCopy(copy: FlowActivityCopy): void {
     native?.setFlowActivityCopy?.(JSON.stringify(copy ?? {}));
   } catch {
     // never let a widget stop the app
+  }
+}
+
+/** One step of setup, as the server words it (the `liveActivity.setup` flag). */
+export interface SetupActivityState {
+  done: number;
+  total: number;
+  title: string;
+  detail?: string;
+  url?: string;
+}
+
+/**
+ * Show setup's current step as a Live Activity, or end it with `null`. iOS
+ * only; a no-op without the native function (Android, Expo Go, an older
+ * binary).
+ */
+export function setSetupActivity(state: SetupActivityState | null): void {
+  try {
+    native?.setSetupActivity?.(state ? JSON.stringify(state) : "");
+  } catch {
+    // never let a Live Activity stop the app
   }
 }
 

@@ -14,8 +14,8 @@
  *     until the server sends a value.
  */
 import { Platform } from "react-native";
-import { setFlowActivityCopy, type FlowActivityCopy, type FlowArmOptions } from "../../modules/tulmi-bridge";
-import { bool, num, str, txt } from "../sdui/knobs";
+import { setFlowActivityCopy, setSetupActivity, type FlowActivityCopy, type FlowArmOptions } from "../../modules/tulmi-bridge";
+import { bool, num, obj, str, txt } from "../sdui/knobs";
 
 /** The Live Activity's words. `{n}` is filled with the count by the widget. */
 export function flowActivityCopy(): FlowActivityCopy {
@@ -41,6 +41,25 @@ export function flowActivityCopy(): FlowActivityCopy {
 export function publishFlowCopy(): void {
   if (Platform.OS !== "ios") return;
   setFlowActivityCopy(flowActivityCopy());
+}
+
+/**
+ * Setup's Live Activity, exactly as the server describes it: a step with its
+ * words while setup is unfinished (`liveActivity.setup`), nothing once it is —
+ * and nothing ends it. iOS only.
+ */
+export function publishSetupActivity(): void {
+  if (Platform.OS !== "ios") return;
+  const s = obj<Record<string, unknown>>("liveActivity.setup", {});
+  const title = typeof s.title === "string" ? s.title : "";
+  if (!title) { setSetupActivity(null); return; }
+  setSetupActivity({
+    done: Number(s.done) || 0,
+    total: Number(s.total) || 1,
+    title,
+    detail: typeof s.detail === "string" ? s.detail : "",
+    url: typeof s.url === "string" ? s.url : "tulmi://",
+  });
 }
 
 /** The Flow Session's numbers, for armFlowSession(…, flowArmOptions()). */
