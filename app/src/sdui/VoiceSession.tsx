@@ -38,7 +38,7 @@ import * as Speech from "expo-speech";
 import { AudioModule, setAudioModeAsync } from "expo-audio";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import * as api from "../api";
-import { callEndpoint } from "./client";
+import { callEndpoint, errorDetail, streamErrorMessage, userErrorMessage } from "./client";
 import type { CompProps } from "./components";
 import * as K from "./knobs";
 
@@ -134,6 +134,8 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
       r.session = null;
     };
 
+    /** End the conversation with a sentence for the person. The screen toasts
+     *  it as it stands, so it is never an error's own message. */
     const fail = (message: string) => {
       if (!r.alive) return;
       closeMic();
@@ -230,13 +232,18 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
               r.partial = "";
               heard();
             },
-            onError: (m) => fail(m || errs.current.micStopped),
+            onError: (m, failure) => fail(streamErrorMessage(m, failure.code, {
+              permission: errs.current.permission,
+              other: errs.current.micStopped,
+            })),
             onClosed: () => { r.session = null; },
           },
         );
         armSilence();
       } catch (e) {
-        fail(e instanceof Error ? e.message : errs.current.startFailed);
+        // eslint-disable-next-line no-console
+        console.warn("[VoiceSession] listen failed:", errorDetail(e));
+        fail(userErrorMessage(e, errs.current.startFailed));
       }
     }
 
@@ -287,7 +294,9 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
           onError: () => { if (r.alive) void listen(); },
         });
       } catch (e) {
-        fail(e instanceof Error ? e.message : errs.current.serverFailed);
+        // eslint-disable-next-line no-console
+        console.warn("[VoiceSession] reply failed:", errorDetail(e));
+        fail(userErrorMessage(e, errs.current.serverFailed));
       }
     }
 

@@ -87,7 +87,7 @@ private final class Streamer: NSObject {
 
   func start(urlString: String, token: String, targetApp: String, language: String) {
     guard let url = URL(string: urlString) else {
-      emit("onError", ["message": "Bad server URL"])
+      emit("onError", ["code": "url", "message": "Bad server URL"])
       return
     }
     var req = URLRequest(url: url)
@@ -150,7 +150,7 @@ private final class Streamer: NSObject {
     } catch {
       // Don't leak the tap + active audio session when the engine won't start.
       stopCapture()
-      emit("onError", ["message": "Mic start: \(error.localizedDescription)"])
+      emit("onError", ["code": "mic", "message": "Mic start: \(error.localizedDescription)"])
     }
   }
 
@@ -191,7 +191,7 @@ private final class Streamer: NSObject {
         try audio.setActive(true)
         return true
       } catch {
-        emit("onError", ["message": "Audio session: \(error.localizedDescription)"])
+        emit("onError", ["code": "mic", "message": "Audio session: \(error.localizedDescription)"])
         return false
       }
     }
@@ -274,7 +274,13 @@ private final class Streamer: NSObject {
     case "final": emit("onFinal", ["text": json["text"] as? String ?? ""])
     // "done" is the terminal marker, not a transcript — no text to insert.
     case "done": emit("onClosed", [:])
-    case "error": emit("onError", ["message": json["message"] as? String ?? "stream error"])
+    // The server's `code` goes with its message, so JS can tell the server's
+    // sentence from this module's own notes above (the "code" of each one says
+    // it came from the device). See classify() in index.ts.
+    case "error":
+      var payload: [String: Any] = ["message": json["message"] as? String ?? "stream error"]
+      if let code = json["code"] as? String, !code.isEmpty { payload["code"] = code }
+      emit("onError", payload)
     default: break
     }
   }

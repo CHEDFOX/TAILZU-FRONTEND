@@ -19,6 +19,7 @@ import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
 import * as api from "../api";
+import { errorDetail, userErrorMessage } from "./client";
 import type { CompProps } from "./components";
 import { useStoreVersion } from "./state";
 import { resolveMedia, type MediaSpec } from "../media/resolveMedia";
@@ -240,14 +241,16 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     }
   }, [recorder]);
 
+  // What a failure says. These, and the server's own sentences for a refused
+  // request (HttpError), are the ONLY words a failure shows. There used to be
+  // "Mic error: {message}" / "Voice error: {message}" templates filled with
+  // the error's own message, and that message is written for a developer:
+  // "Mic error: Error Domain=NSOSStatusErrorDomain Code=-10868" is what people
+  // read. The raw detail goes to the log instead.
   const errPermission = String(props.errorPermission ?? K.txt("ui.VoiceToggle.errorPermission", "Microphone permission denied"));
-  const errMic = String(props.errorMic ?? K.txt("ui.VoiceToggle.errorMic", "mic error"));
+  const errMic = String(props.errorMic ?? K.txt("ui.VoiceToggle.errorMic", "Couldn't start the microphone. Try again."));
   const errNoAudio = String(props.errorNoAudio ?? K.txt("ui.VoiceToggle.errorNoAudio", "No audio captured"));
-  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceToggle.errorTranscribe", "transcription failed"));
-  /** How a real error's own message is framed. {message} is the error's. */
-  const errMicTemplate = String(props.errorMicTemplate ?? K.txt("ui.VoiceToggle.errorMicTemplate", "Mic error: {message}"));
-  const errVoiceTemplate = String(props.errorVoiceTemplate ?? K.txt("ui.VoiceToggle.errorVoiceTemplate", "Voice error: {message}"));
-  const frame = (tpl: string, message: string) => tpl.replace(/\{message\}/g, message);
+  const errTranscribe = String(props.errorTranscribe ?? K.txt("ui.VoiceToggle.errorTranscribe", "Couldn't turn that into text. Try again."));
 
   const errPermissionSettings = String(
     props.errorPermissionSettings ??
@@ -287,16 +290,17 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       store.set("recording", true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       morphTo(1);
-    } catch (e: any) {
-      // Surface the REAL error (not a generic "check your connection"), and
-      // release the lock so the button isn't wedged after one failure.
+    } catch (e) {
+      // Say the mic did not start (not a generic "check your connection":
+      // nothing here touches the network), keep the real error in the log,
+      // and release the lock so the button isn't wedged after one failure.
       micRecordingActive = false;
       // eslint-disable-next-line no-console
-      console.warn("[Tailzu][mic] start failed:", e);
-      fire("onError", e?.message ? frame(errMicTemplate, String(e.message)) : errMic);
+      console.warn("[Tailzu][mic] start failed:", errorDetail(e));
+      fire("onError", errMic);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic, errMicTemplate]);
+  }, [recorder, store, fire, morphTo, errPermission, errPermissionSettings, errMicBusy, errMic]);
 
   // autoStart — the keyboard's mic handoff.
   //
@@ -327,7 +331,11 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      if (!uri) throw new Error(errNoAudio);
+      if (!uri) {
+        fire("onError", errNoAudio);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        return;
+      }
       const { cleanedText } = await api.transcribeClean(uri, { targetApp: props.targetApp, language: props.language });
       // Guard against overwriting the bound field with an empty transcript
       // (silent/short recording). Matches the RefineButton guard so the two
@@ -335,16 +343,18 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       if (bindPath && cleanedText) store.set(bindPath, cleanedText);
       fire("onChange", cleanedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } catch (e: any) {
+    } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn("[Tailzu][mic] stop/transcribe failed:", e);
-      fire("onError", e?.message ? frame(errVoiceTemplate, String(e.message)) : errTranscribe);
+      console.warn("[Tailzu][mic] stop/transcribe failed:", errorDetail(e));
+      // A refused request has the server's sentence (HttpError); anything
+      // else gets ours.
+      fire("onError", userErrorMessage(e, errTranscribe));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo, errNoAudio, errTranscribe, errVoiceTemplate]);
+  }, [recorder, store, bindPath, props.targetApp, props.language, fire, morphTo, errNoAudio, errTranscribe]);
 
   // The morph's shape: where the mark has gone, how flat it squashes, where
   // the line appears and how short it starts — ui.VoiceToggle.morph.
@@ -550,7 +560,7 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
   const label = String(props.label ?? K.txt("ui.RefineButton.label", "Refine"));
 
   const errEmpty = String(props.errorEmpty ?? K.txt("ui.RefineButton.errorEmpty", "Type or speak something first"));
-  const errFail = String(props.errorFail ?? K.txt("ui.RefineButton.errorFail", "refine failed"));
+  const errFail = String(props.errorFail ?? K.txt("ui.RefineButton.errorFail", "Couldn't refine that. Try again."));
 
   /**
    * The suction, as numbers — how small the word shrinks, how long it takes
@@ -621,8 +631,12 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
       if (bindPath && refinedText) store.set(bindPath, refinedText);
       fire("onChange", refinedText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } catch (e: any) {
-      fire("onError", e?.message ?? errFail);
+    } catch (e) {
+      // The server's sentence for a refused request, else ours; never the
+      // error's own message.
+      // eslint-disable-next-line no-console
+      console.warn("[Tailzu][refine] failed:", errorDetail(e));
+      fire("onError", userErrorMessage(e, errFail));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setWorking(false);
@@ -674,7 +688,7 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
   const H = Number(props.height) || K.num("ui.DraftButton.height", 50);
 
   const errEmpty = String(props.errorEmpty ?? K.txt("ui.DraftButton.errorEmpty", "Paste a message and say your intent"));
-  const errFail = String(props.errorFail ?? K.txt("ui.DraftButton.errorFail", "draft failed"));
+  const errFail = String(props.errorFail ?? K.txt("ui.DraftButton.errorFail", "Couldn't write a reply. Try again."));
 
   const onPress = useCallback(async () => {
     if (recording || working) return;
@@ -688,8 +702,10 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
       store.set(resultKey, draftText);
       fire("onChange", draftText);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } catch (e: any) {
-      fire("onError", e?.message ?? errFail);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[Tailzu][draft] failed:", errorDetail(e));
+      fire("onError", userErrorMessage(e, errFail));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setWorking(false);
