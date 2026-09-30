@@ -55,19 +55,6 @@ export function setBillingKey(key?: string | null): void {
 
 let activeEntitlements: Set<string> = new Set();
 
-// Entitlement-change fan-out so the UI can re-gate after a purchase / restore /
-// renewal (the RevenueCat customerInfo listener only mutates a module Set —
-// nothing re-renders without this).
-let entVersion = 0;
-const entListeners = new Set<() => void>();
-export function entitlementsVersion(): number {
-  return entVersion;
-}
-export function subscribeEntitlements(cb: () => void): () => void {
-  entListeners.add(cb);
-  return () => { entListeners.delete(cb); };
-}
-
 export function isBillingEnabled(): boolean {
   return !!KEY;
 }
@@ -102,6 +89,8 @@ function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
   ]);
 }
 
+let listening = false;
+
 export function initBilling(userId?: string): Promise<void> {
   if (!KEY) return Promise.resolve();
   if (!initPromise) {
@@ -116,10 +105,13 @@ export function initBilling(userId?: string): Promise<void> {
         // the socket and answers nothing.
         await within(refreshEntitlements(), num("billing.storeDeadlineMs", 6000));
         // The listener is what makes the deadline safe: when the store does
-        // answer, late, the entitlements land and everything that reads them
-        // re-renders. Nothing is lost by not waiting — it just arrives after
-        // the app is on screen instead of before it.
-        Purchases.addCustomerInfoUpdateListener(() => { void refreshEntitlements(); });
+        // answer, late, the entitlements land for the next read. Nothing is
+        // lost by not waiting — it just arrives after the app is on screen
+        // instead of before it. Once per process: a new key re-runs this.
+        if (!listening) {
+          listening = true;
+          Purchases.addCustomerInfoUpdateListener(() => { void refreshEntitlements(); });
+        }
       } catch {
         // Transient config failure must not permanently disable billing —
         // clear the memoized promise so the next call retries.
@@ -146,6 +138,18 @@ export async function identifyBilling(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Signed out: the store forgets whose purchases these were. Without this the
+ * next account to sign in on the phone read the previous one's entitlements,
+ * and a purchase it made was filed under the previous one's id until the app
+ * was next launched.
+ */
+export async function logOutBilling(): Promise<void> {
+  activeEntitlements = new Set();
+  if (!KEY || !initPromise) return;
+  try { await Purchases.logOut(); } catch { /* already anonymous */ }
+}
+
 async function refreshEntitlements(): Promise<void> {
   try {
     const info = await Purchases.getCustomerInfo();
@@ -153,8 +157,6 @@ async function refreshEntitlements(): Promise<void> {
   } catch {
     activeEntitlements = new Set();
   }
-  entVersion++;
-  entListeners.forEach((l) => { try { l(); } catch { /* ignore */ } });
 }
 
 export function hasEntitlement(entitlement: string): boolean {
@@ -169,14 +171,6 @@ async function pickOffering(offeringId?: string): Promise<PurchasesOffering | nu
   } catch {
     return null;
   }
-}
-
-/** Presents a package from the offering; returns true on success.
- * When packageId is provided, that specific package is offered (identifier match).
- * When omitted, the first available package is used.
- */
-export async function showPaywall(offeringId?: string, packageId?: string): Promise<boolean> {
-  return (await buyPackage(offeringId, packageId)).ok;
 }
 
 /**

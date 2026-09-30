@@ -12,6 +12,7 @@
  */
 import * as Linking from "expo-linking";
 import { list, str } from "../sdui/knobs";
+import { isScreenId } from "../security";
 
 export type LinkTarget =
   | { kind: "screen"; screenId: string; params?: Record<string, string> }
@@ -36,6 +37,11 @@ export type LinkTarget =
   | { kind: "session"; accessToken: string; refreshToken: string }
   | { kind: "unknown" };
 
+/** GoTrue's verification types. Anything else with a `token` is not auth. */
+const AUTH_TYPES = new Set([
+  "signup", "magiclink", "recovery", "invite", "email", "email_change",
+]);
+
 /**
  * Read the fragment of a URL as query parameters.
  *
@@ -43,11 +49,6 @@ export type LinkTarget =
  * Linking.parse does not look — it reads the query string. The tokens are
  * therefore invisible to every other parse in this file.
  */
-/** GoTrue's verification types. Anything else with a `token` is not auth. */
-const AUTH_TYPES = new Set([
-  "signup", "magiclink", "recovery", "invite", "email", "email_change",
-]);
-
 function hashParams(url: string): Record<string, string> {
   const at = url.indexOf("#");
   if (at < 0) return {};
@@ -92,17 +93,19 @@ export function parseLink(url: string): LinkTarget {
     const authType = q.type ?? frag.type;
     const hash = q.token_hash ?? frag.token_hash
       ?? (authType && AUTH_TYPES.has(authType) ? (q.token ?? frag.token) : undefined);
-    if (hash) return { kind: "auth", tokenHash: hash, type: authType ?? "email" };
+    if (hash) return { kind: "auth", tokenHash: hash, type: authType && AUTH_TYPES.has(authType) ? authType : "email" };
     // Already redeemed by GoTrue, which hands the session back in the fragment.
     const at = q.access_token ?? frag.access_token;
     const rt = q.refresh_token ?? frag.refresh_token;
     if (at && rt) return { kind: "session", accessToken: at, refreshToken: rt };
 
+    // A screen id as the server writes them, or nothing: a link from anywhere
+    // must not hand the renderer "../" or markup as an id.
     if (list<string>("deeplink.screenPrefixes", ["s", "screen"]).includes(parts[0])) {
       const screenId = parts[1];
-      if (screenId) return { kind: "screen", screenId, params: q };
+      if (isScreenId(screenId)) return { kind: "screen", screenId, params: q };
     }
-    if (parts[0] === str("deeplink.actionPrefix", "action") && q.kind) {
+    if (parts[0] === str("deeplink.actionPrefix", "action") && typeof q.kind === "string" && q.kind) {
       return { kind: "action", actionKind: q.kind, params: q };
     }
   } catch {

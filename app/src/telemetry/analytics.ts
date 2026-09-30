@@ -34,9 +34,11 @@ export async function initAnalytics(): Promise<void> {
 }
 
 function run(fn: (c: PostHog) => void) {
-  if (!API_KEY) return;
+  // Switched off by the server: nothing is sent, and nothing is queued for a
+  // client that will never exist (the queue grew for the life of the app).
+  if (!API_KEY || !bool("analytics.enabled", true)) return;
   if (client) fn(client);
-  else queue.push(() => client && fn(client));
+  else if (queue.length < 100) queue.push(() => client && fn(client));
 }
 
 export function trackEvent(event: string, props?: Record<string, any>): void {

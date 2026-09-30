@@ -100,11 +100,3 @@ export function resolveMedia(spec: MediaSpec | null | undefined): ResolvedMedia 
   return { kind: "empty" };
 }
 
-/** True iff the resolved spec is an SVG (needs react-native-svg instead of
- * <Image>). expo-image also handles SVG but returning this lets callers pick
- * an SVG renderer explicitly when they want animated / styled SVG output. */
-export function isSvg(resolved: ResolvedMedia): boolean {
-  if (resolved.kind !== "uri") return false;
-  if (resolved.contentType?.startsWith("image/svg")) return true;
-  return resolved.uri.endsWith(".svg") || resolved.uri.includes("image/svg+xml");
-}

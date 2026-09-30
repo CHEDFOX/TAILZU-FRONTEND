@@ -36,6 +36,11 @@ Notifications.setNotificationHandler({
 
 let lastToken: string | null = null;
 
+/** Signed out: the next account to sign in registers this phone's token as its own. */
+export function forgetPushToken(): void {
+  lastToken = null;
+}
+
 export async function registerForPushToken(): Promise<string | null> {
   try {
     const perm = await Notifications.getPermissionsAsync();

@@ -147,6 +147,9 @@ export const VoiceSession = ({ props, store, fire }: CompProps): null => {
     /** A pause long enough to mean "your turn". */
     const armSilence = () => {
       if (r.silence) clearTimeout(r.silence);
+      // A word the stream flushes after the screen has gone must not start a
+      // clock: with nothing said, this re-arms itself forever.
+      if (!r.alive) return;
       r.silence = setTimeout(() => {
         const said = `${r.committed} ${r.partial}`.replace(/\s+/g, " ").trim();
         if (!said) {

@@ -895,12 +895,13 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   // tab switch / navigation / SDUI refetch mid-dictation doesn't leak the mic
   // or the streaming WebSocket. Mirrors VoiceToggle's teardown (morphControls).
   // Idempotent: optional-chaining + `.catch` make a double-stop / not-recording
-  // unmount safe.
+  // unmount safe. CANCEL, not stop: a graceful stop still delivers onClosed,
+  // which refined the text and fired onChange into a screen that had gone.
   const recordingRef = useRef(false);
   useEffect(() => { recordingRef.current = recording; }, [recording]);
   useEffect(() => () => {
     if (recordingRef.current) {
-      live.current.session?.stop();
+      try { live.current.session?.cancel(); } catch { /* already gone */ }
       live.current.session = null;
       recorder.stop().catch(() => {});
     }

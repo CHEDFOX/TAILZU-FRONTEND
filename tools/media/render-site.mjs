@@ -68,7 +68,8 @@ imgs.forEach(({ s, buf }, i) => {
 fs.writeFileSync(path.join(site, "favicon.ico"), Buffer.concat([head, ...imgs.map((i) => i.buf)]));
 fs.rmSync(tmp, { recursive: true, force: true });
 // The card is a photograph of flat colour and type; a palette PNG holds it.
-spawnSync("python3", ["-c", `from PIL import Image; im=Image.open(${JSON.stringify(path.join(site, "og.png"))}).convert("RGB"); im.save(${JSON.stringify(path.join(site, "og.png"))}, optimize=True)`]);
+// The path goes in as an argument, never spliced into the Python source.
+spawnSync("python3", ["-c", "import sys; from PIL import Image; p = sys.argv[1]; Image.open(p).convert('RGB').save(p, optimize=True)", path.join(site, "og.png")]);
 for (const f of ["og.png", "favicon.ico", "apple-touch-icon.png", "icon-512.png"]) {
   console.log(`${f}  ${(fs.statSync(path.join(site, f)).size / 1e3).toFixed(0)} KB`);
 }

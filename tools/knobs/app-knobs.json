@@ -75,6 +75,7 @@
     "desktop.mic.transcribeFailed": "Couldn't turn that into text. Try again.",
     "desktop.notify.accessibilityBody": "Text was copied. To auto-paste, enable Tailzu under System Settings → Privacy & Security → Accessibility.",
     "desktop.notify.accessibilityTitle": "Tailzu needs Accessibility",
+    "desktop.notify.baseUrlRefused": "baseUrl must be https (or http to localhost): {url} was ignored.",
     "desktop.notify.configInvalid": "config.json is invalid JSON: {error}",
     "desktop.notify.configTitle": "Tailzu — config problem",
     "desktop.notify.segmentLost": "segment lost — still listening",
@@ -729,6 +730,7 @@
       "optionLineHeight": 21,
       "labelSize": 10.5
     },
+    "desktop.desk": false,
     "desktop.desk.refreshMs": 1500,
     "desktop.desk.settingsScreenId": "desk_settings",
     "desktop.divider.margin": 12,
@@ -860,6 +862,7 @@
     "desktop.pill.writeWidth": 124,
     "desktop.progress.height": 6,
     "desktop.progressBar.height": 3,
+    "desktop.recorder.contextChars": 600,
     "desktop.recorder.errorBodyChars": 120,
     "desktop.recorder.fftSize": 512,
     "desktop.recorder.flushSilenceMs": 1200,
@@ -871,7 +874,6 @@
       "very-casual",
       "excited"
     ],
-    "desktop.recorder.contextChars": 600,
     "desktop.recorder.meterPollMs": 120,
     "desktop.recorder.minSegmentMs": 700,
     "desktop.recorder.minSpeechMs": 400,
@@ -1279,6 +1281,7 @@
     "launchCard.maxRemembered": 40,
     "list.empty.margin": 24,
     "list.empty.opacity": 0.6,
+    "liveActivity.setup": {},
     "media.pickImageQuality": 0.8,
     "media.transitionMs": 120,
     "motion.appear.delayMs": 0,
@@ -1301,7 +1304,6 @@
     "needsLanguagePick": false,
     "net.draftPath": "/v1/draft",
     "net.healthPath": "/healthz",
-    "net.personalityPath": "/v1/personality",
     "net.profilePath": "/v1/profile",
     "net.pushRegisterPath": "/v1/push/register",
     "net.refine.llmTones": [
@@ -1328,7 +1330,6 @@
     "profile.anim.tension": 60,
     "profile.blur": 32,
     "profile.cardRadius": 26,
-    "profile.color.accent": "#F3E2C6",
     "profile.ctaDisabledOpacity": 0.4,
     "profile.genders": [
       {
@@ -1948,10 +1949,6 @@
     "ui.PieChart.size": 104,
     "ui.PieChart.startAngle": -90,
     "ui.PieChart.thickness": 14,
-    "ui.Placeholder.background": "#1c1c25",
-    "ui.Placeholder.color": "#aaa",
-    "ui.Placeholder.padding": 16,
-    "ui.Placeholder.radius": 12,
     "ui.Popover.background": "#1a1a1f",
     "ui.Popover.padding": 14,
     "ui.Popover.radius": 12,
@@ -2500,15 +2497,15 @@
     },
     "boot.firstRun": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1609"
+      "at": "app/src/sdui/SduiApp.tsx:1630"
     },
     "postLanguageScreenId": {
       "kind": "str",
-      "at": "app/src/sdui/SduiApp.tsx:1631"
+      "at": "app/src/sdui/SduiApp.tsx:1652"
     },
     "profile.complete": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1098"
+      "at": "app/src/sdui/SduiApp.tsx:1132"
     }
   }
 }

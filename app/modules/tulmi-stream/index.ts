@@ -14,7 +14,7 @@ import type { EventSubscription } from "expo-modules-core";
 export interface StreamOptions {
   /** Full ws/wss URL to /v1/transcribe-stream. */
   url: string;
-  /** User JWT (or "dev"). */
+  /** User JWT. */
   token: string;
   targetApp?: string;
   language?: string;
@@ -139,6 +139,9 @@ function classify(e: any): { message: string; failure: StreamFailure } {
   return { message, failure: { code, detail } };
 }
 
+/** The listeners of the session before this one, if it never said it closed. */
+let detachPrevious: (() => void) | null = null;
+
 /**
  * Open a live dictation session. Throws if the native module is unavailable —
  * guard with isStreamAvailable() first.
@@ -147,11 +150,18 @@ export function startStream(options: StreamOptions, handlers: StreamHandlers): L
   const mod = native;
   if (!mod) throw new Error("Live streaming module not available");
 
+  // ONE SESSION'S HANDLERS AT A TIME. The native module is a singleton and its
+  // events carry no session id, so listeners left by a session whose onClosed
+  // never came (a stop on a dead network) heard the NEXT session too — its
+  // partials delivered to a screen that had already gone.
+  detachPrevious?.();
   const subs: EventSubscription[] = [];
   const cleanup = () => {
     for (const s of subs) s.remove();
     subs.length = 0;
+    if (detachPrevious === cleanup) detachPrevious = null;
   };
+  detachPrevious = cleanup;
   const on = (name: string, fn?: (e: any) => void) => {
     if (fn) subs.push(mod.addListener(name, fn));
   };
@@ -168,7 +178,12 @@ export function startStream(options: StreamOptions, handlers: StreamHandlers): L
     cleanup();
   });
 
-  mod.start(options);
+  try {
+    mod.start(options);
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
 
   return {
     stop() {

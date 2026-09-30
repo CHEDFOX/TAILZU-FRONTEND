@@ -60,8 +60,6 @@ try {
   useVideoPlayer = v.useVideoPlayer;
 } catch { /* module absent (Expo Go) */ }
 
-export type MediaFire = (eventName: string, payload?: unknown) => void;
-
 type Props = {
   spec: MediaSpec | null | undefined;
   style?: StyleProp<ImageStyle | ViewStyle>;

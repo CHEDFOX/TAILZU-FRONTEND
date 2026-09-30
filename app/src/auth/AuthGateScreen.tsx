@@ -727,7 +727,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   useEffect(() => {
     Animated.timing(arrival, { toValue: 1, duration: num("auth.anim.arrivalMs", 900), easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
-    if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => {});
     // Someone who has asked the system for less motion gets the layout with no
     // travel, not a slower version of the same flight.
     AccessibilityInfo.isReduceMotionEnabled?.().then(setReduceMotion).catch(() => {});
@@ -984,7 +984,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const onApple = useCallback(async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      const raw = Math.random().toString(36).slice(2);
+      // The nonce is what stops a captured Apple identity token from being
+      // replayed, so it has to be unguessable: Math.random() is not.
+      const raw = Crypto.randomUUID();
       const hashed = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, raw);
       const cred = await AppleAuthentication.signInAsync({
         requestedScopes: [

@@ -14,7 +14,11 @@
  *     until the server sends a value.
  */
 import { Platform } from "react-native";
-import { setFlowActivityCopy, setSetupActivity, type FlowActivityCopy, type FlowArmOptions } from "../../modules/tulmi-bridge";
+import {
+  armFlowSession, setFlowActivityCopy, setSetupActivity, type FlowActivityCopy, type FlowArmOptions,
+} from "../../modules/tulmi-bridge";
+import { getSupabaseAccessToken } from "../auth/supabaseClient";
+import { getBaseUrl, getLanguage } from "../storage";
 import { bool, num, obj, str, txt } from "../sdui/knobs";
 
 /** The Live Activity's words. `{n}` is filled with the count by the widget. */
@@ -60,6 +64,20 @@ export function publishSetupActivity(): void {
     detail: typeof s.detail === "string" ? s.detail : "",
     url: typeof s.url === "string" ? s.url : "tulmi://",
   });
+}
+
+/**
+ * Arm the Flow session with this app's backend, token and language — the one
+ * place that does, for the shell and the `armFlowSession` action alike. No
+ * session, no token: the native side skips auth rather than sending a made-up
+ * one. The session's timings are the server's (flowArmOptions).
+ */
+export async function armFlow(
+  idleTimeoutMs = num("kb.flow.idleTimeoutMs", 600000),
+  oneShot = str("kb.flow.transport", "stream") === "oneshot",
+): Promise<void> {
+  const [base, tok, lang] = await Promise.all([getBaseUrl(), getSupabaseAccessToken(), getLanguage()]);
+  armFlowSession(base, tok ?? "", lang || "auto", idleTimeoutMs, oneShot, flowArmOptions());
 }
 
 /** The Flow Session's numbers, for armFlowSession(…, flowArmOptions()). */

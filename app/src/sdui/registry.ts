@@ -13,12 +13,14 @@
  *
  *   - registered components are listed (FlipText, ChatThread, … were drawn
  *     all along but never advertised, so the server could not rely on them);
- *   - placeholders are NOT listed (Audio, Camera, QRScanner, LottieAnimation,
- *     SwipeableRow and Tabs render a stand-in, not the thing) — they stay in
- *     the registry so an old screen still draws something, and come back here
- *     the day they are real;
+ *   - stand-ins are NOT listed (LottieAnimation, SwipeableRow and Tabs render
+ *     a stand-in, not the thing) — they stay in the registry so an old screen
+ *     still draws something, and come back here the day they are real. Audio,
+ *     Camera and QRScanner drew nothing at all and are gone: an unknown type
+ *     draws its `fallback`, which is better than nothing;
  *   - actions that do nothing (playMedia, keyboard.reload, keyboard.setLayout)
- *     are not listed either, and the implemented ones that were missing are.
+ *     are neither listed nor handled, and the implemented ones that were
+ *     missing are listed.
  */
 export const CORE_COMPONENTS = [
   // v1 primitives
@@ -131,7 +133,6 @@ export const CORE_ACTIONS = [
   "requestPermission", "checkPermission",
   // auth
   "biometricPrompt", "signOut",
-  // app-level chrome — swap the alternate app icon at runtime
   // IAP
   "iap.showPaywall", "iap.subscribe", "iap.restore", "iap.checkEntitlement",
   // notifications

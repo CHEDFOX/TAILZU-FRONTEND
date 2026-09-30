@@ -122,7 +122,7 @@ function page(siteKey: string): string {
   function render(){
     if (widget !== null || !window.turnstile) return;
     widget = window.turnstile.render('#w', {
-      sitekey: ${JSON.stringify(siteKey)},
+      sitekey: ${JSON.stringify(siteKey).replace(/</g, "\\u003c")},
       size: 'invisible',
       execution: 'execute',
       callback: function(t){ post({ id: current, token: t }); },

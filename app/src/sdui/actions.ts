@@ -32,12 +32,12 @@ import { Store } from "./state";
 import { callEndpoint, invalidateScreens, QuotaExceededError, expireBootstrap } from "./client";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
-import { buyPackage, showPaywall, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
+import { buyPackage, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken } from "../notifications/push";
-import { completeKeyboardHandoff, cancelKeyboardHandoff, armFlowSession, endFlowSession } from "../../modules/tulmi-bridge";
-import { getSupabaseAccessToken } from "../auth/supabaseClient";
-import { setLanguage, getBaseUrl, getLanguage } from "../storage";
-import { flowArmOptions } from "../widgets/flow";
+import { completeKeyboardHandoff, cancelKeyboardHandoff, endFlowSession } from "../../modules/tulmi-bridge";
+import { setLanguage } from "../storage";
+import { armFlow } from "../widgets/flow";
+import { isOpenableUrl, isWebUrl, safeFileName } from "../security";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -121,7 +121,7 @@ function elsewhere(ctx: Ctx): boolean {
     e.action
       ? [
           { text: txt("billing.elsewhere.dismiss", "Not now"), style: "cancel" },
-          { text: e.action.label, onPress: () => void Linking.openURL(e.action!.url) },
+          { text: e.action.label, onPress: () => openExternal(e.action!.url, ctx) },
         ]
       : undefined,
   );
@@ -165,6 +165,18 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
   }
   return true;
 }
+
+const linkFailed = (ctx: Ctx) => ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error");
+
+/** Hand a URL to the OS — only a scheme security.isOpenableUrl allows. */
+function openExternal(url: unknown, ctx: Ctx): void {
+  if (!isOpenableUrl(url)) { console.warn("[sdui] openUrl refused:", String(url).slice(0, 80)); linkFailed(ctx); return; }
+  Linking.openURL(url).catch(() => linkFailed(ctx));
+}
+
+/** Only files this app put in its own cache (a download, a picked file) leave it. */
+const inCache = (path: unknown): boolean =>
+  typeof path === "string" && !!FileSystem.cacheDirectory && path.startsWith(FileSystem.cacheDirectory) && !path.includes("..");
 
 function spec(ref: ActionRef, ctx: Ctx): ActionSpec | null {
   if (typeof ref === "string") return ctx.actions[ref] ?? null;
@@ -223,11 +235,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "navigateBack":
     case "dismiss": ctx.nav.back(); break;
     case "switchTab": ctx.nav.switchTab(action.tabId); break;
-    case "openUrl":
-      Linking.openURL(action.url).catch(() => ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error"));
-      break;
+    case "openUrl": openExternal(action.url, ctx); break;
     case "openInAppBrowser":
-      try { await WebBrowser.openBrowserAsync(action.url); } catch { ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error"); }
+      try {
+        if (!isWebUrl(action.url)) throw new Error("not a web page");
+        await WebBrowser.openBrowserAsync(action.url);
+      } catch { linkFailed(ctx); }
       break;
     case "openSettings": {
       const failed = () => ctx.toast(txt("toast.openSettingsFailed", "Couldn't open Settings"), "error");
@@ -384,10 +397,6 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "stopMedia":
       try { Speech.stop(); } catch { /* no-op */ }
       break;
-    case "playMedia":
-      // Real audio playback is wired via VoiceButton's /v1/speak flow; a
-      // generic playMedia action can be added when a use-case shows up.
-      break;
     case "confetti":
       // Confetti component is authored on-screen and triggered by toggling
       // state; the action is a convenience toggler for `_confetti`.
@@ -402,6 +411,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     case "shareFile":
       try {
+        if (!inCache(action.path)) throw new Error("not a file this app made");
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(action.path, { mimeType: action.mimeType });
         }
@@ -435,7 +445,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     case "download": {
       try {
-        const fileName = action.filename ?? `${str("download.filePrefix", "tulmi-")}${Date.now()}`;
+        if (!isWebUrl(action.url)) throw new Error("not a web address");
+        // A name, never a path: "../" would write outside the cache directory.
+        const fileName = safeFileName(action.filename, `${str("download.filePrefix", "tulmi-")}${Date.now()}`);
         const dest = `${FileSystem.cacheDirectory}${fileName}`;
         const res = await FileSystem.downloadAsync(action.url, dest);
         ctx.store.set("_lastDownload", res.uri);
@@ -447,6 +459,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     }
     case "saveToPhotos": {
       try {
+        if (!inCache(action.path)) throw new Error("not a file this app made");
         const perm = await MediaLibrary.requestPermissionsAsync();
         if (!perm.granted) { ctx.toast(txt("toast.photosDenied", "Photos permission denied"), "error"); break; }
         await MediaLibrary.saveToLibraryAsync(action.path);
@@ -714,14 +727,6 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       try { if (await StoreReview.hasAction()) await StoreReview.requestReview(); } catch { /* no-op */ }
       break;
 
-    // --------------------------------------------------------- keyboard bridge
-    case "keyboard.reload":
-    case "keyboard.setLayout":
-      // Bridge calls into the native tulmi-bridge module; UI updates land the
-      // next time the keyboard extension reads /v1/keyboard/config, which we
-      // cache-bump on the backend when needed.
-      break;
-
     // --------------------------------------------------------- mic handoff
     // Finish the "keyboard tapped mic → main app records → text back to
     // keyboard" round-trip. The keyboard_record screen dispatches this with
@@ -753,19 +758,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // backend-authored on the action; without one, the same kb.flow.idleTimeoutMs
     // the shell arms with (it used to fall back to 5 min here and 10 on the
     // server, so an action without the field armed a shorter session).
-    case "armFlowSession": {
-      const idleTimeoutMs = Number(action.idleTimeoutMs ?? num("kb.flow.idleTimeoutMs", 600000));
-      const [base, tok, lang] = await Promise.all([
-        getBaseUrl(),
-        getSupabaseAccessToken(),
-        getLanguage(),
-      ]);
-      // No session, no token: the native side skips auth rather than sending
-      // a made-up one. The session's timings are the server's (flowArmOptions).
-      armFlowSession(base, tok ?? "", lang || "auto", idleTimeoutMs, action.oneShot === true, flowArmOptions());
+    case "armFlowSession":
+      await armFlow(Number(action.idleTimeoutMs ?? num("kb.flow.idleTimeoutMs", 600000)), action.oneShot === true);
       await runAction(action.onSuccess, ctx);
       break;
-    }
 
     // End the background-audio Flow Session NOW — the user-facing off switch
     // for the background microphone (App Review requires the user to be able
