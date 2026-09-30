@@ -132,10 +132,31 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     private var priorText = ""
 
     /**
-     * Ask for suggestions on the word the caret is sitting in. The word comes
-     * from the InputConnection rather than from a buffer we keep ourselves —
-     * the user can move the caret, paste, or have the field edited under us,
-     * and a local buffer would drift out of step with all three.
+     * The word the caret is in, as far as this keyboard typed it, or null when
+     * that is not known.
+     *
+     * Asking the editor for it is a blocking call into the app being typed
+     * in, and it came after every letter, right when that app is busiest
+     * drawing the letter just sent; auto-cap made a second one. Two stalls a
+     * letter on the thread that also takes the next touch was the Android lag.
+     * So a letter now extends the word here, and the editor is asked only when
+     * this is null: after a caret move, a paste, a delete, a field change, or
+     * any text this keyboard did not type (see onUpdateSelection, which
+     * accounts for every caret move and nulls this on any it did not cause).
+     */
+    private var caretWord: String? = null
+
+    /** Characters committed at the caret whose onUpdateSelection has not
+     *  arrived yet. A forward move within this many is ours. */
+    private var unseenInserted = 0
+
+    /** The last text committed by a key was one letter or digit: the next
+     *  character is not a sentence start, and the editor need not be asked. */
+    private var lastInsertWasLetter = false
+
+    /**
+     * Ask for suggestions on the word the caret is sitting in: the tracked
+     * word when there is one, else the editor's, which is then tracked.
      */
     private fun suggestForCaretWord() {
         // The spell-check reply feeds TWO things: the bar's suggestions and
@@ -148,8 +169,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // the clear and the system spell checker would be sent it.
         if (kbState.secured) { corrections?.clear(); return }
         val ic = currentInputConnection ?: return
-        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
-        val word = before.takeLastWhile { !it.isWhitespace() }
+        val word = caretWord ?: run {
+            val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return
+            before.takeLastWhile { !it.isWhitespace() }
+        }
+        caretWord = word
         suggestedLength = word.length
         corrections?.suggest(word)
     }
@@ -256,7 +280,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     private var boundaryPending = false
 
-    override fun onTextInserted() {
+    override fun onTextInserted(text: String) {
+        // What the editor now holds before the caret is what it held plus
+        // [text], so the word there follows from both: whatever comes after
+        // the last space in [text], or the old word with [text] on the end.
+        val cut = text.indexOfLast { it.isWhitespace() }
+        caretWord = (if (cut >= 0) text.substring(cut + 1) else caretWord?.plus(text))?.takeLast(48)
+        unseenInserted += text.length
+        lastInsertWasLetter = text.length == 1 && text[0].isLetterOrDigit()
         pendingAutoSpace = false
         // A new word starts: swipe alternates no longer apply to anything.
         if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
@@ -273,6 +304,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     override fun onTextDeleted() {
+        // How much went is not said (a letter, a selection, a word): ask.
+        caretWord = null
+        lastInsertWasLetter = false
         pendingAutoSpace = false
         if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
         lastCorrection = null
@@ -1682,6 +1716,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun onFinishInput() {
         super.onFinishInput()
+        caretWord = null
+        unseenInserted = 0
+        lastInsertWasLetter = false
         // Leaving a field clears the secure flag. The next onStartInputView
         // sets it correctly anyway; this makes the SAFE value the resting one,
         // so no path can leave the keyboard believing a password box is still
@@ -1742,6 +1779,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         caretAt = info?.initialSelStart ?: -1
+        caretWord = null
+        unseenInserted = 0
+        lastInsertWasLetter = false
         // The app may have signed in / out, or edited the dictionary, since the
         // view was built: both are cheap in-memory preference reads.
         Net.load(this)
@@ -1792,7 +1832,16 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         caretAt = newSelStart
-        refreshAutoCap()
+        // A collapsed caret moving forward by no more than this keyboard just
+        // typed is its own insert arriving. Anything else — a tap elsewhere, a
+        // selection, a delete, the app clearing the field after a send — means
+        // the tracked word may be wrong, so it is dropped and re-read once.
+        val moved = newSelStart - oldSelStart
+        val ours = newSelStart == newSelEnd && oldSelStart == oldSelEnd && moved in 1..unseenInserted
+        if (ours) unseenInserted -= moved else { unseenInserted = 0; caretWord = null; lastInsertWasLetter = false }
+        // After a letter or digit no editor reports a sentence start, so the
+        // answer is known without asking it (as on iOS).
+        if (ours && lastInsertWasLetter) applyAutoCap(false) else refreshAutoCap()
     }
 
     /** The caret as the editor last reported it; -1 until it has. */
@@ -1801,6 +1850,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     override fun caretPosition(): Int = caretAt
 
     override fun onCaretMoved() {
+        caretWord = null
+        lastInsertWasLetter = false
         if (lastSwipe != null) { lastSwipe = null; kbState.suggestionKind = "" }
         lastCorrection = null
         suggestForCaretWord()
@@ -1820,7 +1871,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo ?: return
         val capMode = ic.getCursorCapsMode(info.inputType) and android.text.TextUtils.CAP_MODE_SENTENCES
-        val shouldCap = capMode != 0
+        applyAutoCap(capMode != 0)
+    }
+
+    private fun applyAutoCap(shouldCap: Boolean) {
+        if (!knobBool("kb.autoCap.enabled", true) || kbState.capsLock) return
         if (caps != shouldCap) {
             caps = shouldCap
             keyboard?.isShifted = caps
