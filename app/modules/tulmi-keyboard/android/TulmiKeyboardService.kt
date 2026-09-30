@@ -14,8 +14,6 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.ExtractedTextRequest
@@ -82,12 +80,6 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     // into kbState.micLevel for whatever SDUI nodes bind to it.
     private var micLevelTimer: Runnable? = null
     private var smoothedLevel: Float = 0f
-
-    // Long-press-to-cursor on the space bar. Ticks a follow-up gesture that
-    // interprets ACTION_MOVE dx as InputConnection.setSelection() displacement.
-    private var spaceDragging = false
-    private var spaceDragAnchorX = 0f
-    private var spaceDragAnchorSel = 0
 
     // Live (streaming) dictation state. Used when the server enables
     // features.liveVoice; otherwise we fall back to the file-based path.
@@ -1215,7 +1207,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         uploadContext = if (contextChars == 0) "" else
             (currentInputConnection?.getTextBeforeCursor(contextChars, 0)?.toString() ?: "").trim()
         try {
-            val file = File(cacheDir, "tulmi_rec.m4a")
+            // A file per recording: a quick restart records while the last one
+            // is still being stopped and uploaded (stopAndTranscribe), and one
+            // shared path let the two overwrite each other. Claimed at once so a
+            // failed start's cleanupRecorder removes it.
+            val file = File.createTempFile("tulmi_rec", ".m4a", cacheDir)
+            audioFile = file
             val rec = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(this) else @Suppress("DEPRECATION") MediaRecorder()
             // VOICE_COMMUNICATION activates the OS voice-processing pipeline
             // (AEC + NS + AGC where the vendor implements it) — matches the
@@ -1242,7 +1239,6 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             audioFx = if (processed) TulmiAudioFx.attach(audioSessionId = 0) else null
             holdAudioFocus()
             recorder = rec
-            audioFile = file
             recording = true
             kbState.dictating = true
             sduiRenderer?.stateChanged()
@@ -1332,6 +1328,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 }
             } catch (e: Exception) {
                 main.post { setStatus(statusForError(e), blocking = isAuthError(e)) }
+            } finally {
+                // What was said stays on the phone no longer than it takes to send.
+                file.delete()
             }
         }.start()
     }
@@ -1360,6 +1359,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         } catch (_: Exception) {
         }
         recorder = null
+        // An abandoned recording is not kept (an uploading one was detached
+        // from audioFile by stopAndTranscribe, which deletes it itself).
+        audioFile?.delete()
+        audioFile = null
         try { audioFx?.close() } catch (_: Throwable) {}
         audioFx = null
         releaseAudioFocus()
@@ -1922,79 +1925,6 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
 
         sduiRenderer?.stateChanged()
-    }
-
-    // ---------------------------------------------------------------------
-    // Gesture layer. Space cursor-drag and accent menus for the legacy
-    // keyboard. (Backspace hold-to-repeat lives in the renderer, on the key
-    // itself, tuned by kb.delete.*.)
-    // ---------------------------------------------------------------------
-
-    /**
-     * Attach space long-press → cursor drag. During the drag the space
-     * key stops being a space key; ACTION_MOVE dx translates to selection
-     * displacement one character per ~14dp (matches iOS trackpad tuning).
-     */
-    fun bindSpaceCursorDrag(view: View) {
-        val threshold = view.resources.displayMetrics.density * 14f
-        view.setOnLongClickListener { v ->
-            spaceDragging = true
-            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            val ic = currentInputConnection
-            val before = ic?.getTextBeforeCursor(1_000_000, 0)?.length ?: 0
-            spaceDragAnchorSel = before
-            true
-        }
-        view.setOnTouchListener { v, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    spaceDragAnchorX = ev.rawX
-                    false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (spaceDragging) {
-                        val dx = ev.rawX - spaceDragAnchorX
-                        val delta = (dx / threshold).toInt()
-                        val target = (spaceDragAnchorSel + delta).coerceAtLeast(0)
-                        currentInputConnection?.setSelection(target, target)
-                        true
-                    } else false
-                }
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    val wasDragging = spaceDragging
-                    spaceDragging = false
-                    if (wasDragging) true else { v.performClick(); false }
-                }
-                else -> false
-            }
-        }
-    }
-
-    /**
-     * Attach long-press accent menu to a letter view. [accents] comes from
-     * the backend config (kb.accents[char]) so which accents show up for
-     * each key is a server-side decision; the keyboard never hardcodes a
-     * mapping. Empty accent list = no menu.
-     */
-    fun bindAccentLongPress(view: TextView, char: Char) {
-        val accents = kbConfig?.accents?.get(char.lowercase()) ?: return
-        if (accents.isEmpty()) return
-        view.setOnLongClickListener { v ->
-            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            val popup = PopupMenu(this, v)
-            accents.forEachIndexed { i, glyph ->
-                popup.menu.add(0, i, i, glyph.toString())
-            }
-            popup.setOnMenuItemClickListener { item ->
-                val glyph = accents.getOrNull(item.itemId) ?: return@setOnMenuItemClickListener false
-                val out = if (caps) glyph.uppercaseChar() else glyph
-                currentInputConnection?.commitText(out.toString(), 1)
-                true
-            }
-            popup.show()
-            true
-        }
     }
 
     // --- unused OnKeyboardActionListener members ----------------------------

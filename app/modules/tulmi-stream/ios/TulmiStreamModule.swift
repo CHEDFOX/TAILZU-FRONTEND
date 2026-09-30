@@ -133,12 +133,22 @@ private final class Streamer: NSObject {
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
     setTask(nil)
+    // A URLSession lives until invalidated, and each start makes a Streamer
+    // (and a session). Nothing opens a task on a streamer after cancel.
+    session.invalidateAndCancel()
   }
 
   private func startCapture() {
     if !activateSession() { return }
     let input = engine.inputNode
     let inputFormat = input.outputFormat(forBus: 0)
+    // 0 Hz / 0 channels means no input route; installTap would raise an
+    // Objective-C exception on it and take the app down.
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+      stopCapture()
+      emit("onError", ["code": "mic", "message": "Mic unavailable"])
+      return
+    }
     setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
     input.installTap(onBus: 0, bufferSize: 2048, format: inputFormat) { [weak self] buffer, _ in
       self?.sendBuffer(buffer, inputFormat: inputFormat)

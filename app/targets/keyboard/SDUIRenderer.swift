@@ -6793,7 +6793,8 @@ final class SDUIRenderer: NSObject {
   /// node type covers headers, status lines, hints, etc.
   private func buildTextLabel(node: KBNode) -> UIView {
     let l = UILabel()
-    l.numberOfLines = Int(node.props?["numberOfLines"]?.asDouble ?? 1)
+    // clampInt: a huge value from the tree would trap Int(_:) and crash.
+    l.numberOfLines = clampInt(node.props?["numberOfLines"]?.asDouble ?? 1, 0, 1000)
     let literal = node.props?["text"]?.asString
     if let bound = node.bind?["text"], let val = stateValue(for: bound) {
       l.text = val
@@ -8205,7 +8206,9 @@ final class SDUIRenderer: NSObject {
   private func callEndpoint(method: String, path: String, body: KBJSON?,
                             assignTo: String?, onSuccess: KBActionRef?, onError: KBActionRef?) {
     let base = TulmiBackend.baseUrl
-    guard let url = URL(string: base + path) else { return }
+    // A path, never a host: "@elsewhere.com/x" appended to the base URL would
+    // turn the base into userinfo and send the request to another server.
+    guard path.hasPrefix("/"), let url = URL(string: base + path) else { return }
     // Backend flag: kb.network.timeoutMs (default 15000) — request timeout for
     // callEndpoint invocations. Default was iOS's implicit 60s which is way
     // too long on a bad network.
@@ -8245,6 +8248,9 @@ final class SDUIRenderer: NSObject {
       entry["props"] = props2
     }
     log.append(entry)
+    // Nothing in the app drains this list yet, and every App Group read loads
+    // the whole store: keep only the newest entries.
+    if log.count > 100 { log.removeFirst(log.count - 100) }
     d?.set(log, forKey: "tulmi.analytics.pending")
   }
 

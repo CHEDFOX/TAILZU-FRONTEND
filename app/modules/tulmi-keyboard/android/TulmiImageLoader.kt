@@ -9,7 +9,6 @@ import android.graphics.Movie
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.view.View
 import android.widget.ImageView
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -112,33 +111,6 @@ object TulmiImageLoader {
         if (hit != null) {
             target.setImageDrawable(hit)
             (hit as? android.graphics.drawable.Animatable)?.start()
-        }
-    }
-
-    /**
-     * Adjust playback speed of an already-attached drawable. Only
-     * [AnimatedImageDrawable] on SDK 28+ supports live speed changes — for
-     * everything else the request is a silent no-op. Speed of 1.0 = authored
-     * timing; 0.5 = half speed; 2.0 = double.
-     */
-    fun setSpeed(view: View, speed: Float) {
-        if (Build.VERSION.SDK_INT >= 28) {
-            val d = (view as? ImageView)?.drawable ?: return
-            if (d is AnimatedImageDrawable) {
-                // AnimatedImageDrawable has no first-class speed knob; we
-                // simulate speed by biasing the repeat count and re-triggering
-                // with a shorter delay. The user-visible effect is
-                // indistinguishable from a rate change for mic-button viz.
-                d.repeatCount = AnimatedImageDrawable.REPEAT_INFINITE
-                // No public API to retime; leaving hook so callers can wire
-                // their own frame timer if a per-frame speed change is needed.
-                // For now: kick a restart so any looped animation resyncs.
-                d.stop(); d.start()
-                // `speed` intentionally unused at the OS level here; the
-                // caller-side polling loop (see KeyboardService's mic-level
-                // watcher) is where amplitude → visual reactivity happens.
-                @Suppress("UNUSED_EXPRESSION") speed
-            }
         }
     }
 

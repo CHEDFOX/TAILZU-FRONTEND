@@ -87,7 +87,12 @@ final class TulmiFlow: NSObject {
     d?.removeObject(forKey: "tulmi.flow.heartbeat")
   }
 
-  func startDictation() { post(TulmiFlow.nStart) }
+  /// The stamp is what the app checks before it streams anything: a Darwin
+  /// name alone can be posted by any app (FlowSessionManager.beginDictation).
+  func startDictation() {
+    store?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.flow.startAt")
+    post(TulmiFlow.nStart)
+  }
   func stopDictation() { post(TulmiFlow.nStop) }
 
   private func post(_ name: String) {
