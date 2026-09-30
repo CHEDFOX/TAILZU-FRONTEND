@@ -19,9 +19,9 @@ import {
 import * as Updates from "expo-updates";
 import { publishWidgetMonth } from "../widgets/month";
 import {
-  bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, invalidateScreens, prefetchScreens,
-  refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, callEndpoint, APP_VERSION,
-  bootstrapIsFresh, userErrorMessage, errorDetail, primeKnobsFromDisk,
+  bootstrap, peekBootstrap, hydrateScreenCache, fetchScreen, peekScreen, prefetchScreens,
+  refreshCachedScreens, reportUpdateCheck, syncKeyboardCredentials, forgetAccountData, callEndpoint, APP_VERSION,
+  bootstrapIsFresh, userErrorMessage, errorDetail, primeKnobsFromDisk, LAST_BOOT_NOTE,
 } from "./client";
 import {
   TabThreadIcon, SettingsLines, ThreadRail, THREAD_RAIL_HEIGHT,
@@ -39,7 +39,10 @@ import { setKnobs, txt, num, bool, str, color, obj, list } from "./knobs";
 import * as Notifications from "expo-notifications";
 import OfflineScreen from "./OfflineScreen";
 import { hasSeenCard, markCardSeen } from "./launchCard";
-import { DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall, getPushAsked, setPushAsked, setOnboarded } from "../storage";
+import {
+  DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall,
+  getPushAsked, setPushAsked, getOnboarded, setOnboarded, getLastBoot, setLastBoot,
+} from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
@@ -47,22 +50,21 @@ import AuthGateScreen from "../auth/AuthGateScreen";
 import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
 import ProfileGate from "../onboarding/ProfileGate";
 import {
-  getKeyboardStatus,
   consumeKeyboardDeepLink,
   writeAppWarmHeartbeat,
   consumeKeyboardRecordRequest,
-  armFlowSession,
   endFlowSession,
 } from "../../modules/tulmi-bridge";
 import { supabaseAuth, getSupabaseAccessToken } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
-import { initAnalytics } from "../telemetry/analytics";
+import { initAnalytics, resetAnalytics } from "../telemetry/analytics";
 import { initSentry } from "../telemetry/sentry";
-import { initBilling, identifyBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
-import { registerForPushToken, addNotificationResponseListener } from "../notifications/push";
+import { initBilling, identifyBilling, logOutBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
+import { registerForPushToken, addNotificationResponseListener, forgetPushToken } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
-import { flowArmOptions } from "../widgets/flow";
+import { armFlow } from "../widgets/flow";
+import { isOpenableUrl, isScreenId } from "../security";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
@@ -385,6 +387,9 @@ export default function SduiApp() {
   // Set once nav/boot exist (effect below). Lets the mount-once link listener
   // dispatch `{kind:"action"}` deep links without capturing a stale nav/flags.
   const runLinkActionRef = useRef<(kind: string, params?: Record<string, string>) => void>(() => {});
+  // Likewise the keyboard-entry consumer, for a mic-screen link that arrives
+  // while the app is already in front.
+  const consumeKbRef = useRef<() => void>(() => {});
 
   // One-time boot: crash reporting, analytics, IAP, push token, deep links.
   // Each init is a silent no-op when its env key is unset, so the same binary
@@ -400,6 +405,18 @@ export default function SduiApp() {
     writeAppWarmHeartbeat();
     const linkSub = installLinkListener((target) => {
       if (target.kind === "screen") {
+        // A MIC SCREEN IS NOT A LINK TARGET. flow_arm arms the background
+        // microphone the moment it appears (keyboard_record and the primer
+        // start a recording), and any web page can open tulmi://. The keyboard
+        // and the Dictate control open these screens with an App-Group
+        // tombstone beside the URL — which only this app's own extensions can
+        // write — and the tombstone is what routes and arms
+        // (consumeKeyboardEntry), on the cold start or the foreground that
+        // follows. Already in front, no foreground is coming: consume it here.
+        if (transientScreenIds().includes(target.screenId)) {
+          if (readyRef.current && AppState.currentState === "active") consumeKbRef.current();
+          return;
+        }
         const item: NavItem = { screenId: target.screenId, params: target.params };
         // Hot link (app already booted) → navigate now. Cold link (arrived
         // mid-boot) → stash; the cold-entry effect applies it after the first
@@ -418,8 +435,18 @@ export default function SduiApp() {
         //
         // Redeeming it lands a session exactly as typing the code would, and
         // the auth gate is watching for one, so the app simply proceeds.
+        //
+        // ONLY WHILE NOBODY IS SIGNED IN. Any web page can open a tulmi://
+        // link, and one carrying a session (or a token hash) minted for the
+        // ATTACKER's account would otherwise swap it in silently — everything
+        // the victim dictates from then on lands where the attacker reads it.
+        // Someone already signed in has no mailed link to redeem.
         void (async () => {
           try {
+            if ((await supabaseAuth.getSession()).data.session) {
+              console.warn("[auth] sign-in link ignored: already signed in");
+              return;
+            }
             const { error } = target.kind === "auth"
               ? await supabaseAuth.verifyLinkToken(target.tokenHash, target.type)
               : await supabaseAuth.setSession(target.accessToken, target.refreshToken);
@@ -433,7 +460,7 @@ export default function SduiApp() {
       }
     });
     const notifSub = addNotificationResponseListener((data) => {
-      if (!data?.screenId) return;
+      if (!isScreenId(data?.screenId)) return;
       const item: NavItem = { screenId: String(data.screenId), params: data };
       if (readyRef.current) setStack([item]);
       else pendingLinkRef.current = item;
@@ -441,9 +468,13 @@ export default function SduiApp() {
     return () => { linkSub(); notifSub.remove(); };
   }, []);
 
+  // One timer for the one toast: a second toast used to be cleared early by
+  // the first one's timer.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((message: string, tone?: string) => {
     setToast({ message, tone });
-    setTimeout(() => setToast(null), num("app.toastMs", 2800));
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), num("app.toastMs", 2800));
   }, []);
 
   const loadBoot = useCallback(async (opts?: { quiet?: boolean }) => {
@@ -821,11 +852,33 @@ export default function SduiApp() {
       // copy goes stale ~1h after the last app open and every dictation 401s.
       // Supabase's autoRefreshToken fires TOKEN_REFRESHED before expiry; this
       // handler forwards each refresh straight to the keyboard.
-      const { data: { subscription } } = supabaseAuth.onAuthStateChange((_e, s) => {
+      const { data: { subscription } } = supabaseAuth.onAuthStateChange((e, s) => {
         // Signed out (or the account deleted): the background microphone goes
-        // with the session — nothing may stay armed for nobody.
-        if (!s && SUPABASE_CONFIGURED) { endFlowSession(); setPhase("auth"); return; }
+        // with the session — nothing may stay armed for nobody — and so does
+        // everything else the account left on the phone.
+        if (!s && SUPABASE_CONFIGURED) {
+          endFlowSession();
+          void forgetAccountData();
+          resetAnalytics();
+          void logOutBilling();
+          forgetPushToken();
+          // The name card belongs to the account: whoever signs in next is
+          // asked by their own server answer, not by the last one's.
+          profileJustDone.current = false;
+          // Nor may their last screen be what the next account sees first.
+          setStack([]);
+          setScreen(null);
+          setPhase("auth");
+          return;
+        }
         if (s) void syncKeyboardCredentials();
+        // A sign-in inside this launch (the gate, or after a sign-out) is a
+        // new owner for the store's purchases and this phone's push token;
+        // both were only ever claimed at launch.
+        if (s && e === "SIGNED_IN") {
+          void identifyBilling(s.user.id);
+          void registerForPushToken();
+        }
       });
       unsub = () => subscription.unsubscribe();
     })();
@@ -1060,25 +1113,6 @@ export default function SduiApp() {
   // "arm" tombstone is never consumed, armFlowSession never runs, the session
   // never arms, and the keyboard mic just re-opens the app forever.
   /**
-   * Turn the background mic on. Lifted out of the flow_arm branch so a request
-   * held back through first run can still arm when it is finally replayed —
-   * arming and routing have to travel together or the screen appears over a
-   * mic that was never turned on.
-   */
-  const armFlow = useCallback(() => {
-    void (async () => {
-      const [base, tok, lang] = await Promise.all([
-        getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-      ]);
-      const idle = num("kb.flow.idleTimeoutMs", 600000);
-      const oneShot = str("kb.flow.transport", "stream") === "oneshot";
-      // No session, no token: the native side skips auth rather than sending
-      // a made-up one.
-      armFlowSession(base, tok ?? "", lang || "auto", idle, oneShot, flowArmOptions());
-    })();
-  }, []);
-
-  /**
    * WHAT THE APP STILL OWES, before anything the keyboard asks for may open.
    *
    * Two gates, and both must be past. The setup steps are read from the screen
@@ -1172,12 +1206,14 @@ export default function SduiApp() {
         // mic on. Arm it deterministically (idle window backend-tunable via
         // kb.flow.idleTimeoutMs) AND route to the backend-authored "swipe back"
         // arming screen (whose onAppear re-arms too — arm() is idempotent).
-        armFlow();
+        // Arming and routing travel together, or the screen appears over a mic
+        // that was never turned on.
+        void armFlow();
         kbRoutedRef.current = true;
         setStack([{ screenId: flowArmScreenId }]);
         return "navigated";
       }
-      if (screenId && !list<string>("kb.micOnlyScreenIds", ["keyboard_record", "keyboard_primer"]).includes(screenId)) {
+      if (isScreenId(screenId) && !list<string>("kb.micOnlyScreenIds", ["keyboard_record", "keyboard_primer"]).includes(screenId)) {
         // keyboard_record / keyboard_primer are mic-tap-only (owned by the
         // record-request path above); a leftover deep-link to them is stale.
         kbRoutedRef.current = true;
@@ -1186,7 +1222,9 @@ export default function SduiApp() {
       }
     }
     return "none";
-  }, [firstRunOwed, armFlow, overFreeLimit]);
+  }, [firstRunOwed, overFreeLimit]);
+
+  useEffect(() => { consumeKbRef.current = () => { consumeKeyboardEntry(); }; }, [consumeKeyboardEntry]);
 
   // Cold-start keyboard entry — runs ONCE, the first time we reach "ready". The
   // AppState listener below only fires on a background→foreground transition, so
@@ -1231,15 +1269,9 @@ export default function SduiApp() {
   // explained (onboarding, the arming screen); this only reads it.
   const armIfAllowed = useCallback(async () => {
     if (!bool("kb.flow.armOnForeground", false)) return;
-    const [base, tok, lang] = await Promise.all([
-      getBaseUrl(), getSupabaseAccessToken(), getLanguage(),
-    ]);
-    if (!tok) return;
-    const signals = await refreshDeviceSignalsBounded();
-    if (!signals.micGranted) return;
-    const idle = num("kb.flow.idleTimeoutMs", 600000);
-    const oneShot = str("kb.flow.transport", "stream") === "oneshot";
-    armFlowSession(base, tok, lang || "auto", idle, oneShot, flowArmOptions());
+    if (!(await getSupabaseAccessToken())) return;
+    if (!(await refreshDeviceSignalsBounded()).micGranted) return;
+    await armFlow();
   }, []);
 
   useEffect(() => {
@@ -1326,8 +1358,8 @@ export default function SduiApp() {
       (async () => {
         try {
           const b = await bootstrap();
-      // Register any typeface the backend supplied. Never awaited: the first
-      // screens draw in the system font and re-render when a face lands.
+          // Register any typeface the backend supplied. Never awaited: the first
+          // screens draw in the system font and re-render when a face lands.
           loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
           // Before setBoot, always: a media upload only reaches the resolver
           // through one of these refreshes, and a component that re-renders
@@ -1471,12 +1503,9 @@ export default function SduiApp() {
   // through. Diagnostic only; nothing branches on it.
   useEffect(() => {
     void (async () => {
-      try {
-        const { getLastBoot, setLastBoot } = require("../storage");
-        const { LAST_BOOT_NOTE } = require("./client");
-        LAST_BOOT_NOTE.value = (await getLastBoot()) ?? "none";
-        await setLastBoot("started");
-      } catch { /* diagnostics must never break a boot */ }
+      // Both never throw: diagnostics must never break a boot.
+      LAST_BOOT_NOTE.value = (await getLastBoot()) ?? "none";
+      await setLastBoot("started");
     })();
   }, []);
 
@@ -1484,14 +1513,11 @@ export default function SduiApp() {
   // healthy launch has a screen, and while a stuck one is still stuck.
   useEffect(() => {
     const t = setTimeout(() => {
-      try {
-        const { setLastBoot } = require("../storage");
-        void setLastBoot(
-          `phase=${phase} boot=${boot ? 1 : 0} screen=${screen ? 1 : 0}` +
-          ` err=${screenError ? 1 : 0} stack=${stack.length}` +
-          ` kbWants=${kbWantedRef.current ? 1 : 0} kbRouted=${kbRoutedRef.current ? 1 : 0}`,
-        );
-      } catch { /* diagnostics must never break a boot */ }
+      void setLastBoot(
+        `phase=${phase} boot=${boot ? 1 : 0} screen=${screen ? 1 : 0}` +
+        ` err=${screenError ? 1 : 0} stack=${stack.length}` +
+        ` kbWants=${kbWantedRef.current ? 1 : 0} kbRouted=${kbRoutedRef.current ? 1 : 0}`,
+      );
     }, num("app.boot.breadcrumbMs", 6000));
     return () => clearTimeout(t);
   }, [phase, boot, screen, screenError, stack.length]);
@@ -1502,13 +1528,8 @@ export default function SduiApp() {
   // resolves — a second pass there would drop the splash early.
   const onboardedRef = useRef(false);
   useEffect(() => {
-    void (async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { getOnboarded } = require("../storage");
-        onboardedRef.current = await getOnboarded();
-      } catch { /* treat an unreadable flag as a first run — it only costs a wait */ }
-    })();
+    // An unreadable flag is treated as a first run — it only costs a wait.
+    getOnboarded().then((v) => { onboardedRef.current = v; }).catch(() => {});
   }, []);
 
   // ONBOARDING IS DONE WHEN THE USER IS STANDING ON THE TABS.
@@ -1648,7 +1669,8 @@ export default function SduiApp() {
       // else is ignored (never dispatched) so a crafted link can't run arbitrary
       // actions or crash the app.
       if (!deepLinkActionAllowed(kind)) return;
-      const action = { kind, ...(params ?? {}) } as unknown as ActionSpec;
+      // `kind` last: a query parameter must not be able to name another one.
+      const action = { ...(params ?? {}), kind } as unknown as ActionSpec;
       void runAction(action, {
         store: new Store({}),
         actions: {},
@@ -1766,6 +1788,7 @@ export default function SduiApp() {
   // Header only. A tab root that wants its art at the top of the window still
   // needs its tabs — see hideHeader in types.
   const hideHeader = hideChrome || shown?.hideHeader === true;
+  const profileGateUp = !profileDone && shouldShowProfileGate(current?.screenId);
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
@@ -2010,7 +2033,7 @@ export default function SduiApp() {
           until name + gender are set. Backend decides which screens the
           gate can appear on via flags["profileGate.screenIds"]; falls
           back to "home" only for backward-compat with old bootstrap. */}
-      {!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags) && (
+      {profileGateUp && (
         <ProfileGate
           onDone={() => {
             profileJustDone.current = true;
@@ -2022,7 +2045,7 @@ export default function SduiApp() {
             const next = pendingKbRef.current;
             pendingKbRef.current = null;
             if (next) {
-              if (next.arm) armFlow();
+              if (next.arm) void armFlow();
               setStack([{ screenId: next.screenId, params: next.params }]);
             }
           }}
@@ -2035,8 +2058,7 @@ export default function SduiApp() {
           Everything above it is something the user must deal with — signing
           in, an update, the name they still owe us — and an announcement that
           talks over any of those is an announcement nobody reads. */}
-      {launchCard && !updateForced && !updateOptional
-        && !(!profileDone && shouldShowProfileGate(current?.screenId, boot?.flags)) && (
+      {launchCard && !updateForced && !updateOptional && !profileGateUp && (
         <LaunchCardOverlay
           card={launchCard}
           theme={theme}
@@ -2127,21 +2149,17 @@ function LaunchCardOverlay({
   );
 }
 
-/** Compare dotted versions: returns <0, 0, >0. */
 /**
  * Whether the ProfileGate overlay should render given the current screen.
  * Backend controls via `flags["profileGate.screenIds"]` (array of screen
  * ids). When unset, falls back to only "home" so old backends still work.
- * (`flags` is kept for the callers; the knob reads the same bootstrap.)
  */
-function shouldShowProfileGate(
-  currentScreenId: string | undefined,
-  _flags?: Record<string, unknown> | undefined,
-): boolean {
+function shouldShowProfileGate(currentScreenId: string | undefined): boolean {
   if (!currentScreenId) return false;
   return list<string>("profileGate.screenIds", ["home"]).includes(currentScreenId);
 }
 
+/** Compare dotted versions: returns <0, 0, >0. */
 function cmpVersion(a: string, b: string): number {
   const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
   const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
@@ -2179,7 +2197,7 @@ function UpdateGateOverlay({
         {info.message ?? txt("updateGate.message", "A new version is available.")}
       </Text>
       <Pressable
-        onPress={() => storeUrl && Linking.openURL(storeUrl)}
+        onPress={() => { if (isOpenableUrl(storeUrl)) Linking.openURL(storeUrl).catch(() => {}); }}
         accessibilityRole="button"
         style={{ backgroundColor: theme.color.primary, borderRadius: theme.radius.md, paddingVertical: 14, paddingHorizontal: 28, minWidth: num("app.updateGate.buttonMinWidth", 200), alignItems: "center" }}
       >
@@ -2282,10 +2300,7 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   );
 
   useEffect(() => {
-    getBaseUrl().then((u) => {
-      setUrl(u);
-      setLoaded(true);
-    });
+    getBaseUrl().then(setUrl).catch(() => {}).finally(() => setLoaded(true));
   }, []);
 
   async function test() {
@@ -2301,8 +2316,12 @@ function ConnectionScreen({ onDone, onCancel }: { onDone: () => void; onCancel?:
   }
 
   async function connect() {
-    await setBaseUrl(url);
-    onDone();
+    try {
+      await setBaseUrl(url);
+      onDone();
+    } catch (e) {
+      setStatus(txt("dev.connection.failed", "Cannot reach backend: {detail}", { detail: errorDetail(e) }));
+    }
   }
 
   // Apple 3.1.1 requires an always-accessible restore path independent of the

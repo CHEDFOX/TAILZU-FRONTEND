@@ -18,7 +18,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated, Easing, Modal as RNModal, Platform,
+  Animated, Easing, Linking, Modal as RNModal, Platform,
   Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import Slider from "@react-native-community/slider";
@@ -36,6 +36,7 @@ import { evalCondition } from "./actions";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { resolveMedia } from "../media/resolveMedia";
 import * as K from "./knobs";
+import { isTailzuPage, isWebUrl } from "../security";
 
 /** A number from a prop when it parses, else undefined — so `??` falls through. */
 const pn = (v: unknown): number | undefined => {
@@ -1134,37 +1135,6 @@ const Video = ({ props, style }: CompProps) => {
   );
 };
 
-/**
- * PLACEHOLDERS DRAW NOTHING.
- *
- * Audio, Camera and QRScanner have no player or capture behind them yet, and
- * they used to print that fact at the user — "♫ Audio: https://…", "📷 Camera
- * (photo)" — as if a debug line were a feature. A node the build cannot serve
- * now renders nothing, so a screen that uses one reads as a screen without it.
- * The ui.debugPlaceholders knob brings the labels back for whoever is building
- * a screen and needs to see where the node is.
- */
-const Placeholder = ({ style, text }: { style: any; text: string }) => {
-  if (!K.bool("ui.debugPlaceholders", false)) return null;
-  return (
-    <View style={[{
-      backgroundColor: K.color("ui.Placeholder.background", "#1c1c25"),
-      borderRadius: K.num("ui.Placeholder.radius", 12),
-      padding: K.num("ui.Placeholder.padding", 16),
-    }, style]}>
-      <Text style={{ color: K.color("ui.Placeholder.color", "#aaa") }}>{text}</Text>
-    </View>
-  );
-};
-const Audio = ({ props, style }: CompProps) => (
-  <Placeholder style={style} text={`♫ Audio: ${String(props.source ?? "")}`} />
-);
-const Camera = ({ props, style }: CompProps) => (
-  <Placeholder style={style} text={`📷 Camera (${String(props.mode ?? "photo")})`} />
-);
-const QRScanner = ({ style }: CompProps) => (
-  <Placeholder style={style} text="▧ QR Scanner" />
-);
 const ImagePickerButton = ({ props, fire, style }: CompProps) => (
   <Pressable
     onPress={() => fire("onPress")}
@@ -1413,11 +1383,31 @@ const LottieAnimation = ({ props, style }: CompProps) => {
 // Meta / helpers
 // ---------------------------------------------------------------------------
 
-const WebViewC = ({ props, style }: CompProps) => (
-  <View style={[{ minHeight: pn(props.minHeight) ?? K.num("ui.WebView.minHeight", 300) }, style]}>
-    <WebView source={{ uri: String(props.url ?? "about:blank") }} style={{ flex: 1 }} />
-  </View>
-);
+/**
+ * A page of OURS, and only ours: https on tailzu.space. Anything else draws
+ * nothing, and a link on the page that leaves the domain opens in the system
+ * browser instead of inside the app, where it would look like Tailzu.
+ */
+const WebViewC = ({ props, style }: CompProps) => {
+  if (!isTailzuPage(props.url)) return null;
+  return (
+    <View style={[{ minHeight: pn(props.minHeight) ?? K.num("ui.WebView.minHeight", 300) }, style]}>
+      <WebView
+        source={{ uri: props.url }}
+        style={{ flex: 1 }}
+        originWhitelist={["https://*"]}
+        onShouldStartLoadWithRequest={({ url }) => {
+          if (isTailzuPage(url) || url === "about:blank") return true;
+          if (isWebUrl(url)) Linking.openURL(url).catch(() => {});
+          return false;
+        }}
+        setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
+        allowFileAccess={false}
+      />
+    </View>
+  );
+};
 
 const SVGC = ({ props, style }: CompProps) => (
   <View style={style}>
@@ -1519,7 +1509,7 @@ export const REGISTRY_V3: Record<string, React.ComponentType<CompProps>> = {
   LineChart, BarChart, Sparkline, ProgressRing, Gauge, StatCard, Waveform,
   // NOT PieChart — that name belongs to ./PieChart. See DonutChart above.
   DonutChart,
-  Video, Audio, Camera, QRScanner, ImagePickerButton, Avatar, AvatarStack,
+  Video, ImagePickerButton, Avatar, AvatarStack,
   Toast, Snackbar, LoadingSkeleton, Confetti, Rating, EmptyState, Countdown, LottieAnimation,
   WebView: WebViewC, SVG: SVGC, Gradient, BlurBackground, QRCode: QRCodeC,
   IfElse, ForEach, Portal,

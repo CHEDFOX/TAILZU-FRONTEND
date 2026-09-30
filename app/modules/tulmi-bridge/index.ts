@@ -89,7 +89,6 @@ interface TulmiBridgeNative {
     options?: FlowArmOptions,
   ): void;
   endFlowSession?(): void;
-  isFlowActive?(): boolean;
   setWidgetMonth?(json: string): void;
   setFlowActivityCopy?(json: string): void;
   setSetupActivity?(json: string): void;
@@ -176,11 +175,6 @@ export function setKeyboardLanguage(code: string): void {
   }
 }
 
-/** True when the native bridge is available (a dev/prod build, not Expo Go). */
-export function isBridgeAvailable(): boolean {
-  return native != null;
-}
-
 /**
  * Arm the background-audio "Flow Session" so the app holds the mic alive after
  * the user swipes back to their app, and the keyboard can drive dictation. iOS
@@ -237,15 +231,6 @@ export function endFlowSession(): void {
     native?.endFlowSession?.();
   } catch {
     /* best-effort */
-  }
-}
-
-/** Whether a Flow Session is currently armed in the app process. */
-export function isFlowActive(): boolean {
-  try {
-    return native?.isFlowActive?.() ?? false;
-  } catch {
-    return false;
   }
 }
 
@@ -380,12 +365,13 @@ export interface WidgetMonth {
 /**
  * Hand the widget the month. Written as JSON to the App Group (iOS) or the
  * app's SharedPreferences (Android) and the widget is redrawn; the widget
- * never fetches anything itself. A no-op in a build without the bridge, or a
- * binary older than its widget.
+ * never fetches anything itself. `null` clears it (sign-out): both widgets
+ * read an empty value as "nothing yet". A no-op in a build without the bridge,
+ * or a binary older than its widget.
  */
-export function setWidgetMonth(month: WidgetMonth): void {
+export function setWidgetMonth(month: WidgetMonth | null): void {
   try {
-    native?.setWidgetMonth?.(JSON.stringify(month));
+    native?.setWidgetMonth?.(month ? JSON.stringify(month) : "");
   } catch {
     // never let a widget stop the app
   }

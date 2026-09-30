@@ -17,6 +17,9 @@ export function getPath(obj: any, path: string): any {
 
 export function setPath(obj: any, path: string, value: any): void {
   const keys = path.split(".");
+  // A path is data (a screen's, a link's); "__proto__.x" must not reach every
+  // object in the app.
+  if (keys.some((k) => k === "__proto__" || k === "constructor" || k === "prototype")) return;
   let cur = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     const k = keys[i];

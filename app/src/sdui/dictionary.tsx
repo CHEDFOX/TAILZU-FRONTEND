@@ -10,7 +10,7 @@
  * WordChips — renders the backend-computed "words you use often" as tappable
  * chips (bound array or props.words).
  */
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { CompProps } from "./components";
@@ -29,13 +29,26 @@ function toEntries(v: any): Entry[] {
   }));
 }
 
+/** The pairs worth keeping: both halves present, trimmed. */
+const complete = (rs: Entry[]): Entry[] =>
+  rs.map((r) => ({ word: r.word.trim(), replacement: r.replacement.trim() })).filter((r) => r.word && r.replacement);
+
 export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
   const theme = useTheme();
   const bindPath = node.bind?.value;
   const full = !!props.full;
   const minRows = Number(props.rows) || 2;
 
-  const initial = useMemo(() => toEntries(bindPath ? store.get(bindPath) : props.entries), []); // once
+  const seeded = bindPath ? store.get(bindPath) : props.entries;
+  const initial = useMemo(() => toEntries(seeded), []); // once
+  // THE KEYBOARD'S COPY FOLLOWS THE ACCOUNT. It was written only by Save, so a
+  // reinstall, a second phone or a sign-in (which empties it) left the keyboard
+  // expanding nothing until the user happened to save again. What the server
+  // seeded here IS this account's dictionary; hand it over as it arrives.
+  useEffect(() => {
+    if (Array.isArray(seeded)) setKeyboardDictionary(complete(initial));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [rows, setRows] = useState<Entry[]>(() => {
     const r = [...initial];
     if (full) r.push({ word: "", replacement: "" });
@@ -58,9 +71,7 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
   const save = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setSaving(true);
-    const clean = rows
-      .map((r) => ({ word: r.word.trim(), replacement: r.replacement.trim() }))
-      .filter((r) => r.word && r.replacement);
+    const clean = complete(rows);
     try {
       await callEndpoint("PUT", "/v1/profile", { dictionary: clean });
       setKeyboardDictionary(clean); // push to the keyboard (App Group)

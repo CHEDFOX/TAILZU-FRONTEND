@@ -73,8 +73,8 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
   // message (see LIVE below). A server that changes the geometry — regions,
   // focal length, tuning — does so with a cache bump, which remounts the
   // screen anyway.
-  const html = useMemo(
-    () => neuralFieldHtml({
+  const html = useMemo(() => {
+    const cfg = JSON.stringify({
       regions: Array.isArray(props?.regions) && props.regions.length ? props.regions : fallbackRegions(),
       alpha, bloom, focal, maxPulses, growth, signal, head,
       // The page's own constants, merged over its internal table: the global
@@ -83,10 +83,13 @@ export const NeuralField = ({ props, style }: CompProps): React.ReactElement => 
         ...K.obj<Record<string, unknown>>("ui.NeuralField.tuning", {}),
         ...(props?.tuning && typeof props.tuning === "object" ? props.tuning : {}),
       },
-    }),
+    });
+    // The config is written into the page's <script> as JSON, and JSON does
+    // not escape "</script>": no "<" survives, so no string in it can close the
+    // script. (In JSON a "<" can only sit inside a string; none is meant.)
+    return neuralFieldHtml(JSON.parse(cfg.replace(/</g, "")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  }, []);
 
   const state = String(props?.state ?? "idle");
   const training = props?.training === true || props?.training === "true";

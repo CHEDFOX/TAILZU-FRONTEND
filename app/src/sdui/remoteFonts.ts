@@ -65,7 +65,3 @@ export function loadRemoteFonts(fonts: Record<string, unknown> | undefined): voi
   }
 }
 
-/** Names currently available — for a component that wants to avoid a flash. */
-export function fontReady(name: string | undefined): boolean {
-  return !!name && loaded.has(name);
-}

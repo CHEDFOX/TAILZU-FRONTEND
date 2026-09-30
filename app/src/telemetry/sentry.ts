@@ -29,8 +29,3 @@ export function initSentry(): void {
     /* silent — never block boot */
   }
 }
-
-export function captureError(err: unknown, context?: Record<string, any>): void {
-  if (!DSN) return;
-  try { Sentry.captureException(err, context ? { extra: context } : undefined); } catch { /* no-op */ }
-}

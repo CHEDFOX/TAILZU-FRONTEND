@@ -1,8 +1,10 @@
 /**
- * Local settings (AsyncStorage). The backend base URL is switchable so the same
- * build can point at your PC during testing or your VPS in production.
+ * Local settings (AsyncStorage). The backend base URL is switchable so a
+ * development build can point at your PC; a release build only ever reaches
+ * https on tailzu.space (security.checkBaseUrl).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { checkBaseUrl } from "./security";
 
 const KEY_BASE_URL = "tulmi.baseUrl";
 
@@ -11,13 +13,24 @@ const KEY_BASE_URL = "tulmi.baseUrl";
 // (Android emulator → 10.0.2.2:8770) or LAN IP during local development.
 export const DEFAULT_BASE_URL = "https://api.tailzu.space";
 
+const DEV = typeof __DEV__ !== "undefined" && __DEV__;
+
+/**
+ * The backend every request goes to — and the one the keyboard is handed with
+ * the user's token. A stored override this build may not use (plain http, a
+ * host that is not Tailzu's) is ignored rather than trusted: whatever put it
+ * there, the token does not follow it.
+ */
 export async function getBaseUrl(): Promise<string> {
   const v = await AsyncStorage.getItem(KEY_BASE_URL);
-  return (v ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+  return (v && checkBaseUrl(v, DEV)) || DEFAULT_BASE_URL;
 }
 
+/** Throws, with the reason, for an address this build will not talk to. */
 export async function setBaseUrl(url: string): Promise<void> {
-  await AsyncStorage.setItem(KEY_BASE_URL, url.trim());
+  const ok = checkBaseUrl(url, DEV);
+  if (!ok) throw new Error(DEV ? "use an http(s) URL" : "this build only talks to https://*.tailzu.space");
+  await AsyncStorage.setItem(KEY_BASE_URL, ok);
 }
 
 /**

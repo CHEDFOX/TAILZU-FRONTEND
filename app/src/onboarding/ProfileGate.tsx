@@ -111,7 +111,9 @@ export default function ProfileGate({ onDone, mediaUri, theme }: {
     } catch {
       /* best-effort — still let the user in */
     }
-    await setProfileDone();
+    // The local copy is only the offline fallback; a failed write must not
+    // leave the card up with its button spinning.
+    await setProfileDone().catch(() => {});
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     onDone();
   }, [canContinue, saving, name, gender, onDone]);

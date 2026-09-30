@@ -5,7 +5,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react-native";
 import * as Localization from "expo-localization";
-import { bumpLaunchCount, getBaseUrl, getLanguage, saveKnobSnapshot } from "../storage";
+import { DEFAULT_BASE_URL, bumpLaunchCount, getBaseUrl, getLanguage, saveKnobSnapshot } from "../storage";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type {
   BootstrapResponse,
@@ -16,8 +16,9 @@ import type {
 import { getDeviceSignals } from "../device/signals";
 import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
-import { setKeyboardCredentials } from "../../modules/tulmi-bridge";
+import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth } from "../../modules/tulmi-bridge";
 import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
+import { isBackendPath } from "../security";
 
 /**
  * THE VERSION OF THE BINARY THAT IS ACTUALLY RUNNING.
@@ -49,17 +50,45 @@ export const APP_VERSION = readAppVersion();
  * Share the current backend URL + the user's token with the native keyboard
  * extension so the keyboard reaches the same backend and authenticates as the
  * user. Safe to call often; no-op in Expo Go.
+ *
+ * Signed out, the token is EMPTY, which clears it: both keyboards send no
+ * credential then and say so. This wrote "dev" — a token the production
+ * server can only refuse, which made a signed-out keyboard look like one whose
+ * session had expired (the keyboards dropped their own "dev" for that reason).
  */
 export async function syncKeyboardCredentials(): Promise<void> {
   try {
     const [base, tok] = await Promise.all([getBaseUrl(), getAccessToken()]);
-    setKeyboardCredentials(base, tok ?? "dev");
+    setKeyboardCredentials(base, tok ?? "");
   } catch {
     // best-effort: never block the app on bridging
   }
 }
 
-async function token(): Promise<string> {
+/**
+ * SIGNED OUT: NOTHING OF THAT ACCOUNT STAYS ON THE PHONE.
+ *
+ * The persisted screens (history, stats, the You tab), the last bootstrap, the
+ * name the sign-in provider gave, the keyboard's token and dictionary and the
+ * widget's month all outlived sign-out — and the next person to sign in on the
+ * same phone was painted the previous one's history from the disk cache before
+ * their own arrived. Device settings (language, launch count, onboarding seen)
+ * belong to the phone and stay.
+ */
+export async function forgetAccountData(): Promise<void> {
+  screenCache.clear();
+  lastBootstrapAt = 0;
+  setKeyboardCredentials(await getBaseUrl().catch(() => DEFAULT_BASE_URL), "");
+  setKeyboardDictionary([]);
+  setWidgetMonth(null);
+  try {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
+      k.startsWith("tulmi.cache.") || k === "tulmi.authName" || k === "tulmi.profileDone");
+    if (keys.length) await AsyncStorage.multiRemove(keys);
+  } catch { /* storage unreadable: nothing more can be done from here */ }
+}
+
+export async function token(): Promise<string> {
   // Signed-in user's Supabase JWT; "dev" fallback for DEV_SKIP_AUTH backends.
   return (await getAccessToken()) ?? "dev";
 }
@@ -70,7 +99,7 @@ async function token(): Promise<string> {
  * localize ANY endpoint's response to the selected language — so adding more
  * languages later is purely a backend concern. Omitted until a language is set.
  */
-async function commonHeaders(): Promise<Record<string, string>> {
+export async function commonHeaders(): Promise<Record<string, string>> {
   const [tok, lang] = await Promise.all([token(), getLanguage()]);
   const h: Record<string, string> = { Authorization: `Bearer ${tok}` };
   if (lang) {
@@ -794,34 +823,17 @@ function readBackground(raw: unknown): AuthBackground | null {
 }
 
 /**
- * Path-only calls to the backend. `path` MUST start with "/v1/" so a
- * malicious/misconfigured backend response can't ever redirect this action to
- * an arbitrary URL. The base URL is added by us, not the caller.
+ * Generic call used by the `callEndpoint` action. Path-only: `path` MUST stay
+ * under /v1/ on the configured base (security.isBackendPath) so a malicious or
+ * misconfigured screen can never send this — and the token with it — anywhere
+ * else. The base URL is added here, not by the caller.
  */
-function assertBackendPath(path: string): void {
-  if (typeof path !== "string" || !path.startsWith("/v1/")) {
-    throw new Error(`callEndpoint: refusing non-/v1/ path: ${path}`);
-  }
-  // Reject anything that could break out of base — schemes, protocol-relative
-  // URLs (//host), or embedded credentials.
-  if (
-    path.includes("://") ||
-    path.startsWith("//") ||
-    path.includes("@") ||
-    path.includes("\r") ||
-    path.includes("\n")
-  ) {
-    throw new Error(`callEndpoint: unsafe path: ${path}`);
-  }
-}
-
-/** Generic call used by the `callEndpoint` action. */
 export async function callEndpoint(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<any> {
-  assertBackendPath(path);
+  if (!isBackendPath(path)) throw new Error(`callEndpoint: refusing path: ${String(path)}`);
   const base = await getBaseUrl();
   // NO BODY, NO CONTENT-TYPE.
   //

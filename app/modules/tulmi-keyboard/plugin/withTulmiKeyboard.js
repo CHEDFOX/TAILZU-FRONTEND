@@ -23,8 +23,11 @@ function withManifest(config) {
     const app = cfg.modResults.manifest.application[0];
     // Cleartext HTTP is a DEV convenience (local backend over http://). Play
     // pre-launch flags it and combined with the baseUrl override it let a
-    // production IME talk plaintext — never enable it in a production build.
-    if (process.env.EAS_BUILD_PROFILE !== "production") {
+    // production IME talk plaintext — so only a development build (or a local
+    // prebuild, which has no profile) gets it. A preview build is a release
+    // build: its JS refuses an http:// backend anyway (storage.getBaseUrl).
+    const profile = process.env.EAS_BUILD_PROFILE;
+    if (!profile || profile === "development") {
       app["$"]["android:usesCleartextTraffic"] = "true";
     }
     app.service = app.service || [];
