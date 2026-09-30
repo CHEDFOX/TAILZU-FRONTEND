@@ -1,8 +1,14 @@
 # Shipping Tailzu
 
-The day-to-day commands, from the Windows machine. Everything is on the
-branch `claude/repo-analysis-verdict-6lpyaw` in all three repos, and the
-VPS pulls that branch directly.
+The day-to-day commands, from the Windows machine. Everything is on `main`
+in every repo (backend, app, site, desktop), and the VPS pulls `main`
+directly.
+
+Once, when moving the VPS over from the old working branch:
+
+```powershell
+ssh root@91.108.104.168 'cd ~/tulmi && git fetch origin && git checkout main && git pull --ff-only'
+```
 
 ## Backend
 
@@ -22,15 +28,15 @@ ssh root@91.108.104.168 'cd ~/tulmi && CHECK=1 ./deploy/ship.sh'
 
 ## Site
 
-tailzu.space is on Vercel, deployed from GitHub: a push to the branch is the
-deploy. Nothing is copied to the VPS. (`vercel.json` proxies `/v1/*`,
-`/download`, `/downloads/*`, `/privacy`, `/terms` and `/.well-known/*` to
-the API.)
+tailzu.space is on Vercel, deployed from GitHub: a push to `main` (set as
+the production branch in Vercel → Settings → Git) is the deploy. Nothing is
+copied to the VPS. (`vercel.json` proxies `/v1/*`, `/download`,
+`/downloads/*`, `/privacy`, `/terms` and `/.well-known/*` to the API.)
 
 ```powershell
 cd C:\Users\user\tailzu-web
-git pull --rebase origin claude/repo-analysis-verdict-6lpyaw
-git push origin claude/repo-analysis-verdict-6lpyaw
+git pull --rebase origin main
+git push origin main
 ```
 
 Vercel builds it in under a minute; the deployment shows on the Vercel
@@ -48,7 +54,8 @@ for their very first open (`default-config.json`, and
 the backend (`npx tsx scripts/export-keyboard-snapshots.ts`), so there is
 nothing to do for it here.
 
-From GitHub: Actions → EAS Release → Run workflow, on this branch. Tick an
+From GitHub: Actions → EAS Release → Run workflow, on `main`. With nothing
+ticked it only checks that a release would work. Tick an
 update, iOS and/or Android; "builder" picks GitHub's machines (Actions
 minutes, no Expo build used up) or Expo's (the plan's monthly builds). iOS
 goes on to TestFlight either way; a GitHub-built Android .aab is on the run's
@@ -59,7 +66,7 @@ Or from the laptop:
 
 ```powershell
 cd C:\Users\user\tulmi
-git pull --rebase origin claude/repo-analysis-verdict-6lpyaw
+git pull --rebase origin main
 cd app
 npx eas-cli build --platform ios --profile production --auto-submit --no-wait
 npx eas-cli build --platform android --profile production --no-wait
