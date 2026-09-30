@@ -21,7 +21,19 @@ const JAVA_PKG_PATH = path.join("com", "tulmi", "app", "keyboard");
 function withManifest(config) {
   return withAndroidManifest(config, (cfg) => {
     const app = cfg.modResults.manifest.application[0];
-    app["$"]["android:usesCleartextTraffic"] = "true";
+    // Cleartext HTTP is a DEV convenience (local backend over http://). Play
+    // pre-launch flags it and combined with the baseUrl override it let a
+    // production IME talk plaintext — so only a development build (or a local
+    // prebuild, which has no profile) gets it. A preview build is a release
+    // build: its JS refuses an http:// backend anyway (storage.getBaseUrl).
+    const profile = process.env.EAS_BUILD_PROFILE;
+    if (!profile || profile === "development") {
+      app["$"]["android:usesCleartextTraffic"] = "true";
+    }
+    // The token file stays on this phone: allowBackup="false" (app.config.ts)
+    // does not cover a device-to-device transfer on Android 12+, these rules
+    // do. The XML is copied in with the rest of ../android/res below.
+    app["$"]["android:dataExtractionRules"] = "@xml/tailzu_data_extraction_rules";
     app.service = app.service || [];
     const already = app.service.some(
       (s) => s["$"] && s["$"]["android:name"] === SERVICE,
@@ -30,7 +42,7 @@ function withManifest(config) {
       app.service.push({
         $: {
           "android:name": SERVICE,
-          "android:label": "Tulmi Keyboard",
+          "android:label": "Tailzu",
           "android:permission": "android.permission.BIND_INPUT_METHOD",
           "android:exported": "true",
         },
@@ -80,7 +92,11 @@ function withNativeFiles(config) {
 
       const javaDest = path.join(androidMain, "java", JAVA_PKG_PATH);
       fs.mkdirSync(javaDest, { recursive: true });
-      for (const f of ["TulmiKeyboardService.kt", "Net.kt", "Stream.kt"]) {
+      // Copy every .kt file that lives next to the module — a glob avoids the
+      // "we added a new file and forgot to add it here, so the whole build
+      // fails at Kotlin compile" landmine that just bit us with SDUIRenderer.kt.
+      const ktFiles = fs.readdirSync(moduleDir).filter((f) => f.endsWith(".kt"));
+      for (const f of ktFiles) {
         fs.copyFileSync(path.join(moduleDir, f), path.join(javaDest, f));
       }
       copyDir(path.join(moduleDir, "res"), path.join(androidMain, "res"));

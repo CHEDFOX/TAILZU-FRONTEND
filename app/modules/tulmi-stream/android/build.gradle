@@ -5,6 +5,13 @@ apply plugin: 'expo-module-gradle-plugin'
 group = 'expo.modules.tulmistream'
 version = '1.0.0'
 
+// See tulmi-bridge for the full explanation: this module is never published to
+// a Maven repo, and the plugin's default publishing path needs a versionName
+// the AGP 8 library DSL cannot provide.
+expoModule {
+  canBePublished false
+}
+
 android {
   namespace "expo.modules.tulmistream"
   defaultConfig {

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows before Android 12, which takes an image rather
+  than a layout: the widget as it first appears, the wave mark (36 x 24, the
+  seven bars each as wide as the gap between them) in the dim ink, centred on
+  the default ground.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="160dp"
+    android:viewportWidth="160"
+    android:viewportHeight="160">
+    <path
+        android:fillColor="#0F0D0B"
+        android:pathData="M16,0 H144 A16,16 0 0 1 160,16 V144 A16,16 0 0 1 144,160 H16 A16,16 0 0 1 0,144 V16 A16,16 0 0 1 16,0 Z" />
+    <path
+        android:fillColor="#85F3E2C6"
+        android:pathData="M62,74.08 A1.385,1.385 0 0 1 64.769,74.08 V85.92 A1.385,1.385 0 0 1 62,85.92 Z M67.538,71.993 A1.385,1.385 0 0 1 70.308,71.993 V88.007 A1.385,1.385 0 0 1 67.538,88.007 Z M73.077,70.689 A1.385,1.385 0 0 1 75.846,70.689 V89.311 A1.385,1.385 0 0 1 73.077,89.311 Z M78.615,69.385 A1.385,1.385 0 0 1 81.385,69.385 V90.615 A1.385,1.385 0 0 1 78.615,90.615 Z M84.154,70.167 A1.385,1.385 0 0 1 86.923,70.167 V89.833 A1.385,1.385 0 0 1 84.154,89.833 Z M89.692,72.515 A1.385,1.385 0 0 1 92.462,72.515 V87.485 A1.385,1.385 0 0 1 89.692,87.485 Z M95.231,74.08 A1.385,1.385 0 0 1 98,74.08 V85.92 A1.385,1.385 0 0 1 95.231,85.92 Z" />
+</vector>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Month on the home screen (TailzuMonthWidget.kt). Two layers: the ground,
+  a rounded shape tinted at run time to the colour the app wrote, and the face,
+  a bitmap of the number, its label and the line drawn at the widget's size.
+
+  The root carries @android:id/background because that is the view Android 12+
+  launchers round the widget's corners on and animate a tap from. It is also
+  what the tap is set on.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/tailzu_month_ground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/tailzu_widget_ground" />
+
+    <ImageView
+        android:id="@+id/tailzu_month_face"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter" />
+</FrameLayout>
