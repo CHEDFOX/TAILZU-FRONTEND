@@ -9,9 +9,11 @@ import WidgetKit
 // Ready between dictations, listening with the words so far, writing after.
 // The words are a count: what was said never appears here.
 //
-// The attributes are declared once more, byte for byte, in the app's bridge
-// module (FlowLiveActivity.swift). ActivityKit matches the two by the type's
-// name and its encoding, so the two copies must stay identical.
+// The attributes and the End button's intent live in _shared/FlowEnd.swift,
+// which is built into the app too, so End works even when the app is not
+// listening. The attributes are declared once more, byte for byte, in the
+// app's bridge module (FlowLiveActivity.swift). ActivityKit matches them by
+// the type's name and its encoding, so the copies must stay identical.
 //
 // The words (and the symbols) are the server's: the app writes them to the
 // App Group as "tulmi.widget.flow.copy" (setFlowActivityCopy, from the
@@ -35,21 +37,10 @@ enum FlowCopy {
   }
 }
 
-struct FlowActivityAttributes: ActivityAttributes {
-  public struct ContentState: Codable, Hashable {
-    /// "ready" | "listening" | "writing"
-    var phase: String
-    /// Words this session so far.
-    var words: Int
-    /// When the session ends itself if nothing happens.
-    var until: Date
-  }
-  var startedAt: Date
-}
-
-/// The buttons run in this extension and reach the app the way the keyboard
-/// does: a Darwin notification the Flow session already listens for. No shared
-/// code, no process launch — the same nudge, from a different place.
+/// Stop runs in this extension and reaches the app the way the keyboard does:
+/// a Darwin notification the Flow session already listens for. It is only
+/// shown while listening, when the app is running. (End runs in the app
+/// itself — see _shared/FlowEnd.swift.)
 private func nudge(_ name: String) {
   CFNotificationCenterPostNotification(
     CFNotificationCenterGetDarwinNotifyCenter(),
@@ -61,15 +52,6 @@ struct StopDictationIntent: AppIntent {
   static let description = IntentDescription("Finish the sentence being dictated.")
   func perform() async throws -> some IntentResult {
     nudge("space.tailzu.tulmi.flow.stop")
-    return .result()
-  }
-}
-
-struct EndFlowSessionIntent: AppIntent {
-  static let title: LocalizedStringResource = "End Flow session"
-  static let description = IntentDescription("Turn the background microphone off.")
-  func perform() async throws -> some IntentResult {
-    nudge("space.tailzu.tulmi.flow.end")
     return .result()
   }
 }
