@@ -5,6 +5,9 @@
 #   ios     — a store build, sent on to App Store Connect / TestFlight.
 #   android — a store build (.aab). eas.json has no Play credentials, so it is
 #             uploaded in Play Console by hand.
+#   nothing — a check that everything a release needs is in place (the token,
+#             the keys, the channel, the bundle, the Mac runner). Releases
+#             nothing.
 # and "builder" says whose machine builds:
 #   github — this repo's Actions minutes (`eas build --local`); no Expo build
 #            is used up. iOS runs on a macOS runner, which a private repo pays
@@ -82,6 +85,68 @@ jobs:
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
+
+  # Nothing ticked: would a release work? Releases nothing, and prints names
+  # and states, never a variable's value or a download link.
+  check:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && !inputs.update && !inputs.ios && !inputs.android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - name: Token and project
+        working-directory: app
+        run: |
+          npx eas-cli@latest whoami
+          npx eas-cli@latest project:info
+
+      - name: Payment keys
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
+
+      - name: Update channel
+        working-directory: app
+        run: npx eas-cli@latest channel:view production --non-interactive
+
+      - name: Last store builds
+        working-directory: app
+        run: |
+          npx eas-cli@latest build:list --limit 4 --json --non-interactive | node -e '
+            let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              for (const b of JSON.parse(s)) console.log([b.platform, b.status, b.appVersion + " (" + b.appBuildVersion + ")", b.runtimeVersion, b.channel, b.createdAt].join("  "));
+            });'
+
+      - name: The update would bundle
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "npx expo export --platform ios --platform android --output-dir $RUNNER_TEMP/export" --non-interactive
+
+      - name: Android toolchain
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/build-tools" | tail -n 2
+
+  check-mac:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && !inputs.update && !inputs.ios && !inputs.android
+    runs-on: macos-latest
+    steps:
+      - name: Xcode 26, CocoaPods, fastlane
+        run: |
+          sw_vers -productVersion
+          ls -d /Applications/Xcode_26*.app | grep -vi beta
+          pod --version
+          fastlane --version | tail -n 1
 
   update:
     needs: gate
