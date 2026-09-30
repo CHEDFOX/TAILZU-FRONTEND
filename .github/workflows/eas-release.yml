@@ -1,7 +1,19 @@
-# Auto build + submit: every push to main (or a manual dispatch) kicks off an
-# EAS production iOS build and, when it finishes, EAS submits it straight to
-# App Store Connect / TestFlight (--auto-submit uses eas.json's
-# submit.production profile, which already carries ascAppId).
+# Phone releases from GitHub. EAS does the building in its own cloud; this
+# only asks for it.
+#
+# - A push to main builds iOS and, when it finishes, EAS submits it straight
+#   to App Store Connect / TestFlight (--auto-submit uses eas.json's
+#   submit.production profile, which already carries ascAppId).
+# - A manual run (Actions → EAS Release → Run workflow, on any branch) does
+#   what is ticked: an over-the-air update of the JavaScript, an iOS build
+#   (+ submit), an Android build. Android is built, not submitted: eas.json
+#   has no Play credentials, so the .aab is downloaded from expo.dev and
+#   uploaded to Play Console by hand until they are added.
+#
+# The update is published with --environment production, so it carries the
+# same EAS environment variables as the production builds (RevenueCat,
+# Sentry, PostHog keys in expoConfig.extra). Published without them, an
+# update would ship a phone that cannot take a payment.
 #
 # Requirements (one-time, repo settings → Secrets and variables → Actions):
 #   EXPO_TOKEN — an Expo access token (expo.dev → Account settings → Access
@@ -19,7 +31,24 @@ on:
     paths:
       - "app/**"
       - ".github/workflows/eas-release.yml"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      update:
+        description: "Publish an over-the-air update (JavaScript only)"
+        type: boolean
+        default: true
+      ios:
+        description: "Build iOS and submit it to App Store Connect / TestFlight"
+        type: boolean
+        default: false
+      android:
+        description: "Build Android (.aab on expo.dev; Play upload is by hand)"
+        type: boolean
+        default: false
+      message:
+        description: "What the update is, shown on expo.dev"
+        type: string
+        default: "Update"
 
 concurrency:
   group: eas-release-${{ github.ref }}
@@ -56,10 +85,23 @@ jobs:
         working-directory: app
         run: npm ci
 
+      - name: EAS update (over the air, production)
+        if: steps.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.update
+        working-directory: app
+        # Through env, never pasted into the script: a message is free text.
+        env:
+          MSG: ${{ inputs.message }}
+        run: npx eas-cli@latest update --channel production --environment production --message "$MSG" --non-interactive
+
       - name: EAS build + auto-submit (iOS, production)
-        if: steps.gate.outputs.ok == 'true'
+        if: steps.gate.outputs.ok == 'true' && (github.event_name == 'push' || inputs.ios)
         working-directory: app
         # --no-wait: the workflow queues the build and exits; EAS builds in its
         # own cloud and auto-submits on success. Build status lives on
         # expo.dev, not in this job — the job going green means "queued".
         run: npx eas-cli@latest build --platform ios --profile production --non-interactive --no-wait --auto-submit
+
+      - name: EAS build (Android, production)
+        if: steps.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.android
+        working-directory: app
+        run: npx eas-cli@latest build --platform android --profile production --non-interactive --no-wait
