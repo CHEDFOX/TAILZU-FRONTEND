@@ -55,6 +55,8 @@ import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/clie
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, countries, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";
+import { beginLinkSignIn, emailLinkRedirect, redeemSignInLink } from "./linkSignIn";
+import { withState } from "./linkState";
 import Constants from "expo-constants";
 import { color, list, num, obj, str, txt, bool } from "../sdui/knobs";
 
@@ -840,9 +842,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     try {
       // Turnstile tokens are single use, so every attempt solves its own.
       const captcha = await solveCaptcha();
+      // A mail should carry a code; if a template sends a link instead, it
+      // comes back with a state only this phone holds (fresh per attempt, as
+      // each send also replaces the PKCE verifier).
       const res: any = type === "phone"
         ? await supabaseAuth.sendPhoneCode(value, captcha)
-        : await supabaseAuth.sendEmailCode(value, captcha);
+        : await supabaseAuth.sendEmailCode(value, captcha, await emailLinkRedirect().catch(() => undefined));
       if (my !== seq.current) return;
       if (res?.error) throw new Error(String(res.error?.message ?? res.error));
       setSending(false);
@@ -1030,19 +1035,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       if (googleViaWeb && googleWeb) {
         // Supabase's page, in an auth session so the browser hands the result
-        // back. The result URL is the backend page's bounce — tulmi://auth/
-        // callback with the session in the fragment — and the router already
-        // reads exactly that shape. The link listener in SduiApp receives the
-        // same URL and adopts the same session; setting it twice is harmless
-        // and means neither path has to know the other exists.
-        const { data, error } = await supabaseAuth.signInWithGoogleWeb(googleWeb.callback);
+        // back. The redirect carries THIS PHONE's state; the backend page
+        // refuses a return without one and bounces the rest to tulmi://auth/
+        // callback, with the state and a PKCE code. The link listener in
+        // SduiApp receives the same URL: both go through redeemSignInLink,
+        // which spends the code once and gives both callers the one answer.
+        const state = await beginLinkSignIn();
+        const { data, error } = await supabaseAuth.signInWithGoogleWeb(withState(googleWeb.callback, state));
         if (error || !data?.url) throw new Error(String(error?.message ?? "Could not start Google sign-in."));
         const res = await WebBrowser.openAuthSessionAsync(data.url, googleWeb.resume);
         if (res.type !== "success") return;                 // closed it — silent
         const target = parseLink(res.url);
-        if (target.kind === "session") {
-          const { error: sErr } = await supabaseAuth.setSession(target.accessToken, target.refreshToken);
-          if (sErr) throw new Error(String(sErr.message ?? sErr));
+        if (target.kind === "code" || target.kind === "session" || target.kind === "auth") {
+          const r = await redeemSignInLink(target);
+          if (!r.ok) throw new Error(r.message ?? `Google sign-in could not be finished (${r.verdict}).`);
           onAuthed();
           return;
         }

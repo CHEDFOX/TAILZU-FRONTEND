@@ -33,7 +33,7 @@ import { callEndpoint, invalidateScreens, QuotaExceededError, expireBootstrap } 
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { buyPackage, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
-import { registerForPushToken } from "../notifications/push";
+import { registerForPushToken, unregisterPushToken } from "../notifications/push";
 import { completeKeyboardHandoff, cancelKeyboardHandoff, endFlowSession } from "../../modules/tulmi-bridge";
 import { setLanguage } from "../storage";
 import { armFlow } from "../widgets/flow";
@@ -617,7 +617,12 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       } catch { await runAction(action.onError, ctx); }
       break;
     }
-    case "signOut": await supabase.auth.signOut(); break;
+    case "signOut":
+      // The phone stops receiving this account's pushes BEFORE the session
+      // goes: afterwards nothing is left to prove whose row to drop.
+      await unregisterPushToken();
+      await supabase.auth.signOut();
+      break;
 
     // ----------------------------------------------------------------- IAP
     case "iap.showPaywall": {

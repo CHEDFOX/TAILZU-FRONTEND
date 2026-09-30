@@ -1330,6 +1330,14 @@
     "profile.anim.tension": 60,
     "profile.blur": 32,
     "profile.cardRadius": 26,
+    "profile.color.accent": "#F3E2C6",
+    "profile.color.card": "rgba(14,14,18,0.92)",
+    "profile.color.ctaText": "#000000",
+    "profile.color.ink": "#FFFFFF",
+    "profile.color.mediaScrim": "rgba(8,8,12,0.55)",
+    "profile.color.muted": "rgba(255,255,255,0.42)",
+    "profile.color.scrim": "rgba(0,0,0,0.45)",
+    "profile.color.selectedGlyph": "#000000",
     "profile.ctaDisabledOpacity": 0.4,
     "profile.genders": [
       {
@@ -2497,15 +2505,15 @@
     },
     "boot.firstRun": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1630"
+      "at": "app/src/sdui/SduiApp.tsx:1619"
     },
     "postLanguageScreenId": {
       "kind": "str",
-      "at": "app/src/sdui/SduiApp.tsx:1652"
+      "at": "app/src/sdui/SduiApp.tsx:1641"
     },
     "profile.complete": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1132"
+      "at": "app/src/sdui/SduiApp.tsx:1121"
     }
   }
 }

@@ -130,48 +130,79 @@ const config: ExpoConfig = {
     // JSON must be hosted at https://tailzu.space/.well-known/apple-app-site-association.
     associatedDomains: ["applinks:tailzu.space", "applinks:app.tailzu.space"],
     infoPlist: {
-      // Permission strings — Apple rejects any app whose binary CAN request a
-      // permission but doesn't ship a Usage Description. Bake all of them in
-      // so backend-driven features can call the corresponding permission
-      // APIs without a rebuild.
-      // MUST describe the real behavior: besides tap-to-dictate, a Flow
-      // Session keeps the microphone active in the background (with iOS's
-      // recording indicator visible) so the keyboard can dictate without
-      // reopening the app. Understating this is a 5.1.1 rejection.
+      // PERMISSION STRINGS SAY WHAT THIS BINARY DOES — nothing it might do one
+      // day. They used to describe features that were never built (Face ID
+      // drafts, @mentions, location-tagged notes, Nearby Sync, raise-to-record),
+      // and a purpose string that promises a feature is a 5.1.1 problem the
+      // day a reviewer looks for it.
+      //
+      // WHY A KEY STAYS EVEN WHEN THE ANSWER IS "NOT USED": Apple refuses an
+      // upload whose binary links a permission API without its key (ITMS-90683),
+      // and the installed modules link more than the app uses — expo-speech
+      // imports Speech, expo-audio/expo-video MediaPlayer, expo-calendar and
+      // expo-notifications CoreLocation, expo-camera and Reanimated CoreMotion,
+      // expo-calendar the reminders half of EventKit. Deleting those keys is
+      // a gamble on a static check; saying "not used" truthfully is not.
+      // Every key here is read by the Expo permission plugins in preference
+      // to their generic defaults (IOSConfig.Permissions.applyPermissions).
+      //
+      // Microphone: besides tap-to-dictate, a Flow session keeps the mic live
+      // in the background so the keyboard can dictate without reopening the
+      // app. Understating that is a 5.1.1 rejection. It idles out on its own
+      // (FlowSessionManager, kb.flow.idleTimeoutMs) and the Live Activity has
+      // an End button (targets/widgets/FlowActivity.swift).
       NSMicrophoneUsageDescription:
-        "Tailzu uses the microphone for voice typing. When you start a Flow session, the mic stays on in the background (the recording indicator stays visible) so you can dictate straight from the keyboard; it turns off automatically after a few minutes of inactivity, or anytime from Settings → End Flow session.",
+        "Tailzu uses the microphone to turn your speech into text. If you start a Flow session, the microphone stays on in the background so you can dictate from the Tailzu keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.",
+      // pickImage (source "camera") and the camera permission action.
       NSCameraUsageDescription:
-        "Tailzu uses the camera when you tap the scan button so it can read printed text or a QR code and turn it into a message.",
+        "Tailzu uses the camera only when you choose to take a photo in the app.",
+      // pickImage (library) and the photoLibrary permission action.
       NSPhotoLibraryUsageDescription:
-        "Tailzu opens your photo library only when you tap Attach so you can pick an image to include with a message.",
+        "Tailzu opens your photos only when you choose a picture to use in the app.",
+      // saveToPhotos — only files the app made itself (actions.ts, inCache).
       NSPhotoLibraryAddUsageDescription:
-        "Tailzu saves an image of your result to Photos only when you tap Save.",
+        "Tailzu saves an image to Photos only when you ask it to.",
+      // Dictation is transcribed by Tailzu's backend; Speech is linked only
+      // because expo-speech (read-aloud) imports it.
       NSSpeechRecognitionUsageDescription:
-        "Tailzu uses Apple's on-device speech recognition to convert your dictation to text faster when you enable the on-device mode in Settings.",
+        "Tailzu doesn't use Apple's speech recognition.",
+      // The biometricPrompt action (expo-local-authentication); SecureStore
+      // links LocalAuthentication too.
       NSFaceIDUsageDescription:
-        "Tailzu uses Face ID to unlock private drafts and to keep your account signed in on this device.",
+        "Tailzu uses Face ID only to confirm it's you when the app asks you to.",
+      // expo-contacts is installed but nothing reads a contact — only the
+      // generic permission action can ask. A removal candidate.
       NSContactsUsageDescription:
-        "Tailzu reads your contacts only when you use the @mention feature so it can suggest the right person.",
+        "Tailzu doesn't read or upload your contacts.",
+      // calendar.addEvent: lists calendars to pick a writable one, adds one
+      // event. It never reads events.
       NSCalendarsUsageDescription:
-        "Tailzu writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
-      NSRemindersUsageDescription:
-        "Tailzu writes a reminder only when you tap Add Reminder on a dictated note.",
-      // iOS 17 shows these, not the two above. Without them expo-calendar's
+        "Tailzu adds an event to your calendar only when you ask it to. It doesn't read your events.",
+      // iOS 17 shows these, not the one above. Without them expo-calendar's
       // generic "Allow Tailzu to access your calendars" is what people see.
       NSCalendarsFullAccessUsageDescription:
-        "Tailzu writes an event to your calendar only when you tap Add to Calendar on a dictated meeting.",
+        "Tailzu adds an event to your calendar only when you ask it to. It doesn't read your events.",
+      NSCalendarsWriteOnlyAccessUsageDescription:
+        "Tailzu adds an event to your calendar only when you ask it to.",
+      // Nothing requests reminders; expo-calendar links the API regardless.
+      NSRemindersUsageDescription:
+        "Tailzu doesn't read or change your reminders.",
       NSRemindersFullAccessUsageDescription:
-        "Tailzu writes a reminder only when you tap Add Reminder on a dictated note.",
+        "Tailzu doesn't read or change your reminders.",
       NSAppleMusicUsageDescription:
-        "Tailzu reads your audio library only when you tap Attach Audio so you can include a clip in a message.",
+        "Tailzu doesn't access your music library.",
       NSLocationWhenInUseUsageDescription:
-        "Tailzu reads your location only when you dictate a location-tagged note (\"send my location\") so it can attach the correct place to the message.",
+        "Tailzu doesn't use your location.",
       NSMotionUsageDescription:
-        "Tailzu uses motion to detect the raise-to-record shortcut when you enable it in Settings.",
+        "Tailzu doesn't use motion or fitness data.",
+      // Nothing links CoreBluetooth; a paired headset's microphone reaches the
+      // app through the audio session, which needs no Bluetooth permission.
       NSBluetoothAlwaysUsageDescription:
-        "Tailzu uses Bluetooth only to connect to a paired headset for hands-free dictation.",
+        "Tailzu doesn't use Bluetooth itself. A headset paired with your iPhone works through iOS.",
+      // A release build talks only to https on tailzu.space (security.ts
+      // checkBaseUrl); only a development build reaches a computer on the LAN.
       NSLocalNetworkUsageDescription:
-        "Tailzu uses the local network only when you enable Nearby Sync in Settings to keep drafts consistent across your devices on the same Wi-Fi.",
+        "Only development builds of Tailzu use the local network, to connect to a developer's computer.",
       // Background audio — REQUIRED for the "Flow Session" mic architecture:
       // the keyboard extension cannot hold the microphone (iOS blocks recording
       // in extensions), so the main app keeps a live AVAudioSession alive in the
@@ -266,6 +297,15 @@ const config: ExpoConfig = {
   android: {
     package: "com.tulmi.app",
     ...(googleServicesFile ? { googleServicesFile } : {}),
+    // NO BACKUPS. The keyboard's bearer token lives in shared_prefs/tulmi.xml,
+    // and Auto Backup (Android's default, and Expo's) copied it to Google
+    // Drive and into `adb backup` — a live session outside the phone. Nothing
+    // relies on a restore: the Supabase session is in SecureStore, whose
+    // Keystore keys never leave the device, so a restored copy could not be
+    // read anyway and the user signs in again regardless; settings come back
+    // from the server. A device-to-device transfer on Android 12+ ignores this
+    // flag — the data-extraction rules (plugin/withTulmiKeyboard.js) cover it.
+    allowBackup: false,
     // ONLY permissions the launch build actually exercises. The old
     // "everything we might want next year" list was a Play-submission
     // liability: READ_MEDIA_IMAGES/VIDEO trigger the Photo & Video Permissions

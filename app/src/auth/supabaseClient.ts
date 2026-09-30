@@ -64,6 +64,15 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // PKCE, so whatever comes back through a LINK — Google by way of
+    // Supabase's page, a mailed link when a template sends one — is a code
+    // that only this phone can exchange: the verifier is written to this
+    // storage when the flow starts and never leaves the device. A code, a
+    // session or a token hash minted for another account and sent here as a
+    // link redeems nothing (see ./linkState.ts, which also checks the flow's
+    // state). Typed codes (verifyOtp), id tokens, and the password are
+    // unaffected: none of them goes through a redirect.
+    flowType: "pkce",
   },
 });
 
@@ -91,11 +100,17 @@ export const supabaseAuth = {
    * one and the project mails codes to new users and links to returning ones,
    * which reads as random. See docs/SUPABASE.md in the backend repo.
    *
-   * If a link goes out anyway, deeplinks/router.ts redeems it rather than
-   * letting it dead-end.
+   * If a link goes out anyway, it returns to `emailRedirectTo` — the
+   * backend's /auth/callback with this phone's state on it (./linkSignIn.ts)
+   * — and is redeemed only here, only for the flow this phone started.
+   * Supabase ignores a redirect missing from its allow-list and falls back to
+   * the Site URL, so the code mail itself is never affected by it.
    */
-  sendEmailCode: (email: string, captchaToken?: string) =>
-    supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: bool("auth.allowSignup", true), captchaToken } }),
+  sendEmailCode: (email: string, captchaToken?: string, emailRedirectTo?: string) =>
+    supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: bool("auth.allowSignup", true), captchaToken, emailRedirectTo },
+    }),
   verifyEmailCode: (email: string, token: string) =>
     supabase.auth.verifyOtp({ email, token, type: "email" }),
 
@@ -142,9 +157,14 @@ export const supabaseAuth = {
   verifyLinkToken: (tokenHash: string, type: string) =>
     supabase.auth.verifyOtp({ token_hash: tokenHash, type: type as never }),
 
-  /** Adopt a session GoTrue already minted and handed back in a URL. */
+  /** Adopt a session GoTrue already minted and handed back in a URL. Only
+   *  through ./linkSignIn.ts, which checks this phone started that flow. */
   setSession: (accessToken: string, refreshToken: string) =>
     supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
+
+  /** Trade a PKCE code for a session — with the verifier this phone stored
+   *  when the flow began, which is what makes a foreign code worthless. */
+  exchangeCode: (code: string) => supabase.auth.exchangeCodeForSession(code),
 
   /** Native Sign in with Apple (identity token + nonce). */
   signInWithApple: (identityToken: string, nonce?: string) =>
@@ -163,8 +183,9 @@ export const supabaseAuth = {
    * Returns the URL to open, and opens nothing itself (skipBrowserRedirect):
    * the caller puts it in an auth session so the browser can hand the result
    * back. Supabase holds the web client secret and finishes Google, then
-   * redirects to `redirectTo` with the session in the fragment — which the
-   * backend page forwards to tulmi://, and the router adopts. `select_account`
+   * redirects to `redirectTo` (the backend page, carrying this phone's state)
+   * with a PKCE code — which the page forwards to tulmi://, and
+   * ./linkSignIn.ts exchanges only if the state is this phone's. `select_account`
    * so a phone with two Google accounts is asked which, every time, rather
    * than silently reusing whichever was last.
    */

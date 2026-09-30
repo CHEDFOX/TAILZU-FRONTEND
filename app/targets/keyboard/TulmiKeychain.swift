@@ -19,18 +19,28 @@ enum TulmiKeychain {
   static let accessGroup = "6552H8HYA4.com.tulmi.app.shared"
   static let service = "space.tailzu.tulmi.bearer"
 
-  private static func query(_ key: String) -> [String: Any] {
+  private static func query(_ key: String, _ accessibility: CFString) -> [String: Any] {
     return [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: key,
       kSecAttrAccessGroup as String: accessGroup,
-      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+      kSecAttrAccessible as String: accessibility,
     ]
   }
 
+  /// This-device-only, as the app now writes it — or, until the app has run
+  /// once since updating, the older after-first-unlock item it wrote before.
+  /// The app moves the old one over (its read and its write both do), so this
+  /// side only reads: a keyboard re-save could race the app's fresher token
+  /// and put the stale one back.
   static func string(forKey key: String) -> String? {
-    var q = query(key)
+    return read(key, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+      ?? read(key, kSecAttrAccessibleAfterFirstUnlock)
+  }
+
+  private static func read(_ key: String, _ accessibility: CFString) -> String? {
+    var q = query(key, accessibility)
     q[kSecReturnData as String] = true
     q[kSecMatchLimit as String] = kSecMatchLimitOne
     var out: AnyObject?
