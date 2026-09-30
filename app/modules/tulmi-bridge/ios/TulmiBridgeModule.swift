@@ -15,6 +15,12 @@ public class TulmiBridgeModule: Module {
   public func definition() -> ModuleDefinition {
     Name("TulmiBridge")
 
+    // At launch: take down a Flow activity left by a session that died with
+    // the last process, and listen for the activity's End button from here on.
+    OnCreate {
+      FlowSessionManager.shared.adoptLaunch()
+    }
+
     Function("setKeyboardCredentials") { (baseUrl: String, token: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       // baseUrl isn't sensitive — user-visible in Connection screen. Kept in

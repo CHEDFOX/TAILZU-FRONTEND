@@ -41,19 +41,49 @@ final class SetupLiveActivity {
   static let shared = SetupLiveActivity()
   private var activity: Activity<SetupActivityAttributes>?
 
+  // CLEARED MEANS CLEARED. Someone who swipes the activity off the Lock
+  // Screen has answered it; starting it again on the next open is the reminder
+  // they just dismissed, back. The step they cleared it on is kept, and the
+  // activity only returns when setup has moved on to another step.
+  private static let clearedKey = "tulmi.setup.clearedAtStep"
+
+  private var clearedAtStep: Int? {
+    get { UserDefaults.standard.object(forKey: Self.clearedKey) as? Int }
+    set { UserDefaults.standard.set(newValue, forKey: Self.clearedKey) }
+  }
+
   /// Show this step, starting the activity if there is none. `nil` ends it.
   func apply(_ state: SetupActivityAttributes.ContentState?) {
     guard Thread.isMainThread else { DispatchQueue.main.async { self.apply(state) }; return }
     guard let state = state else { end(); return }
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+    // One dismissed while this process was not watching still says so.
+    for gone in Activity<SetupActivityAttributes>.activities where gone.activityState == .dismissed {
+      clearedAtStep = gone.content.state.done
+    }
     let content = ActivityContent(state: state, staleDate: nil)
-    if let live = activity ?? Activity<SetupActivityAttributes>.activities.first {
+    if let live = activity ?? Activity<SetupActivityAttributes>.activities.first(where: { $0.activityState == .active }) {
       activity = live
       Task { await live.update(content) }
       return
     }
+    if clearedAtStep == state.done { return }
     activity = try? Activity.request(
       attributes: SetupActivityAttributes(startedAt: Date()), content: content, pushType: nil)
+    if let a = activity { watch(a) }
+  }
+
+  /// Remember the step it was cleared on, the moment it is.
+  private func watch(_ a: Activity<SetupActivityAttributes>) {
+    Task { [weak self] in
+      for await s in a.activityStateUpdates where s == .dismissed {
+        let step = a.content.state.done
+        DispatchQueue.main.async {
+          self?.clearedAtStep = step
+          if self?.activity?.id == a.id { self?.activity = nil }
+        }
+      }
+    }
   }
 
   func end() {

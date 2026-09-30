@@ -213,6 +213,7 @@ final class FlowSessionManager: NSObject {
   private var language = "auto"
   private var seq = 0
   private var observersRegistered = false
+  private var endObserverRegistered = false
 
   // Post-stop close lifecycle. When an utterance ends we ask the server to flush
   // its tail and wait for the terminal message (`final`/`done`) to close the
@@ -302,6 +303,17 @@ final class FlowSessionManager: NSObject {
 
   /// End the session now (user turned Flow off, or the app decided to).
   func end() { disarm(notify: true) }
+
+  /// A new process. Nothing can be armed yet — a session lives in the process
+  /// that armed it — so a Flow activity still on the Lock Screen belongs to a
+  /// session that died with the last one (a crash, iOS reclaiming the app).
+  /// End it, and hear the activity's End button from now on, armed or not.
+  func adoptLaunch() {
+    DispatchQueue.main.async {
+      self.registerEndObserver()
+      if !self.armed, #available(iOS 16.2, *) { FlowLiveActivity.shared.ended() }
+    }
+  }
 
   var isArmed: Bool { armed }
 
@@ -471,6 +483,24 @@ final class FlowSessionManager: NSObject {
 
   // MARK: - Darwin observers (keyboard → app)
 
+  /// The Live Activity's End button (EndFlowSessionIntent). Registered at
+  /// launch, not only when armed: the button must work on an activity whose
+  /// session is already gone. With nothing armed there is no microphone to
+  /// release — only the activity to take down.
+  private func registerEndObserver() {
+    guard !endObserverRegistered else { return }
+    endObserverRegistered = true
+    let ptr = Unmanaged.passUnretained(self).toOpaque()
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), ptr, { _, p, _, _, _ in
+      guard let p = p else { return }
+      let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
+      DispatchQueue.main.async {
+        if this.isArmed { this.end() }
+        else if #available(iOS 16.2, *) { FlowLiveActivity.shared.ended() }
+      }
+    }, FlowSessionManager.nEnd as CFString, nil, .deliverImmediately)
+  }
+
   private func registerObservers() {
     guard !observersRegistered else { return }
     observersRegistered = true
@@ -488,12 +518,7 @@ final class FlowSessionManager: NSObject {
       let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
       DispatchQueue.main.async { this.endDictation() }
     }, FlowSessionManager.nStop as CFString, nil, .deliverImmediately)
-    // The Live Activity's End button, from the widget extension.
-    CFNotificationCenterAddObserver(center, ptr, { _, p, _, _, _ in
-      guard let p = p else { return }
-      let this = Unmanaged<FlowSessionManager>.fromOpaque(p).takeUnretainedValue()
-      DispatchQueue.main.async { this.end() }
-    }, FlowSessionManager.nEnd as CFString, nil, .deliverImmediately)
+    registerEndObserver()
 
     // THE SESSION HAS TO SURVIVE BEING INTERRUPTED, because it will be.
     //

@@ -12,9 +12,10 @@ import ActivityKit
 // updated from the background as the session goes: ready, listening with the
 // words so far, writing, and ended with the session.
 //
-// The attributes are declared once more, byte for byte, in the widget
-// extension (targets/widgets/FlowActivity.swift). ActivityKit matches the two
-// by the type's name and its encoding, so the copies must stay identical.
+// The attributes are declared once more, byte for byte, in
+// targets/widgets/_shared/FlowEnd.swift (built into the widget extension and
+// the app). ActivityKit matches them by the type's name and its encoding, so
+// the copies must stay identical.
 
 #if canImport(ActivityKit)
 @available(iOS 16.2, *)
@@ -38,17 +39,21 @@ final class FlowLiveActivity {
   private var words = 0
   private var until = Date()
 
-  /// The session is armed (the app is in front): begin the activity, or take
-  /// over one left from a session that ended without saying so.
+  /// The session is armed (the app is in front): begin the activity, or keep
+  /// this process's own. One left by an earlier process is not taken over: it
+  /// is being ended (FlowSessionManager.adoptLaunch), and a session that
+  /// adopted it would lose its activity a moment later.
   func sessionStarted(until: Date) {
     guard Thread.isMainThread else { DispatchQueue.main.async { self.sessionStarted(until: until) }; return }
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
     self.until = until
     phase = "ready"; words = 0
-    if let live = activity ?? Activity<FlowActivityAttributes>.activities.first {
-      activity = live
+    if activity != nil {
       push()
       return
+    }
+    for orphan in Activity<FlowActivityAttributes>.activities {
+      Task { await orphan.end(nil, dismissalPolicy: .immediate) }
     }
     let content = ActivityContent(state: state(), staleDate: nil)
     activity = try? Activity.request(attributes: FlowActivityAttributes(startedAt: Date()), content: content, pushType: nil)
