@@ -164,8 +164,9 @@ interface KBHost {
      * — tapping "hello" after typing "helo" would leave "helohello".
      */
     fun applySuggestion(word: String)
-    /** Text was just committed by a key; the word under the caret has changed. */
-    fun onTextInserted()
+    /** [text] was just committed at the caret by a key; the word under the
+     *  caret has changed. */
+    fun onTextInserted(text: String)
     /** A trace crossed these letters, in order. The host decodes them to a word. */
     fun onSwipe(letters: String)
     /** The same, with the letters the finger TURNED on (the pivots). */
@@ -1732,7 +1733,7 @@ class SDUIRenderer(
             host.ic()?.commitText(r, 1)
             lastKeyInsert = r
             lastInsertedChar = r.lastOrNull()?.lowercaseChar()
-            host.onTextInserted()
+            host.onTextInserted(r)
             val s = host.state()
             if (s.shift && !s.capsLock) { s.shift = false; host.onStateChanged() }
         }
@@ -2036,7 +2037,7 @@ class SDUIRenderer(
         ic.commitText(". ", 1)
         ic.endBatchEdit()
         TulmiTelemetry.bump(TulmiTelemetry.KEYSTROKES)
-        host.onTextInserted()
+        host.onTextInserted(". ")
         return true
     }
 
@@ -3025,7 +3026,7 @@ class SDUIRenderer(
         // this — not the legacy key handler — is where the suggestion bar has
         // to be told the word changed. Wiring it to onKey() left the bar dead
         // on the path every user is actually on.
-        host.onTextInserted()
+        host.onTextInserted(out)
     }
 
     // --- Tone pill (SDUI) ---------------------------------------------------
