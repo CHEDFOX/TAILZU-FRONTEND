@@ -22,8 +22,17 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
 // The app, and the desktop app (its window renders the same bootstrap; its
-// main process reads the same flags through its own copy of the knobs).
-const roots = [path.join(repo, "app/src"), path.join(repo, "app/App.tsx"), path.join(repo, "desktop")];
+// main process reads the same flags through its own copy of the knobs). The
+// desktop lives in its own repo, TAILZU-DESKTOP: DESKTOP_DIR names a checkout,
+// or it is looked for beside this one. Without it the manifest would silently
+// lose every desktop key, so it is required.
+const desktop = [process.env.DESKTOP_DIR, path.resolve(repo, "../TAILZU-DESKTOP"), path.resolve(repo, "../tailzu-desktop")]
+  .find((d) => d && fs.existsSync(path.join(d, "knobs.js")));
+if (!desktop) {
+  console.error("No TAILZU-DESKTOP checkout: set DESKTOP_DIR (the desktop's knobs are part of this manifest).");
+  process.exit(2);
+}
+const roots = [path.join(repo, "app/src"), path.join(repo, "app/App.tsx"), desktop];
 const out = path.join(here, "app-knobs.json");
 
 const files = [];
