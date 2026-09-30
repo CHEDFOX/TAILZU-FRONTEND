@@ -49,8 +49,12 @@ public typealias Module = AnyModule & BaseModule
 
 struct NamedDefinition: AnyDefinition {}
 struct FunctionDefinition: AnyDefinition {}
+struct EventListener: AnyDefinition {}
 
 public func Name(_ name: String) -> AnyDefinition { NamedDefinition() }
+
+/// A lifecycle hook, called once the module has been created.
+public func OnCreate(@_implicitSelfCapture _ closure: @escaping () -> Void) -> AnyDefinition { EventListener() }
 
 public func Function<R>(
   _ name: String,
