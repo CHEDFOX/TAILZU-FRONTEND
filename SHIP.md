@@ -48,6 +48,15 @@ for their very first open (`default-config.json`, and
 the backend (`npx tsx scripts/export-keyboard-snapshots.ts`), so there is
 nothing to do for it here.
 
+From GitHub: Actions → EAS Release → Run workflow, on this branch. Tick an
+update, iOS and/or Android; "builder" picks GitHub's machines (Actions
+minutes, no Expo build used up) or Expo's (the plan's monthly builds). iOS
+goes on to TestFlight either way; a GitHub-built Android .aab is on the run's
+page. Needs the `EXPO_TOKEN` secret on this repo. A push to main sends an
+update only, and only when no native file changed.
+
+Or from the laptop:
+
 ```powershell
 cd C:\Users\user\tulmi
 git pull --rebase origin claude/repo-analysis-verdict-6lpyaw
