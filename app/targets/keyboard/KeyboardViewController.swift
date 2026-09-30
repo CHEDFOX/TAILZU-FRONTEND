@@ -31,9 +31,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private var mainStack: UIStackView!  // nil-safe after SDUI takeover (see loadAndApplyConfig)
 
   private let statusLabel = UILabel()
-  private var nextKeyboardButton: UIButton!
   private var micButton: UIButton!
-  private var refineButton: UIButton?   // no longer shown; kept for auto-refine after dictation
   private var tonePill: UIButton!
   private var returnButton: UIButton?
   private var shiftButton: UIButton?
@@ -257,7 +255,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       micButton = UIButton(type: .system)
       tonePill = UIButton(type: .system)
       undoButton = UIButton(type: .system)
-      nextKeyboardButton = UIButton(type: .system)
       if let cfg = TulmiBackend.parseConfig(data) { applyConfig(cfg) }  // flags (mic mode, height…)
       applySDUIIfAvailable(data)
       fetchRemoteConfig()
@@ -902,7 +899,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let globeBtn = makeGlyphButton(symbol: "globe")
     globeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
     globeBtn.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
-    nextKeyboardButton = globeBtn
     let space = makeKeyButton(title: label("legacy_space", "Tailzu"))
     space.titleLabel?.font = .systemFont(ofSize: 14)
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
@@ -2338,6 +2334,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         self.cleanupRecorder()
       }
     }
+    // transcribeClean read the file into its request before returning: what
+    // was said is not kept on disk past this point.
+    try? FileManager.default.removeItem(at: fileURL)
   }
 
   private func cleanupRecorder() {
@@ -2573,6 +2572,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     if isRecording {
       isRecording = false
       audioRecorder?.stop()
+      _ = audioRecorder?.deleteRecording()   // abandoned: nothing said stays on disk
       try? AVAudioSession.sharedInstance().setActive(false)
       cleanupRecorder()
       bailDictating()   // flip the SDUI mic button back to idle

@@ -174,13 +174,6 @@ object Net {
         val liveText: Boolean = true,
         val labels: Map<String, String>,
         /**
-         * Per-key accent glyphs for long-press. Keys are lowercase letters
-         * (e.g. "a"); values are the list of accented characters shown in
-         * the popover. Backend sets this in bootstrap flags under
-         * `kb.accents.<char>`; missing = no menu for that key.
-         */
-        val accents: Map<String, List<Char>> = emptyMap(),
-        /**
          * Whether the free words are gone — `kb.quota.exhausted`.
          *
          * The 429 on the transcribe route is the authority and stays the
@@ -202,24 +195,9 @@ object Net {
         val l = o.getJSONObject("labels")
         val labels = HashMap<String, String>()
         for (k in l.keys()) labels[k] = l.getString(k)
-
-        // Accent glyphs, per key: kb.accents = { "a": ["à", "á", …] } (what the
-        // backend sends and iOS reads) or the older { "a": "àá…" } string form.
-        // Absent object → empty map.
-        val accents = HashMap<String, List<Char>>()
+        // (The accent trays read kb.accents from the flags themselves — see
+        // SDUIRenderer.accentsFor.)
         val flags = o.optJSONObject("flags")
-        val accentsObj = flags?.optJSONObject("kb.accents")
-        if (accentsObj != null) {
-            for (k in accentsObj.keys()) {
-                val arr = accentsObj.optJSONArray(k)
-                val chars = if (arr != null) {
-                    (0 until arr.length()).mapNotNull { arr.optString(it, "").firstOrNull() }
-                } else {
-                    accentsObj.optString(k, "").toList()
-                }
-                if (chars.isNotEmpty()) accents[k.lowercase()] = chars
-            }
-        }
 
         return KbConfig(
             background = t.optString("background", "#15151b"),
@@ -232,7 +210,6 @@ object Net {
             // only commit the final after stop. Backend flag, no rebuild needed.
             liveText = flags?.optBoolean("kb.mic.liveText", true) ?: true,
             labels = labels,
-            accents = accents,
             wordsExhausted = flags?.optBoolean("kb.quota.exhausted", false) ?: false,
             quotaScreenId = flags?.optString("kb.quota.screenId", "words_out")
                 ?.ifEmpty { "words_out" } ?: "words_out",
@@ -259,7 +236,8 @@ object Net {
     private fun refinePath(toneId: String): String {
         val routed = knobStrings("kb.refine.toneRoutes", listOf("formal", "casual", "very-casual", "excited", "none"))
         return if (toneId.isNotEmpty() && toneId in routed) {
-            knobString("kb.refine.tonePathPrefix", "/v1/refine/") + toneId
+            // path(): the prefix is a knob too, and it carries the token.
+            path(knobString("kb.refine.tonePathPrefix", "/v1/refine/"), "/v1/refine/") + toneId
         } else {
             path(knobString("kb.endpoints.refine", "/v1/refine"), "/v1/refine")
         }

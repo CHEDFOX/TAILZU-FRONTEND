@@ -134,6 +134,10 @@ final class TulmiStream: NSObject {
     stopCapture()
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
+    // One session per dictation, and a URLSession lives until invalidated —
+    // in a ~60 MB extension every dictation would otherwise leave one behind.
+    // Nothing opens a task on this stream after cancel (endStreaming drops it).
+    session.invalidateAndCancel()
   }
 
   /// Emit .closed at most once — every close path funnels through here. Always
@@ -187,6 +191,13 @@ final class TulmiStream: NSObject {
     if voiceProcessing { try? input.setVoiceProcessingEnabled(true) }
 
     let inputFormat = input.outputFormat(forBus: 0)
+    // 0 Hz / 0 channels means no input route; installTap would raise an
+    // Objective-C exception on it and crash the keyboard.
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+      stopCapture()
+      onEvent(.error("Mic unavailable"))
+      return
+    }
     converter = AVAudioConverter(from: inputFormat, to: targetFormat)
     // Frames per tap callback — the server's (kb.stream.tapFrames).
     let tapFrames = AVAudioFrameCount(clamping: max(1, knobInt("kb.stream.tapFrames", 2048)))

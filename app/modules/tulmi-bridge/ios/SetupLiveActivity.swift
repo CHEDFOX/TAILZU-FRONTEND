@@ -101,7 +101,9 @@ final class SetupLiveActivity {
           let title = o["title"] as? String, !title.isEmpty
     else { return nil }
     let done = (o["done"] as? NSNumber)?.intValue ?? 0
-    let total = max(1, (o["total"] as? NSNumber)?.intValue ?? 1)
+    // Bounded: the widget draws one segment per step, and a runaway number
+    // would draw the extension out of memory.
+    let total = min(24, max(1, (o["total"] as? NSNumber)?.intValue ?? 1))
     return SetupActivityAttributes.ContentState(
       done: max(0, min(done, total)), total: total, title: title,
       detail: (o["detail"] as? String) ?? "",

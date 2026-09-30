@@ -99,7 +99,11 @@ final class TulmiHandoff: NSObject {
     // screen ({screen}); the query params ride on top so the SDUI screen can
     // pick up the session id — joined with "&" if the template already has a
     // query of its own.
-    let host = hostApp.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hostApp
+    // .urlQueryAllowed keeps & = + #, which would let the value add or cut
+    // query parameters of its own; encode those too.
+    var valueAllowed = CharacterSet.urlQueryAllowed
+    valueAllowed.remove(charactersIn: "&=+#?")
+    let host = hostApp.addingPercentEncoding(withAllowedCharacters: valueAllowed) ?? hostApp
     let base = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
       .replacingOccurrences(of: "{screen}", with: screenId)
     let urlString = base + (base.contains("?") ? "&" : "?") + "session=\(sessionId)&host=\(host)"

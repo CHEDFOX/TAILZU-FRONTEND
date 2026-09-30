@@ -95,8 +95,10 @@ struct FlowTuning {
     if let b = o["duckOthers"] as? Bool { duckOthers = b }
     if let b = o["voiceProcessing"] as? Bool { voiceProcessing = b }
     tapFrames = count("tapFrames", tapFrames, min: 1)
-    if let s = o["streamPath"] as? String, !s.isEmpty { streamPath = s }
-    if let s = o["uploadPath"] as? String, !s.isEmpty { uploadPath = s }
+    // Paths only: anything else after the base URL ("@host/…") could carry
+    // the bearer to another server.
+    if let s = o["streamPath"] as? String, s.hasPrefix("/") { streamPath = s }
+    if let s = o["uploadPath"] as? String, s.hasPrefix("/") { uploadPath = s }
     if let b = o["level"] as? Bool { levelEnabled = b }
     if let ms = num("levelMs"), ms >= 16 { levelInterval = ms / 1000.0 }
     if let d = num("levelFloorDb"), d < 0 { levelFloorDb = Float(d) }
@@ -354,6 +356,10 @@ final class FlowSessionManager: NSObject {
     d?.set(false, forKey: "tulmi.flow.active")
     d?.removeObject(forKey: "tulmi.flow.expiresAt")
     d?.removeObject(forKey: "tulmi.flow.heartbeat")
+    // Nothing said, and none of the draft it was said into (the keyboard's
+    // tulmi.flow.context), outlives the session in the shared container.
+    d?.removeObject(forKey: "tulmi.flow.transcript.text")
+    d?.removeObject(forKey: "tulmi.flow.context")
   }
 
   private func publishHeartbeat() {
@@ -591,8 +597,27 @@ final class FlowSessionManager: NSObject {
 
   // MARK: - Dictation lifecycle (one utterance)
 
-  private func beginDictation() {
+  /// Bumped by every flow.stop, so a start still waiting for its stamp (below)
+  /// is dropped when a stop followed it.
+  private var startGate = 0
+
+  private func beginDictation(recheck: Bool = true) {
     guard armed, !dictating else { return }
+    // A Darwin name is public: any app on the phone can post flow.start. Only
+    // the keyboard writes this App Group stamp (TulmiFlow.startDictation), so a
+    // bare notification streams nothing. The stamp can trail its notification
+    // by a moment across processes, hence one late look before giving up.
+    let at = store?.double(forKey: "tulmi.flow.startAt") ?? 0
+    guard abs(Date().timeIntervalSince1970 * 1000 - at) < 5000 else {
+      guard recheck else { return }
+      let gate = startGate
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        guard let self = self, self.startGate == gate else { return }
+        self.beginDictation(recheck: false)
+      }
+      return
+    }
+    store?.removeObject(forKey: "tulmi.flow.startAt")
     resetIdleTimer()
     dictating = true
     startLevel()
@@ -607,6 +632,7 @@ final class FlowSessionManager: NSObject {
   }
 
   private func endDictation() {
+    startGate &+= 1
     guard dictating else { return }
     resetIdleTimer()
     dictating = false
@@ -812,6 +838,10 @@ final class FlowSessionManager: NSObject {
     // turns it back off, since this one engine outlives every arm.
     try? input.setVoiceProcessingEnabled(tuning.voiceProcessing)
     let inputFormat = input.outputFormat(forBus: 0)
+    // No input route (the session could not take a recording category, or the
+    // mic is gone): the format is 0 Hz / 0 channels, and installTap raises an
+    // Objective-C exception on it — an app crash. Not capturing is the answer.
+    guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else { return }
     setConverter(AVAudioConverter(from: inputFormat, to: targetFormat))
     let frames = AVAudioFrameCount(clamping: tuning.tapFrames)
     input.installTap(onBus: 0, bufferSize: frames, format: inputFormat) { [weak self] buffer, _ in
@@ -924,6 +954,12 @@ final class FlowSessionManager: NSObject {
 
     let body = wavContainer(for: audio)
     let boundary = "Boundary-\(UUID().uuidString)"
+    // The freshest bearer, as openStream reads it: one-shot never opens a
+    // socket, so without this every upload after the arm-time token expired
+    // (~1 h into a long session) was a 401 and "couldn't hear that".
+    if let fresh = TulmiKeychain.string(forKey: "tulmi.token"), !fresh.isEmpty {
+      token = fresh
+    }
     var req = URLRequest(url: url)
     req.httpMethod = "POST"
     req.timeoutInterval = tuning.oneShotTimeout

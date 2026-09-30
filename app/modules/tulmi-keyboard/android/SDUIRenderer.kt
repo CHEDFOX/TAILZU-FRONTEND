@@ -3463,6 +3463,9 @@ class SDUIRenderer(
     // callEndpoint.
     // -----------------------------------------------------------------------
     private fun callEndpoint(spec: KBActionSpec.CallEndpoint) {
+        // A path, never a host: "@elsewhere.com/x" after the base URL would make
+        // the base userinfo and hand the user's token to another server.
+        if (!spec.path.startsWith("/") || spec.path.startsWith("//")) return
         val urlStr = Net.baseUrl + spec.path
         val bodyStr = jsonBody(spec.body)
         val timeoutMs = flagFloat("kb.network.timeoutMs", 15000f).toInt()

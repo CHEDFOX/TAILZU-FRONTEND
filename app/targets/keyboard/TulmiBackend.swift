@@ -63,8 +63,10 @@ enum TulmiBackend {
   static var bearer: String { token }
 
   /// An endpoint on the backend: `path` is the server's (a knob) or the literal.
+  /// A path, never a host: "@elsewhere.com/x" after the base would make the
+  /// base userinfo and carry the user's token to another server.
   private static func endpoint(_ path: String) -> URL? {
-    URL(string: "\(baseUrl)\(path)")
+    path.hasPrefix("/") ? URL(string: "\(baseUrl)\(path)") : nil
   }
 
   /// WebSocket URL for live dictation: same host as baseUrl, ws/wss scheme.
@@ -80,7 +82,7 @@ enum TulmiBackend {
       ws = b
     }
     let path = knobString("kb.endpoints.stream", "/v1/transcribe-stream")
-    return URL(string: "\(ws)\(path)")
+    return path.hasPrefix("/") ? URL(string: "\(ws)\(path)") : nil
   }
 
   enum BackendError: LocalizedError {
