@@ -41,6 +41,38 @@ export function forgetPushToken(): void {
   lastToken = null;
 }
 
+/**
+ * THIS PHONE STOPS BEING THE ACCOUNT'S — asked just BEFORE signing out.
+ *
+ * The server keeps one row per (account, platform), so a signed-out account's
+ * row still pointed at this phone and its pushes kept arriving here, on the
+ * next person's lock screen. Before the session goes, because afterwards
+ * there is no token left to prove whose row it is. The server also takes the
+ * token from any other account when someone registers it, which covers a
+ * sign-out this cannot reach (offline, an expired session).
+ *
+ * Bounded: signing out never waits on the network, and a failure is silent.
+ * The path is fixed rather than a knob — nothing is gained by letting it move.
+ */
+const UNREGISTER_WAIT_MS = 3000;
+export async function unregisterPushToken(): Promise<void> {
+  const work = (async () => {
+    let token = lastToken;
+    // Not registered THIS launch (the POST failed) can still mean registered
+    // on an earlier one, so ask for the token rather than assume there is none.
+    if (!token) {
+      if (!(await Notifications.getPermissionsAsync()).granted) return;
+      token = (expoProjectId
+        ? await Notifications.getExpoPushTokenAsync({ projectId: expoProjectId })
+        : await Notifications.getExpoPushTokenAsync()).data;
+    }
+    if (token) await callEndpoint("POST", "/v1/push/unregister", { token });
+  })().catch(() => { /* best-effort — the server's takeover rule is the backstop */ });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([work, new Promise<void>((r) => { timer = setTimeout(r, UNREGISTER_WAIT_MS); })]);
+  if (timer) clearTimeout(timer);
+}
+
 export async function registerForPushToken(): Promise<string | null> {
   try {
     const perm = await Notifications.getPermissionsAsync();

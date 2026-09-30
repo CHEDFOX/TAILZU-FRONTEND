@@ -30,6 +30,10 @@ function withManifest(config) {
     if (!profile || profile === "development") {
       app["$"]["android:usesCleartextTraffic"] = "true";
     }
+    // The token file stays on this phone: allowBackup="false" (app.config.ts)
+    // does not cover a device-to-device transfer on Android 12+, these rules
+    // do. The XML is copied in with the rest of ../android/res below.
+    app["$"]["android:dataExtractionRules"] = "@xml/tailzu_data_extraction_rules";
     app.service = app.service || [];
     const already = app.service.some(
       (s) => s["$"] && s["$"]["android:name"] === SERVICE,

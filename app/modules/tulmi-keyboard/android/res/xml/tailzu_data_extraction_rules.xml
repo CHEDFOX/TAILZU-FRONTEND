@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The keyboard's bearer token never leaves this phone.
+
+  shared_prefs/tulmi.xml holds the user's session token (written by
+  tulmi-bridge's setKeyboardCredentials, read by the IME in Net.kt). A copy of
+  it anywhere else is a live session for the account.
+
+  android:allowBackup="false" (app.config.ts) already stops cloud and adb
+  backups. It does NOT stop a device-to-device transfer on Android 12+ —
+  that is what these rules are for (android:dataExtractionRules, set by
+  plugin/withTulmiKeyboard.js). The cloud rule only matters if backup is ever
+  switched back on. The app writes the token again on its first launch after
+  sign-in, so nothing is lost by leaving it behind.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="tulmi.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="tulmi.xml" />
+    </device-transfer>
+</data-extraction-rules>

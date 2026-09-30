@@ -63,6 +63,7 @@ import { initSentry } from "../telemetry/sentry";
 import { initBilling, identifyBilling, logOutBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener, forgetPushToken } from "../notifications/push";
 import { installLinkListener } from "../deeplinks/router";
+import { redeemSignInLink } from "../auth/linkSignIn";
 import { armFlow } from "../widgets/flow";
 import { isOpenableUrl, isScreenId } from "../security";
 
@@ -426,37 +427,25 @@ export default function SduiApp() {
       } else if (target.kind === "action") {
         // `tulmi://action?kind=…` — run a bare action (guarded whitelist).
         runLinkActionRef.current(target.actionKind, target.params);
-      } else if (target.kind === "auth" || target.kind === "session") {
-        // A SIGN-IN LINK THAT WAS MAILED INSTEAD OF A CODE.
+      } else if (target.kind === "auth" || target.kind === "session" || target.kind === "code") {
+        // A SIGN-IN LINK: Google coming back from Supabase's page (a cold
+        // start, if Android dropped the app meanwhile), or a mailed link when
+        // a template sends one instead of a code. Redeeming it lands a session
+        // exactly as typing the code would, and the auth gate is watching for
+        // one, so the app simply proceeds.
         //
-        // The app asks for a code; whether one is sent is decided by a Supabase
-        // email template. This is the safety net for the template being wrong —
-        // before it, a tapped link parsed as `unknown` and did nothing at all.
+        // ONLY FOR A SIGN-IN THIS PHONE STARTED. Any web page can open
+        // tulmi://, and a link carrying a session, code or token hash minted
+        // for the ATTACKER's account would otherwise sign the victim into it —
+        // everything they dictate from then on lands where the attacker reads
+        // it. linkSignIn checks the link's state against the one this phone
+        // is waiting for (and PKCE binds the code to this phone's verifier).
         //
-        // Redeeming it lands a session exactly as typing the code would, and
-        // the auth gate is watching for one, so the app simply proceeds.
-        //
-        // ONLY WHILE NOBODY IS SIGNED IN. Any web page can open a tulmi://
-        // link, and one carrying a session (or a token hash) minted for the
-        // ATTACKER's account would otherwise swap it in silently — everything
-        // the victim dictates from then on lands where the attacker reads it.
-        // Someone already signed in has no mailed link to redeem.
-        void (async () => {
-          try {
-            if ((await supabaseAuth.getSession()).data.session) {
-              console.warn("[auth] sign-in link ignored: already signed in");
-              return;
-            }
-            const { error } = target.kind === "auth"
-              ? await supabaseAuth.verifyLinkToken(target.tokenHash, target.type)
-              : await supabaseAuth.setSession(target.accessToken, target.refreshToken);
-            // A used or expired link is not worth a dialog: the user is looking
-            // at the code screen, which still works and still has Resend.
-            if (error) console.warn("[auth] mailed link could not be redeemed:", error.message);
-          } catch (e) {
-            console.warn("[auth] mailed link could not be redeemed:", e);
-          }
-        })();
+        // A refused or spent link is not worth a dialog: the user is looking
+        // at the sign-in screen, which still works.
+        void redeemSignInLink(target)
+          .then((r) => { if (!r.ok) console.warn(`[auth] sign-in link not redeemed: ${r.verdict}`, r.message ?? ""); })
+          .catch((e) => console.warn("[auth] sign-in link could not be redeemed:", e));
       }
     });
     const notifSub = addNotificationResponseListener((data) => {

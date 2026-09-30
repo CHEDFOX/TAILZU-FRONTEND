@@ -78,13 +78,37 @@ function literalAt(src, i) {
   return undefined;
 }
 
+/**
+ * A reader imported under another name — `import { color as knobColor }` —
+ * is still a reader. Missing it made the manifest drop every knob the name
+ * card reads (profile.color.*), and a key the manifest does not list looks
+ * unread, so it gets deleted from the server while the app still asks for it.
+ */
+const aliasImport = /import\s*\{([^}]*)\}\s*from\s*["'][^"']*\bknobs(?:\.js)?["']/g;
+function aliasesIn(src) {
+  const out = {};
+  for (const [, names] of src.matchAll(aliasImport)) {
+    for (const spec of names.split(",")) {
+      const m = /^\s*(\w+)\s+as\s+(\w+)\s*$/.exec(spec);
+      if (m && KIND[m[1]] && m[2] !== m[1]) out[m[2]] = m[1];
+    }
+  }
+  return out;
+}
+
 const manifest = { labels: {}, flags: {}, dynamic: {} };
 const where = {};
 const clashes = [];
 for (const f of files.sort()) {
   const src = fs.readFileSync(f, "utf8");
-  for (const m of src.matchAll(call)) {
-    const [, fn, , key] = m;
+  const aliases = aliasesIn(src);
+  const aliasCall = Object.keys(aliases).length
+    ? new RegExp(`\\b(${Object.keys(aliases).join("|")})(?:<[^()]*?>)?\\(\\s*(["'])((?:(?!\\2).)+)\\2\\s*,\\s*`, "g")
+    : null;
+  const matches = [...src.matchAll(call), ...(aliasCall ? src.matchAll(aliasCall) : [])].sort((a, b) => a.index - b.index);
+  for (const m of matches) {
+    const [, name, , key] = m;
+    const fn = aliases[name] ?? name;
     const bucket = KIND[fn];
     const value = literalAt(src, m.index + m[0].length);
     const rel = path.relative(repo, f) + ":" + (src.slice(0, m.index).split("\n").length);
