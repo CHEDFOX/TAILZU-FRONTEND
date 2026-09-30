@@ -144,7 +144,9 @@ jobs:
         run: |
           set -euo pipefail
           SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          FILES=$(ls app/targets/widgets/*.swift)
+          # _shared/ is built into this target AND the main app
+          # (@bacons/apple-targets), so it belongs here too.
+          FILES=$(ls app/targets/widgets/*.swift app/targets/widgets/_shared/*.swift)
           echo "Type-checking:"; echo "$FILES"
           swiftc \
             -sdk "$SDK" \
@@ -155,3 +157,18 @@ jobs:
             -typecheck \
             $FILES
           echo "✅ Widgets type-check cleanly."
+
+      - name: Type-check the shared Flow intent as the app builds it
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          # The main app's copy of _shared: its End button's LiveActivityIntent
+          # runs in the app's process, under the app's own deployment target.
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios16.4-simulator \
+            -module-name Tailzu \
+            -parse-as-library \
+            -typecheck \
+            app/targets/widgets/_shared/*.swift
+          echo "✅ Shared Flow intent type-checks for the app."
