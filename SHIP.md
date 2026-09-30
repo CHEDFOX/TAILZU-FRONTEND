@@ -56,21 +56,13 @@ npx eas-cli build --platform ios --profile production --auto-submit --no-wait
 npx eas-cli build --platform android --profile production --no-wait
 ```
 
-If the pull refuses because of `desktop/package-lock.json`, it is the last
-`npm install`; drop it first: `git checkout -- desktop/package-lock.json`.
-
 ## Desktop, and the site's download
 
-The Windows installer is built here and copied to the server, where the
-download page finds it by name. The Mac installer needs a Mac
-(`npm run dist:mac` → `Tailzu.dmg`, same copy).
-
-```powershell
-cd C:\Users\user\tulmi\desktop
-npm install
-npm run dist:win
-scp "dist\Tailzu-Setup.exe" root@91.108.104.168:~/tulmi/downloads/
-```
+The desktop app lives in its own repo, CHEDFOX/TAILZU-DESKTOP. Its `build`
+workflow builds the Mac, Windows and Linux installers on every push, and
+publishes them to the server (where the download page and the in-app update
+card find them) only on a manual run: Actions → build → Run workflow. That
+needs the `DOWNLOADS_SSH_KEY` secret set on that repo.
 
 ## Check
 
