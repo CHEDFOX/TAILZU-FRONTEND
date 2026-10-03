@@ -1657,7 +1657,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     // --- helpers ------------------------------------------------------------
 
-    /** Map the current app's package to a friendly name for tone matching. */
+    /**
+     * The app the keyboard is typing into, by name. The few apps a saved
+     * per-app style can name keep the names those styles use; every other
+     * app is named as its launcher names it ("ChatGPT", "Claude", "Outlook")
+     * instead of "Generic", so the writer knows a prompt for an AI from a
+     * chat, and Today says where each line went.
+     */
     private fun targetAppName(): String {
         val pkg = currentInputEditorInfo?.packageName ?: return "Generic"
         return when {
@@ -1668,8 +1674,19 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             pkg.contains("instagram") -> "Instagram"
             pkg.contains("twitter") || pkg.contains("x.android") -> "Twitter"
             pkg.contains("mms") || pkg.contains("messaging") -> "Messages"
-            else -> "Generic"
+            else -> appLabel(pkg)
         }
+    }
+
+    /** An app's own name. A keyboard can see the app it types into (Android's
+     *  package visibility allows it for an IME), so this needs no permission;
+     *  the package name stands in if the name cannot be read. */
+    private fun appLabel(pkg: String): String = try {
+        val pm = packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+            .replace(Regex("[\\r\\n<>]+"), " ").trim().take(40).ifBlank { pkg.take(40) }
+    } catch (_: Exception) {
+        pkg.take(40)
     }
 
     override fun setStatus(text: String, actionable: Boolean, blocking: Boolean) {
