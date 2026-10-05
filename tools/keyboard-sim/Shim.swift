@@ -119,6 +119,9 @@ class CALayer {
   var sublayers: [CALayer] = []
   var opacity: Float = 1
   var cornerRadius: CGFloat = 0
+  // A key's shadow and its path (KeyHitButton.layoutSubviews). No drawing here.
+  var shadowOpacity: Float = 0
+  var shadowPath: CGPath?
   func addSublayer(_ l: CALayer) { sublayers.append(l) }
   func removeAnimation(forKey: String) {}
   func add(_ a: CAAnimation, forKey: String?) {}
@@ -131,6 +134,8 @@ final class CAShapeLayer: CALayer {
   var path: CGPath?
 }
 final class UIBezierPath {
+  init() {}
+  init(roundedRect rect: CGRect, cornerRadius: CGFloat) {}
   func move(to p: CGPoint) {}
   func addLine(to p: CGPoint) {}
   var cgPath: CGPath { CGPath() }
