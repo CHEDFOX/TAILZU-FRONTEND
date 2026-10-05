@@ -827,6 +827,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * good one it has, on screen and in the knobs.
      */
     private fun applyRawJson(json: String) {
+        // THE SAME BYTES ARE NOTHING TO DO. The keyboard is mounted from this
+        // very config at startup, and loadAndApplyConfig applied it again —
+        // three more parses and a full rebuild of every key, on the first
+        // show, for nothing.
+        if (json == appliedConfigJson && sduiConfig != null) return
         val parsed = try { SDUIRenderer.parseKBConfig(json) } catch (t: Throwable) {
             android.util.Log.w("SDUI", "config parse failed, keeping the last good one: ${t.message}")
             null

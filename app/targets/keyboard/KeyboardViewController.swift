@@ -280,6 +280,21 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
   }
 
+  /// THE SYSTEM'S EDGE GESTURES MUST NOT HOLD OUR TOUCHES BACK.
+  ///
+  /// The window a keyboard lives in carries the system's own gesture gates —
+  /// the screen-edge swipes and the home indicator. They delay `touchesBegan`
+  /// for any touch near the left, right or bottom edge until they have ruled
+  /// themselves out, and often cancel a quick tap outright: q, a, z, p, l,
+  /// shift, delete and the whole bottom row felt late or dropped, which is
+  /// what the plane's "rescue" heuristics were patching after the fact.
+  /// Every serious third-party keyboard turns the delay off here.
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    guard knobBool("kb.touch.releaseSystemGestures", true) else { return }
+    for g in view.window?.gestureRecognizers ?? [] { g.delaysTouchesBegan = false }
+  }
+
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     writeKeyboardStatus()
@@ -472,6 +487,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       guard case .success(let data) = result else { return }
       DispatchQueue.main.async {
         guard let self = self else { return }
+        // THE SAME BYTES ARE NOTHING TO DO. This used to be checked only after
+        // four full parses of the ~42 KB config on the main thread — right as
+        // the keyboard came up and the first key went down — for a refetch
+        // that, almost every time, changed nothing.
+        if self.sduiRenderer != nil, data == self.lastAppliedConfigData { return }
         // Only a config that draws the keyboard is applied or kept. Anything
         // else — an error page, a half-sent body — is ignored, and the one on
         // screen stays; it used to be cached and bring up the old keyboard.
@@ -549,6 +569,10 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     calloutLabel = nil
     let renderer = SDUIRenderer(controller: self, config: kb)
     sduiRenderer = renderer
+    // The real armed state BEFORE the first build. It defaulted to armed and
+    // was corrected just after mounting, which rebuilt the whole keyboard a
+    // second time on every open, for a mark that does not even change.
+    renderer.seedFlowArmed(flow.isSessionActive || flowRecording)
     renderer.mount(into: view)
     // Re-attach statusLabel as a floating overlay pinned to the top of the
     // keyboard view. Sits above whatever SDUI has mounted so error/status
