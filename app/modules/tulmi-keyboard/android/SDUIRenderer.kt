@@ -689,9 +689,18 @@ class SDUIRenderer(
         ).joinToString("\u0000")
     }
 
+    /** The case the letters were last drawn in; null before the first draw. */
+    private var lastFastUpper: Boolean? = null
+
     /** Re-case the registered letter buttons + refresh the shift key, no remount. */
     private fun applyFastShiftUpdate() {
         val upper = host.state().shift || host.state().capsLock
+        // ONLY WHEN THE CASE CHANGED. This runs on every state change — every
+        // spell-check reply, so nearly every keystroke — and setting a
+        // Button's text, even to the same string, asks the whole keyboard to
+        // measure and lay out again. 26 of those per key was the lag.
+        if (upper == lastFastUpper && shiftButton?.text == shiftGlyph()) return
+        lastFastUpper = upper
         for ((base, btn) in letterButtonsByChar) {
             btn.text = if (upper) base.uppercase() else base.lowercase()
         }
@@ -833,6 +842,7 @@ class SDUIRenderer(
         host.state().trackpadActive = false
         // Reset the fast-shift refs — repopulated as the fresh tree renders.
         letterButtonsByChar.clear()
+        lastFastUpper = null  // new buttons: the next fast update writes them all
         shiftButton = null
         drawnLettersByChar.clear()
         drawnShiftKey = null
@@ -2748,6 +2758,13 @@ class SDUIRenderer(
         // lowercase key as a capital and "return" as "RETURN" — the tree's
         // labels are exactly what it wants shown.
         b.isAllCaps = false
+        // NOTHING THE THEME'S BUTTON ADDS. A Material Button casts its own
+        // elevation shadow and, on every press, animates a lift (~300 ms of
+        // state-list animation per key), stacked on the keyboard's own press
+        // fade and key shadow. A key is drawn and timed by the keyboard alone.
+        b.stateListAnimator = null
+        b.elevation = 0f
+        b.translationZ = 0f
         b.text = label
         b.background = keyBackground(node)
         b.setTextColor(parseHex(theme.keyText))
@@ -3920,7 +3937,9 @@ class SDUIRenderer(
             if (program != null) {
                 if (progRec != 1f) { onDone(); return }
                 progRec = 0f; progFlipped = progT; progSettling = true; onSettled = onDone
-                if (!animatorsEnabled(context)) { progSettling = false; onSettled = null; onDone() }
+                if (!animatorsEnabled(context)) { progSettling = false; onSettled = null; onDone(); return }
+                // The frame loop may be stopped (still at rest); the throw home needs it.
+                removeCallbacks(nextFrame); invalidate()
                 return
             }
             if (!playing) { onDone(); return }
@@ -4286,7 +4305,18 @@ class SDUIRenderer(
                     Frame(shapes, null)
                 }
                 paintShapes(c, frame.shapes, vb, width.toFloat(), height.toFloat(), tint, emptyList(), 0f, 0f, circle, 0f, frame.mark)
-                if (animatorsEnabled(context)) postDelayed(nextFrame, (1000 / (if (progRec == 1f) pg.fpsRec else pg.fpsIdle)).toLong())
+                // STILL AT REST. The program breathes forever, and every frame
+                // of it is interpreted on the thread that takes the next
+                // keystroke — the biggest single cost the audit found. Once the
+                // mark has formed (or come home from a recording) it holds its
+                // pose and no next frame is scheduled; beginPlay starts it
+                // again. kb.mic.idleStill false brings the breathing back.
+                val still = progRec == 0f && !progSettling &&
+                    progT - progFlipped > knobFloat("kb.mic.idleStillAfterSec", 1.2f) &&
+                    knobBool("kb.mic.idleStill", true)
+                if (!still && animatorsEnabled(context)) {
+                    postDelayed(nextFrame, (1000 / (if (progRec == 1f || progSettling) pg.fpsRec else pg.fpsIdle)).toLong())
+                }
                 return
             }
             if (isPlaying) {
@@ -4892,7 +4922,7 @@ class SDUIRenderer(
          */
         // A3: key pop-ups, accent trays, the space-bar trackpad, double-space
         // full stop, and the mic hidden when focus moves into a password box.
-        const val BUILD_STAMP = "A3"
+        const val BUILD_STAMP = "A4"
 
         /** Tag on suggestion chips, so nothing mistakes a one-letter chip for a key. */
         const val CHIP_TAG = "tulmi.chip"

@@ -92,6 +92,18 @@ final class KeyHitButton: UIButton {
       top: -hitSlop.top, left: -hitSlop.left, bottom: -hitSlop.bottom, right: -hitSlop.right
     )).contains(point)
   }
+
+  /// A SHADOW WITH ITS SHAPE GIVEN. Without a path, Core Animation works each
+  /// key's shadow out from its pixels — an offscreen render per key, again on
+  /// every frame anything on the keyboard recomposites (a press fade, the mic
+  /// mark). The key is a rounded rect; saying so makes the shadow free.
+  private var shadowBounds: CGRect = .null
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard layer.shadowOpacity > 0, !bounds.isEmpty, bounds != shadowBounds else { return }
+    shadowBounds = bounds
+    layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
+  }
 }
 
 // =============================================================================
@@ -1607,9 +1619,13 @@ final class KeyCalloutView: UIView {
     p.addQuadCurve(to: CGPoint(x: 0, y: hh - r), controlPoint: CGPoint(x: 0, y: hh))       // head BL
     p.close()
 
+    // Without disabling actions a stand-alone layer animates a new path over
+    // 0.25 s: the pop morphed from the last key's shape into this one's.
+    CATransaction.begin(); CATransaction.setDisableActions(true)
     shape.path = p.cgPath
     shape.fillColor = bg.cgColor
     shape.shadowPath = p.cgPath
+    CATransaction.commit()
     label.text = char
     label.textColor = text
     label.font = .systemFont(ofSize: glyphSize, weight: .regular)
@@ -2121,8 +2137,10 @@ final class TulmiMarkView: UIView {
     if let pg = program {
       guard progRec == 1 else { onDone(); return }
       progRec = 0; progFlipped = progT; progSettling = true; onSettled = onDone
-      display?.preferredFramesPerSecond = pg.fpsIdle
-      if UIAccessibility.isReduceMotionEnabled { progSettling = false; onSettled = nil; onDone() }
+      // The throw home at the recording's rate; idle, the link stops (tick).
+      display?.preferredFramesPerSecond = pg.fpsRec
+      if UIAccessibility.isReduceMotionEnabled { progSettling = false; onSettled = nil; onDone(); return }
+      startDisplay()
       return
     }
     guard playing else { onDone(); return }
@@ -2133,7 +2151,7 @@ final class TulmiMarkView: UIView {
     guard display == nil, window != nil else { return }
     lastTick = 0
     let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-    if let pg = program { l.preferredFramesPerSecond = progRec == 1 ? pg.fpsRec : pg.fpsIdle }
+    if let pg = program { l.preferredFramesPerSecond = (progRec == 1 || progSettling) ? pg.fpsRec : pg.fpsIdle }
     l.add(to: .main, forMode: .common)
     display = l
   }
@@ -2162,7 +2180,20 @@ final class TulmiMarkView: UIView {
   @objc private func tick(_ l: CADisplayLink) {
     let dt = min(1.0 / 20, lastTick == 0 ? 1.0 / 60 : l.timestamp - lastTick)
     lastTick = l.timestamp
-    if program != nil { runProgram(dt: dt); return }
+    if program != nil {
+      runProgram(dt: dt)
+      // STILL AT REST. The program breathes forever, and a display link
+      // running it is main-thread work under every keystroke for as long as
+      // the keyboard is up — the biggest single cost the audit found. Once
+      // the mark has formed (or come home from a recording), it holds its
+      // pose and the link stops; the microphone opening starts it again.
+      // kb.mic.idleStill false brings the breathing back.
+      if progRec == 0, !progSettling, progT - progFlipped > knobDouble("kb.mic.idleStillAfterSec", 1.2),
+         knobBool("kb.mic.idleStill", true) {
+        stopDisplay()
+      }
+      return
+    }
     guard let sp = disperseSpec, wave != nil else { return }
     let U = unit
     clock += dt
@@ -4281,7 +4312,7 @@ final class SDUIRenderer: NSObject {
   /// K41: the mic ring moves with the voice (the app sends the level), and
   /// password boxes — secure or marked by content type — get no mic, no
   /// Refine and no autocorrect.
-  static let buildStamp = "K42"
+  static let buildStamp = "K43"
 
   /// The bundled brand mark.
   ///
@@ -7148,7 +7179,11 @@ final class SDUIRenderer: NSObject {
       b.layer.shadowColor = flagColor("kb.key.shadow.color", "#000000").cgColor
       b.layer.shadowOffset = CGSize(width: 0, height: flagCGFloat("kb.key.shadow.offsetY", 1))
       b.layer.shadowRadius = flagCGFloat("kb.key.shadow.radius", 0)
-      b.layer.shadowOpacity = Float(flagDouble("kb.key.shadow.opacity", 0.4))
+      // The shadow now has a path (KeyHitButton.layoutSubviews) instead of
+      // being cast by the key's pixels. A translucent key cast a shadow only
+      // as strong as its fill; scaled by the fill's alpha, it looks the same.
+      let fillAlpha = Double(max(0, min(1, base.cgColor.alpha)))
+      b.layer.shadowOpacity = Float(flagDouble("kb.key.shadow.opacity", 0.4) * fillAlpha)
     }
     // If the theme carries a keyEffect blur, drop it under the button.
     if case .blur(let s) = theme?.keyEffect ?? .solid(color: "#00000000") {
@@ -9492,6 +9527,9 @@ final class SDUIRenderer: NSObject {
     state.flowArmed = armed
     stateChanged()
   }
+  /// The armed state before anything is built (no rebuild — there is
+  /// nothing to rebuild yet).
+  func seedFlowArmed(_ armed: Bool) { state.flowArmed = armed }
   func reflectMicLevel(_ l: CGFloat) {
     state.micLevel = l  // no remount — the display link picks it up
   }
