@@ -69,7 +69,7 @@ Notes:
   The app now surfaces that error verbatim ("email rate limit exceeded") instead of
   a silent shake.
 - Deliverability: the codes go out through our own mail platform (Postal on the
-  VPS; see `mail/README.md` in TAILZU-BACKEND), set under **Project Settings →
+  VPS; see the README in CHEDFOX/xooteq-mail), set under **Project Settings →
   Auth → SMTP** as `smtp.<platform domain>`, port 587, with the Tailzu mail
   server's SMTP credential. Supabase's built-in sender is heavily rate-limited
   (~2 emails/hour) and lands in spam; a Gmail SMTP login caps at ~500 a day.
