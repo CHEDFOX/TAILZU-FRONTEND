@@ -68,6 +68,8 @@ Notes:
 - Rate limit: Supabase sends at most one auth email per address per 60s by default.
   The app now surfaces that error verbatim ("email rate limit exceeded") instead of
   a silent shake.
-- Deliverability: the project should have custom SMTP (Resend) configured under
-  **Project Settings → Auth → SMTP** — Supabase's built-in sender is heavily
-  rate-limited (~2 emails/hour) and lands in spam.
+- Deliverability: the codes go out through our own mail platform (Postal on the
+  VPS; see `mail/README.md` in TAILZU-BACKEND), set under **Project Settings →
+  Auth → SMTP** as `smtp.<platform domain>`, port 587, with the Tailzu mail
+  server's SMTP credential. Supabase's built-in sender is heavily rate-limited
+  (~2 emails/hour) and lands in spam; a Gmail SMTP login caps at ~500 a day.
