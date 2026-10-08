@@ -16,7 +16,11 @@
     "kb.mic.resetSecondPassMs": "A second pass clearing a UIKit button highlight that sticks after the Flow arm's app switch. Android arms nothing and switches to no app to record.",
     "kb.field.numericKeyboardTypes": "UIKit keyboard type names. Android reads the field's inputType class.",
     "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations.",
-    "kb.keyPlane.touchColor": "The iOS keyboard's touch layer must paint to receive touches: a custom keyboard is composited into the host app and only gets touches where it has drawn. Android views receive touches on transparent pixels."
+    "kb.keyPlane.touchColor": "The iOS keyboard's touch layer must paint to receive touches: a custom keyboard is composited into the host app and only gets touches where it has drawn. Android views receive touches on transparent pixels.",
+    "kb.touch.releaseSystemGestures": "UIKit's system gesture gates on the keyboard's window, which delay touches near the screen edges. Android's input view has no such gates.",
+    "kb.touch.releaseSystemGestures.ended": "The lift half of the same UIKit gates (space and return type on the lift).",
+    "kb.touch.deferSystemEdges": "UIViewController.preferredScreenEdgesDeferringSystemGestures, a UIKit request with no Android counterpart.",
+    "kb.touch.disableEdgePans": "UIScreenEdgePanGestureRecognizer in the keyboard window's chain; Android has no edge-pan recognizers over an input view."
   },
   "labelPrefixes": {
     "flow_": "The Flow Session (see kb.flow.).",

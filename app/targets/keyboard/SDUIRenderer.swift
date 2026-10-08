@@ -106,6 +106,19 @@ final class KeyHitButton: UIButton {
   }
 }
 
+/// A plain panel that gives its own shadow a path, the same way KeyHitButton
+/// does for keys. The tone and voice sheets cast theirs from their pixels: an
+/// offscreen render on every frame the sheet's open-and-close animation drew.
+final class ShadowPathView: UIView {
+  private var shadowBounds: CGRect = .null
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard layer.shadowOpacity > 0, !bounds.isEmpty, bounds != shadowBounds else { return }
+    shadowBounds = bounds
+    layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
+  }
+}
+
 // =============================================================================
 // KeyPlaneView — optional (kb.keyPlane.enabled) multi-touch layer over the
 // character keys.
@@ -4061,6 +4074,14 @@ final class SDUIRenderer: NSObject {
   /// keyboard tree is tiny (~40 nodes).
   private func remount() {
     guard let container = mountContainer, let root = config.root else { return }
+    // Timed, because a layer switch (123 / ABC) rebuilds on touch-down: what
+    // this costs is how late the first key of the new layer can type.
+    let remountStart = CACurrentMediaTime()
+    defer {
+      let ms = (CACurrentMediaTime() - remountStart) * 1000
+      KeyboardTelemetry.bump(.remountMs, by: Int(ms.rounded()))
+      if ms > 16 { KeyboardTelemetry.bump(.slowRemounts) }
+    }
     // An open tone sheet would be buried alive by the fresh tree (it and its
     // scrim are siblings of mountedRoot): invisible, unresponsive, and leaked
     // until the next present. Close it before rebuilding. Same for an open
@@ -4312,7 +4333,11 @@ final class SDUIRenderer: NSObject {
   /// K41: the mic ring moves with the voice (the app sends the level), and
   /// password boxes — secure or marked by content type — get no mic, no
   /// Refine and no autocorrect.
-  static let buildStamp = "K43"
+  /// K44: the system's edges are deferred and every gesture gate above the
+  /// keyboard releases both ends of a touch; sheets' shadows have paths; the
+  /// 16 ms budget, rebuild cost and memory footprint are counted; open
+  /// sheets and trays are let go when the keyboard hides or memory runs low.
+  static let buildStamp = "K44"
 
   /// The bundled brand mark.
   ///
@@ -5258,7 +5283,7 @@ final class SDUIRenderer: NSObject {
     // goes light and its ink dark (…Light flags) — white rows on a light
     // keyboard were unreadable.
     let light = state.appearance == "light"
-    let container = UIView()
+    let container = ShadowPathView()
     // #171717F5 is the old white 0.09 / alpha 0.96, to the nearest byte.
     container.backgroundColor = light ? flagColor("kb.tone.sheet.bgLight", "#F9F9F9F5")
                                       : flagColor("kb.tone.sheet.bg", "#171717F5")
@@ -5388,6 +5413,18 @@ final class SDUIRenderer: NSObject {
     fireKeyHaptic()
     dismissToneSheet(animated: true)
     stateChanged()   // remount → the tone pill rebinds to the new state.tone
+  }
+
+  /// Let go of the views that only exist while something is open: the tone
+  /// sheet and its blur, an accent tray, the key-pop balloon. An input view
+  /// controller outlives its appearances, so whatever was open when the
+  /// keyboard went away stayed in memory until the next open replaced it.
+  /// Each is rebuilt on demand, so letting go costs nothing the next time.
+  func releaseTransientViews() {
+    dismissToneSheet(animated: false)
+    if planeActiveTouchCount == 0 { dismissAccentTray() }
+    calloutView?.removeFromSuperview()
+    calloutView = nil
   }
 
   private func dismissToneSheet(animated: Bool) {
@@ -7316,6 +7353,7 @@ final class SDUIRenderer: NSObject {
     run(.inline(.insertKey(char: char)))
     let ms = (CACurrentMediaTime() - t0) * 1000
     KeyboardTelemetry.bump(.keyMs, by: Int(ms.rounded()))
+    if ms > 16 { KeyboardTelemetry.bump(.keysOverFrame) }
     if ms > 24 { KeyboardTelemetry.bump(.slowKeys) }
   }
 

@@ -199,6 +199,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // one moment iOS asks for memory back was the one moment nothing gave any.
     // The disk cache survives, so every purged image redraws from disk.
     TulmiImageLoader.purgeMemory()
+    // And anything that only exists while open: a sheet, a tray, the balloon.
+    sduiRenderer?.releaseTransientViews()
   }
 
   /// default-config.json in the extension bundle: the backend's keyboard
@@ -212,6 +214,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   override func viewDidLoad() {
     super.viewDidLoad()
     KeyboardTelemetry.bump(.coldStarts)
+    // See preferredScreenEdgesDeferringSystemGestures; asked again on appear.
+    setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
     // Do NOT paint an opaque background on the extension view. Native iOS
     // keyboards leave the inputView transparent and let the theme's
     // backgroundEffect (a UIVisualEffectView blur) do all the frosting — that's
@@ -291,12 +295,59 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// Every serious third-party keyboard turns the delay off here.
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
+    releaseSystemGestureDelays()
+    // How much memory this open costs, in bands (KeyboardTelemetry). After the
+    // tree is built and on screen, which is the most it holds at rest.
+    KeyboardTelemetry.sampleMemory()
+  }
+
+  /// AND THE SYSTEM IS ASKED NOT TO CLAIM THE EDGES FIRST.
+  ///
+  /// Releasing the delay above lets our touches through at once; this tells
+  /// the system to give the edges to us before its own swipes, so a tap on q,
+  /// p or the bottom row is not held while it decides. Asked again whenever
+  /// the keyboard appears, because the answer is only read when asked.
+  override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
+    knobBool("kb.touch.deferSystemEdges", true) ? .all : []
+  }
+
+  /// Recognizers whose delays were already released, so a layout pass does
+  /// not walk the hierarchy for nothing.
+  private var releasedGestureGates = Set<ObjectIdentifier>()
+
+  /// Every recognizer ABOVE our view, up to and including the window: the
+  /// system's gesture gates sit on the window, but a host can put its own on
+  /// any view in between, and each one held our touches the same way. Both
+  /// ends of the touch are released (space and return type on the lift), and
+  /// an edge-pan in that chain is switched off. Our own recognizers, below
+  /// `view`, are never touched.
+  private func releaseSystemGestureDelays() {
     guard knobBool("kb.touch.releaseSystemGestures", true) else { return }
-    for g in view.window?.gestureRecognizers ?? [] { g.delaysTouchesBegan = false }
+    let ends = knobBool("kb.touch.releaseSystemGestures.ended", true)
+    let edgePans = knobBool("kb.touch.disableEdgePans", true)
+    var v = view.superview
+    while let cur = v {
+      for g in cur.gestureRecognizers ?? [] where !releasedGestureGates.contains(ObjectIdentifier(g)) {
+        releasedGestureGates.insert(ObjectIdentifier(g))
+        g.delaysTouchesBegan = false
+        if ends { g.delaysTouchesEnded = false }
+        if edgePans, g is UIScreenEdgePanGestureRecognizer { g.isEnabled = false }
+      }
+      v = cur.superview
+    }
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    // The window (and whatever the host adds) can arrive after viewDidAppear
+    // on a slow open; the set above makes this a no-op once they are done.
+    releaseSystemGestureDelays()
   }
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
+    setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+    releaseSystemGestureDelays()
     writeKeyboardStatus()
     loadDictionary() // pick up edits made in the app
     // Re-assert the explicit height: the constraint installed at viewDidLoad
@@ -2591,6 +2642,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // The extension can be killed the moment it's dismissed, so write the tail
     // of this session's counters now instead of waiting for the throttle.
     KeyboardTelemetry.flushToDisk()
+    // This controller outlives the appearance: a sheet left open now would sit
+    // in memory, invisible, until the next open replaced it.
+    sduiRenderer?.releaseTransientViews()
     deleteTimer?.invalidate()
     deleteTimer = nil
     if isRecording {

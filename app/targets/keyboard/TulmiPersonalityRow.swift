@@ -221,8 +221,9 @@ final class TulmiPersonalityRow: UIView {
       UITapGestureRecognizer(target: self, action: #selector(handleScrimTap(_:))))
     blurOverlay = blur
 
-    // 2) The tone sheet.
-    let container = UIView()
+    // 2) The tone sheet. Its shadow has a path (ShadowPathView), so the open
+    // animation is not an offscreen render per frame.
+    let container = ShadowPathView()
     container.backgroundColor = UIColor(
       white: CGFloat(knobDouble("kb.personalityRow.sheetWhite", 0.09)),
       alpha: CGFloat(knobDouble("kb.personalityRow.sheetAlpha", 0.96)))
