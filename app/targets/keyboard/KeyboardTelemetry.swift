@@ -48,6 +48,22 @@ enum KeyboardTelemetry {
     case keyMs
     /// Inserts that took longer than a frame and a half (24 ms).
     case slowKeys
+    /// Inserts that missed a 60 Hz frame (16 ms): the budget every keystroke
+    /// has to finish inside for the letter to show on the next frame.
+    case keysOverFrame
+    /// Milliseconds spent building the key tree, summed. remountMs / remounts
+    /// is what one rebuild costs (a 123/ABC switch is one, on touch-down).
+    case remountMs
+    /// Rebuilds that took longer than a frame (16 ms).
+    case slowRemounts
+    /// Times the extension's memory was read (each time it appears).
+    case memSampled
+    /// Of those, how often its footprint was at or over 30 / 40 / 50 MB. A
+    /// keyboard is killed outright past its ceiling (about 48-60 MB, by
+    /// device), so these say how close it runs, before users see it vanish.
+    case memOver30MB
+    case memOver40MB
+    case memOver50MB
     case autocorrectApplied
     case autocorrectReverted
     case suggestionAccepted
@@ -102,6 +118,31 @@ enum KeyboardTelemetry {
     lock.unlock()
     // Persist OUTSIDE the lock, and only on the throttle.
     if let snapshot = snapshot { persist(snapshot) }
+  }
+
+  /// The extension's own memory as jetsam counts it (phys_footprint), in MB,
+  /// or nil when the kernel would not say. One task_info call: cheap, and
+  /// never on the key path.
+  static func footprintMB() -> Int? {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let kr = withUnsafeMutablePointer(to: &info) { ptr in
+      ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+        task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+      }
+    }
+    guard kr == KERN_SUCCESS else { return nil }
+    return Int(info.phys_footprint / (1024 * 1024))
+  }
+
+  /// Read the footprint once and count which band it is in. Instruments on a
+  /// developer's phone measures one session; this measures everyone's.
+  static func sampleMemory() {
+    guard let mb = footprintMB() else { return }
+    bump(.memSampled)
+    if mb >= 30 { bump(.memOver30MB) }
+    if mb >= 40 { bump(.memOver40MB) }
+    if mb >= 50 { bump(.memOver50MB) }
   }
 
   /// Flush to disk now — call when the keyboard is going away, so the tail of
