@@ -75,6 +75,10 @@ final class TulmiHandoff: NSObject {
   /// provides — we walk it up the responder chain in KeyboardViewController
   /// because keyboards can't call `open(_:)` directly.
   ///
+  /// `hostApp` keeps its old name (the app reads it under that key) but holds
+  /// the field description the keyboard sends as targetApp everywhere else —
+  /// iOS does not tell a keyboard which app it is in.
+  ///
   /// Returns the sessionId so the caller can update UI state.
   func beginHandoff(hostApp: String, openURL: (URL) -> Bool) -> String {
     let sessionId = UUID().uuidString

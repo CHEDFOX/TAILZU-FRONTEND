@@ -252,12 +252,18 @@ object Net {
          *  sentence with no sight of the draft it was joining — and produced
          *  something that read as a paragraph on its own and wrong in place. */
         context: String = "",
+        /** What kind of field it is (fieldKind) and what the field calls itself
+         *  (fieldLabel), from the service's field info. Null → not sent. */
+        fieldKind: String? = null,
+        fieldLabel: String? = null,
     ): String {
         val toneId = tone.trim().lowercase().replace(' ', '-')
         val path = refinePath(toneId)
         val json = JSONObject()
             .put("text", text)
             .put("targetApp", targetApp)
+            .apply { if (!fieldKind.isNullOrEmpty()) put("fieldKind", fieldKind) }
+            .apply { if (!fieldLabel.isNullOrEmpty()) put("fieldLabel", fieldLabel) }
             // A hint, never a pin: the backend still detects the language.
             .put("language", language())
             .apply { if (context.isNotBlank()) put("context", context) }
@@ -314,6 +320,9 @@ object Net {
         /** The draft before the caret (kb.dictation.contextChars of it), so the
          *  sentence this call writes fits what it joins. */
         context: String = "",
+        /** As for [refine]: null → not sent. */
+        fieldKind: String? = null,
+        fieldLabel: String? = null,
     ): String {
         // The upload's name and type are the server's (kb.upload.*), for when
         // the recorder's format changes before this build does. A blank name or
@@ -324,6 +333,8 @@ object Net {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("audio", filename, file.asRequestBody(mimeType))
             .addFormDataPart("targetApp", targetApp)
+            .apply { if (!fieldKind.isNullOrEmpty()) addFormDataPart("fieldKind", fieldKind) }
+            .apply { if (!fieldLabel.isNullOrEmpty()) addFormDataPart("fieldLabel", fieldLabel) }
             .addFormDataPart("language", language())
             .apply { if (context.isNotBlank()) addFormDataPart("context", context) }
             .build()
