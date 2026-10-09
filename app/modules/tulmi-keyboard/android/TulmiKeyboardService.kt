@@ -14,8 +14,10 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
@@ -130,6 +132,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      *  the second as context — without these it rewrites the whole draft. */
     private var dictatedText = ""
     private var priorText = ""
+
+    /** The focused field as the server's writing calls are told it: its kind
+     *  (fieldKind) and its own hint or label (fieldLabel). Read from the
+     *  EditorInfo in onStartInputView; null when unknown, and always null in
+     *  a password box. See refreshFieldInfo. */
+    private var fieldKind: String? = null
+    private var fieldLabel: String? = null
 
     /**
      * The word the caret is in, as far as this keyboard typed it, or null when
@@ -1309,6 +1318,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         audioFile = null
         setStatus(label("transcribing", "Transcribing…"))
         val target = targetAppName()
+        val kind = fieldKind
+        val hint = fieldLabel
         val draftBefore = uploadContext
         uploadContext = ""
         Thread {
@@ -1324,7 +1335,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 return@Thread
             }
             try {
-                val cleaned = Net.transcribeClean(file, target, draftBefore)
+                val cleaned = Net.transcribeClean(file, target, draftBefore, fieldKind = kind, fieldLabel = hint)
                 main.post {
                     // No words came back: nothing to insert, count, or refine —
                     // and no one-shot command to strand in the field. iOS says
@@ -1480,11 +1491,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         setStatus(label("refining", "Refining…"))
         TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
         val target = targetAppName()
+        val kind = fieldKind
+        val hint = fieldLabel
         // The tone the pill shows, as the id the server's routes know.
         val tone = TulmiTone.activeToneId(this, flags())
         Thread {
             try {
-                val refined = Net.refine(text, target, tone, prior.trim())
+                val refined = Net.refine(text, target, tone, prior.trim(), fieldKind = kind, fieldLabel = hint)
                 main.post {
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
@@ -1543,12 +1556,14 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         setStatus(label("refining", "Refining…"))
         TulmiTelemetry.bump(TulmiTelemetry.REFINE_REQUESTED)
         val target = targetAppName()
+        val kind = fieldKind
+        val hint = fieldLabel
         // The active tone (TulmiTone: a keyboard pick, else the server's), as
         // the tone id the server's refine routes know.
         val tone = TulmiTone.activeToneId(this, flags())
         Thread {
             try {
-                val refined = Net.refine(full, target, tone)
+                val refined = Net.refine(full, target, tone, fieldKind = kind, fieldLabel = hint)
                 main.post {
                     val conn = currentInputConnection
                     kbState.refining = false
@@ -1675,7 +1690,10 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             pkg.contains("whatsapp") -> "WhatsApp"
             pkg.contains("telegram") -> "Telegram"
             pkg.contains("slack") -> "Slack"
-            pkg.contains("gmail") || pkg.contains("email") -> "Gmail"
+            // Gmail's own package only. Matching "email" named every other
+            // mail app (Samsung Email, AOSP Email…) Gmail; those take their
+            // launcher names below like any other app.
+            pkg == "com.google.android.gm" -> "Gmail"
             pkg.contains("instagram") -> "Instagram"
             pkg.contains("twitter") || pkg.contains("x.android") -> "Twitter"
             pkg.contains("mms") || pkg.contains("messaging") -> "Messages"
@@ -1746,6 +1764,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // so no path can leave the keyboard believing a password box is still
         // focused and quietly refuse to work in the next ordinary field.
         kbState.secured = false
+        // …and what that field was: nothing describes a field no longer focused.
+        fieldKind = null
+        fieldLabel = null
         // The chips belonged to the field being left. Carrying them into the
         // next one would offer corrections for a word the user never typed there.
         corrections?.clear()
@@ -1811,6 +1832,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         refreshAutoCap()
         refreshPrimaryLanguage()
         refreshReturnKeyLabel(info)
+        // After refreshReturnKeyLabel: it decides kbState.secured, which this reads.
+        refreshFieldInfo(info)
     }
 
     /**
@@ -2002,6 +2025,83 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         }
 
         sduiRenderer?.stateChanged()
+    }
+
+    /**
+     * What the focused field is, for the calls that write into it (refine and
+     * transcribe-clean send it beside targetApp). targetApp says which app;
+     * this says which box in it, so a dictated address lands as an address
+     * and a search stays a query instead of becoming a sentence.
+     *
+     * A password box gets neither: the server is told nothing about it, as
+     * nothing is sent from it (kbState.secured blocks that).
+     */
+    private fun refreshFieldInfo(info: EditorInfo?) {
+        if (info == null || kbState.secured) {
+            fieldKind = null
+            fieldLabel = null
+            return
+        }
+        val kind = fieldKindOf(info)
+        fieldKind = kind
+        // What the field calls itself as the user sees it ("Search mail",
+        // "Message", "Subject"): its hint, else its label. Capped here; the
+        // server sanitises and caps it again. No kind, no label: fieldKindOf
+        // is null for a password whatever kbState.secured says, and a field
+        // that declares nothing (TYPE_NULL) seldom has a hint worth sending.
+        val raw = if (kind == null) null else
+            info.hintText?.toString()?.takeIf { it.isNotBlank() } ?: info.label?.toString()
+        fieldLabel = raw?.replace(Regex("\\s+"), " ")?.trim()?.take(60)
+            // take() must not leave half an emoji behind.
+            ?.let { if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it }
+            ?.trimEnd()?.ifEmpty { null }
+    }
+
+    /**
+     * EditorInfo → the server's fieldKind: search | url | email | number |
+     * phone | name | address | message | text | longtext. Null for a password
+     * and for a field that declares nothing (TYPE_NULL — terminals, games,
+     * custom views), where a guess would be worse than no hint.
+     */
+    private fun fieldKindOf(info: EditorInfo): String? {
+        val type = info.inputType
+        val variation = type and InputType.TYPE_MASK_VARIATION
+        return when (type and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_NUMBER ->
+                if (variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD) null else "number"
+            InputType.TYPE_CLASS_PHONE -> "phone"
+            // A date or a time goes in as digits.
+            InputType.TYPE_CLASS_DATETIME -> "number"
+            InputType.TYPE_CLASS_TEXT -> {
+                val action = info.imeOptions and EditorInfo.IME_MASK_ACTION
+                val multiLine = (type and (InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                    InputType.TYPE_TEXT_FLAG_IME_MULTI_LINE)) != 0 ||
+                    (info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+                when {
+                    variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                        variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                        variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD -> null
+                    // Return searches, so what goes in is a query, whatever the
+                    // variation says — as iOS puts its web-search keyboard first.
+                    action == EditorInfo.IME_ACTION_SEARCH -> "search"
+                    variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                        variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS -> "email"
+                    // Includes the address bar, whose Return is Go.
+                    variation == InputType.TYPE_TEXT_VARIATION_URI -> "url"
+                    variation == InputType.TYPE_TEXT_VARIATION_PERSON_NAME -> "name"
+                    variation == InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS -> "address"
+                    variation == InputType.TYPE_TEXT_VARIATION_SHORT_MESSAGE ||
+                        variation == InputType.TYPE_TEXT_VARIATION_LONG_MESSAGE -> "message"
+                    // A list filter is a search box by another name.
+                    variation == InputType.TYPE_TEXT_VARIATION_FILTER -> "search"
+                    // One line however the view is built; the label says Subject.
+                    variation == InputType.TYPE_TEXT_VARIATION_EMAIL_SUBJECT -> "text"
+                    multiLine -> "longtext"
+                    else -> "text"
+                }
+            }
+            else -> null
+        }
     }
 
     // --- unused OnKeyboardActionListener members ----------------------------

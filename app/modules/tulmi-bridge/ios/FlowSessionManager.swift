@@ -982,6 +982,8 @@ final class FlowSessionManager: NSObject {
     if let tone = store?.string(forKey: "tulmi.kb.tone"), !tone.isEmpty { field("tone", tone) }
     if let ctx = store?.string(forKey: "tulmi.flow.context"), !ctx.isEmpty { field("context", ctx) }
     if let app = store?.string(forKey: "tulmi.flow.targetApp"), !app.isEmpty { field("targetApp", app) }
+    // …and what kind of field it is (absent when the keyboard didn't know).
+    if let kind = store?.string(forKey: "tulmi.flow.fieldKind"), !kind.isEmpty { field("fieldKind", kind) }
     form.append("--\(boundary)\r\n".data(using: .utf8)!)
     form.append("Content-Disposition: form-data; name=\"audio\"; filename=\"u.wav\"\r\n".data(using: .utf8)!)
     form.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)

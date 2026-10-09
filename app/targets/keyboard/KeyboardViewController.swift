@@ -1558,6 +1558,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       ug.set(before.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "tulmi.flow.context")
       ug.set((kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind(),
              forKey: "tulmi.flow.targetApp")
+      // Removed, not left, when unknown: the last field's kind must not ride
+      // along with this one's words.
+      if let kind = serverFieldKind() {
+        ug.set(kind, forKey: "tulmi.flow.fieldKind")
+      } else {
+        ug.removeObject(forKey: "tulmi.flow.fieldKind")
+      }
       ug.removeObject(forKey: "tulmi.flow.failed")
       ug.removeObject(forKey: "tulmi.flow.preRefined")
     }
@@ -1755,7 +1762,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let alternative = ud?.string(forKey: "tulmi.flow.alternative")
     ud?.removeObject(forKey: "tulmi.flow.alternative")
 
-    TulmiBackend.refine(text: spoken, targetApp: targetApp, tone: pickedTone,
+    TulmiBackend.refine(text: spoken, targetApp: targetApp, fieldKind: serverFieldKind(),
+                        tone: pickedTone,
                         context: priorText.trimmingCharacters(in: .whitespacesAndNewlines),
                         alternative: alternative) { [weak self] result in
       DispatchQueue.main.async {
@@ -1943,13 +1951,16 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       setStatus(label("full_access_required", "Enable “Allow Full Access” in Settings to use voice."), actionable: true, blocking: true)
       return
     }
-    let hostBundle = parentBundleIdentifier() ?? ""
+    // The app records and uploads this one, and sends what is passed here as
+    // its targetApp — so it is the same field description every other path
+    // sends, never a guess at the host app (a keyboard cannot know it).
+    let hostField = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     isHandoffActive = true
     micButton.setImage(UIImage(systemName: knobString("kb.mic.stopGlyph", "stop.fill")), for: .normal)
     setStatus(handoff.isAppWarm
               ? label("mic_handoff_warm", "Speak in Tailzu — swipe back when done")
               : label("mic_handoff_cold", "Opening Tailzu — grant mic once, then swipe back"))
-    _ = handoff.beginHandoff(hostApp: hostBundle) { [weak self] url in
+    _ = handoff.beginHandoff(hostApp: hostField) { [weak self] url in
       return self?.openURLViaResponderChain(url) ?? false
     }
   }
@@ -2010,15 +2021,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       responder = r.next
     }
     return false
-  }
-
-  /// The bundle identifier of the host app (the app the keyboard is inside).
-  /// Best-effort — some fields are only readable in specific iOS versions.
-  private func parentBundleIdentifier() -> String? {
-    // NSExtensionContext exposes hostAppBundleID on some iOS versions only.
-    // Fall back to the process name so we always send SOMETHING.
-    return Bundle.main.object(forInfoDictionaryKey: "NSExtensionHostBundleID") as? String
-      ?? ProcessInfo.processInfo.processName
   }
 
   // MARK: - Live (streaming) dictation
@@ -2387,7 +2389,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // The flag wins when an operator sets it; otherwise describe the field,
     // which is the only thing iOS can honestly say about where this is going.
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
-    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp) { [weak self] result in
+    TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp,
+                                 fieldKind: serverFieldKind()) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
@@ -2499,7 +2502,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // sent explicitly so refine matches the pill even before the keyboard's
     // fire-and-forget PUT /v1/personality save has landed server-side.
     let pickedTone = UserDefaults(suiteName: TulmiFlow.appGroup)?.string(forKey: "tulmi.kb.tone")
-    TulmiBackend.refine(text: full, targetApp: targetApp, tone: pickedTone) { [weak self] result in
+    TulmiBackend.refine(text: full, targetApp: targetApp, fieldKind: serverFieldKind(),
+                        tone: pickedTone) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
@@ -2817,6 +2821,57 @@ extension KeyboardViewController: KBHostControllerProtocol {
     case .next, .continue: return "one field of a longer form"
     default: return "a text field"
     }
+  }
+
+  /// The same field, as the server's fieldKind enum (search | url | email |
+  /// number | phone | name | address | message | text), sent beside targetApp
+  /// on every call that writes text. targetApp keeps the prose description
+  /// above (older servers read it); this is the machine-readable twin, and it
+  /// can also use textContentType, which hostFieldKind() never looked at.
+  ///
+  /// Nil in a password field: it says nothing about itself. iOS gives a
+  /// keyboard no placeholder, so there is no fieldLabel to go with it.
+  func serverFieldKind() -> String? {
+    if hostIsSecureField() { return nil }
+    let traits = textDocumentProxy as UITextInputTraits
+    let keyboard = traits.keyboardType ?? .default
+    let returnKey = traits.returnKeyType ?? .default
+    // What textContentType alone says. Password types are refused here too,
+    // whatever kb.secure.contentTypes says: "never" for a password means never.
+    var fromContent: String?
+    if let content: UITextContentType = traits.textContentType ?? nil {
+      switch content {
+      case .password, .newPassword: return nil
+      case .URL: fromContent = "url"
+      case .emailAddress: fromContent = "email"
+      case .telephoneNumber: fromContent = "phone"
+      case .name, .namePrefix, .givenName, .middleName, .familyName, .nameSuffix, .nickname:
+        fromContent = "name"
+      case .fullStreetAddress, .streetAddressLine1, .streetAddressLine2, .addressCity,
+           .addressState, .addressCityAndState, .sublocality, .countryName, .postalCode, .location:
+        fromContent = "address"
+      default: break
+      }
+    }
+    switch keyboard {
+    // A keypad that cannot type letters: whatever lands must be digits.
+    case .numberPad, .decimalPad, .asciiCapableNumberPad: return "number"
+    case .phonePad: return "phone"
+    // The browser bar: searched far more often than typed into.
+    case .webSearch: return "search"
+    default: break
+    }
+    switch returnKey {
+    case .search, .google, .yahoo: return "search"
+    default: break
+    }
+    if keyboard == .URL || fromContent == "url" { return "url" }
+    if keyboard == .emailAddress || fromContent == "email" { return "email" }
+    if let kind = fromContent { return kind }
+    // What hostFieldKind() calls "a message being sent to a person": a Send
+    // key, unless the twitter keyboard already made it a social post.
+    if keyboard != .twitter && returnKey == .send { return "message" }
+    return "text"
   }
 
   /// kb.field.numericKeyboardTypes — the keyboardType names that get the

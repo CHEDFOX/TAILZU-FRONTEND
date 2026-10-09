@@ -273,6 +273,9 @@ enum TulmiBackend {
   static func refine(
     text: String,
     targetApp: String,
+    /// The server's fieldKind for the focused field (serverFieldKind()). Nil
+    /// — unknown, or a password field — sends nothing.
+    fieldKind: String? = nil,
     tone: String? = nil,
     /// Text already in the field BEFORE this dictation. Sent as context so the
     /// model can fit the new sentence to an existing draft without rewriting
@@ -305,6 +308,7 @@ enum TulmiBackend {
       "targetApp": targetApp,
       "language": language,
     ]
+    if let fieldKind = fieldKind, !fieldKind.isEmpty { payload["fieldKind"] = fieldKind }
     if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
     if let context = context, !context.isEmpty { payload["context"] = context }
     if let alternative = alternative, !alternative.isEmpty { payload["alternative"] = alternative }
@@ -337,6 +341,8 @@ enum TulmiBackend {
   static func transcribeClean(
     fileURL: URL,
     targetApp: String,
+    /// As for refine(): nil sends nothing.
+    fieldKind: String? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = endpoint(knobString("kb.endpoints.transcribeClean", "/v1/transcribe-clean")) else {
@@ -361,7 +367,9 @@ enum TulmiBackend {
     append("\r\n")
     // Same language plumbing as refine() — the STT provider uses this as a
     // hint (empty/"auto" = model detects; explicit code = biases decoding).
-    for (key, value) in ["targetApp": targetApp, "language": language] {
+    var fields = ["targetApp": targetApp, "language": language]
+    if let fieldKind = fieldKind, !fieldKind.isEmpty { fields["fieldKind"] = fieldKind }
+    for (key, value) in fields {
       append("--\(boundary)\r\n")
       append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
       append("\(value)\r\n")
