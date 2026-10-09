@@ -940,6 +940,9 @@
     "desktop.row.valueSize": 15,
     "desktop.screen.slowMs": 700,
     "desktop.spacer.height": 8,
+    "desktop.surroundings.chars": 2000,
+    "desktop.surroundings.read": true,
+    "desktop.surroundings.timeoutMs": 1400,
     "desktop.svg.strokeWidth": 2,
     "desktop.swipeAction": {
       "height": 58,
