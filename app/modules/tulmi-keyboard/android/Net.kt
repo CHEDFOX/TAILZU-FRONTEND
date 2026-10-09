@@ -256,6 +256,9 @@ object Net {
          *  (fieldLabel), from the service's field info. Null → not sent. */
         fieldKind: String? = null,
         fieldLabel: String? = null,
+        /** The device's current UTC offset in minutes, for the timing of the
+         *  recent-dictations context. Null → not sent. */
+        tzOffsetMinutes: Int? = null,
     ): String {
         val toneId = tone.trim().lowercase().replace(' ', '-')
         val path = refinePath(toneId)
@@ -264,6 +267,7 @@ object Net {
             .put("targetApp", targetApp)
             .apply { if (!fieldKind.isNullOrEmpty()) put("fieldKind", fieldKind) }
             .apply { if (!fieldLabel.isNullOrEmpty()) put("fieldLabel", fieldLabel) }
+            .apply { if (tzOffsetMinutes != null) put("tzOffsetMinutes", tzOffsetMinutes) }
             // A hint, never a pin: the backend still detects the language.
             .put("language", language())
             .apply { if (context.isNotBlank()) put("context", context) }
@@ -323,6 +327,7 @@ object Net {
         /** As for [refine]: null → not sent. */
         fieldKind: String? = null,
         fieldLabel: String? = null,
+        tzOffsetMinutes: Int? = null,
     ): String {
         // The upload's name and type are the server's (kb.upload.*), for when
         // the recorder's format changes before this build does. A blank name or
@@ -335,6 +340,7 @@ object Net {
             .addFormDataPart("targetApp", targetApp)
             .apply { if (!fieldKind.isNullOrEmpty()) addFormDataPart("fieldKind", fieldKind) }
             .apply { if (!fieldLabel.isNullOrEmpty()) addFormDataPart("fieldLabel", fieldLabel) }
+            .apply { if (tzOffsetMinutes != null) addFormDataPart("tzOffsetMinutes", tzOffsetMinutes.toString()) }
             .addFormDataPart("language", language())
             .apply { if (context.isNotBlank()) addFormDataPart("context", context) }
             .build()

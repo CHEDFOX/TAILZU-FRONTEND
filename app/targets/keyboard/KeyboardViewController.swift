@@ -1763,6 +1763,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     ud?.removeObject(forKey: "tulmi.flow.alternative")
 
     TulmiBackend.refine(text: spoken, targetApp: targetApp, fieldKind: serverFieldKind(),
+                        tzOffsetMinutes: TimeZone.current.secondsFromGMT() / 60,
                         tone: pickedTone,
                         context: priorText.trimmingCharacters(in: .whitespacesAndNewlines),
                         alternative: alternative) { [weak self] result in
@@ -2390,7 +2391,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // which is the only thing iOS can honestly say about where this is going.
     let targetApp = (kbConfig?.flags["kb.dictation.targetApp"] as? String) ?? hostFieldKind()
     TulmiBackend.transcribeClean(fileURL: fileURL, targetApp: targetApp,
-                                 fieldKind: serverFieldKind()) { [weak self] result in
+                                 fieldKind: serverFieldKind(),
+                                 tzOffsetMinutes: TimeZone.current.secondsFromGMT() / 60) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }
         switch result {
@@ -2503,6 +2505,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // fire-and-forget PUT /v1/personality save has landed server-side.
     let pickedTone = UserDefaults(suiteName: TulmiFlow.appGroup)?.string(forKey: "tulmi.kb.tone")
     TulmiBackend.refine(text: full, targetApp: targetApp, fieldKind: serverFieldKind(),
+                        tzOffsetMinutes: TimeZone.current.secondsFromGMT() / 60,
                         tone: pickedTone) { [weak self] result in
       DispatchQueue.main.async {
         guard let self = self else { return }

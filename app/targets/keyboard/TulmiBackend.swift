@@ -276,6 +276,9 @@ enum TulmiBackend {
     /// The server's fieldKind for the focused field (serverFieldKind()). Nil
     /// — unknown, or a password field — sends nothing.
     fieldKind: String? = nil,
+    /// The device's current UTC offset in minutes, for recent-dictation
+    /// timing. Nil sends nothing.
+    tzOffsetMinutes: Int? = nil,
     tone: String? = nil,
     /// Text already in the field BEFORE this dictation. Sent as context so the
     /// model can fit the new sentence to an existing draft without rewriting
@@ -309,6 +312,7 @@ enum TulmiBackend {
       "language": language,
     ]
     if let fieldKind = fieldKind, !fieldKind.isEmpty { payload["fieldKind"] = fieldKind }
+    if let tz = tzOffsetMinutes { payload["tzOffsetMinutes"] = tz }
     if let tone = tone, !tone.isEmpty { payload["tone"] = tone }
     if let context = context, !context.isEmpty { payload["context"] = context }
     if let alternative = alternative, !alternative.isEmpty { payload["alternative"] = alternative }
@@ -343,6 +347,7 @@ enum TulmiBackend {
     targetApp: String,
     /// As for refine(): nil sends nothing.
     fieldKind: String? = nil,
+    tzOffsetMinutes: Int? = nil,
     completion: @escaping (Result<String, Error>) -> Void
   ) {
     guard let url = endpoint(knobString("kb.endpoints.transcribeClean", "/v1/transcribe-clean")) else {
@@ -369,6 +374,7 @@ enum TulmiBackend {
     // hint (empty/"auto" = model detects; explicit code = biases decoding).
     var fields = ["targetApp": targetApp, "language": language]
     if let fieldKind = fieldKind, !fieldKind.isEmpty { fields["fieldKind"] = fieldKind }
+    if let tz = tzOffsetMinutes { fields["tzOffsetMinutes"] = String(tz) }
     for (key, value) in fields {
       append("--\(boundary)\r\n")
       append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n")
