@@ -1320,6 +1320,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val target = targetAppName()
         val kind = fieldKind
         val hint = fieldLabel
+        val tz = tzOffsetMinutes()
         val draftBefore = uploadContext
         uploadContext = ""
         Thread {
@@ -1335,7 +1336,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 return@Thread
             }
             try {
-                val cleaned = Net.transcribeClean(file, target, draftBefore, fieldKind = kind, fieldLabel = hint)
+                val cleaned = Net.transcribeClean(file, target, draftBefore, fieldKind = kind, fieldLabel = hint, tzOffsetMinutes = tz)
                 main.post {
                     // No words came back: nothing to insert, count, or refine —
                     // and no one-shot command to strand in the field. iOS says
@@ -1493,11 +1494,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val target = targetAppName()
         val kind = fieldKind
         val hint = fieldLabel
+        val tz = tzOffsetMinutes()
         // The tone the pill shows, as the id the server's routes know.
         val tone = TulmiTone.activeToneId(this, flags())
         Thread {
             try {
-                val refined = Net.refine(text, target, tone, prior.trim(), fieldKind = kind, fieldLabel = hint)
+                val refined = Net.refine(text, target, tone, prior.trim(), fieldKind = kind, fieldLabel = hint, tzOffsetMinutes = tz)
                 main.post {
                     kbState.refining = false
                     sduiRenderer?.stateChanged()
@@ -1558,12 +1560,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         val target = targetAppName()
         val kind = fieldKind
         val hint = fieldLabel
+        val tz = tzOffsetMinutes()
         // The active tone (TulmiTone: a keyboard pick, else the server's), as
         // the tone id the server's refine routes know.
         val tone = TulmiTone.activeToneId(this, flags())
         Thread {
             try {
-                val refined = Net.refine(full, target, tone, fieldKind = kind, fieldLabel = hint)
+                val refined = Net.refine(full, target, tone, fieldKind = kind, fieldLabel = hint, tzOffsetMinutes = tz)
                 main.post {
                     val conn = currentInputConnection
                     kbState.refining = false
@@ -2063,6 +2066,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * and for a field that declares nothing (TYPE_NULL — terminals, games,
      * custom views), where a guess would be worse than no hint.
      */
+    /** The device's UTC offset right now, in minutes (+ east of UTC), for the
+     *  recent-dictations timing on the server. */
+    private fun tzOffsetMinutes(): Int =
+        java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
+
     private fun fieldKindOf(info: EditorInfo): String? {
         val type = info.inputType
         val variation = type and InputType.TYPE_MASK_VARIATION
