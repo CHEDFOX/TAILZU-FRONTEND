@@ -35,7 +35,13 @@ const config: ExpoConfig = {
   // break the shared bearer token between app + keyboard.
   name: "Tailzu",
   slug: "tulmi",
-  version: "1.0.1",
+  // CFBundleShortVersionString. Apple closes a version's "train" once a build
+  // on it is approved, and refuses any later build that is not HIGHER — so a
+  // resubmission needs the marketing version bumped, not just the build number
+  // (that is what `appVersionSource: remote` + autoIncrement already do). 1.0.1
+  // was approved; this release after it — the widgets, the bridge, the reworked
+  // keyboards (see runtimeVersion below) — is 1.0.2.
+  version: "1.0.2",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
