@@ -1,0 +1,344 @@
+# Phone releases, started from GitHub.
+#
+# A manual run (Actions → EAS Release → Run workflow) does what is ticked:
+#   update  — an over-the-air update of the JavaScript to installed phones.
+#   ios     — a store build, sent on to App Store Connect / TestFlight.
+#   android — a store build (.aab). eas.json has no Play credentials, so it is
+#             uploaded in Play Console by hand.
+#   nothing — a check that everything a release needs is in place (the token,
+#             the keys, the channel, the bundle, the Mac runner). Releases
+#             nothing.
+# and "builder" says whose machine builds:
+#   github — this repo's Actions minutes (`eas build --local`); no Expo build
+#            is used up. iOS runs on a macOS runner, which a private repo pays
+#            for at about ten times the Linux rate; Android runs on Linux.
+#   expo   — Expo's cloud, counted against the Expo plan's monthly builds.
+# Either way Expo keeps the signing credentials and the build number, and EAS
+# Submit does the TestFlight upload (for a GitHub build, from a Linux job, so
+# the wait is not paid at the Mac rate).
+#
+# A push to main sends an update, never a build, and only when it touched no
+# native file (see "Native files untouched"). runtimeVersion is a fixed string
+# (app.config.ts), so nothing else stops JavaScript written for new native
+# code from reaching a binary that lacks it.
+#
+# Updates and GitHub builds read the EAS "production" environment from here,
+# where a "secret" variable cannot be read. "Payment keys present" stops the
+# run rather than ship a phone that cannot take a payment
+# (tools/ci/eas-keys.mjs).
+#
+# Requirements (one-time, repo settings → Secrets and variables → Actions):
+#   EXPO_TOKEN — an Expo access token (expo.dev → Account settings → Access
+#                tokens) for the account that owns this EAS project.
+# Apple credentials (distribution cert + ASC API key) and the Android keystore
+# must already live in EAS (they do after the first cloud build / submit).
+# Without EXPO_TOKEN every job is skipped.
+name: EAS Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+  workflow_dispatch:
+    inputs:
+      update:
+        description: "Publish an over-the-air update (JavaScript only)"
+        type: boolean
+        default: true
+      ios:
+        description: "Build iOS and send it to TestFlight"
+        type: boolean
+        default: false
+      android:
+        description: "Build Android (.aab; Play upload is by hand)"
+        type: boolean
+        default: false
+      builder:
+        description: "Who builds: github (Actions minutes) or expo (Expo's monthly builds)"
+        type: choice
+        options: [github, expo]
+        default: github
+      message:
+        description: "What the update is, shown on expo.dev"
+        type: string
+        default: "Update"
+
+concurrency:
+  group: eas-release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a store build mid-flight
+
+env:
+  EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.gate.outputs.ok }}
+    steps:
+      - id: gate
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::notice::No EXPO_TOKEN secret, so nothing was released. Add it in repo settings to release from here."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Nothing ticked: would a release work? Releases nothing, and prints names
+  # and states, never a variable's value or a download link.
+  check:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && !inputs.update && !inputs.ios && !inputs.android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - name: Token and project
+        working-directory: app
+        run: |
+          npx eas-cli@latest whoami
+          npx eas-cli@latest project:info
+
+      - name: Payment keys
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
+
+      - name: Update channel
+        working-directory: app
+        run: npx eas-cli@latest channel:view production --non-interactive
+
+      - name: Last store builds
+        working-directory: app
+        run: |
+          npx eas-cli@latest build:list --limit 4 --json --non-interactive | node -e '
+            let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              for (const b of JSON.parse(s)) console.log([b.platform, b.status, b.appVersion + " (" + b.appBuildVersion + ")", b.runtimeVersion, b.channel, b.createdAt].join("  "));
+            });'
+
+      - name: The update would bundle
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "npx expo export --platform ios --platform android --output-dir $RUNNER_TEMP/export" --non-interactive
+
+      - name: Android toolchain
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/build-tools" | tail -n 2
+
+  check-mac:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && !inputs.update && !inputs.ios && !inputs.android
+    runs-on: macos-latest
+    steps:
+      - name: Xcode 26, CocoaPods, fastlane
+        run: |
+          sw_vers -productVersion
+          ls -d /Applications/Xcode_26*.app | grep -vi beta
+          pod --version
+          fastlane --version | tail -n 1
+
+  update:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && (github.event_name == 'push' || inputs.update)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '1' }}
+
+      - name: Native files untouched
+        id: native
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "::warning::No earlier commit to compare with, so no update was sent. Run the workflow by hand."
+            echo "send=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          hit=$(git diff --name-only "$BEFORE" HEAD | grep -E '^app/(targets|modules|plugins|ios|android)/|^app/(app\.config\.ts|package\.json|package-lock\.json|eas\.json)$' || true)
+          if [ -n "$hit" ]; then
+            echo "::warning::Native files changed, so this needs a store build, not an update. No update was sent."
+            echo "$hit"
+            echo "send=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "send=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.native.outputs.send != 'false'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        if: steps.native.outputs.send != 'false'
+        working-directory: app
+        run: npm ci
+
+      - name: Payment keys present
+        id: keys
+        if: steps.native.outputs.send != 'false'
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs --any ios android" --non-interactive
+
+      - name: EAS update (over the air, production)
+        if: steps.native.outputs.send != 'false'
+        working-directory: app
+        # Through env, never pasted into the script: both are free text.
+        env:
+          MSG: ${{ github.event_name == 'push' && github.event.head_commit.message || inputs.message }}
+          PLATFORMS: ${{ steps.keys.outputs.platforms }}
+        run: npx eas-cli@latest update --channel production --environment production --platform "$PLATFORMS" --message "${MSG%%$'\n'*}" --non-interactive
+
+  ios:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.ios
+    runs-on: ${{ inputs.builder == 'github' && 'macos-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      # --no-wait: queued, and EAS builds in its own cloud and submits on
+      # success. The job going green means "queued"; the build is on expo.dev.
+      - name: Build on Expo's cloud, then TestFlight
+        if: inputs.builder == 'expo'
+        working-directory: app
+        run: npx eas-cli@latest build --platform ios --profile production --non-interactive --no-wait --auto-submit
+
+      # App Store Connect takes only builds made with Xcode 26 or later.
+      - name: Xcode 26
+        if: inputs.builder == 'github'
+        run: |
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n1)
+          if [ -z "$XC" ]; then echo "::error::This runner has no Xcode 26. Run again with builder: expo."; exit 1; fi
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+
+      - name: Payment keys present
+        if: inputs.builder == 'github'
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs ios" --non-interactive
+
+      - name: Build on this runner
+        if: inputs.builder == 'github'
+        working-directory: app
+        run: npx eas-cli@latest build --platform ios --profile production --local --non-interactive --output "$RUNNER_TEMP/tailzu.ipa"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.builder == 'github'
+        with:
+          name: tailzu-ios
+          path: ${{ runner.temp }}/tailzu.ipa
+          retention-days: 7
+          if-no-files-found: error
+
+  ios-submit:
+    needs: ios
+    if: inputs.builder == 'github'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: tailzu-ios
+          path: ${{ runner.temp }}
+
+      - name: Send to TestFlight
+        working-directory: app
+        # On failure the real eas error is on a log host the agent can't read,
+        # so the key lines are echoed as a GitHub error annotation too.
+        run: |
+          set -o pipefail
+          if npx eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/tailzu.ipa" --non-interactive 2>&1 | tee "$RUNNER_TEMP/submit.log"; then
+            exit 0
+          fi
+          msg=$(grep -iE "error|fail|credential|api key|authenticat|unable|invalid|provide|not found" "$RUNNER_TEMP/submit.log" | tail -n 6 | tr '\n' ' ' | cut -c1-900)
+          echo "::error title=TestFlight submit failed::${msg:-see the job log}"
+          exit 1
+
+  android:
+    needs: gate
+    if: needs.gate.outputs.ok == 'true' && github.event_name == 'workflow_dispatch' && inputs.android
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # The runner's disk is small for a native Android build; drop the
+      # toolchains it will never use (the Android SDK stays).
+      - name: Room on disk
+        if: inputs.builder == 'github'
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        working-directory: app
+        run: npm ci
+
+      - name: Build on Expo's cloud
+        if: inputs.builder == 'expo'
+        working-directory: app
+        run: npx eas-cli@latest build --platform android --profile production --non-interactive --no-wait
+
+      - uses: actions/setup-java@v4
+        if: inputs.builder == 'github'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Payment keys present
+        if: inputs.builder == 'github'
+        working-directory: app
+        run: npx eas-cli@latest env:exec production "node ../tools/ci/eas-keys.mjs android" --non-interactive
+
+      - name: Build on this runner
+        if: inputs.builder == 'github'
+        working-directory: app
+        run: npx eas-cli@latest build --platform android --profile production --local --non-interactive --output "$RUNNER_TEMP/tailzu.aab"
+
+      # Download it from this run's page and upload it in Play Console.
+      - uses: actions/upload-artifact@v4
+        if: inputs.builder == 'github'
+        with:
+          name: tailzu-android
+          path: ${{ runner.temp }}/tailzu.aab
+          retention-days: 7
+          if-no-files-found: error

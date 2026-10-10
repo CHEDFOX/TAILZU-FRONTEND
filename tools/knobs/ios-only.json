@@ -1,0 +1,38 @@
+{
+  "about": "iOS keyboard knobs the Android keyboard deliberately does not read, and why. node tools/knobs/extract-keyboard.mjs --parity fails on any iOS knob Android neither reads nor lists here.",
+  "prefixes": {
+    "kb.flow.": "The Flow Session: an iOS keyboard cannot use the microphone, so the app holds it in the background. Android records in the keyboard itself.",
+    "kb.handoff.": "Handing the mic to the app for one recording: the same iOS restriction.",
+    "kb.remount.": "Retries around UIKit replacing the keyboard's input view.",
+    "kb.dictation.dim.ios": "iOS-tuned dim values. Android reads kb.dictation.dim.blurRadius and kb.dictation.dim.keyAlpha."
+  },
+  "values": {
+    "kb.mic.mode = flow": "The iOS default: the app holds the microphone because an iOS keyboard cannot. Android records in the keyboard, so it takes the path features.liveVoice picks.",
+    "kb.mic.mode = handoff": "The app records one capture for the keyboard: the same iOS restriction. Android treats it as flow."
+  },
+  "keys": {
+    "kb.host.traitRefreshMs": "Throttles UIKit text-trait reads across the extension boundary. Android gets the field once, in EditorInfo.",
+    "kb.mic.stopGlyph": "An SF Symbols name.",
+    "kb.mic.resetSecondPassMs": "A second pass clearing a UIKit button highlight that sticks after the Flow arm's app switch. Android arms nothing and switches to no app to record.",
+    "kb.field.numericKeyboardTypes": "UIKit keyboard type names. Android reads the field's inputType class.",
+    "kb.secure.contentTypes": "UIKit text content types. Android reads the password input variations.",
+    "kb.keyPlane.touchColor": "The iOS keyboard's touch layer must paint to receive touches: a custom keyboard is composited into the host app and only gets touches where it has drawn. Android views receive touches on transparent pixels.",
+    "kb.touch.releaseSystemGestures": "UIKit's system gesture gates on the keyboard's window, which delay touches near the screen edges. Android's input view has no such gates.",
+    "kb.touch.releaseSystemGestures.ended": "The lift half of the same UIKit gates (space and return type on the lift).",
+    "kb.touch.deferSystemEdges": "UIViewController.preferredScreenEdgesDeferringSystemGestures, a UIKit request with no Android counterpart.",
+    "kb.touch.disableEdgePans": "UIScreenEdgePanGestureRecognizer in the keyboard window's chain; Android has no edge-pan recognizers over an input view."
+  },
+  "labelPrefixes": {
+    "flow_": "The Flow Session (see kb.flow.).",
+    "mic_handoff_": "The mic hand-off (see kb.handoff.)."
+  },
+  "labels": {
+    "full_access_required": "iOS Full Access. Android keyboards have no equivalent switch.",
+    "return.continue": "A UIKit return key type with no Android editor action.",
+    "return.emergency": "A UIKit return key type with no Android editor action.",
+    "return.google": "A UIKit return key type with no Android editor action.",
+    "return.join": "A UIKit return key type with no Android editor action.",
+    "return.route": "A UIKit return key type with no Android editor action.",
+    "return.yahoo": "A UIKit return key type with no Android editor action."
+  }
+}
