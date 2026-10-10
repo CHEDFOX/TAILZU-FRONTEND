@@ -278,7 +278,16 @@ jobs:
 
       - name: Send to TestFlight
         working-directory: app
-        run: npx eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/tailzu.ipa" --non-interactive
+        # On failure the real eas error is on a log host the agent can't read,
+        # so the key lines are echoed as a GitHub error annotation too.
+        run: |
+          set -o pipefail
+          if npx eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/tailzu.ipa" --non-interactive 2>&1 | tee "$RUNNER_TEMP/submit.log"; then
+            exit 0
+          fi
+          msg=$(grep -iE "error|fail|credential|api key|authenticat|unable|invalid|provide|not found" "$RUNNER_TEMP/submit.log" | tail -n 6 | tr '\n' ' ' | cut -c1-900)
+          echo "::error title=TestFlight submit failed::${msg:-see the job log}"
+          exit 1
 
   android:
     needs: gate
