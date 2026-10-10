@@ -19,11 +19,11 @@ import {
 } from "../../modules/tulmi-bridge";
 import { getSupabaseAccessToken } from "../auth/supabaseClient";
 import { getBaseUrl, getLanguage } from "../storage";
-import { bool, num, obj, str, txt } from "../sdui/knobs";
+import { bool, color, num, obj, str, txt } from "../sdui/knobs";
 
 /** The Live Activity's words. `{n}` is filled with the count by the widget. */
 export function flowActivityCopy(): FlowActivityCopy {
-  return {
+  const copy: FlowActivityCopy = {
     listening: txt("widget.flow.listening", "Listening"),
     writing: txt("widget.flow.writing", "Writing it up"),
     ready: txt("widget.flow.ready", "Ready in any app"),
@@ -38,7 +38,19 @@ export function flowActivityCopy(): FlowActivityCopy {
     iconMinimal: str("widget.flow.icon.minimal", "waveform"),
     iconStop: str("widget.flow.icon.stop", "stop.fill"),
     iconEnd: str("widget.flow.icon.end", "xmark"),
+    // Both shown unless the server hides them (default = today's behaviour).
+    showWords: bool("widget.flow.show.words", true),
+    showEnd: bool("widget.flow.show.end", true),
   };
+  // Per-phase accent overrides: carried only when the server sent one, so the
+  // view falls back to the theme/Ink accent otherwise (empty means "unset").
+  const accentListening = color("widget.flow.accent.listening", "");
+  const accentWriting = color("widget.flow.accent.writing", "");
+  const accentReady = color("widget.flow.accent.ready", "");
+  if (accentListening) copy.accentListening = accentListening;
+  if (accentWriting) copy.accentWriting = accentWriting;
+  if (accentReady) copy.accentReady = accentReady;
+  return copy;
 }
 
 /** Write the Live Activity's words for the widget extension. iOS only. */

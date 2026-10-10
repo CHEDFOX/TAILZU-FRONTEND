@@ -56,13 +56,18 @@ export interface FlowArmOptions {
 /**
  * The Flow Live Activity's words and symbols. `{n}` in wordsSoFar / words is
  * the count. Each absent key keeps the word the widget was built with.
+ *
+ * `showWords` / `showEnd` (absent = shown) hide the running word count and the
+ * End button; `accent*` are optional per-phase hex overrides for the accent
+ * colour, applied by the view only when present — see FlowActivity.swift.
  */
 export type FlowActivityCopy = Partial<Record<
   | "listening" | "writing" | "ready" | "readyHint" | "wordsSoFar" | "words"
   | "stop" | "end" | "compact"
-  | "iconListening" | "iconIdle" | "iconMinimal" | "iconStop" | "iconEnd",
+  | "iconListening" | "iconIdle" | "iconMinimal" | "iconStop" | "iconEnd"
+  | "accentListening" | "accentWriting" | "accentReady",
   string
->>;
+>> & Partial<Record<"showWords" | "showEnd", boolean>>;
 
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
@@ -90,9 +95,11 @@ interface TulmiBridgeNative {
   ): void;
   endFlowSession?(): void;
   setWidgetMonth?(json: string): void;
+  setWidgetTheme?(json: string): void;
   setFlowActivityCopy?(json: string): void;
   setSetupActivity?(json: string): void;
   setWidgetDictatePath?(path: string): void;
+  setWidgetDictate?(json: string): void;
 }
 
 export interface KeyboardRecordRequest {
@@ -360,6 +367,8 @@ export interface WidgetMonth {
   span?: number;
   /** Whether the month shows the streak. Absent: it does not. */
   showStreak?: boolean;
+  /** Whether the month shows the progress line. Absent: it does. */
+  showProgress?: boolean;
 }
 
 /**
@@ -372,6 +381,31 @@ export interface WidgetMonth {
 export function setWidgetMonth(month: WidgetMonth | null): void {
   try {
     native?.setWidgetMonth?.(month ? JSON.stringify(month) : "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * The widget theme: the colours and alphas every surface draws with (the month
+ * widget AND the Live Activities), built from the server's widget.color.* /
+ * widget.alpha.* flags. Unlike the month's own colours — which only exist once
+ * month numbers have been published — this is written on EVERY bootstrap, so a
+ * phone that has never seen month stats still gets the server's colours.
+ *
+ * "#RRGGBB" / "#RRGGBBAA" under `colors` (ground, pale, mark); 0–1 under
+ * `alpha` (dim, rule, track). Every surface reads this key first, then the
+ * month key, then its own literal — so a missing/old payload renders exactly as
+ * before. `null` clears it (sign-out). No-op without the native function.
+ */
+export interface WidgetTheme {
+  colors?: Record<string, string>;
+  alpha?: Record<string, number>;
+}
+
+export function setWidgetTheme(theme: WidgetTheme | null): void {
+  try {
+    native?.setWidgetTheme?.(theme ? JSON.stringify(theme) : "");
   } catch {
     // never let a widget stop the app
   }
@@ -420,6 +454,38 @@ export function setWidgetDictatePath(path: string): void {
   if (!path) return;
   try {
     native?.setWidgetDictatePath?.(path);
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * The Dictate control, as the server describes it: the screen that arms the
+ * microphone plus the control's words (its label, SF Symbol and description).
+ * Written to the App Group key `tulmi.widget.dictate`; the control reads the
+ * words it can at render time (see DictateControl.swift), each falling back to
+ * its own literal. The native setter also keeps the back-compat
+ * `tulmi.widget.dictate.path` key current.
+ *
+ * Falls back to the older path-only setter when the binary predates this, so an
+ * old native still learns the arming screen. No-op without either function.
+ */
+export interface WidgetDictate {
+  path: string;
+  label?: string;
+  symbol?: string;
+  description?: string;
+}
+
+export function setWidgetDictate(dictate: WidgetDictate): void {
+  if (!dictate?.path) return;
+  try {
+    if (native?.setWidgetDictate) {
+      native.setWidgetDictate(JSON.stringify(dictate));
+    } else {
+      // Older binary: only the arming screen crossed the bridge.
+      native?.setWidgetDictatePath?.(dictate.path);
+    }
   } catch {
     // never let a widget stop the app
   }

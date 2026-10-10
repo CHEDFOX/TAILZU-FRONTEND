@@ -26,20 +26,66 @@ struct TailzuWidgetBundle: WidgetBundle {
 
 /// The widgets' ink: a dark ground and one pale ink at a few strengths. The
 /// brand colour stays in the app. As the server last sent them (widget.color.*
-/// / widget.alpha.* in the app's flags, written into the month's JSON), or
-/// these.
+/// / widget.alpha.* in the app's flags), or these.
+///
+/// Read in three steps: the theme key (tulmi.widget.theme, written on every
+/// bootstrap) first, then the month key (tulmi.widget.month, written with the
+/// numbers), then the literal. So every surface — the month widget and the
+/// Live Activities — gets the server's colours even before any month stats
+/// exist, and a phone that has written neither renders exactly as before.
 enum Ink {
   private static let groundFallback = Color(red: 0x0F / 255, green: 0x0D / 255, blue: 0x0B / 255)
   private static let paleFallback = Color(red: 0xF3 / 255, green: 0xE2 / 255, blue: 0xC6 / 255)
 
-  static var ground: Color { WidgetLook.current.color("ground", groundFallback) }
-  static var pale: Color { WidgetLook.current.color("pale", paleFallback) }
+  static var ground: Color { WidgetTheme.current.color("ground", WidgetLook.current.color("ground", groundFallback)) }
+  static var pale: Color { WidgetTheme.current.color("pale", WidgetLook.current.color("pale", paleFallback)) }
   /// The mark and the line's fill. Pale unless the server says otherwise.
-  static var mark: Color { WidgetLook.current.color("mark", pale) }
-  static var dim: Color { pale.opacity(WidgetLook.current.alpha("dim", 0.52)) }
-  static var rule: Color { pale.opacity(WidgetLook.current.alpha("rule", 0.13)) }
+  static var mark: Color { WidgetTheme.current.color("mark", WidgetLook.current.color("mark", pale)) }
+  static var dim: Color { pale.opacity(WidgetTheme.current.alpha("dim", WidgetLook.current.alpha("dim", 0.52))) }
+  static var rule: Color { pale.opacity(WidgetTheme.current.alpha("rule", WidgetLook.current.alpha("rule", 0.13))) }
   /// The empty part of the month's line.
-  static var track: Double { WidgetLook.current.alpha("track", 0.14) }
+  static var track: Double { WidgetTheme.current.alpha("track", WidgetLook.current.alpha("track", 0.14)) }
+}
+
+/// The always-published theme: the colours and alphas the app writes to
+/// `tulmi.widget.theme` on every bootstrap (from widget.color.* / widget.alpha.*
+/// — see publishWidgetTheme in src/widgets/month.ts). Read leniently and
+/// consulted first by Ink; an absent key falls through to the month key and
+/// then to the literal, so a phone that has never written it renders as before.
+struct WidgetTheme {
+  var colors: [String: String] = [:]
+  var alphas: [String: Double] = [:]
+
+  init() {}
+
+  init(json data: Data) {
+    guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+    colors = (o["colors"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
+    alphas = (o["alpha"] as? [String: Any])?.compactMapValues { WidgetLook.number($0) } ?? [:]
+  }
+
+  func color(_ key: String, _ fallback: Color) -> Color {
+    colors[key].flatMap { Color(hex: $0) } ?? fallback
+  }
+
+  func alpha(_ key: String, _ fallback: Double) -> Double {
+    guard let a = alphas[key], a >= 0, a <= 1 else { return fallback }
+    return a
+  }
+
+  // Parsed once per change, like WidgetLook.current.
+  private static let lock = NSLock()
+  private static var cachedRaw: String?
+  private static var cached = WidgetTheme()
+
+  static var current: WidgetTheme {
+    let raw = Shared.store?.string(forKey: "tulmi.widget.theme")
+    lock.lock(); defer { lock.unlock() }
+    if raw == cachedRaw { return cached }
+    cachedRaw = raw
+    cached = raw.flatMap { $0.data(using: .utf8) }.map { WidgetTheme(json: $0) } ?? WidgetTheme()
+    return cached
+  }
 }
 
 enum Shared {
@@ -61,6 +107,9 @@ struct WidgetLook {
   var span: Double?
   /// Whether the month shows the streak (widget.month.streak). Off: minimal.
   var showStreak = false
+  /// Whether the month shows the progress line (widget.month.show.progress).
+  /// On unless the server turns it off.
+  var showProgress = true
 
   init() {}
 
@@ -73,9 +122,11 @@ struct WidgetLook {
     refreshSec = WidgetLook.number(o["refreshSec"])
     span = WidgetLook.number(o["span"])
     showStreak = (o["showStreak"] as? Bool) ?? false
+    showProgress = (o["showProgress"] as? Bool) ?? true
   }
 
-  private static func number(_ v: Any?) -> Double? {
+  // Shared with WidgetTheme, which parses alphas the same way.
+  static func number(_ v: Any?) -> Double? {
     guard let n = v as? NSNumber else { return nil }
     let d = n.doubleValue
     return d.isFinite ? d : nil

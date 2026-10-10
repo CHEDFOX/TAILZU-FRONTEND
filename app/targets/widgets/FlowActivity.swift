@@ -35,6 +35,40 @@ enum FlowCopy {
   static func text(_ key: String, _ fallback: String, n value: String) -> String {
     text(key, fallback).replacingOccurrences(of: "{n}", with: value)
   }
+
+  /// The copy object the app last wrote, for the non-string keys below.
+  private static func object() -> [String: Any]? {
+    guard let raw = Shared.store?.string(forKey: "tulmi.widget.flow.copy"),
+          let data = raw.data(using: .utf8),
+          let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return nil }
+    return o
+  }
+
+  /// A switch the server sent (showWords / showEnd), or the default.
+  static func flag(_ key: String, _ fallback: Bool) -> Bool {
+    guard let v = object()?[key] else { return fallback }
+    if let b = v as? Bool { return b }
+    if let num = v as? NSNumber { return num.boolValue }
+    return fallback
+  }
+
+  /// A per-phase accent the server sent (accent*), or the ink it replaces.
+  static func color(_ key: String, _ fallback: Color) -> Color {
+    guard let s = object()?[key] as? String, let c = Color(hex: s) else { return fallback }
+    return c
+  }
+}
+
+/// The accent for a phase: the server's per-phase colour when it sent one
+/// (accentListening / accentWriting / accentReady in the copy payload), else
+/// the ink mark it would otherwise use.
+func flowAccent(_ phase: String) -> Color {
+  switch phase {
+  case "listening": return FlowCopy.color("accentListening", Ink.mark)
+  case "writing": return FlowCopy.color("accentWriting", Ink.mark)
+  default: return FlowCopy.color("accentReady", Ink.mark)
+  }
 }
 
 /// Stop runs in this extension and reaches the app the way the keyboard does:
@@ -74,16 +108,17 @@ struct FlowActivityWidget: Widget {
         Image(systemName: context.state.phase == "listening"
               ? FlowCopy.text("iconListening", "waveform")
               : FlowCopy.text("iconIdle", "mic"))
-          .foregroundStyle(context.state.phase == "listening" ? Ink.mark : Ink.dim)
+          .foregroundStyle(context.state.phase == "listening" ? flowAccent("listening") : Ink.dim)
       } compactTrailing: {
-        Text(context.state.phase == "listening"
+        // The running count, unless the server hides it — then the ready word.
+        Text(context.state.phase == "listening" && FlowCopy.flag("showWords", true)
              ? String(context.state.words)
              : FlowCopy.text("compact", "Flow"))
           .font(.system(size: 12, weight: .medium, design: .rounded))
           .monospacedDigit()
           .foregroundStyle(Ink.dim)
       } minimal: {
-        Image(systemName: FlowCopy.text("iconMinimal", "waveform")).foregroundStyle(Ink.mark)
+        Image(systemName: FlowCopy.text("iconMinimal", "waveform")).foregroundStyle(flowAccent(context.state.phase))
       }
       .keylineTint(Ink.dim)
     }
@@ -103,9 +138,10 @@ func phaseWord(_ phase: String) -> String {
 struct FlowTitle: View {
   let state: FlowActivityAttributes.ContentState
   private var detail: String {
-    state.phase == "ready"
-      ? FlowCopy.text("readyHint", "")
-      : FlowCopy.text("words", "{n} words", n: n(state.words))
+    if state.phase == "ready" { return FlowCopy.text("readyHint", "") }
+    // The running count, unless the server hides it (readyHint is not a count).
+    if !FlowCopy.flag("showWords", true) { return "" }
+    return FlowCopy.text("words", "{n} words", n: n(state.words))
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
@@ -122,7 +158,7 @@ struct FlowBanner: View {
   let state: FlowActivityAttributes.ContentState
   var body: some View {
     HStack(spacing: 12) {
-      WaveMark(color: state.phase == "listening" ? Ink.mark : Ink.dim).frame(width: 26, height: 18)
+      WaveMark(color: state.phase == "listening" ? flowAccent("listening") : Ink.dim).frame(width: 26, height: 18)
       FlowTitle(state: state)
       Spacer(minLength: 8)
       FlowButtons(phase: state.phase)
@@ -148,15 +184,18 @@ struct FlowButtons: View {
         .foregroundStyle(Ink.ground)
         .background(Ink.pale, in: Circle())
       }
-      Button(intent: EndFlowSessionIntent()) {
-        Label(FlowCopy.text("end", "End"), systemImage: FlowCopy.text("iconEnd", "xmark"))
-          .labelStyle(.iconOnly)
-          .font(.system(size: 12, weight: .semibold))
-          .frame(width: 34, height: 34)
+      // The End button shows unless the server hides it.
+      if FlowCopy.flag("showEnd", true) {
+        Button(intent: EndFlowSessionIntent()) {
+          Label(FlowCopy.text("end", "End"), systemImage: FlowCopy.text("iconEnd", "xmark"))
+            .labelStyle(.iconOnly)
+            .font(.system(size: 12, weight: .semibold))
+            .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Ink.pale)
+        .background(Ink.rule, in: Circle())
       }
-      .buttonStyle(.plain)
-      .foregroundStyle(Ink.pale)
-      .background(Ink.rule, in: Circle())
     }
   }
 }

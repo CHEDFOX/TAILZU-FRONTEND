@@ -82,6 +82,21 @@ class TulmiBridgeModule : Module() {
       TailzuMonthWidget.requestUpdate(ctx)
     }
 
+    // THE WIDGET THEME. The colours and alphas the app writes on every
+    // bootstrap (from widget.color.* / widget.alpha.*); MonthLook reads this
+    // key first, so the widget's colours are the server's even before any
+    // month numbers have been written. An empty string clears it (sign-out),
+    // and MonthLook falls back to the month key and the literal. Same
+    // SharedPreferences file as the month, and every placed widget redraws.
+    Function("setWidgetTheme") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      ctx.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(TailzuMonthWidget.THEME_KEY, json)
+        .apply()
+      TailzuMonthWidget.requestUpdate(ctx)
+    }
+
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being
     // enabled is the permission the onboarding gate waits for.

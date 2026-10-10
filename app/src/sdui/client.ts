@@ -16,7 +16,7 @@ import type {
 import { getDeviceSignals } from "../device/signals";
 import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
-import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth } from "../../modules/tulmi-bridge";
+import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth, setWidgetTheme } from "../../modules/tulmi-bridge";
 import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
 import { isBackendPath } from "../security";
 
@@ -81,6 +81,7 @@ export async function forgetAccountData(): Promise<void> {
   setKeyboardCredentials(await getBaseUrl().catch(() => DEFAULT_BASE_URL), "");
   setKeyboardDictionary([]);
   setWidgetMonth(null);
+  setWidgetTheme(null);
   try {
     const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
       k.startsWith("tulmi.cache.") || k === "tulmi.authName" || k === "tulmi.profileDone");

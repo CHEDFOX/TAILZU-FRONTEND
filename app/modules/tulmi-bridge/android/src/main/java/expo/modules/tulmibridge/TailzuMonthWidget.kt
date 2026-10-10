@@ -72,6 +72,9 @@ class TailzuMonthWidget : AppWidgetProvider() {
     const val PREFS = "tulmi.widget"
     const val KEY = "tulmi.widget.month"
 
+    /** Where setWidgetTheme keeps the always-published colours (same file). */
+    const val THEME_KEY = "tulmi.widget.theme"
+
     /** Where a tap goes when the JSON names nowhere this app opens. */
     private const val DEFAULT_URL = "tulmi://screen/stats"
 
@@ -232,16 +235,24 @@ internal data class SizeDp(val w: Float, val h: Float)
  * falls back to the literal; JSON that is not an object, or carries none of the
  * month's numbers, is nothing written, and the widget shows the mark.
  */
-internal class MonthLook private constructor(o: JSONObject?) {
+internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?) {
   private val labels: JSONObject? = o?.optJSONObject("labels")
   private val colors: JSONObject? = o?.optJSONObject("colors")
   private val alphas: JSONObject? = o?.optJSONObject("alpha")
+  // The always-published theme (tulmi.widget.theme): read first, so the colours
+  // are the server's even before any month numbers have been written. Each
+  // falls through to the month key and then to the literal.
+  private val themeColors: JSONObject? = theme?.optJSONObject("colors")
+  private val themeAlphas: JSONObject? = theme?.optJSONObject("alpha")
 
   /** Where a tap goes (widget.month.url). */
   val url: String? = o?.opt("url") as? String
 
   /** Whether the month shows the streak (widget.month.streak). Off: minimal. */
   val showStreak: Boolean = o?.opt("showStreak") as? Boolean ?: false
+
+  /** Whether the month shows the progress line (widget.month.show.progress). */
+  val showProgress: Boolean = o?.opt("showProgress") as? Boolean ?: true
 
   // The ink: a dark ground and one pale ink at a few strengths. The brand
   // colour stays in the app.
@@ -268,11 +279,14 @@ internal class MonthLook private constructor(o: JSONObject?) {
     return "${count(m.headline)} ${label(m)}"
   }
 
-  private fun color(key: String, fallback: Int): Int = hex(colors?.opt(key) as? String) ?: fallback
+  // The theme's colour first, then the month's, then the literal.
+  private fun color(key: String, fallback: Int): Int =
+    hex(themeColors?.opt(key) as? String) ?: hex(colors?.opt(key) as? String) ?: fallback
 
   private fun alpha(key: String, fallback: Float): Float {
-    val a = alphas?.let { number(it, key) } ?: return fallback
-    return if (a in 0.0..1.0) a.toFloat() else fallback
+    themeAlphas?.let { number(it, key) }?.let { if (it in 0.0..1.0) return it.toFloat() }
+    alphas?.let { number(it, key) }?.let { if (it in 0.0..1.0) return it.toFloat() }
+    return fallback
   }
 
   /** The month's numbers, and the headline and line the app worked out. */
@@ -305,25 +319,27 @@ internal class MonthLook private constructor(o: JSONObject?) {
     private val PALE = Color.rgb(0xF3, 0xE2, 0xC6)
     private val NUMBERS = listOf("used", "total", "remaining", "headline")
 
-    /** What setWidgetMonth last stored, or nothing written. Never throws. */
+    /** What setWidgetMonth / setWidgetTheme last stored, or nothing. Never throws. */
     fun load(context: Context): MonthLook = try {
-      parse(
-        context.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
-          .getString(TailzuMonthWidget.KEY, null)
+      val prefs = context.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
+      MonthLook(
+        obj(prefs.getString(TailzuMonthWidget.KEY, null)),
+        obj(prefs.getString(TailzuMonthWidget.THEME_KEY, null)),
       )
     } catch (_: Exception) {
-      MonthLook(null)
+      MonthLook(null, null)
     }
 
-    fun parse(raw: String?): MonthLook = MonthLook(
-      raw?.let {
-        try {
-          JSONObject(it)
-        } catch (_: Exception) {
-          null
-        }
+    /** The month JSON alone, as it was before the theme key existed. */
+    fun parse(raw: String?): MonthLook = MonthLook(obj(raw), null)
+
+    private fun obj(raw: String?): JSONObject? = raw?.let {
+      try {
+        JSONObject(it)
+      } catch (_: Exception) {
+        null
       }
-    )
+    }
 
     /** A finite number, or absent. A string that looks like one is not one. */
     private fun number(o: JSONObject, key: String): Double? {
@@ -443,16 +459,21 @@ internal object MonthFace {
     }
 
     // A widget shorter than the stack gets all of it smaller rather than the
-    // number cut off at the top.
+    // number cut off at the top. The line and its gap are in the stack only
+    // when the server shows the progress line.
+    val showProgress = look.showProgress
     val smallBox = box(small)
-    val need = box(number) + 2f + smallBox + (if (streak != null) smallBox + 2f else 0f) + 10f + LINE
+    val need = box(number) + 2f + smallBox + (if (streak != null) smallBox + 2f else 0f) +
+      (if (showProgress) 10f + LINE else 0f)
     val k = min(1f, room / need)
     c.save()
     c.translate(inset, h - inset)
     c.scale(k, k)
     var y = 0f
-    line(c, width / k, y - LINE, m.fraction, look.mark, look.track)
-    y -= LINE + 10f
+    if (showProgress) {
+      line(c, width / k, y - LINE, m.fraction, look.mark, look.track)
+      y -= LINE + 10f
+    }
     if (streak != null) {
       text(c, streak, small, y)
       y -= smallBox + 2f
