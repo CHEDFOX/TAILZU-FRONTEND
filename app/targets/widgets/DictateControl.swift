@@ -11,14 +11,36 @@ import WidgetKit
 // opens the app on its arming screen, which arms and says "swipe back" — the
 // same path the keyboard's own mic key takes, one tap earlier.
 
+/// The control's words, as the app last wrote them to the App Group
+/// (tulmi.widget.dictate, from widget.dictate.* — see src/widgets/month.ts).
+/// Each falls back to the literal it replaced. Only the button's label and
+/// symbol are read here: `.displayName` / `.description` below are the Controls
+/// gallery's metadata, which iOS reads before the app has ever run and which
+/// take a LocalizedStringResource, so they stay compile-time literals.
+@available(iOS 18.0, *)
+enum DictateLook {
+  private static func value(_ key: String, _ fallback: String) -> String {
+    guard let raw = UserDefaults(suiteName: Shared.appGroup)?.string(forKey: "tulmi.widget.dictate"),
+          let data = raw.data(using: .utf8),
+          let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let s = o[key] as? String, !s.isEmpty
+    else { return fallback }
+    return s
+  }
+  static var label: String { value("label", "Dictate") }
+  static var symbol: String { value("symbol", "waveform") }
+}
+
 @available(iOS 18.0, *)
 struct DictateControl: ControlWidget {
   var body: some ControlWidgetConfiguration {
     StaticControlConfiguration(kind: "space.tailzu.dictate") {
       ControlWidgetButton(action: DictateIntent()) {
-        Label("Dictate", systemImage: "waveform")
+        // The tile's label + symbol render here, so they can be the server's.
+        Label(DictateLook.label, systemImage: DictateLook.symbol)
       }
     }
+    // Gallery metadata — compile-time static (see DictateLook).
     .displayName("Dictate")
     .description("Turn the Tailzu microphone on, ready for the keyboard.")
   }

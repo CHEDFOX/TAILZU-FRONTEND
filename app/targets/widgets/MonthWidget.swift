@@ -142,7 +142,9 @@ struct MonthView: View {
               .foregroundStyle(Ink.dim)
               .padding(.top, 2)
           }
-          Line(fraction: m.fraction).frame(height: 3).padding(.top, 10)
+          if look.showProgress {
+            Line(fraction: m.fraction).frame(height: 3).padding(.top, 10)
+          }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
       } else {
@@ -178,7 +180,9 @@ struct MonthView: View {
           Text(n(m.headline))
             .font(.system(size: 22, weight: .semibold, design: .rounded))
             .monospacedDigit()
-          Line(fraction: m.fraction, tint: .primary).frame(height: 3).padding(.top, 2)
+          if look.showProgress {
+            Line(fraction: m.fraction, tint: .primary).frame(height: 3).padding(.top, 2)
+          }
           if look.showStreak && m.streak > 0 {
             Text(look.text("streakLong", "{n}-day streak", n: String(m.streak)))
               .font(.system(size: 11)).foregroundStyle(.secondary)

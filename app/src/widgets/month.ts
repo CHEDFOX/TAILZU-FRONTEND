@@ -16,7 +16,7 @@
  * literal the Swift and Kotlin sides keep.
  */
 import { Platform } from "react-native";
-import { setWidgetDictatePath, setWidgetMonth } from "../../modules/tulmi-bridge";
+import { setWidgetDictate, setWidgetMonth, setWidgetTheme } from "../../modules/tulmi-bridge";
 import { bool, color, num, setKnobs, str, txt } from "../sdui/knobs";
 import type { BootstrapResponse } from "../sdui/types";
 import { publishFlowCopy, publishSetupActivity } from "./flow";
@@ -99,13 +99,47 @@ export function publishWidgetMonth(
     span: paidSpan,
     // Minimal by default: the streak shows only when the server turns it on.
     showStreak: bool("widget.month.streak", false),
+    // The progress line shows unless the server hides it.
+    showProgress: bool("widget.month.show.progress", true),
   });
+  // The theme (colours + alphas) lands on every bootstrap, so every surface has
+  // the server's colours even before month stats exist. Both platforms.
+  publishWidgetTheme();
   // The Live Activity's words and the Dictate control's screen land with the
   // month, from the same bootstrap. iOS only: Android records in the keyboard
   // itself, so there is no background Flow session to show or to arm.
   if (Platform.OS === "ios") {
     publishFlowCopy();
     publishSetupActivity();
-    setWidgetDictatePath(str("widget.dictate.path", "screen/flow_arm"));
+    setWidgetDictate({
+      path: str("widget.dictate.path", "screen/flow_arm"),
+      label: txt("widget.dictate.label", "Dictate"),
+      symbol: str("widget.dictate.symbol", "waveform"),
+      description: txt("widget.dictate.description", "Turn the Tailzu microphone on, ready for the keyboard."),
+    });
   }
+}
+
+/**
+ * Write the widget theme where every surface reads it (the App Group on iOS,
+ * the app's SharedPreferences on Android) — the colours and alphas, from the
+ * same widget.color.* / widget.alpha.* knobs the month draws with. Published on
+ * every bootstrap so the colours are the server's even before month stats have
+ * been written. Each value falls back to the literal the native sides keep.
+ */
+export function publishWidgetTheme(): void {
+  if (Platform.OS !== "ios" && Platform.OS !== "android") return;
+  setWidgetTheme({
+    colors: {
+      ground: color("widget.color.ground", "#0F0D0B"),
+      pale: color("widget.color.pale", "#F3E2C6"),
+      // The mark and the line's fill. Never the brand colour: that is the app's.
+      mark: color("widget.color.mark", "#F3E2C6"),
+    },
+    alpha: {
+      dim: num("widget.alpha.dim", 0.52),
+      rule: num("widget.alpha.rule", 0.13),
+      track: num("widget.alpha.track", 0.14),
+    },
+  });
 }

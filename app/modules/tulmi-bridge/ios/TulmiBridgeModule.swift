@@ -221,6 +221,26 @@ public class TulmiBridgeModule: Module {
       }
     }
 
+    // THE WIDGET THEME, FOR EVERY SURFACE. The colours and alphas the app
+    // writes on every bootstrap (from widget.color.* / widget.alpha.*), read
+    // first by Ink — so the month widget and the Live Activities get the
+    // server's colours even before any month numbers have been written. An
+    // empty string clears it (sign-out); Ink then falls back to the month key
+    // and the literal. The month widget is redrawn, and a running Flow Live
+    // Activity too, so a colour change shows now.
+    Function("setWidgetTheme") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(json, forKey: "tulmi.widget.theme")
+      if #available(iOS 14.0, *) {
+        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.month")
+      }
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        DispatchQueue.main.async { FlowLiveActivity.shared.redraw() }
+      }
+      #endif
+    }
+
     // THE FLOW SESSION'S WORDS, FOR THE LIVE ACTIVITY. A JSON object of
     // strings (listening, writing, ready, readyHint, words, stop,
     // end, compact, and the SF Symbols) from the server's labels; the widget
@@ -252,6 +272,23 @@ public class TulmiBridgeModule: Module {
     Function("setWidgetDictatePath") { (path: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(path, forKey: "tulmi.widget.dictate.path")
+    }
+
+    // THE DICTATE CONTROL, AS THE SERVER DESCRIBES IT. A JSON object with the
+    // arming screen (path) and the control's words (label, symbol,
+    // description) from the server's widget.dictate.* — the control reads the
+    // label + symbol at render time (DictateControl.swift), each falling back
+    // to its literal. The arming screen is also mirrored to the back-compat
+    // `tulmi.widget.dictate.path` key, which the control's intent reads when
+    // pressed, so an unparsable or older payload still arms the right screen.
+    Function("setWidgetDictate") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      defaults?.set(json, forKey: "tulmi.widget.dictate")
+      if let data = json.data(using: .utf8),
+         let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+         let path = o["path"] as? String, !path.isEmpty {
+        defaults?.set(path, forKey: "tulmi.widget.dictate.path")
+      }
     }
 
     // Whether a Flow Session is currently armed in this process.
