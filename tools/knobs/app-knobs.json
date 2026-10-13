@@ -305,6 +305,7 @@
     "widget.month.wordsThisMonth": "Words this month"
   },
   "flags": {
+    "ads.meta.enabled": true,
     "analytics.enabled": true,
     "analytics.posthogHost": "https://us.i.posthog.com",
     "app.boot.breadcrumbMs": 6000,
@@ -948,7 +949,7 @@
     "desktop.row.paddingV": 17,
     "desktop.row.valueGap": 8,
     "desktop.row.valueSize": 15,
-    "desktop.screen.slowMs": 700,
+    "desktop.screen.waitMs": 700,
     "desktop.spacer.height": 8,
     "desktop.surroundings.chars": 2000,
     "desktop.surroundings.read": true,
@@ -1017,6 +1018,10 @@
     "desktop.voice.background": "#F3E2C6",
     "desktop.voice.buttonSize": 44,
     "desktop.voice.endpoint": "/v1/train/converse",
+    "desktop.voice.inputLevel": {
+      "gate": 0.012,
+      "gain": 6
+    },
     "desktop.voice.level": {
       "tickMs": 90,
       "onSpeech": 0.8,
@@ -1029,6 +1034,8 @@
     "desktop.voice.maxTurns": 40,
     "desktop.voice.minSilenceMs": 600,
     "desktop.voice.minTurns": 2,
+    "desktop.voice.serverTts": true,
+    "desktop.voice.serverTtsWaitMs": 8000,
     "desktop.voice.silenceMs": 1500,
     "desktop.voice.ttsBaseMs": 2000,
     "desktop.voice.ttsMaxMs": 30000,
@@ -2581,15 +2588,15 @@
     },
     "boot.firstRun": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1619"
+      "at": "app/src/sdui/SduiApp.tsx:1621"
     },
     "postLanguageScreenId": {
       "kind": "str",
-      "at": "app/src/sdui/SduiApp.tsx:1641"
+      "at": "app/src/sdui/SduiApp.tsx:1643"
     },
     "profile.complete": {
       "kind": "bool",
-      "at": "app/src/sdui/SduiApp.tsx:1121"
+      "at": "app/src/sdui/SduiApp.tsx:1123"
     }
   }
 }

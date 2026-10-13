@@ -27,6 +27,38 @@ const googleServicesFile =
 const EAS_PROJECT_ID =
   process.env.EAS_PROJECT_ID ?? "7b0d6b75-e469-4e42-b8de-eb6c0453f72c";
 
+// META (Facebook/Instagram ads). The app id and client token come from the
+// Meta app at developers.facebook.com (Settings → Basic, and Settings →
+// Advanced → Client token); both are embedded in the app and neither is a
+// secret, but they are per-build EAS environment variables like the others.
+// Without both, the SDK is not configured natively and src/telemetry/meta.ts
+// does nothing — the same bundle runs on either binary.
+const META_APP_ID = (process.env.META_APP_ID ?? "").trim();
+const META_CLIENT_TOKEN = (process.env.META_CLIENT_TOKEN ?? "").trim();
+const metaPlugin: [string, Record<string, unknown>][] =
+  /^\d+$/.test(META_APP_ID) && META_CLIENT_TOKEN
+    ? [[
+        "react-native-fbsdk-next",
+        {
+          appID: META_APP_ID,
+          clientToken: META_CLIENT_TOKEN,
+          displayName: "Tailzu",
+          scheme: `fb${META_APP_ID}`,
+          // Started from JavaScript (initMeta), so the server's knob
+          // ads.meta.enabled can keep it off without a release.
+          isAutoInitEnabled: false,
+          // Installs and app opens, logged by the SDK itself once started.
+          autoLogAppEventsEnabled: true,
+          // Android's advertising id, which is what credits an install to an
+          // ad there. iPhone's needs the tracking prompt, and gets none.
+          advertiserIDCollectionEnabled: true,
+          // No App Tracking Transparency prompt: Meta measures iPhone in
+          // aggregate instead (SKAdNetwork ids are added by the plugin).
+          iosUserTrackingPermission: false,
+        },
+      ]]
+    : [];
+
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
   // iPhone Storage). `slug` and bundleIdentifier stay as "tulmi" because
@@ -489,6 +521,7 @@ const config: ExpoConfig = {
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
+    ...metaPlugin,
   ],
   extra: {
     ...(EAS_PROJECT_ID ? { eas: { projectId: EAS_PROJECT_ID } } : {}),
@@ -500,6 +533,8 @@ const config: ExpoConfig = {
     posthogHost: process.env.POSTHOG_HOST ?? "https://us.i.posthog.com",
     revenueCatIosKey: process.env.REVENUECAT_IOS_KEY ?? "",
     revenueCatAndroidKey: process.env.REVENUECAT_ANDROID_KEY ?? "",
+    // Only when the SDK is configured in this build (metaPlugin above).
+    metaAppId: metaPlugin.length ? META_APP_ID : "",
   },
 };
 

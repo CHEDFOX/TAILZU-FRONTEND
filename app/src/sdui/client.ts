@@ -19,6 +19,7 @@ import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth, setWidgetTheme } from "../../modules/tulmi-bridge";
 import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
 import { isBackendPath } from "../security";
+import { logMetaEvents } from "../telemetry/meta";
 
 /**
  * THE VERSION OF THE BINARY THAT IS ACTUALLY RUNNING.
@@ -546,6 +547,14 @@ export async function bootstrap(): Promise<BootstrapResponse> {
   const launchCount = await bumpLaunchCount();
   const body: BootstrapRequest = { capabilities: buildCapabilities(), launchCount };
   const b = await withRetry(() => post<BootstrapResponse>("/v1/app/bootstrap", body));
+  // Meta's milestones come once, on the bootstrap that reports them: logged
+  // here and taken off before it is persisted, so a cached bootstrap can
+  // never log them again.
+  if (b.metaEvents) {
+    const events = b.metaEvents;
+    delete b.metaEvents;
+    logMetaEvents(events);
+  }
   getBaseUrl().then((base) => persistBootstrap(base, b)).catch(() => {});
   knobsPrimed = true;
   lastBootstrapAt = Date.now();

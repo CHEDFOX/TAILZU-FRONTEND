@@ -207,6 +207,10 @@ export interface BootstrapResponse {
    * Populated from server `/v1/media/upload` uploads. Empty when no admin
    * uploads have happened yet. */
   media?: Record<string, MediaEntry>;
+  /** The account's milestones for Meta's SDK to log (signed up, keyboard on,
+   *  first dictation). Each is sent once, ever; only on a network bootstrap,
+   *  and dropped before the bootstrap is persisted (telemetry/meta.ts). */
+  metaEvents?: Array<{ name: string; params?: Record<string, string | number> }>;
   update?: UpdateGate;
   /** A card shown over the app on open — an announcement, a nudge, an offer. */
   launchCard?: LaunchCard;

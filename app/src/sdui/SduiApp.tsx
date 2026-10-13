@@ -59,6 +59,7 @@ import { supabaseAuth, getSupabaseAccessToken } from "../auth/supabaseClient";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics, resetAnalytics } from "../telemetry/analytics";
+import { initMeta } from "../telemetry/meta";
 import { initSentry } from "../telemetry/sentry";
 import { initBilling, identifyBilling, logOutBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener, forgetPushToken } from "../notifications/push";
@@ -398,6 +399,7 @@ export default function SduiApp() {
   useEffect(() => {
     initSentry();
     void initAnalytics();
+    initMeta();
     void initBilling();
     void registerForPushToken();
     // Warm heartbeat — tells the keyboard extension "the main app is alive
