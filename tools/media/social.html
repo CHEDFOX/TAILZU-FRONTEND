@@ -2337,6 +2337,7 @@ function deskScene(ctx, w, h, t, D) {
   ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, rr0 - .75); ctx.stroke();
   // Keystrokes and the caption live outside the recording, in the band below it.
   const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250);
+  if (LESSON_HOLD) return { rx, ry, rw, rh, z };
   keyHud(ctx, D.tapKey, w / 2 - 104, hudY, D.tap1, t); keyHud(ctx, D.tapKey, w / 2 + 104, hudY, D.tap2, t);
   keyHud(ctx, D.tapKey, w / 2 - 104, hudY, D.stop1, t); keyHud(ctx, D.tapKey, w / 2 + 104, hudY, D.stop2, t);
   keyHud(ctx, D.sendKey, w / 2, hudY, D.enter, t);
@@ -2461,9 +2462,114 @@ function keycap(ctx, label, x, baseline, w, size, color) {
 function drawTitleLine(ctx, line, x0, y, size, color) {
   line.forEach((tk) => { if (tk.kind === "key") keycap(ctx, tk.text, x0 + tk.x, y, tk.w, size, color); else text(ctx, tk.text, x0 + tk.x, y, titleFont(size, tk.italic), color); });
 }
+// ---- the presenter: a figure in a suit, in dots, who gestures with each lesson ---------
+/** Shaded in greys, then put through an ordered dither, so it is made of
+ *  dots of the brand's ink, the way a halftone print is. */
+const BAYER = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22, 3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21];
+const grey = (l) => { const v = Math.round(clamp(l) * 255); return `rgb(${v},${v},${v})`; };
+/** The poses: each arm as [shoulder, elbow] angles (0 hangs down, positive
+ *  swings out and up), the hands, the face. */
+const POSES = {
+  neutral: { ra: [.16, .12], la: [.16, .12], rh: "open", lh: "open", mouth: "smile", brows: .3, tilt: 0 },
+  present: { ra: [1.95, -.35], la: [.55, 1.75], rh: "open", lh: "hip", mouth: "smile", brows: .75, tilt: -.05 },
+  tap: { ra: [.7, 2.45], la: [.2, .15], rh: "point", lh: "open", mouth: "grin", brows: .85, tilt: .04 },
+  tada: { ra: [2.35, -.25], la: [2.35, -.25], rh: "open", lh: "open", mouth: "grin", brows: 1, tilt: 0 },
+  thumbs: { ra: [.55, 2.1], la: [.18, .12], rh: "thumb", lh: "open", mouth: "smile", brows: .6, tilt: -.06 },
+  shrug: { ra: [.95, 1.95], la: [.95, 1.95], rh: "open", lh: "open", mouth: "o", brows: 1, tilt: .1 },
+  hips: { ra: [.55, 1.75], la: [.55, 1.75], rh: "hip", lh: "hip", mouth: "smile", brows: .45, tilt: 0 },
+};
+function mixPose(a, b, k) {
+  const m = (x, y) => lerp(x, y, k), pick = (x, y) => k < .5 ? x : y;
+  return { ra: [m(a.ra[0], b.ra[0]), m(a.ra[1], b.ra[1])], la: [m(a.la[0], b.la[0]), m(a.la[1], b.la[1])], rh: pick(a.rh, b.rh), lh: pick(a.lh, b.lh), mouth: pick(a.mouth, b.mouth), brows: m(a.brows, b.brows), tilt: m(a.tilt, b.tilt) };
+}
+/** One arm: the sleeve, then the hand it ends in. */
+function arm(g, H, sx, sy, s, a1, a2, hand, hipX, hipY) {
+  const L1 = .2 * H, L2 = .18 * H, ex = sx + s * Math.sin(a1) * L1, ey = sy + Math.cos(a1) * L1;
+  const a = a1 + a2, hx = ex + s * Math.sin(a) * L2, hy = ey + Math.cos(a) * L2;
+  const fx = hand === "hip" ? hipX : hx, fy = hand === "hip" ? hipY : hy;
+  g.lineCap = "round"; g.lineJoin = "round";
+  g.strokeStyle = grey(.4); g.lineWidth = .085 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.lineTo(fx, fy); g.stroke();
+  g.strokeStyle = grey(.56); g.lineWidth = .028 * H; g.beginPath(); g.moveTo(sx - s * .012 * H, sy - .02 * H); g.lineTo(ex - s * .012 * H, ey - .02 * H); g.stroke();
+  // The hand: a mitt, a pointing finger, a thumb, or tucked at the hip.
+  const dx = s * Math.sin(a), dy = Math.cos(a), px = fx + dx * .035 * H, py = fy + dy * .035 * H;
+  g.fillStyle = grey(.84); g.beginPath(); g.arc(px, py, .052 * H, 0, TAU); g.fill();
+  g.strokeStyle = grey(.84); g.lineWidth = .034 * H;
+  if (hand === "point") { g.beginPath(); g.moveTo(px, py); g.lineTo(px + dx * .085 * H, py + dy * .085 * H); g.stroke(); }
+  if (hand === "thumb") { g.beginPath(); g.moveTo(px, py); g.lineTo(px, py - .095 * H); g.stroke(); }
+}
+/** The figure, feet at the foot of a box W×H, in greys. */
+function drawFigure(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .75) * .006 * H, hy = .24 * H + bob, R = .155 * H;
+  // Legs and shoes.
+  [-1, 1].forEach((s) => {
+    const lx = cx + s * .085 * H; const lg = g.createLinearGradient(lx - .065 * H, 0, lx + .065 * H, 0); lg.addColorStop(0, grey(.36)); lg.addColorStop(1, grey(.22));
+    g.fillStyle = lg; rr(g, lx - .065 * H, .7 * H, .13 * H, .27 * H, .03 * H); g.fill();
+    g.fillStyle = grey(.14); g.beginPath(); g.ellipse(lx + s * .01 * H, .975 * H, .085 * H, .03 * H, 0, 0, TAU); g.fill();
+    g.fillStyle = grey(.34); g.beginPath(); g.ellipse(lx + s * .01 * H, .962 * H, .06 * H, .012 * H, 0, 0, TAU); g.fill();
+  });
+  // The jacket, the shirt, the tie.
+  const jg = g.createLinearGradient(cx - .2 * H, 0, cx + .2 * H, 0); jg.addColorStop(0, grey(.5)); jg.addColorStop(.5, grey(.4)); jg.addColorStop(1, grey(.3));
+  g.fillStyle = jg; g.beginPath(); g.moveTo(cx - .2 * H, .44 * H + bob); g.quadraticCurveTo(cx - .21 * H, .41 * H + bob, cx - .17 * H, .41 * H + bob); g.lineTo(cx + .17 * H, .41 * H + bob); g.quadraticCurveTo(cx + .21 * H, .41 * H + bob, cx + .2 * H, .44 * H + bob); g.lineTo(cx + .17 * H, .75 * H); g.lineTo(cx - .17 * H, .75 * H); g.closePath(); g.fill();
+  g.fillStyle = grey(.93); g.beginPath(); g.moveTo(cx - .085 * H, .41 * H + bob); g.lineTo(cx + .085 * H, .41 * H + bob); g.lineTo(cx, .6 * H + bob); g.closePath(); g.fill();
+  g.fillStyle = grey(.18); g.beginPath(); g.moveTo(cx - .022 * H, .43 * H + bob); g.lineTo(cx + .022 * H, .43 * H + bob); g.lineTo(cx + .03 * H, .6 * H + bob); g.lineTo(cx, .65 * H + bob); g.lineTo(cx - .03 * H, .6 * H + bob); g.closePath(); g.fill();
+  g.fillStyle = grey(.34); [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(cx + s * .085 * H, .41 * H + bob); g.lineTo(cx + s * .13 * H, .41 * H + bob); g.lineTo(cx + s * .04 * H, .6 * H + bob); g.closePath(); g.fill(); });
+  // The arms, over the jacket.
+  arm(g, H, cx + .18 * H, .45 * H + bob, 1, p.ra[0], p.ra[1], p.rh, cx + .2 * H, .7 * H);
+  arm(g, H, cx - .18 * H, .45 * H + bob, -1, p.la[0], p.la[1], p.lh, cx - .2 * H, .7 * H);
+  // The head, tilted a little.
+  g.save(); g.translate(cx, .42 * H + bob); g.rotate(p.tilt); g.translate(-cx, -(.42 * H + bob));
+  g.fillStyle = grey(.78); [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * .15 * H, hy + .01 * H, .03 * H, 0, TAU); g.fill(); });
+  const sg = g.createRadialGradient(cx - .05 * H, hy - .06 * H, 0, cx, hy, R * 1.25); sg.addColorStop(0, grey(.95)); sg.addColorStop(.6, grey(.8)); sg.addColorStop(1, grey(.5));
+  g.fillStyle = sg; g.beginPath(); g.arc(cx, hy, R, 0, TAU); g.fill();
+  // The cap: a dome and its brim.
+  g.save(); g.beginPath(); g.rect(cx - R * 1.2, hy - R * 1.2, R * 2.4, R * 1.2 - .03 * H); g.clip();
+  const cg = g.createRadialGradient(cx - .06 * H, hy - .14 * H, 0, cx, hy - .03 * H, R * 1.2); cg.addColorStop(0, grey(.6)); cg.addColorStop(.5, grey(.42)); cg.addColorStop(1, grey(.26));
+  g.fillStyle = cg; g.beginPath(); g.arc(cx, hy - .01 * H, R * 1.06, 0, TAU); g.fill(); g.restore();
+  g.fillStyle = grey(.3); g.beginPath(); g.ellipse(cx + .015 * H, hy - .035 * H, R * 1.1, .035 * H, .04, 0, TAU); g.fill();
+  g.fillStyle = grey(.46); g.beginPath(); g.ellipse(cx + .015 * H, hy - .045 * H, R * 1.06, .016 * H, .04, Math.PI, TAU); g.fill();
+  // Eyes, brows, nose, mouth.
+  const blink = ((t * 1000 + 700) % 2700) < 110;
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * .06 * H, ey = hy + .005 * H;
+    g.fillStyle = grey(.98); g.beginPath(); g.ellipse(ex, ey, .034 * H, blink ? .004 * H : .04 * H, 0, 0, TAU); g.fill();
+    if (!blink) { g.fillStyle = grey(.08); g.beginPath(); g.arc(ex + s * .004 * H, ey + .006 * H, .016 * H, 0, TAU); g.fill(); g.fillStyle = grey(.95); g.beginPath(); g.arc(ex - .004 * H, ey - .002 * H, .005 * H, 0, TAU); g.fill(); }
+    g.strokeStyle = grey(.12); g.lineWidth = .017 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey - .025 * H - p.brows * .022 * H, .04 * H, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+  });
+  g.strokeStyle = grey(.6); g.lineWidth = .012 * H; g.beginPath(); g.arc(cx + .012 * H, hy + .045 * H, .018 * H, Math.PI * .1, Math.PI * .9); g.stroke();
+  const my = hy + .085 * H;
+  if (p.mouth === "smile") { g.strokeStyle = grey(.12); g.lineWidth = .016 * H; g.beginPath(); g.arc(cx, my - .02 * H, .055 * H, Math.PI * .18, Math.PI * .82); g.stroke(); }
+  else if (p.mouth === "grin") { g.fillStyle = grey(.1); g.beginPath(); g.ellipse(cx, my, .07 * H, .045 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.96); g.beginPath(); g.rect(cx - .058 * H, my, .116 * H, .016 * H); g.fill(); g.fillStyle = grey(.35); g.beginPath(); g.ellipse(cx, my + .036 * H, .035 * H, .012 * H, 0, 0, TAU); g.fill(); }
+  else { g.fillStyle = grey(.1); g.beginPath(); g.ellipse(cx, my, .028 * H, .036 * H, 0, 0, TAU); g.fill(); }
+  g.restore();
+}
+const PRES = { dot: 3, buf: null, out: null };
+/** The figure, `H` tall, its feet at (cx, bottom), in the pose `name`
+ *  reached `k` of the way from standing, at a time `t` for its idling. */
+function presenter(ctx, cx, bottom, H, name, k, t, alpha) {
+  const W = Math.round(H * .84), d = PRES.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
+  if (!PRES.buf || PRES.buf.width !== bw || PRES.buf.height !== bh) { PRES.buf = document.createElement("canvas"); PRES.buf.width = bw; PRES.buf.height = bh; PRES.out = document.createElement("canvas"); PRES.out.width = bw; PRES.out.height = bh; }
+  const g = PRES.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
+  const e = E.out(k) + Math.sin(Math.PI * clamp(k)) * .07, p = mixPose(POSES.neutral, POSES[name] || POSES.neutral, clamp(e, 0, 1.07));
+  // A little life in the gesture: the tap taps, the ta-da bounces.
+  const held = k * .55;
+  if (name === "tap" && held > .5 && held < 1.5) p.ra[1] += .22 * Math.sin((held - .5) * TAU * 2.2);
+  if (name === "tada") { const b = .06 * Math.sin(t * TAU * 1.3); p.ra[0] += b; p.la[0] += b; }
+  if (name === "present") p.ra[0] += .03 * Math.sin(t * TAU * .9);
+  drawFigure(g, W, H, p, t);
+  const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PRES.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
+    const lum = (src[i] * .3 + src[i + 1] * .59 + src[i + 2] * .11) / 255 * (a / 255), th = (BAYER[(y & 7) * 8 + (x & 7)] + .5) / 64;
+    if (lum > th) { dd[i] = 0xF3; dd[i + 1] = 0xE2; dd[i + 2] = 0xC6; dd[i + 3] = 255; }
+  }
+  o.putImageData(od, 0, 0);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.imageSmoothingEnabled = false; ctx.drawImage(PRES.out, Math.round(cx - W / 2), Math.round(bottom - H), bw * d, bh * d); ctx.restore();
+}
 /** The annotation measured: its headline, its body, its height. */
+const PRESENTER = { H: 430, right: 60 };
 function measureAnnotation(ctx, f, w) {
-  const x0 = 96, maxW = w - 2 * x0, T = layoutTitle(ctx, f.title, maxW), B = layout(ctx, f.body, `400 32px ${SANS}`, maxW - 40, 42);
+  const x0 = 96, maxW = f.pose ? w - x0 - PRESENTER.right - PRESENTER.H * .84 - 36 : w - 2 * x0;
+  const T = layoutTitle(ctx, f.title, maxW), B = layout(ctx, f.body, `400 32px ${SANS}`, maxW - 20, 42);
   const blockH = 36 + T.size * .92 + (T.lines.length - 1) * T.lineH + 22 + 30 + (B.lines.length - 1) * 42 + 12;
   return { x0, T, B, blockH };
 }
@@ -2495,14 +2601,15 @@ function annotate(ctx, w, h, f, idx, count, A, fr, up, top, held, hold) {
   ctx.globalAlpha *= E.out(seg(held, .25, .65));
   B.lines.forEach((ln, i) => text(ctx, ln, x0, y + i * 42, B.font, rgba(pale, .72)));
   ctx.restore();
+  if (f.pose) presenter(ctx, w - PRESENTER.right - PRESENTER.H * .84 / 2, Math.min(h - 56, top + blockH + 40 + (PRESENTER.H - blockH) / 2), PRESENTER.H, f.pose, seg(held, .05, .6), held, fadeIn * fadeOut);
 }
-let lessonBuf = null;
+let lessonBuf = null, LESSON_HOLD = false;
 function lessonDraw(ctx, w, h, T, L, sceneFn) {
   const { t, f, k } = lessonClock(L, T);
   if (!f) { sceneFn(ctx, w, h, t); return; }
   if (!lessonBuf) { lessonBuf = document.createElement("canvas"); lessonBuf.width = w; lessonBuf.height = h; }
   const g = lessonBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, w, h);
-  const cam = sceneFn(g, w, h, t) || { rx: 0, ry: 0, rh: h, z: 1 };
+  LESSON_HOLD = true; const cam = sceneFn(g, w, h, t) || { rx: 0, ry: 0, rh: h, z: 1 }; LESSON_HOLD = false;
   const held = k * f.hold, fade = E.out(seg(held, 0, .3)) * (1 - E.in(seg(held, f.hold - .3, f.hold)));
   const focus = typeof f.focus === "function" ? f.focus() : f.focus;
   let fr = null;
@@ -2510,7 +2617,7 @@ function lessonDraw(ctx, w, h, T, L, sceneFn) {
   // The frozen frame, pushed in a little over the hold about what matters in it,
   // and moved aside when the words need more room than the band has.
   const px = fr ? fr.x + fr.w / 2 : w / 2, py0 = fr ? fr.y + fr.h / 2 : h / 2, push = 1 + .05 * E.io(k);
-  const up = !fr || py0 > h / 2, A = measureAnnotation(ctx, f, w), need = A.blockH + 150;
+  const up = f.pose ? false : (!fr || py0 > h / 2), A = measureAnnotation(ctx, f, w), need = (f.pose ? Math.max(A.blockH, PRESENTER.H) : A.blockH) + 150;
   const recTop0 = (cam.ry - py0) * push + py0, recBot0 = (cam.ry + cam.rh - py0) * push + py0;
   const room = up ? recTop0 : h - recBot0, shift = Math.max(0, need - room) * E.out(seg(held, 0, .5)) * (up ? 1 : -1);
   const py = py0 + shift;
@@ -2555,17 +2662,17 @@ function dictationCues(D) {
 const cursorBox = [MAC.W - 440 + 14, MAC.win.y + MAC.win.h - 22 - 14 - 96, 440 - 28, 96];
 const threadStrip = [0, MAC.dockTop - 58, MAC.W, 56];
 const LESSON_CURSOR = { freezes: [
-  { at: DESK_CURSOR.fieldClick + .35, hold: 2.8, tag: "Any box", title: "Works in *any* text box.", body: "Cursor, Slack, Mail, the browser. If a cursor blinks there, you can talk there.", focus: cursorBox },
-  { at: DESK_CURSOR.rec + .7, hold: 2.8, tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
-  { at: DESK_CURSOR.land + .45, hold: 2.8, tag: "The landing", title: "Pasted. *Not* typed.", body: "Said with the ums and half-thoughts. Landed as one clean sentence, where the cursor was.", focus: cursorBox },
-  { at: DESK_CURSOR.replyTo + .25, hold: 2.8, tag: "The brief", title: "A whole idea, *one breath*.", body: "Say it the way you would to a colleague. Cursor gets a brief it can act on.", focus: [MAC.W - 440 + 14, MAC.win.y + 38 + 44, 440 - 28, 300] },
+  { at: DESK_CURSOR.fieldClick + .35, hold: 2.8, pose: "present", tag: "Any box", title: "Works in *any* text box.", body: "Cursor, Slack, Mail, the browser. If a cursor blinks there, you can talk there.", focus: cursorBox },
+  { at: DESK_CURSOR.rec + .7, hold: 2.8, pose: "tap", tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
+  { at: DESK_CURSOR.land + .45, hold: 2.8, pose: "tada", tag: "The landing", title: "Pasted. *Not* typed.", body: "Said with the ums and half-thoughts. Landed as one clean sentence, where the cursor was.", focus: cursorBox },
+  { at: DESK_CURSOR.replyTo + .25, hold: 2.8, pose: "thumbs", tag: "The brief", title: "A whole idea, *one breath*.", body: "Say it the way you would to a colleague. Cursor gets a brief it can act on.", focus: [MAC.W - 440 + 14, MAC.win.y + 38 + 44, 440 - 28, 300] },
 ] };
 const slackBox = [72 + 260 + 20, MAC.win.y + MAC.win.h - 28 - 110, MAC.W - 332 - 40, 110];
 const LESSON_SLACK = { freezes: [
-  { at: DESK_CHAT.fieldClick + .35, hold: 2.8, tag: "Any box", title: "Works in *any* text box.", body: "Slack, WhatsApp, Mail, Notion. If a cursor blinks there, you can talk there.", focus: slackBox },
-  { at: DESK_CHAT.rec + .7, hold: 2.8, tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
-  { at: DESK_CHAT.land + .45, hold: 2.8, tag: "The landing", title: "Clean, and still *yours*.", body: "Filler gone, punctuation in. The meaning untouched, the voice still you.", focus: slackBox },
-  { at: DESK_CHAT.sent + .9, hold: 2.8, tag: "The send", title: "Then just hit [↩ return].", body: "No app switch, no copy and paste. Said, landed, sent.", focus: [344, 25 + 44 + 118 + 34 + 120 - 6, 720, 54] },
+  { at: DESK_CHAT.fieldClick + .35, hold: 2.8, pose: "present", tag: "Any box", title: "Works in *any* text box.", body: "Slack, WhatsApp, Mail, Notion. If a cursor blinks there, you can talk there.", focus: slackBox },
+  { at: DESK_CHAT.rec + .7, hold: 2.8, pose: "tap", tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
+  { at: DESK_CHAT.land + .45, hold: 2.8, pose: "tada", tag: "The landing", title: "Clean, and still *yours*.", body: "Filler gone, punctuation in. The meaning untouched, the voice still you.", focus: slackBox },
+  { at: DESK_CHAT.sent + .9, hold: 2.8, pose: "thumbs", tag: "The send", title: "Then just hit [↩ return].", body: "No app switch, no copy and paste. Said, landed, sent.", focus: [344, 25 + 44 + 118 + 34 + 120 - 6, 720, 54] },
 ] };
 FILMS.lessonCursor = lessonFilm(DESK_CURSOR, LESSON_CURSOR, deskScene, dictationCues);
 FILMS.lessonSlack = lessonFilm(DESK_CHAT, LESSON_SLACK, deskScene, dictationCues);
@@ -2728,6 +2835,7 @@ function notesScene(ctx, w, h, t, D) {
   ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, rr0); ctx.clip(); ctx.drawImage(deskBuf, rx, ry, rw, rh); ctx.restore();
   ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, rr0 - .75); ctx.stroke();
   const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250);
+  if (LESSON_HOLD) return { rx, ry, rw, rh, z };
   keyHud(ctx, D.chord, w / 2, hudY, D.key1, t); keyHud(ctx, D.chord, w / 2, hudY, D.key2, t);
   return { rx, ry, rw, rh, z };
 }
@@ -2758,10 +2866,10 @@ DESK_NOTES.lines = [
 ];
 DESK_NOTES.cam = [[0, .75, 720, 450], [DESK_NOTES.noteAt + .1, 1.5, 1080, 450, .7], [4.6, .75, 720, 450, .7], [DESK_NOTES.key2 - .2, 1.5, 1080, 450, .7], [DESK_NOTES.appOpen + .3, 1.35, 650, 450, .9]];
 const LESSON_NOTES = { freezes: [
-  { at: DESK_NOTES.noteAt + 1.0, hold: 3.0, tag: "The meeting", title: "In a meeting? Press [⌘] [⌥] [N].", body: "Tailzu starts a note. It hears you and everyone on the call.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
-  { at: 8.4, hold: 2.8, tag: "The clock", title: "Nothing is typed *anywhere*.", body: "The clock beside the mark is the only sign. Stay in the conversation.", focus: [1030, 1, 128, 23] },
-  { at: DESK_NOTES.notif2 + .9, hold: 3.0, tag: "The stop", title: "Press [⌘] [⌥] [N] again.", body: "The recording becomes a note: a title, one paragraph, and what mattered.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
-  { at: DESK_NOTES.appOpen + 1.3, hold: 3.2, tag: "The note", title: "What mattered, *in their words*.", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
+  { at: DESK_NOTES.noteAt + 1.0, hold: 3.0, pose: "shrug", tag: "The meeting", title: "In a meeting? Press [⌘] [⌥] [N].", body: "Tailzu starts a note. It hears you and everyone on the call.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: 8.4, hold: 2.8, pose: "hips", tag: "The clock", title: "Nothing is typed *anywhere*.", body: "The clock beside the mark is the only sign. Stay in the conversation.", focus: [1030, 1, 128, 23] },
+  { at: DESK_NOTES.notif2 + .9, hold: 3.0, pose: "tap", tag: "The stop", title: "Press [⌘] [⌥] [N] again.", body: "The recording becomes a note: a title, one paragraph, and what mattered.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: DESK_NOTES.appOpen + 1.3, hold: 3.2, pose: "tada", tag: "The note", title: "What mattered, *in their words*.", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
 ] };
 FILMS.lessonNotes = lessonFilm(DESK_NOTES, LESSON_NOTES, notesScene, notesCues);
 
