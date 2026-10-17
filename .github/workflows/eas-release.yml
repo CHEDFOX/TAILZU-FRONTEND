@@ -220,6 +220,11 @@ jobs:
         working-directory: app
         run: npm ci
 
+      # Apple refuses a version that is not above the one already approved,
+      # but only after the build: ask the App Store before building.
+      - name: Version above the App Store's
+        run: node tools/ci/ios-version.mjs
+
       # --no-wait: queued, and EAS builds in its own cloud and submits on
       # success. The job going green means "queued"; the build is on expo.dev.
       - name: Build on Expo's cloud, then TestFlight
