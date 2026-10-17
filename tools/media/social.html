@@ -1714,20 +1714,24 @@ function iosStatusBar(ctx, W, time, recDot) {
   ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 1; rr(ctx, x + 44.5, 23.5, 25, 12, 3.5); ctx.stroke();
   ctx.fillStyle = "#FFFFFF"; rr(ctx, x + 46, 25, 20, 9, 2); ctx.fill(); rr(ctx, x + 71, 27.5, 1.5, 4, 1); ctx.fill();
 }
-function homeScreen(ctx, W, H, t) {
+/** The home screen: a wallpaper, four columns of apps, a dock. `o.icons` names
+ *  them; `o.special` draws one of them itself (the app the film opens). */
+const HOME_APPS = ["Mail", "Maps", "Notes", "Photos", "Music", "Calendar", "Weather", "Clock", "Camera", "Files", "Health", "Wallet", "Reminders", "Books", "Podcasts", "Translate", "Stocks", "Fitness", "Home", "Settings"];
+const HOME_COLORS = ["#3A7BD5", "#E0574F", "#F2B33D", "#4CAF7D", "#E4587B", "#2F9ED6", "#5C6BC0", "#1B1B1F", "#8E8E93", "#2EBF91", "#F0845C", "#1FA67A", "#D9534F", "#F5A623", "#9B59B6", "#1ABC9C", "#3498DB", "#E67E22", "#F7B733", "#8E8E93"];
+const homeIconAt = (i) => [32 + (i % 4) * 88 + 30, 84 + Math.floor(i / 4) * 96 + 30];
+function homeScreen(ctx, W, H, t, o = {}) {
   const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#10224F"); g.addColorStop(.5, "#2A1F5E"); g.addColorStop(1, "#0C3B4A");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   glow(ctx, W * .7, H * .35, W * .9, "#5B7CFA", .35); glow(ctx, W * .2, H * .8, W * .7, "#2CC3B4", .25);
-  const cols = ["#3A7BD5", "#E0574F", "#4CAF7D", "#F2B33D", "#8E5BD3", "#2F9ED6", "#E86C8D", "#5C6BC0", "#1FA67A", "#F0845C", "#7C5CBF", "#3EA6C8", "#D9534F", "#4A90E2", "#2EBF91", "#F5A623", "#9B59B6", "#1ABC9C", "#E67E22", "#3498DB"];
-  const r = rng(5);
   for (let i = 0; i < 20; i++) {
-    const cx = 32 + (i % 4) * 88, cy = 84 + Math.floor(i / 4) * 96;
-    ctx.fillStyle = cols[i]; rr(ctx, cx, cy, 60, 60, 14); ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,.22)"; rr(ctx, cx + 16, cy + 16, 28, 28, 7); ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,.85)"; rr(ctx, cx + 14, cy + 70, 32 + r() * 16, 4, 2); ctx.fill();
+    const [cx, cy] = homeIconAt(i), x = cx - 30, y = cy - 30;
+    if (o.special && o.special.index === i) o.special.draw(ctx, x, y, 60);
+    else { ctx.fillStyle = HOME_COLORS[i]; rr(ctx, x, y, 60, 60, 14); ctx.fill(); ctx.fillStyle = "rgba(255,255,255,.22)"; rr(ctx, x + 16, y + 16, 28, 28, 7); ctx.fill(); }
+    text(ctx, o.special && o.special.index === i ? o.special.name : HOME_APPS[i], cx, y + 76, sf(11, 500), "#FFFFFF", .95, "center");
   }
   ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, 20, H - 34 - 92, W - 40, 84, 28); ctx.fill();
   ["#2E8BF0", "#34C759", "#FF9500", "#8E8E93"].forEach((c, i) => { ctx.fillStyle = c; rr(ctx, 40 + i * 88, H - 34 - 80, 60, 60, 14); ctx.fill(); });
+  ctx.fillStyle = "#FFFFFF"; rr(ctx, W / 2 - 67, H - 13, 134, 5, 2.5); ctx.fill();
 }
 /** The notification that opens the chat. `k` is how far it has dropped. */
 function banner(ctx, W, k, press) {
@@ -1742,11 +1746,10 @@ function banner(ctx, W, k, press) {
   text(ctx, "now", x + w - 16, y + 31, sf(13, 400), "#8E8E93", 1, "right");
   ctx.restore();
 }
-/** A chat with Priya, on a phone, in the dark. Returns the composer's box. */
+/** A chat with Priya, on a phone, in the dark. Returns where the field is. */
 function waChat(ctx, W, H, t, o) {
   const T = { bg: "#0B141A", bar: "#1F2C34", inBub: "#202C33", outBub: "#005C4B", text: "#E9EDEF", sub: "#8696A0", field: "#2A3942", green: "#00A884" };
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
-  // Header
   ctx.fillStyle = T.bar; ctx.fillRect(0, 0, W, 100);
   ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fillRect(0, 100, W, .5);
   ctx.save(); ctx.strokeStyle = "#8696A0"; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(22, 68); ctx.lineTo(14, 77); ctx.lineTo(22, 86); ctx.stroke(); ctx.restore();
@@ -1755,7 +1758,6 @@ function waChat(ctx, W, H, t, o) {
   ctx.save(); ctx.strokeStyle = "#8696A0"; ctx.lineWidth = 1.8; ctx.lineJoin = "round";
   rr(ctx, 318, 70, 17, 13, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(335, 73); ctx.lineTo(343, 69); ctx.lineTo(343, 84); ctx.lineTo(335, 80); ctx.closePath(); ctx.stroke();
   ctx.beginPath(); ctx.arc(367, 77, 8, Math.PI * .7, Math.PI * 1.9); ctx.stroke(); ctx.restore();
-  // Composer: rides on the keyboard once it is up.
   const kbTop = H - 34 - KB.height * o.kbUp, cy0 = (o.kbUp > 0 ? kbTop : H - 34) - 56;
   const lines = o.fieldLines || 1, fh = 36 + (lines - 1) * 20, by0 = cy0 - (fh - 36);
   ctx.fillStyle = T.bar; ctx.fillRect(0, by0, W, H - by0);
@@ -1774,12 +1776,11 @@ function waChat(ctx, W, H, t, o) {
     rr(ctx, 331, by0 + 21, 18, 14, 3); ctx.stroke(); ctx.beginPath(); ctx.arc(340, by0 + 28, 4, 0, TAU); ctx.stroke();
     rr(ctx, 362, by0 + 18, 8, 13, 4); ctx.stroke(); ctx.beginPath(); ctx.arc(366, by0 + 27, 7.5, Math.PI * .1, Math.PI * .9); ctx.stroke(); ctx.beginPath(); ctx.moveTo(366, by0 + 34.5); ctx.lineTo(366, by0 + 39); ctx.stroke(); ctx.restore();
   }
-  // The thread, stacked up from the composer.
   let y = by0 - 10;
   for (let i = o.msgs.length - 1; i >= 0; i--) {
     const m = o.msgs[i]; if (t < m.at) continue;
     const k = E.out(seg(t, m.at, m.at + .28)), out = m.from === "out";
-    const lay = layout(ctx, m.text, sf(16, 400), 240, 20), tw = ctx.measureText(m.time).width;
+    const lay = layout(ctx, m.text, sf(16, 400), 240, 20);
     ctx.font = sf(11, 400); const timeW = ctx.measureText(m.time).width + (out ? 18 : 0);
     const last = lay.lines[lay.lines.length - 1]; ctx.font = lay.font; const lastW = ctx.measureText(last).width;
     const oneLine = lay.lines.length === 1 && lastW + timeW + 30 < 260;
@@ -1795,222 +1796,604 @@ function waChat(ctx, W, H, t, o) {
     ctx.restore();
     y -= 6 * k;
   }
-  return { kbTop, by0, fh, fieldBox: { x: fx, y: by0 + 10, w: fw, h: fh }, send: { x: W - 30, y: by0 + 10 + fh - 18 } };
+  return { kbTop, by0, fieldBox: { x: fx, y: by0 + 10, w: fw, h: fh }, send: { x: W - 30, y: by0 + 10 + fh - 18 }, captionY: 100 + (by0 - 100) * .5 };
 }
-/** What is being said, under the picture, a word at a time. */
+/** Words appearing one after another, as they are said or streamed. */
+function wordsSoFar(s, from, to, t) {
+  const words = s.split(" "), n = Math.floor(seg(t, from, to) * words.length + 1e-6);
+  return words.slice(0, Math.max(0, Math.min(words.length, n))).join(" ");
+}
+/** A talk with ChatGPT, on a phone, in the dark. Returns where the field is. */
+function gptApp(ctx, W, H, t, o) {
+  const T = { bg: "#212121", field: "#2F2F2F", text: "#ECECEC", sub: "#9B9B9B", bubble: "#303030" };
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
+  // Top bar
+  ctx.save(); ctx.strokeStyle = T.text; ctx.lineWidth = 1.8; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(18, 71); ctx.lineTo(36, 71); ctx.moveTo(18, 78); ctx.lineTo(36, 78); ctx.moveTo(18, 85); ctx.lineTo(30, 85); ctx.stroke();
+  text(ctx, "ChatGPT", 160, 84, sf(17, 600), T.text, 1, "center");
+  ctx.beginPath(); ctx.moveTo(199, 75); ctx.lineTo(204, 80); ctx.lineTo(209, 75); ctx.stroke();
+  rr(ctx, 356, 69, 16, 16, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(362, 79); ctx.lineTo(373, 68); ctx.lineTo(376, 71); ctx.lineTo(365, 82); ctx.closePath(); ctx.stroke(); ctx.restore();
+  // Composer: a pill at the foot, a box above the keyboard once it is up.
+  const kbTop = H - 34 - KB.height * o.kbUp, hasText = !!o.fieldText;
+  const lines = o.fieldLines || 1, fh = 52 + (lines - 1) * 21;
+  const by0 = (o.kbUp > 0 ? kbTop : H - 34) - fh - 12;
+  ctx.fillStyle = T.field; rr(ctx, 14, by0, W - 28, fh, 26); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1; rr(ctx, 14.5, by0 + .5, W - 29, fh - 1, 25.5); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.beginPath(); ctx.arc(38, by0 + 26, 15, 0, TAU); ctx.fill();
+  ctx.save(); ctx.strokeStyle = T.text; ctx.lineWidth = 1.8; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(38, by0 + 19); ctx.lineTo(38, by0 + 33); ctx.moveTo(31, by0 + 26); ctx.lineTo(45, by0 + 26); ctx.stroke(); ctx.restore();
+  if (hasText) {
+    const lay = layout(ctx, o.fieldText, sf(16, 400), W - 28 - 130, 21);
+    lay.lines.forEach((ln, li) => text(ctx, ln, 62, by0 + 32 + li * 21, lay.font, T.text));
+    ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(W - 40, by0 + fh - 26, 16, 0, TAU); ctx.fill();
+    ctx.save(); ctx.strokeStyle = "#000000"; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(W - 40, by0 + fh - 19); ctx.lineTo(W - 40, by0 + fh - 33); ctx.moveTo(W - 46, by0 + fh - 27); ctx.lineTo(W - 40, by0 + fh - 33); ctx.lineTo(W - 34, by0 + fh - 27); ctx.stroke(); ctx.restore();
+  } else {
+    if (o.caret && Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = T.text; ctx.fillRect(62, by0 + 16, 1.6, 20); }
+    else if (!o.caret) text(ctx, "Ask anything", 62, by0 + 32, sf(16, 400), T.sub);
+    ctx.save(); ctx.strokeStyle = T.text; ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    rr(ctx, 312, by0 + 16, 8, 13, 4); ctx.stroke(); ctx.beginPath(); ctx.arc(316, by0 + 25, 7.5, Math.PI * .1, Math.PI * .9); ctx.stroke(); ctx.beginPath(); ctx.moveTo(316, by0 + 32.5); ctx.lineTo(316, by0 + 37); ctx.stroke();
+    ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(W - 40, by0 + 26, 16, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "#000000"; ctx.lineWidth = 2.2; [-8, -3, 2, 7].forEach((dx, i) => { const hh = [6, 11, 8, 4][i]; ctx.beginPath(); ctx.moveTo(W - 40 + dx + .5, by0 + 26 - hh / 2); ctx.lineTo(W - 40 + dx + .5, by0 + 26 + hh / 2); ctx.stroke(); });
+    ctx.restore();
+  }
+  if (o.kbUp <= 0) { ctx.fillStyle = "#FFFFFF"; rr(ctx, W / 2 - 67, H - 13, 134, 5, 2.5); ctx.fill(); }
+  // The talk: nothing yet, then what was sent, then the answer, streamed.
+  const any = o.msgs.some((m) => t >= m.at);
+  if (!any) text(ctx, "What can I help with?", W / 2, 100 + (by0 - 100) * .42, sf(22, 600), T.text, 1, "center");
+  let y = 124;
+  for (const m of o.msgs) {
+    if (t < m.at) continue; const k = E.out(seg(t, m.at, m.at + .3));
+    ctx.save(); ctx.globalAlpha *= k;
+    if (m.from === "out") {
+      const lay = layout(ctx, m.text, sf(16, 400), 250, 21), bw = lay.width + 28, bh = lay.lines.length * 21 + 18, bx = W - 16 - bw;
+      ctx.fillStyle = T.bubble; rr(ctx, bx, y, bw, bh, 18); ctx.fill();
+      lay.lines.forEach((ln, li) => text(ctx, ln, bx + 14, y + 23 + li * 21, lay.font, T.text));
+      y += bh + 18;
+    } else {
+      const shown = m.to ? wordsSoFar(m.text, m.at, m.to, t) : m.text;
+      const lay = layout(ctx, shown || " ", sf(16, 400), W - 40, 23);
+      lay.lines.forEach((ln, li) => text(ctx, ln, 20, y + 18 + li * 23, lay.font, T.text));
+      if (m.to && t < m.to) { ctx.font = lay.font; const last = lay.lines[lay.lines.length - 1] || ""; ctx.fillStyle = T.text; ctx.beginPath(); ctx.arc(20 + ctx.measureText(last).width + 8, y + 12 + (lay.lines.length - 1) * 23, 4, 0, TAU); ctx.fill(); }
+      y += lay.lines.length * 23 + 18;
+    }
+    ctx.restore();
+  }
+  return { kbTop, by0, fieldBox: { x: 14, y: by0, w: W - 28, h: fh }, send: { x: W - 40, y: by0 + fh - 26 }, captionY: by0 - 36 };
+}
+/** What is being said, a word at a time, on a dark chip: the last two lines
+ *  of it, the way live captions run. */
 function caption(ctx, s, x, y, maxW, from, to, t, size, after) {
   if (t < from || t > (after ?? to + .6)) return;
-  const words = s.split(" "), n = Math.floor(seg(t, from, to) * words.length + 1e-6);
-  const shown = words.slice(0, Math.max(1, Math.min(words.length, n)) ).join(" ");
-  if (!shown) return;
-  ctx.save(); ctx.font = sf(size, 500); const tw = ctx.measureText(shown).width + size * 1.2;
+  const shown = wordsSoFar(s, from, to, t) || s.split(" ")[0], lh = size * 1.3;
+  const lay = layout(ctx, shown, sf(size, 500), maxW - size * 1.2, lh), lines = lay.lines.slice(-2);
+  ctx.save(); ctx.font = lay.font; const tw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + size * 1.2, th = lines.length * lh + size * .3;
   ctx.globalAlpha *= 1 - seg(t, (after ?? to + .6) - .2, after ?? to + .6);
-  ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x - tw / 2, y - size * 1.05, tw, size * 1.6, size * .4); ctx.fill();
-  text(ctx, shown, x, y + size * .08, sf(size, 500), "#FFFFFF", 1, "center"); ctx.restore();
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x - tw / 2, y - size * 1.05, tw, th, size * .4); ctx.fill();
+  lines.forEach((ln, i) => text(ctx, ln, x, y + size * .08 + i * lh, lay.font, "#FFFFFF", 1, "center")); ctx.restore();
 }
 
-const PHONE = {
-  W: 390, H: 693, time: "6:12",
-  banner: .4, tapBanner: 1.35, open: 1.5, tapField: 2.45, tapMic: 3.1, rec: 3.2, capFrom: 3.55, capTo: 7.2, tapStop: 7.8, stop: 7.9, land: 8.9, tapSend: 9.7, sent: 9.85, typing: 10.5, reply: 11.1, end: 11.6,
-  said: "the deploy is done but abhi testing baaki hai", wrote: "The deploy is done, but abhi testing baaki hai.",
-};
-const phoneMic = MicSim(MIC_KEY);
-const phoneMicAt = micClock(phoneMic, [[PHONE.rec, "start"], [PHONE.stop, "stop"]]);
-function phoneScene(ctx, w, h, t) {
-  const Pn = PHONE, S = w / Pn.W;
+/**
+ * One phone recording. `Pn.app` paints the app and says where its field,
+ * its send button and the caption go; the rest is shared: the home screen,
+ * the way in (a notification, or the app's icon), the keyboard, the mic on
+ * the film's clock, the finger, the caption.
+ */
+function phoneScene(ctx, w, h, t, Pn) {
+  const S = w / Pn.W;
+  if (!Pn.sim) { Pn.sim = MicSim(MIC_KEY); Pn.micAt = micClock(Pn.sim, [[Pn.rec, "start"], [Pn.stop, "stop"]]); }
   ctx.save(); ctx.scale(S, S);
-  const opened = seg(t, Pn.open, Pn.open + .32);
-  if (opened < 1) { homeScreen(ctx, Pn.W, Pn.H, t); banner(ctx, Pn.W, E.out(seg(t, Pn.banner, Pn.banner + .5)), seg(t, Pn.tapBanner, Pn.tapBanner + .12) * (1 - seg(t, Pn.tapBanner + .12, Pn.tapBanner + .3))); touch(ctx, 200, 94, Pn.tapBanner, t); }
+  const opened = seg(t, Pn.open, Pn.open + .32), icon = Pn.special ? homeIconAt(Pn.special.index) : null;
+  if (opened < 1) {
+    homeScreen(ctx, Pn.W, Pn.H, t, { special: Pn.special });
+    if (Pn.way === "banner") { banner(ctx, Pn.W, E.out(seg(t, Pn.banner, Pn.banner + .5)), seg(t, Pn.tap, Pn.tap + .12) * (1 - seg(t, Pn.tap + .12, Pn.tap + .3))); touch(ctx, 200, 94, Pn.tap, t); }
+    else touch(ctx, icon[0], icon[1], Pn.tap, t);
+  }
   if (opened > 0) {
-    ctx.save(); ctx.globalAlpha *= opened; const sc = lerp(.94, 1, E.out(opened)); ctx.translate(Pn.W / 2, Pn.H / 2); ctx.scale(sc, sc); ctx.translate(-Pn.W / 2, -Pn.H / 2);
-    const kbUp = E.out(seg(t, Pn.tapField, Pn.tapField + .35));
+    ctx.save(); ctx.globalAlpha *= opened;
+    const [ox, oy] = Pn.way === "banner" ? [Pn.W / 2, Pn.H / 2] : icon, sc = lerp(Pn.way === "banner" ? .94 : .3, 1, E.out(opened));
+    ctx.translate(ox, oy); ctx.scale(sc, sc); ctx.translate(-ox, -oy);
+    const kbUp = E.out(seg(t, Pn.tapField, Pn.tapField + .35)) * (Pn.kbDown ? 1 - E.io(seg(t, Pn.kbDown, Pn.kbDown + .32)) : 1);
     const landed = t >= Pn.land && t < Pn.sent;
-    const c = waChat(ctx, Pn.W, Pn.H, t, {
-      kbUp, caret: kbUp >= 1 && !landed, fieldText: landed ? Pn.wrote : "", fieldLines: landed ? 2 : 1,
-      typing: t > Pn.typing && t < Pn.reply,
-      msgs: [
-        { from: "in", text: "Deploy ho gaya?", time: "6:11 PM", at: 0 },
-        { from: "out", text: Pn.wrote, time: "6:12 PM", at: Pn.sent },
-        { from: "in", text: "Nice!", time: "6:12 PM", at: Pn.reply },
-      ],
-    });
-    phoneMicAt(t);
+    const c = Pn.app(ctx, Pn.W, Pn.H, t, { kbUp, caret: kbUp >= 1 && !landed, fieldText: landed ? Pn.wrote : "", fieldLines: landed ? Pn.lines : 1, typing: Pn.typing != null && t > Pn.typing && t < Pn.reply, msgs: Pn.msgs });
+    Pn.micAt(t);
     if (kbUp > 0) {
-      const kb = tzKeyboard(ctx, 0, c.kbTop, Pn.W, { t, sim: phoneMic, flashAt: Pn.land, flashText: Pn.wrote, micPress: Math.max(seg(t, Pn.tapMic, Pn.tapMic + .08) * (1 - seg(t, Pn.tapMic + .1, Pn.tapMic + .25)), seg(t, Pn.tapStop, Pn.tapStop + .08) * (1 - seg(t, Pn.tapStop + .1, Pn.tapStop + .25))) });
+      ctx.save(); ctx.beginPath(); ctx.rect(0, c.kbTop, Pn.W, Pn.H - c.kbTop); ctx.clip();
+      const kb = tzKeyboard(ctx, 0, c.kbTop, Pn.W, { t, sim: Pn.sim, flashAt: Pn.land, flashText: Pn.wrote, micPress: Math.max(seg(t, Pn.tapMic, Pn.tapMic + .08) * (1 - seg(t, Pn.tapMic + .1, Pn.tapMic + .25)), seg(t, Pn.tapStop, Pn.tapStop + .08) * (1 - seg(t, Pn.tapStop + .1, Pn.tapStop + .25))) });
       ctx.fillStyle = "#FFFFFF"; rr(ctx, Pn.W / 2 - 67, Pn.H - 13, 134, 5, 2.5); ctx.fill();
+      ctx.restore();
       touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapMic, t); touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapStop, t);
     }
-    touch(ctx, 180, c.fieldBox.y + 18, Pn.tapField, t); touch(ctx, c.send.x, c.send.y, Pn.tapSend, t);
-    caption(ctx, Pn.said, Pn.W / 2, 100 + (c.by0 - 100) * .5, Pn.W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
+    touch(ctx, c.fieldBox.x + 140, c.fieldBox.y + c.fieldBox.h / 2, Pn.tapField, t); touch(ctx, c.send.x, c.send.y, Pn.tapSend, t);
+    caption(ctx, Pn.said, Pn.W / 2, c.captionY, Pn.W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
     ctx.restore();
   }
   iosStatusBar(ctx, Pn.W, Pn.time, seg(t, Pn.rec, Pn.rec + .3) * (1 - seg(t, Pn.land, Pn.land + .3)));
   ctx.restore();
 }
 
-// ---- the laptop -------------------------------------------------------------------
-const DESK = {
-  W: 1280, H: 800, bar: 48, time: "6:14 PM", date: "10/17/2026",
-  win: { x: 210, y: 56, w: 860, h: 680 }, sb: 200,
-  /** The camera: wide is the whole screen's width; close is the window's. */
-  wide: 1080 / 1280, close: 1.25,
-  click: 1.0, winOpen: 1.1, fieldClick: 2.7, tap1: 3.0, tap2: 3.25, rec: 3.3, capFrom: 3.7, capTo: 7.7, stop1: 7.75, stop2: 7.95, land: 9.0, enter: 9.6, sent: 9.7, end: 10.9,
-  said: "um so i have no content to post i'm out of ideas and all", wrote: "So I have no content to post. I'm out of ideas.",
+const PHONE_WA = {
+  W: 390, H: 693, time: "6:12", way: "banner",
+  banner: .4, tap: 1.35, open: 1.5, tapField: 2.45, tapMic: 3.1, rec: 3.2, capFrom: 3.55, capTo: 7.2, tapStop: 7.8, stop: 7.9, land: 8.9, tapSend: 9.7, sent: 9.85, typing: 10.5, reply: 11.1, end: 11.6,
+  said: "the deploy is done but abhi testing baaki hai", wrote: "The deploy is done, but abhi testing baaki hai.", lines: 2,
+  app: waChat,
 };
-function cursorArrow(ctx, x, y) {
-  ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 17); ctx.lineTo(4.2, 13.2); ctx.lineTo(7.2, 19.6); ctx.lineTo(9.8, 18.4); ctx.lineTo(6.8, 12); ctx.lineTo(12.2, 12); ctx.closePath();
-  ctx.fillStyle = "#FFFFFF"; ctx.fill(); ctx.strokeStyle = "#000000"; ctx.lineWidth = 1.1; ctx.lineJoin = "round"; ctx.stroke(); ctx.restore();
-}
-/** The wallpaper: a deep blue with a bloom of light in it. */
-function wallpaper(ctx, W, H) {
-  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#0A1F5C"); g.addColorStop(.55, "#123C8E"); g.addColorStop(1, "#0B2E6B");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  glow(ctx, W * .62, H * .48, W * .55, "#5FB5FF", .5); glow(ctx, W * .4, H * .6, W * .35, "#9ED4FF", .35); glow(ctx, W * .75, H * .3, W * .3, "#C8E8FF", .25);
-}
-function winDesktop(ctx, t, o) {
-  const { W, H, bar } = DESK;
-  wallpaper(ctx, W, H);
-  // The taskbar, centred, with the app that is about to open among the rest.
-  ctx.fillStyle = "rgba(24,26,32,.86)"; ctx.fillRect(0, H - bar, W, bar);
-  ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(0, H - bar, W, 1);
-  const icons = 6, iw = 40, gap = 10, x0 = W / 2 - (icons * iw + (icons - 1) * gap) / 2, iy = H - bar + 4;
-  for (let i = 0; i < icons; i++) {
-    const x = x0 + i * (iw + gap), press = i === 4 ? o.iconPress : 0;
-    if (i === 4 && o.winOpen > 0) { ctx.fillStyle = "rgba(255,255,255,.08)"; rr(ctx, x, iy, iw, iw, 6); ctx.fill(); ctx.fillStyle = "rgba(255,255,255,.85)"; rr(ctx, x + 13, H - 4, 14, 2.5, 1.25); ctx.fill(); }
-    if (press) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x, iy, iw, iw, 6); ctx.fill(); }
-    ctx.save(); ctx.translate(x + iw / 2, iy + iw / 2); ctx.scale(1 - .08 * press, 1 - .08 * press); ctx.translate(-(x + iw / 2), -(iy + iw / 2));
-    const cx = x + iw / 2, cy = iy + iw / 2;
-    if (i === 0) { ["#2F8CF0", "#2F8CF0", "#2F8CF0", "#2F8CF0"].forEach((c, k) => { ctx.fillStyle = c; rr(ctx, cx - 9 + (k % 2) * 10, cy - 9 + Math.floor(k / 2) * 10, 8, 8, 1.5); ctx.fill(); }); }
-    else if (i === 1) { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx - 2, cy - 2, 6.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx + 3, cy + 3); ctx.lineTo(cx + 8, cy + 8); ctx.stroke(); }
-    else if (i === 2) { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.8; rr(ctx, cx - 9, cy - 6, 12, 12, 2); ctx.stroke(); rr(ctx, cx - 3, cy - 10, 12, 12, 2); ctx.stroke(); }
-    else if (i === 3) { ctx.fillStyle = "#F7C948"; rr(ctx, cx - 10, cy - 6, 20, 14, 2.5); ctx.fill(); ctx.fillStyle = "#E8B030"; rr(ctx, cx - 10, cy - 9, 9, 5, 2); ctx.fill(); }
-    else if (i === 4) { ctx.fillStyle = P.indigo; rr(ctx, cx - 11, cy - 11, 22, 22, 6); ctx.fill(); ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.roundRect(cx - 6.5, cy - 5, 13, 9, 3); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx - 4, cy + 3); ctx.lineTo(cx - 4, cy + 7); ctx.lineTo(cx, cy + 3.5); ctx.closePath(); ctx.fill(); }
-    else { ctx.fillStyle = "#2C9D5A"; rr(ctx, cx - 11, cy - 11, 22, 22, 6); ctx.fill(); ctx.fillStyle = "#FFFFFF"; rr(ctx, cx - 6, cy - 6, 12, 12, 2); ctx.fill(); }
+PHONE_WA.msgs = [
+  { from: "in", text: "Deploy ho gaya?", time: "6:11 PM", at: 0 },
+  { from: "out", text: PHONE_WA.wrote, time: "6:12 PM", at: PHONE_WA.sent },
+  { from: "in", text: "Nice!", time: "6:12 PM", at: PHONE_WA.reply },
+];
+const PHONE_GPT = {
+  W: 390, H: 693, time: "9:41", way: "icon",
+  special: { index: 16, name: "ChatGPT", draw(ctx, x, y, s) {
+    ctx.fillStyle = "#000000"; rr(ctx, x, y, s, s, 14); ctx.fill();
+    ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = s * .075; ctx.lineCap = "round"; const cx = x + s / 2, cy = y + s / 2, r = s * .22;
+    for (let k = 0; k < 6; k++) { const a = k * Math.PI / 3; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * r * .55, cy + Math.sin(a) * r * .55, r * .62, a + .9, a + 2.7); ctx.stroke(); }
     ctx.restore();
-  }
-  text(ctx, DESK.time, W - 22, H - bar + 20, sf(12, 400), "#FFFFFF", 1, "right"); text(ctx, DESK.date, W - 22, H - bar + 37, sf(12, 400), "#FFFFFF", 1, "right");
-  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
-  for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.arc(W - 128, H - bar + 29, 3 + r * 3.6, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); }
-  ctx.beginPath(); ctx.moveTo(W - 106, H - bar + 20); ctx.lineTo(W - 106, H - bar + 28); ctx.lineTo(W - 101, H - bar + 32); ctx.lineTo(W - 101, H - bar + 16); ctx.closePath(); ctx.stroke();
-  ctx.strokeStyle = "rgba(255,255,255,.5)"; rr(ctx, W - 92 + .5, H - bar + 19.5, 18, 9, 2); ctx.stroke(); ctx.fillStyle = "#FFFFFF"; rr(ctx, W - 90, H - bar + 21.5, 13, 5, 1); ctx.fill(); ctx.restore();
+  } },
+  tap: .9, open: 1.05, tapField: 2.0, tapMic: 2.8, rec: 2.9, capFrom: 3.25, capTo: 7.1, tapStop: 7.6, stop: 7.7, land: 8.7, tapSend: 9.4, sent: 9.55, kbDown: 9.8, replyFrom: 10.3, replyTo: 12.9, end: 13.5,
+  said: "okay so um explain black holes but like to a golden retriever", wrote: "Explain black holes to a golden retriever.", lines: 2,
+  app: gptApp,
+};
+PHONE_GPT.msgs = [
+  { from: "out", text: PHONE_GPT.wrote, at: PHONE_GPT.sent },
+  { from: "in", text: "Okay, buddy. Imagine a ball so heavy that everything nearby gets pulled in, even light, and nothing can run back out. That's a black hole. Good boy.", at: PHONE_GPT.replyFrom, to: PHONE_GPT.replyTo },
+];
+
+// ---- the laptop: a Mac ------------------------------------------------------------
+/** The screen: 1440×900, the menu bar across the top, the Dock at the foot,
+ *  the app zoomed to fill what lies between. The pill was captured at this
+ *  width, so its frames land 1:1. */
+const MAC = { W: 1440, H: 900, menu: 25, dock: { size: 48, pad: 7, bottom: 6, gap: 8 } };
+MAC.dockH = MAC.dock.size + MAC.dock.pad * 2;
+MAC.dockTop = MAC.H - MAC.dock.bottom - MAC.dockH;
+MAC.win = { x: 0, y: MAC.menu, w: MAC.W, h: MAC.dockTop - MAC.menu };
+const DOCK_APPS = ["finder", "launchpad", "safari", "messages", "mail", "photos", "notes", "app", "terminal", "settings", "|", "trash"];
+const DOCK = (() => {
+  const { size, pad, gap } = MAC.dock, ws = DOCK_APPS.map((a) => a === "|" ? 12 : size);
+  const total = ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1) + pad * 2, x0 = MAC.W / 2 - total / 2;
+  let x = x0 + pad; const xs = ws.map((w) => { const at = x; x += w + gap; return at; });
+  return { x0, total, xs, ws, app: xs[DOCK_APPS.indexOf("app")] + size / 2 };
+})();
+
+/** The Mac's pointer: black, edged in white; and the I-beam over a text box. */
+function macArrow(ctx, x, y) {
+  ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 16.5); ctx.lineTo(4, 12.8); ctx.lineTo(6.9, 19.2); ctx.lineTo(9.6, 18); ctx.lineTo(6.6, 11.6); ctx.lineTo(11.8, 11.6); ctx.closePath();
+  ctx.fillStyle = "#000000"; ctx.fill(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.3; ctx.lineJoin = "round"; ctx.stroke(); ctx.restore();
 }
-/** The chat app's window on Windows: the sidebar, the channel, the box. */
-function winChat(ctx, t, o) {
-  const { x, y, w, h } = DESK.win, sb = DESK.sb, ink = "#1B1712", sub = "rgba(27,23,18,.52)", line = "rgba(27,23,18,.1)";
-  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 12; ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, w, h, 8); ctx.fill(); ctx.restore();
-  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.clip();
-  ctx.fillStyle = "#FFFFFF"; ctx.fillRect(x, y, w, h);
-  // Title bar
-  ctx.fillStyle = "#F3F3F3"; ctx.fillRect(x, y, w, 36);
-  ctx.fillStyle = P.indigo; rr(ctx, x + 12, y + 10, 16, 16, 4); ctx.fill();
-  text(ctx, "Orbit", x + 36, y + 23, sf(12.5, 400), ink);
-  ctx.save(); ctx.strokeStyle = "#1B1712"; ctx.lineWidth = 1; const cx = x + w;
-  ctx.beginPath(); ctx.moveTo(cx - 106, y + 18); ctx.lineTo(cx - 96, y + 18); ctx.stroke();
-  ctx.strokeRect(cx - 65.5, y + 13.5, 9, 9);
-  ctx.beginPath(); ctx.moveTo(cx - 29, y + 14); ctx.lineTo(cx - 20, y + 23); ctx.moveTo(cx - 20, y + 14); ctx.lineTo(cx - 29, y + 23); ctx.stroke(); ctx.restore();
-  // Sidebar
-  ctx.fillStyle = P.violetLo; ctx.fillRect(x, y + 36, sb, h - 36);
-  text(ctx, "Orbit Labs", x + 20, y + 36 + 34, sf(15, 600), "#FFFFFF");
-  ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x + sb - 30, y + 36 + 27); ctx.lineTo(x + sb - 24, y + 36 + 33); ctx.lineTo(x + sb - 18, y + 36 + 27); ctx.stroke(); ctx.restore();
-  label(ctx, "Channels", x + 20, y + 36 + 76, 10, "#FFFFFF", .42);
-  ["general", "content", "design", "random"].forEach((c, i) => {
-    const yy = y + 36 + 104 + i * 30, on = c === "content";
-    if (on) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x + 10, yy - 19, sb - 20, 28, 6); ctx.fill(); }
-    text(ctx, "#  " + c, x + 22, yy, sf(14, on ? 600 : 400), on ? "#FFFFFF" : "rgba(255,255,255,.6)");
+function macIbeam(ctx, x, y) {
+  ctx.save(); ctx.lineCap = "round";
+  const draw = (c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8); ctx.moveTo(x - 4, y - 8.5); ctx.lineTo(x + 4, y - 8.5); ctx.moveTo(x - 4, y + 8.5); ctx.lineTo(x + 4, y + 8.5); ctx.stroke(); };
+  draw("#FFFFFF", 3.6); draw("#000000", 1.4); ctx.restore();
+}
+/** The wallpaper: a dark one, a few colours blooming in it. */
+function macWallpaper(ctx, W, H) {
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#0A0F22"); g.addColorStop(.55, "#1A1440"); g.addColorStop(1, "#2B1134");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  glow(ctx, W * .28, H * .78, W * .5, "#F0763A", .42); glow(ctx, W * .7, H * .5, W * .48, "#7B4DFF", .5); glow(ctx, W * .55, H * .15, W * .42, "#2C8CFF", .32); glow(ctx, W * .88, H * .92, W * .36, "#FF4D8D", .32);
+}
+/** The Apple, drawn once: a body, a bite, a leaf. */
+const appleLogo = (() => {
+  let im = null;
+  return (ctx, cx, cy, s) => {
+    if (!im) {
+      im = document.createElement("canvas"); im.width = im.height = 96; const g = im.getContext("2d"); g.fillStyle = "#FFFFFF";
+      g.beginPath(); g.moveTo(48, 30); g.bezierCurveTo(40, 22, 22, 24, 18, 44); g.bezierCurveTo(14, 64, 28, 88, 38, 88); g.bezierCurveTo(44, 88, 45, 85, 48, 85); g.bezierCurveTo(51, 85, 52, 88, 58, 88); g.bezierCurveTo(68, 88, 78, 70, 80, 62); g.bezierCurveTo(66, 56, 64, 36, 78, 30); g.bezierCurveTo(70, 20, 56, 22, 48, 30); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(50, 26); g.bezierCurveTo(50, 14, 58, 8, 66, 8); g.bezierCurveTo(66, 18, 58, 26, 50, 26); g.closePath(); g.fill();
+    }
+    ctx.drawImage(im, cx - s / 2, cy - s / 2, s, s);
+  };
+})();
+/** The menu bar: the Apple, the app and its menus, the status items, the clock. */
+const menuMark = MicSim(MIC_KEY);
+function macMenuBar(ctx, D, app) {
+  const { W, menu } = MAC;
+  ctx.fillStyle = "rgba(16,14,26,.52)"; ctx.fillRect(0, 0, W, menu);
+  appleLogo(ctx, 21, 12.5, 15);
+  let x = 42;
+  [[app, 700], ...D.menus.map((m) => [m, 400])].forEach(([m, wgt]) => { text(ctx, m, x, 17, sf(13, wgt), "#FFFFFF", .96); ctx.font = sf(13, wgt); x += ctx.measureText(m).width + 20; });
+  let rx = W - 16;
+  ctx.font = sf(13, 400); text(ctx, D.clock, rx, 17, sf(13, 400), "#FFFFFF", .96, "right"); rx -= ctx.measureText(D.clock).width + 22;
+  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.fillStyle = "#FFFFFF"; ctx.lineWidth = 1.4; ctx.lineCap = "round";
+  rr(ctx, rx - 16, 6.5, 16, 5, 2.5); ctx.stroke(); ctx.beginPath(); ctx.arc(rx - 13.3, 9, 1.5, 0, TAU); ctx.fill();
+  rr(ctx, rx - 16, 13.5, 16, 5, 2.5); ctx.stroke(); ctx.beginPath(); ctx.arc(rx - 2.7, 16, 1.5, 0, TAU); ctx.fill(); rx -= 16 + 20;
+  ctx.beginPath(); ctx.arc(rx - 9, 11, 5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(rx - 5.4, 14.6); ctx.lineTo(rx - 1.5, 18.5); ctx.stroke(); rx -= 16 + 18;
+  for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.arc(rx - 8, 17, 2.6 + r * 3.7, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); } ctx.beginPath(); ctx.arc(rx - 8, 16.6, 1.3, 0, TAU); ctx.fill(); rx -= 16 + 18;
+  ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1; rr(ctx, rx - 24.5, 7.5, 22, 10.5, 2.5); ctx.stroke(); rr(ctx, rx - 22.5, 9.5, 15.5, 6.5, 1.2); ctx.fill(); rr(ctx, rx - 1.6, 10.5, 1.6, 4.5, .8); ctx.fill(); rx -= 26 + 18;
+  ctx.restore();
+  menuMark.draw(ctx, rx - 19, 3.5, 18, "#FFFFFF");
+}
+/** One Dock icon. */
+function dockIcon(ctx, a, x, y, s, D) {
+  const r = s * .225, cx = x + s / 2, cy = y + s / 2;
+  ctx.save();
+  if (a === "app") { D.icon(ctx, x, y, s); ctx.restore(); return; }
+  if (a === "finder") {
+    rr(ctx, x, y, s, s, r); ctx.clip(); ctx.fillStyle = "#E3EEF8"; ctx.fillRect(x, y, s, s); ctx.fillStyle = "#1E8DEB"; ctx.fillRect(cx, y, s / 2, s);
+    ctx.lineCap = "round"; ctx.lineWidth = 2.4; ctx.strokeStyle = "#1A1A1E"; ctx.beginPath(); ctx.moveTo(cx - 10, cy - 7); ctx.lineTo(cx - 10, cy - 1); ctx.stroke();
+    ctx.strokeStyle = "#FFFFFF"; ctx.beginPath(); ctx.moveTo(cx + 10, cy - 7); ctx.lineTo(cx + 10, cy - 1); ctx.stroke();
+    ctx.strokeStyle = "#1A1A1E"; ctx.beginPath(); ctx.arc(cx, cy + 3, 12, Math.PI * .12, Math.PI * .5); ctx.stroke(); ctx.strokeStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(cx, cy + 3, 12, Math.PI * .5, Math.PI * .88); ctx.stroke();
+  } else if (a === "launchpad") {
+    const g = ctx.createLinearGradient(x, y, x, y + s); g.addColorStop(0, "#F4F4F6"); g.addColorStop(1, "#D9DBE0"); ctx.fillStyle = g; rr(ctx, x, y, s, s, r); ctx.fill();
+    ["#FF6B5B", "#FFB340", "#34C759", "#5AC8FA", "#AF52DE", "#FF2D55", "#007AFF", "#FFCC00", "#8E8E93"].forEach((c, i) => { ctx.fillStyle = c; rr(ctx, cx - 14 + (i % 3) * 10.5, cy - 14 + Math.floor(i / 3) * 10.5, 7.5, 7.5, 2); ctx.fill(); });
+  } else if (a === "safari") {
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, s, s, r); ctx.fill();
+    const g = ctx.createLinearGradient(x, y, x, y + s); g.addColorStop(0, "#3FB4F6"); g.addColorStop(1, "#1565E0"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 19, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 1; for (let k = 0; k < 24; k++) { const a0 = k * TAU / 24, L = k % 6 === 0 ? 5 : 2.5; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a0) * 17, cy + Math.sin(a0) * 17); ctx.lineTo(cx + Math.cos(a0) * (17 - L), cy + Math.sin(a0) * (17 - L)); ctx.stroke(); }
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(-Math.PI / 4); ctx.fillStyle = "#FF3B30"; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(4, 0); ctx.lineTo(-4, 0); ctx.closePath(); ctx.fill(); ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.moveTo(0, 15); ctx.lineTo(4, 0); ctx.lineTo(-4, 0); ctx.closePath(); ctx.fill(); ctx.restore();
+  } else if (a === "messages") {
+    const g = ctx.createLinearGradient(x, y, x, y + s); g.addColorStop(0, "#5BF675"); g.addColorStop(1, "#1DB954"); ctx.fillStyle = g; rr(ctx, x, y, s, s, r); ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.ellipse(cx, cy - 1, 16, 13, 0, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx - 12, cy + 7); ctx.lineTo(cx - 15, cy + 15); ctx.lineTo(cx - 4, cy + 10); ctx.closePath(); ctx.fill();
+  } else if (a === "mail") {
+    const g = ctx.createLinearGradient(x, y, x, y + s); g.addColorStop(0, "#3C9BFF"); g.addColorStop(1, "#1A6BF0"); ctx.fillStyle = g; rr(ctx, x, y, s, s, r); ctx.fill();
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, cx - 16, cy - 11, 32, 22, 3); ctx.fill(); ctx.strokeStyle = "#1A6BF0"; ctx.lineWidth = 1.6; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(cx - 15, cy - 9); ctx.lineTo(cx, cy + 2); ctx.lineTo(cx + 15, cy - 9); ctx.stroke();
+  } else if (a === "photos") {
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, s, s, r); ctx.fill();
+    ["#FF6B6B", "#FFA94D", "#FFE066", "#8CE99A", "#63E6BE", "#74C0FC", "#B197FC", "#F783AC"].forEach((c, i) => { ctx.save(); ctx.translate(cx, cy); ctx.rotate(i * TAU / 8); ctx.fillStyle = rgba(c, .85); ctx.beginPath(); ctx.ellipse(0, -9, 5, 10, 0, 0, TAU); ctx.fill(); ctx.restore(); });
+  } else if (a === "notes") {
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, s, s, r); ctx.fill(); ctx.save(); rr(ctx, x, y, s, s, r); ctx.clip(); ctx.fillStyle = "#F7C948"; ctx.fillRect(x, y, s, 13); ctx.restore();
+    ctx.fillStyle = "rgba(0,0,0,.12)"; [21, 28, 35].forEach((dy) => ctx.fillRect(x + 9, y + dy, 30, 1.6));
+  } else if (a === "terminal") {
+    ctx.fillStyle = "#1C1C1E"; rr(ctx, x, y, s, s, r); ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 1; rr(ctx, x + .5, y + .5, s - 1, s - 1, r); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(x, y, s, 8); text(ctx, ">_", x + 9, y + 32, `700 15px ${MONO}`, "#FFFFFF");
+  } else if (a === "settings") {
+    const g = ctx.createLinearGradient(x, y, x, y + s); g.addColorStop(0, "#9A9AA0"); g.addColorStop(1, "#6E6E74"); ctx.fillStyle = g; rr(ctx, x, y, s, s, r); ctx.fill();
+    ctx.fillStyle = "#E6E6EA"; for (let k = 0; k < 8; k++) { ctx.save(); ctx.translate(cx, cy); ctx.rotate(k * TAU / 8); ctx.fillRect(-3, -17, 6, 8); ctx.restore(); }
+    ctx.beginPath(); ctx.arc(cx, cy, 12.5, 0, TAU); ctx.fill(); ctx.fillStyle = "#7B7B81"; ctx.beginPath(); ctx.arc(cx, cy, 5.5, 0, TAU); ctx.fill();
+  } else if (a === "trash") {
+    ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1.6; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(cx - 13, cy - 12); ctx.lineTo(cx - 10, cy + 18); ctx.lineTo(cx + 10, cy + 18); ctx.lineTo(cx + 13, cy - 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+    rr(ctx, cx - 15, cy - 16, 30, 5, 2); ctx.fill(); ctx.stroke(); [-5, 0, 5].forEach((dx) => { ctx.beginPath(); ctx.moveTo(cx + dx, cy - 7); ctx.lineTo(cx + dx * .85, cy + 13); ctx.stroke(); });
+  }
+  ctx.restore();
+}
+/** The Dock, with the app's icon in it; `o.bounce` lifts that icon as it launches. */
+function macDock(ctx, D, o) {
+  const { size, pad } = MAC.dock, y0 = MAC.dockTop;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 16; ctx.shadowOffsetY = 4; ctx.fillStyle = "rgba(60,54,78,.5)"; rr(ctx, DOCK.x0, y0, DOCK.total, MAC.dockH, 19); ctx.fill(); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = 1; rr(ctx, DOCK.x0 + .5, y0 + .5, DOCK.total - 1, MAC.dockH - 1, 18.5); ctx.stroke();
+  DOCK_APPS.forEach((a, i) => {
+    const x = DOCK.xs[i];
+    if (a === "|") { ctx.fillStyle = "rgba(255,255,255,.22)"; ctx.fillRect(x + 5.5, y0 + 12, 1, MAC.dockH - 24); return; }
+    dockIcon(ctx, a, x, y0 + pad - (a === "app" ? o.bounce : 0), size, D);
+    if (a === "finder" || (a === "app" && o.running)) { ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.beginPath(); ctx.arc(x + size / 2, y0 + MAC.dockH - 3.5, 2, 0, TAU); ctx.fill(); }
   });
-  // Channel
-  const mx = x + sb;
-  text(ctx, "# content", mx + 24, y + 36 + 32, sf(16, 600), ink); text(ctx, "8 members", mx + 122, y + 36 + 32, sf(12.5, 400), sub);
-  ctx.fillStyle = line; ctx.fillRect(mx, y + 36 + 48, w - sb, 1);
-  let yy = y + 36 + 76;
+}
+/** A Mac window's chrome: rounded, shadowed, three lights at the top left.
+ *  Returns what closes it: the clip ends, the hairline is drawn. */
+function macWindow(ctx, x, y, w, h, fill, dark) {
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 12; ctx.fillStyle = fill; rr(ctx, x, y, w, h, 10); ctx.fill(); ctx.restore();
+  ctx.save(); rr(ctx, x, y, w, h, 10); ctx.clip();
+  return () => { ctx.restore(); ctx.strokeStyle = dark ? "rgba(255,255,255,.13)" : "rgba(0,0,0,.2)"; ctx.lineWidth = 1; rr(ctx, x + .5, y + .5, w - 1, h - 1, 9.5); ctx.stroke(); };
+}
+function trafficLights(ctx, x, cy) {
+  [["#FF5F57", "#E0443E"], ["#FEBC2E", "#DEA123"], ["#28C840", "#1AAB29"]].forEach(([c, b], i) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(x + i * 20, cy, 6, 0, TAU); ctx.fill(); ctx.strokeStyle = b; ctx.lineWidth = .7; ctx.stroke(); });
+}
+const ico = {
+  // Small line icons, 1.5px strokes, drawn about (cx, cy).
+  bold(ctx, cx, cy, c) { text(ctx, "B", cx, cy + 5, sf(13, 700), c, 1, "center"); },
+  italic(ctx, cx, cy, c) { text(ctx, "I", cx, cy + 5, `italic 400 13px ${SYS}`, c, 1, "center"); },
+  strike(ctx, cx, cy, c) { text(ctx, "S", cx, cy + 5, sf(13, 500), c, 1, "center"); ctx.fillStyle = c; ctx.fillRect(cx - 5, cy, 10, 1.2); },
+  link(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.save(); ctx.translate(cx, cy); ctx.rotate(-Math.PI / 4); rr(ctx, -8, -3, 9, 6, 3); ctx.stroke(); rr(ctx, -1, -3, 9, 6, 3); ctx.stroke(); ctx.restore(); },
+  list(ctx, cx, cy, c, ordered) { ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; [-5, 0, 5].forEach((dy, i) => { ctx.beginPath(); ctx.moveTo(cx - 2, cy + dy); ctx.lineTo(cx + 7, cy + dy); ctx.stroke(); if (ordered) text(ctx, String(i + 1), cx - 6, cy + dy + 2.5, sf(6.5, 600), c, 1, "center"); else { ctx.beginPath(); ctx.arc(cx - 6, cy + dy, 1.3, 0, TAU); ctx.fill(); } }); },
+  code(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(cx - 3, cy - 5); ctx.lineTo(cx - 8, cy); ctx.lineTo(cx - 3, cy + 5); ctx.moveTo(cx + 3, cy - 5); ctx.lineTo(cx + 8, cy); ctx.lineTo(cx + 3, cy + 5); ctx.stroke(); },
+  plus(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(cx - 5, cy); ctx.lineTo(cx + 5, cy); ctx.moveTo(cx, cy - 5); ctx.lineTo(cx, cy + 5); ctx.stroke(); },
+  smile(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(cx - 2.5, cy - 2, 1, 0, TAU); ctx.arc(cx + 2.5, cy - 2, 1, 0, TAU); ctx.fill(); ctx.beginPath(); ctx.arc(cx, cy + .5, 4, Math.PI * .15, Math.PI * .85); ctx.stroke(); },
+  at(ctx, cx, cy, c) { text(ctx, "@", cx, cy + 5, sf(14, 500), c, 1, "center"); },
+  video(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineJoin = "round"; rr(ctx, cx - 8, cy - 5, 11, 10, 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx + 3, cy - 2); ctx.lineTo(cx + 8, cy - 5); ctx.lineTo(cx + 8, cy + 5); ctx.lineTo(cx + 3, cy + 2); ctx.closePath(); ctx.stroke(); },
+  mic(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; rr(ctx, cx - 3, cy - 8, 6, 10, 3); ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy - 1, 6, Math.PI * .1, Math.PI * .9); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx, cy + 5); ctx.lineTo(cx, cy + 8); ctx.stroke(); },
+  slash(ctx, cx, cy, c) { text(ctx, "/", cx, cy + 5, sf(14, 500), c, 1, "center"); },
+  aa(ctx, cx, cy, c) { text(ctx, "Aa", cx, cy + 5, sf(12.5, 500), c, 1, "center"); },
+  search(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx - 1.5, cy - 1.5, 5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx + 2, cy + 2); ctx.lineTo(cx + 6, cy + 6); ctx.stroke(); },
+  chev(ctx, cx, cy, c, dir = 1) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(cx - 3, cy - 4 * dir); ctx.lineTo(cx + 3, cy); ctx.lineTo(cx - 3, cy + 4 * dir); ctx.stroke(); },
+  down(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(cx - 4, cy - 2); ctx.lineTo(cx, cy + 2); ctx.lineTo(cx + 4, cy - 2); ctx.stroke(); },
+  clock(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy); ctx.lineTo(cx + 3, cy + 2); ctx.stroke(); },
+  star(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.3; ctx.lineJoin = "round"; ctx.beginPath(); for (let k = 0; k < 10; k++) { const a0 = -Math.PI / 2 + k * Math.PI / 5, rad = k % 2 ? 3 : 7; ctx.lineTo(cx + Math.cos(a0) * rad, cy + Math.sin(a0) * rad); } ctx.closePath(); ctx.stroke(); },
+  files(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineJoin = "round"; rr(ctx, cx - 7, cy - 9, 12, 16, 2); ctx.stroke(); rr(ctx, cx - 3, cy - 5, 12, 16, 2); ctx.stroke(); },
+  people(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx - 2, cy - 4, 3.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(cx - 2, cy + 7, 7, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke(); ctx.beginPath(); ctx.arc(cx + 5, cy - 3, 2.8, 0, TAU); ctx.stroke(); },
+  image(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.lineJoin = "round"; rr(ctx, cx - 8, cy - 7, 16, 14, 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx - 2, cy - 1); ctx.lineTo(cx + 2, cy + 3); ctx.lineTo(cx + 4, cy + 1); ctx.lineTo(cx + 7, cy + 5); ctx.stroke(); ctx.fillStyle = c; ctx.beginPath(); ctx.arc(cx + 4, cy - 3, 1.5, 0, TAU); ctx.fill(); },
+  gear(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, TAU); ctx.stroke(); for (let k = 0; k < 8; k++) { ctx.beginPath(); ctx.moveTo(cx + Math.cos(k * TAU / 8) * 5, cy + Math.sin(k * TAU / 8) * 5); ctx.lineTo(cx + Math.cos(k * TAU / 8) * 7.5, cy + Math.sin(k * TAU / 8) * 7.5); ctx.stroke(); } ctx.beginPath(); ctx.arc(cx, cy, 5.2, 0, TAU); ctx.stroke(); },
+  layout(ctx, cx, cy, c, side) { ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.4; rr(ctx, cx - 8, cy - 6, 16, 12, 2); ctx.stroke(); if (side === "l") ctx.fillRect(cx - 7, cy - 5, 5, 10); else if (side === "r") ctx.fillRect(cx + 2, cy - 5, 5, 10); else ctx.fillRect(cx - 7, cy + 1, 14, 4); },
+};
+/** A Slack window on a Mac: the rail, the sidebar, the channel, the composer. */
+function slackWin(ctx, t, D, o) {
+  const { x, y, w, h } = D.win, top = 44, rail = 72, sb = 260, aub = "#3F0E40", rail0 = "#350D36", ink = "#1D1C1D", sub = "#616061", line = "rgba(29,28,29,.13)";
+  const done = macWindow(ctx, x, y, w, h, "#FFFFFF", false);
+  // The top bar: history, a search box, help.
+  ctx.fillStyle = rail0; ctx.fillRect(x, y, w, top); trafficLights(ctx, x + 20, y + top / 2);
+  ico.chev(ctx, x + 112, y + 22, "rgba(255,255,255,.55)", -1); ico.chev(ctx, x + 140, y + 22, "rgba(255,255,255,.55)", 1); ico.clock(ctx, x + 172, y + 22, "rgba(255,255,255,.75)");
+  ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x + w / 2 - 300, y + 8, 600, 28, 7); ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1; rr(ctx, x + w / 2 - 299.5, y + 8.5, 599, 27, 6.5); ctx.stroke();
+  text(ctx, "Search " + D.workspace, x + w / 2, y + 27, sf(13.5, 400), "#FFFFFF", .85, "center"); ico.search(ctx, x + w / 2 + 282, y + 22, "rgba(255,255,255,.85)");
+  ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x + w - 24, y + 22, 7.5, 0, TAU); ctx.stroke(); text(ctx, "?", x + w - 24, y + 26.5, sf(11, 700), "rgba(255,255,255,.75)", 1, "center");
+  // The rail: the workspace, Home, DMs, Activity, Later, More, and you.
+  ctx.fillStyle = rail0; ctx.fillRect(x, y + top, rail, h - top);
+  ctx.fillStyle = "#FFFFFF"; rr(ctx, x + 18, y + top + 14, 36, 36, 8); ctx.fill(); text(ctx, D.workspace[0], x + 36, y + top + 39, sf(19, 700), aub, 1, "center");
+  [["Home", true], ["DMs"], ["Activity"], ["Later"], ["More"]].forEach(([n, on], i) => {
+    const cy = y + top + 90 + i * 58;
+    if (on) { ctx.fillStyle = "rgba(255,255,255,.2)"; rr(ctx, x + 18, cy - 15, 36, 30, 8); ctx.fill(); }
+    ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.5; ctx.lineJoin = "round";
+    if (i === 0) { ctx.beginPath(); ctx.moveTo(x + 28, cy + 6); ctx.lineTo(x + 28, cy - 2); ctx.lineTo(x + 36, cy - 8); ctx.lineTo(x + 44, cy - 2); ctx.lineTo(x + 44, cy + 6); ctx.closePath(); ctx.stroke(); }
+    else if (i === 1) { rr(ctx, x + 28, cy - 7, 16, 11, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x + 33, cy + 4); ctx.lineTo(x + 31, cy + 8); ctx.lineTo(x + 37, cy + 4); ctx.stroke(); }
+    else if (i === 2) { ctx.beginPath(); ctx.arc(x + 36, cy - 1, 6, Math.PI, 0); ctx.lineTo(x + 43, cy + 5); ctx.lineTo(x + 29, cy + 5); ctx.closePath(); ctx.stroke(); }
+    else if (i === 3) { ctx.beginPath(); ctx.moveTo(x + 30, cy - 7); ctx.lineTo(x + 30, cy + 7); ctx.lineTo(x + 36, cy + 3); ctx.lineTo(x + 42, cy + 7); ctx.lineTo(x + 42, cy - 7); ctx.closePath(); ctx.stroke(); }
+    else { ctx.fillStyle = "#FFFFFF"; [-6, 0, 6].forEach((dx) => { ctx.beginPath(); ctx.arc(x + 36 + dx, cy - 1, 1.8, 0, TAU); ctx.fill(); }); }
+    text(ctx, n, x + 36, cy + 28, sf(10.5, on ? 700 : 500), "#FFFFFF", on ? 1 : .85, "center");
+  });
+  ctx.fillStyle = P.teal; rr(ctx, x + 20, y + h - 50, 32, 32, 7); ctx.fill(); text(ctx, "R", x + 36, y + h - 28, sf(16, 700), "#FFFFFF", 1, "center");
+  ctx.fillStyle = "#2BAC76"; ctx.beginPath(); ctx.arc(x + 50, y + h - 20, 5, 0, TAU); ctx.fill(); ctx.strokeStyle = rail0; ctx.lineWidth = 2; ctx.stroke();
+  // The sidebar.
+  const sx = x + rail; ctx.fillStyle = aub; ctx.fillRect(sx, y + top, sb, h - top);
+  text(ctx, D.workspace, sx + 16, y + top + 30, sf(17, 700), "#FFFFFF"); ctx.font = sf(17, 700); ico.down(ctx, sx + 16 + ctx.measureText(D.workspace).width + 12, y + top + 26, "#FFFFFF");
+  ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(sx + sb - 26, y + top + 24, 13, 0, TAU); ctx.fill(); ctx.strokeStyle = aub; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(sx + sb - 30, y + top + 28); ctx.lineTo(sx + sb - 21, y + top + 19); ctx.moveTo(sx + sb - 30, y + top + 28); ctx.lineTo(sx + sb - 31, y + top + 29.5); ctx.stroke();
+  let yy = y + top + 70;
+  ["Unreads", "Threads", "Drafts & sent"].forEach((n, i) => { text(ctx, n, sx + 38, yy + i * 28, sf(14.5, 400), "rgba(255,255,255,.72)"); });
+  ico.files(ctx, sx + 24, yy - 5, "rgba(255,255,255,.6)"); ico.at(ctx, sx + 24, yy + 23, "rgba(255,255,255,.6)"); ico.video(ctx, sx + 24, yy + 51, "rgba(255,255,255,.6)");
+  yy += 100; ico.down(ctx, sx + 20, yy - 5, "rgba(255,255,255,.65)"); text(ctx, "Channels", sx + 32, yy, sf(14.5, 400), "rgba(255,255,255,.72)");
+  D.channels.forEach((c, i) => {
+    const cy = yy + 30 + i * 28, on = c === D.channel;
+    if (on) { ctx.fillStyle = "#1164A3"; rr(ctx, sx + 8, cy - 18, sb - 16, 27, 6); ctx.fill(); }
+    text(ctx, "#", sx + 26, cy, sf(14.5, 400), on ? "#FFFFFF" : "rgba(255,255,255,.55)", 1, "center"); text(ctx, c, sx + 40, cy, sf(14.5, on ? 600 : 400), on ? "#FFFFFF" : "rgba(255,255,255,.72)");
+  });
+  yy += 30 + D.channels.length * 28; ico.plus(ctx, sx + 26, yy - 5, "rgba(255,255,255,.55)"); text(ctx, "Add channels", sx + 40, yy, sf(14.5, 400), "rgba(255,255,255,.55)");
+  yy += 44; ico.down(ctx, sx + 20, yy - 5, "rgba(255,255,255,.65)"); text(ctx, "Direct messages", sx + 32, yy, sf(14.5, 400), "rgba(255,255,255,.72)");
+  D.dms.forEach(([n, c], i) => { const cy = yy + 30 + i * 28; ctx.fillStyle = c; rr(ctx, sx + 18, cy - 14, 18, 18, 4); ctx.fill(); ctx.fillStyle = "#2BAC76"; ctx.beginPath(); ctx.arc(sx + 36, cy + 3, 3.5, 0, TAU); ctx.fill(); ctx.strokeStyle = aub; ctx.lineWidth = 1.5; ctx.stroke(); text(ctx, n, sx + 46, cy, sf(14.5, 400), "rgba(255,255,255,.72)"); });
+  // The channel: its header, its tabs, the day, the messages.
+  const mx = sx + sb, mw = w - rail - sb;
+  text(ctx, "# " + D.channel, mx + 20, y + top + 32, sf(18, 800), ink); ctx.font = sf(18, 800); ico.down(ctx, mx + 20 + ctx.measureText("# " + D.channel).width + 12, y + top + 28, ink);
+  ctx.strokeStyle = line; ctx.lineWidth = 1; rr(ctx, mx + mw - 96.5, y + top + 11.5, 80, 30, 6); ctx.stroke();
+  [P.teal, "#B8650C", P.indigo].forEach((c, i) => { ctx.fillStyle = c; rr(ctx, mx + mw - 90 + i * 14, y + top + 17, 20, 20, 5); ctx.fill(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.5; ctx.stroke(); }); text(ctx, String(D.members), mx + mw - 30, y + top + 31, sf(13, 600), sub, 1, "center");
+  ["Messages", "Add canvas", "Files", "+"].forEach((n, i) => { const tx = mx + 20 + [0, 92, 194, 248][i]; text(ctx, n, tx, y + top + 70, sf(13, i === 0 ? 700 : 400), i === 0 ? ink : sub); if (i === 0) { ctx.fillStyle = "#1264A3"; ctx.fillRect(tx, y + top + 80, 68, 2); } });
+  ctx.fillStyle = line; ctx.fillRect(mx, y + top + 82, mw, 1); ctx.fillRect(mx, y + top, 1, h - top);
+  const dayY = y + top + 118; ctx.fillStyle = line; ctx.fillRect(mx + 20, dayY, mw - 40, 1);
+  ctx.fillStyle = "#FFFFFF"; rr(ctx, mx + mw / 2 - 42, dayY - 14, 84, 28, 14); ctx.fill(); ctx.strokeStyle = line; ctx.lineWidth = 1; rr(ctx, mx + mw / 2 - 41.5, dayY - 13.5, 83, 27, 13.5); ctx.stroke(); text(ctx, "Today", mx + mw / 2 - 6, dayY + 5, sf(13, 700), ink, 1, "center"); ico.down(ctx, mx + mw / 2 + 26, dayY + 1, ink);
+  yy = dayY + 34;
   for (const m of o.msgs) {
     if (t < m.at) continue; const k = E.out(seg(t, m.at, m.at + .3));
     ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 8);
-    ctx.fillStyle = m.color; rr(ctx, mx + 24, yy, 36, 36, 8); ctx.fill(); text(ctx, m.name[0], mx + 42, yy + 24, sf(17, 600), "#FFFFFF", 1, "center");
-    text(ctx, m.name, mx + 72, yy + 14, sf(15, 600), ink); ctx.font = sf(15, 600); text(ctx, m.time, mx + 72 + ctx.measureText(m.name).width + 10, yy + 14, sf(12, 400), sub);
-    text(ctx, m.text, mx + 72, yy + 35, sf(15, 400), ink);
-    ctx.restore(); yy += 62;
+    ctx.fillStyle = m.color; rr(ctx, mx + 20, yy, 36, 36, 6); ctx.fill(); text(ctx, m.name[0], mx + 38, yy + 24, sf(17, 700), "#FFFFFF", 1, "center");
+    text(ctx, m.name, mx + 68, yy + 14, sf(15, 900), ink); ctx.font = sf(15, 900); text(ctx, m.time, mx + 68 + ctx.measureText(m.name).width + 8, yy + 14, sf(12, 400), sub);
+    text(ctx, m.text, mx + 68, yy + 34, sf(15, 400), ink);
+    ctx.restore(); yy += 60;
   }
-  // The box
-  const bx = mx + 24, bw = w - sb - 48, bh = 76, by = y + h - 24 - bh;
-  ctx.fillStyle = "#FFFFFF"; rr(ctx, bx, by, bw, bh, 10); ctx.fill();
-  ctx.strokeStyle = o.focus ? "rgba(27,23,18,.5)" : "rgba(27,23,18,.22)"; ctx.lineWidth = 1.2; rr(ctx, bx + .5, by + .5, bw - 1, bh - 1, 9.5); ctx.stroke();
-  if (o.text) text(ctx, o.text, bx + 16, by + 30, sf(15, 400), ink);
-  else if (!o.focus) text(ctx, "Message #content", bx + 16, by + 30, sf(15, 400), "rgba(27,23,18,.38)");
-  if (o.focus && !o.text && Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = ink; ctx.fillRect(bx + 16, by + 16, 1.4, 19); }
-  if (o.text && Math.floor(t * 2) % 2 === 0) { ctx.font = sf(15, 400); ctx.fillStyle = ink; ctx.fillRect(bx + 16 + ctx.measureText(o.text).width + 2, by + 16, 1.4, 19); }
-  const sx = bx + bw - 32, sy = by + bh - 24;
-  ctx.fillStyle = o.text ? P.indigo : "rgba(27,23,18,.16)"; rr(ctx, sx - 13, sy - 13, 26, 26, 6); ctx.fill();
-  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(sx - 6, sy + 4.5); ctx.lineTo(sx + 7, sy); ctx.lineTo(sx - 6, sy - 4.5); ctx.lineTo(sx - 3, sy); ctx.closePath(); ctx.stroke(); ctx.restore();
-  ctx.restore();
-  return { box: { x: bx, y: by, w: bw, h: bh } };
+  // The composer: the formatting row, the box, the tools, the send button.
+  const bx = mx + 20, bw = mw - 40, bh = 110, by = y + h - 28 - bh;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.06)"; ctx.shadowBlur = 6; ctx.shadowOffsetY = 1; ctx.fillStyle = "#FFFFFF"; rr(ctx, bx, by, bw, bh, 9); ctx.fill(); ctx.restore();
+  ctx.strokeStyle = o.focus ? "rgba(29,28,29,.5)" : "rgba(29,28,29,.3)"; ctx.lineWidth = 1; rr(ctx, bx + .5, by + .5, bw - 1, bh - 1, 8.5); ctx.stroke();
+  ctx.fillStyle = "#F8F8F8"; ctx.save(); rr(ctx, bx + 1, by + 1, bw - 2, bh - 2, 8); ctx.clip(); ctx.fillRect(bx, by, bw, 32); ctx.restore();
+  const tb = "rgba(29,28,29,.55)"; let tx = bx + 18; const tools = [["bold"], ["italic"], ["strike"], null, ["link"], null, ["list", true], ["list", false], null, ["code"]];
+  tools.forEach((tl) => { if (!tl) { ctx.fillStyle = line; ctx.fillRect(tx - 4, by + 9, 1, 14); tx += 8; return; } ico[tl[0]](ctx, tx, by + 16, tb, tl[1]); tx += 26; });
+  if (o.text) text(ctx, o.text, bx + 14, by + 56, sf(15, 400), ink);
+  else if (!o.focus) text(ctx, "Message #" + D.channel, bx + 14, by + 56, sf(15, 400), "rgba(29,28,29,.5)");
+  if (o.focus && Math.floor(t * 2) % 2 === 0) { ctx.font = sf(15, 400); ctx.fillStyle = ink; ctx.fillRect(bx + 14 + (o.text ? ctx.measureText(o.text).width + 1 : 0), by + 42, 1.3, 19); }
+  const ry = by + bh - 19; let ux = bx + 20;
+  ctx.fillStyle = "#EDEDED"; ctx.beginPath(); ctx.arc(ux, ry, 11, 0, TAU); ctx.fill(); ico.plus(ctx, ux, ry, ink); ux += 34;
+  [["aa"], ["smile"], ["at"], null, ["video"], ["mic"], null, ["slash"]].forEach((tl) => { if (!tl) { ctx.fillStyle = line; ctx.fillRect(ux - 6, ry - 8, 1, 16); ux += 12; return; } ico[tl[0]](ctx, ux, ry, tb); ux += 30; });
+  const sx2 = bx + bw - 40, on = !!o.text;
+  ctx.fillStyle = on ? "#007A5A" : "rgba(29,28,29,.12)"; rr(ctx, sx2 - 16, ry - 13, 52, 26, 5); ctx.fill();
+  ctx.save(); ctx.strokeStyle = on ? "#FFFFFF" : "rgba(29,28,29,.4)"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(sx2 - 7, ry + 4.5); ctx.lineTo(sx2 + 6, ry); ctx.lineTo(sx2 - 7, ry - 4.5); ctx.lineTo(sx2 - 4, ry); ctx.closePath(); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = on ? "rgba(255,255,255,.35)" : "rgba(29,28,29,.12)"; ctx.fillRect(sx2 + 17, ry - 9, 1, 18); ico.down(ctx, sx2 + 27, ry, on ? "#FFFFFF" : "rgba(29,28,29,.4)");
+  done();
 }
-/** A keystroke, shown the way screen recorders show one. */
-function keyHud(ctx, lab, x, y, at, t) {
+/** A file of TypeScript, token by token. */
+const CODE = [
+  [["import", "k"], [" { createReadStream } ", "p"], ["from", "k"], [" ", "p"], ['"node:fs"', "s"], [";", "p"]],
+  [["import", "k"], [" { basename } ", "p"], ["from", "k"], [" ", "p"], ['"node:path"', "s"], [";", "p"]],
+  [["import", "k"], [" { client } ", "p"], ["from", "k"], [" ", "p"], ['"./client"', "s"], [";", "p"]],
+  [],
+  [["export", "k"], [" ", "p"], ["async", "k"], [" ", "p"], ["function", "k"], [" ", "p"], ["upload", "f"], ["(path: ", "p"], ["string", "t"], [", key: ", "p"], ["string", "t"], [") {", "p"]],
+  [["  ", "p"], ["const", "k"], [" body = ", "p"], ["createReadStream", "f"], ["(path);", "p"]],
+  [["  ", "p"], ["const", "k"], [" res = ", "p"], ["await", "k"], [" client.", "p"], ["put", "f"], ["(", "p"], ["`/files/${key}`", "s"], [", body);", "p"]],
+  [["  ", "p"], ["if", "k"], [" (!res.ok) ", "p"], ["throw", "k"], [" ", "p"], ["new", "k"], [" ", "p"], ["Error", "t"], ["(", "p"], ["`upload failed: ${res.status}`", "s"], [");", "p"]],
+  [["  ", "p"], ["return", "k"], [" res.", "p"], ["json", "f"], ["();", "p"]],
+  [["}", "p"]],
+  [],
+  [["export", "k"], [" ", "p"], ["function", "k"], [" ", "p"], ["uploadAll", "f"], ["(paths: ", "p"], ["string", "t"], ["[]) {", "p"]],
+  [["  ", "p"], ["return", "k"], [" Promise.", "p"], ["all", "f"], ["(paths.", "p"], ["map", "f"], ["((p) => ", "p"], ["upload", "f"], ["(p, ", "p"], ["basename", "f"], ["(p))));", "p"]],
+  [["}", "p"]],
+];
+const CODE_COLORS = { k: "#C586C0", p: "#D4D4D4", s: "#CE9178", f: "#DCDCAA", t: "#4EC9B0", c: "#6A9955" };
+const CODE_FONT = `400 12.5px ${MONO}`;
+/** Cursor on a Mac: the explorer, the editor, the chat pane at the right. */
+function cursorWin(ctx, t, D, o) {
+  const { x, y, w, h } = D.win, top = 38, ab = 48, ex = 230, pw = D.panel, ink = "#CCCCCC", dim = "rgba(204,204,204,.5)", bg = "#1A1A1A", side = "#141414", rule = "rgba(255,255,255,.08)";
+  const done = macWindow(ctx, x, y, w, h, bg, true);
+  // The title bar: the lights, the command centre, the layout buttons.
+  ctx.fillStyle = "#1F1F1F"; ctx.fillRect(x, y, w, top); trafficLights(ctx, x + 20, y + top / 2);
+  ctx.fillStyle = "rgba(255,255,255,.07)"; rr(ctx, x + w / 2 - 190, y + 7, 380, 24, 6); ctx.fill(); ctx.strokeStyle = rule; ctx.lineWidth = 1; rr(ctx, x + w / 2 - 189.5, y + 7.5, 379, 23, 5.5); ctx.stroke();
+  ico.search(ctx, x + w / 2 - 44 - ctx.measureText(D.project).width / 2, y + 19, dim); text(ctx, D.project, x + w / 2 + 6, y + 23, sf(12.5, 400), dim, 1, "center");
+  ["l", "b", "r"].forEach((s, i) => ico.layout(ctx, x + w - 118 + i * 28, y + 19, i === 1 ? dim : ink, s)); ico.gear(ctx, x + w - 30, y + 19, ink);
+  // The activity bar and the explorer.
+  const t0 = y + top, body = h - top - 22;
+  ctx.fillStyle = side; ctx.fillRect(x, t0, ab + ex, body); ctx.fillStyle = rule; ctx.fillRect(x + ab + ex, t0, 1, body);
+  ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  [0, 1, 2, 3, 4].forEach((i) => { const cy = t0 + 28 + i * 46, ax = x + 24; ctx.globalAlpha = i === 0 ? 1 : .5;
+    if (i === 0) { rr(ctx, ax - 8, cy - 9, 11, 15, 2); ctx.stroke(); rr(ctx, ax - 3, cy - 5, 11, 15, 2); ctx.stroke(); }
+    else if (i === 1) { ctx.beginPath(); ctx.arc(ax - 2, cy - 2, 6.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ax + 3, cy + 3); ctx.lineTo(ax + 8, cy + 8); ctx.stroke(); }
+    else if (i === 2) { ctx.beginPath(); ctx.arc(ax - 5, cy - 6, 3, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(ax - 5, cy + 7, 3, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.arc(ax + 6, cy - 2, 3, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(ax - 5, cy - 3); ctx.lineTo(ax - 5, cy + 4); ctx.stroke(); }
+    else if (i === 3) { ctx.beginPath(); ctx.moveTo(ax - 7, cy - 7); ctx.lineTo(ax + 8, cy); ctx.lineTo(ax - 7, cy + 7); ctx.closePath(); ctx.stroke(); }
+    else { rr(ctx, ax - 8, cy - 8, 7, 7, 1); ctx.stroke(); rr(ctx, ax + 1, cy - 8, 7, 7, 1); ctx.stroke(); rr(ctx, ax - 8, cy + 1, 7, 7, 1); ctx.stroke(); rr(ctx, ax + 1, cy + 1, 7, 7, 1); ctx.stroke(); }
+  }); ctx.restore();
+  text(ctx, "EXPLORER", x + ab + 18, t0 + 24, sf(11, 500), ink, .7);
+  D.tree.forEach(([name, depth, folder, active], i) => {
+    const ty = t0 + 50 + i * 23;
+    if (active) { ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fillRect(x + ab, ty - 16, ex, 23); }
+    if (folder) ico.chev(ctx, x + ab + 12 + depth * 14, ty - 5, dim, 1);
+    text(ctx, name, x + ab + 22 + depth * 14, ty, sf(12.5, folder ? 500 : 400), active ? "#FFFFFF" : ink, folder ? .9 : .78);
+  });
+  // The editor: tabs, the breadcrumb, the code.
+  const ex0 = x + ab + ex + 1, ew = w - ab - ex - pw - 1;
+  ctx.fillStyle = "#1F1F1F"; ctx.fillRect(ex0, t0, ew, 36);
+  ctx.fillStyle = bg; ctx.fillRect(ex0, t0, 112, 36); text(ctx, D.file, ex0 + 16, t0 + 23, sf(12.5, 400), "#FFFFFF"); ctx.fillStyle = "#0078D4"; ctx.fillRect(ex0, t0, 112, 1);
+  text(ctx, D.file2, ex0 + 128, t0 + 23, sf(12.5, 400), dim);
+  text(ctx, "src  ›  " + D.file, ex0 + 16, t0 + 54, sf(11.5, 400), dim);
+  CODE.forEach((line, i) => {
+    const ly = t0 + 86 + i * 20; text(ctx, String(i + 1), ex0 + 38, ly, sf(12.5, 400), "rgba(204,204,204,.35)", 1, "right");
+    let lx = ex0 + 58; ctx.font = CODE_FONT; ctx.textAlign = "left"; line.forEach(([tok, kind]) => { ctx.fillStyle = CODE_COLORS[kind]; ctx.fillText(tok, lx, ly); lx += ctx.measureText(tok).width; });
+  });
+  // The chat pane: its title, the talk, the box at its foot.
+  const px = x + w - pw;
+  ctx.fillStyle = side; ctx.fillRect(px, t0, pw, body); ctx.fillStyle = rule; ctx.fillRect(px, t0, 1, body);
+  text(ctx, o.msgs.some((m) => t >= m.at) ? D.chatTitle : "New Chat", px + 16, t0 + 23, sf(12.5, 500), ink, .9);
+  ico.plus(ctx, px + pw - 70, t0 + 18, dim); ico.clock(ctx, px + pw - 44, t0 + 18, dim); text(ctx, "···", px + pw - 18, t0 + 22, sf(13, 600), dim, 1, "center");
+  ctx.fillStyle = rule; ctx.fillRect(px, t0 + 36, pw, 1);
+  let yy = t0 + 58;
+  for (const m of o.msgs) {
+    if (t < m.at) continue; const k = E.out(seg(t, m.at, m.at + .3));
+    ctx.save(); ctx.globalAlpha *= k;
+    if (m.from === "out") {
+      const lay = layout(ctx, m.text, sf(13, 400), pw - 60, 18), bh = lay.lines.length * 18 + 20;
+      ctx.fillStyle = "rgba(255,255,255,.07)"; rr(ctx, px + 14, yy, pw - 28, bh, 8); ctx.fill(); ctx.strokeStyle = rule; ctx.lineWidth = 1; rr(ctx, px + 14.5, yy + .5, pw - 29, bh - 1, 7.5); ctx.stroke();
+      lay.lines.forEach((ln, li) => text(ctx, ln, px + 26, yy + 22 + li * 18, lay.font, "#FFFFFF"));
+      yy += bh + 18;
+    } else {
+      const shown = m.to ? wordsSoFar(m.text, m.at, m.to, t) : m.text;
+      const lay = layout(ctx, shown || " ", sf(13, 400), pw - 40, 19);
+      lay.lines.forEach((ln, li) => text(ctx, ln, px + 16, yy + 14 + li * 19, lay.font, ink));
+      if (m.to && t < m.to) { const gy = yy + 14 + lay.lines.length * 19 + 8; ctx.fillStyle = dim; ctx.beginPath(); ctx.arc(px + 21, gy - 4, 3.5, 0, TAU); ctx.fill(); text(ctx, "Generating…", px + 30, gy, sf(11.5, 400), dim); }
+      yy += lay.lines.length * 19 + 30;
+    }
+    ctx.restore();
+  }
+  const bh = 96, by = y + h - 22 - 14 - bh, bx = px + 14, bw = pw - 28;
+  ctx.fillStyle = "#222222"; rr(ctx, bx, by, bw, bh, 9); ctx.fill();
+  ctx.strokeStyle = o.focus ? "rgba(255,255,255,.3)" : "rgba(255,255,255,.12)"; ctx.lineWidth = 1; rr(ctx, bx + .5, by + .5, bw - 1, bh - 1, 8.5); ctx.stroke();
+  if (o.text) { const lay = layout(ctx, o.text, sf(13, 400), bw - 28, 18); lay.lines.forEach((ln, li) => text(ctx, ln, bx + 12, by + 22 + li * 18, lay.font, "#FFFFFF")); if (Math.floor(t * 2) % 2 === 0) { ctx.font = lay.font; const last = lay.lines[lay.lines.length - 1]; ctx.fillStyle = "#FFFFFF"; ctx.fillRect(bx + 12 + ctx.measureText(last).width + 2, by + 10 + (lay.lines.length - 1) * 18, 1.3, 16); } }
+  else if (!o.focus) text(ctx, "Plan, search, build anything", bx + 12, by + 22, sf(13, 400), dim);
+  else if (Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = "#FFFFFF"; ctx.fillRect(bx + 12, by + 10, 1.3, 16); }
+  text(ctx, "∞", bx + 16, by + bh - 11, sf(12, 600), ink, .9, "center"); text(ctx, "Agent", bx + 26, by + bh - 12, sf(11.5, 500), ink, .9); ico.down(ctx, bx + 66, by + bh - 15, dim);
+  text(ctx, "Auto", bx + 86, by + bh - 12, sf(11.5, 400), dim); ico.down(ctx, bx + 118, by + bh - 15, dim);
+  ico.at(ctx, bx + bw - 66, by + bh - 16, dim); ico.image(ctx, bx + bw - 44, by + bh - 16, dim);
+  const sx = bx + bw - 18, sy = by + bh - 16; ctx.fillStyle = o.text ? "#FFFFFF" : "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.arc(sx, sy, 10, 0, TAU); ctx.fill();
+  ctx.save(); ctx.strokeStyle = o.text ? "#000000" : "rgba(0,0,0,.6)"; ctx.lineWidth = 1.8; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(sx, sy + 4.5); ctx.lineTo(sx, sy - 4.5); ctx.moveTo(sx - 4, sy - .5); ctx.lineTo(sx, sy - 4.5); ctx.lineTo(sx + 4, sy - .5); ctx.stroke(); ctx.restore();
+  // The status bar.
+  ctx.fillStyle = "#1F1F1F"; ctx.fillRect(x, y + h - 22, w, 22); ctx.fillStyle = rule; ctx.fillRect(x, y + h - 22, w, 1);
+  text(ctx, "⎇  main*", x + 14, y + h - 7, sf(11, 400), ink, .85); text(ctx, "⊗ 0  ⚠ 0", x + 92, y + h - 7, sf(11, 400), ink, .85);
+  text(ctx, "Ln 7, Col 9    Spaces: 2    UTF-8    LF    TypeScript    Cursor Tab", x + w - 14, y + h - 7, sf(11, 400), ink, .85, "right");
+  done();
+}
+/** A keystroke, shown the way screen recorders show one; `keys` side by side. */
+function keyHud(ctx, keys, cx, y, at, t) {
   const k = E.out(seg(t, at, at + .14)) * (1 - E.in(seg(t, at + .7, at + 1.0))); if (k <= 0) return;
-  ctx.save(); ctx.globalAlpha *= k; ctx.font = sf(30, 500); const w = ctx.measureText(lab).width + 44;
-  ctx.fillStyle = "rgba(20,20,22,.88)"; rr(ctx, x, y - 30 + (1 - k) * 6, w, 60, 12); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1.5; rr(ctx, x + .75, y - 29.25 + (1 - k) * 6, w - 1.5, 58.5, 11.25); ctx.stroke();
-  text(ctx, lab, x + w / 2, y + 11 + (1 - k) * 6, sf(30, 500), "#FFFFFF", 1, "center"); ctx.restore();
+  ctx.save(); ctx.globalAlpha *= k; ctx.font = sf(30, 500);
+  const ws = keys.map((lab) => ctx.measureText(lab).width + 48), total = ws.reduce((a, b) => a + b, 0) + 14 * (keys.length - 1);
+  let x = cx - total / 2;
+  keys.forEach((lab, i) => {
+    const w = ws[i], dy = (1 - k) * 6;
+    ctx.fillStyle = "rgba(20,20,22,.88)"; rr(ctx, x, y - 30 + dy, w, 60, 12); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1.5; rr(ctx, x + .75, y - 29.25 + dy, w - 1.5, 58.5, 11.25); ctx.stroke();
+    text(ctx, lab, x + w / 2, y + 11 + dy, sf(30, 500), "#FFFFFF", 1, "center"); x += w + 14;
+  });
+  ctx.restore();
 }
-const deskCursor = (t) => {
-  const D = DESK, P0 = [900, 390], P1 = [D.W / 2 + 75, D.H - 24], P2 = [D.win.x + D.sb + 24 + 140, D.win.y + D.win.h - 24 - 38];
-  if (t < D.click) { const k = E.io(seg(t, .15, D.click - .05)); return [lerp(P0[0], P1[0], k), lerp(P0[1], P1[1], k)]; }
-  const k = E.io(seg(t, 1.5, D.fieldClick - .05)); return [lerp(P1[0], P2[0], k), lerp(P1[1], P2[1], k)];
-};
+/** Where the mouse is: to the app's icon in the Dock, then into the box. */
+function deskCursor(t, D) {
+  const P0 = [880, 380], P1 = [DOCK.app, MAC.dockTop + MAC.dockH / 2 + 2], P2 = D.field;
+  if (t < D.click) { const k = E.io(seg(t, .15, D.click - .05)); return [lerp(P0[0], P1[0], k), lerp(P0[1], P1[1], k), "arrow"]; }
+  const k = E.io(seg(t, D.winOpen + .45, D.fieldClick - .05)); return [lerp(P1[0], P2[0], k), lerp(P1[1], P2[1], k), k >= 1 ? "ibeam" : "arrow"];
+}
+/** The camera: keyframes of [at, zoom, cx, cy, over], eased one into the next. */
+function camAt(D, t) {
+  let v = D.cam[0].slice(1, 4);
+  for (let j = 1; j < D.cam.length; j++) { const [t0, z, cx, cy, over = .8] = D.cam[j]; if (t < t0) break; const k = E.io(seg(t, t0, t0 + over)); v = [lerp(v[0], z, k), lerp(v[1], cx, k), lerp(v[2], cy, k)]; }
+  return v;
+}
+/**
+ * One laptop recording. `D.paint` draws the app's window; the Mac around it
+ * (wallpaper, menu bar, Dock), the pill, the pointer, the camera, the
+ * keystrokes and the caption are shared. The screen is drawn once per frame
+ * at 2× into a buffer and placed from there, on the wallpaper's light or on
+ * black (`D.bg`).
+ */
 let deskBuf = null;
-function deskScene(ctx, w, h, t) {
-  const D = DESK, SS = 2;
-  // The screen, drawn once per frame at 2×: it is the recording, and, blown
-  // up, blurred and dimmed, the background the recording sits on.
-  if (!deskBuf) { deskBuf = document.createElement("canvas"); deskBuf.width = D.W * SS; deskBuf.height = D.H * SS; }
-  const g = deskBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, D.W, D.H);
-  const winOpen = E.out(seg(t, D.winOpen, D.winOpen + .3));
-  winDesktop(g, t, { iconPress: seg(t, D.click, D.click + .08) * (1 - seg(t, D.click + .1, D.click + .3)), winOpen });
+function deskScene(ctx, w, h, t, D) {
+  const SS = 2, { W, H } = MAC;
+  if (!deskBuf) { deskBuf = document.createElement("canvas"); deskBuf.width = W * SS; deskBuf.height = H * SS; }
+  const g = deskBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  macWallpaper(g, W, H);
+  const winOpen = E.out(seg(t, D.winOpen, D.winOpen + .35));
   if (winOpen > 0) {
-    g.save(); g.globalAlpha *= winOpen; const sc = lerp(.96, 1, winOpen); const wx = D.win.x + D.win.w / 2, wy = D.win.y + D.win.h / 2; g.translate(wx, wy); g.scale(sc, sc); g.translate(-wx, -wy);
-    winChat(g, t, {
-      focus: t >= D.fieldClick, text: t >= D.land && t < D.sent ? D.wrote : "",
-      msgs: [
-        { name: "Aarav", color: P.teal, time: "6:13 PM", text: "What's going out on socials today?", at: D.winOpen },
-        { name: "Maya", color: "#B8650C", time: "6:13 PM", text: "The carousel is still in design.", at: D.winOpen },
-        { name: "You", color: P.indigo, time: "6:14 PM", text: D.wrote, at: D.sent },
-      ],
-    });
+    g.save(); g.globalAlpha *= winOpen; const sc = lerp(.97, 1, winOpen); const wx = D.win.x + D.win.w / 2, wy = D.win.y + D.win.h / 2; g.translate(wx, wy); g.scale(sc, sc); g.translate(-wx, -wy);
+    D.paint(g, t, D, { focus: t >= D.fieldClick, text: t >= D.land && t < D.sent ? D.wrote : "", msgs: D.msgs });
     g.restore();
   }
-  // The pill, at the foot of the work area: the desktop app's own frames.
+  macMenuBar(g, D, winOpen > 0 ? D.app : "Finder");
+  macDock(g, D, { bounce: 16 * Math.sin(Math.PI * seg(t, D.click, D.click + .5)), running: winOpen > 0 });
   const tau = t < D.rec ? .4 : Math.min(9.5, 2.2 + (t - D.rec));
-  drawPill(g, tau, 0, D.H - D.bar, D.W);
-  const [cxr, cyr] = deskCursor(t); cursorArrow(g, cxr, cyr);
+  drawPill(g, tau, 0, MAC.dockTop - 4, W);
+  const [cxr, cyr, kind] = deskCursor(t, D); (kind === "ibeam" ? macIbeam : macArrow)(g, cxr, cyr);
 
-  // The background: the wallpaper's own light, covering the frame, softened
-  // and dimmed so the recording is the bright thing.
-  ctx.save(); ctx.filter = "blur(40px)"; ctx.translate(-w * .08, -h * .08); ctx.scale(1.16 * w / D.W, 1.16 * h / D.H); wallpaper(ctx, D.W, D.H); ctx.restore();
-  ctx.fillStyle = "rgba(4,8,20,.42)"; ctx.fillRect(0, 0, w, h);
-  const vg = ctx.createRadialGradient(w / 2, h / 2, h * .22, w / 2, h / 2, h * .78); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.5)"); ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+  if (D.bg === "wallpaper") {
+    ctx.save(); ctx.filter = "blur(40px)"; ctx.translate(-w * .08, -h * .08); ctx.scale(1.16 * w / W, 1.16 * h / H); macWallpaper(ctx, W, H); ctx.restore();
+    ctx.fillStyle = "rgba(4,4,14,.4)"; ctx.fillRect(0, 0, w, h);
+    const vg = ctx.createRadialGradient(w / 2, h / 2, h * .22, w / 2, h / 2, h * .78); vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.5)"); ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+  } else { ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h); }
 
-  // The camera: wide while the app is opened, close to read the box, wide
-  // again while it listens (the thread runs to the screen's edges), close
-  // again as the text lands.
-  const zk = E.io(seg(t, D.winOpen, D.winOpen + 1.1)) * (1 - E.io(seg(t, D.rec, D.rec + .7))) + E.io(seg(t, D.land - .7, D.land));
-  const z = lerp(D.wide, D.close, clamp(zk)), cx = D.win.x + D.win.w / 2, cy = D.H / 2;
-  const rx = w / 2 - cx * z, ry = h / 2 - cy * z, rw = D.W * z, rh = D.H * z, rr0 = 14;
-  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 70; ctx.shadowOffsetY = 24; ctx.fillStyle = "#0B0E16"; rr(ctx, rx, ry, rw, rh, rr0); ctx.fill(); ctx.restore();
+  // The camera: the view never leaves the screen; a screen smaller than the frame is centred.
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z, rw = W * z, rh = H * z, rr0 = 12;
+  if (D.bg === "wallpaper") { ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 70; ctx.shadowOffsetY = 24; ctx.fillStyle = "#0B0E16"; rr(ctx, rx, ry, rw, rh, rr0); ctx.fill(); ctx.restore(); }
   ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, rr0); ctx.clip(); ctx.drawImage(deskBuf, rx, ry, rw, rh); ctx.restore();
   ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, rr0 - .75); ctx.stroke();
-  // Keystrokes and the caption live outside the recording, in the black.
-  const bottom = h / 2 + D.H / 2 * z;
-  keyHud(ctx, "Ctrl", w / 2 - 132, bottom + 70, D.tap1, t); keyHud(ctx, "Ctrl", w / 2 + 12, bottom + 70, D.tap2, t);
-  keyHud(ctx, "Ctrl", w / 2 - 132, bottom + 70, D.stop1, t); keyHud(ctx, "Ctrl", w / 2 + 12, bottom + 70, D.stop2, t);
-  keyHud(ctx, "Enter", w / 2 - 66, bottom + 70, D.enter, t);
-  caption(ctx, D.said, w / 2, bottom + 180, w - 80, D.capFrom, D.capTo, t, 40, D.stop1 + .4);
+  // Keystrokes and the caption live outside the recording, in the band below it.
+  const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250);
+  keyHud(ctx, D.tapKey, w / 2 - 104, hudY, D.tap1, t); keyHud(ctx, D.tapKey, w / 2 + 104, hudY, D.tap2, t);
+  keyHud(ctx, D.tapKey, w / 2 - 104, hudY, D.stop1, t); keyHud(ctx, D.tapKey, w / 2 + 104, hudY, D.stop2, t);
+  keyHud(ctx, D.sendKey, w / 2, hudY, D.enter, t);
+  caption(ctx, D.said, w / 2, hudY + 110, w - 80, D.capFrom, D.capTo, t, 40, D.stop1 + .4);
 }
 
-FILMS.recording = { w: 1080, h: 1920, duration: PHONE.end + DESK.end, v2: true, draw(ctx, t, w, h) {
-  if (t < PHONE.end) phoneScene(ctx, w, h, t);
-  else deskScene(ctx, w, h, t - PHONE.end);
+/** The Mac's keys, the way its keyboard labels them. */
+const MAC_KEYS = { tapKey: ["⌃ control"], sendKey: ["↩ return"], menus: ["File", "Edit", "View", "Go", "Window", "Help"] };
+const DESK_CHAT = Object.assign({
+  app: "Slack", clock: "Fri Oct 17  6:14 PM", bg: "wallpaper", win: MAC.win, paint: slackWin,
+  workspace: "Orbit Labs", channel: "content", channels: ["general", "content", "design", "random"], dms: [["Aarav", P.teal], ["Maya", "#B8650C"]], members: 8,
+  field: [72 + 260 + 20 + 180, MAC.win.y + MAC.win.h - 28 - 110 + 52],
+  click: 1.0, winOpen: 1.2, fieldClick: 2.8, tap1: 3.1, tap2: 3.35, rec: 3.4, capFrom: 3.8, capTo: 7.8, stop1: 7.85, stop2: 8.05, land: 9.1, enter: 9.7, sent: 9.8, end: 11.0,
+  said: "um so i have no content to post i'm out of ideas and all", wrote: "So I have no content to post. I'm out of ideas.",
+  icon(ctx, x, y, s) {
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, s, s, s * .225); ctx.fill(); const cx = x + s / 2, cy = y + s / 2, L = 11, T = 5.5;
+    [["#36C5F0", -8, 0, 1], ["#2EB67D", 8, 0, 1], ["#ECB22E", 0, 8, 0], ["#E01E5A", 0, -8, 0]].forEach(([c, dx, dy, v]) => { ctx.fillStyle = c; if (v) rr(ctx, cx + dx - T / 2, cy - L, T, L * 2, T / 2); else rr(ctx, cx - L, cy + dy - T / 2, L * 2, T, T / 2); ctx.fill(); });
+  },
+}, MAC_KEYS);
+DESK_CHAT.msgs = [
+  { name: "Aarav", color: P.teal, time: "6:13 PM", text: "What's going out on socials today?", at: DESK_CHAT.winOpen },
+  { name: "Maya", color: "#B8650C", time: "6:13 PM", text: "The carousel is still in design.", at: DESK_CHAT.winOpen },
+  { name: "Rohan", color: P.teal, time: "6:14 PM", text: DESK_CHAT.wrote, at: DESK_CHAT.sent },
+];
+DESK_CHAT.cam = [[0, .75, 720, 450], [DESK_CHAT.winOpen + .25, 1.5, 700, 760, 1.0], [DESK_CHAT.rec - .1, .75, 720, 450, .7], [DESK_CHAT.land - .6, 1.5, 700, 760, .8]];
+const DESK_CURSOR = Object.assign({
+  app: "Cursor", clock: "Fri Oct 17  9:41 AM", bg: "black", win: MAC.win, paint: cursorWin, panel: 440,
+  project: "upload-service", file: "upload.ts", file2: "auth.ts", chatTitle: "Retry on upload",
+  tree: [["upload-service", 0, true], ["src", 1, true], ["auth.ts", 2], ["client.ts", 2], ["upload.ts", 2, false, true], ["queue.ts", 2], ["index.ts", 2], ["tests", 1, true], ["upload.test.ts", 2], ["package.json", 1], ["tsconfig.json", 1], ["README.md", 1]],
+  field: [MAC.W - 440 + 14 + 150, MAC.win.y + MAC.win.h - 22 - 14 - 96 + 28],
+  click: 1.0, winOpen: 1.2, fieldClick: 2.8, tap1: 3.1, tap2: 3.35, rec: 3.4, capFrom: 3.8, capTo: 7.8, stop1: 7.85, stop2: 8.05, land: 9.1, enter: 9.7, sent: 9.8, replyFrom: 10.3, replyTo: 12.3, end: 12.9,
+  said: "um add a retry to the upload thing like three attempts with backoff and log every failure", wrote: "Add a retry to the upload: three attempts with exponential backoff. Log each failure.",
+  icon(ctx, x, y, s) {
+    ctx.fillStyle = "#0E0E0E"; rr(ctx, x, y, s, s, s * .225); ctx.fill(); const cx = x + s / 2, cy = y + s / 2, R = 15;
+    const pt = (k) => [cx + R * Math.cos(-Math.PI / 2 + k * Math.PI / 3), cy + R * Math.sin(-Math.PI / 2 + k * Math.PI / 3)];
+    ctx.save(); ctx.lineJoin = "round";
+    ctx.fillStyle = "#E6E6E6"; ctx.beginPath(); ctx.moveTo(...pt(0)); ctx.lineTo(...pt(1)); ctx.lineTo(cx, cy); ctx.lineTo(...pt(5)); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#9A9A9A"; ctx.beginPath(); ctx.moveTo(...pt(1)); ctx.lineTo(...pt(2)); ctx.lineTo(...pt(3)); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#C4C4C4"; ctx.beginPath(); ctx.moveTo(...pt(3)); ctx.lineTo(...pt(4)); ctx.lineTo(...pt(5)); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.2; ctx.beginPath(); for (let k = 0; k < 6; k++) ctx.lineTo(...pt(k)); ctx.closePath(); ctx.stroke(); ctx.restore();
+  },
+}, MAC_KEYS, { menus: ["File", "Edit", "Selection", "View", "Go", "Run", "Terminal", "Window", "Help"] });
+DESK_CURSOR.msgs = [
+  { from: "out", text: DESK_CURSOR.wrote, at: DESK_CURSOR.sent },
+  { from: "in", text: "I'll wrap client.put in a small retry helper in upload.ts: three attempts, with waits of 300 ms, 900 ms and 2.7 s between them, and a console.warn with the status on every failed attempt before the final error is thrown.", at: DESK_CURSOR.replyFrom, to: DESK_CURSOR.replyTo },
+];
+DESK_CURSOR.cam = [[0, .75, 720, 450], [DESK_CURSOR.winOpen + .25, 1.5, 1100, 700, 1.0], [DESK_CURSOR.rec - .1, .75, 720, 450, .7], [DESK_CURSOR.land - .6, 1.6, 1110, 450, .8]];
+
+FILMS.recording = { w: 1080, h: 1920, duration: PHONE_WA.end + DESK_CHAT.end, v2: true, draw(ctx, t, w, h) {
+  if (t < PHONE_WA.end) phoneScene(ctx, w, h, t, PHONE_WA);
+  else deskScene(ctx, w, h, t - PHONE_WA.end, DESK_CHAT);
 } };
+FILMS.recording2 = { w: 1080, h: 1920, duration: PHONE_GPT.end + DESK_CURSOR.end, v2: true, draw(ctx, t, w, h) {
+  if (t < PHONE_GPT.end) phoneScene(ctx, w, h, t, PHONE_GPT);
+  else deskScene(ctx, w, h, t - PHONE_GPT.end, DESK_CURSOR);
+} };
+// The laptop halves on their own: a Mac, Slack or Cursor, the pill, nothing else.
+FILMS.deskSlack = { w: 1080, h: 1920, duration: DESK_CHAT.end, v2: true, draw(ctx, t, w, h) { deskScene(ctx, w, h, t, DESK_CHAT); } };
+FILMS.deskCursor = { w: 1080, h: 1920, duration: DESK_CURSOR.end, v2: true, draw(ctx, t, w, h) { deskScene(ctx, w, h, t, DESK_CURSOR); } };
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
 const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
