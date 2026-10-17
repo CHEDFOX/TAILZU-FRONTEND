@@ -2347,7 +2347,7 @@ function deskScene(ctx, w, h, t, D) {
 /** The Mac's keys, the way its keyboard labels them. */
 const MAC_KEYS = { tapKey: ["⌃ control"], sendKey: ["↩ return"], menus: ["File", "Edit", "View", "Go", "Window", "Help"] };
 const DESK_CHAT = Object.assign({
-  app: "Slack", clock: "Fri Oct 17  6:14 PM", bg: "wallpaper", win: MAC.win, paint: slackWin,
+  app: "Slack", clock: "Fri Oct 17  6:14 PM", bg: "black", win: MAC.win, paint: slackWin,
   workspace: "Orbit Labs", channel: "content", channels: ["general", "content", "design", "random"], dms: [["Aarav", P.teal], ["Maya", "#B8650C"]], members: 8,
   field: [72 + 260 + 20 + 180, MAC.win.y + MAC.win.h - 28 - 110 + 52],
   click: 1.0, winOpen: 1.2, fieldClick: 2.8, tap1: 3.1, tap2: 3.35, rec: 3.4, capFrom: 3.8, capTo: 7.8, stop1: 7.85, stop2: 8.05, land: 9.1, enter: 9.7, sent: 9.8, end: 11.0,
@@ -2412,6 +2412,90 @@ function lessonClock(L, T) {
 }
 /** Scene time → film time, for the sounds. */
 function filmTime(L, t) { let off = 0; for (const f of L.freezes) { if (f.at < t) off += f.hold; else break; } return t + off; }
+// ---- the lesson's words: an annotation, not a caption ----------------------------------
+/** A headline's markup: *italic* for the stressed word, [⌘] for a key. A
+ *  token that follows the one before with no space (a full stop after a
+ *  key) stays glued to it. */
+function titleTokens(s) {
+  const toks = [], re = /\[([^\]]+)\]|\*([^*]+)\*|([^\s\[*]+)/g; let m;
+  while ((m = re.exec(s))) {
+    const glue = m.index > 0 && !/\s/.test(s[m.index - 1]);
+    if (m[1]) toks.push({ kind: "key", text: m[1], glue });
+    else if (m[2]) m[2].split(/\s+/).forEach((w, i) => toks.push({ kind: "word", text: w, italic: true, glue: i === 0 && glue }));
+    else toks.push({ kind: "word", text: m[3], glue });
+  }
+  return toks;
+}
+const titleFont = (size, italic) => italic ? `italic 400 ${size}px ${SERIF}` : `300 ${size}px ${SERIF}`;
+function tokWidth(ctx, tk, size) {
+  if (tk.kind === "key") { ctx.font = sf(size * .5, 500); return ctx.measureText(tk.text).width + size * .52; }
+  ctx.font = titleFont(size, tk.italic); return ctx.measureText(tk.text).width;
+}
+/** The headline set in lines no wider than `maxW`: one line at the largest
+ *  size that takes it, else two balanced lines (no word left alone on the
+ *  second), else the smallest size. */
+function layoutTitle(ctx, s, maxW) {
+  const toks = titleTokens(s); let balanced = null, last = null;
+  for (const size of [84, 76, 70, 64, 58]) {
+    const space = size * .26, lines = [[]]; let x = 0;
+    toks.forEach((tk) => {
+      const w = tokWidth(ctx, tk, size), gap = x > 0 && !tk.glue ? space : 0; let line = lines[lines.length - 1];
+      if (x > 0 && x + gap + w > maxW) { lines.push(line = []); x = 0; line.push(Object.assign({}, tk, { w, x: 0 })); x = w; return; }
+      line.push(Object.assign({}, tk, { w, x: x + gap })); x += gap + w;
+    });
+    const width = (l) => l.length ? l[l.length - 1].x + l[l.length - 1].w : 0;
+    last = { size, lines, lineH: size * 1.06 };
+    if (lines.length === 1) return last;
+    if (lines.length === 2 && !balanced && width(lines[1]) >= .45 * width(lines[0])) balanced = last;
+  }
+  return balanced || last;
+}
+/** A key, drawn as the cap on the keyboard: a rounded square with a lip. */
+function keycap(ctx, label, x, baseline, w, size, color) {
+  const h = size * .86, y = baseline - size * .7, r = size * .17;
+  ctx.save(); ctx.fillStyle = rgba(color, .07); rr(ctx, x + 1, y, w - 2, h, r); ctx.fill();
+  ctx.strokeStyle = rgba(color, .9); ctx.lineWidth = 2; rr(ctx, x + 1, y, w - 2, h, r); ctx.stroke();
+  ctx.fillStyle = rgba(color, .9); rr(ctx, x + r, y + h - 7, w - 2 * r, 3, 1.5); ctx.fill();
+  text(ctx, label, x + w / 2, baseline - size * .24, sf(size * .5, 500), color, 1, "center"); ctx.restore();
+}
+function drawTitleLine(ctx, line, x0, y, size, color) {
+  line.forEach((tk) => { if (tk.kind === "key") keycap(ctx, tk.text, x0 + tk.x, y, tk.w, size, color); else text(ctx, tk.text, x0 + tk.x, y, titleFont(size, tk.italic), color); });
+}
+/** The annotation measured: its headline, its body, its height. */
+function measureAnnotation(ctx, f, w) {
+  const x0 = 96, maxW = w - 2 * x0, T = layoutTitle(ctx, f.title, maxW), B = layout(ctx, f.body, `400 32px ${SANS}`, maxW - 40, 42);
+  const blockH = 36 + T.size * .92 + (T.lines.length - 1) * T.lineH + 22 + 30 + (B.lines.length - 1) * 42 + 12;
+  return { x0, T, B, blockH };
+}
+/**
+ * The annotation: four ticks (which lesson this is), a mono eyebrow, the
+ * headline, a line of body; and a thread from the ringed thing to it, drawn
+ * as it appears. `fr` is the ring (frame coords, with its pad), `up` says
+ * the words go above the ring, `top` where the block starts.
+ */
+function annotate(ctx, w, h, f, idx, count, A, fr, up, top, held, hold) {
+  const { x0, T, B, blockH } = A, pale = P.pale;
+  const fadeIn = E.out(seg(held, 0, .4)), fadeOut = 1 - E.in(seg(held, hold - .3, hold)), rise = (1 - fadeIn) * 16;
+  // The thread: from the ring's edge, round the corner, to the words.
+  if (fr) {
+    const cx = clamp(fr.x + fr.w / 2, 60, w - 60), sy = up ? fr.y : fr.y + fr.h, ey = up ? top + blockH + 44 : top - 44, tickTo = up ? top + blockH + 18 : top - 18;
+    const pts = [[cx, sy], [cx, ey], [x0 + 2, ey], [x0 + 2, tickTo]];
+    let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const k = E.io(seg(held, .05, .55));
+    ctx.save(); ctx.globalAlpha = fadeOut; ctx.strokeStyle = rgba(pale, .7); ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.setLineDash([L * k, L]); ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = pale; ctx.beginPath(); ctx.arc(cx, sy, 5 * E.out(seg(held, 0, .2)), 0, TAU); ctx.fill(); ctx.restore();
+  }
+  ctx.save(); ctx.globalAlpha = fadeIn * fadeOut; ctx.translate(0, rise);
+  for (let i = 0; i < count; i++) { ctx.fillStyle = rgba(pale, i === idx ? .95 : .22); rr(ctx, x0 + i * 38, top, 28, 3, 1.5); ctx.fill(); }
+  label(ctx, `${String(idx + 1).padStart(2, "0")} — ${f.tag}`, x0, top + 32, 18, rgba(pale, .55));
+  let y = top + 36 + T.size * .92;
+  T.lines.forEach((ln, i) => { ctx.save(); ctx.globalAlpha *= E.out(seg(held, .08 + i * .08, .48 + i * .08)); drawTitleLine(ctx, ln, x0, y, T.size, pale); ctx.restore(); if (i < T.lines.length - 1) y += T.lineH; });
+  y += 22 + 30;
+  ctx.globalAlpha *= E.out(seg(held, .25, .65));
+  B.lines.forEach((ln, i) => text(ctx, ln, x0, y + i * 42, B.font, rgba(pale, .72)));
+  ctx.restore();
+}
 let lessonBuf = null;
 function lessonDraw(ctx, w, h, T, L, sceneFn) {
   const { t, f, k } = lessonClock(L, T);
@@ -2423,28 +2507,27 @@ function lessonDraw(ctx, w, h, T, L, sceneFn) {
   const focus = typeof f.focus === "function" ? f.focus() : f.focus;
   let fr = null;
   if (focus) { const [x, y, fw, fh] = focus; fr = { x: cam.rx + x * cam.z, y: cam.ry + y * cam.z, w: fw * cam.z, h: fh * cam.z }; }
-  // The frozen frame, pushed in a little over the hold, about what matters in it.
-  const px = fr ? fr.x + fr.w / 2 : w / 2, py = fr ? fr.y + fr.h / 2 : h / 2, push = 1 + .05 * E.io(k);
+  // The frozen frame, pushed in a little over the hold about what matters in it,
+  // and moved aside when the words need more room than the band has.
+  const px = fr ? fr.x + fr.w / 2 : w / 2, py0 = fr ? fr.y + fr.h / 2 : h / 2, push = 1 + .05 * E.io(k);
+  const up = !fr || py0 > h / 2, A = measureAnnotation(ctx, f, w), need = A.blockH + 150;
+  const recTop0 = (cam.ry - py0) * push + py0, recBot0 = (cam.ry + cam.rh - py0) * push + py0;
+  const room = up ? recTop0 : h - recBot0, shift = Math.max(0, need - room) * E.out(seg(held, 0, .5)) * (up ? 1 : -1);
+  const py = py0 + shift;
   ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
-  ctx.save(); ctx.translate(px, py); ctx.scale(push, push); ctx.translate(-px, -py); ctx.drawImage(lessonBuf, 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(0, shift); ctx.translate(px, py0); ctx.scale(push, push); ctx.translate(-px, -py0); ctx.drawImage(lessonBuf, 0, 0); ctx.restore();
   if (fr) fr = { x: px - fr.w * push / 2, y: py - fr.h * push / 2, w: fr.w * push, h: fr.h * push };
   const pad = 14;
   ctx.save(); ctx.globalAlpha = .58 * fade; ctx.fillStyle = "#000000"; ctx.beginPath(); ctx.rect(0, 0, w, h);
   if (fr) ctx.roundRect(fr.x - pad, fr.y - pad, fr.w + pad * 2, fr.h + pad * 2, 14);
   ctx.fill("evenodd"); ctx.restore();
-  if (fr) { ctx.save(); ctx.globalAlpha = fade; ctx.shadowColor = rgba(P.pale, .55); ctx.shadowBlur = 28; ctx.strokeStyle = P.pale; ctx.lineWidth = 3; rr(ctx, fr.x - pad, fr.y - pad, fr.w + pad * 2, fr.h + pad * 2, 14); ctx.stroke(); ctx.restore(); }
+  if (fr) { ctx.save(); ctx.globalAlpha = fade; ctx.shadowColor = rgba(P.pale, .45); ctx.shadowBlur = 22; ctx.strokeStyle = P.pale; ctx.lineWidth = 2.5; rr(ctx, fr.x - pad, fr.y - pad, fr.w + pad * 2, fr.h + pad * 2, 14); ctx.stroke(); ctx.restore(); }
   // The words, in the band away from what is ringed (or above, when nothing is).
-  const recTop = (cam.ry - py) * push + py, recBot = (cam.ry + cam.rh - py) * push + py;
-  const up = !fr || py > h / 2;
+  const recTop = recTop0 + shift, recBot = recBot0 + shift;
   const bandTop = up ? 0 : Math.min(h, recBot), bandBot = up ? Math.max(0, recTop) : h;
-  const lay = layout(ctx, f.body, `400 34px ${SANS}`, w - 200, 44), blockH = 62 + 16 + lay.lines.length * 44;
-  let y0 = (bandTop + bandBot) / 2 - blockH / 2 + 56;
-  if (bandBot - bandTop < blockH + 40) y0 = up ? 112 : h - blockH - 28 + 56;
-  const rise = (1 - E.out(seg(held, 0, .35))) * 18;
-  ctx.save(); ctx.globalAlpha = fade;
-  text(ctx, f.title, w / 2, y0 + rise, `300 62px ${SERIF}`, P.pale, 1, "center");
-  lay.lines.forEach((ln, i) => text(ctx, ln, w / 2, y0 + 56 + i * 44 + rise, lay.font, rgba(P.pale, .8), 1, "center"));
-  ctx.restore();
+  const top = Math.max(72, Math.min(h - A.blockH - 60, (bandTop + bandBot) / 2 - A.blockH / 2));
+  const ring = fr ? { x: fr.x - pad, y: fr.y - pad, w: fr.w + pad * 2, h: fr.h + pad * 2 } : null;
+  annotate(ctx, w, h, f, L.freezes.indexOf(f), L.freezes.length, A, ring, up, top, held, f.hold);
 }
 /** A film of one scene with its lessons; `cuesFn` lists the sounds, in scene time. */
 function lessonFilm(D, L, sceneFn, cuesFn) {
@@ -2472,17 +2555,17 @@ function dictationCues(D) {
 const cursorBox = [MAC.W - 440 + 14, MAC.win.y + MAC.win.h - 22 - 14 - 96, 440 - 28, 96];
 const threadStrip = [0, MAC.dockTop - 58, MAC.W, 56];
 const LESSON_CURSOR = { freezes: [
-  { at: DESK_CURSOR.fieldClick + .35, hold: 2.4, title: "Works in any text box", body: "Cursor, Slack, Mail, the browser. If you can type there, you can talk there.", focus: cursorBox },
-  { at: DESK_CURSOR.rec + .7, hold: 2.4, title: "Double-tap control", body: "The thread across the foot of the screen means Tailzu is listening.", focus: threadStrip },
-  { at: DESK_CURSOR.land + .45, hold: 2.6, title: "Pasted, not typed", body: "Your ums and half-thoughts come back as one clean sentence, right where the cursor was.", focus: cursorBox },
-  { at: DESK_CURSOR.replyTo + .25, hold: 2.6, title: "Prompt by voice", body: "Say the whole idea in one breath. Cursor gets a clear brief.", focus: [MAC.W - 440 + 14, MAC.win.y + 38 + 44, 440 - 28, 300] },
+  { at: DESK_CURSOR.fieldClick + .35, hold: 2.8, tag: "Any box", title: "Works in *any* text box.", body: "Cursor, Slack, Mail, the browser. If a cursor blinks there, you can talk there.", focus: cursorBox },
+  { at: DESK_CURSOR.rec + .7, hold: 2.8, tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
+  { at: DESK_CURSOR.land + .45, hold: 2.8, tag: "The landing", title: "Pasted. *Not* typed.", body: "Said with the ums and half-thoughts. Landed as one clean sentence, where the cursor was.", focus: cursorBox },
+  { at: DESK_CURSOR.replyTo + .25, hold: 2.8, tag: "The brief", title: "A whole idea, *one breath*.", body: "Say it the way you would to a colleague. Cursor gets a brief it can act on.", focus: [MAC.W - 440 + 14, MAC.win.y + 38 + 44, 440 - 28, 300] },
 ] };
 const slackBox = [72 + 260 + 20, MAC.win.y + MAC.win.h - 28 - 110, MAC.W - 332 - 40, 110];
 const LESSON_SLACK = { freezes: [
-  { at: DESK_CHAT.fieldClick + .35, hold: 2.4, title: "Works in any text box", body: "Slack, WhatsApp, Mail, Notion. If you can type there, you can talk there.", focus: slackBox },
-  { at: DESK_CHAT.rec + .7, hold: 2.4, title: "Double-tap control", body: "The thread across the foot of the screen means Tailzu is listening. Two taps again to stop.", focus: threadStrip },
-  { at: DESK_CHAT.land + .45, hold: 2.6, title: "Clean, in your words", body: "Filler gone, punctuation in, the meaning untouched.", focus: slackBox },
-  { at: DESK_CHAT.sent + .9, hold: 2.4, title: "Then just send", body: "No app switch, no copy and paste. Say it, send it.", focus: [344, 25 + 44 + 118 + 34 + 120 - 6, 720, 54] },
+  { at: DESK_CHAT.fieldClick + .35, hold: 2.8, tag: "Any box", title: "Works in *any* text box.", body: "Slack, WhatsApp, Mail, Notion. If a cursor blinks there, you can talk there.", focus: slackBox },
+  { at: DESK_CHAT.rec + .7, hold: 2.8, tag: "The hotkey", title: "Tap [⌃ control] twice.", body: "The thread across the foot of the screen means Tailzu is listening. Twice again to stop.", focus: threadStrip },
+  { at: DESK_CHAT.land + .45, hold: 2.8, tag: "The landing", title: "Clean, and still *yours*.", body: "Filler gone, punctuation in. The meaning untouched, the voice still you.", focus: slackBox },
+  { at: DESK_CHAT.sent + .9, hold: 2.8, tag: "The send", title: "Then just hit [↩ return].", body: "No app switch, no copy and paste. Said, landed, sent.", focus: [344, 25 + 44 + 118 + 34 + 120 - 6, 720, 54] },
 ] };
 FILMS.lessonCursor = lessonFilm(DESK_CURSOR, LESSON_CURSOR, deskScene, dictationCues);
 FILMS.lessonSlack = lessonFilm(DESK_CHAT, LESSON_SLACK, deskScene, dictationCues);
@@ -2675,10 +2758,10 @@ DESK_NOTES.lines = [
 ];
 DESK_NOTES.cam = [[0, .75, 720, 450], [DESK_NOTES.noteAt + .1, 1.5, 1080, 450, .7], [4.6, .75, 720, 450, .7], [DESK_NOTES.key2 - .2, 1.5, 1080, 450, .7], [DESK_NOTES.appOpen + .3, 1.35, 650, 450, .9]];
 const LESSON_NOTES = { freezes: [
-  { at: DESK_NOTES.noteAt + 1.0, hold: 2.6, title: "In a meeting? Press ⌘ ⌥ N", body: "Tailzu starts taking notes. It hears you and everyone on the call.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
-  { at: 8.4, hold: 2.6, title: "Nothing is typed anywhere", body: "The clock in the menu bar shows it's listening. Stay in the conversation.", focus: [1030, 1, 128, 23] },
-  { at: DESK_NOTES.notif2 + .9, hold: 2.6, title: "Press ⌘ ⌥ N again", body: "The recording becomes a note: a title, one paragraph, and what mattered.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
-  { at: DESK_NOTES.appOpen + 1.3, hold: 3.0, title: "What mattered, in their words", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
+  { at: DESK_NOTES.noteAt + 1.0, hold: 3.0, tag: "The meeting", title: "In a meeting? Press [⌘] [⌥] [N].", body: "Tailzu starts a note. It hears you and everyone on the call.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: 8.4, hold: 2.8, tag: "The clock", title: "Nothing is typed *anywhere*.", body: "The clock beside the mark is the only sign. Stay in the conversation.", focus: [1030, 1, 128, 23] },
+  { at: DESK_NOTES.notif2 + .9, hold: 3.0, tag: "The stop", title: "Press [⌘] [⌥] [N] again.", body: "The recording becomes a note: a title, one paragraph, and what mattered.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: DESK_NOTES.appOpen + 1.3, hold: 3.2, tag: "The note", title: "What mattered, *in their words*.", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
 ] };
 FILMS.lessonNotes = lessonFilm(DESK_NOTES, LESSON_NOTES, notesScene, notesCues);
 
