@@ -1372,17 +1372,17 @@ POSTERS.onekey = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
 // ---- WIRING ------------------------------------------------------------------------
 
 // =====================================================================================
-// PHONE, THEN DESK. The same keyboard on both screens, in the apps people
-// already live in: Priya on WhatsApp, on the phone; the team on Slack, at the
-// desk. Two sentences the site already shows (SITE_UI.cases): Hinglish kept as
-// Hinglish on the phone, filler dropped and a question mark found at the desk.
+// A SCREEN RECORDING. No hook, no card, no brand. A phone, then a laptop, each
+// used the way a person uses it: open the app, tap the field, say it, send it.
 //
-// THE DESK'S PILL IS THE DESKTOP APP'S OWN. capture-pill.mjs runs
-// TAILZU-DESKTOP/pill.html's scripted demo on a virtual clock and keeps every
-// frame (pill/f0000.png…, pill/meta.js); the film maps its time onto the
-// demo's clock and draws those frames at the foot of the laptop's screen. So
-// the hint, the halves, the thread and the click-shut are pill.js's, not a
-// drawing of them. Without a capture the film still renders, pill-less.
+// The phone's keyboard is Tailzu's as the server ships it (targets/keyboard/
+// default-config.json): the tools row with the mic key and the ZU pill, the
+// 55% keys with their hard 1pt shadow, the rows and gaps, the flash across
+// the keys as the text lands. The mic key's mark and its motion program are
+// the server's own (MIC_KEY, as the site carries them), run through a canvas
+// port of the renderer the site and the phones share. The pill on the laptop
+// is the desktop app's own frames (capture-pill.mjs). The one thing added is
+// a caption of what is being said, because the film is silent.
 // =====================================================================================
 const PILL = { frames: [], meta: window.TZ_PILL_META || null };
 function loadPill() {
@@ -1398,181 +1398,602 @@ function drawPill(ctx, tau, x, bottom, sw) {
   const hh = sw * m.h / m.w; ctx.drawImage(im, x, bottom - hh, sw, hh);
 }
 
-const PHONE_SAID = { said: "the deploy is done but abhi testing baaki hai", wrote: "The deploy is done, but abhi testing baaki hai." };
-const DESK_SAID = { said: "um so like can we push the call to four", wrote: "Can we push the call to four?" };
-const DESK = { vw: 720, vh: 450, Z: 1.5, sb: 150 };
-const CHIPS = ["Zu", "Professional", "Friendly", "Shakespeare", "Pirate", "Noir"];
 
-/**
- * The laptop's deck below the screen: a dark keyboard and the trackpad, so the
- * laptop is an object the way the phone is, and the key that opens the pill
- * is a key on it. `press` is the left Ctrl key, pressed 0..1.
- */
-const DECK_ROWS = [
-  [["`", 1], ["1", 1], ["2", 1], ["3", 1], ["4", 1], ["5", 1], ["6", 1], ["7", 1], ["8", 1], ["9", 1], ["0", 1], ["-", 1], ["=", 1], ["⌫", 2]],
-  [["Tab", 1.5], ["Q", 1], ["W", 1], ["E", 1], ["R", 1], ["T", 1], ["Y", 1], ["U", 1], ["I", 1], ["O", 1], ["P", 1], ["[", 1], ["]", 1], ["\\", 1.5]],
-  [["Caps", 1.8], ["A", 1], ["S", 1], ["D", 1], ["F", 1], ["G", 1], ["H", 1], ["J", 1], ["K", 1], ["L", 1], [";", 1], ["'", 1], ["Enter", 2.2]],
-  [["Shift", 2.4], ["Z", 1], ["X", 1], ["C", 1], ["V", 1], ["B", 1], ["N", 1], ["M", 1], [",", 1], [".", 1], ["/", 1], ["Shift", 2.6]],
-  [["Ctrl", 1.4], ["Fn", 1], ["⊞", 1], ["Alt", 1.2], ["", 5.8], ["Alt", 1.2], ["Ctrl", 1.4], ["◂", 1], ["▸", 1]],
-];
-function laptopDeck(ctx, x0, top, W, H, press) {
-  const g = ctx.createLinearGradient(0, top, 0, top + H); g.addColorStop(0, "#2B2723"); g.addColorStop(1, "#171412");
-  ctx.fillStyle = g; ctx.fillRect(x0, top, W, H);
-  ctx.fillStyle = "rgba(255,255,255,.09)"; ctx.fillRect(x0, top, W, 1.5);
-  const kw = W * .93, kx = x0 + (W - kw) / 2, gap = kw * .008, u = (kw - 14 * gap) / 15, kh = u * .92, pitch = kh + gap;
-  let y = top + W * .05;
-  DECK_ROWS.forEach((row, ri) => {
-    let x = kx;
-    row.forEach(([lab, units], ki) => {
-      const w = u * units + gap * (units - 1), k = ri === 4 && ki === 0 ? press : 0;
-      ctx.save(); ctx.translate(0, k * 3);
-      ctx.fillStyle = "rgba(0,0,0,.35)"; rr(ctx, x, y + 3, w, kh, 7); ctx.fill();
-      ctx.fillStyle = mix("#1E1A17", "#4A423B", k); rr(ctx, x, y, w, kh, 7); ctx.fill();
-      const hl = ctx.createLinearGradient(0, y, 0, y + kh * .5); hl.addColorStop(0, `rgba(255,255,255,${.07 + .1 * k})`); hl.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = hl; rr(ctx, x, y, w, kh * .5, 7); ctx.fill();
-      if (lab) {
-        const small = lab.length > 1 && !/^[⌫⊞◂▸]$/.test(lab);
-        text(ctx, lab, small ? x + u * .14 : x + w / 2, small ? y + kh * .68 : y + kh * .66, f(small ? kh * .26 : kh * .36, SANS, 500), rgba(P.pale, .55 + .45 * k), 1, small ? "left" : "center");
+const SYS = '"Inter", -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif';
+const sf = (px, w = 400) => `${w} ${px}px ${SYS}`;
+
+/** The mic key the server sends: its mark, its program, its inset. */
+const MIC_KEY = { "mark": {"viewBox":[170,228,680,512],"fit":"circle","tint":true,"shapes":[{"id":"line1","kind":"line","x1":346,"y1":402,"x2":270,"y2":598,"width":9,"cap":"round","color":"#E9CBA2"},{"id":"link","kind":"bars","x1":444,"y1":394,"x2":554,"y2":486,"thick":6,"heights":[28,36,41,46,43,34,28],"swell":{"thick":1.3,"height":1.9},"color":"#E8A23C"},{"id":"line2","kind":"line","x1":668,"y1":478,"x2":828,"y2":243,"width":9,"cap":"round","color":"#C77A3A"},{"id":"dot","kind":"circle","cx":828,"cy":243,"r":11,"color":"#B06240"},{"id":"a","kind":"rect","x":308,"y":269,"w":132,"h":132,"rx":28,"color":"#F4F1EA"},{"id":"b","kind":"rect","x":558,"y":478,"w":132,"h":132,"rx":28,"color":"#F4F1EA"},{"id":"c","kind":"rect","x":178,"y":598,"w":132,"h":132,"rx":28,"color":"#F4F1EA"}]}, "program": {"version": 1, "fps": {"idle": 24, "rec": 60}, "colors": {"signal": "#F4F1EA"}, "vars": {"period": 3.6, "n": 6, "breathe": 4.2, "bscale": 1.06, "out": 1.9, "spin": 40, "arc": 0.22, "shrink": 0.45, "gather": 0.05, "stagger": 0.07, "bspeed": 12, "bbounce": 0.6, "bturb": 0.14, "btumble": 1, "bstagger": 0.05, "lift": 2.8, "wait": 0.25, "krad": 1.636, "ring": 0.72, "nt": 42, "tick": 0.05, "swell": 0.15, "sweep": 1.1, "turn": 0.12, "voice": 0.75, "bloom": 0.35, "breath": 0.035}, "funcs": {"turbs": {"args": [], "expr": "rec ? 0 : bturb*R*abs(p)*(0.6*sin(t*11 + k*2.1) + 0.4*sin(t*17 + k*0.7))"}, "turbr": {"args": [], "expr": "rec ? 0 : bturb*R*0.5*abs(p)*sin(t*13 + k*1.3)"}, "side": {"args": [], "expr": "arc*R*sin(pi*clamp(p, 0, 1))*sign + turbs()"}, "along": {"args": [], "expr": "out*R*p + turbr()"}, "ang": {"args": ["k"], "expr": "tau*k/nt + turn*t"}, "rr": {"args": [], "expr": "krad*R*ring*(bloom + (1 - bloom)*q)*(1 + breath*lv)/lift"}, "cr": {"args": ["k"], "expr": "0.6*crest(ang(k)*2 - sweep*t) + 0.4*crest(ang(k)*3 + sweep*0.7*t + 1)"}, "th": {"args": ["k"], "expr": "(tick*krad*R*(0.5 + 0.5*height(k % cols)/46) + swell*krad*R*cr(k)*(1 - voice + voice*lv))/lift*q"}, "tx": {"args": ["k", "s"], "expr": "(x1 + x2)/2 + (lx*cos(ang(k)) + nx*sin(ang(k)))*(rr() + th(k)*s)"}, "ty": {"args": ["k", "s"], "expr": "(y1 + y2)/2 + (ly*cos(ang(k)) + ny*sin(ang(k)))*(rr() + th(k)*s)"}}, "springs": {"p": {"scope": "shape", "rest": 0, "target": "rec ? (since < k*stagger ? 0 : (since < k*stagger + 0.1 ? -gather : 1)) : (since >= (n - 1 - k)*bstagger + 0.12 ? 0 : prev)", "rate": "rec ? 6.5 : bspeed", "damp": "rec ? 1 : bbounce"}, "q": {"scope": "global", "rest": 0, "target": "rec ? (since >= wait ? 1 : 0) : 0", "rate": "7", "damp": "1"}, "lv": {"scope": "global", "rest": 0, "target": "rec ? level : 0", "rate": "16", "damp": "1"}}, "mark": {"scale": "1 + (bscale - 1)*(0.5 - 0.5*cos(tau*t/breathe))"}, "shapes": {"a": {"vars": {"k": 0, "sign": 1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))", "mix": "rec ? 0 : ramp(t % period, 0.92, 0.42)"}, "b": {"vars": {"k": 1, "sign": -1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))", "mix": "rec ? 0 : ramp(t % period, 2.33, 0.42)"}, "line1": {"vars": {"k": 2, "sign": 1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))"}, "line2": {"vars": {"k": 3, "sign": -1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))"}, "c": {"vars": {"k": 4, "sign": 1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))", "mix": "rec ? 0 : ramp(t % period, 0.33, 0.42)"}, "dot": {"vars": {"k": 5, "sign": -1}, "dx": "dir.x*along() - dir.y*side()", "dy": "dir.y*along() + dir.x*side()", "rot": "(spin + (rec ? 0 : btumble*360))*p*sign", "scale": "1 - shrink*clamp(p, 0, 1)", "opacity": "1 - smooth(0.55, 1, clamp(p, 0, 1))"}, "link": {"dx": "(cx - home.x)*q", "dy": "(cy - home.y)*q", "rot": "(180 - atan2(y2 - y1, x2 - x1)*180/pi)*q", "scale": "1 + (lift - 1)*q", "rise": "max(q*clamp(0.2*cr(i*6) + 1.1*lv*(0.6 + 0.4*sin(t*9 + i*1.7)), 0, 1), run(f, t % period, 1.33, 0.95, 0.3)*(1 - q))", "lean": "0"}}, "emit": [{"attach": "link", "kind": "line", "repeat": ["nt"], "as": ["k"], "x1": "tx(k, -0.3)", "y1": "ty(k, -0.3)", "x2": "tx(k, 0.7)", "y2": "ty(k, 0.7)", "opacity": "q*(0.42 + 0.5*cr(k)*(0.5 + 0.5*lv))", "width": "thick*1.5", "color": "ink"}], "settle": {"eps": 0.002, "timeout": 1.4}}, "inset": 7 };
+
+// ---- the motion language, as the site and the phones run it -----------------------
+const MicLang = (function () {
+  var TOK = /(\d+\.?\d*(?:[eE][+-]?\d+)?)|([A-Za-z_][A-Za-z0-9_.]*)|(\|\||&&|==|!=|<=|>=|[-+*\/%^<>!?:(),])/y;
+  function tokenize(src) {
+    var out = [], i = 0;
+    while (i < src.length) {
+      if (/\s/.test(src[i])) { i++; continue; }
+      TOK.lastIndex = i; var m = TOK.exec(src);
+      if (!m || m.index !== i) throw new Error("bad character at " + i);
+      i = TOK.lastIndex;
+      out.push(m[1] != null ? { t: "n", v: parseFloat(m[1]) } : m[2] != null ? { t: "id", v: m[2] } : { t: "op", v: m[3] });
+    }
+    return out;
+  }
+  function parse(src) {
+    var toks = tokenize(String(src)), pos = 0;
+    function peek() { return toks[pos]; }
+    function isOp(v) { var k = toks[pos]; return k && k.t === "op" && k.v === v; }
+    function take(v) { if (!isOp(v)) throw new Error("expected " + v); pos++; }
+    function ternary() { var c = or(); if (isOp("?")) { pos++; var a = ternary(); take(":"); var b = ternary(); return ["?", c, a, b]; } return c; }
+    function or() { var l = and(); while (isOp("||")) { pos++; l = ["||", l, and()]; } return l; }
+    function and() { var l = eq(); while (isOp("&&")) { pos++; l = ["&&", l, eq()]; } return l; }
+    function eq() { var l = rel(); while (isOp("==") || isOp("!=")) { var o = toks[pos++].v; l = [o, l, rel()]; } return l; }
+    function rel() { var l = add(); while (isOp("<") || isOp("<=") || isOp(">") || isOp(">=")) { var o = toks[pos++].v; l = [o, l, add()]; } return l; }
+    function add() { var l = mul(); while (isOp("+") || isOp("-")) { var o = toks[pos++].v; l = [o, l, mul()]; } return l; }
+    function mul() { var l = unary(); while (isOp("*") || isOp("/") || isOp("%")) { var o = toks[pos++].v; l = [o, l, unary()]; } return l; }
+    function unary() { if (isOp("-")) { pos++; return ["neg", unary()]; } if (isOp("!")) { pos++; return ["not", unary()]; } return power(); }
+    function power() { var b = primary(); if (isOp("^")) { pos++; return ["^", b, unary()]; } return b; }
+    function primary() {
+      var k = peek(); if (!k) throw new Error("unexpected end");
+      if (k.t === "n") { pos++; return ["n", k.v]; }
+      if (k.t === "id") { pos++; if (isOp("(")) { pos++; var args = []; if (!isOp(")")) { args.push(ternary()); while (isOp(",")) { pos++; args.push(ternary()); } } take(")"); return ["call", k.v, args]; } return ["v", k.v]; }
+      if (isOp("(")) { pos++; var e = ternary(); take(")"); return e; }
+      throw new Error("unexpected " + k.v);
+    }
+    var ast = ternary();
+    if (pos < toks.length) throw new Error("trailing " + toks[pos].v);
+    return ast;
+  }
+  var B = {
+    sin: Math.sin, cos: Math.cos, tan: Math.tan, abs: Math.abs, sqrt: function (x) { return x < 0 ? 0 : Math.sqrt(x); }, floor: Math.floor, ceil: Math.ceil, round: Math.round, exp: Math.exp,
+    log: function (x) { return x > 0 ? Math.log(x) : 0; }, atan2: Math.atan2, min: Math.min, max: Math.max, pow: function (a, b) { return a < 0 && b !== Math.floor(b) ? 0 : Math.pow(a, b); }, hypot: Math.hypot,
+    clamp: function (x, a, b) { return x < a ? a : x > b ? b : x; },
+    smooth: function (a, b, x) { var u = b === a ? (x >= b ? 1 : 0) : Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); },
+    lerp: function (a, b, u) { return a + (b - a) * u; },
+    crest: function (x) { var s = Math.sin(x); return s > 0 ? Math.pow(s, 1.6) : 0; },
+    ramp: function (x, at, len, edge) { edge = edge || 0.06; return x < at ? 0 : x < at + edge ? (x - at) / edge : x < at + len ? 1 : x < at + len + edge ? 1 - (x - at - len) / edge : 0; },
+    run: function (f, x, at, dur, width) { var u = (x - at) / dur; if (u < 0 || u > 1) return 0; var half = width / 2, c = u * (1 + width) - half, q = Math.abs(f - c) / half; return q >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * q); },
+    noise: function (x) { return Math.sin(x * 1.7) * Math.sin(x * 0.61 + 2.1); },
+  };
+  function fin(x) { return typeof x === "number" && isFinite(x) ? x : 0; }
+  function ev(n, ctx, funcs, depth) {
+    var a, b;
+    switch (n[0]) {
+      case "n": return n[1];
+      case "v": { var v = ctx[n[1]]; return typeof v === "number" && isFinite(v) ? v : 0; }
+      case "neg": return -ev(n[1], ctx, funcs, depth);
+      case "not": return ev(n[1], ctx, funcs, depth) ? 0 : 1;
+      case "?": return ev(n[1], ctx, funcs, depth) ? ev(n[2], ctx, funcs, depth) : ev(n[3], ctx, funcs, depth);
+      case "||": return (ev(n[1], ctx, funcs, depth) || ev(n[2], ctx, funcs, depth)) ? 1 : 0;
+      case "&&": return (ev(n[1], ctx, funcs, depth) && ev(n[2], ctx, funcs, depth)) ? 1 : 0;
+      case "call": {
+        var name = n[1], args = n[2], f = funcs && funcs[name];
+        if (f) { if ((depth || 0) > 8) return 0; var c2 = Object.create(ctx); for (var i = 0; i < f.args.length; i++) c2[f.args[i]] = i < args.length ? ev(args[i], ctx, funcs, depth) : 0; return fin(ev(f.ast, c2, funcs, (depth || 0) + 1)); }
+        var bf = B[name];
+        if (bf) { var vals = []; for (var j = 0; j < args.length; j++) vals.push(ev(args[j], ctx, funcs, depth)); return fin(bf.apply(null, vals)); }
+        var cf = ctx["fn:" + name];
+        if (typeof cf === "function") { var vs = []; for (var q = 0; q < args.length; q++) vs.push(ev(args[q], ctx, funcs, depth)); return fin(cf.apply(null, vs)); }
+        return 0;
       }
-      ctx.restore();
-      x += w + gap;
+    }
+    a = ev(n[1], ctx, funcs, depth); b = ev(n[2], ctx, funcs, depth);
+    switch (n[0]) {
+      case "+": return a + b; case "-": return a - b; case "*": return a * b;
+      case "/": return b === 0 ? 0 : a / b; case "%": return b === 0 ? 0 : a - Math.floor(a / b) * b;
+      case "^": return fin(Math.pow(a, b));
+      case "<": return a < b ? 1 : 0; case "<=": return a <= b ? 1 : 0; case ">": return a > b ? 1 : 0; case ">=": return a >= b ? 1 : 0;
+      case "==": return a === b ? 1 : 0; case "!=": return a !== b ? 1 : 0;
+    }
+    return 0;
+  }
+  function compile(spec) {
+    var P = { vars: spec.vars || {}, funcs: {}, springs: {}, shapes: {}, emit: [], mark: {} };
+    function X(src) { try { return parse(src); } catch (e) { return ["n", 0]; } }
+    Object.keys(spec.funcs || {}).forEach(function (k) { var f = spec.funcs[k]; P.funcs[k] = { args: f.args || [], ast: X(f.expr) }; });
+    Object.keys(spec.springs || {}).forEach(function (k) { var s = spec.springs[k]; P.springs[k] = { scope: s.scope === "shape" ? "shape" : "global", rest: +s.rest || 0, target: X(s.target || "0"), rate: X(s.rate || "8"), damp: X(s.damp || "1") }; });
+    Object.keys(spec.mark || {}).forEach(function (k) { P.mark[k] = X(spec.mark[k]); });
+    Object.keys(spec.shapes || {}).forEach(function (id) { var sh = spec.shapes[id], c = { vars: sh.vars || {}, props: {} }; Object.keys(sh).forEach(function (k) { if (k !== "vars") c.props[k] = X(sh[k]); }); P.shapes[id] = c; });
+    (spec.emit || []).forEach(function (e) {
+      var c = { attach: e.attach, kind: e.kind, repeat: (e.repeat || []).map(X), as: e.as || [], color: e.color || "ink", opacity: X(e.opacity || "1"), width: X(e.width || "1") };
+      ["x1", "y1", "x2", "y2"].forEach(function (k) { if (e[k] != null) c[k] = X(e[k]); });
+      P.emit.push(c);
     });
-    y += pitch;
+    return P;
+  }
+  return { ev: ev, compile: compile };
+})();
+
+/**
+ * The mic key's program on a canvas: the same springs, the same expressions,
+ * stepped on the film's clock rather than the screen's. `step(dt, level)`
+ * advances it; `draw` paints the mark in a box, with the lines the program
+ * emits (the ring that rises while it listens) behind the shape they belong to.
+ */
+function MicSim(spec) {
+  const P = MicLang.compile(spec.program || {}), m = spec.mark, vb = m.viewBox;
+  const cx0 = vb[0] + vb[2] / 2, cy0 = vb[1] + vb[3] / 2, U = Math.min(vb[2], vb[3]), R = Math.hypot(vb[2], vb[3]) / 2;
+  const sig = (spec.program && spec.program.colors && spec.program.colors.signal) || "#F4F1EA";
+  const settle = (spec.program && spec.program.settle) || {};
+  const G = Object.create(null); Object.keys(P.vars).forEach((k) => { G[k] = +P.vars[k]; });
+  Object.assign(G, { pi: Math.PI, tau: TAU, e: Math.E, cx: cx0, cy: cy0, U, R, vbw: vb[2], vbh: vb[3], t: 0, rec: 0, since: 0, level: 0 });
+  const shapes = m.shapes.map((sh, idx) => {
+    const ctx = Object.create(G); let hx, hy, bars = null, geo = null;
+    if (sh.kind === "rect") { hx = sh.x + sh.w / 2; hy = sh.y + sh.h / 2; ctx.w = sh.w; ctx.h = sh.h; }
+    else if (sh.kind === "circle") { hx = sh.cx; hy = sh.cy; ctx.r = sh.r; }
+    else {
+      hx = (sh.x1 + sh.x2) / 2; hy = (sh.y1 + sh.y2) / 2;
+      const dx = sh.x2 - sh.x1, dy = sh.y2 - sh.y1, L = Math.hypot(dx, dy) || 1;
+      Object.assign(ctx, { x1: sh.x1, y1: sh.y1, x2: sh.x2, y2: sh.y2, L, lx: dx / L, ly: dy / L, nx: -dy / L, ny: dx / L, width: sh.width || 1 });
+      const bx = -ctx.nx * .85 - ctx.lx * .35, by = -ctx.ny * .85 - ctx.ly * .35, bl = Math.hypot(bx, by) || 1; ctx.bx = bx / bl; ctx.by = by / bl;
+      if (sh.kind === "bars") {
+        const n = sh.heights.length, sw = sh.swell || { thick: 1.3, height: 1.9 };
+        ctx.thick = sh.thick || 6; ctx.cols = n; ctx.swh = sw.height || 1.9; ctx.swt = sw.thick || 1.3;
+        ctx["fn:height"] = (i) => sh.heights[Math.max(0, Math.min(n - 1, Math.round(i)))];
+        bars = sh.heights.map((hh, i) => { const u = (i + .5) / n; return { i, f: u, cx: sh.x1 + dx * u, cy: sh.y1 + dy * u, h0: hh, rise: 0, lean: 0 }; });
+        geo = { dx, dy, L, nx: ctx.nx, ny: ctx.ny, sw };
+      }
+    }
+    ctx["home.x"] = hx; ctx["home.y"] = hy;
+    const ddx = hx - cx0, ddy = hy - cy0, dl = Math.hypot(ddx, ddy) || 1; ctx["dir.x"] = ddx / dl; ctx["dir.y"] = ddy / dl;
+    const id = sh.id || ("#" + idx), comp = P.shapes[id] || { vars: {}, props: {} };
+    Object.keys(comp.vars).forEach((k) => { ctx[k] = +comp.vars[k]; });
+    return { id, sh, ctx, comp, hx, hy, bars, geo, dx: 0, dy: 0, rot: 0, sc: 1, op: 1, mixk: 0 };
   });
-  // The trackpad, running off the foot of the frame.
-  const tw = W * .36, tx = x0 + W / 2 - tw / 2, ty = y + W * .03;
-  ctx.fillStyle = "rgba(0,0,0,.18)"; rr(ctx, tx, ty, tw, W * .26, 12); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,.07)"; ctx.lineWidth = 1; rr(ctx, tx + .5, ty + .5, tw - 1, W * .26 - 1, 11.5); ctx.stroke();
+  const byId = {}; shapes.forEach((s) => { byId[s.id] = s; });
+  const emits = P.emit.map((e) => ({ e, host: byId[e.attach], lines: [] }));
+  let springs = {};
+  const spring = (name, shapeId) => { const key = shapeId ? name + "@" + shapeId : name; return springs[key] || (springs[key] = { v: P.springs[name].rest, vel: 0, prev: P.springs[name].rest }); };
+  const evx = (ast, ctx) => MicLang.ev(ast, ctx, P.funcs, 0);
+  const st = { t: 0, rec: 0, flipped: 0, settling: false };
+  const mark = { scale: 1, rot: 0, op: 1 };
+  function step(dt, level) {
+    st.t += dt;
+    G.t = st.t; G.rec = st.rec; G.since = st.t - st.flipped; G.level = clamp(level);
+    let quiet = true; const eps = settle.eps != null ? settle.eps : .002;
+    const tick = (name, s, ctx, shapeId) => {
+      const sp = spring(name, shapeId); ctx.prev = sp.prev;
+      const target = evx(s.target, ctx), w = Math.max(.1, evx(s.rate, ctx)), z = Math.max(0, evx(s.damp, ctx));
+      sp.prev = target; sp.vel += (target - sp.v) * w * w * dt - 2 * z * w * sp.vel * dt; sp.v += sp.vel * dt; ctx[name] = sp.v;
+      if (Math.abs(sp.v - target) > eps || Math.abs(sp.vel) > eps * 10) quiet = false;
+    };
+    Object.keys(P.springs).forEach((name) => { if (P.springs[name].scope === "global") tick(name, P.springs[name], G); });
+    mark.scale = P.mark.scale ? evx(P.mark.scale, G) : 1; mark.rot = P.mark.rot ? evx(P.mark.rot, G) : 0; mark.op = P.mark.opacity ? clamp(evx(P.mark.opacity, G)) : 1;
+    shapes.forEach((s) => {
+      const ctx = s.ctx, pr = s.comp.props;
+      Object.keys(P.springs).forEach((name) => { if (P.springs[name].scope === "shape") tick(name, P.springs[name], ctx, s.id); });
+      s.dx = pr.dx ? evx(pr.dx, ctx) : 0; s.dy = pr.dy ? evx(pr.dy, ctx) : 0; s.rot = pr.rot ? evx(pr.rot, ctx) : 0; s.sc = pr.scale ? evx(pr.scale, ctx) : 1;
+      s.op = pr.opacity ? clamp(evx(pr.opacity, ctx)) : 1; s.mixk = pr.mix ? clamp(evx(pr.mix, ctx)) : 0;
+      if (s.bars && (pr.rise || pr.lean)) s.bars.forEach((b) => { const bc = Object.create(ctx); bc.i = b.i; bc.f = b.f; bc.hgt = b.h0; b.rise = pr.rise ? clamp(evx(pr.rise, bc)) : 0; bc.rise = b.rise; b.lean = pr.lean ? evx(pr.lean, bc) : 0; });
+    });
+    emits.forEach((em) => {
+      const e = em.e, host = em.host; em.lines = []; if (!host || e.kind !== "line") return;
+      const base = host.ctx, counts = e.repeat.map((r) => Math.max(0, Math.min(64, Math.floor(evx(r, base)))));
+      const n0 = counts[0] != null ? counts[0] : 1, n1 = counts[1] != null ? counts[1] : 1;
+      for (let a = 0; a < n0; a++) for (let b = 0; b < n1; b++) {
+        const ctx = Object.create(base); if (e.as[0]) ctx[e.as[0]] = a; if (e.as[1]) ctx[e.as[1]] = b;
+        em.lines.push({ x1: evx(e.x1 || ["n", 0], ctx), y1: evx(e.y1 || ["n", 0], ctx), x2: evx(e.x2 || ["n", 0], ctx), y2: evx(e.y2 || ["n", 0], ctx), w: evx(e.width, ctx), op: clamp(evx(e.opacity, ctx)), signal: e.color === "signal" });
+      }
+    });
+    if (st.settling && (quiet || G.since > (settle.timeout != null ? settle.timeout : 1.4))) { Object.keys(springs).forEach((k) => { springs[k].vel = 0; }); st.settling = false; }
+  }
+  function draw(ctx, x, y, size, fg) {
+    const L = Math.hypot(vb[2], vb[3]) * (36 / Math.max(1, 36 - 2 * (spec.inset || 0))), s = size / L;
+    ctx.save(); ctx.translate(x + size / 2, y + size / 2); ctx.scale(s, s);
+    ctx.rotate(mark.rot * Math.PI / 180); ctx.scale(mark.scale, mark.scale); ctx.translate(-cx0, -cy0);
+    const base = ctx.globalAlpha * mark.op;
+    shapes.forEach((sh) => {
+      const q = sh.sh, ink = m.tint ? fg : q.color, col = sh.mixk > 0 ? mix(ink, sig, sh.mixk) : ink;
+      ctx.save(); ctx.globalAlpha = base * sh.op;
+      ctx.translate(sh.dx + sh.hx, sh.dy + sh.hy); ctx.rotate(sh.rot * Math.PI / 180); ctx.scale(sh.sc, sh.sc); ctx.translate(-sh.hx, -sh.hy);
+      emits.forEach((em) => { if (em.host !== sh) return; em.lines.forEach((l) => {
+        ctx.save(); ctx.globalAlpha = base * sh.op * l.op; ctx.strokeStyle = l.signal ? sig : ink; ctx.lineWidth = l.w; ctx.lineJoin = "round";
+        ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.stroke(); ctx.restore();
+      }); });
+      if (q.kind === "rect") { ctx.fillStyle = col; rr(ctx, q.x, q.y, q.w, q.h, q.rx || 0); ctx.fill(); }
+      else if (q.kind === "circle") { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(q.cx, q.cy, q.r, 0, TAU); ctx.fill(); }
+      else if (q.kind === "bars") {
+        const g = sh.geo; ctx.strokeStyle = col; ctx.lineCap = "butt";
+        sh.bars.forEach((b) => {
+          const hh = b.h0 * (1 + ((g.sw.height || 1.9) - 1) * b.rise), w = (q.thick || 6) * (1 + ((g.sw.thick || 1.3) - 1) * b.rise), lx = b.lean * (g.dx / g.L) * hh, ly = b.lean * (g.dy / g.L) * hh;
+          ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(b.cx - g.nx * hh / 2, b.cy - g.ny * hh / 2); ctx.lineTo(b.cx + g.nx * hh / 2 + lx, b.cy + g.ny * hh / 2 + ly); ctx.stroke();
+        });
+      } else { ctx.strokeStyle = col; ctx.lineWidth = q.width || 1; ctx.lineCap = q.cap || "butt"; ctx.beginPath(); ctx.moveTo(q.x1, q.y1); ctx.lineTo(q.x2, q.y2); ctx.stroke(); }
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+  function reset() {
+    springs = {}; st.t = 0; st.rec = 0; st.flipped = 0; st.settling = false; step(0, 0);
+  }
+  reset();
+  return {
+    step, draw, reset,
+    start() { if (st.rec) return; st.rec = 1; st.flipped = st.t; st.settling = false; },
+    stop() { if (!st.rec) return; st.rec = 0; st.flipped = st.t; st.settling = true; },
+    get moving() { return !!st.rec || st.settling; },
+  };
 }
 
 /**
- * A team chat on a laptop, in the screen's own coordinates (DESK.vw × DESK.vh).
- * Rows, not bubbles; a sidebar of channels; the box you write in at the foot.
- * Returns where the box's text sits.
+ * The mic key on the film's clock. The key is still at idle (the phone's
+ * kb.mic.idleStill) and runs only from a start to its settle after a stop; a
+ * frame asked for out of order is re-simulated from the top, so a still is
+ * the same picture a film frame is.
  */
-function teamChat(ctx, t, o) {
-  const { vw, vh, sb } = DESK, ink = "#1B1712", sub = "rgba(27,23,18,.52)", line = "rgba(27,23,18,.1)";
-  ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, vw, vh);
-  ctx.fillStyle = P.violetLo; ctx.fillRect(0, 0, sb, vh);
-  text(ctx, "Orbit Labs", 16, 29, f(14, SANS, 600), "#FFFFFF");
-  ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(sb - 26, 23); ctx.lineTo(sb - 21, 28); ctx.lineTo(sb - 16, 23); ctx.stroke(); ctx.restore();
-  label(ctx, "Channels", 16, 64, 9, "#FFFFFF", .42);
-  ["general", "eng", "design", "random"].forEach((c, i) => {
-    const y = 88 + i * 27, on = c === "eng";
-    if (on) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, 8, y - 17, sb - 16, 25, 6); ctx.fill(); }
-    text(ctx, "#  " + c, 18, y, f(13, SANS, on ? 600 : 400), on ? "#FFFFFF" : "rgba(255,255,255,.6)");
-  });
-  text(ctx, "# eng", sb + 18, 28, f(15, SANS, 600), ink);
-  text(ctx, "12 members", sb + 76, 28, f(11.5, SANS, 400), sub);
-  ctx.fillStyle = line; ctx.fillRect(sb, 44, vw - sb, 1);
-  let y = 70;
-  for (const m of o.msgs) {
-    if (t < m.at) continue;
-    const k = E.out(seg(t, m.at, m.at + .35));
-    ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 8);
-    ctx.fillStyle = m.color; rr(ctx, sb + 18, y, 30, 30, 7); ctx.fill();
-    text(ctx, m.name[0], sb + 33, y + 20, f(15, SANS, 600), "#FFFFFF", 1, "center");
-    text(ctx, m.name, sb + 58, y + 12, f(13.5, SANS, 600), ink);
-    ctx.font = f(13.5, SANS, 600);
-    text(ctx, m.time, sb + 58 + ctx.measureText(m.name).width + 10, y + 12, f(11, SANS, 400), sub);
-    const lay = layout(ctx, m.text, f(14, SANS, 400), vw - sb - 90, 19);
-    lay.lines.forEach((ln, li) => text(ctx, ln, sb + 58, y + 31 + li * 19, lay.font, ink));
-    ctx.restore();
-    y += 36 + lay.lines.length * 19 + 8;
-  }
-  const cy0 = vh - 128, ch = 62, cx0 = sb + 18, cw = vw - sb - 36;
-  ctx.fillStyle = "#FFFFFF"; rr(ctx, cx0, cy0, cw, ch, 10); ctx.fill();
-  ctx.strokeStyle = "rgba(27,23,18,.2)"; ctx.lineWidth = 1.2; rr(ctx, cx0 + .5, cy0 + .5, cw - 1, ch - 1, 9.5); ctx.stroke();
-  if (o.placeholder) text(ctx, "Message #eng", cx0 + 16, cy0 + 27, f(14, SANS, 400), "rgba(27,23,18,.38)");
-  const bx = cx0 + cw - 30, by = cy0 + ch - 22;
-  ctx.fillStyle = o.ready ? P.indigo : "rgba(27,23,18,.16)"; rr(ctx, bx - 12, by - 12, 24, 24, 6); ctx.fill();
-  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round";
-  ctx.beginPath(); ctx.moveTo(bx - 6, by + 4); ctx.lineTo(bx + 6, by); ctx.lineTo(bx - 6, by - 4); ctx.lineTo(bx - 3, by); ctx.closePath(); ctx.stroke(); ctx.restore();
-  return { x: cx0 + 16, y: cy0 + 27, maxW: cw - 70, cy0, ch, cx0, cw };
+function micClock(sim, schedule) {
+  let at = 0, i = 0;
+  const voice = (lt) => { const syl = Math.max(0, Math.sin(lt * 11.5)) * (.55 + .45 * Math.sin(lt * 2.3 + 1)) * (Math.sin(lt * .9) > -.6 ? 1 : .05); return clamp(.08 + .85 * syl); };
+  return (t) => {
+    if (t < at) { sim.reset(); at = 0; i = 0; }
+    const h = 1 / 60;
+    while (at + h <= t) {
+      at += h;
+      while (i < schedule.length && schedule[i][0] <= at) { if (schedule[i][1] === "start") sim.start(); else sim.stop(); i++; }
+      if (sim.moving) { const on = schedule.slice(0, i).filter((s) => s[1] === "start").pop(); sim.step(h, sim.moving && on && schedule[i - 1] && schedule[i - 1][1] === "start" ? voice(at - on[0]) : 0); }
+    }
+  };
 }
 
-FILMS.crossdesk = { w: 1080, h: 1920, duration: 19.0, v2: true, draw(ctx, t, w, h) {
-  field(ctx, w, h, "#17130F", "#0A0807", .2); glow(ctx, w * .5, h * .18, w * .9, P.pale, .06);
-  const th = TH.dark, hs = w * .098, hx = w * .08, hy = h * .115;
-  const send = 5.6, PH = PHONE_SAID, DS = DESK_SAID;
-  ctx.save(); push(ctx, w, h, t, 19.0, .025);
-  // ---- the phone: Priya, on WhatsApp ------------------------------------------
-  if (t < 7.7) {
-    hook(ctx, ["Priya's on", "*WhatsApp.*"], hx, hy, hs, P.pale, -.3, t, { out: 6.6 });
-    const rise = (1 - E.out(seg(t, -.35, .6))) * h * .14 + Math.sin(t * .9) * 3 + E.in(seg(t, 7.0, 7.65)) * h;
-    const s = phone(ctx, w * .1, h * .27 + rise, w * .8, w * .8 * 2.1, th);
-    ctx.save(); clipScreen(ctx, s);
-    statusBar(ctx, s, th, "6:12");
-    const typing = t > 6.1 && t < 6.5;
-    const top = chatHeader(ctx, s, th, { name: "Priya", color: P.rose }, typing ? "typing…" : "online");
-    const boardTop = s.y + s.w * .92;
-    const L = seg(t, 1.3, 1.45) * (1 - seg(t, 2.9, 3.1));
-    tzBoard(ctx, s.x, boardTop, s.w, th, { chips: CHIPS, sel: 0, listening: L, lt: t, press: t > 1.2 ? 1 - seg(t, 1.2, 1.4) : 0, label: L > .5 ? "Listening" : "Press. Say anything." });
-    const F = FIELD(s), maxW = s.w * .66, font = f(F.fs, SANS, 400);
-    const c = composer(ctx, s, th, boardTop, t > 1.3 && t < send ? 2 : 1, { ready: t > 1.4 && t < send, press: t > send ? 1 - seg(t, send, send + .2) : 0 });
-    const saidLay = layout(ctx, PH.said, f(F.fs * 1.12, HAND, 600), maxW, F.lh), zuLay = layout(ctx, PH.wrote, font, maxW, F.lh);
-    if (!PH.pairs) PH.pairs = align(PH.said, PH.wrote);
-    ctx.save(); ctx.globalAlpha = 1 - seg(t, send, send + .15);
-    if (t < 1.3) text(ctx, "Message", c.x, c.line(0), font, th.sub);
-    else if (t < 3.0) handwrite(ctx, saidLay, c.x, c.line(0), th.sub, 1.35, t, .036);
-    else morph(ctx, saidLay, zuLay, c.x, c.line(0), c.x, c.line(0), t - 3.0, { pairs: PH.pairs, saidColor: th.sub, writtenColor: th.text, writtenFamily: SANS, settle: 1.1 });
-    ctx.restore();
-    thread(ctx, s, th, [
-      { from: "in", text: "Deploy ho gaya?", at: .5 },
-      { from: "out", text: PH.wrote, at: send + .05 },
-      { from: "in", typing: true, at: 6.1, until: 6.5 },
-      { from: "in", text: "Nice!", at: 6.5 },
-    ], t, top + 4, c.top - s.w * .025);
-    island(ctx, s);
-    ctx.restore();
-  }
-  // ---- the desk: the team, on Slack -------------------------------------------
-  let pillAt = [w / 2, h * .9];
-  if (t > 7.2) {
-    const { vw, vh, Z, sb } = DESK;
-    hook(ctx, ["The team's on", "*Slack.*"], hx, hy, hs, P.pale, 7.6, t, { out: 14.3 });
-    hook(ctx, ["Phone or laptop.", "*You just talk.*"], hx, hy, hs, P.pale, 14.6, t);
-    const riseD = (1 - E.out(seg(t, 7.3, 8.2))) * h * .7;
-    const dispY = h * .3 + riseD, dispH = vh * Z;
-    // The laptop: a dark body the screen sits in, running off the foot of the frame.
-    ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 60; ctx.shadowOffsetY = -10;
-    ctx.fillStyle = "#0B0A09"; rr(ctx, -40, dispY - 18, w + 80, h, 34); ctx.fill(); ctx.restore();
-    const eg = ctx.createLinearGradient(0, dispY - 18, 0, dispY + 40); eg.addColorStop(0, "rgba(255,255,255,.28)"); eg.addColorStop(1, "rgba(255,255,255,.04)");
-    ctx.strokeStyle = eg; ctx.lineWidth = 2; rr(ctx, -39, dispY - 17, w + 78, h, 33); ctx.stroke();
-    // Two taps on the laptop's own Ctrl, and the pill opens.
-    const press = (at) => Math.sin(Math.PI * clamp((t - at) / .22));
-    laptopDeck(ctx, 0, dispY + dispH + 12, w, h, Math.max(press(8.15), press(8.42)));
-    // The screen, in its own coordinates.
-    ctx.save(); ctx.beginPath(); ctx.roundRect(0, dispY, w, dispH, [10, 10, 4, 4]); ctx.clip();
-    ctx.translate(0, dispY); ctx.scale(Z, Z);
-    const sent = 14.5;
-    const box = teamChat(ctx, t, {
-      msgs: [
-        { name: "Aarav", color: P.teal, time: "6:14 PM", text: "Standup at three today?", at: 8.0 },
-        { name: "You", color: P.indigo, time: "6:15 PM", text: DS.wrote, at: sent },
-      ],
-      placeholder: t < 8.45 || t >= sent + .1, ready: t > 13.3 && t < sent,
-    });
-    // The said line, in a hand, over the thread; then it becomes the written one in the box.
-    const saidLay = layout(ctx, DS.said, f(24, HAND, 600), vw - sb - 80, 30), wroteLay = layout(ctx, DS.wrote, f(14.5, SANS, 400), box.maxW, 19);
-    if (!DS.pairs) DS.pairs = align(DS.said, DS.wrote);
-    const sx = sb + 34, sy = 262, tx = box.x, ty = box.y;
-    const caret = t > 8.45 && t < 13.15 && Math.floor(t * 2) % 2 === 0;
-    if (caret) { ctx.fillStyle = "#1B1712"; ctx.fillRect(tx, ty - 14, 1.6, 19); }
-    ctx.save(); ctx.globalAlpha *= 1 - seg(t, sent, sent + .15);
-    if (t >= 8.9 && t < 13.15) handwrite(ctx, saidLay, sx, sy, "rgba(27,23,18,.62)", 8.9, t, .095);
-    else if (t >= 13.15) morph(ctx, saidLay, wroteLay, sx, sy, tx, ty, t - 13.15, { pairs: DS.pairs, saidColor: "rgba(27,23,18,.62)", writtenColor: "#1B1712", writtenFamily: SANS, settle: 1.1, stagger: .006, span: .55 });
-    ctx.restore();
-    // The pill: the desktop app's own frames, on the demo's clock. Hover (the
-    // hint) until the taps; listening from the second tap; writing, done, rest.
-    const tau = t < 8.45 ? Math.min(2.15, 1.25 + (t - 7.3)) : Math.min(9.5, 2.2 + (t - 8.45));
-    drawPill(ctx, tau, 0, vh, vw);
-    pillAt = onFrame(ctx, vw / 2, vh - 22);
-    ctx.restore();
-  }
+// ---- the phone --------------------------------------------------------------------
+/** The keyboard as the server lays it out, in points. */
+const KB = {
+  ground: "#232426", key: "rgba(255,255,255,.55)", fn: "rgba(255,255,255,.2)", text: "#FFFFFF", radius: 5,
+  pad: { l: 3, r: 3, t: 8, b: 4 }, rowGap: 10, gap: 6, rowH: 44, height: 272,
+  mic: { size: 42, bg: "#33291F", fg: "#D8C3A5", inset: 7 },
+  tone: { w: 96, h: 36, bg: "#2C2C2E", fg: "#FFFFFF", border: "rgba(255,255,255,.16)", font: 13 },
+  flash: { color: "#8E8E93", ms: .26, stagger: .032, max: 40 },
+};
+function kbGlyph(ctx, id, k, color) {
+  const cx = k.x + k.w / 2, cy = k.y + k.h / 2;
+  ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.7; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  if (id === "shift") { ctx.beginPath(); ctx.moveTo(cx, cy - 9); ctx.lineTo(cx + 9, cy); ctx.lineTo(cx + 4, cy); ctx.lineTo(cx + 4, cy + 7); ctx.lineTo(cx - 4, cy + 7); ctx.lineTo(cx - 4, cy); ctx.lineTo(cx - 9, cy); ctx.closePath(); ctx.stroke(); }
+  else if (id === "back") { ctx.beginPath(); ctx.moveTo(cx - 11, cy); ctx.lineTo(cx - 4, cy - 7); ctx.lineTo(cx + 10, cy - 7); ctx.lineTo(cx + 10, cy + 7); ctx.lineTo(cx - 4, cy + 7); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx, cy - 3); ctx.lineTo(cx + 6, cy + 3); ctx.moveTo(cx + 6, cy - 3); ctx.lineTo(cx, cy + 3); ctx.stroke(); }
+  else if (id === "globe") { ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(cx, cy, 8.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.ellipse(cx, cy, 3.6, 8.5, 0, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx - 8.5, cy); ctx.lineTo(cx + 8.5, cy); ctx.moveTo(cx - 7.6, cy - 3.8); ctx.lineTo(cx + 7.6, cy - 3.8); ctx.moveTo(cx - 7.6, cy + 3.8); ctx.lineTo(cx + 7.6, cy + 3.8); ctx.stroke(); }
   ctx.restore();
-  if (t > 15.9) endCard2(ctx, w, h, t - 15.9, { ox: pillAt[0], oy: pillAt[1], sub: "Every app. Phone and computer.", foot: "Free · iPhone · Android · Windows · Mac" });
-  grain(ctx, w, h, .045, t);
+}
+/** Tailzu's keyboard at (x0, top), W wide, 272 tall. `o.sim` is the mic's program. */
+function tzKeyboard(ctx, x0, top, W, o) {
+  ctx.fillStyle = KB.ground; ctx.fillRect(x0, top, W, KB.height);
+  const innerX = x0 + KB.pad.l, innerW = W - KB.pad.l - KB.pad.r, keys = [];
+  let y = top + KB.pad.t;
+  const mic = { x: innerX + 4, y: y + 1, w: KB.mic.size, h: KB.mic.size };
+  const tone = { x: innerX + innerW - 4 - KB.tone.w, y: y + 4, w: KB.tone.w, h: KB.tone.h };
+  y += KB.rowH + KB.rowGap;
+  const row = (items, ry) => {
+    const flexes = items.reduce((a, it) => a + (it.flex || 0), 0), fixed = items.reduce((a, it) => a + (it.width || 0), 0);
+    const unit = (innerW - KB.gap * (items.length - 1) - fixed) / flexes;
+    let x = innerX;
+    items.forEach((it) => { const w = it.width || it.flex * unit; if (it.id !== "sp") keys.push({ ...it, x, y: ry, w, h: KB.rowH }); x += w + KB.gap; });
+  };
+  row([..."qwertyuiop"].map((c) => ({ id: c, flex: 1, size: 23 })), y); y += KB.rowH + KB.rowGap;
+  row([{ id: "sp", flex: .5 }, ...[..."asdfghjkl"].map((c) => ({ id: c, flex: 1, size: 23 })), { id: "sp", flex: .5 }], y); y += KB.rowH + KB.rowGap;
+  row([{ id: "shift", flex: 1.35, fn: true }, { id: "sp", flex: .22 }, ...[..."zxcvbnm"].map((c) => ({ id: c, flex: 1, size: 23 })), { id: "sp", flex: .22 }, { id: "back", flex: 1.35, fn: true }], y); y += KB.rowH + KB.rowGap;
+  row([{ id: "123", flex: 2.4, fn: true, label: "123", size: 16 }, { id: "globe", width: 44, fn: true }, { id: ".", flex: 1.29, fn: true, label: ".", size: 20 }, { id: " ", flex: 5.2, label: "space", size: 16 }, { id: "@", flex: 1.29, fn: true, label: "@", size: 20 }, { id: "return", flex: 2.4, fn: true, label: "return", size: 16 }], y);
+  // The flash: each character of the text that just landed lights its key, in order.
+  const flashOf = (id) => {
+    if (o.flashAt == null || o.t < o.flashAt) return 0;
+    const chars = [...o.flashText.toLowerCase().slice(0, KB.flash.max)]; let a = 0;
+    chars.forEach((ch, i) => { if (ch !== id) return; const u = (o.t - o.flashAt - i * KB.flash.stagger) / KB.flash.ms; if (u > 0 && u < 1) a = Math.max(a, Math.sin(Math.PI * u)); });
+    return a;
+  };
+  for (const k of keys) {
+    ctx.fillStyle = "rgba(0,0,0,.4)"; rr(ctx, k.x, k.y + 1, k.w, k.h, KB.radius); ctx.fill();
+    ctx.fillStyle = k.fn ? KB.fn : KB.key; rr(ctx, k.x, k.y, k.w, k.h, KB.radius); ctx.fill();
+    const fl = flashOf(k.id); if (fl > 0) { ctx.fillStyle = rgba(KB.flash.color, fl); rr(ctx, k.x, k.y, k.w, k.h, KB.radius); ctx.fill(); }
+    if (k.id === "shift" || k.id === "back" || k.id === "globe") kbGlyph(ctx, k.id, k, KB.text);
+    else text(ctx, k.label ?? k.id, k.x + k.w / 2, k.y + k.h / 2 + k.size * .36, sf(k.size, 400), KB.text, 1, "center");
+  }
+  // The tone pill: the voice that is writing.
+  ctx.fillStyle = KB.tone.bg; rr(ctx, tone.x, tone.y, tone.w, tone.h, tone.h / 2); ctx.fill();
+  ctx.strokeStyle = KB.tone.border; ctx.lineWidth = 1; rr(ctx, tone.x + .5, tone.y + .5, tone.w - 1, tone.h - 1, tone.h / 2 - .5); ctx.stroke();
+  text(ctx, "ZU", tone.x + tone.w / 2, tone.y + tone.h / 2 + 4.6, sf(KB.tone.font, 500), KB.tone.fg, 1, "center");
+  // The mic key: its circle, and the mark running the server's program.
+  const press = o.micPress || 0, mcx = mic.x + mic.w / 2, mcy = mic.y + mic.h / 2;
+  ctx.save(); ctx.translate(mcx, mcy); ctx.scale(1 - .08 * press, 1 - .08 * press); ctx.translate(-mcx, -mcy);
+  ctx.fillStyle = KB.mic.bg; ctx.beginPath(); ctx.arc(mcx, mcy, mic.w / 2, 0, TAU); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(mcx, mcy, mic.w / 2, 0, TAU); ctx.clip();
+  o.sim.draw(ctx, mic.x + KB.mic.inset, mic.y + KB.mic.inset, mic.w - 2 * KB.mic.inset, KB.mic.fg);
+  ctx.restore(); ctx.restore();
+  return { mic, tone, keys };
+}
+
+/** A finger on the glass: a soft disc that lands and fades. */
+function touch(ctx, x, y, t0, t) {
+  const k = seg(t, t0, t0 + .32); if (k <= 0 || k >= 1) return;
+  ctx.save(); ctx.globalAlpha *= (1 - k) * .55; ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(x, y, 14 + 10 * k, 0, TAU); ctx.fill(); ctx.restore();
+}
+function iosStatusBar(ctx, W, time, recDot) {
+  text(ctx, time, 54, 31, sf(17, 600), "#FFFFFF", 1, "center");
+  ctx.fillStyle = "#000"; rr(ctx, W / 2 - 63, 11, 126, 37, 18.5); ctx.fill();
+  if (recDot > 0) { ctx.fillStyle = rgba("#FF9F0A", recDot); ctx.beginPath(); ctx.arc(W / 2 + 63 + 12, 29.5, 4.5, 0, TAU); ctx.fill(); }
+  const x = W - 84; ctx.fillStyle = "#FFFFFF";
+  for (let i = 0; i < 4; i++) { const bh = 4 + i * 2.6; rr(ctx, x + i * 5.2, 33 - bh, 3.4, bh, 1); ctx.fill(); }
+  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.lineCap = "round";
+  for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.arc(x + 32, 33, 3 + r * 4, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.lineWidth = 1; rr(ctx, x + 44.5, 23.5, 25, 12, 3.5); ctx.stroke();
+  ctx.fillStyle = "#FFFFFF"; rr(ctx, x + 46, 25, 20, 9, 2); ctx.fill(); rr(ctx, x + 71, 27.5, 1.5, 4, 1); ctx.fill();
+}
+function homeScreen(ctx, W, H, t) {
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#10224F"); g.addColorStop(.5, "#2A1F5E"); g.addColorStop(1, "#0C3B4A");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  glow(ctx, W * .7, H * .35, W * .9, "#5B7CFA", .35); glow(ctx, W * .2, H * .8, W * .7, "#2CC3B4", .25);
+  const cols = ["#3A7BD5", "#E0574F", "#4CAF7D", "#F2B33D", "#8E5BD3", "#2F9ED6", "#E86C8D", "#5C6BC0", "#1FA67A", "#F0845C", "#7C5CBF", "#3EA6C8", "#D9534F", "#4A90E2", "#2EBF91", "#F5A623", "#9B59B6", "#1ABC9C", "#E67E22", "#3498DB"];
+  const r = rng(5);
+  for (let i = 0; i < 20; i++) {
+    const cx = 32 + (i % 4) * 88, cy = 84 + Math.floor(i / 4) * 96;
+    ctx.fillStyle = cols[i]; rr(ctx, cx, cy, 60, 60, 14); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.22)"; rr(ctx, cx + 16, cy + 16, 28, 28, 7); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.85)"; rr(ctx, cx + 14, cy + 70, 32 + r() * 16, 4, 2); ctx.fill();
+  }
+  ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, 20, H - 34 - 92, W - 40, 84, 28); ctx.fill();
+  ["#2E8BF0", "#34C759", "#FF9500", "#8E8E93"].forEach((c, i) => { ctx.fillStyle = c; rr(ctx, 40 + i * 88, H - 34 - 80, 60, 60, 14); ctx.fill(); });
+}
+/** The notification that opens the chat. `k` is how far it has dropped. */
+function banner(ctx, W, k, press) {
+  const y = lerp(-90, 56, k), x = 16, w = W - 32, h = 76;
+  ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.scale(1 - .03 * press, 1 - .03 * press); ctx.translate(-(x + w / 2), -(y + h / 2));
+  ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
+  ctx.fillStyle = "rgba(30,30,32,.94)"; rr(ctx, x, y, w, h, 22); ctx.fill(); ctx.shadowColor = "transparent";
+  ctx.fillStyle = "#25D366"; rr(ctx, x + 14, y + 19, 38, 38, 9); ctx.fill();
+  ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(x + 33, y + 38, 11, 0, TAU); ctx.fill();
+  ctx.fillStyle = "#25D366"; ctx.beginPath(); ctx.arc(x + 33, y + 38, 7.5, 0, TAU); ctx.fill();
+  text(ctx, "Priya", x + 64, y + 32, sf(15, 600), "#FFFFFF"); text(ctx, "Deploy ho gaya?", x + 64, y + 53, sf(15, 400), "#E5E5EA");
+  text(ctx, "now", x + w - 16, y + 31, sf(13, 400), "#8E8E93", 1, "right");
+  ctx.restore();
+}
+/** A chat with Priya, on a phone, in the dark. Returns the composer's box. */
+function waChat(ctx, W, H, t, o) {
+  const T = { bg: "#0B141A", bar: "#1F2C34", inBub: "#202C33", outBub: "#005C4B", text: "#E9EDEF", sub: "#8696A0", field: "#2A3942", green: "#00A884" };
+  ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
+  // Header
+  ctx.fillStyle = T.bar; ctx.fillRect(0, 0, W, 100);
+  ctx.fillStyle = "rgba(255,255,255,.08)"; ctx.fillRect(0, 100, W, .5);
+  ctx.save(); ctx.strokeStyle = "#8696A0"; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(22, 68); ctx.lineTo(14, 77); ctx.lineTo(22, 86); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = "#6A4C9C"; ctx.beginPath(); ctx.arc(56, 77, 18, 0, TAU); ctx.fill(); text(ctx, "P", 56, 83.5, sf(17, 600), "#FFFFFF", 1, "center");
+  text(ctx, "Priya", 84, 74, sf(17, 600), T.text); text(ctx, o.typing ? "typing…" : "online", 84, 92, sf(12.5, 400), T.sub);
+  ctx.save(); ctx.strokeStyle = "#8696A0"; ctx.lineWidth = 1.8; ctx.lineJoin = "round";
+  rr(ctx, 318, 70, 17, 13, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(335, 73); ctx.lineTo(343, 69); ctx.lineTo(343, 84); ctx.lineTo(335, 80); ctx.closePath(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(367, 77, 8, Math.PI * .7, Math.PI * 1.9); ctx.stroke(); ctx.restore();
+  // Composer: rides on the keyboard once it is up.
+  const kbTop = H - 34 - KB.height * o.kbUp, cy0 = (o.kbUp > 0 ? kbTop : H - 34) - 56;
+  const lines = o.fieldLines || 1, fh = 36 + (lines - 1) * 20, by0 = cy0 - (fh - 36);
+  ctx.fillStyle = T.bar; ctx.fillRect(0, by0, W, H - by0);
+  if (o.kbUp <= 0) { ctx.fillStyle = "#FFFFFF"; rr(ctx, W / 2 - 67, H - 13, 134, 5, 2.5); ctx.fill(); }
+  ctx.save(); ctx.strokeStyle = T.sub; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(22, by0 + 28 - 7); ctx.lineTo(22, by0 + 28 + 7); ctx.moveTo(15, by0 + 28); ctx.lineTo(29, by0 + 28); ctx.stroke(); ctx.restore();
+  const hasText = !!o.fieldText, fx = 44, fw = hasText ? 308 - 44 : 318 - 44;
+  ctx.fillStyle = T.field; rr(ctx, fx, by0 + 10, fw, fh, 18); ctx.fill();
+  if (hasText) {
+    const lay = layout(ctx, o.fieldText, sf(16, 400), fw - 30, 20);
+    lay.lines.forEach((ln, li) => text(ctx, ln, fx + 15, by0 + 10 + 24 + li * 20, lay.font, T.text));
+    ctx.fillStyle = T.green; ctx.beginPath(); ctx.arc(W - 30, by0 + 10 + fh - 18, 18, 0, TAU); ctx.fill();
+    ctx.save(); ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.moveTo(W - 38, by0 + 10 + fh - 27); ctx.lineTo(W - 20, by0 + 10 + fh - 18); ctx.lineTo(W - 38, by0 + 10 + fh - 9); ctx.lineTo(W - 34, by0 + 10 + fh - 18); ctx.closePath(); ctx.fill(); ctx.restore();
+  } else {
+    if (o.caret && Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = "#53BDEB"; ctx.fillRect(fx + 15, by0 + 18, 1.6, 20); }
+    ctx.save(); ctx.strokeStyle = T.sub; ctx.lineWidth = 1.8; ctx.lineJoin = "round";
+    rr(ctx, 331, by0 + 21, 18, 14, 3); ctx.stroke(); ctx.beginPath(); ctx.arc(340, by0 + 28, 4, 0, TAU); ctx.stroke();
+    rr(ctx, 362, by0 + 18, 8, 13, 4); ctx.stroke(); ctx.beginPath(); ctx.arc(366, by0 + 27, 7.5, Math.PI * .1, Math.PI * .9); ctx.stroke(); ctx.beginPath(); ctx.moveTo(366, by0 + 34.5); ctx.lineTo(366, by0 + 39); ctx.stroke(); ctx.restore();
+  }
+  // The thread, stacked up from the composer.
+  let y = by0 - 10;
+  for (let i = o.msgs.length - 1; i >= 0; i--) {
+    const m = o.msgs[i]; if (t < m.at) continue;
+    const k = E.out(seg(t, m.at, m.at + .28)), out = m.from === "out";
+    const lay = layout(ctx, m.text, sf(16, 400), 240, 20), tw = ctx.measureText(m.time).width;
+    ctx.font = sf(11, 400); const timeW = ctx.measureText(m.time).width + (out ? 18 : 0);
+    const last = lay.lines[lay.lines.length - 1]; ctx.font = lay.font; const lastW = ctx.measureText(last).width;
+    const oneLine = lay.lines.length === 1 && lastW + timeW + 30 < 260;
+    const bw = Math.max(lay.width, oneLine ? lastW + timeW + 14 : lastW) + 24, bh = lay.lines.length * 20 + 16 + (oneLine ? 0 : 14);
+    y -= bh * k;
+    const bx = out ? W - 12 - bw : 12;
+    ctx.save(); ctx.globalAlpha *= clamp(k * 1.5); const sc = lerp(.85, 1, k);
+    ctx.translate(out ? bx + bw : bx, y + bh); ctx.scale(sc, sc); ctx.translate(-(out ? bx + bw : bx), -(y + bh));
+    ctx.fillStyle = out ? T.outBub : T.inBub; ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, out ? [10, 2, 10, 10] : [2, 10, 10, 10]); ctx.fill();
+    lay.lines.forEach((ln, li) => text(ctx, ln, bx + 12, y + 21 + li * 20, lay.font, T.text));
+    text(ctx, m.time, bx + bw - 10 - (out ? 18 : 0), y + bh - 7, sf(11, 400), T.sub, 1, "right");
+    if (out) { ctx.save(); ctx.strokeStyle = "#53BDEB"; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.lineJoin = "round"; const tx = bx + bw - 22, ty = y + bh - 10; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx + 3, ty + 3); ctx.lineTo(tx + 8, ty - 3); ctx.moveTo(tx + 5, ty + 1.5); ctx.lineTo(tx + 6.5, ty + 3); ctx.lineTo(tx + 12, ty - 3); ctx.stroke(); ctx.restore(); }
+    ctx.restore();
+    y -= 6 * k;
+  }
+  return { kbTop, by0, fh, fieldBox: { x: fx, y: by0 + 10, w: fw, h: fh }, send: { x: W - 30, y: by0 + 10 + fh - 18 } };
+}
+/** What is being said, under the picture, a word at a time. */
+function caption(ctx, s, x, y, maxW, from, to, t, size, after) {
+  if (t < from || t > (after ?? to + .6)) return;
+  const words = s.split(" "), n = Math.floor(seg(t, from, to) * words.length + 1e-6);
+  const shown = words.slice(0, Math.max(1, Math.min(words.length, n)) ).join(" ");
+  if (!shown) return;
+  ctx.save(); ctx.font = sf(size, 500); const tw = ctx.measureText(shown).width + size * 1.2;
+  ctx.globalAlpha *= 1 - seg(t, (after ?? to + .6) - .2, after ?? to + .6);
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x - tw / 2, y - size * 1.05, tw, size * 1.6, size * .4); ctx.fill();
+  text(ctx, shown, x, y + size * .08, sf(size, 500), "#FFFFFF", 1, "center"); ctx.restore();
+}
+
+const PHONE = {
+  W: 390, H: 693, time: "6:12",
+  banner: .4, tapBanner: 1.35, open: 1.5, tapField: 2.45, tapMic: 3.1, rec: 3.2, capFrom: 3.55, capTo: 7.2, tapStop: 7.8, stop: 7.9, land: 8.9, tapSend: 9.7, sent: 9.85, typing: 10.5, reply: 11.1, end: 11.6,
+  said: "the deploy is done but abhi testing baaki hai", wrote: "The deploy is done, but abhi testing baaki hai.",
+};
+const phoneMic = MicSim(MIC_KEY);
+const phoneMicAt = micClock(phoneMic, [[PHONE.rec, "start"], [PHONE.stop, "stop"]]);
+function phoneScene(ctx, w, h, t) {
+  const Pn = PHONE, S = w / Pn.W;
+  ctx.save(); ctx.scale(S, S);
+  const opened = seg(t, Pn.open, Pn.open + .32);
+  if (opened < 1) { homeScreen(ctx, Pn.W, Pn.H, t); banner(ctx, Pn.W, E.out(seg(t, Pn.banner, Pn.banner + .5)), seg(t, Pn.tapBanner, Pn.tapBanner + .12) * (1 - seg(t, Pn.tapBanner + .12, Pn.tapBanner + .3))); touch(ctx, 200, 94, Pn.tapBanner, t); }
+  if (opened > 0) {
+    ctx.save(); ctx.globalAlpha *= opened; const sc = lerp(.94, 1, E.out(opened)); ctx.translate(Pn.W / 2, Pn.H / 2); ctx.scale(sc, sc); ctx.translate(-Pn.W / 2, -Pn.H / 2);
+    const kbUp = E.out(seg(t, Pn.tapField, Pn.tapField + .35));
+    const landed = t >= Pn.land && t < Pn.sent;
+    const c = waChat(ctx, Pn.W, Pn.H, t, {
+      kbUp, caret: kbUp >= 1 && !landed, fieldText: landed ? Pn.wrote : "", fieldLines: landed ? 2 : 1,
+      typing: t > Pn.typing && t < Pn.reply,
+      msgs: [
+        { from: "in", text: "Deploy ho gaya?", time: "6:11 PM", at: 0 },
+        { from: "out", text: Pn.wrote, time: "6:12 PM", at: Pn.sent },
+        { from: "in", text: "Nice!", time: "6:12 PM", at: Pn.reply },
+      ],
+    });
+    phoneMicAt(t);
+    if (kbUp > 0) {
+      const kb = tzKeyboard(ctx, 0, c.kbTop, Pn.W, { t, sim: phoneMic, flashAt: Pn.land, flashText: Pn.wrote, micPress: Math.max(seg(t, Pn.tapMic, Pn.tapMic + .08) * (1 - seg(t, Pn.tapMic + .1, Pn.tapMic + .25)), seg(t, Pn.tapStop, Pn.tapStop + .08) * (1 - seg(t, Pn.tapStop + .1, Pn.tapStop + .25))) });
+      ctx.fillStyle = "#FFFFFF"; rr(ctx, Pn.W / 2 - 67, Pn.H - 13, 134, 5, 2.5); ctx.fill();
+      touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapMic, t); touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapStop, t);
+    }
+    touch(ctx, 180, c.fieldBox.y + 18, Pn.tapField, t); touch(ctx, c.send.x, c.send.y, Pn.tapSend, t);
+    caption(ctx, Pn.said, Pn.W / 2, 100 + (c.by0 - 100) * .5, Pn.W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
+    ctx.restore();
+  }
+  iosStatusBar(ctx, Pn.W, Pn.time, seg(t, Pn.rec, Pn.rec + .3) * (1 - seg(t, Pn.land, Pn.land + .3)));
+  ctx.restore();
+}
+
+// ---- the laptop -------------------------------------------------------------------
+const DESK = {
+  W: 1280, H: 800, bar: 48, time: "6:14 PM", date: "10/17/2026",
+  win: { x: 210, y: 56, w: 860, h: 680 }, sb: 200,
+  /** The camera: wide is the whole screen's width; close is the window's. */
+  wide: 1080 / 1280, close: 1.25,
+  click: 1.0, winOpen: 1.1, fieldClick: 2.7, tap1: 3.0, tap2: 3.25, rec: 3.3, capFrom: 3.7, capTo: 7.7, stop1: 7.75, stop2: 7.95, land: 9.0, enter: 9.6, sent: 9.7, end: 10.9,
+  said: "um so like can we push the call to four", wrote: "Can we push the call to four?",
+};
+function cursorArrow(ctx, x, y) {
+  ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 17); ctx.lineTo(4.2, 13.2); ctx.lineTo(7.2, 19.6); ctx.lineTo(9.8, 18.4); ctx.lineTo(6.8, 12); ctx.lineTo(12.2, 12); ctx.closePath();
+  ctx.fillStyle = "#FFFFFF"; ctx.fill(); ctx.strokeStyle = "#000000"; ctx.lineWidth = 1.1; ctx.lineJoin = "round"; ctx.stroke(); ctx.restore();
+}
+function winDesktop(ctx, t, o) {
+  const { W, H, bar } = DESK;
+  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#0A1F5C"); g.addColorStop(.55, "#123C8E"); g.addColorStop(1, "#0B2E6B");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  glow(ctx, W * .62, H * .48, W * .55, "#5FB5FF", .5); glow(ctx, W * .4, H * .6, W * .35, "#9ED4FF", .35); glow(ctx, W * .75, H * .3, W * .3, "#C8E8FF", .25);
+  // The taskbar, centred, with the app that is about to open among the rest.
+  ctx.fillStyle = "rgba(24,26,32,.86)"; ctx.fillRect(0, H - bar, W, bar);
+  ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(0, H - bar, W, 1);
+  const icons = 6, iw = 40, gap = 10, x0 = W / 2 - (icons * iw + (icons - 1) * gap) / 2, iy = H - bar + 4;
+  for (let i = 0; i < icons; i++) {
+    const x = x0 + i * (iw + gap), press = i === 4 ? o.iconPress : 0;
+    if (i === 4 && o.winOpen > 0) { ctx.fillStyle = "rgba(255,255,255,.08)"; rr(ctx, x, iy, iw, iw, 6); ctx.fill(); ctx.fillStyle = "rgba(255,255,255,.85)"; rr(ctx, x + 13, H - 4, 14, 2.5, 1.25); ctx.fill(); }
+    if (press) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x, iy, iw, iw, 6); ctx.fill(); }
+    ctx.save(); ctx.translate(x + iw / 2, iy + iw / 2); ctx.scale(1 - .08 * press, 1 - .08 * press); ctx.translate(-(x + iw / 2), -(iy + iw / 2));
+    const cx = x + iw / 2, cy = iy + iw / 2;
+    if (i === 0) { ["#2F8CF0", "#2F8CF0", "#2F8CF0", "#2F8CF0"].forEach((c, k) => { ctx.fillStyle = c; rr(ctx, cx - 9 + (k % 2) * 10, cy - 9 + Math.floor(k / 2) * 10, 8, 8, 1.5); ctx.fill(); }); }
+    else if (i === 1) { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx - 2, cy - 2, 6.5, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx + 3, cy + 3); ctx.lineTo(cx + 8, cy + 8); ctx.stroke(); }
+    else if (i === 2) { ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.8; rr(ctx, cx - 9, cy - 6, 12, 12, 2); ctx.stroke(); rr(ctx, cx - 3, cy - 10, 12, 12, 2); ctx.stroke(); }
+    else if (i === 3) { ctx.fillStyle = "#F7C948"; rr(ctx, cx - 10, cy - 6, 20, 14, 2.5); ctx.fill(); ctx.fillStyle = "#E8B030"; rr(ctx, cx - 10, cy - 9, 9, 5, 2); ctx.fill(); }
+    else if (i === 4) { ctx.fillStyle = P.indigo; rr(ctx, cx - 11, cy - 11, 22, 22, 6); ctx.fill(); ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.roundRect(cx - 6.5, cy - 5, 13, 9, 3); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx - 4, cy + 3); ctx.lineTo(cx - 4, cy + 7); ctx.lineTo(cx, cy + 3.5); ctx.closePath(); ctx.fill(); }
+    else { ctx.fillStyle = "#2C9D5A"; rr(ctx, cx - 11, cy - 11, 22, 22, 6); ctx.fill(); ctx.fillStyle = "#FFFFFF"; rr(ctx, cx - 6, cy - 6, 12, 12, 2); ctx.fill(); }
+    ctx.restore();
+  }
+  text(ctx, DESK.time, W - 22, H - bar + 20, sf(12, 400), "#FFFFFF", 1, "right"); text(ctx, DESK.date, W - 22, H - bar + 37, sf(12, 400), "#FFFFFF", 1, "right");
+  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+  for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.arc(W - 128, H - bar + 29, 3 + r * 3.6, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(W - 106, H - bar + 20); ctx.lineTo(W - 106, H - bar + 28); ctx.lineTo(W - 101, H - bar + 32); ctx.lineTo(W - 101, H - bar + 16); ctx.closePath(); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,.5)"; rr(ctx, W - 92 + .5, H - bar + 19.5, 18, 9, 2); ctx.stroke(); ctx.fillStyle = "#FFFFFF"; rr(ctx, W - 90, H - bar + 21.5, 13, 5, 1); ctx.fill(); ctx.restore();
+}
+/** The chat app's window on Windows: the sidebar, the channel, the box. */
+function winChat(ctx, t, o) {
+  const { x, y, w, h } = DESK.win, sb = DESK.sb, ink = "#1B1712", sub = "rgba(27,23,18,.52)", line = "rgba(27,23,18,.1)";
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 12; ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, w, h, 8); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.clip();
+  ctx.fillStyle = "#FFFFFF"; ctx.fillRect(x, y, w, h);
+  // Title bar
+  ctx.fillStyle = "#F3F3F3"; ctx.fillRect(x, y, w, 36);
+  ctx.fillStyle = P.indigo; rr(ctx, x + 12, y + 10, 16, 16, 4); ctx.fill();
+  text(ctx, "Orbit", x + 36, y + 23, sf(12.5, 400), ink);
+  ctx.save(); ctx.strokeStyle = "#1B1712"; ctx.lineWidth = 1; const cx = x + w;
+  ctx.beginPath(); ctx.moveTo(cx - 106, y + 18); ctx.lineTo(cx - 96, y + 18); ctx.stroke();
+  ctx.strokeRect(cx - 65.5, y + 13.5, 9, 9);
+  ctx.beginPath(); ctx.moveTo(cx - 29, y + 14); ctx.lineTo(cx - 20, y + 23); ctx.moveTo(cx - 20, y + 14); ctx.lineTo(cx - 29, y + 23); ctx.stroke(); ctx.restore();
+  // Sidebar
+  ctx.fillStyle = P.violetLo; ctx.fillRect(x, y + 36, sb, h - 36);
+  text(ctx, "Orbit Labs", x + 20, y + 36 + 34, sf(15, 600), "#FFFFFF");
+  ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x + sb - 30, y + 36 + 27); ctx.lineTo(x + sb - 24, y + 36 + 33); ctx.lineTo(x + sb - 18, y + 36 + 27); ctx.stroke(); ctx.restore();
+  label(ctx, "Channels", x + 20, y + 36 + 76, 10, "#FFFFFF", .42);
+  ["general", "eng", "design", "random"].forEach((c, i) => {
+    const yy = y + 36 + 104 + i * 30, on = c === "eng";
+    if (on) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x + 10, yy - 19, sb - 20, 28, 6); ctx.fill(); }
+    text(ctx, "#  " + c, x + 22, yy, sf(14, on ? 600 : 400), on ? "#FFFFFF" : "rgba(255,255,255,.6)");
+  });
+  // Channel
+  const mx = x + sb;
+  text(ctx, "# eng", mx + 24, y + 36 + 32, sf(16, 600), ink); text(ctx, "12 members", mx + 92, y + 36 + 32, sf(12.5, 400), sub);
+  ctx.fillStyle = line; ctx.fillRect(mx, y + 36 + 48, w - sb, 1);
+  let yy = y + 36 + 76;
+  for (const m of o.msgs) {
+    if (t < m.at) continue; const k = E.out(seg(t, m.at, m.at + .3));
+    ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 8);
+    ctx.fillStyle = m.color; rr(ctx, mx + 24, yy, 36, 36, 8); ctx.fill(); text(ctx, m.name[0], mx + 42, yy + 24, sf(17, 600), "#FFFFFF", 1, "center");
+    text(ctx, m.name, mx + 72, yy + 14, sf(15, 600), ink); ctx.font = sf(15, 600); text(ctx, m.time, mx + 72 + ctx.measureText(m.name).width + 10, yy + 14, sf(12, 400), sub);
+    text(ctx, m.text, mx + 72, yy + 35, sf(15, 400), ink);
+    ctx.restore(); yy += 62;
+  }
+  // The box
+  const bx = mx + 24, bw = w - sb - 48, bh = 76, by = y + h - 24 - bh;
+  ctx.fillStyle = "#FFFFFF"; rr(ctx, bx, by, bw, bh, 10); ctx.fill();
+  ctx.strokeStyle = o.focus ? "rgba(27,23,18,.5)" : "rgba(27,23,18,.22)"; ctx.lineWidth = 1.2; rr(ctx, bx + .5, by + .5, bw - 1, bh - 1, 9.5); ctx.stroke();
+  if (o.text) text(ctx, o.text, bx + 16, by + 30, sf(15, 400), ink);
+  else if (!o.focus) text(ctx, "Message #eng", bx + 16, by + 30, sf(15, 400), "rgba(27,23,18,.38)");
+  if (o.focus && !o.text && Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = ink; ctx.fillRect(bx + 16, by + 16, 1.4, 19); }
+  if (o.text && Math.floor(t * 2) % 2 === 0) { ctx.font = sf(15, 400); ctx.fillStyle = ink; ctx.fillRect(bx + 16 + ctx.measureText(o.text).width + 2, by + 16, 1.4, 19); }
+  const sx = bx + bw - 32, sy = by + bh - 24;
+  ctx.fillStyle = o.text ? P.indigo : "rgba(27,23,18,.16)"; rr(ctx, sx - 13, sy - 13, 26, 26, 6); ctx.fill();
+  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(sx - 6, sy + 4.5); ctx.lineTo(sx + 7, sy); ctx.lineTo(sx - 6, sy - 4.5); ctx.lineTo(sx - 3, sy); ctx.closePath(); ctx.stroke(); ctx.restore();
+  ctx.restore();
+  return { box: { x: bx, y: by, w: bw, h: bh } };
+}
+/** A keystroke, shown the way screen recorders show one. */
+function keyHud(ctx, lab, x, y, at, t) {
+  const k = E.out(seg(t, at, at + .14)) * (1 - E.in(seg(t, at + .7, at + 1.0))); if (k <= 0) return;
+  ctx.save(); ctx.globalAlpha *= k; ctx.font = sf(30, 500); const w = ctx.measureText(lab).width + 44;
+  ctx.fillStyle = "rgba(20,20,22,.88)"; rr(ctx, x, y - 30 + (1 - k) * 6, w, 60, 12); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1.5; rr(ctx, x + .75, y - 29.25 + (1 - k) * 6, w - 1.5, 58.5, 11.25); ctx.stroke();
+  text(ctx, lab, x + w / 2, y + 11 + (1 - k) * 6, sf(30, 500), "#FFFFFF", 1, "center"); ctx.restore();
+}
+const deskCursor = (t) => {
+  const D = DESK, P0 = [900, 390], P1 = [D.W / 2 + 75, D.H - 24], P2 = [D.win.x + D.sb + 24 + 140, D.win.y + D.win.h - 24 - 38];
+  if (t < D.click) { const k = E.io(seg(t, .15, D.click - .05)); return [lerp(P0[0], P1[0], k), lerp(P0[1], P1[1], k)]; }
+  const k = E.io(seg(t, 1.5, D.fieldClick - .05)); return [lerp(P1[0], P2[0], k), lerp(P1[1], P2[1], k)];
+};
+function deskScene(ctx, w, h, t) {
+  const D = DESK;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, h);
+  // The camera: wide while the app is opened, close to read the box, wide
+  // again while it listens (the thread runs to the screen's edges), close
+  // again as the text lands.
+  const zk = E.io(seg(t, D.winOpen, D.winOpen + 1.1)) * (1 - E.io(seg(t, D.rec, D.rec + .7))) + E.io(seg(t, D.land - .7, D.land));
+  const z = lerp(D.wide, D.close, clamp(zk)), cx = D.win.x + D.win.w / 2, cy = D.H / 2;
+  ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(z, z); ctx.translate(-cx, -cy);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, D.W, D.H); ctx.clip();
+  const winOpen = E.out(seg(t, D.winOpen, D.winOpen + .3));
+  winDesktop(ctx, t, { iconPress: seg(t, D.click, D.click + .08) * (1 - seg(t, D.click + .1, D.click + .3)), winOpen });
+  if (winOpen > 0) {
+    ctx.save(); ctx.globalAlpha *= winOpen; const sc = lerp(.96, 1, winOpen); const wx = D.win.x + D.win.w / 2, wy = D.win.y + D.win.h / 2; ctx.translate(wx, wy); ctx.scale(sc, sc); ctx.translate(-wx, -wy);
+    winChat(ctx, t, {
+      focus: t >= D.fieldClick, text: t >= D.land && t < D.sent ? D.wrote : "",
+      msgs: [
+        { name: "Aarav", color: P.teal, time: "6:13 PM", text: "Standup at three today?", at: D.winOpen },
+        { name: "Maya", color: "#B8650C", time: "6:13 PM", text: "Works for me.", at: D.winOpen },
+        { name: "You", color: P.indigo, time: "6:14 PM", text: D.wrote, at: D.sent },
+      ],
+    });
+    ctx.restore();
+  }
+  // The pill, at the foot of the work area: the desktop app's own frames.
+  const tau = t < D.rec ? .4 : Math.min(9.5, 2.2 + (t - D.rec));
+  drawPill(ctx, tau, 0, D.H - D.bar, D.W);
+  const [cxr, cyr] = deskCursor(t); cursorArrow(ctx, cxr, cyr);
+  ctx.restore(); ctx.restore();
+  // Keystrokes and the caption live outside the recording, in the black.
+  const bottom = h / 2 + D.H / 2 * z;
+  keyHud(ctx, "Ctrl", w / 2 - 132, bottom + 70, D.tap1, t); keyHud(ctx, "Ctrl", w / 2 + 12, bottom + 70, D.tap2, t);
+  keyHud(ctx, "Ctrl", w / 2 - 132, bottom + 70, D.stop1, t); keyHud(ctx, "Ctrl", w / 2 + 12, bottom + 70, D.stop2, t);
+  keyHud(ctx, "Enter", w / 2 - 66, bottom + 70, D.enter, t);
+  caption(ctx, D.said, w / 2, bottom + 180, w - 80, D.capFrom, D.capTo, t, 40, D.stop1 + .4);
+}
+
+FILMS.recording = { w: 1080, h: 1920, duration: PHONE.end + DESK.end, v2: true, draw(ctx, t, w, h) {
+  if (t < PHONE.end) phoneScene(ctx, w, h, t);
+  else deskScene(ctx, w, h, t - PHONE.end);
 } };
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
