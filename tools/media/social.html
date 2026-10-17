@@ -1855,7 +1855,7 @@ const DESK = {
   /** The camera: wide is the whole screen's width; close is the window's. */
   wide: 1080 / 1280, close: 1.25,
   click: 1.0, winOpen: 1.1, fieldClick: 2.7, tap1: 3.0, tap2: 3.25, rec: 3.3, capFrom: 3.7, capTo: 7.7, stop1: 7.75, stop2: 7.95, land: 9.0, enter: 9.6, sent: 9.7, end: 10.9,
-  said: "um so like can we push the call to four", wrote: "Can we push the call to four?",
+  said: "um so i have no content to post i'm out of ideas and all", wrote: "So I have no content to post. I'm out of ideas.",
 };
 function cursorArrow(ctx, x, y) {
   ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 17); ctx.lineTo(4.2, 13.2); ctx.lineTo(7.2, 19.6); ctx.lineTo(9.8, 18.4); ctx.lineTo(6.8, 12); ctx.lineTo(12.2, 12); ctx.closePath();
@@ -1909,14 +1909,14 @@ function winChat(ctx, t, o) {
   text(ctx, "Orbit Labs", x + 20, y + 36 + 34, sf(15, 600), "#FFFFFF");
   ctx.save(); ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(x + sb - 30, y + 36 + 27); ctx.lineTo(x + sb - 24, y + 36 + 33); ctx.lineTo(x + sb - 18, y + 36 + 27); ctx.stroke(); ctx.restore();
   label(ctx, "Channels", x + 20, y + 36 + 76, 10, "#FFFFFF", .42);
-  ["general", "eng", "design", "random"].forEach((c, i) => {
-    const yy = y + 36 + 104 + i * 30, on = c === "eng";
+  ["general", "content", "design", "random"].forEach((c, i) => {
+    const yy = y + 36 + 104 + i * 30, on = c === "content";
     if (on) { ctx.fillStyle = "rgba(255,255,255,.14)"; rr(ctx, x + 10, yy - 19, sb - 20, 28, 6); ctx.fill(); }
     text(ctx, "#  " + c, x + 22, yy, sf(14, on ? 600 : 400), on ? "#FFFFFF" : "rgba(255,255,255,.6)");
   });
   // Channel
   const mx = x + sb;
-  text(ctx, "# eng", mx + 24, y + 36 + 32, sf(16, 600), ink); text(ctx, "12 members", mx + 92, y + 36 + 32, sf(12.5, 400), sub);
+  text(ctx, "# content", mx + 24, y + 36 + 32, sf(16, 600), ink); text(ctx, "8 members", mx + 122, y + 36 + 32, sf(12.5, 400), sub);
   ctx.fillStyle = line; ctx.fillRect(mx, y + 36 + 48, w - sb, 1);
   let yy = y + 36 + 76;
   for (const m of o.msgs) {
@@ -1932,7 +1932,7 @@ function winChat(ctx, t, o) {
   ctx.fillStyle = "#FFFFFF"; rr(ctx, bx, by, bw, bh, 10); ctx.fill();
   ctx.strokeStyle = o.focus ? "rgba(27,23,18,.5)" : "rgba(27,23,18,.22)"; ctx.lineWidth = 1.2; rr(ctx, bx + .5, by + .5, bw - 1, bh - 1, 9.5); ctx.stroke();
   if (o.text) text(ctx, o.text, bx + 16, by + 30, sf(15, 400), ink);
-  else if (!o.focus) text(ctx, "Message #eng", bx + 16, by + 30, sf(15, 400), "rgba(27,23,18,.38)");
+  else if (!o.focus) text(ctx, "Message #content", bx + 16, by + 30, sf(15, 400), "rgba(27,23,18,.38)");
   if (o.focus && !o.text && Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = ink; ctx.fillRect(bx + 16, by + 16, 1.4, 19); }
   if (o.text && Math.floor(t * 2) % 2 === 0) { ctx.font = sf(15, 400); ctx.fillStyle = ink; ctx.fillRect(bx + 16 + ctx.measureText(o.text).width + 2, by + 16, 1.4, 19); }
   const sx = bx + bw - 32, sy = by + bh - 24;
@@ -1971,8 +1971,8 @@ function deskScene(ctx, w, h, t) {
     winChat(ctx, t, {
       focus: t >= D.fieldClick, text: t >= D.land && t < D.sent ? D.wrote : "",
       msgs: [
-        { name: "Aarav", color: P.teal, time: "6:13 PM", text: "Standup at three today?", at: D.winOpen },
-        { name: "Maya", color: "#B8650C", time: "6:13 PM", text: "Works for me.", at: D.winOpen },
+        { name: "Aarav", color: P.teal, time: "6:13 PM", text: "What's going out on socials today?", at: D.winOpen },
+        { name: "Maya", color: "#B8650C", time: "6:13 PM", text: "The carousel is still in design.", at: D.winOpen },
         { name: "You", color: P.indigo, time: "6:14 PM", text: D.wrote, at: D.sent },
       ],
     });
