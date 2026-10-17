@@ -70,10 +70,13 @@ const config: ExpoConfig = {
   // CFBundleShortVersionString. Apple closes a version's "train" once a build
   // on it is approved, and refuses any later build that is not HIGHER — so a
   // resubmission needs the marketing version bumped, not just the build number
-  // (that is what `appVersionSource: remote` + autoIncrement already do). 1.0.1
-  // was approved; this release after it — the widgets, the bridge, the reworked
-  // keyboards (see runtimeVersion below) — is 1.0.2.
-  version: "1.0.2",
+  // (that is what `appVersionSource: remote` + autoIncrement already do).
+  //
+  // HIGHER THAN THE STORE'S, not this file's last. The App Store has carried
+  // 8.6 since 10 Oct 2026 (a version set outside this repo), so 1.0.2 could
+  // never be uploaded. The iOS release job checks this against the live store
+  // version before it builds (tools/ci/ios-version.mjs).
+  version: "8.7",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
