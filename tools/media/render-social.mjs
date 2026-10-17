@@ -38,6 +38,9 @@ const FILMS = [
   { id: "tones", file: "tailzu-your-tone-1x1.mp4" },
   { id: "languages", file: "tailzu-22-languages-1x1.mp4" },
   { id: "recording", file: "tailzu-screen-recording-9x16.mp4" },
+  { id: "recording2", file: "tailzu-screen-recording-cursor-chatgpt-9x16.mp4" },
+  { id: "deskSlack", file: "tailzu-mac-slack-9x16.mp4" },
+  { id: "deskCursor", file: "tailzu-mac-cursor-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
