@@ -1,3 +1,4 @@
 # Frames a render writes and removes; never committed.
 promo/.frames-*/
 node_modules/
+pill/

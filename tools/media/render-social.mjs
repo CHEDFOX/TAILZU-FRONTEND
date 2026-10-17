@@ -37,6 +37,7 @@ const FILMS = [
   { id: "keyless", file: "tailzu-keyless-9x16.mp4" },
   { id: "tones", file: "tailzu-your-tone-1x1.mp4" },
   { id: "languages", file: "tailzu-22-languages-1x1.mp4" },
+  { id: "crossdesk", file: "tailzu-phone-and-desk-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
