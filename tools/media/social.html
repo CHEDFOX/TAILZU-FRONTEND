@@ -1999,6 +1999,8 @@ function macMenuBar(ctx, D, app) {
   for (let r = 0; r < 3; r++) { ctx.beginPath(); ctx.arc(rx - 8, 17, 2.6 + r * 3.7, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke(); } ctx.beginPath(); ctx.arc(rx - 8, 16.6, 1.3, 0, TAU); ctx.fill(); rx -= 16 + 18;
   ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 1; rr(ctx, rx - 24.5, 7.5, 22, 10.5, 2.5); ctx.stroke(); rr(ctx, rx - 22.5, 9.5, 15.5, 6.5, 1.2); ctx.fill(); rr(ctx, rx - 1.6, 10.5, 1.6, 4.5, .8); ctx.fill(); rx -= 26 + 18;
   ctx.restore();
+  // Tailzu, as a menu bar item: the mark, in white; and its clock while a note runs.
+  if (D.tray) { ctx.font = sf(13, 400); const tw = ctx.measureText(D.tray).width; text(ctx, D.tray, rx, 17, sf(13, 400), "#FFFFFF", .96, "right"); rx -= tw; }
   menuMark.draw(ctx, rx - 19, 3.5, 18, "#FFFFFF");
 }
 /** One Dock icon. */
@@ -2339,6 +2341,7 @@ function deskScene(ctx, w, h, t, D) {
   keyHud(ctx, D.tapKey, w / 2 - 104, hudY, D.stop1, t); keyHud(ctx, D.tapKey, w / 2 + 104, hudY, D.stop2, t);
   keyHud(ctx, D.sendKey, w / 2, hudY, D.enter, t);
   caption(ctx, D.said, w / 2, hudY + 110, w - 80, D.capFrom, D.capTo, t, 40, D.stop1 + .4);
+  return { rx, ry, rw, rh, z };
 }
 
 /** The Mac's keys, the way its keyboard labels them. */
@@ -2394,6 +2397,291 @@ FILMS.recording2 = { w: 1080, h: 1920, duration: PHONE_GPT.end + DESK_CURSOR.end
 // The laptop halves on their own: a Mac, Slack or Cursor, the pill, nothing else.
 FILMS.deskSlack = { w: 1080, h: 1920, duration: DESK_CHAT.end, v2: true, draw(ctx, t, w, h) { deskScene(ctx, w, h, t, DESK_CHAT); } };
 FILMS.deskCursor = { w: 1080, h: 1920, duration: DESK_CURSOR.end, v2: true, draw(ctx, t, w, h) { deskScene(ctx, w, h, t, DESK_CURSOR); } };
+// ---- lessons: the recording freezes, and a line says what just happened ------------
+/** Film time → scene time, and the freeze under way, if one is. `L.freezes`
+ *  are [{ at (scene time), hold, title, body, focus }], in order. */
+function lessonClock(L, T) {
+  let off = 0;
+  for (const f of L.freezes) {
+    const start = f.at + off;
+    if (T < start) break;
+    if (T < start + f.hold) return { t: f.at, f, k: (T - start) / f.hold };
+    off += f.hold;
+  }
+  return { t: T - off, f: null, k: 0 };
+}
+/** Scene time → film time, for the sounds. */
+function filmTime(L, t) { let off = 0; for (const f of L.freezes) { if (f.at < t) off += f.hold; else break; } return t + off; }
+let lessonBuf = null;
+function lessonDraw(ctx, w, h, T, L, sceneFn) {
+  const { t, f, k } = lessonClock(L, T);
+  if (!f) { sceneFn(ctx, w, h, t); return; }
+  if (!lessonBuf) { lessonBuf = document.createElement("canvas"); lessonBuf.width = w; lessonBuf.height = h; }
+  const g = lessonBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, w, h);
+  const cam = sceneFn(g, w, h, t) || { rx: 0, ry: 0, rh: h, z: 1 };
+  const held = k * f.hold, fade = E.out(seg(held, 0, .3)) * (1 - E.in(seg(held, f.hold - .3, f.hold)));
+  const focus = typeof f.focus === "function" ? f.focus() : f.focus;
+  let fr = null;
+  if (focus) { const [x, y, fw, fh] = focus; fr = { x: cam.rx + x * cam.z, y: cam.ry + y * cam.z, w: fw * cam.z, h: fh * cam.z }; }
+  // The frozen frame, pushed in a little over the hold, about what matters in it.
+  const px = fr ? fr.x + fr.w / 2 : w / 2, py = fr ? fr.y + fr.h / 2 : h / 2, push = 1 + .05 * E.io(k);
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(px, py); ctx.scale(push, push); ctx.translate(-px, -py); ctx.drawImage(lessonBuf, 0, 0); ctx.restore();
+  if (fr) fr = { x: px - fr.w * push / 2, y: py - fr.h * push / 2, w: fr.w * push, h: fr.h * push };
+  const pad = 14;
+  ctx.save(); ctx.globalAlpha = .58 * fade; ctx.fillStyle = "#000000"; ctx.beginPath(); ctx.rect(0, 0, w, h);
+  if (fr) ctx.roundRect(fr.x - pad, fr.y - pad, fr.w + pad * 2, fr.h + pad * 2, 14);
+  ctx.fill("evenodd"); ctx.restore();
+  if (fr) { ctx.save(); ctx.globalAlpha = fade; ctx.shadowColor = rgba(P.pale, .55); ctx.shadowBlur = 28; ctx.strokeStyle = P.pale; ctx.lineWidth = 3; rr(ctx, fr.x - pad, fr.y - pad, fr.w + pad * 2, fr.h + pad * 2, 14); ctx.stroke(); ctx.restore(); }
+  // The words, in the band away from what is ringed (or above, when nothing is).
+  const recTop = (cam.ry - py) * push + py, recBot = (cam.ry + cam.rh - py) * push + py;
+  const up = !fr || py > h / 2;
+  const bandTop = up ? 0 : Math.min(h, recBot), bandBot = up ? Math.max(0, recTop) : h;
+  const lay = layout(ctx, f.body, `400 34px ${SANS}`, w - 200, 44), blockH = 62 + 16 + lay.lines.length * 44;
+  let y0 = (bandTop + bandBot) / 2 - blockH / 2 + 56;
+  if (bandBot - bandTop < blockH + 40) y0 = up ? 112 : h - blockH - 28 + 56;
+  const rise = (1 - E.out(seg(held, 0, .35))) * 18;
+  ctx.save(); ctx.globalAlpha = fade;
+  text(ctx, f.title, w / 2, y0 + rise, `300 62px ${SERIF}`, P.pale, 1, "center");
+  lay.lines.forEach((ln, i) => text(ctx, ln, w / 2, y0 + 56 + i * 44 + rise, lay.font, rgba(P.pale, .8), 1, "center"));
+  ctx.restore();
+}
+/** A film of one scene with its lessons; `cuesFn` lists the sounds, in scene time. */
+function lessonFilm(D, L, sceneFn, cuesFn) {
+  const duration = D.end + L.freezes.reduce((a, f) => a + f.hold, 0);
+  return {
+    w: 1080, h: 1920, duration, v2: true,
+    draw(ctx, t, w, h) { lessonDraw(ctx, w, h, t, L, (c, ww, hh, tt) => sceneFn(c, ww, hh, tt, D)); },
+    cues() {
+      const c = cuesFn(D).map((q) => Object.assign({}, q, { at: filmTime(L, q.at) }));
+      L.freezes.forEach((f) => { const T = filmTime(L, f.at); c.push({ at: T, kind: "freeze" }, { at: T + f.hold - .06, kind: "resume" }); });
+      c.push({ at: 0, kind: "bed", dur: duration });
+      return c;
+    },
+  };
+}
+/** The sounds of a dictation on the laptop: the clicks, the taps, the pill, the landing. */
+function dictationCues(D) {
+  return [
+    { at: D.click, kind: "click" }, { at: D.winOpen, kind: "open" }, { at: D.fieldClick, kind: "click" },
+    { at: D.tap1, kind: "key" }, { at: D.tap2, kind: "key" }, { at: D.rec, kind: "listen" },
+    { at: D.stop1, kind: "key" }, { at: D.stop2, kind: "key" }, { at: D.stop2 + .12, kind: "stop" },
+    { at: D.land, kind: "land" }, { at: D.enter, kind: "key" }, { at: D.sent, kind: "send" },
+  ];
+}
+const cursorBox = [MAC.W - 440 + 14, MAC.win.y + MAC.win.h - 22 - 14 - 96, 440 - 28, 96];
+const threadStrip = [0, MAC.dockTop - 58, MAC.W, 56];
+const LESSON_CURSOR = { freezes: [
+  { at: DESK_CURSOR.fieldClick + .35, hold: 2.4, title: "Works in any text box", body: "Cursor, Slack, Mail, the browser. If you can type there, you can talk there.", focus: cursorBox },
+  { at: DESK_CURSOR.rec + .7, hold: 2.4, title: "Double-tap control", body: "The thread across the foot of the screen means Tailzu is listening.", focus: threadStrip },
+  { at: DESK_CURSOR.land + .45, hold: 2.6, title: "Pasted, not typed", body: "Your ums and half-thoughts come back as one clean sentence, right where the cursor was.", focus: cursorBox },
+  { at: DESK_CURSOR.replyTo + .25, hold: 2.6, title: "Prompt by voice", body: "Say the whole idea in one breath. Cursor gets a clear brief.", focus: [MAC.W - 440 + 14, MAC.win.y + 38 + 44, 440 - 28, 300] },
+] };
+const slackBox = [72 + 260 + 20, MAC.win.y + MAC.win.h - 28 - 110, MAC.W - 332 - 40, 110];
+const LESSON_SLACK = { freezes: [
+  { at: DESK_CHAT.fieldClick + .35, hold: 2.4, title: "Works in any text box", body: "Slack, WhatsApp, Mail, Notion. If you can type there, you can talk there.", focus: slackBox },
+  { at: DESK_CHAT.rec + .7, hold: 2.4, title: "Double-tap control", body: "The thread across the foot of the screen means Tailzu is listening. Two taps again to stop.", focus: threadStrip },
+  { at: DESK_CHAT.land + .45, hold: 2.6, title: "Clean, in your words", body: "Filler gone, punctuation in, the meaning untouched.", focus: slackBox },
+  { at: DESK_CHAT.sent + .9, hold: 2.4, title: "Then just send", body: "No app switch, no copy and paste. Say it, send it.", focus: [344, 25 + 44 + 118 + 34 + 120 - 6, 720, 54] },
+] };
+FILMS.lessonCursor = lessonFilm(DESK_CURSOR, LESSON_CURSOR, deskScene, dictationCues);
+FILMS.lessonSlack = lessonFilm(DESK_CHAT, LESSON_SLACK, deskScene, dictationCues);
+
+// ---- notes: a call, ⌘⌥N, and the note it becomes -------------------------------------
+/** A macOS notification, top right: the app's icon, its name, the line. */
+function macNotification(ctx, k, body, press = 0) {
+  if (k <= 0) return;
+  const w = 360, h = 72, x = MAC.W - 12 - w, y = lerp(-h - 10, MAC.menu + 8, k);
+  ctx.save(); ctx.globalAlpha *= clamp(k * 1.4);
+  ctx.translate(x + w / 2, y + h / 2); ctx.scale(1 - .03 * press, 1 - .03 * press); ctx.translate(-(x + w / 2), -(y + h / 2));
+  ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 26; ctx.shadowOffsetY = 8; ctx.fillStyle = "rgba(44,42,56,.92)"; rr(ctx, x, y, w, h, 16); ctx.fill(); ctx.shadowColor = "transparent";
+  ctx.strokeStyle = "rgba(255,255,255,.14)"; ctx.lineWidth = 1; rr(ctx, x + .5, y + .5, w - 1, h - 1, 15.5); ctx.stroke();
+  ctx.fillStyle = "#15120F"; rr(ctx, x + 14, y + 16, 40, 40, 10); ctx.fill(); menuMark.draw(ctx, x + 18, y + 20, 32, P.pale);
+  text(ctx, "Tailzu", x + 66, y + 28, sf(13, 700), "#FFFFFF"); text(ctx, "now", x + w - 14, y + 27, sf(11.5, 400), "rgba(255,255,255,.55)", 1, "right");
+  const lay = layout(ctx, body, sf(13, 400), w - 80, 17); lay.lines.slice(0, 2).forEach((ln, i) => text(ctx, ln, x + 66, y + 47 + i * 17, lay.font, "rgba(255,255,255,.88)"));
+  ctx.restore();
+}
+/** The icons of a video call. */
+const callIco = {
+  mic(ctx, cx, cy, c, off) { ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 2; ctx.lineCap = "round"; rr(ctx, cx - 4, cy - 10, 8, 13, 4); ctx.fill(); ctx.beginPath(); ctx.arc(cx, cy, 8, Math.PI * .1, Math.PI * .9); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx, cy + 8); ctx.lineTo(cx, cy + 12); ctx.stroke(); if (off) { ctx.beginPath(); ctx.moveTo(cx - 10, cy - 11); ctx.lineTo(cx + 10, cy + 11); ctx.stroke(); } },
+  cam(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; rr(ctx, cx - 11, cy - 7, 14, 14, 3); ctx.fill(); ctx.beginPath(); ctx.moveTo(cx + 4, cy - 3); ctx.lineTo(cx + 11, cy - 7); ctx.lineTo(cx + 11, cy + 7); ctx.lineTo(cx + 4, cy + 3); ctx.closePath(); ctx.fill(); },
+  cc(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; rr(ctx, cx - 11, cy - 8, 22, 16, 3); ctx.stroke(); text(ctx, "cc", cx, cy + 4.5, sf(11, 700), c, 1, "center"); },
+  present(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round"; rr(ctx, cx - 11, cy - 8, 22, 15, 2); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx, cy + 3); ctx.lineTo(cx, cy - 5); ctx.moveTo(cx - 4, cy - 1); ctx.lineTo(cx, cy - 5); ctx.lineTo(cx + 4, cy - 1); ctx.stroke(); },
+  hand(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 10); ctx.lineTo(cx - 7, cy - 2); ctx.moveTo(cx - 3, cy - 1); ctx.lineTo(cx - 3, cy - 9); ctx.moveTo(cx + 1, cy - 1); ctx.lineTo(cx + 1, cy - 10); ctx.moveTo(cx + 5, cy - 1); ctx.lineTo(cx + 5, cy - 7); ctx.moveTo(cx - 7, cy + 10); ctx.bezierCurveTo(cx - 7, cy + 12, cx + 8, cy + 12, cx + 8, cy + 3); ctx.lineTo(cx + 8, cy - 2); ctx.stroke(); },
+  more(ctx, cx, cy, c) { ctx.fillStyle = c; [-7, 0, 7].forEach((dy) => { ctx.beginPath(); ctx.arc(cx, cy + dy, 2.2, 0, TAU); ctx.fill(); }); },
+  end(ctx, cx, cy, c) { ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI * .75); ctx.strokeStyle = c; ctx.lineWidth = 2.6; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(-8, -3); ctx.bezierCurveTo(-8, -9, 8, -9, 8, -3); ctx.lineTo(5, 3); ctx.lineTo(-5, 3); ctx.closePath(); ctx.stroke(); ctx.restore(); },
+  info(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, 9, 0, TAU); ctx.stroke(); text(ctx, "i", cx, cy + 5, sf(13, 700), c, 1, "center"); },
+  people(ctx, cx, cy, c) { ico.people(ctx, cx, cy, c); },
+  chat(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; rr(ctx, cx - 10, cy - 9, 20, 15, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx - 6, cy + 6); ctx.lineTo(cx - 8, cy + 11); ctx.lineTo(cx - 1, cy + 6); ctx.stroke(); },
+  shapes(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 10, cy - 1); ctx.lineTo(cx - 4, cy - 10); ctx.lineTo(cx + 2, cy - 1); ctx.closePath(); ctx.stroke(); rr(ctx, cx - 10, cy + 2, 8, 8, 1); ctx.stroke(); ctx.beginPath(); ctx.arc(cx + 6, cy + 6, 4.5, 0, TAU); ctx.stroke(); },
+  lock(ctx, cx, cy, c) { ctx.strokeStyle = c; ctx.lineWidth = 2; rr(ctx, cx - 8, cy - 2, 16, 12, 2); ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy - 4, 5, Math.PI, 0); ctx.stroke(); },
+};
+/** A Google Meet call in Chrome, on a Mac. `o.speaking` is who; `o.caption` what is being said. */
+function meetWin(ctx, t, D, o) {
+  const { x, y, w, h } = D.win, ink = "#E8EAED", dim = "rgba(232,234,237,.62)";
+  const done = macWindow(ctx, x, y, w, h, "#202124", true);
+  // Chrome: the tab strip, the address bar.
+  ctx.fillStyle = "#1F1F1F"; ctx.fillRect(x, y, w, 40); trafficLights(ctx, x + 20, y + 20);
+  ctx.fillStyle = "#35363A"; rr(ctx, x + 84, y + 8, 250, 32, 8); ctx.fill(); ctx.fillRect(x + 84, y + 30, 250, 10);
+  ctx.fillStyle = "#00897B"; rr(ctx, x + 98, y + 16, 16, 16, 4); ctx.fill(); callIco.cam(ctx, x + 106, y + 24, "#FFFFFF");
+  text(ctx, "Meet – " + D.code, x + 124, y + 28, sf(12.5, 400), ink); text(ctx, "×", x + 318, y + 29, sf(14, 400), dim, 1, "center"); text(ctx, "+", x + 352, y + 29, sf(16, 400), dim, 1, "center");
+  ctx.fillStyle = "#35363A"; ctx.fillRect(x, y + 40, w, 40);
+  ico.chev(ctx, x + 22, y + 60, dim, -1); ico.chev(ctx, x + 52, y + 60, "rgba(232,234,237,.3)", 1);
+  ctx.save(); ctx.strokeStyle = dim; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(x + 84, y + 60, 6.5, .4, TAU - .6); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = "#202124"; rr(ctx, x + 108, y + 46, w - 220, 28, 14); ctx.fill();
+  ico.lock ? null : null; callIco.lock(ctx, x + 128, y + 60, dim); text(ctx, "meet.google.com/" + D.code, x + 146, y + 65, sf(13, 400), ink);
+  ctx.fillStyle = P.teal; ctx.beginPath(); ctx.arc(x + w - 64, y + 60, 12, 0, TAU); ctx.fill(); text(ctx, "R", x + w - 64, y + 65, sf(12, 600), "#FFFFFF", 1, "center"); ico.more ? null : null; callIco.more(ctx, x + w - 28, y + 60, dim);
+  // Meet: the tiles.
+  const top = y + 80, bar = 80, areaH = h - 80 - bar, pad = 16, gap = 10, cols = 2;
+  const tw = (w - pad * 2 - gap) / cols, th = (areaH - pad * 2 - gap) / 2;
+  D.people.concat([[D.you, P.teal, true]]).forEach(([name, color, you], i) => {
+    const tx = x + pad + (i % cols) * (tw + gap), ty = top + pad + Math.floor(i / cols) * (th + gap), on = o.speaking === name;
+    ctx.fillStyle = "#3C4043"; rr(ctx, tx, ty, tw, th, 12); ctx.fill();
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(tx + tw / 2, ty + th / 2, 52, 0, TAU); ctx.fill(); text(ctx, name[0], tx + tw / 2, ty + th / 2 + 15, sf(42, 500), "#FFFFFF", 1, "center");
+    ctx.fillStyle = "rgba(0,0,0,.45)"; const nm = you ? "You" : name; ctx.font = sf(13, 500); const nw = ctx.measureText(nm).width + 20; rr(ctx, tx + 12, ty + th - 36, nw, 24, 6); ctx.fill(); text(ctx, nm, tx + 22, ty + th - 19, sf(13, 500), "#FFFFFF");
+    if (on) {
+      ctx.strokeStyle = "#8AB4F8"; ctx.lineWidth = 3; rr(ctx, tx + 1.5, ty + 1.5, tw - 3, th - 3, 11); ctx.stroke();
+      ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.arc(tx + tw - 26, ty + 26, 14, 0, TAU); ctx.fill();
+      [-5, 0, 5].forEach((dx, k) => { const hh = 5 + 6 * Math.abs(Math.sin(t * 9 + k * 1.3)); ctx.fillStyle = "#8AB4F8"; rr(ctx, tx + tw - 26 + dx - 1.5, ty + 26 - hh / 2, 3, hh, 1.5); ctx.fill(); });
+    } else { ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.beginPath(); ctx.arc(tx + tw - 26, ty + 26, 14, 0, TAU); ctx.fill(); callIco.mic(ctx, tx + tw - 26, ty + 26, "#FFFFFF", !you); }
+  });
+  // Captions, as Meet shows them.
+  if (o.caption && o.caption.text) {
+    const c = o.caption, lay = layout(ctx, c.text, sf(18, 400), 620, 24), cw = Math.max(lay.width, 120) + 70 + 24, ch = lay.lines.length * 24 + 24;
+    const cx0 = x + w / 2 - cw / 2, cy0 = y + h - bar - 24 - ch;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, cx0, cy0, cw, ch, 8); ctx.fill();
+    ctx.fillStyle = c.color; ctx.beginPath(); ctx.arc(cx0 + 26, cy0 + 24, 12, 0, TAU); ctx.fill(); text(ctx, c.name[0], cx0 + 26, cy0 + 29, sf(12, 600), "#FFFFFF", 1, "center");
+    text(ctx, c.name, cx0 + 46, cy0 + 20, sf(12, 600), "rgba(255,255,255,.7)");
+    lay.lines.forEach((ln, i) => text(ctx, ln, cx0 + 46 + 24, cy0 + 29 + i * 24, lay.font, "#FFFFFF"));
+  }
+  // The bar at the foot.
+  const by = y + h - bar;
+  text(ctx, o.time + "  |  " + D.code, x + 24, by + 46, sf(14, 400), ink);
+  const btn = (cx, cy, w2, fill, draw) => { ctx.fillStyle = fill; rr(ctx, cx - w2 / 2, cy - 24, w2, 48, 24); ctx.fill(); draw(cx, cy); };
+  const mid = x + w / 2 - 20, cy = by + 40;
+  btn(mid - 170, cy, 48, "#3C4043", (a, b) => callIco.mic(ctx, a, b, "#FFFFFF", false));
+  btn(mid - 112, cy, 48, "#3C4043", (a, b) => callIco.cam(ctx, a, b, "#FFFFFF"));
+  btn(mid - 54, cy, 48, "#8AB4F8", (a, b) => callIco.cc(ctx, a, b, "#202124"));
+  btn(mid + 4, cy, 48, "#3C4043", (a, b) => callIco.present(ctx, a, b, "#FFFFFF"));
+  btn(mid + 62, cy, 48, "#3C4043", (a, b) => callIco.hand(ctx, a, b, "#FFFFFF"));
+  btn(mid + 120, cy, 48, "#3C4043", (a, b) => callIco.more(ctx, a, b, "#FFFFFF"));
+  btn(mid + 190, cy, 64, "#EA4335", (a, b) => callIco.end(ctx, a, b, "#FFFFFF"));
+  [callIco.info, callIco.people, callIco.chat, callIco.shapes, callIco.lock].forEach((d, i) => { d(ctx, x + w - 200 + i * 42, cy, i === 1 ? ink : dim); });
+  ctx.fillStyle = "#8AB4F8"; rr(ctx, x + w - 200 + 42 + 6, cy - 20, 18, 14, 7); ctx.fill(); text(ctx, "4", x + w - 200 + 42 + 15, cy - 9.5, sf(10, 700), "#202124", 1, "center");
+  done();
+}
+/** Tailzu's own window, on the note the meeting became. Dark, like the Mac. */
+function tailzuWin(ctx, t, D, o) {
+  const { x, y, w, h } = D.appWin, sheet = "#151210", ink = P.pale, ink2 = rgba(P.pale, .66), ink3 = rgba(P.pale, .42), rule = rgba(P.pale, .12);
+  const done = macWindow(ctx, x, y, w, h, sheet, true);
+  trafficLights(ctx, x + 20, y + 30);
+  // The masthead: the name, the tabs, the account.
+  menuMark.draw(ctx, x + 84, y + 20, 20, ink); text(ctx, "Tailzu", x + 112, y + 36, `400 18px ${SERIF}`, ink);
+  const tabs = ["Today", "Notes", "Insights", "Words", "Voices", "Train"]; let tx = x + w / 2 - 230;
+  tabs.forEach((tb) => { const on = tb === "Notes"; label(ctx, tb, tx, y + 35, 11.5, on ? ink : ink2); ctx.font = f(11.5, MONO); const tw2 = ctx.measureText(tb.toUpperCase()).width + 11.5 * .22 * tb.length; if (on) { ctx.fillStyle = ink; ctx.fillRect(tx - 11, y + 48, tw2 + 22, 2); } tx += tw2 + 24; });
+  label(ctx, "Unlimited", x + w - 120, y + 26, 11, ink2, 1, "right"); ctx.fillStyle = rgba(P.pale, .07); ctx.fillRect(x + w - 240, y + 34, 120, 3); ctx.fillStyle = ink; ctx.fillRect(x + w - 240, y + 34, 120, 3);
+  ico.gear(ctx, x + w - 86, y + 30, ink2); ctx.fillStyle = ink; rr(ctx, x + w - 58, y + 16, 28, 28, 6); ctx.fill(); text(ctx, "R", x + w - 44, y + 35, `400 14px ${SERIF}`, sheet, 1, "center");
+  ctx.fillStyle = rule; ctx.fillRect(x, y + 60, w, 1);
+  // The page.
+  const px = x + (w - 980) / 2 + 40; let py = y + 60 + 36 + 10;
+  label(ctx, "All notes", px, py, 11.5, ink2); ctx.fillStyle = ink2; ctx.fillRect(px, py + 4, 74, 1);
+  py += 40; label(ctx, "Meeting", px, py, 11, ink2);
+  py += 42; text(ctx, D.note.title, px, py, `300 40px ${SERIF}`, ink);
+  py += 28; label(ctx, D.note.meta, px, py, 11.5, ink);
+  py += 22; label(ctx, "With " + D.note.with, px, py, 11, ink3);
+  py += 34; label(ctx, "Copy", px, py, 11.5, ink2); ctx.fillStyle = ink2; ctx.fillRect(px, py + 4, 34, 1); label(ctx, "Delete", px + 70, py, 11.5, ink2); ctx.fillRect(px + 70, py + 4, 50, 1);
+  py += 50; const lay = layout(ctx, D.note.summary, `400 18px ${SERIF}`, 680, 28); lay.lines.forEach((ln, i) => text(ctx, ln, px, py + i * 28, lay.font, ink)); py += lay.lines.length * 28 + 30;
+  label(ctx, "What mattered", px, py, 11, ink2); py += 14;
+  const hl0 = py;
+  D.note.highlights.forEach(([who, said], i) => {
+    if (i) { ctx.fillStyle = rule; ctx.fillRect(px, py, 760, 1); }
+    const l2 = layout(ctx, said, `600 19px ${HAND}`, 760 - 140, 25);
+    text(ctx, who, px, py + 16 + 14, f(11, MONO), ink2, 1, "left", 11 * .08);
+    l2.lines.forEach((ln, k) => text(ctx, ln, px + 140, py + 16 + 16 + k * 25, l2.font, ink3));
+    py += 16 + l2.lines.length * 25 + 16;
+  });
+  D.hlRect = [px - 8, hl0 - 8, 776, py - hl0 + 8];
+  done();
+}
+/** The sounds of the notes film. */
+function notesCues(D) {
+  const chord = (t) => [{ at: t, kind: "key" }, { at: t + .07, kind: "key" }, { at: t + .15, kind: "key" }];
+  return [...chord(D.key1), { at: D.notif1, kind: "notify" }, ...chord(D.key2), { at: D.notif2, kind: "notify" }, { at: D.notif3, kind: "notify" }, { at: D.click, kind: "click" }, { at: D.appOpen, kind: "open" }];
+}
+/**
+ * The notes recording: a call is on; ⌘⌥N starts a note (the clock in the
+ * menu bar, a notification); the call goes on; ⌘⌥N stops it; the note is
+ * organised and opens in Tailzu's window.
+ */
+function notesScene(ctx, w, h, t, D) {
+  const SS = 2, { W, H } = MAC;
+  if (!deskBuf) { deskBuf = document.createElement("canvas"); deskBuf.width = W * SS; deskBuf.height = H * SS; }
+  const g = deskBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  macWallpaper(g, W, H);
+  const later = t >= D.cut, time = later ? D.time2 : D.time1;
+  const started = D.lines.filter((l) => t >= l[0]), last = started[started.length - 1], line = last && t < last[0] + last[3] + 1.2 ? last : null;
+  const caption = line ? { name: line[1] === D.you ? "You" : line[1], color: (D.people.find((p) => p[0] === line[1]) || [0, P.teal])[1], text: wordsSoFar(line[2], line[0], line[0] + line[3], t) } : null;
+  const speaking = line && t < line[0] + line[3] ? line[1] : null;
+  meetWin(g, t, D, { speaking, caption, time });
+  const appOpen = E.out(seg(t, D.appOpen, D.appOpen + .35));
+  if (appOpen > 0) { g.save(); g.globalAlpha *= appOpen; const sc = lerp(.96, 1, appOpen), wx = D.appWin.x + D.appWin.w / 2, wy = D.appWin.y + D.appWin.h / 2; g.translate(wx, wy); g.scale(sc, sc); g.translate(-wx, -wy); tailzuWin(g, t, D, {}); g.restore(); }
+  const noting = t >= D.noteAt && t < D.key2 + .05;
+  const elapsed = !noting ? "" : later ? D.elapsed2 + (t - D.cut) : t - D.noteAt;
+  macMenuBar(g, Object.assign({}, D, { clock: (later ? D.clock2 : D.clock1), tray: noting ? " " + elapsedLabel(elapsed) : "" }), appOpen > 0 ? "Tailzu" : "Google Chrome");
+  macDock(g, D, { bounce: 0, running: appOpen > 0 });
+  const press = seg(t, D.click, D.click + .08) * (1 - seg(t, D.click + .1, D.click + .3));
+  macNotification(g, E.out(seg(t, D.notif1, D.notif1 + .45)) * (1 - E.in(seg(t, D.notif1 + 3.6, D.notif1 + 4.0))), "Taking notes. Nothing is typed anywhere. Press ⌘+Alt+N to stop.");
+  macNotification(g, E.out(seg(t, D.notif2, D.notif2 + .45)) * (1 - E.in(seg(t, D.notif3 - .3, D.notif3))), "Notes saved. Organising them now.");
+  macNotification(g, E.out(seg(t, D.notif3, D.notif3 + .45)) * (1 - E.in(seg(t, D.appOpen, D.appOpen + .3))), "Notes ready: " + D.note.title, press);
+  // The pointer: idle, then to the notification, then into the window.
+  const P0 = [900, 420], P1 = [MAC.W - 12 - 180, MAC.menu + 8 + 36], P2 = [D.appWin.x + 520, D.appWin.y + 400];
+  let cxr, cyr; if (t < D.click) { const k = E.io(seg(t, D.notif3 + .3, D.click - .05)); cxr = lerp(P0[0], P1[0], k); cyr = lerp(P0[1], P1[1], k); } else { const k = E.io(seg(t, D.appOpen + .2, D.appOpen + 1.0)); cxr = lerp(P1[0], P2[0], k); cyr = lerp(P1[1], P2[1], k); }
+  macArrow(g, cxr, cyr);
+
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z, rw = W * z, rh = H * z, rr0 = 12;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, rr0); ctx.clip(); ctx.drawImage(deskBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, rr0 - .75); ctx.stroke();
+  const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250);
+  keyHud(ctx, D.chord, w / 2, hudY, D.key1, t); keyHud(ctx, D.chord, w / 2, hudY, D.key2, t);
+  return { rx, ry, rw, rh, z };
+}
+function elapsedLabel(sec) { const s = Math.max(0, Math.floor(sec)), m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; }
+const DESK_NOTES = Object.assign({
+  app: "Google Chrome", bg: "black", win: MAC.win, menus: ["File", "Edit", "View", "History", "Bookmarks", "Profiles", "Tab", "Window", "Help"],
+  clock1: "Fri Oct 17  6:14 PM", clock2: "Fri Oct 17  6:38 PM", time1: "6:14 PM", time2: "6:38 PM", code: "xyz-abcd-efg",
+  people: [["Priya", "#6A4C9C"], ["Aarav", "#B8650C"], ["Maya", "#2F6FD6"]], you: "Rohan",
+  chord: ["⌘ command", "⌥ option", "N"],
+  key1: 1.3, noteAt: 1.45, notif1: 1.6, cut: 6.6, elapsed2: 23 * 60 + 40, key2: 11.7, notif2: 11.95, notif3: 14.5, click: 15.8, appOpen: 15.95, end: 18.6,
+  appWin: { x: 220, y: 100, w: 1000, h: 700 },
+  icon(ctx, x, y, s) {
+    ctx.fillStyle = "#FFFFFF"; rr(ctx, x, y, s, s, s * .225); ctx.fill(); const cx = x + s / 2, cy = y + s / 2;
+    [["#EA4335", 0], ["#FBBC05", 1], ["#34A853", 2]].forEach(([c, k]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, 18, k * TAU / 3 - Math.PI / 2 - .35, (k + 1) * TAU / 3 - Math.PI / 2 - .35); ctx.closePath(); ctx.fill(); });
+    ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.arc(cx, cy, 9, 0, TAU); ctx.fill(); ctx.fillStyle = "#4285F4"; ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, TAU); ctx.fill();
+  },
+  note: {
+    title: "Launch timeline with design", meta: "Friday, 17 October · 6:14 PM · 24 min", with: "Priya, Aarav, Maya",
+    summary: "Priya moved the launch to the 24th so design gets another week on the carousel. Aarav takes the blog post for the 20th, and Maya wants the paid ads to start only after it goes out. You will update the plan and send it tonight.",
+    highlights: [["Priya", "The launch moves to the 24th. Design needs one more week on the carousel."], ["Aarav", "The blog goes out on the 20th. I'll own that."], ["Maya", "Paid ads start after the blog is out, not before."], ["You", "I'll update the plan and send it tonight."]],
+  },
+});
+DESK_NOTES.lines = [
+  [.3, "Priya", "So the launch moves to the 24th, design needs one more week on the carousel.", 3.1],
+  [3.8, "Aarav", "Fine, but then the blog has to go out on the 20th. I'll own that.", 2.6],
+  [6.7, "Maya", "And the paid ads start only after the blog goes out, not before.", 2.6],
+  [9.5, "Rohan", "Okay, I'll update the plan and send it tonight.", 1.9],
+];
+DESK_NOTES.cam = [[0, .75, 720, 450], [DESK_NOTES.noteAt + .1, 1.5, 1080, 450, .7], [4.6, .75, 720, 450, .7], [DESK_NOTES.key2 - .2, 1.5, 1080, 450, .7], [DESK_NOTES.appOpen + .3, 1.35, 650, 450, .9]];
+const LESSON_NOTES = { freezes: [
+  { at: DESK_NOTES.noteAt + 1.0, hold: 2.6, title: "In a meeting? Press ⌘ ⌥ N", body: "Tailzu starts taking notes. It hears you and everyone on the call.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: 8.4, hold: 2.6, title: "Nothing is typed anywhere", body: "The clock in the menu bar shows it's listening. Stay in the conversation.", focus: [1030, 1, 128, 23] },
+  { at: DESK_NOTES.notif2 + .9, hold: 2.6, title: "Press ⌘ ⌥ N again", body: "The recording becomes a note: a title, one paragraph, and what mattered.", focus: [MAC.W - 12 - 360, MAC.menu + 8, 360, 72] },
+  { at: DESK_NOTES.appOpen + 1.3, hold: 3.0, title: "What mattered, in their words", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
+] };
+FILMS.lessonNotes = lessonFilm(DESK_NOTES, LESSON_NOTES, notesScene, notesCues);
+
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
 const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
@@ -2413,6 +2701,7 @@ async function fontsReady() {
   await loadPill();
 }
 window.TZ = { FILMS, POSTERS };
+window.__cues = (id) => (FILMS[id] && FILMS[id].cues) ? FILMS[id].cues() : [];
 function canvasOf(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 if (RENDER) {
   document.body.className = "render";

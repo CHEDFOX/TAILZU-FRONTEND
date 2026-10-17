@@ -5,8 +5,9 @@
  *   PW_ROOT=<dir with playwright> node tools/media/render-social.mjs <outDir> [--only=river,tones,...] [--stills] [--posters]
  *
  * Films are captured frame by frame from the page's own draw function at a
- * fixed clock, so the MP4 is the design exactly; H.264, 30fps, faststart,
- * silent (music is added where it is posted), a few MB each. Posters are one capture each.
+ * fixed clock, so the MP4 is the design exactly; H.264, 30fps, faststart, a
+ * few MB each. A film that lists sound cues (window.__cues) gets its track
+ * made by sound.mjs and muxed in; the others are silent. Posters are one capture each.
  * --stills writes a handful of frames per film to <outDir>/stills instead.
  */
 import { createRequire } from "node:module";
@@ -14,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { render as renderSound } from "./sound.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(path.join(process.env.PW_ROOT || here, "/"));
@@ -41,6 +43,9 @@ const FILMS = [
   { id: "recording2", file: "tailzu-screen-recording-cursor-chatgpt-9x16.mp4" },
   { id: "deskSlack", file: "tailzu-mac-slack-9x16.mp4" },
   { id: "deskCursor", file: "tailzu-mac-cursor-9x16.mp4" },
+  { id: "lessonCursor", file: "tailzu-lesson-cursor-9x16.mp4" },
+  { id: "lessonSlack", file: "tailzu-lesson-slack-9x16.mp4" },
+  { id: "lessonNotes", file: "tailzu-lesson-notes-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
@@ -89,7 +94,16 @@ if (!postersOnly) for (const F of FILMS) {
       "-movflags", "+faststart", "-an", path.join(out, F.file)]);
     fs.rmSync(dir, { recursive: true, force: true });
     if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
-    console.log(`${F.file}  ${w}x${h}  ${n} frames  ${(fs.statSync(path.join(out, F.file)).size / 1e6).toFixed(1)} MB`);
+    const cues = await page.evaluate((id) => window.__cues ? window.__cues(id) : [], F.id);
+    if (cues.length) {
+      const wav = path.join(out, F.file + ".wav"), silent = path.join(out, "." + F.file);
+      fs.writeFileSync(wav, renderSound(cues, duration));
+      fs.renameSync(path.join(out, F.file), silent);
+      const m = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", path.join(out, F.file)]);
+      fs.rmSync(silent, { force: true }); fs.rmSync(wav, { force: true });
+      if (m.status !== 0) { console.error(m.stderr.toString()); process.exit(1); }
+    }
+    console.log(`${F.file}  ${w}x${h}  ${n} frames  ${cues.length ? cues.length + " sounds  " : ""}${(fs.statSync(path.join(out, F.file)).size / 1e6).toFixed(1)} MB`);
   }
   await page.close();
 }
