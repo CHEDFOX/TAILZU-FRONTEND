@@ -4905,10 +4905,19 @@ final class SDUIRenderer: NSObject {
   /// plane again, so a server value that thin is raised to it; and a value a
   /// person could see (or one that does not parse, which reads as opaque
   /// grey) is held to 4%, so no setting can ever cover the keys.
+  ///
+  /// It leans the way the backdrop already does: white over a light keyboard,
+  /// black over a dark one. Black over light, stacked on the theme's ground,
+  /// darkened the whole key area by 9 levels against the system's own strips
+  /// above and below it: a grey sheet. Same alpha either way, so touches land
+  /// the same. (kb.keyPlane.touchColor, one colour for both, is what builds
+  /// before this one read.)
   private func planeTouchColor() -> UIColor {
-    let c = flagColor("kb.keyPlane.touchColor", "#00000005")
+    let light = currentAppearance == .light
+    let c = light ? flagColor("kb.keyPlane.touchColorLight", "#FFFFFF05")
+                  : flagColor("kb.keyPlane.touchColorDark", "#00000005")
     var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-    guard c.getRed(&r, green: &g, blue: &b, alpha: &a) else { return UIColor(white: 0, alpha: 5.0 / 255.0) }
+    guard c.getRed(&r, green: &g, blue: &b, alpha: &a) else { return UIColor(white: light ? 1 : 0, alpha: 5.0 / 255.0) }
     return UIColor(red: r, green: g, blue: b, alpha: min(max(a, 2.0 / 255.0), 0.04))
   }
   /// Icon-spec flag — resolves to a UIImage via the same resolver used by
