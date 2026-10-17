@@ -9,10 +9,103 @@ export interface KeyboardStatus {
   lastActiveMs: number;
 }
 
+/**
+ * The Flow Session's numbers and switches, from the server's flags. Every
+ * field is optional; an absent one keeps the value the native side always
+ * used (shown after each). See FlowTuning in FlowSessionManager.swift.
+ */
+export interface FlowArmOptions {
+  /** How often the liveness heartbeat is stamped. 1000. */
+  heartbeatMs?: number;
+  /** How recent the last audio buffer must be for a heartbeat. 2000. */
+  bufferFreshMs?: number;
+  /** Audio kept until the socket opens, in bytes. 96000 (3 s). */
+  prerollCapBytes?: number;
+  /** Ceiling on one buffered one-shot utterance, in bytes. 3840000 (~2 min). */
+  oneShotCapBytes?: number;
+  /** After stop, how long to wait for the server's terminal message. 9000. */
+  closeTimeoutMs?: number;
+  /** Shorter than this is a mis-tap, not speech, in bytes. 3200 (0.1 s). */
+  minUtteranceBytes?: number;
+  /** Retries of a failed one-shot upload. 1. */
+  oneShotRetries?: number;
+  /** Wait before each retry. 800. */
+  oneShotRetryDelayMs?: number;
+  /** The one-shot upload's request timeout. 90000. */
+  oneShotTimeoutMs?: number;
+  /** Duck other apps' audio while armed. true. */
+  duckOthers?: boolean;
+  /** The OS voice-processing IO (echo cancel, noise suppression). true. */
+  voiceProcessing?: boolean;
+  /** Frames per audio tap callback. 2048. */
+  tapFrames?: number;
+  /** Send the voice level to the keyboard's mic mark while dictating. true. */
+  level?: boolean;
+  /** How often the level is sent. 50. */
+  levelMs?: number;
+  /** The level's silence, in dBFS (level 0). -50. */
+  levelFloorDb?: number;
+  /** The level's loud end, in dBFS (level 1). -12. */
+  levelCeilDb?: number;
+  /** Streaming endpoint path. "/v1/transcribe-stream". */
+  streamPath?: string;
+  /** One-shot upload endpoint path. "/v1/transcribe-clean". */
+  uploadPath?: string;
+}
+
+/**
+ * The Flow Live Activity's words and symbols. `{n}` in wordsSoFar / words is
+ * the count. Each absent key keeps the word the widget was built with.
+ *
+ * `showWords` / `showEnd` (absent = shown) hide the running word count and the
+ * End button; `accent*` are optional per-phase hex overrides for the accent
+ * colour, applied by the view only when present — see FlowActivity.swift.
+ */
+export type FlowActivityCopy = Partial<Record<
+  | "listening" | "writing" | "ready" | "readyHint" | "wordsSoFar" | "words"
+  | "stop" | "end" | "compact"
+  | "iconListening" | "iconIdle" | "iconMinimal" | "iconStop" | "iconEnd"
+  | "accentListening" | "accentWriting" | "accentReady",
+  string
+>> & Partial<Record<"showWords" | "showEnd", boolean>>;
+
 interface TulmiBridgeNative {
   setKeyboardCredentials(baseUrl: string, token: string): void;
+  setKeyboardLanguage?(code: string): void;
   getKeyboardStatus?(): KeyboardStatus | undefined;
   setDictionary?(json: string): void;
+  consumeKeyboardDeepLink?(maxAgeMs?: number): string;
+  // Mic handoff — see TulmiBridgeModule.swift for the flow.
+  writeAppWarmHeartbeat?(): void;
+  consumeKeyboardRecordRequest?(): {
+    sessionId?: string;
+    requestedAtMs?: number;
+    hostApp?: string;
+  } | undefined;
+  completeKeyboardHandoff?(sessionId: string, text: string): void;
+  cancelKeyboardHandoff?(sessionId: string): void;
+  // Flow Session (background-audio mic) — iOS only.
+  armFlowSession?(
+    baseUrl: string,
+    token: string,
+    language: string,
+    idleTimeoutMs: number,
+    oneShot: boolean,
+    options?: FlowArmOptions,
+  ): void;
+  endFlowSession?(): void;
+  setWidgetMonth?(json: string): void;
+  setWidgetTheme?(json: string): void;
+  setFlowActivityCopy?(json: string): void;
+  setSetupActivity?(json: string): void;
+  setWidgetDictatePath?(path: string): void;
+  setWidgetDictate?(json: string): void;
+}
+
+export interface KeyboardRecordRequest {
+  sessionId: string;
+  requestedAtMs: number;
+  hostApp: string;
 }
 
 // The native module exists only in dev/prod builds (not in Expo Go). Resolve it
@@ -72,7 +165,328 @@ export function setKeyboardDictionary(entries: { word: string; replacement: stri
   }
 }
 
-/** True when the native bridge is available (a dev/prod build, not Expo Go). */
-export function isBridgeAvailable(): boolean {
-  return native != null;
+/**
+ * Push the user's chosen language code into the shared App Group so the
+ * keyboard extension can use it for:
+ *   - STT bias (transcribe hint → better recognition for non-English speech)
+ *   - Refinement language (server prompts the LLM to output in this code)
+ *
+ * Call after the user selects a language on the onboarding screen or in
+ * Settings. Accepts any ISO-639-1 code plus "auto" / "hinglish".
+ */
+export function setKeyboardLanguage(code: string): void {
+  try {
+    native?.setKeyboardLanguage?.(code || "auto");
+  } catch {
+    // best-effort; never block the app
+  }
+}
+
+/**
+ * Arm the background-audio "Flow Session" so the app holds the mic alive after
+ * the user swipes back to their app, and the keyboard can drive dictation. iOS
+ * only (the keyboard can't record itself); no-op elsewhere. `idleTimeoutMs` is
+ * how long the session stays live with no dictation before it must be re-armed.
+ * `oneShot` buffers each utterance and sends it in one request at stop instead
+ * of streaming it (backend's choice — kb.flow.transport). `options` carries the
+ * rest of the session's numbers from the server (see FlowArmOptions; the app's
+ * flowArmOptions() in src/widgets/flow.ts builds it from the bootstrap).
+ */
+export function armFlowSession(
+  baseUrl: string,
+  token: string,
+  language: string,
+  idleTimeoutMs: number,
+  oneShot = false,
+  options?: FlowArmOptions,
+): void {
+  const arm = native?.armFlowSession;
+  if (!arm || !native) return;
+  const args = [baseUrl, token, language || "auto", idleTimeoutMs || 300000, oneShot === true] as const;
+  const opts = cleanOptions(options);
+  if (opts) {
+    try {
+      arm.call(native, ...args, opts);
+      return;
+    } catch {
+      // A binary older than this JS takes five arguments and rejects a sixth
+      // before running anything — arm it the old way below.
+    }
+  }
+  try {
+    arm.call(native, ...args);
+  } catch {
+    /* best-effort; never block the app */
+  }
+}
+
+/** Drop the fields that are not set, so native sees only real values. */
+function cleanOptions(options: FlowArmOptions | undefined): FlowArmOptions | null {
+  if (!options) return null;
+  const out: Record<string, number | boolean | string> = {};
+  for (const [k, v] of Object.entries(options)) {
+    if (typeof v === "number" ? Number.isFinite(v) : typeof v === "boolean" || typeof v === "string") {
+      out[k] = v as number | boolean | string;
+    }
+  }
+  return Object.keys(out).length > 0 ? (out as FlowArmOptions) : null;
+}
+
+/** End the Flow Session (mic released, keyboard returns to "open app to arm"). */
+export function endFlowSession(): void {
+  try {
+    native?.endFlowSession?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Read (and clear) any deep-link path the keyboard extension left for the app
+ * — since keyboard extensions can't call openURL, they drop the target in the
+ * shared App Group and the app picks it up here on foreground.
+ *
+ * Returns null when nothing is pending. Path shapes:
+ *   "screen/<screenId>"  → navigate to that SDUI screen
+ *   "openSettings"       → open the app's system settings page
+ *
+ * `maxAgeMs` is how fresh the tombstone must be to count (the server's number;
+ * native keeps 45000 when it is absent or not positive).
+ */
+export function consumeKeyboardDeepLink(maxAgeMs?: number): string | null {
+  const consume = native?.consumeKeyboardDeepLink;
+  if (!consume || !native) return null;
+  let s: string | undefined;
+  if (typeof maxAgeMs === "number" && Number.isFinite(maxAgeMs) && maxAgeMs > 0) {
+    try {
+      s = consume.call(native, maxAgeMs);
+      return s && s.length > 0 ? s : null;
+    } catch {
+      // An older binary takes no argument and rejects one before reading (or
+      // clearing) anything — ask it the old way below.
+    }
+  }
+  try {
+    s = consume.call(native);
+    return s && s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Bump the "app is warm" timestamp in the shared App Group. The keyboard
+ * extension consults this on every mic tap to decide whether it can hand off
+ * to a suspended main app (fast) or has to open the primer screen (cold).
+ * Called on every foreground transition of the main app.
+ */
+export function writeAppWarmHeartbeat(): void {
+  try {
+    native?.writeAppWarmHeartbeat?.();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Read (and clear) any pending record request the keyboard left behind. The
+ * main app calls this on foreground; if a request exists, we navigate to the
+ * keyboard_record SDUI screen so recording starts immediately.
+ * Returns null when nothing is pending.
+ */
+export function consumeKeyboardRecordRequest(): KeyboardRecordRequest | null {
+  try {
+    const r = native?.consumeKeyboardRecordRequest?.();
+    if (!r || !r.sessionId) return null;
+    return {
+      sessionId: String(r.sessionId),
+      requestedAtMs: Number(r.requestedAtMs) || 0,
+      hostApp: String(r.hostApp ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finish a mic handoff: write the cleaned text to the App Group and fire a
+ * Darwin notification the keyboard extension is listening on. The keyboard
+ * observes the notification, reads the text, and inserts it at the cursor.
+ * Invoked by the SDUI `completeKeyboardHandoff` action.
+ */
+export function completeKeyboardHandoff(sessionId: string, text: string): void {
+  try {
+    native?.completeKeyboardHandoff?.(sessionId, text);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Abort a handoff (user cancelled the record screen). Fires the same
+ * completion notification with an empty result so the keyboard stops waiting.
+ */
+export function cancelKeyboardHandoff(sessionId: string): void {
+  try {
+    native?.cancelKeyboardHandoff?.(sessionId);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * The month's numbers for the Home and Lock Screen widget — and, optional so
+ * an older writer still fits, what the widget draws them with. Each absent
+ * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift,
+ * and MonthLook in the Android bridge's TailzuMonthWidget.kt).
+ */
+export interface WidgetMonth {
+  used: number;
+  total: number;
+  remaining: number;
+  earned: number;
+  base: number;
+  streak: number;
+  entitled: boolean;
+  updatedAt: number;
+  /** The big number: words left on the free plan, words this month paid. */
+  headline?: number;
+  /** How full the line is, 0–1. */
+  fraction?: number;
+  /** The widget's words; `{n}` is a count where a template has one. */
+  labels?: Record<string, string>;
+  /** "#RRGGBB" / "#RRGGBBAA": ground, pale, mark. */
+  colors?: Record<string, string>;
+  /** 0–1: dim, rule, track. */
+  alpha?: Record<string, number>;
+  /** Where a tap on the widget goes. */
+  url?: string;
+  /** Seconds before the widget asks for a new timeline on its own. */
+  refreshSec?: number;
+  /** A subscriber's line: the words that would fill it. */
+  span?: number;
+  /** Whether the month shows the streak. Absent: it does not. */
+  showStreak?: boolean;
+  /** Whether the month shows the progress line. Absent: it does. */
+  showProgress?: boolean;
+}
+
+/**
+ * Hand the widget the month. Written as JSON to the App Group (iOS) or the
+ * app's SharedPreferences (Android) and the widget is redrawn; the widget
+ * never fetches anything itself. `null` clears it (sign-out): both widgets
+ * read an empty value as "nothing yet". A no-op in a build without the bridge,
+ * or a binary older than its widget.
+ */
+export function setWidgetMonth(month: WidgetMonth | null): void {
+  try {
+    native?.setWidgetMonth?.(month ? JSON.stringify(month) : "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * The widget theme: the colours and alphas every surface draws with (the month
+ * widget AND the Live Activities), built from the server's widget.color.* /
+ * widget.alpha.* flags. Unlike the month's own colours — which only exist once
+ * month numbers have been published — this is written on EVERY bootstrap, so a
+ * phone that has never seen month stats still gets the server's colours.
+ *
+ * "#RRGGBB" / "#RRGGBBAA" under `colors` (ground, pale, mark); 0–1 under
+ * `alpha` (dim, rule, track). Every surface reads this key first, then the
+ * month key, then its own literal — so a missing/old payload renders exactly as
+ * before. `null` clears it (sign-out). No-op without the native function.
+ */
+export interface WidgetTheme {
+  colors?: Record<string, string>;
+  alpha?: Record<string, number>;
+}
+
+export function setWidgetTheme(theme: WidgetTheme | null): void {
+  try {
+    native?.setWidgetTheme?.(theme ? JSON.stringify(theme) : "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * Hand the Flow Live Activity its words (from the server's labels). Written to
+ * the App Group; a running activity is redrawn. No-op without the native
+ * function (Android, Expo Go, an older binary).
+ */
+export function setFlowActivityCopy(copy: FlowActivityCopy): void {
+  try {
+    native?.setFlowActivityCopy?.(JSON.stringify(copy ?? {}));
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/** One step of setup, as the server words it (the `liveActivity.setup` flag). */
+export interface SetupActivityState {
+  done: number;
+  total: number;
+  title: string;
+  detail?: string;
+  url?: string;
+}
+
+/**
+ * Show setup's current step as a Live Activity, or end it with `null`. iOS
+ * only; a no-op without the native function (Android, Expo Go, an older
+ * binary).
+ */
+export function setSetupActivity(state: SetupActivityState | null): void {
+  try {
+    native?.setSetupActivity?.(state ? JSON.stringify(state) : "");
+  } catch {
+    // never let a Live Activity stop the app
+  }
+}
+
+/**
+ * Tell the Dictate control which screen arms the microphone ("screen/<id>").
+ * No-op without the native function.
+ */
+export function setWidgetDictatePath(path: string): void {
+  if (!path) return;
+  try {
+    native?.setWidgetDictatePath?.(path);
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * The Dictate control, as the server describes it: the screen that arms the
+ * microphone plus the control's words (its label, SF Symbol and description).
+ * Written to the App Group key `tulmi.widget.dictate`; the control reads the
+ * words it can at render time (see DictateControl.swift), each falling back to
+ * its own literal. The native setter also keeps the back-compat
+ * `tulmi.widget.dictate.path` key current.
+ *
+ * Falls back to the older path-only setter when the binary predates this, so an
+ * old native still learns the arming screen. No-op without either function.
+ */
+export interface WidgetDictate {
+  path: string;
+  label?: string;
+  symbol?: string;
+  description?: string;
+}
+
+export function setWidgetDictate(dictate: WidgetDictate): void {
+  if (!dictate?.path) return;
+  try {
+    if (native?.setWidgetDictate) {
+      native.setWidgetDictate(JSON.stringify(dictate));
+    } else {
+      // Older binary: only the arming screen crossed the bridge.
+      native?.setWidgetDictatePath?.(dictate.path);
+    }
+  } catch {
+    // never let a widget stop the app
+  }
 }

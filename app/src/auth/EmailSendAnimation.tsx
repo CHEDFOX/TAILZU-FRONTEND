@@ -62,6 +62,7 @@ export default function EmailSendAnimation() {
 }
 
 const styles = StyleSheet.create({
-  container: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
+  // RN 0.85 removed StyleSheet.absoluteFillObject — spell the fill out.
+  container: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
   ring: { position: "absolute", width: RING, height: RING, borderRadius: RING / 2, borderWidth: 1, borderColor: RING_COLOR },
 });

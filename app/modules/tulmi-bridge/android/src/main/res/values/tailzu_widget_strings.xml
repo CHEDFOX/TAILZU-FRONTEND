@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Month widget's words that the picker shows before the app has run, so
+  they cannot come from the server. Everything drawn on the widget itself comes
+  from the labels the app writes with the month (src/widgets/month.ts). The
+  name and description are the iOS widget's (widget.month.displayName and
+  widget.month.description).
+-->
+<resources>
+    <string name="tailzu_widget_month_label">The Month</string>
+    <string name="tailzu_widget_month_description">Words this month.</string>
+    <!-- The picker preview's sample: the iOS gallery's 318 words left. -->
+    <string name="tailzu_widget_month_preview_number" translatable="false">318</string>
+    <string name="tailzu_widget_month_preview_label">WORDS LEFT</string>
+</resources>

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Number page of the hand-built fallback keyboard — the iOS hand-built
+  keyboard's number page, key for key. Printable keys carry only their code:
+  the service labels each one with its own character, which spares the
+  escaping a "?" or "@" label would need here. -3 turns to the symbol page,
+  -2 back to letters; their labels are the server's (legacy_symbols,
+  legacy_letters), set in code, as is the space bar's (legacy_space).
+  Four rows at 62.5dp are the letters page's five at 50dp, so the keyboard
+  keeps its height when the page turns.
+-->
+<Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
+    android:keyWidth="10%p"
+    android:keyHeight="62.5dp"
+    android:horizontalGap="0px"
+    android:verticalGap="0px">
+
+    <Row>
+        <Key android:codes="49" />
+        <Key android:codes="50" />
+        <Key android:codes="51" />
+        <Key android:codes="52" />
+        <Key android:codes="53" />
+        <Key android:codes="54" />
+        <Key android:codes="55" />
+        <Key android:codes="56" />
+        <Key android:codes="57" />
+        <Key android:codes="48" />
+    </Row>
+
+    <Row>
+        <Key android:codes="45" />
+        <Key android:codes="47" />
+        <Key android:codes="58" />
+        <Key android:codes="59" />
+        <Key android:codes="40" />
+        <Key android:codes="41" />
+        <Key android:codes="36" />
+        <Key android:codes="38" />
+        <Key android:codes="64" />
+        <Key android:codes="34" />
+    </Row>
+
+    <Row>
+        <Key android:codes="-3" android:keyWidth="15%p" />
+        <Key android:codes="46" android:keyWidth="14%p" />
+        <Key android:codes="44" android:keyWidth="14%p" />
+        <Key android:codes="63" android:keyWidth="14%p" />
+        <Key android:codes="33" android:keyWidth="14%p" />
+        <Key android:codes="39" android:keyWidth="14%p" />
+        <Key android:codes="-5" android:keyLabel="⌫" android:keyWidth="15%p" android:isRepeatable="true" />
+    </Row>
+
+    <Row>
+        <Key android:codes="-2" android:keyWidth="15%p" />
+        <Key android:codes="-100" android:keyLabel="🎙" android:keyWidth="15%p" />
+        <Key android:codes="32" android:keyWidth="40%p" />
+        <Key android:codes="-101" android:keyLabel="✨" android:keyWidth="10%p" />
+        <Key android:codes="-4" android:keyLabel="↵" android:keyWidth="20%p" />
+    </Row>
+</Keyboard>

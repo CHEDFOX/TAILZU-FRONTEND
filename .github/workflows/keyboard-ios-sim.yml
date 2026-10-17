@@ -1,0 +1,118 @@
+name: keyboard-ios-sim
+
+# Runs the REAL keyboard MicParticleView on a booted iOS Simulator and measures
+# the rendered pixels frame-by-frame — the closest thing to on-device
+# verification without an EAS build or a physical phone.
+#
+# The keyboard target is self-contained (system frameworks only), so we compile
+# its Swift files + ci/main.swift into a throwaway simulator .app, boot a sim,
+# launch it with --console, and read the MEASURE / VERDICT lines the harness
+# prints. The harness asserts the cloud renders, bursts apart (disperse), and
+# springs back (reassemble) on real pixels. Screenshots are uploaded as
+# artifacts for a human to eyeball.
+#
+# Manual-only + on ci/ or MicParticleView changes — it boots a simulator, so
+# it's heavier than the pure swiftc typecheck (keyboard-ios-compile.yml).
+
+on:
+  push:
+    paths:
+      - "app/targets/keyboard/ci/**"
+      - ".github/workflows/keyboard-ios-sim.yml"
+  workflow_dispatch: {}
+
+jobs:
+  sim:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+
+      - name: Build the harness .app (keyboard sources + main.swift)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          APP=build/Harness.app
+          mkdir -p "$APP"
+          # All keyboard target sources EXCEPT nothing — plus the harness entry.
+          SRCS=$(ls app/targets/keyboard/*.swift)
+          echo "Compiling:"; echo "$SRCS"; echo "app/targets/keyboard/ci/main.swift"
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -framework UIKit \
+            -o "$APP/Harness" \
+            $SRCS app/targets/keyboard/ci/main.swift
+          cp app/targets/keyboard/ci/Harness-Info.plist "$APP/Info.plist"
+          # Bundle the brand mark so the sim seeds from the real structure.
+          cp app/targets/keyboard/Assets.xcassets/TailzuMark.imageset/mark@2x.png "$APP/tailzu_mark.png"
+          echo "Built $APP:"; ls -la "$APP"
+
+      - name: Boot a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          # Pick an available iPhone; create one if none are pre-made.
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | select(.name|startswith("iPhone"))] | (last // empty) | .udid')
+          if [ -z "${UDID:-}" ]; then
+            DT=$(xcrun simctl list devicetypes -j | jq -r '[.devicetypes[] | select(.name|startswith("iPhone"))] | last | .identifier')
+            RT=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.isAvailable and (.identifier|contains("iOS")))] | last | .identifier')
+            UDID=$(xcrun simctl create ci-harness "$DT" "$RT")
+          fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b || true
+          echo "Booted $UDID"
+
+      - name: Install + run harness, capture output + screenshots
+        id: run
+        run: |
+          set -uo pipefail
+          UDID="${{ steps.sim.outputs.udid }}"
+          BID=space.tailzu.kbharness
+          xcrun simctl install "$UDID" build/Harness.app
+          # Launch detached (no --console — it proved flaky). simctl prints
+          # "<BID>: <pid>" on success or an error; the harness writes every line
+          # to its Documents/harness.log, which we poll from the data container.
+          echo "── launch ──"
+          xcrun simctl launch "$UDID" "$BID" 2>&1 | tee launch.out || true
+          # Frames mid-animation.
+          sleep 1.2; xcrun simctl io "$UDID" screenshot shot-1-disperse.png || true
+          sleep 1.3; xcrun simctl io "$UDID" screenshot shot-2-reassembled.png || true
+          # Poll the app's own log file until a VERDICT lands (~12s max).
+          : > harness.log
+          for i in $(seq 1 24); do
+            C=$(xcrun simctl get_app_container "$UDID" "$BID" data 2>/dev/null || true)
+            if [ -n "${C:-}" ] && [ -f "$C/Documents/harness.log" ]; then
+              cp "$C/Documents/harness.log" harness.log
+              grep -q "VERDICT:" harness.log && break
+            fi
+            sleep 0.5
+          done
+          echo "── container ──"; xcrun simctl get_app_container "$UDID" "$BID" data 2>&1 || true
+          echo "──────── harness.log ────────"; cat harness.log 2>/dev/null || echo "(empty)"
+          echo "─────────────────────────────"
+          # Surface any crash report so a launch crash isn't invisible.
+          echo "── crash reports ──"
+          find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 \( -iname "*Harness*" -o -iname "*kbharness*" \) 2>/dev/null | while read -r f; do
+            echo "=== $f ==="; sed -n '1,40p' "$f"
+          done
+          grep -q "VERDICT: PASS" harness.log
+
+      - name: Upload screenshots + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-sim-frames
+          path: |
+            shot-1-disperse.png
+            shot-2-reassembled.png
+            harness.log
+            console.log
+          if-no-files-found: warn

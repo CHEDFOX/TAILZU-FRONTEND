@@ -3,6 +3,8 @@
   Minimal QWERTY for the Tulmi keyboard (v1). Two special keys:
     🎙 = mic (code -100), ✨ = refine (code -101).
   Standard codes: shift -1, delete -5, enter -4, space 32.
+  -2 turns to the number page (legacy_numbers.xml). Its label and the space
+  bar's are the server's (legacy_numbers, legacy_space), set in code.
 -->
 <Keyboard xmlns:android="http://schemas.android.com/apk/res/android"
     android:keyWidth="10%p"
@@ -61,11 +63,12 @@
     </Row>
 
     <Row>
-        <Key android:codes="-100" android:keyLabel="🎙" android:keyWidth="15%p" />
-        <Key android:codes="44" android:keyLabel="," />
-        <Key android:codes="32" android:keyLabel="space" android:keyWidth="30%p" />
-        <Key android:codes="46" android:keyLabel="." />
-        <Key android:codes="-101" android:keyLabel="✨" android:keyWidth="15%p" />
-        <Key android:codes="-4" android:keyLabel="↵" android:keyWidth="20%p" />
+        <Key android:codes="-2" android:keyLabel="123" android:keyWidth="12%p" />
+        <Key android:codes="-100" android:keyLabel="🎙" android:keyWidth="12%p" />
+        <Key android:codes="44" android:keyLabel="," android:keyWidth="8%p" />
+        <Key android:codes="32" android:keyLabel="space" android:keyWidth="32%p" />
+        <Key android:codes="46" android:keyLabel="." android:keyWidth="8%p" />
+        <Key android:codes="-101" android:keyLabel="✨" android:keyWidth="10%p" />
+        <Key android:codes="-4" android:keyLabel="↵" android:keyWidth="18%p" />
     </Row>
 </Keyboard>

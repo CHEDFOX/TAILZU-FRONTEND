@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The widget's ground on Android 12+: the launcher clips every widget to the
+  system's corner radius, so the ground uses the same one and the two edges
+  agree.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0F0D0B" />
+    <corners android:radius="@android:dimen/system_app_widget_background_radius" />
+</shape>

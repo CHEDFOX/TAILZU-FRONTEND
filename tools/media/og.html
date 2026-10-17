@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  THE CARD A LINK TO TAILZU UNFURLS INTO — and the picture answer engines
+  show beside a citation. 1200 × 630, rendered by render-site.mjs into the
+  site as og.png.
+
+  The site's first screen, at card size: its violet field, its serif, its
+  handwriting for what was said and its type for what was written. One real
+  sentence (a case the quality harness tests: the misheard words repaired,
+  the amount and the name untouched), so the card shows the product rather
+  than describing it. Amber only on the mark just written, as on the posters.
+
+  Fonts are the local @fontsource files, so the render needs no network.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @font-face { font-family: "Newsreader"; font-weight: 300; src: url(node_modules/@fontsource/newsreader/files/newsreader-latin-300-normal.woff2); }
+  @font-face { font-family: "Newsreader"; font-weight: 400; src: url(node_modules/@fontsource/newsreader/files/newsreader-latin-400-normal.woff2); }
+  @font-face { font-family: "Caveat"; font-weight: 500; src: url(node_modules/@fontsource/caveat/files/caveat-latin-500-normal.woff2); }
+  @font-face { font-family: "Plex Mono"; font-weight: 400; src: url(node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2); }
+  :root { --violet: #1C1640; --pale: #F3E2C6; --dim: rgba(243,226,198,.56); --faint: rgba(243,226,198,.16); --amber: #E8A23C; }
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; background: var(--violet); }
+  body {
+    position: relative; color: var(--pale); font-family: "Newsreader", Georgia, serif;
+    background:
+      radial-gradient(640px 420px at 78% 44%, rgba(243,226,198,.075), transparent 70%),
+      linear-gradient(160deg, #221B4E 0%, #1C1640 45%, #120E2C 100%);
+  }
+  .mark { position: absolute; left: 72px; top: 64px; height: 50px; }
+  h1 { position: absolute; left: 72px; top: 150px; font-weight: 300; font-size: 118px; line-height: 1; letter-spacing: -0.03em; }
+  .said, .wrote { position: absolute; left: 72px; }
+  .label { font-family: "Plex Mono", monospace; font-size: 15px; letter-spacing: .24em; text-transform: uppercase; color: var(--dim); }
+  .said { top: 330px; }
+  .said p { font-family: "Caveat", cursive; font-weight: 500; font-size: 46px; color: var(--dim); margin-top: 6px; }
+  .wrote { top: 432px; }
+  .wrote p { font-weight: 400; font-size: 46px; letter-spacing: -0.01em; margin-top: 6px; }
+  .wrote i { font-style: normal; color: var(--amber); }
+  .rule { position: absolute; left: 72px; right: 72px; bottom: 76px; height: 1px; background: var(--faint); }
+  .foot { position: absolute; left: 72px; right: 72px; bottom: 40px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+  <svg class="mark" viewBox="170 228 680 512" aria-hidden="true">
+    <line x1="346" y1="402" x2="270" y2="598" stroke="#E9CBA2" stroke-width="9" stroke-linecap="round"/>
+    <line x1="444" y1="394" x2="554" y2="486" stroke="#E8A23C" stroke-width="30" stroke-dasharray="9 11"/>
+    <line x1="668" y1="478" x2="828" y2="243" stroke="#C77A3A" stroke-width="9" stroke-linecap="round"/>
+    <circle cx="828" cy="243" r="11" fill="#B06240"/>
+    <rect x="308" y="269" width="132" height="132" rx="28" fill="#F4F1EA"/>
+    <rect x="558" y="478" width="132" height="132" rx="28" fill="#F4F1EA"/>
+    <rect x="178" y="598" width="132" height="132" rx="28" fill="#F4F1EA"/>
+  </svg>
+  <h1>Talk. It writes.</h1>
+  <div class="said"><span class="label">Said</span><p>trensfer 2500 rupeez to ramesh tomorow</p></div>
+  <div class="wrote"><span class="label">Written</span><p>Transfer 2500 rupees to Ramesh tomorrow<i>.</i></p></div>
+  <div class="rule"></div>
+  <div class="foot"><span class="label">22 Indian languages · Hinglish · every app</span><span class="label">tailzu.space</span></div>
+</body>
+</html>
