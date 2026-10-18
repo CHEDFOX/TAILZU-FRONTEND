@@ -31,6 +31,7 @@
 </head>
 <body>
 <script src="pill/meta.js"></script>
+<script src="deskapp/meta.js"></script>
 <script src="voice/to-him.js"></script>
 <script>
 (function () {
@@ -1387,10 +1388,10 @@ POSTERS.onekey = { w: 1080, h: 1350, v2: true, draw(ctx, w, h) {
 // =====================================================================================
 const PILL = { frames: [], meta: window.TZ_PILL_META || null };
 /** Apple's own wallpapers, when they are in wallpapers/ (fetched, not committed): iOS 26 Sky and macOS Tahoe. */
-const WALL = { ios: null, mac: null, home: null };
+const WALL = { ios: null, mac: null, home: null, macMsg: null, macNotes: null };
 function loadWallpapers() {
   const one = (file) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = "wallpapers/" + file; });
-  return Promise.all([one("ios26-sky-light.jpg"), one("tahoe-dark.jpg"), one("ios26-home-real.png")]).then(([ios, mac, home]) => { WALL.ios = ios; WALL.mac = mac; WALL.home = home; });
+  return Promise.all([one("ios26-sky-light.jpg"), one("tahoe-dark.jpg"), one("ios26-home-real.png"), one("mac-messages-real.png"), one("mac-notes-real.png")]).then(([ios, mac, home, macMsg, macNotes]) => { Object.assign(WALL, { ios, mac, home, macMsg, macNotes }); });
 }
 /** An image drawn to cover a box, cropped about its centre. */
 function cover(ctx, im, x, y, w, h) {
@@ -2730,7 +2731,7 @@ function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit") {
   if (name === "tap" && held > .5 && held < 1.5) p.ra[1] += .22 * Math.sin((held - .5) * TAU * 2.2);
   if (name === "tada") { const b = .06 * Math.sin(t * TAU * 1.3); p.ra[0] += b; p.la[0] += b; }
   if (name === "present") p.ra[0] += .03 * Math.sin(t * TAU * .9);
-  (who === "hoodie" ? drawFigureHoodie : drawFigure)(g, W, H, p, t);
+  (who === "hoodie" ? drawFigureHoodie : who === "blip" ? drawFigureBlip : drawFigure)(g, W, H, p, t);
   const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PRES.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
@@ -3191,6 +3192,383 @@ function toHimFilm(spoken) {
 FILMS.toHim = toHimFilm(false);
 FILMS.toHimVoice = toHimFilm(true);
 
+// ---- a real Mac: Apple's own macOS Tahoe screens, the app's own pages ------------------
+/**
+ * The screens are Apple's press pictures of macOS Tahoe 26 on a 16-inch
+ * MacBook Pro (wallpapers/mac-messages-real.png and mac-notes-real.png: the
+ * display cut out, 3498×2272, its 1728×1122 points at 2.02×). The Tailzu
+ * window is the desktop app's own page, drawn by Chromium against the
+ * backend and driven by capture-desk.mjs (deskapp/). What is drawn here is
+ * only what changes: the menu bar's app, the tray and its menu, the pointer,
+ * the text that lands, the selection, the pill.
+ */
+const RM = { W: 1728, H: 1122, k: 3498 / 1728, dockTop: 1038 };
+const TZW = { x: 304, y: 150, w: 1120, h: 780, bar: 28 };
+const DESKAPP = { meta: window.TZ_DESK_META || null, img: {}, tray: null, trayLive: null };
+function loadDeskApp() {
+  const one = (src) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+  const m = DESKAPP.meta, shots = m ? m.shots.map((id) => one(`deskapp/${id}.png`).then((im) => { DESKAPP.img[id] = im; })) : [];
+  return Promise.all([one("deskapp/tray.png"), one("deskapp/tray-live.png"), ...shots]).then(([tray, live]) => {
+    DESKAPP.trayLive = live; if (!tray) return;
+    // The tray icon is a template image: black, drawn in the menu bar's ink.
+    const c = document.createElement("canvas"); c.width = tray.width; c.height = tray.height; const x = c.getContext("2d");
+    x.drawImage(tray, 0, 0); x.globalCompositeOperation = "source-in"; x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, c.width, c.height); DESKAPP.tray = c;
+  });
+}
+/** The fonts' sizes, measured against the pictures' own lines of text. */
+let RM_FONT = null;
+function rmFonts(g) {
+  if (RM_FONT) return RM_FONT;
+  g.save(); g.font = sf(15, 400); const a = g.measureText("Spring training here we come").width, b = g.measureText("Everyone has a unique combination of these intelligences, which can be developed over time.").width; g.restore();
+  return (RM_FONT = { msg: 15 * 202 / a, notes: 15 * 650 / b });
+}
+const RM_MENUS = { Tailzu: ["File", "Edit", "View", "Window", "Help"], Notes: ["File", "Edit", "Format", "View", "Window", "Help"] };
+/** The menu bar for another app in front. Tahoe's bar is clear glass, so its
+ *  ground, column by column, is the wallpaper just under it. */
+function rmMenuBar(g, img, app) {
+  const K = RM.k; g.drawImage(img, 52 * K, 39 * K, 660 * K, 3 * K, 52, 0, 660, 37);
+  g.save(); g.shadowColor = "rgba(0,0,0,.18)"; g.shadowBlur = 3;
+  let x = 62; text(g, app, x, 24, sf(14.5, 700), "#FFFFFF"); g.font = sf(14.5, 700); x += g.measureText(app).width + 23;
+  for (const m of RM_MENUS[app]) { text(g, m, x, 24, sf(14.5, 500), "#FFFFFF"); g.font = sf(14.5, 500); x += g.measureText(m).width + 23; }
+  g.restore();
+}
+/** Tailzu's dot in the menu bar, left of the battery, at main.js's 18 pt: a
+ *  template (inked white here) at rest, amber while it listens; lit while its menu is open. */
+function rmTray(g, open, live) {
+  if (open > 0) { g.fillStyle = `rgba(255,255,255,${.22 * open})`; rr(g, 1316, 4, 30, 29, 7); g.fill(); }
+  const im = live && DESKAPP.trayLive ? DESKAPP.trayLive : DESKAPP.tray; if (im) g.drawImage(im, 1322, 9.5, 18, 18);
+}
+/** The tray's menu, as main.js builds it (the rows that need no account state). */
+const RM_TRAY = ["Dictate", "Take notes  ⌘⌥N", "Open Tailzu", "-", "✓Live captions while dictating", "✓Show the pill", "Start at login", "-", "✓Double-tap Ctrl or Alt to dictate", "-", "Quit Tailzu"];
+function rmTrayMenu(g, k, hi) {
+  if (k <= 0) return;
+  const x = 1316, y = 38, w = 300, rowH = 24, sepH = 11, h = RM_TRAY.reduce((a, it) => a + (it === "-" ? sepH : rowH), 0) + 10;
+  g.save(); g.globalAlpha *= k;
+  g.save(); g.shadowColor = "rgba(0,0,0,.45)"; g.shadowBlur = 30; g.shadowOffsetY = 12; g.fillStyle = "rgba(30,30,32,.4)"; rr(g, x, y, w, h, 12); g.fill(); g.restore();
+  frost(g, () => rr(g, x, y, w, h, 12), { blur: 24, tint: "rgba(36,36,40,.8)", edge: "rgba(255,255,255,.16)" });
+  let yy = y + 5;
+  RM_TRAY.forEach((it) => {
+    if (it === "-") { g.fillStyle = "rgba(255,255,255,.12)"; g.fillRect(x + 14, yy + 5, w - 28, 1); yy += sepH; return; }
+    const check = it[0] === "✓", lab = check ? it.slice(1) : it;
+    if (hi === lab) { g.fillStyle = "#0A64D8"; rr(g, x + 5, yy, w - 10, rowH, 6); g.fill(); }
+    if (check) text(g, "✓", x + 14, yy + 17, sf(13, 600), "#FFFFFF", .9);
+    text(g, lab, x + 32, yy + 17, sf(14, 400), "#FFFFFF", .92); yy += rowH;
+  });
+  g.restore();
+}
+/** The Tailzu window: macOS's title bar round the app's own page. */
+function rmTzWindow(g, shot, k) {
+  const im = DESKAPP.img[shot]; if (k <= 0 || !im) return;
+  const { x, y, w, h, bar } = TZW, H = h + bar, R = 16, cx = x + w / 2, cy = y + H / 2, sc = lerp(.96, 1, k);
+  g.save(); g.globalAlpha *= k; g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
+  g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 60; g.shadowOffsetY = 22; g.fillStyle = "#151210"; rr(g, x, y, w, H, R); g.fill(); g.restore();
+  g.save(); g.beginPath(); g.roundRect(x, y, w, H, R); g.clip();
+  g.fillStyle = "#26231F"; g.fillRect(x, y, w, bar); g.drawImage(im, x, y + bar, w, h); g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(x, y + bar - 1, w, 1);
+  g.restore();
+  ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(x + 18 + i * 20, y + bar / 2, 6.2, 0, TAU); g.fill(); });
+  text(g, "Tailzu", cx, y + bar / 2 + 4.5, sf(13, 600), "rgba(255,255,255,.85)", 1, "center");
+  g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1; rr(g, x + .5, y + .5, w - 1, H - 1, R - .5); g.stroke();
+  g.restore();
+}
+/** Messages' field: the caret, or the words that landed, the field growing upward a line at a time. */
+const RMSG = { field: [846, 849, 412, 33] };
+function rmComposer(g, o) {
+  const F = rmFonts(g).msg, [fx, fy, fw, fh] = RMSG.field, lh = 19;
+  if (o.text) {
+    const lines = layout(g, o.text, sf(F, 400), fw - 30, lh).lines, H = fh + (lines.length - 1) * lh, y = fy + fh - H;
+    g.fillStyle = "#1A1A1A"; rr(g, fx, y, fw, H, 16.5); g.fill(); g.strokeStyle = "rgba(255,255,255,.1)"; g.lineWidth = 1; rr(g, fx + .5, y + .5, fw - 1, H - 1, 16); g.stroke();
+    lines.forEach((ln, i) => text(g, ln, fx + 12, y + 22 + i * lh, sf(F, 400), "#FFFFFF", o.k ?? 1));
+    RMSG.box = [fx, y, fw, H];
+  } else RMSG.box = [fx, fy, fw, fh];
+  if (o.caret) { g.fillStyle = "#4C9DFF"; g.fillRect(o.text ? fx + 12 + g.measureText("").width : fx + 10.5, fy + 8, 1.6, 18); }
+}
+/** The conversation scrolled up by `sh` points: what grows at its foot pushes it, as Messages does. */
+function rmScroll(g, img, sh) {
+  if (sh <= 0) return; const K = RM.k;
+  g.save(); g.beginPath(); g.rect(788, 232, 528, 612); g.clip();
+  g.fillStyle = "#050404"; g.fillRect(788, 232, 528, 612);
+  g.drawImage(img, 788 * K, 232 * K, 528 * K, 612 * K, 788, 232 - sh, 528, 612);
+  g.restore();
+}
+/** The message sent: the transcript scrolls up by it, and it sits at the foot, delivered. */
+function rmSent(g, img, k, msg) {
+  const F = rmFonts(g).msg, lay = layout(g, msg, sf(F, 400), 300, 19), bw = lay.width + 26, bh = lay.lines.length * 19 + 14, sh = (bh + 26) * E.out(k);
+  rmScroll(g, img, sh);
+  g.save();
+  const bx = 1297 - bw, by = 842 - 22 - bh + (1 - E.out(k)) * 20;
+  g.globalAlpha *= clamp(k * 2);
+  const gr = g.createLinearGradient(0, by, 0, by + bh); gr.addColorStop(0, "#1E8EF2"); gr.addColorStop(1, "#0A6ED6"); g.fillStyle = gr;
+  g.beginPath(); g.roundRect(bx, by, bw, bh, 17); g.fill();
+  g.beginPath(); g.moveTo(bx + bw - 14, by + bh - 9); g.quadraticCurveTo(bx + bw + 1, by + bh, bx + bw + 6, by + bh + 1); g.quadraticCurveTo(bx + bw - 6, by + bh + 2, bx + bw - 18, by + bh - 1); g.closePath(); g.fill();
+  lay.lines.forEach((ln, i) => text(g, ln, bx + 13, by + 20 + i * 19, sf(F, 400), "#FFFFFF"));
+  text(g, "Delivered", 1297, 842 - 6, sf(11, 500), "#8E8E93", E.out(seg(k, .5, 1)), "right");
+  g.restore();
+  RMSG.sentBox = [bx, by, bw, bh];
+}
+/** What it read: a light passing down the conversation, and the things it took from it, ringed and named. */
+const RM_READ = [
+  { r: [979, 203, 154, 26], say: "the group" },
+  { r: [842, 226, 297, 47], say: "the ride" },
+  { r: [849, 618, 298, 73], say: "Anthony's fork" },
+];
+function rmScan(g, t, t0, t1, fade) {
+  if (t < t0 || fade <= 0) return;
+  const k = seg(t, t0, t1), y = lerp(214, 850, E.io(k));
+  g.save(); g.globalAlpha *= fade;
+  if (k < 1) {
+    const gr = g.createLinearGradient(0, y - 90, 0, y); gr.addColorStop(0, "rgba(243,226,198,0)"); gr.addColorStop(1, "rgba(243,226,198,.16)");
+    g.fillStyle = gr; g.fillRect(790, Math.max(200, y - 90), 524, Math.min(90, y - 200));
+    g.fillStyle = "rgba(243,226,198,.95)"; g.fillRect(790, y - .75, 524, 1.5);
+  }
+  RM_READ.forEach((h) => {
+    const [x, yy, w, hh] = h.r, a = E.out(clamp((y - (yy + hh / 2)) / 50)); if (a <= 0) return;
+    g.save(); g.globalAlpha *= a; g.fillStyle = "rgba(243,226,198,.08)"; rr(g, x - 4, yy - 4, w + 8, hh + 8, 14); g.fill();
+    g.strokeStyle = "rgba(243,226,198,.9)"; g.lineWidth = 1.6; rr(g, x - 4, yy - 4, w + 8, hh + 8, 14); g.stroke();
+    g.font = f(10.5, MONO); g.letterSpacing = "1.6px"; const lab = h.say.toUpperCase(), tw = g.measureText(lab).width; g.letterSpacing = "0px";
+    const cx = Math.min(x + w + 12, 1306 - tw - 16), cy = yy + hh / 2;
+    g.fillStyle = "rgba(15,13,11,.88)"; rr(g, cx, cy - 11, tw + 16, 22, 11); g.fill(); g.strokeStyle = "rgba(243,226,198,.5)"; g.lineWidth = 1; rr(g, cx + .5, cy - 10.5, tw + 15, 21, 10.5); g.stroke();
+    text(g, lab, cx + 8, cy + 4, f(10.5, MONO), P.pale, 1, "left", 1.6);
+    g.restore();
+  });
+  g.restore();
+}
+/** Notes: the paragraph's lines in the picture ([centre y, end x], each from x 83), its selection, and what replaces it. */
+const RN_LINES = [[851, 759], [870, 204], [890, 705], [909, 427], [929, 733], [948, 557]];
+const RN_LEN = RN_LINES.reduce((a, [, e]) => a + (e - 83), 0);
+function rnSelEnd(p) { let left = p * RN_LEN; for (const [cy, e] of RN_LINES) { if (left <= e - 83) return [83 + left, cy]; left -= e - 83; } const L = RN_LINES[RN_LINES.length - 1]; return [L[1], L[0]]; }
+function rnSelect(g, lines, p, a) {
+  if (p <= 0 || a <= 0) return;
+  const total = lines.reduce((s, [, e]) => s + (e - 83), 0); let left = p * total;
+  g.save(); g.globalAlpha *= a; g.globalCompositeOperation = "multiply"; g.fillStyle = "#B3D7FF";
+  for (const [cy, e] of lines) { if (left <= 0) break; const len = Math.min(left, e - 83); g.fillRect(82, cy - 10, len + 2, 20); left -= len; }
+  g.restore();
+}
+const RN_NEW = ["Nine kinds of smart: words, logic, music, space, body, people, self, nature and big questions.", "Everyone has their own mix, and it can grow.", "Some say they are just talents."];
+function rnRewrite(g, k, selA) {
+  if (k <= 0) return;
+  const F = rmFonts(g).notes, lh = 19.5, font = sf(F, 400), lines = [];
+  g.fillStyle = "#FFFFFF"; g.fillRect(56, 840, 760, 120);
+  let y = 851;
+  RN_NEW.forEach((s0) => {
+    const lay = layout(g, s0, font, 690, lh); text(g, "–", 66, y + 5, font, "#2B2B2B", k);
+    lay.lines.forEach((ln, i) => { text(g, ln, 83, y + 5 + i * lh, font, "#2B2B2B", k); g.font = font; lines.push([y + i * lh, 83 + g.measureText(ln).width]); });
+    y += lay.lines.length * lh;
+  });
+  rnSelect(g, lines, 1, selA);
+  rnRewrite.box = [58, 840, 740, y - 840];
+}
+/** The pill's demo clock for a dictation on the film's: listening at rec, the speech until stop, writing until it lands. */
+function pillTau(t, rec, stop, land) {
+  if (t < rec) return .4;
+  if (t < rec + .4) return 2.2 + (t - rec);
+  if (t < stop) return lerp(2.6, 6.6, clamp((t - rec - .4) / Math.max(.1, stop - rec - .4)));
+  if (t < land) return lerp(6.9, 7.9, clamp((t - stop) / Math.max(.1, land - stop)));
+  return Math.min(9.5, 7.9 + (t - land));
+}
+/** The pointer: [from, to, x, y, kind?] moves, eased; the kind it ends as. */
+function ptrAt(P, t) {
+  let x = P[0][2], y = P[0][3], kind = P[0][4] || "arrow";
+  for (const [t0, t1, px, py, kd] of P) { if (t < t0) break; const k = E.io(seg(t, t0, Math.max(t1, t0 + 1e-3))); x = lerp(x, px, k); y = lerp(y, py, k); if (kd && t >= t0) kind = kd; }
+  return [x, y, kind];
+}
+/** A caption with some words in amber: the ones said to the keyboard, not into the message. */
+function captionMark(ctx, s, marks, x, y, maxW, from, to, t, size, after) {
+  if (t < from || t > after) return;
+  const words = s.split(" "), n = Math.max(1, Math.min(words.length, Math.floor(seg(t, from, to) * words.length + 1e-6)));
+  const font = sf(size, 500), lh = size * 1.3; ctx.save(); ctx.font = font;
+  const sp = ctx.measureText(" ").width, wd = words.map((w) => ctx.measureText(w).width), lines = [[]]; let lw = 0;
+  for (let i = 0; i < n; i++) { const add = (lw ? sp : 0) + wd[i]; if (lw + add > maxW - size * 1.2 && lines[lines.length - 1].length) { lines.push([i]); lw = wd[i]; } else { lines[lines.length - 1].push(i); lw += add; } }
+  const show = lines.slice(-2), widths = show.map((ln) => ln.reduce((a, i) => a + wd[i], 0) + sp * (ln.length - 1));
+  const tw = Math.max(...widths) + size * 1.2, th = show.length * lh + size * .3;
+  ctx.globalAlpha *= 1 - seg(t, after - .2, after);
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x - tw / 2, y - size * 1.05, tw, th, size * .4); ctx.fill();
+  show.forEach((ln, li) => { let cx = x - widths[li] / 2; ln.forEach((i) => { text(ctx, words[i], cx, y + size * .08 + li * lh, font, marks.includes(i) ? P.amber : "#FFFFFF"); cx += wd[i] + sp; }); });
+  ctx.restore();
+}
+/**
+ * ZARA. Three things on one Mac, in its own pictures: the keyboard given a
+ * name of its own in the app's Settings (Its name → "Zara" → Save, the page
+ * then saying "Tailzu, or Zara"); a reply in Messages that reads the
+ * conversation on screen, so "the group", "the ride" and "his fork" become
+ * the right people and the right words; and a paragraph in Notes, selected,
+ * rewritten in place by saying "make this simpler".
+ */
+const MACZ = (() => {
+  const m = (DESKAPP.meta && DESKAPP.meta.at) || { gear: [1018, 14, 32, 32], give: [808, 438, 106, 11], input: [206, 290, 447, 38], save: [665, 295, 61, 29], h1: [206, 176, 708, 36] };
+  const ox = TZW.x, oy = TZW.y + TZW.bar, ctr = (b) => [ox + b[0] + b[2] / 2, oy + b[1] + b[3] / 2];
+  const D = {
+    trayClick: 1.15, menuOpen: 1.2, openHover: 1.75, openClick: 2.15, winOpen: 2.25,
+    gearClick: 3.4, giveClick: 4.5, inputClick: 5.2, keys: [5.55, 5.73, 5.91, 6.09], saveHover: 6.7, saveClick: 7.05, closeClick: 8.75,
+    fieldClick: 10.0, tap1: 10.45, tap2: 10.68, rec: 10.75, capFrom: 11.1, capTo: 15.6, scanFrom: 11.5, scanTo: 13.6, stop1: 16.0, stop2: 16.22, land: 17.2, enter: 18.3, sent: 18.4,
+    cut: 19.8, selDown: 20.9, selUp: 21.9, tap1b: 22.35, tap2b: 22.58, recb: 22.65, capFromb: 22.95, capTob: 24.1, stop1b: 24.6, stop2b: 24.82, landb: 25.7, card: 27.6, cardLen: 4.6,
+    said: "Zara, reply to the group, I'm in for the long weekend ride, and ask Anthony if his fork is fixed",
+    wrote: "I'm in for the long weekend ride! 🚴 Anthony, is your fork fixed yet? 😅",
+    saidb: "Zara, make this simpler",
+    gear: ctr(m.gear), give: ctr(m.give), input: [ox + m.input[0] + 140, oy + m.input[1] + m.input[3] / 2], save: ctr(m.save),
+    nameBox: [ox + m.h1[0] - 10, oy + m.h1[1] - 12, 540, m.save[1] + m.save[3] - m.h1[1] + 58],
+  };
+  D.end = D.card + D.cardLen;
+  D.ptr = [
+    [0, 0, 960, 640], [.3, 1.1, 1331, 19], [1.3, 1.75, 1400, 105], [2.35, 3.3, D.gear[0], D.gear[1]], [3.5, 4.4, D.give[0], D.give[1]],
+    [4.6, 5.15, D.input[0], D.input[1], "ibeam"], [6.2, 6.65, D.save[0], D.save[1], "arrow"], [8.0, 8.65, TZW.x + 18, TZW.y + 14],
+    [9.1, 9.9, 1010, 866, "ibeam"], [10.15, 10.6, 1090, 960, "arrow"],
+    [D.cut, D.cut, 640, 760, "arrow"], [D.cut + .3, D.selDown - .05, 83, 851, "ibeam"], [D.selUp + .3, D.selUp + .8, 640, 990, "arrow"],
+  ];
+  D.cam = [
+    [0, .625, 864, 561], [2.3, .9, 864, 545, .8], [4.75, 1.45, D.nameBox[0] + 270, D.nameBox[1] + D.nameBox[3] / 2, .7], [8.1, .9, 864, 545, .5], [9.0, .625, 864, 561, .6],
+    [9.5, 1.12, 864, 522, .9], [16.4, 1.75, 1052, 720, .8], [19.0, 1.12, 864, 522, .6],
+    [D.cut, 1.25, 427, 540, .001], [D.cut + .5, 1.42, 412, 860, .9],
+  ];
+  return D;
+})();
+let rmBuf = null;
+function macZScene(ctx, w, h, t, D) {
+  if (t >= D.card) { macZCard(ctx, w, h, t - D.card); return { rx: 0, ry: 0, rw: w, rh: h, z: 1 }; }
+  const SS = 2, { W, H } = RM, notes = t >= D.cut, img = notes ? WALL.macNotes : WALL.macMsg;
+  if (!rmBuf) { rmBuf = document.createElement("canvas"); rmBuf.width = W * SS; rmBuf.height = H * SS; }
+  const g = rmBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = "#16233F"; g.fillRect(0, 0, W, H); }
+  const winK = E.out(seg(t, D.winOpen, D.winOpen + .3)) * (1 - E.in(seg(t, D.closeClick + .05, D.closeClick + .3)));
+  const menuK = t >= D.menuOpen && t < D.openClick + .14 ? E.out(seg(t, D.menuOpen, D.menuOpen + .12)) * (1 - seg(t, D.openClick + .02, D.openClick + .14)) : 0;
+  let pillT = .4;
+  if (!notes) {
+    // Messages, underneath: the field, what it read, what landed, what was sent.
+    if (t >= D.sent) rmSent(g, img, seg(t, D.sent, D.sent + .4), D.wrote);
+    else if (t >= D.land) { g.save(); const n = layout(g, D.wrote, sf(rmFonts(g).msg, 400), RMSG.field[2] - 30, 19).lines.length; g.restore(); rmScroll(g, img, (n - 1) * 19 * E.out(seg(t, D.land, D.land + .2))); }
+    const focused = t >= D.fieldClick + .05, blink = Math.floor((t - D.fieldClick) * 1.9) % 2 === 0;
+    rmComposer(g, { text: t >= D.land && t < D.sent ? D.wrote : "", k: E.out(seg(t, D.land, D.land + .2)), caret: focused && blink && !(t >= D.land && t < D.sent) });
+    rmScan(g, t, D.scanFrom, D.scanTo, 1 - seg(t, D.stop2 + .2, D.stop2 + .7));
+    if (winK > 0) rmMenuBar(g, img, "Tailzu");
+    rmTray(g, menuK, t >= D.rec && t < D.stop2 + .1);
+    if (winK > 0) {
+      const at = (x) => t >= x;
+      const shot = at(D.saveClick + .05) ? "saved-2" : at(D.saveHover) ? "save-hover" : at(D.keys[3]) ? "name-4" : at(D.keys[2]) ? "name-3" : at(D.keys[1]) ? "name-2" : at(D.keys[0]) ? "name-1"
+        : at(D.inputClick + .05) ? "name-focus" : at(D.giveClick + .05) ? "name" : at(D.gearClick + .05) ? "settings" : "today";
+      rmTzWindow(g, shot, winK);
+    }
+    rmTrayMenu(g, menuK, t >= D.openHover ? "Open Tailzu" : null);
+    pillT = pillTau(t, D.rec, D.stop2 + .1, D.land);
+  } else {
+    // Notes, in front once clicked: its lights, its menus; the selection; the rewrite.
+    if (t >= D.selDown) {
+      rmMenuBar(g, img, "Notes");
+      ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(60 + i * 26, 93, 7, 0, TAU); g.fill(); });
+    }
+    rmTray(g, 0, t >= D.recb && t < D.stop2b + .1);
+    if (t < D.landb) rnSelect(g, RN_LINES, E.io(seg(t, D.selDown, D.selUp)), 1);
+    else rnRewrite(g, E.out(seg(t, D.landb, D.landb + .25)), 1 - E.in(seg(t, D.landb + .9, D.landb + 1.6)));
+    pillT = pillTau(t, D.recb, D.stop2b + .1, D.landb);
+  }
+  drawPill(g, pillT, (W - 1440) / 2, RM.dockTop - 4, 1440);
+  let [px, py, kind] = ptrAt(D.ptr, t);
+  if (notes && t >= D.selDown && t < D.selUp + .3) { [px, py] = rnSelEnd(E.io(seg(t, D.selDown, D.selUp))); kind = "ibeam"; }
+  (kind === "ibeam" ? macIbeam : macArrow)(g, px, py);
+
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  // In Notes the screen sits a little higher, so the keys and the words have a band of their own under it.
+  const lift = notes ? 150 * E.io(seg(t, D.cut + .4, D.cut + 1.3)) : 0;
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z - lift, rw = W * z, rh = H * z, rr0 = 14;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, rr0); ctx.clip(); ctx.drawImage(rmBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, rr0 - .75); ctx.stroke();
+  // A dip to black between the two Macs' pictures.
+  const dip = 1 - clamp(Math.abs(t - D.cut) / .28); if (dip > 0) { ctx.fillStyle = `rgba(0,0,0,${dip})`; ctx.fillRect(0, 0, w, h); }
+  if (LESSON_HOLD) return { rx, ry, rw, rh, z };
+  const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250), key = ["⌃ control"];
+  [[D.tap1, -1], [D.tap2, 1], [D.stop1, -1], [D.stop2, 1], [D.tap1b, -1], [D.tap2b, 1], [D.stop1b, -1], [D.stop2b, 1]].forEach(([at, s]) => keyHud(ctx, key, w / 2 + s * 104, hudY, at, t));
+  keyHud(ctx, ["↩ return"], w / 2, hudY, D.enter, t);
+  captionMark(ctx, D.said, [0], w / 2, hudY + 110, w - 80, D.capFrom, D.capTo, t, 40, D.stop2 + .4);
+  captionMark(ctx, D.saidb, [0], w / 2, hudY + 110, w - 80, D.capFromb, D.capTob, t, 40, D.stop2b + .4);
+  return { rx, ry, rw, rh, z };
+}
+/** The card: the words at the left, Blip at the right, presenting them; the address under. */
+function macZCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu for Mac", x0, 500, 22, P.pale, E.out(seg(t, .15, .7)) * .5);
+  arrive(ctx, "Name it.", x0, 630, f(116, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Talk to it.", x0, 756, f(116, SERIF, 400, true), P.pale, .6, t, { stagger: .12 });
+  arrive(ctx, "It reads your screen, and rewrites", x0, 840, f(34, SANS, 400), rgba(P.pale, .7), 1.05, t, { stagger: .04 });
+  arrive(ctx, "whatever you select.", x0, 886, f(34, SANS, 400), rgba(P.pale, .7), 1.25, t, { stagger: .04 });
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 560, 620, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "blip"); ctx.restore();
+  const k = E.out(seg(t, 1.7, 2.3)), ls = 36, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
+}
+/**
+ * BLIP: the presenter for the Mac lessons, and a strange one. One great eye
+ * under a heavy lid and a single brow, a head too big on a neck too long,
+ * two antennae (one bent), noodle arms, a striped sweater, striped socks and
+ * boots three sizes too large. Greys only; the dither makes it dots.
+ */
+function drawFigureBlip(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .9) * .008 * H, sway = Math.sin(t * TAU * .45) * .025;
+  [-1, 1].forEach((s) => {
+    const lx = cx + s * .06 * H;
+    g.strokeStyle = grey(.34); g.lineWidth = .034 * H; g.lineCap = "round"; g.beginPath(); g.moveTo(lx, .72 * H); g.lineTo(lx + s * .012 * H, .93 * H); g.stroke();
+    for (let i = 0; i < 4; i++) { g.fillStyle = grey(i % 2 ? .88 : .16); g.fillRect(lx + s * .009 * H - .019 * H, (.83 + i * .022) * H, .038 * H, .022 * H); }
+    g.fillStyle = grey(.14); g.beginPath(); g.ellipse(lx + s * .05 * H, .956 * H, .105 * H, .04 * H, 0, 0, TAU); g.fill();
+    g.fillStyle = grey(.42); g.beginPath(); g.ellipse(lx + s * .055 * H, .94 * H, .065 * H, .013 * H, 0, 0, TAU); g.fill();
+  });
+  const top = .52 * H + bob, bot = .75 * H;
+  g.save(); g.beginPath(); g.moveTo(cx - .085 * H, top); g.quadraticCurveTo(cx - .2 * H, bot, cx - .17 * H, bot); g.lineTo(cx + .17 * H, bot); g.quadraticCurveTo(cx + .2 * H, bot, cx + .085 * H, top); g.closePath(); g.clip();
+  for (let i = 0; i < 7; i++) { g.fillStyle = grey(i % 2 ? .66 : .38); g.fillRect(cx - .22 * H, top + i * .035 * H, .44 * H, .035 * H); }
+  g.restore();
+  arm(g, H, cx + .1 * H, top + .035 * H, 1, p.ra[0], p.ra[1], p.rh, cx + .16 * H, .68 * H, .5, .68);
+  arm(g, H, cx - .1 * H, top + .035 * H, -1, p.la[0], p.la[1], p.lh, cx - .16 * H, .68 * H, .5, .68);
+  g.strokeStyle = grey(.72); g.lineWidth = .028 * H; g.lineCap = "round"; g.beginPath(); g.moveTo(cx, top + .01 * H); g.quadraticCurveTo(cx + .035 * H, .49 * H + bob, cx, .44 * H + bob); g.stroke();
+  const hx = cx, hy = .3 * H + bob, R = .16 * H;
+  g.save(); g.translate(hx, hy + R); g.rotate(p.tilt + sway); g.translate(-hx, -(hy + R));
+  const wob = Math.sin(t * TAU * 1.6) * .025 * H;
+  g.strokeStyle = grey(.55); g.lineWidth = .012 * H; g.beginPath(); g.moveTo(hx - .05 * H, hy - R * .9); g.quadraticCurveTo(hx - .11 * H, hy - R * 1.35, hx - .065 * H + wob, hy - R * 1.55); g.stroke();
+  g.fillStyle = grey(.96); g.beginPath(); g.arc(hx - .065 * H + wob, hy - R * 1.55, .024 * H, 0, TAU); g.fill();
+  g.beginPath(); g.moveTo(hx + .055 * H, hy - R * .88); g.lineTo(hx + .09 * H, hy - R * 1.22); g.lineTo(hx + .135 * H, hy - R * 1.16); g.stroke();
+  const sg = g.createRadialGradient(hx - .06 * H, hy - .06 * H, 0, hx, hy, R * 1.3); sg.addColorStop(0, grey(.93)); sg.addColorStop(.6, grey(.75)); sg.addColorStop(1, grey(.46));
+  g.fillStyle = sg; g.beginPath(); g.ellipse(hx, hy, R * 1.1, R * .94, 0, 0, TAU); g.fill();
+  g.fillStyle = grey(.5); [-1, 1].forEach((s) => { rr(g, hx + s * R * 1.1 - .012 * H, hy - .015 * H, .024 * H, .03 * H, .006 * H); g.fill(); });
+  const blink = ((t * 1000 + 300) % 3100) < 130, ex = hx - .005 * H, ey = hy - .012 * H, er = .082 * H;
+  g.fillStyle = grey(.1); g.beginPath(); g.arc(ex, ey, er + .011 * H, 0, TAU); g.fill();
+  if (!blink) {
+    g.fillStyle = grey(.99); g.beginPath(); g.arc(ex, ey, er, 0, TAU); g.fill();
+    const lx = .022 * H + Math.sin(t * .9) * .012 * H, ly = .006 * H + Math.cos(t * 1.3) * .01 * H;
+    g.fillStyle = grey(.05); g.beginPath(); g.arc(ex + lx, ey + ly, .036 * H, 0, TAU); g.fill();
+    g.fillStyle = grey(.99); g.beginPath(); g.arc(ex + lx - .011 * H, ey + ly - .012 * H, .009 * H, 0, TAU); g.fill();
+    g.fillStyle = grey(.62); g.beginPath(); g.arc(ex, ey, er + .002 * H, Math.PI * 1.1, Math.PI * 1.9); g.closePath(); g.fill();
+  } else { g.fillStyle = grey(.62); g.beginPath(); g.arc(ex, ey, er, 0, TAU); g.fill(); g.strokeStyle = grey(.1); g.lineWidth = .013 * H; g.beginPath(); g.moveTo(ex - er * .8, ey + .01 * H); g.lineTo(ex + er * .8, ey + .01 * H); g.stroke(); }
+  g.strokeStyle = grey(.1); g.lineWidth = .017 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey - .016 * H - p.brows * .018 * H, er * 1.2, Math.PI * 1.22, Math.PI * 1.78); g.stroke();
+  g.fillStyle = grey(.3); [[.075, .055], [.095, .07], [.07, .08]].forEach(([dx, dy]) => { g.beginPath(); g.arc(hx + dx * H, hy + dy * H, .006 * H, 0, TAU); g.fill(); });
+  const mx = hx + .035 * H, my = hy + .105 * H;
+  if (p.mouth === "grin") { g.fillStyle = grey(.08); g.beginPath(); g.ellipse(mx, my, .05 * H, .03 * H, -.15, 0, Math.PI); g.fill(); g.fillStyle = grey(.97); g.fillRect(mx - .012 * H, my - .002 * H, .02 * H, .014 * H); }
+  else if (p.mouth === "o") { g.fillStyle = grey(.08); g.beginPath(); g.ellipse(mx, my, .018 * H, .024 * H, 0, 0, TAU); g.fill(); }
+  else { g.strokeStyle = grey(.1); g.lineWidth = .014 * H; g.beginPath(); g.arc(mx, my - .022 * H, .04 * H, Math.PI * .2, Math.PI * .75); g.stroke(); g.fillStyle = grey(.97); g.fillRect(mx - .004 * H, my + .012 * H, .014 * H, .012 * H); }
+  g.restore();
+}
+function macZCues(D) {
+  const c = [
+    { at: D.trayClick, kind: "click" }, { at: D.openClick, kind: "click" }, { at: D.winOpen, kind: "open" }, { at: D.gearClick, kind: "click" }, { at: D.giveClick, kind: "click" },
+    { at: D.inputClick, kind: "click" }, ...D.keys.map((at) => ({ at, kind: "key" })), { at: D.saveClick, kind: "click" }, { at: D.saveClick + .12, kind: "land", gain: .6 },
+    { at: D.closeClick, kind: "click" }, { at: D.fieldClick, kind: "click" },
+    { at: D.tap1, kind: "key" }, { at: D.tap2, kind: "key" }, { at: D.rec, kind: "listen" }, { at: D.scanFrom, kind: "write", gain: .7 },
+    { at: D.stop1, kind: "key" }, { at: D.stop2, kind: "key" }, { at: D.stop2 + .12, kind: "stop" }, { at: D.stop2 + .45, kind: "write" }, { at: D.land, kind: "land" },
+    { at: D.enter, kind: "key" }, { at: D.sent, kind: "send" },
+    { at: D.selDown, kind: "click" }, { at: D.tap1b, kind: "key" }, { at: D.tap2b, kind: "key" }, { at: D.recb, kind: "listen" },
+    { at: D.stop1b, kind: "key" }, { at: D.stop2b, kind: "key" }, { at: D.stop2b + .12, kind: "stop" }, { at: D.stop2b + .45, kind: "write" }, { at: D.landb, kind: "land" },
+    { at: D.card, kind: "open", gain: .8 },
+  ];
+  return c;
+}
+const LESSON_MACZ = { who: "blip", freezes: [
+  { at: MACZ.saveClick + .6, hold: 2.7, pose: "present", tag: "Its name", title: "Call it *anything*.", body: "Settings, then Its name. Tailzu always answers to Tailzu. Now it answers to Zara too.", focus: MACZ.nameBox },
+  { at: MACZ.scanTo + .1, hold: 2.7, pose: "tap", tag: "Screen aware", title: "It *reads* the room.", body: "The chat on screen tells it who the group is and whose fork. Read to understand you, never pasted back.", focus: [790, 198, 524, 650] },
+  { at: MACZ.land + .5, hold: 2.7, pose: "tada", tag: "The reply", title: "Names right. *Context* right.", body: "Anthony, spelled the way the chat spells him. The ride you meant, not just the words you said.", focus: () => { const b = RMSG.box || RMSG.field; return [b[0] - 4, b[1] - 4, b[2] + 8, b[3] + 8]; } },
+  { at: MACZ.landb + .55, hold: 2.7, pose: "thumbs", tag: "Select and say", title: "Select. *Say* the change.", body: "Highlight any text, tap control twice, say simpler, shorter or more formal. It is rewritten in place.", focus: () => { const b = rnRewrite.box || [58, 840, 740, 110]; return [b[0] - 4, b[1] - 4, b[2] + 8, b[3] + 8]; } },
+] };
+FILMS.lessonMacZara = lessonFilm(MACZ, LESSON_MACZ, macZScene, macZCues);
+
 
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
@@ -3208,7 +3586,7 @@ async function fontsReady() {
     ...INDIA.map(([n]) => [f(40, SERIF), n]), ...RIVER.map(s => [f(40, HAND, 600), s])];
   await Promise.race([Promise.all(probes.map(([ft, s]) => document.fonts.load(ft, s))), new Promise(r => setTimeout(r, RENDER ? 25000 : 8000))]);
   await document.fonts.ready;
-  await loadPill(); await loadWallpapers();
+  await loadPill(); await loadWallpapers(); await loadDeskApp();
 }
 window.TZ = { FILMS, POSTERS };
 window.__cues = (id) => (FILMS[id] && FILMS[id].cues) ? FILMS[id].cues() : [];
