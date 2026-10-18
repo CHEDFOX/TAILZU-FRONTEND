@@ -1763,31 +1763,72 @@ function iosIcon(ctx, name, x, y, s) {
   }
   ctx.restore();
 }
+/** The wallpaper iOS 26 ships dark: a sheet of colour, blue into violet into
+ *  rose, with a soft white light across it and a little grain. */
+let wallBuf = null;
+function iosWallpaper(ctx, W, H) {
+  if (!wallBuf) {
+    wallBuf = document.createElement("canvas"); wallBuf.width = W * 2; wallBuf.height = H * 2; const g = wallBuf.getContext("2d"); g.scale(2, 2);
+    const base = g.createLinearGradient(0, 0, W * .4, H); base.addColorStop(0, "#0B1240"); base.addColorStop(.45, "#1A1C6B"); base.addColorStop(1, "#3A0F3F");
+    g.fillStyle = base; g.fillRect(0, 0, W, H);
+    glow(g, W * .85, H * .22, W * .95, "#2F6DF6", .75); glow(g, W * .1, H * .42, W * .8, "#6A3BE0", .7); glow(g, W * .7, H * .62, W * .9, "#C8408F", .6);
+    glow(g, W * .25, H * .9, W * .7, "#F07A4A", .55); glow(g, W * .95, H * .95, W * .5, "#FF5C8A", .4); glow(g, W * .5, H * .5, W * .35, "#9D7CFF", .35);
+    // The light across the glass: a soft diagonal sheen.
+    const sheen = g.createLinearGradient(0, H * .15, W, H * .75); sheen.addColorStop(0, "rgba(255,255,255,0)"); sheen.addColorStop(.42, "rgba(255,255,255,.07)"); sheen.addColorStop(.5, "rgba(255,255,255,.16)"); sheen.addColorStop(.58, "rgba(255,255,255,.06)"); sheen.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = sheen; g.fillRect(0, 0, W, H);
+    const dark = g.createLinearGradient(0, 0, 0, H); dark.addColorStop(0, "rgba(0,0,0,.18)"); dark.addColorStop(.3, "rgba(0,0,0,0)"); dark.addColorStop(1, "rgba(0,0,0,.22)"); g.fillStyle = dark; g.fillRect(0, 0, W, H);
+    const im = g.getImageData(0, 0, W * 2, H * 2), d = im.data; let sd = 11;
+    for (let i = 0; i < d.length; i += 4) { sd = (sd * 1103515245 + 12345) & 0x7fffffff; const n = ((sd >> 8) & 255) / 255 - .5; d[i] += n * 10; d[i + 1] += n * 10; d[i + 2] += n * 10; }
+    g.putImageData(im, 0, 0);
+  }
+  ctx.drawImage(wallBuf, 0, 0, W, H);
+}
+/** Frosted glass: the pixels under `path` blurred and tinted, with a light at the edge. */
+function frost(ctx, path, o = {}) {
+  const { blur = 22, tint = "rgba(255,255,255,.14)", edge = "rgba(255,255,255,.28)", dark = 0 } = o, m = ctx.getTransform(), S = m.a;
+  ctx.save(); path(); ctx.clip();
+  ctx.filter = `blur(${blur}px)`; ctx.drawImage(ctx.canvas, 0, 0, ctx.canvas.width / S, ctx.canvas.height / S); ctx.filter = "none";
+  ctx.fillStyle = tint; ctx.fillRect(-1e4, -1e4, 2e4, 2e4); if (dark) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(-1e4, -1e4, 2e4, 2e4); }
+  ctx.restore();
+  ctx.save(); path(); ctx.strokeStyle = edge; ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
+}
+/** An icon as iOS 26 shows it: the art, a glass light over it, a lip of shade, a soft shadow under it. */
+function glassIcon(ctx, name, x, y, s) {
+  const r = s * .2237;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = s * .18; ctx.shadowOffsetY = s * .06; ctx.fillStyle = "#000"; rr(ctx, x, y, s, s, r); ctx.fill(); ctx.restore();
+  iosIcon(ctx, name, x, y, s);
+  ctx.save(); rr(ctx, x, y, s, s, r); ctx.clip();
+  const hi = ctx.createLinearGradient(x, y, x + s * .3, y + s); hi.addColorStop(0, "rgba(255,255,255,.26)"); hi.addColorStop(.45, "rgba(255,255,255,.05)"); hi.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = hi; ctx.fillRect(x, y, s, s);
+  const lo = ctx.createLinearGradient(x, y + s * .6, x, y + s); lo.addColorStop(0, "rgba(0,0,0,0)"); lo.addColorStop(1, "rgba(0,0,0,.14)"); ctx.fillStyle = lo; ctx.fillRect(x, y, s, s);
+  ctx.strokeStyle = "rgba(255,255,255,.32)"; ctx.lineWidth = 1; rr(ctx, x + .5, y + .5, s - 1, s - 1, r - .5); ctx.stroke(); ctx.restore();
+}
 /** The home screen: the wallpaper, six rows of four, the Search pill, the Dock. */
 const HOME_APPS = ["Mail", "Maps", "Notes", "Photos", "Music", "Calendar", "Weather", "Clock", "Camera", "Files", "Health", "Wallet", "Reminders", "Books", "Podcasts", "Translate", "Stocks", "Fitness", "Home", "Settings", "WhatsApp", "ChatGPT", "Instagram", "Spotify"];
 const DOCK_IOS = ["Phone", "Safari", "Messages", "Music"];
-const homeIconAt = (i) => [57 + (i % 4) * 87, 77 + 30 + Math.floor(i / 4) * 96];
+const GRID = { x0: 27, pitchX: 93, y0: 71, pitchY: 96, icon: 60 };
+const homeIconAt = (i) => [GRID.x0 + (i % 4) * GRID.pitchX + 30, GRID.y0 + Math.floor(i / 4) * GRID.pitchY + 30];
 function homeScreen(ctx, W, H, t) {
-  const g = ctx.createLinearGradient(0, 0, W, H); g.addColorStop(0, "#0E2A5C"); g.addColorStop(.5, "#2A1E63"); g.addColorStop(1, "#0A3F4E");
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  glow(ctx, W * .72, H * .3, W * .9, "#5B7CFA", .35); glow(ctx, W * .2, H * .78, W * .7, "#2CC3B4", .25); glow(ctx, W * .5, H * .55, W * .5, "#C86DD7", .18);
-  HOME_APPS.forEach((name, i) => { const [cx, cy] = homeIconAt(i); iosIcon(ctx, name, cx - 30, cy - 30, 60); text(ctx, name, cx, cy + 45, sf(11, 500), "#FFFFFF", .95, "center"); });
-  ctx.fillStyle = "rgba(255,255,255,.2)"; rr(ctx, W / 2 - 38, 690, 76, 24, 12); ctx.fill();
-  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(W / 2 - 24, 701, 4, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(W / 2 - 21, 704); ctx.lineTo(W / 2 - 18, 707); ctx.stroke(); ctx.restore();
-  text(ctx, "Search", W / 2 + 6, 706, sf(11, 500), "#FFFFFF", .95, "center");
-  ctx.fillStyle = "rgba(255,255,255,.18)"; rr(ctx, 18, 741, W - 36, 96, 34); ctx.fill();
-  DOCK_IOS.forEach((name, i) => iosIcon(ctx, name, 36 + i * 87, 759, 60));
+  iosWallpaper(ctx, W, H);
+  HOME_APPS.forEach((name, i) => {
+    const [cx, cy] = homeIconAt(i); glassIcon(ctx, name, cx - 30, cy - 30, 60);
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,.45)"; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1; text(ctx, name, cx, cy + 45, sf(11, 500), "#FFFFFF", 1, "center"); ctx.restore();
+  });
+  frost(ctx, () => rr(ctx, W / 2 - 40, 688, 80, 26, 13), { blur: 16, tint: "rgba(255,255,255,.14)" });
+  ctx.save(); ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 1.6; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(W / 2 - 24, 700.5, 4.2, 0, TAU); ctx.stroke(); ctx.beginPath(); ctx.moveTo(W / 2 - 21, 703.5); ctx.lineTo(W / 2 - 18, 706.5); ctx.stroke(); ctx.restore();
+  text(ctx, "Search", W / 2 + 7, 705, sf(12, 500), "#FFFFFF", 1, "center");
+  frost(ctx, () => rr(ctx, 18, 741, W - 36, 96, 34), { blur: 26, tint: "rgba(255,255,255,.12)" });
+  DOCK_IOS.forEach((name, i) => glassIcon(ctx, name, 36 + i * 87, 759, 60));
   homeBar(ctx, W);
 }
 /** The notification that opens the chat. `k` is how far it has dropped. */
 function banner(ctx, W, k, press) {
   const y = lerp(-90, 56, k), x = 12, w = W - 24, h = 76;
   ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.scale(1 - .03 * press, 1 - .03 * press); ctx.translate(-(x + w / 2), -(y + h / 2));
-  ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
-  ctx.fillStyle = "rgba(36,36,40,.92)"; rr(ctx, x, y, w, h, 24); ctx.fill(); ctx.shadowColor = "transparent";
-  iosIcon(ctx, "WhatsApp", x + 14, y + 19, 38);
-  text(ctx, "Priya", x + 64, y + 32, sf(15, 600), "#FFFFFF"); text(ctx, "Deploy ho gaya?", x + 64, y + 53, sf(15, 400), "#E5E5EA");
-  text(ctx, "now", x + w - 16, y + 31, sf(13, 400), "#8E8E93", 1, "right");
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.35)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; ctx.fillStyle = "rgba(20,20,24,.35)"; rr(ctx, x, y, w, h, 24); ctx.fill(); ctx.restore();
+  frost(ctx, () => rr(ctx, x, y, w, h, 24), { blur: 28, tint: "rgba(60,60,70,.42)", dark: .18 });
+  glassIcon(ctx, "WhatsApp", x + 14, y + 19, 38);
+  text(ctx, "Priya", x + 64, y + 32, sf(15, 600), "#FFFFFF"); text(ctx, "Deploy ho gaya?", x + 64, y + 53, sf(15, 400), "#F2F2F7");
+  text(ctx, "now", x + w - 16, y + 31, sf(13, 400), "rgba(235,235,245,.6)", 1, "right");
   ctx.restore();
 }
 /** WhatsApp for iPhone, dark, a chat with Priya. Returns where things are. */
@@ -1969,7 +2010,8 @@ function iphoneBody(ctx, sx, sy, sw, sh, z) {
   const rim = ctx.createLinearGradient(x, y, x + w, y + h); rim.addColorStop(0, "#C2C2C6"); rim.addColorStop(.35, "#6A6A6E"); rim.addColorStop(.65, "#86868A"); rim.addColorStop(1, "#B0B0B4");
   ctx.fillStyle = rim; rr(ctx, x, y, w, h, r); ctx.fill(); ctx.restore();
   ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1; rr(ctx, x + .5, y + .5, w - 1, h - 1, r - .5); ctx.stroke();
-  ctx.fillStyle = "#030305"; rr(ctx, x + 3.5 * z, y + 3.5 * z, w - 7 * z, h - 7 * z, r - 3.5 * z); ctx.fill();
+  ctx.fillStyle = "#030305"; rr(ctx, x + 6 * z, y + 6 * z, w - 12 * z, h - 12 * z, r - 6 * z); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,.06)"; ctx.lineWidth = 1; rr(ctx, x + 6 * z + .5, y + 6 * z + .5, w - 12 * z - 1, h - 12 * z - 1, r - 6 * z); ctx.stroke();
   ctx.fillStyle = "#7C7C80"; rr(ctx, x - 3 * z, y + 150 * z, 3 * z, 26 * z, 1.5 * z); ctx.fill(); rr(ctx, x - 3 * z, y + 205 * z, 3 * z, 57 * z, 1.5 * z); ctx.fill(); rr(ctx, x - 3 * z, y + 275 * z, 3 * z, 57 * z, 1.5 * z); ctx.fill();
   rr(ctx, x + w, y + 232 * z, 3 * z, 104 * z, 1.5 * z); ctx.fill();
 }
