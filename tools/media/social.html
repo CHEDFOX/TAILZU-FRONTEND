@@ -1694,6 +1694,7 @@ function tzKeyboard(ctx, x0, top, W, o) {
   ctx.save(); ctx.beginPath(); ctx.arc(mcx, mcy, mic.w / 2, 0, TAU); ctx.clip();
   o.sim.draw(ctx, mic.x + KB.mic.inset, mic.y + KB.mic.inset, mic.w - 2 * KB.mic.inset, KB.mic.fg);
   ctx.restore(); ctx.restore();
+  tzKeyboard.lastMic = mic;
   return { mic, tone, keys };
 }
 
@@ -1787,6 +1788,7 @@ function waChat(ctx, W, H, t, o) {
     const bw = Math.max(lay.width, oneLine ? lastW + timeW + 14 : lastW) + 24, bh = lay.lines.length * 20 + 16 + (oneLine ? 0 : 14);
     y -= bh * k;
     const bx = out ? W - 12 - bw : 12;
+    if (out && k >= 1) waChat.lastOut = { x: bx, y, w: bw, h: bh };
     ctx.save(); ctx.globalAlpha *= clamp(k * 1.5); const sc = lerp(.85, 1, k);
     ctx.translate(out ? bx + bw : bx, y + bh); ctx.scale(sc, sc); ctx.translate(-(out ? bx + bw : bx), -(y + bh));
     ctx.fillStyle = out ? T.outBub : T.inBub; ctx.beginPath(); ctx.roundRect(bx, y, bw, bh, out ? [10, 2, 10, 10] : [2, 10, 10, 10]); ctx.fill();
@@ -1796,6 +1798,7 @@ function waChat(ctx, W, H, t, o) {
     ctx.restore();
     y -= 6 * k;
   }
+  waChat.lastField = { x: fx, y: by0 + 10, w: fw, h: fh };
   return { kbTop, by0, fieldBox: { x: fx, y: by0 + 10, w: fw, h: fh }, send: { x: W - 30, y: by0 + 10 + fh - 18 }, captionY: 100 + (by0 - 100) * .5 };
 }
 /** Words appearing one after another, as they are said or streamed. */
@@ -1903,7 +1906,7 @@ function phoneScene(ctx, w, h, t, Pn) {
       touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapMic, t); touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapStop, t);
     }
     touch(ctx, c.fieldBox.x + 140, c.fieldBox.y + c.fieldBox.h / 2, Pn.tapField, t); touch(ctx, c.send.x, c.send.y, Pn.tapSend, t);
-    caption(ctx, Pn.said, Pn.W / 2, c.captionY, Pn.W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
+    if (!Pn.captionBelow) caption(ctx, Pn.said, Pn.W / 2, c.captionY, Pn.W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
     ctx.restore();
   }
   iosStatusBar(ctx, Pn.W, Pn.time, seg(t, Pn.rec, Pn.rec + .3) * (1 - seg(t, Pn.land, Pn.land + .3)));
@@ -2483,13 +2486,13 @@ function mixPose(a, b, k) {
   return { ra: [m(a.ra[0], b.ra[0]), m(a.ra[1], b.ra[1])], la: [m(a.la[0], b.la[0]), m(a.la[1], b.la[1])], rh: pick(a.rh, b.rh), lh: pick(a.lh, b.lh), mouth: pick(a.mouth, b.mouth), brows: m(a.brows, b.brows), tilt: m(a.tilt, b.tilt) };
 }
 /** One arm: the sleeve, then the hand it ends in. */
-function arm(g, H, sx, sy, s, a1, a2, hand, hipX, hipY) {
+function arm(g, H, sx, sy, s, a1, a2, hand, hipX, hipY, tone = .4, hi = .56) {
   const L1 = .2 * H, L2 = .18 * H, ex = sx + s * Math.sin(a1) * L1, ey = sy + Math.cos(a1) * L1;
   const a = a1 + a2, hx = ex + s * Math.sin(a) * L2, hy = ey + Math.cos(a) * L2;
   const fx = hand === "hip" ? hipX : hx, fy = hand === "hip" ? hipY : hy;
   g.lineCap = "round"; g.lineJoin = "round";
-  g.strokeStyle = grey(.4); g.lineWidth = .085 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.lineTo(fx, fy); g.stroke();
-  g.strokeStyle = grey(.56); g.lineWidth = .028 * H; g.beginPath(); g.moveTo(sx - s * .012 * H, sy - .02 * H); g.lineTo(ex - s * .012 * H, ey - .02 * H); g.stroke();
+  g.strokeStyle = grey(tone); g.lineWidth = .085 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.lineTo(fx, fy); g.stroke();
+  g.strokeStyle = grey(hi); g.lineWidth = .028 * H; g.beginPath(); g.moveTo(sx - s * .012 * H, sy - .02 * H); g.lineTo(ex - s * .012 * H, ey - .02 * H); g.stroke();
   // The hand: a mitt, a pointing finger, a thumb, or tucked at the hip.
   const dx = s * Math.sin(a), dy = Math.cos(a), px = fx + dx * .035 * H, py = fy + dy * .035 * H;
   g.fillStyle = grey(.84); g.beginPath(); g.arc(px, py, .052 * H, 0, TAU); g.fill();
@@ -2545,7 +2548,7 @@ function drawFigure(g, W, H, p, t) {
 const PRES = { dot: 3, buf: null, out: null };
 /** The figure, `H` tall, its feet at (cx, bottom), in the pose `name`
  *  reached `k` of the way from standing, at a time `t` for its idling. */
-function presenter(ctx, cx, bottom, H, name, k, t, alpha) {
+function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit") {
   const W = Math.round(H * .84), d = PRES.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
   if (!PRES.buf || PRES.buf.width !== bw || PRES.buf.height !== bh) { PRES.buf = document.createElement("canvas"); PRES.buf.width = bw; PRES.buf.height = bh; PRES.out = document.createElement("canvas"); PRES.out.width = bw; PRES.out.height = bh; }
   const g = PRES.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
@@ -2555,7 +2558,7 @@ function presenter(ctx, cx, bottom, H, name, k, t, alpha) {
   if (name === "tap" && held > .5 && held < 1.5) p.ra[1] += .22 * Math.sin((held - .5) * TAU * 2.2);
   if (name === "tada") { const b = .06 * Math.sin(t * TAU * 1.3); p.ra[0] += b; p.la[0] += b; }
   if (name === "present") p.ra[0] += .03 * Math.sin(t * TAU * .9);
-  drawFigure(g, W, H, p, t);
+  (who === "hoodie" ? drawFigureHoodie : drawFigure)(g, W, H, p, t);
   const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PRES.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
@@ -2579,7 +2582,7 @@ function measureAnnotation(ctx, f, w) {
  * as it appears. `fr` is the ring (frame coords, with its pad), `up` says
  * the words go above the ring, `top` where the block starts.
  */
-function annotate(ctx, w, h, f, idx, count, A, fr, up, top, held, hold) {
+function annotate(ctx, w, h, f, idx, count, A, fr, up, top, held, hold, who) {
   const { x0, T, B, blockH } = A, pale = P.pale;
   const fadeIn = E.out(seg(held, 0, .4)), fadeOut = 1 - E.in(seg(held, hold - .3, hold)), rise = (1 - fadeIn) * 16;
   // The thread: from the ring's edge, round the corner, to the words.
@@ -2601,7 +2604,7 @@ function annotate(ctx, w, h, f, idx, count, A, fr, up, top, held, hold) {
   ctx.globalAlpha *= E.out(seg(held, .25, .65));
   B.lines.forEach((ln, i) => text(ctx, ln, x0, y + i * 42, B.font, rgba(pale, .72)));
   ctx.restore();
-  if (f.pose) presenter(ctx, w - PRESENTER.right - PRESENTER.H * .84 / 2, Math.min(h - 56, top + blockH + 40 + (PRESENTER.H - blockH) / 2), PRESENTER.H, f.pose, seg(held, .05, .6), held, fadeIn * fadeOut);
+  if (f.pose) presenter(ctx, w - PRESENTER.right - PRESENTER.H * .84 / 2, Math.min(h - 56, top + blockH + 40 + (PRESENTER.H - blockH) / 2), PRESENTER.H, f.pose, seg(held, .05, .6), held, fadeIn * fadeOut, who);
 }
 let lessonBuf = null, LESSON_HOLD = false;
 function lessonDraw(ctx, w, h, T, L, sceneFn) {
@@ -2634,7 +2637,7 @@ function lessonDraw(ctx, w, h, T, L, sceneFn) {
   const bandTop = up ? 0 : Math.min(h, recBot), bandBot = up ? Math.max(0, recTop) : h;
   const top = Math.max(72, Math.min(h - A.blockH - 60, (bandTop + bandBot) / 2 - A.blockH / 2));
   const ring = fr ? { x: fr.x - pad, y: fr.y - pad, w: fr.w + pad * 2, h: fr.h + pad * 2 } : null;
-  annotate(ctx, w, h, f, L.freezes.indexOf(f), L.freezes.length, A, ring, up, top, held, f.hold);
+  annotate(ctx, w, h, f, L.freezes.indexOf(f), L.freezes.length, A, ring, up, top, held, f.hold, f.who || L.who);
 }
 /** A film of one scene with its lessons; `cuesFn` lists the sounds, in scene time. */
 function lessonFilm(D, L, sceneFn, cuesFn) {
@@ -2872,6 +2875,95 @@ const LESSON_NOTES = { freezes: [
   { at: DESK_NOTES.appOpen + 1.3, hold: 3.2, pose: "tada", tag: "The note", title: "What mattered, *in their words*.", body: "Each highlight is one person's point, worded the clearest way they could have said it.", focus: () => DESK_NOTES.hlRect },
 ] };
 FILMS.lessonNotes = lessonFilm(DESK_NOTES, LESSON_NOTES, notesScene, notesCues);
+// ---- a second presenter: a bob, round glasses, a hoodie, sneakers ------------------------
+function drawFigureHoodie(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .75) * .006 * H, hy = .24 * H + bob, R = .155 * H;
+  // Jeans and sneakers.
+  [-1, 1].forEach((s) => {
+    const lx = cx + s * .085 * H; const lg = g.createLinearGradient(lx - .065 * H, 0, lx + .065 * H, 0); lg.addColorStop(0, grey(.4)); lg.addColorStop(1, grey(.26));
+    g.fillStyle = lg; rr(g, lx - .065 * H, .7 * H, .13 * H, .26 * H, .03 * H); g.fill();
+    g.fillStyle = grey(.9); g.beginPath(); g.ellipse(lx + s * .012 * H, .965 * H, .085 * H, .032 * H, 0, 0, TAU); g.fill();
+    g.fillStyle = grey(.2); g.beginPath(); g.ellipse(lx + s * .012 * H, .982 * H, .085 * H, .014 * H, 0, 0, TAU); g.fill();
+  });
+  // The hoodie: its body, its pocket, its hood at the neck, its strings.
+  const jg = g.createLinearGradient(cx - .2 * H, 0, cx + .2 * H, 0); jg.addColorStop(0, grey(.7)); jg.addColorStop(.5, grey(.58)); jg.addColorStop(1, grey(.44));
+  g.fillStyle = jg; g.beginPath(); g.moveTo(cx - .2 * H, .45 * H + bob); g.quadraticCurveTo(cx - .21 * H, .42 * H + bob, cx - .16 * H, .42 * H + bob); g.lineTo(cx + .16 * H, .42 * H + bob); g.quadraticCurveTo(cx + .21 * H, .42 * H + bob, cx + .2 * H, .45 * H + bob); g.lineTo(cx + .18 * H, .74 * H); g.lineTo(cx - .18 * H, .74 * H); g.closePath(); g.fill();
+  g.fillStyle = grey(.5); rr(g, cx - .13 * H, .6 * H + bob, .26 * H, .11 * H, .02 * H); g.fill(); g.fillStyle = grey(.66); g.fillRect(cx - .13 * H, .6 * H + bob, .26 * H, .012 * H);
+  g.strokeStyle = grey(.5); g.lineWidth = .05 * H; g.lineCap = "round"; g.beginPath(); g.arc(cx, .4 * H + bob, .12 * H, Math.PI * .1, Math.PI * .9); g.stroke();
+  g.strokeStyle = grey(.92); g.lineWidth = .012 * H; [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(cx + s * .045 * H, .47 * H + bob); g.lineTo(cx + s * .05 * H, .56 * H + bob); g.stroke(); });
+  arm(g, H, cx + .18 * H, .46 * H + bob, 1, p.ra[0], p.ra[1], p.rh, cx + .2 * H, .68 * H, .58, .72);
+  arm(g, H, cx - .18 * H, .46 * H + bob, -1, p.la[0], p.la[1], p.lh, cx - .2 * H, .68 * H, .58, .72);
+  // The head, the hair, the glasses, the face.
+  g.save(); g.translate(cx, .42 * H + bob); g.rotate(p.tilt); g.translate(-cx, -(.42 * H + bob));
+  g.fillStyle = grey(.78); [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * .15 * H, hy + .01 * H, .03 * H, 0, TAU); g.fill(); });
+  g.strokeStyle = grey(.9); g.lineWidth = .008 * H; [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * .152 * H, hy + .045 * H, .012 * H, 0, TAU); g.stroke(); });
+  const sg = g.createRadialGradient(cx - .05 * H, hy - .06 * H, 0, cx, hy, R * 1.25); sg.addColorStop(0, grey(.95)); sg.addColorStop(.6, grey(.8)); sg.addColorStop(1, grey(.5));
+  g.fillStyle = sg; g.beginPath(); g.arc(cx, hy, R, 0, TAU); g.fill();
+  const hg = g.createRadialGradient(cx - .07 * H, hy - .15 * H, 0, cx, hy - .02 * H, R * 1.3); hg.addColorStop(0, grey(.42)); hg.addColorStop(.5, grey(.26)); hg.addColorStop(1, grey(.14));
+  g.fillStyle = hg;
+  g.beginPath(); g.arc(cx, hy - .005 * H, R * 1.12, Math.PI, TAU); g.lineTo(cx + R * 1.12, hy + .09 * H); g.quadraticCurveTo(cx + R * 1.12, hy + .13 * H, cx + R * .95, hy + .13 * H); g.lineTo(cx + R * .95, hy + .02 * H); g.quadraticCurveTo(cx + R * .9, hy - .07 * H, cx + R * .45, hy - .085 * H); g.lineTo(cx - R * .7, hy - .06 * H); g.quadraticCurveTo(cx - R * .95, hy - .03 * H, cx - R * .95, hy + .02 * H); g.lineTo(cx - R * .95, hy + .13 * H); g.quadraticCurveTo(cx - R * 1.12, hy + .13 * H, cx - R * 1.12, hy + .09 * H); g.closePath(); g.fill();
+  const blink = ((t * 1000 + 1100) % 3100) < 110;
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * .06 * H, ey = hy + .008 * H;
+    g.fillStyle = grey(.98); g.beginPath(); g.ellipse(ex, ey, .032 * H, blink ? .004 * H : .038 * H, 0, 0, TAU); g.fill();
+    if (!blink) { g.fillStyle = grey(.08); g.beginPath(); g.arc(ex + s * .003 * H, ey + .006 * H, .015 * H, 0, TAU); g.fill(); g.fillStyle = grey(.95); g.beginPath(); g.arc(ex - .004 * H, ey - .002 * H, .005 * H, 0, TAU); g.fill(); }
+    g.strokeStyle = grey(.92); g.lineWidth = .011 * H; g.beginPath(); g.arc(ex, ey, .05 * H, 0, TAU); g.stroke();
+    g.strokeStyle = grey(.15); g.lineWidth = .015 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey - .035 * H - p.brows * .02 * H, .038 * H, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+  });
+  g.strokeStyle = grey(.92); g.lineWidth = .011 * H; g.beginPath(); g.moveTo(cx - .01 * H, hy + .004 * H); g.lineTo(cx + .01 * H, hy + .004 * H); g.stroke();
+  g.strokeStyle = grey(.6); g.lineWidth = .012 * H; g.beginPath(); g.arc(cx + .012 * H, hy + .05 * H, .016 * H, Math.PI * .1, Math.PI * .9); g.stroke();
+  const my = hy + .088 * H;
+  if (p.mouth === "smile") { g.strokeStyle = grey(.12); g.lineWidth = .016 * H; g.beginPath(); g.arc(cx, my - .02 * H, .05 * H, Math.PI * .18, Math.PI * .82); g.stroke(); }
+  else if (p.mouth === "grin") { g.fillStyle = grey(.1); g.beginPath(); g.ellipse(cx, my, .065 * H, .042 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.96); g.beginPath(); g.rect(cx - .054 * H, my, .108 * H, .015 * H); g.fill(); g.fillStyle = grey(.35); g.beginPath(); g.ellipse(cx, my + .034 * H, .032 * H, .011 * H, 0, 0, TAU); g.fill(); }
+  else { g.fillStyle = grey(.1); g.beginPath(); g.ellipse(cx, my, .026 * H, .034 * H, 0, 0, TAU); g.fill(); }
+  g.restore();
+}
+
+// ---- the iPhone: the real recording inside the phone, the lesson under it ----------------
+/** The phone's body around a screen at (sx, sy) of sw×sh: titanium, the black
+ *  bezel, the buttons on its sides. */
+function iphoneBody(ctx, sx, sy, sw, sh) {
+  const o = 22, r = sw * .135;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 60; ctx.shadowOffsetY = 20;
+  const tg = ctx.createLinearGradient(sx - o, sy - o, sx + sw + o, sy + sh + o); tg.addColorStop(0, "#9A9A9E"); tg.addColorStop(.5, "#5E5E62"); tg.addColorStop(1, "#8A8A8E");
+  ctx.fillStyle = tg; rr(ctx, sx - o, sy - o, sw + 2 * o, sh + 2 * o, r); ctx.fill(); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 1.5; rr(ctx, sx - o + .75, sy - o + .75, sw + 2 * o - 1.5, sh + 2 * o - 1.5, r - .75); ctx.stroke();
+  ctx.fillStyle = "#0A0A0C"; rr(ctx, sx - o + 7, sy - o + 7, sw + 2 * o - 14, sh + 2 * o - 14, r - 7); ctx.fill();
+  // Buttons: action and volume on the left, power on the right.
+  ctx.fillStyle = "#6E6E72"; rr(ctx, sx - o - 4, sy + sh * .16, 4, 28, 2); ctx.fill(); rr(ctx, sx - o - 4, sy + sh * .23, 4, 58, 2); ctx.fill(); rr(ctx, sx - o - 4, sy + sh * .30, 4, 58, 2); ctx.fill();
+  rr(ctx, sx + sw + o, sy + sh * .22, 4, 92, 2); ctx.fill();
+}
+let phoneBuf = null;
+function phoneLessonScene(ctx, w, h, t, Pn) {
+  const PW = 1080, PH = 1920;
+  if (!phoneBuf) { phoneBuf = document.createElement("canvas"); phoneBuf.width = PW; phoneBuf.height = PH; }
+  const g = phoneBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, PW, PH);
+  phoneScene(g, PW, PH, t, Pn);
+  const z = Pn.device.z, sw = Pn.W * z, sh = Pn.H * z, sx = w / 2 - sw / 2, sy = Pn.device.top;
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  iphoneBody(ctx, sx, sy, sw, sh);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, sw * .115); ctx.clip(); ctx.drawImage(phoneBuf, sx, sy, sw, sh); ctx.restore();
+  if (!LESSON_HOLD) caption(ctx, Pn.said, w / 2, sy + sh + 150, w - 80, Pn.capFrom, Pn.capTo, t, 40, Pn.tapStop + .4);
+  return { rx: sx, ry: sy, rw: sw, rh: sh, z };
+}
+/** The sounds of a dictation on the phone. */
+function phoneCues(Pn) {
+  return [
+    { at: Pn.banner, kind: "notify" }, { at: Pn.tap, kind: "click" }, { at: Pn.open, kind: "open" }, { at: Pn.tapField, kind: "click" },
+    { at: Pn.tapMic, kind: "key" }, { at: Pn.rec, kind: "listen" }, { at: Pn.tapStop, kind: "key" }, { at: Pn.stop, kind: "stop" },
+    { at: Pn.land, kind: "land" }, { at: Pn.tapSend, kind: "click" }, { at: Pn.sent, kind: "send" }, { at: Pn.reply, kind: "notify" },
+  ];
+}
+const PHONE_WA_LESSON = Object.assign({}, PHONE_WA, { captionBelow: true, device: { z: 1.72, top: 64 } });
+const kbRect = [0, PHONE_WA.H - 34 - KB.height, PHONE_WA.W, KB.height + 34];
+const LESSON_PHONE = { who: "hoodie", freezes: [
+  { at: PHONE_WA.tapField + .55, hold: 2.8, pose: "present", tag: "The keyboard", title: "Your keyboard, in *every* app.", body: "Tailzu is a keyboard. WhatsApp, Mail, Notes, Instagram: wherever you type, you can talk.", focus: kbRect },
+  { at: PHONE_WA.rec + 1.3, hold: 2.8, pose: "tap", tag: "The mic", title: "Tap the mic. *Just talk*.", body: "Hinglish, English, whatever comes out. It listens until you tap again.", focus: () => { const m = tzKeyboard.lastMic; return m ? [m.x - 2, m.y - 2, 46, 46] : kbRect; } },
+  { at: PHONE_WA.land + .45, hold: 2.8, pose: "tada", tag: "The landing", title: "Clean, and still *yours*.", body: "The ums go, the Hinglish stays. Punctuation in, meaning untouched.", focus: () => { const f = waChat.lastField; return f ? [f.x - 4, f.y - 4, f.w + 8, f.h + 8] : kbRect; } },
+  { at: PHONE_WA.sent + .8, hold: 2.8, pose: "thumbs", tag: "The send", title: "Then send, *like always*.", body: "No app switch, no copy and paste. Said, landed, sent.", focus: () => { const b = waChat.lastOut; return b ? [b.x - 4, b.y - 4, b.w + 8, b.h + 8] : kbRect; } },
+] };
+FILMS.lessonPhone = lessonFilm(PHONE_WA_LESSON, LESSON_PHONE, phoneLessonScene, phoneCues);
+
 
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
