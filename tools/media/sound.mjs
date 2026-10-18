@@ -30,6 +30,34 @@ const KINDS = {
   send(b, at, g) { mixInto(b, at, whoosh(SR, .24, true), .3 * g); mixInto(b, at + .17, tone(SR, 1760, .12, .001, .02), .14 * g); },
   notify(b, at, g) { mixInto(b, at, tone(SR, 1318.5, .5, .004, .16), .2 * g); mixInto(b, at + .09, tone(SR, 1760, .6, .004, .22), .18 * g); },
   freeze(b, at, g) { mixInto(b, at, tone(SR, 110, .3, .002, .12, .55), .55 * g); mixInto(b, at, noise(SR, .01, .3, .0003, .003), .14 * g); mixInto(b, at, tone(SR, 2400, .03, .0005, .006), .1 * g); },
+  /** The keyboard writing: a soft shimmer rising, between the stop and the landing. */
+  write(b, at, g) { mixInto(b, at, tone(SR, 440, .55, .06, .2, 2), .11 * g); mixInto(b, at + .14, tone(SR, 659.25, .5, .06, .2, 1.5), .09 * g); },
+  /** A recording from a file (voice/…): 16-bit PCM WAV, mono, resampled to 48 kHz if it is not. */
+  sample(b, at, g, dur, c) {
+    const wav = fs.readFileSync(new URL(c.file, import.meta.url));
+    let p = 12, rate = SR, ch = 1, bits = 16, data = null;
+    while (p + 8 <= wav.length) { const id = wav.toString("ascii", p, p + 4), n = wav.readUInt32LE(p + 4); if (id === "fmt ") { ch = wav.readUInt16LE(p + 10); rate = wav.readUInt32LE(p + 12); bits = wav.readUInt16LE(p + 22); } else if (id === "data") { data = wav.subarray(p + 8, p + 8 + n); break; } p += 8 + n + (n & 1); }
+    if (!data || bits !== 16) throw new Error(`${c.file}: expected 16-bit PCM WAV`);
+    const frames = data.length / 2 / ch, mono = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) { let v = 0; for (let k = 0; k < ch; k++) v += data.readInt16LE((i * ch + k) * 2); mono[i] = v / ch / 32768; }
+    const n = Math.ceil(frames * SR / rate), s = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = i * rate / SR, j = Math.floor(x), f = x - j; s[i] = mono[j] * (1 - f) + (mono[j + 1] ?? mono[j]) * f; }
+    mixInto(b, at, s, g);
+  },
+  /** Where she is: a metro platform heard by a phone's mic, from the mic opening to its closing. Rumble under a crowd's murmur, faded in and out. */
+  metro(b, at, g, dur) {
+    const n = Math.ceil(dur * SR), i0 = Math.round(at * SR); let lo = 0, mid = 0, mid2 = 0, br = 0;
+    const p1 = rnd() * 3, p2 = rnd() * 3, p3 = rnd() * 3;
+    for (let i = 0; i < n; i++) {
+      const t = i / SR, fade = Math.min(1, t / .5, (dur - t) / .6); if (fade <= 0) continue;
+      const w = rnd();
+      br = .995 * br + .02 * w; lo += .012 * (br - lo);                              // the rumble: brown noise, low
+      mid += .22 * (w - mid); mid2 += .04 * (mid - mid2);                             // the murmur: a band of hiss
+      const rumble = lo * (1 + .5 * Math.sin(TAU * .07 * t + p1)) * 1.4;
+      const crowd = (mid - mid2) * (.55 + .25 * Math.sin(TAU * .31 * t + p2) + .2 * Math.sin(TAU * .9 * t + p3));
+      const j = i0 + i; if (j >= 0 && j < b.length) b[j] += (rumble * .9 + crowd * .5) * .055 * fade * g;
+    }
+  },
   resume(b, at, g) { mixInto(b, at, noise(SR, .02, .6, .0005, .005), .28 * g); mixInto(b, at, tone(SR, 900, .05, .001, .02), .14 * g); },
   bed(b, at, g, dur) {
     // Five voices of a chord, each three slightly detuned sines, breathing slowly.
@@ -45,7 +73,7 @@ const KINDS = {
 
 export function render(cues, seconds) {
   const b = new Float32Array(Math.ceil(seconds * SR));
-  for (const c of cues) { const k = KINDS[c.kind]; if (!k) continue; k(b, c.at, c.gain ?? 1, c.dur ?? 0); }
+  for (const c of cues) { const k = KINDS[c.kind]; if (!k) continue; k(b, c.at, c.gain ?? 1, c.dur ?? 0, c); }
   let peak = 0; for (const v of b) peak = Math.max(peak, Math.abs(v));
   const g = peak > .85 ? .85 / peak : 1;
   const out = Buffer.alloc(44 + b.length * 2);

@@ -31,6 +31,7 @@
 </head>
 <body>
 <script src="pill/meta.js"></script>
+<script src="voice/to-him.js"></script>
 <script>
 (function () {
 "use strict";
@@ -1862,13 +1863,13 @@ function homeScreen(ctx, W, H, t) {
 /** The notification that opens the chat, as iOS 26 shows one: dark glass, 16 in
  *  from each side, the app's icon at the left, the sender in bold, the line
  *  under it, "now" at the top right. `k` is how far it has dropped. */
-function banner(ctx, W, k, press) {
+function banner(ctx, W, k, press, n = { name: "Priya", text: "Deploy ho gaya?" }) {
   const y = lerp(-96, 59, k), x = 16, w = W - 32, h = 76;
   ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.scale(1 - .03 * press, 1 - .03 * press); ctx.translate(-(x + w / 2), -(y + h / 2));
   ctx.save(); ctx.shadowColor = "rgba(0,0,0,.28)"; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10; ctx.fillStyle = "rgba(30,30,36,.3)"; rr(ctx, x, y, w, h, 24); ctx.fill(); ctx.restore();
   frost(ctx, () => rr(ctx, x, y, w, h, 24), { blur: 30, tint: "rgba(44,44,52,.5)", dark: .22, edge: "rgba(255,255,255,.2)" });
   glassIcon(ctx, "WhatsApp", x + 14, y + 19, 38);
-  text(ctx, "Priya", x + 64, y + 30, sf(15, 600), "#FFFFFF"); text(ctx, "Deploy ho gaya?", x + 64, y + 51, sf(15, 400), "rgba(255,255,255,.92)");
+  text(ctx, n.name, x + 64, y + 30, sf(15, 600), "#FFFFFF"); text(ctx, n.text, x + 64, y + 51, sf(15, 400), "rgba(255,255,255,.92)");
   text(ctx, "now", x + w - 16, y + 29, sf(13, 400), "rgba(255,255,255,.6)", 1, "right");
   ctx.restore();
 }
@@ -1883,8 +1884,9 @@ function waChat(ctx, W, H, t, o) {
   // The navigation bar: back with the unread count, the avatar, the name and "online", the glass call button.
   ctx.fillStyle = T.bar; ctx.fillRect(0, 0, W, nav); ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fillRect(0, nav, W, .5);
   ctx.save(); ctx.strokeStyle = "#1C1C1E"; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath(); ctx.moveTo(20, 67); ctx.lineTo(11, 76); ctx.lineTo(20, 85); ctx.stroke(); ctx.restore(); text(ctx, "4", 27, 81, sf(15, 400), "#1C1C1E");
-  ctx.fillStyle = "#6A4C9C"; ctx.beginPath(); ctx.arc(60, 76, 18, 0, TAU); ctx.fill(); text(ctx, "P", 60, 82.5, sf(17, 600), "#FFFFFF", 1, "center");
-  text(ctx, "Priya", 88, 73, sf(17, 600), T.text); text(ctx, o.typing ? "typing…" : "online", 88, 91, sf(12.5, 400), T.sub);
+  const C = o.contact || { name: "Priya", initial: "P", color: "#6A4C9C" };
+  ctx.fillStyle = C.color; ctx.beginPath(); ctx.arc(60, 76, 18, 0, TAU); ctx.fill(); text(ctx, C.initial, 60, 82.5, sf(17, 600), "#FFFFFF", 1, "center");
+  text(ctx, C.name, 88, 73, sf(17, 600), T.text); text(ctx, o.typing ? "typing…" : "online", 88, 91, sf(12.5, 400), T.sub);
   ctx.fillStyle = "rgba(0,0,0,.06)"; rr(ctx, W - 66, 60, 54, 32, 16); ctx.fill(); ctx.strokeStyle = "rgba(0,0,0,.1)"; ctx.lineWidth = 1; rr(ctx, W - 65.5, 60.5, 53, 31, 15.5); ctx.stroke();
   ctx.save(); ctx.strokeStyle = "#1C1C1E"; ctx.lineWidth = 1.8; ctx.lineJoin = "round"; ctx.lineCap = "round";
   rr(ctx, W - 56, 70, 15, 12, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(W - 41, 73); ctx.lineTo(W - 34, 69); ctx.lineTo(W - 34, 83); ctx.lineTo(W - 41, 79); ctx.closePath(); ctx.stroke();
@@ -2022,7 +2024,7 @@ function phoneScene(ctx, w, h, t, Pn) {
   const opened = seg(t, Pn.open, Pn.open + .32), icon = Pn.appIcon ? homeIconAt(HOME_APPS.indexOf(Pn.appIcon)) : null;
   if (opened < 1) {
     homeScreen(ctx, W, H, t);
-    if (Pn.way === "banner") { banner(ctx, W, E.out(seg(t, Pn.banner, Pn.banner + .5)), seg(t, Pn.tap, Pn.tap + .12) * (1 - seg(t, Pn.tap + .12, Pn.tap + .3))); touch(ctx, 196, 97, Pn.tap, t); }
+    if (Pn.way === "banner") { banner(ctx, W, E.out(seg(t, Pn.banner, Pn.banner + .5)), seg(t, Pn.tap, Pn.tap + .12) * (1 - seg(t, Pn.tap + .12, Pn.tap + .3)), Pn.notif); touch(ctx, 196, 97, Pn.tap, t); }
     else touch(ctx, icon[0], icon[1], Pn.tap, t);
   }
   if (opened > 0) {
@@ -2031,7 +2033,7 @@ function phoneScene(ctx, w, h, t, Pn) {
     ctx.translate(ox, oy); ctx.scale(sc, sc); ctx.translate(-ox, -oy);
     const kbUp = E.out(seg(t, Pn.tapField, Pn.tapField + .35)) * (Pn.kbDown ? 1 - E.io(seg(t, Pn.kbDown, Pn.kbDown + .32)) : 1);
     const landed = t >= Pn.land && t < Pn.sent;
-    const c = Pn.app(ctx, W, H, t, { kbUp, caret: kbUp >= 1 && !landed, fieldText: landed ? Pn.wrote : "", fieldLines: landed ? Pn.lines : 1, typing: Pn.typing != null && t > Pn.typing && t < Pn.reply, msgs: Pn.msgs });
+    const c = Pn.app(ctx, W, H, t, { kbUp, caret: kbUp >= 1 && !landed, fieldText: landed ? Pn.wrote : "", fieldLines: landed ? Pn.lines : 1, typing: Pn.typing != null && t > Pn.typing && t < Pn.reply, msgs: Pn.msgs, contact: Pn.contact });
     Pn.micAt(t);
     if (kbUp > 0) {
       ctx.save(); ctx.beginPath(); ctx.rect(0, c.kbTop, W, H - c.kbTop); ctx.clip();
@@ -2075,7 +2077,11 @@ function phoneFrame(ctx, w, h, t, Pn, dev) {
 function phonePart(ctx, w, h, t, Pn) {
   ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
   const cam = phoneFrame(ctx, w, h, t, Pn, Pn.device);
-  if (!LESSON_HOLD) caption(ctx, Pn.said, w / 2, cam.ry + cam.rh + IPHONE.bezel * cam.z + 110, w - 80, Pn.capFrom, Pn.capTo, t, 40, Pn.tapStop + .4);
+  if (!LESSON_HOLD) {
+    const cy = cam.ry + cam.rh + IPHONE.bezel * cam.z + 110;
+    if (Pn.wordAt) captionSpoken(ctx, Pn, w / 2, cy, w - 80, t, 40, Pn.tapStop + .4);
+    else caption(ctx, Pn.said, w / 2, cy, w - 80, Pn.capFrom, Pn.capTo, t, 40, Pn.tapStop + .4);
+  }
   return cam;
 }
 
@@ -3103,6 +3109,87 @@ const LESSON_PHONE = { who: "hoodie", freezes: [
   { at: PHONE_WA.sent + .8, hold: 2.8, pose: "thumbs", tag: "The send", title: "Then send, *like always*.", body: "No app switch, no copy and paste. Said, landed, sent.", focus: () => { const b = waChat.lastOut; return b ? [b.x - 4, b.y - 4, b.w + 8, b.h + 8] : kbRect; } },
 ] };
 FILMS.lessonPhone = lessonFilm(PHONE_WA_LESSON, LESSON_PHONE, phonePart, phoneCues);
+
+// ---- TO HIM: a message dictated with its instructions, written sweet ----------------
+/**
+ * The caption of a dictation on the voice's own clock: each word appears
+ * when it is said (Pn.wordAt, seconds from Pn.voice), the words addressed
+ * to the keyboard (Pn.instr, [from, to) ranges of word indices) in amber.
+ * Two lines at most, the latest.
+ */
+function captionSpoken(ctx, Pn, x, y, maxW, t, size, after) {
+  if (t < Pn.voice || t > after) return;
+  const words = Pn.said.split(" "), isInstr = (i) => (Pn.instr || []).some(([a, b]) => i >= a && i < b);
+  let n = 0; while (n < words.length && Pn.voice + Pn.wordAt[n] <= t) n++; n = Math.max(1, n);
+  const font = sf(size, 500), lh = size * 1.3; ctx.save(); ctx.font = font;
+  const sp = ctx.measureText(" ").width, wd = words.map((w) => ctx.measureText(w).width), lines = [[]]; let lw = 0;
+  for (let i = 0; i < n; i++) { const add = (lw ? sp : 0) + wd[i]; if (lw + add > maxW - size * 1.2 && lines[lines.length - 1].length) { lines.push([i]); lw = wd[i]; } else { lines[lines.length - 1].push(i); lw += add; } }
+  const show = lines.slice(-2), widths = show.map((ln) => ln.reduce((a, i) => a + wd[i], 0) + sp * (ln.length - 1));
+  const tw = Math.max(...widths) + size * 1.2, th = show.length * lh + size * .3;
+  ctx.globalAlpha *= 1 - seg(t, after - .2, after);
+  ctx.fillStyle = "rgba(0,0,0,.6)"; rr(ctx, x - tw / 2, y - size * 1.05, tw, th, size * .4); ctx.fill();
+  show.forEach((ln, li) => { let cx = x - widths[li] / 2; ln.forEach((i) => { const k = i === n - 1 ? E.out(seg(t, Pn.voice + Pn.wordAt[i], Pn.voice + Pn.wordAt[i] + .18)) : 1; text(ctx, words[i], cx, y + size * .08 + li * lh, font, isInstr(i) ? P.amber : "#FFFFFF", .35 + .65 * k); cx += wd[i] + sp; }); });
+  ctx.restore();
+}
+/**
+ * Running late for him. She tells the keyboard what to say and how ("make
+ * it sweet, not like I'm annoyed, and add a heart"); the message that lands
+ * is the message, written the way she asked. Then the card: the keyboard
+ * that understands. The voice is a real line (voice/to-him.wav); the words
+ * are on its clock, so the silent and the spoken variants are one film.
+ */
+/** The read of her line: when each word is said and when the last one ends (voice/to-him.js, written by voice/say.py). */
+const VOICE_HIM = (window.TZ_VOICE && window.TZ_VOICE["to-him"]) || { words: [.10, .36, 1.20, 1.81, 2.06, 2.38, 2.61, 2.75, 3.02, 3.42, 3.85, 4.39, 4.90, 5.08, 5.69, 5.95, 6.26, 6.46, 6.65, 7.01, 7.11, 7.50, 7.79, 7.96, 8.49, 8.78, 8.90, 9.55, 9.94, 10.21, 10.47, 11.20, 11.50, 11.68, 11.75], end: 12.3 };
+const PHONE_HIM = (() => {
+  const r = (v) => Math.round(v * 100) / 100, voice = 3.6, said = r(voice + VOICE_HIM.end), tapStop = r(said + .5), stop = r(tapStop + .1), land = r(stop + 1.1), tapSend = r(land + 1), sent = r(tapSend + .15), reply = r(sent + 1.65), end = r(reply + 1.2);
+  return {
+    time: "9:41", way: "banner", light: true, captionBelow: true, device: { z: 1.82, top: 126 },
+    contact: { name: "Kabir ❤️", initial: "K", color: "#D96C4F" }, notif: { name: "Kabir ❤️", text: "Pahunch gaya 🙂 nikal gayi?" },
+    banner: .4, tap: 1.35, open: 1.5, tapField: 2.45, tapMic: 3.1, rec: 3.2, voice, capFrom: voice, capTo: said,
+    tapStop, stop, write: r(stop + .35), land, tapSend, sent, typing: r(sent + .75), reply, end, card: 4.8,
+    said: "hey Tailzu, umm, tell him I'll be like... twenty minutes late, metro is packed, and ask him to order the paneer thing for me, make it sweet, not like I'm annoyed, and add a heart",
+    instr: [[0, 2], [24, 35]], wordAt: VOICE_HIM.words,
+    wrote: "Babe, I'm running 20 min late, metro is packed 😩 Order the paneer thing for me? Can't wait to see you ❤️", lines: 4,
+    app: waChat,
+  };
+})();
+PHONE_HIM.msgs = [
+  { from: "in", text: "Booked the table for 10 🙂", time: "9:12 PM", at: 0 },
+  { from: "out", text: "Yesss 😍 nikal rahi hoon", time: "9:13 PM", at: 0 },
+  { from: "in", text: "Pahunch gaya 🙂 nikal gayi?", time: "9:40 PM", at: 0 },
+  { from: "out", text: PHONE_HIM.wrote, time: "9:41 PM", at: PHONE_HIM.sent },
+  { from: "in", text: "Done 😄 paneer ordered. Aaram se aao ❤️", time: "9:41 PM", at: PHONE_HIM.reply },
+];
+/** The card: the words at the left, her at the right, presenting them; the address under. */
+function understandsCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · the AI keyboard", x0, 520, 22, P.pale, E.out(seg(t, .15, .7)) * .5);
+  arrive(ctx, "A keyboard that", x0, 650, f(108, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "understands.", x0, 772, f(108, SERIF, 400, true), P.pale, .7, t, { stagger: .12 });
+  arrive(ctx, "Say it messy. It writes it right.", x0, 850, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .045 });
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 300, 580, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "hoodie"); ctx.restore();
+  const k = E.out(seg(t, 1.7, 2.3)), ls = 36, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
+}
+function toHimFilm(spoken) {
+  const Pn = PHONE_HIM, duration = +(Pn.end + Pn.card).toFixed(1);
+  return { w: 1080, h: 1920, duration, v2: true, draw(ctx, t, w, h) {
+    if (t < Pn.end) { phonePart(ctx, w, h, t, Pn); ctx.fillStyle = rgba("#000000", seg(t, Pn.end - .5, Pn.end)); ctx.fillRect(0, 0, w, h); }
+    else understandsCard(ctx, w, h, t - Pn.end);
+  }, cues() {
+    const c = phoneCues(Pn);
+    c.push({ at: Pn.write, kind: "write" }, { at: Pn.end + .1, kind: "open", gain: .8 }, { at: 0, kind: "bed", dur: duration });
+    if (spoken) c.push({ at: Pn.voice, kind: "sample", file: "voice/to-him.wav", gain: 1 }, { at: Pn.rec, kind: "metro", dur: Pn.stop - Pn.rec + .5 });
+    return c;
+  } };
+}
+FILMS.toHim = toHimFilm(false);
+FILMS.toHimVoice = toHimFilm(true);
 
 
 
