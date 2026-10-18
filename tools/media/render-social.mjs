@@ -47,6 +47,8 @@ const FILMS = [
   { id: "lessonSlack", file: "tailzu-lesson-slack-9x16.mp4" },
   { id: "lessonNotes", file: "tailzu-lesson-notes-9x16.mp4" },
   { id: "lessonPhone", file: "tailzu-lesson-iphone-9x16.mp4" },
+  { id: "toHim", file: "tailzu-to-him-9x16.mp4" },
+  { id: "toHimVoice", file: "tailzu-to-him-voice-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
