@@ -60,13 +60,13 @@ const KINDS = {
   },
   resume(b, at, g) { mixInto(b, at, noise(SR, .02, .6, .0005, .005), .28 * g); mixInto(b, at, tone(SR, 900, .05, .001, .02), .14 * g); },
   bed(b, at, g, dur) {
-    // Five voices of a chord, each three slightly detuned sines, breathing slowly.
-    const n = Math.ceil(dur * SR), notes = [[110, 1], [164.81, .7], [220, .5], [277.18, .35], [329.63, .25]], ph = notes.map(() => [0, 0, 0]);
+    // Five voices of a chord, each three slightly detuned sines, breathing slowly, from `at`.
+    const n = Math.ceil(dur * SR), i0 = Math.round(at * SR), notes = [[110, 1], [164.81, .7], [220, .5], [277.18, .35], [329.63, .25]], ph = notes.map(() => [0, 0, 0]);
     for (let i = 0; i < n; i++) {
       const t = i / SR, fade = Math.min(1, t / 1.6, (dur - t) / 1.6), lfo = 1 + .15 * Math.sin(TAU * .05 * t), vib = 1 + .002 * Math.sin(TAU * .3 * t);
       let v = 0;
       notes.forEach(([f, a], k) => { [-.004, 0, .004].forEach((d, m) => { ph[k][m] += TAU * f * (1 + d) * vib / SR; v += a * Math.sin(ph[k][m]) / 3; }); });
-      b[i] += v * .035 * fade * lfo * g;
+      if (i0 + i < b.length) b[i0 + i] += v * .035 * fade * lfo * g;
     }
   },
 };

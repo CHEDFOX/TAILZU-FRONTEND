@@ -11,6 +11,10 @@
  *     OPENAI_API_KEY=film STT_PROVIDER=openai PORT=8787 HOST=127.0.0.1 npx tsx src/server.ts
  *   PW_ROOT=<dir with playwright> node tools/media/capture-desk.mjs [../TAILZU-DESKTOP]
  *
+ * MODE=note captures one note's page whole (deskapp/note-full.png), the
+ * window taking notes, with where its title, its paragraph and each line of
+ * "What mattered" are, for a backend holding a note (desk-seed/README.md).
+ *
  * MODE=today captures the Today page instead, whole (deskapp/today-full.png)
  * with where its figures and sections are, for a backend whose in-memory
  * stores hold a day of dictations (desk-seed/README.md), the browser in
@@ -39,15 +43,15 @@ const ctx = await browser.newContext({
   viewport: { width: 1120, height: 780 }, deviceScaleFactor: 2, colorScheme: "dark", timezoneId: process.env.TZ_ID || "Asia/Kolkata",
   userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Tailzu/0.3.12 Chrome/138.0.0.0 Electron/37.2.0 Safari/537.36",
 });
-await ctx.addInitScript(({ base }) => {
+await ctx.addInitScript(({ base, notes }) => {
   Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
-  const env = { baseUrl: base, session: { accessToken: "dev", access_token: "dev", expiresAt: Date.now() + 864e5 }, appVersion: "0.3.12", platform: "darwin", hotkey: "⌘ ⇧ Space", launchCount: 9 };
+  const env = { baseUrl: base, session: { accessToken: "dev", access_token: "dev", expiresAt: Date.now() + 864e5 }, appVersion: "0.3.12", platform: "darwin", hotkey: "⌘ ⇧ Space", launchCount: 9, notes };
   const noop = () => {};
   const local = { pill: true, pauseFlush: true, autoStart: false, live: false, tap: true, tapKeys: ["Ctrl", "Alt"], hotkey: "⌘+Shift+Space", hold: false, notesHotkey: "⌘+Alt+N" };
   window.tailzuApp = new Proxy({ env: async () => env, config: async () => local, session: async () => env.session },
     { get: (o, k) => k in o ? o[k] : (typeof k === "string" && k.startsWith("on") ? noop : async () => null) });
   window.tailzu = new Proxy({}, { get: () => noop });
-}, { base: BASE });
+}, { base: BASE, notes: MODE === "note" });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.error("page:", e.message));
 if (process.env.CLOCK) await page.clock.setFixedTime(new Date(process.env.CLOCK));
@@ -88,6 +92,26 @@ if (MODE === "voices") {
   meta.tabs = Object.fromEntries(tabsAt.map(([n, ...r]) => [n, r]));
   fs.writeFileSync(path.join(out, "voices-meta.js"), "window.TZ_DESK_VOICES = " + JSON.stringify(meta) + ";\n");
   console.log(JSON.stringify(meta).slice(0, 600));
+  await browser.close(); process.exit(0);
+}
+if (MODE === "note") {
+  // Notes, then the newest note, then that page whole.
+  await page.getByText("Notes", { exact: true }).first().click(); await page.waitForTimeout(1500);
+  await page.locator("#view .d-written").first().click(); await page.waitForTimeout(1800);
+  const H = await page.evaluate(() => document.getElementById("mast").getBoundingClientRect().height + document.getElementById("view").scrollHeight);
+  await page.setViewportSize({ width: 1120, height: Math.ceil(H) }); await page.waitForTimeout(900);
+  await page.screenshot({ path: path.join(out, "note-full.png") });
+  const at = await page.evaluate(() => {
+    const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
+    const byText = (s) => [...document.querySelectorAll("#view *")].find((e) => e.children.length === 0 && e.textContent.trim() === s);
+    const said = [...document.querySelectorAll("#view .d-said")];
+    return { mast: r(document.getElementById("mast")), h1: r(document.querySelector("#view .d-h1")), eyebrow: r(byText("Meeting")),
+      summary: r([...document.querySelectorAll("#view .d-written")].find((e) => e.textContent.length > 120)), mattered: r(byText("What mattered")),
+      lines: said.map((e) => r(e.parentElement)), said: said.map((e) => e.textContent.trim()),
+      numbers: r(byText("The conversation in numbers")), who: r(byText("Who talked")), when: r(byText("Who spoke when")) };
+  });
+  fs.writeFileSync(path.join(out, "note-meta.js"), "window.TZ_DESK_NOTE = " + JSON.stringify({ w: 1120, h: Math.ceil(H), at }) + ";\n");
+  console.log("note-full.png", Math.ceil(H), JSON.stringify(at).slice(0, 900));
   await browser.close(); process.exit(0);
 }
 if (MODE === "today") {

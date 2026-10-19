@@ -35,6 +35,8 @@
 <script src="deskapp/today-meta.js"></script>
 <script src="deskapp/voices-meta.js"></script>
 <script src="voice/to-him.js"></script>
+<script src="deskapp/note-meta.js"></script>
+<script src="meeting/bleeped.js"></script>
 <script>
 (function () {
 "use strict";
@@ -2730,7 +2732,7 @@ function drawFigure(g, W, H, p, t) {
 const PRES = { dot: 3, buf: null, out: null };
 /** The figure, `H` tall, its feet at (cx, bottom), in the pose `name`
  *  reached `k` of the way from standing, at a time `t` for its idling. */
-function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit") {
+function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit", mouth = null) {
   const W = Math.round(H * .84), d = PRES.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
   if (!PRES.buf || PRES.buf.width !== bw || PRES.buf.height !== bh) { PRES.buf = document.createElement("canvas"); PRES.buf.width = bw; PRES.buf.height = bh; PRES.out = document.createElement("canvas"); PRES.out.width = bw; PRES.out.height = bh; }
   const g = PRES.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
@@ -2741,7 +2743,8 @@ function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit") {
   if (name === "tada") { const b = .06 * Math.sin(t * TAU * 1.3); p.ra[0] += b; p.la[0] += b; }
   if (name === "present") p.ra[0] += .03 * Math.sin(t * TAU * .9);
   if (name === "wave") p.ra[1] += .3 * Math.sin(t * TAU * 1.4);
-  (who === "hoodie" ? drawFigureHoodie : who === "blip" ? drawFigureBlip : who === "nani" ? drawFigureNani : drawFigure)(g, W, H, p, t);
+  if (mouth) p.mouth = mouth;
+  (who === "hoodie" ? drawFigureHoodie : who === "blip" ? drawFigureBlip : who === "nani" ? drawFigureNani : who === "beard" ? drawFigureBeard : drawFigure)(g, W, H, p, t);
   const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PRES.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
@@ -3102,6 +3105,49 @@ function drawFigureHoodie(g, W, H, p, t) {
   g.restore();
 }
 
+// ---- a fourth presenter, the meeting's marketing voice: curls, a beard, a crew-neck -------
+function drawFigureBeard(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .7 + 1.3) * .006 * H, hy = .24 * H + bob, R = .155 * H;
+  // Chinos and boots.
+  [-1, 1].forEach((s) => {
+    const lx = cx + s * .085 * H; const lg = g.createLinearGradient(lx - .065 * H, 0, lx + .065 * H, 0); lg.addColorStop(0, grey(.55)); lg.addColorStop(1, grey(.4));
+    g.fillStyle = lg; rr(g, lx - .065 * H, .7 * H, .13 * H, .26 * H, .03 * H); g.fill();
+    g.fillStyle = grey(.16); g.beginPath(); g.ellipse(lx + s * .014 * H, .968 * H, .09 * H, .034 * H, 0, 0, TAU); g.fill();
+  });
+  // The sweater: its body, a band across the chest, the crew neck.
+  const jg = g.createLinearGradient(cx - .2 * H, 0, cx + .2 * H, 0); jg.addColorStop(0, grey(.36)); jg.addColorStop(.5, grey(.29)); jg.addColorStop(1, grey(.21));
+  g.fillStyle = jg; g.beginPath(); g.moveTo(cx - .2 * H, .45 * H + bob); g.quadraticCurveTo(cx - .21 * H, .42 * H + bob, cx - .16 * H, .42 * H + bob); g.lineTo(cx + .16 * H, .42 * H + bob); g.quadraticCurveTo(cx + .21 * H, .42 * H + bob, cx + .2 * H, .45 * H + bob); g.lineTo(cx + .17 * H, .74 * H); g.lineTo(cx - .17 * H, .74 * H); g.closePath(); g.fill();
+  g.fillStyle = grey(.66); g.fillRect(cx - .2 * H, .53 * H + bob, .4 * H, .028 * H); g.fillStyle = grey(.5); g.fillRect(cx - .2 * H, .565 * H + bob, .4 * H, .01 * H);
+  g.strokeStyle = grey(.52); g.lineWidth = .03 * H; g.beginPath(); g.arc(cx, .405 * H + bob, .07 * H, Math.PI * .12, Math.PI * .88); g.stroke();
+  arm(g, H, cx + .18 * H, .46 * H + bob, 1, p.ra[0], p.ra[1], p.rh, cx + .2 * H, .68 * H, .31, .46);
+  arm(g, H, cx - .18 * H, .46 * H + bob, -1, p.la[0], p.la[1], p.lh, cx - .2 * H, .68 * H, .31, .46);
+  // The head: curls on top, a beard round the jaw, the face between.
+  g.save(); g.translate(cx, .42 * H + bob); g.rotate(p.tilt); g.translate(-cx, -(.42 * H + bob));
+  g.fillStyle = grey(.78); [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * .15 * H, hy + .01 * H, .03 * H, 0, TAU); g.fill(); });
+  const sg = g.createRadialGradient(cx - .05 * H, hy - .06 * H, 0, cx, hy, R * 1.25); sg.addColorStop(0, grey(.95)); sg.addColorStop(.6, grey(.8)); sg.addColorStop(1, grey(.5));
+  g.fillStyle = sg; g.beginPath(); g.arc(cx, hy, R, 0, TAU); g.fill();
+  // The beard: from ear to ear under the cheeks, the mouth left clear in it.
+  g.fillStyle = grey(.24); g.beginPath(); g.moveTo(cx - R * .98, hy + .01 * H); g.quadraticCurveTo(cx - R * .95, hy + R * 1.25, cx, hy + R * 1.32); g.quadraticCurveTo(cx + R * .95, hy + R * 1.25, cx + R * .98, hy + .01 * H);
+  g.lineTo(cx + R * .7, hy + .03 * H); g.quadraticCurveTo(cx + R * .55, hy + .06 * H, cx + R * .32, hy + .055 * H); g.quadraticCurveTo(cx, hy + .045 * H, cx - R * .32, hy + .055 * H); g.quadraticCurveTo(cx - R * .55, hy + .06 * H, cx - R * .7, hy + .03 * H); g.closePath(); g.fill();
+  // The curls.
+  const cg = g.createRadialGradient(cx - .06 * H, hy - .16 * H, 0, cx, hy - .08 * H, R * 1.2); cg.addColorStop(0, grey(.36)); cg.addColorStop(1, grey(.16)); g.fillStyle = cg;
+  for (let i = 0; i < 9; i++) { const a = Math.PI * (1.04 + i * .115), r = .052 * H * (i % 2 ? .9 : 1.05); g.beginPath(); g.arc(cx + Math.cos(a) * R * .9, hy - .015 * H + Math.sin(a) * R * .9, r, 0, TAU); g.fill(); }
+  g.beginPath(); g.arc(cx, hy - .03 * H, R * .86, Math.PI * 1.02, Math.PI * 1.98); g.fill();
+  const blink = ((t * 1000 + 300) % 2900) < 110;
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * .06 * H, ey = hy - .004 * H;
+    g.fillStyle = grey(.98); g.beginPath(); g.ellipse(ex, ey, .032 * H, blink ? .004 * H : .036 * H, 0, 0, TAU); g.fill();
+    if (!blink) { g.fillStyle = grey(.08); g.beginPath(); g.arc(ex + s * .004 * H, ey + .006 * H, .015 * H, 0, TAU); g.fill(); g.fillStyle = grey(.95); g.beginPath(); g.arc(ex - .004 * H, ey - .002 * H, .005 * H, 0, TAU); g.fill(); }
+    g.strokeStyle = grey(.14); g.lineWidth = .022 * H; g.lineCap = "round"; g.beginPath(); g.moveTo(ex - .036 * H, ey - .05 * H - p.brows * .016 * H + s * .004 * H); g.lineTo(ex + .036 * H, ey - .052 * H - p.brows * .016 * H - s * .004 * H); g.stroke();
+  });
+  g.strokeStyle = grey(.6); g.lineWidth = .012 * H; g.beginPath(); g.arc(cx + .01 * H, hy + .04 * H, .018 * H, Math.PI * .1, Math.PI * .9); g.stroke();
+  const my = hy + .085 * H;
+  if (p.mouth === "grin") { g.fillStyle = grey(.05); g.beginPath(); g.ellipse(cx, my - .004 * H, .062 * H, .04 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.96); g.fillRect(cx - .05 * H, my - .004 * H, .1 * H, .014 * H); }
+  else if (p.mouth === "o") { g.fillStyle = grey(.92); g.beginPath(); g.ellipse(cx, my, .03 * H, .036 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.05); g.beginPath(); g.ellipse(cx, my, .02 * H, .026 * H, 0, 0, TAU); g.fill(); }
+  else { g.strokeStyle = grey(.9); g.lineWidth = .014 * H; g.lineCap = "round"; g.beginPath(); g.arc(cx, my - .03 * H, .05 * H, Math.PI * .25, Math.PI * .75); g.stroke(); }
+  g.restore();
+}
+
 // ---- the iPhone lesson: the real recording in the phone, the lesson under it ----------
 /** The sounds of a dictation on the phone. */
 function phoneCues(Pn) {
@@ -3415,13 +3461,13 @@ function drawFigureNani(g, W, H, p, t) {
  */
 const RM = { W: 1728, H: 1122, k: 3498 / 1728, dockTop: 1038 };
 const TZW = { x: 304, y: 150, w: 1120, h: 780, bar: 28 };
-const DESKAPP = { meta: window.TZ_DESK_META || null, today: window.TZ_DESK_TODAY || null, voices: window.TZ_DESK_VOICES || null, todayImg: null, voicesImg: {}, img: {}, tray: null, trayLive: null };
+const DESKAPP = { meta: window.TZ_DESK_META || null, today: window.TZ_DESK_TODAY || null, voices: window.TZ_DESK_VOICES || null, note: window.TZ_DESK_NOTE || null, todayImg: null, noteImg: null, voicesImg: {}, img: {}, tray: null, trayLive: null };
 function loadDeskApp() {
   const one = (src) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
   const m = DESKAPP.meta, shots = m ? m.shots.map((id) => one(`deskapp/${id}.png`).then((im) => { DESKAPP.img[id] = im; })) : [];
   const voices = ["chats", "work", "email", "picked"].map((k) => one(`deskapp/voices-${k}.png`).then((im) => { DESKAPP.voicesImg[k] = im; }));
-  return Promise.all([one("deskapp/tray.png"), one("deskapp/tray-live.png"), one("deskapp/today-full.png"), ...shots, ...voices]).then(([tray, live, today]) => {
-    DESKAPP.trayLive = live; DESKAPP.todayImg = today; if (!tray) return;
+  return Promise.all([one("deskapp/tray.png"), one("deskapp/tray-live.png"), one("deskapp/today-full.png"), one("deskapp/note-full.png"), ...shots, ...voices]).then(([tray, live, today, note]) => {
+    DESKAPP.trayLive = live; DESKAPP.todayImg = today; DESKAPP.noteImg = note; if (!tray) return;
     // The tray icon is a template image: black, drawn in the menu bar's ink.
     const c = document.createElement("canvas"); c.width = tray.width; c.height = tray.height; const x = c.getContext("2d");
     x.drawImage(tray, 0, 0); x.globalCompositeOperation = "source-in"; x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, c.width, c.height); DESKAPP.tray = c;
@@ -4086,6 +4132,491 @@ FILMS.voicesMac = { w: 1080, h: 1920, duration: VX.end, v2: true, draw(ctx, t, w
 } };
 
 
+
+// ---- BLEEPED: a real meeting, its small talk bleeped like swearing ---------------------
+/**
+ * BLEEPED. A real meeting: the AMI corpus's ES2002a (CC BY 4.0,
+ * meeting/README.md), a team kicking off a remote control, who spend five of
+ * its eighteen minutes drawing their favourite animals. Every off-topic word
+ * is bleeped like a swear (meeting/cut.py): in the caption a bar, on the
+ * mouth that said it a bar, on the whiteboard the drawing pixelated, then
+ * let off with what it was. The tape runs down; seven minutes in, the point
+ * plays clean and its numbers fly into Tailzu's note. "Can we just go over
+ * that again?" "Oh gosh, I should be writing all this down." Tailzu already
+ * was: the project manager's Mac, and the note the app made of the meeting,
+ * its own page (capture-desk.mjs, MODE=note, against a backend holding it).
+ */
+const MEET = window.TZ_MEETING || { dur: 27.8, roles: {}, clips: [], pieces: [], bleeps: [], words: [] };
+const BL = (() => {
+  const c = (id) => MEET.clips.find((x) => x.id === id) || { at: 0, end: 0 };
+  const b = (id) => MEET.bleeps.find((x) => x.clip === id) || { at: 0, end: 0, tail: 0 };
+  const D = { whale: c("whale"), beagle: c("beagle"), apes: c("apes"), pig: c("pig"), tail: c("tail"), aware: c("aware"), point: c("point"), again: c("again"), down: c("down") };
+  D.bleep = { whale: b("whale"), beagle: b("beagle"), apes: b("apes"), pig: b("pig"), tail: b("tail"), aware: b("aware") };
+  // When each drawing comes clear, and what the caption says it was.
+  D.rv = { whale: D.bleep.whale.end + .62, beagle: D.bleep.beagle.end + .35, pig: D.bleep.pig.end + .28, tail: D.bleep.tail.end + .45 };
+  D.say = { whale: "(It was a whale.)", beagle: "(A beagle.)", pig: "(A pig. It was a dog.)", tail: "(His tail. He's a dog.)" };
+  D.stamp = D.aware.end - .55;      // five minutes, stamped, as the tape runs down
+  D.turn = D.aware.end;
+  D.wipe = D.turn + .05;            // the board wiped
+  D.already = D.down.end + .3;      // "Tailzu already was."
+  D.mac = D.already + 1.75;
+  D.notif = D.mac + .4; D.click = D.mac + 1.3; D.winOpen = D.mac + 1.4;
+  D.ring1 = D.mac + 3.95;
+  D.card = D.mac + 6.5; D.cardLen = 5.2; D.end = D.card + D.cardLen;
+  // The point's two numbers: the words they are said in; when each leaves the caption, and lands in the note.
+  const pw = MEET.words.filter((w) => w.clip === "point");
+  const at = (a, n) => { const i = pw.findIndex((w, k) => w.w.toLowerCase() === a && pw[k + 1] && pw[k + 1].w.toLowerCase() === n); return i < 0 ? null : [MEET.words.indexOf(pw[i]), MEET.words.indexOf(pw[i + 2])]; };
+  D.keep = [
+    { words: at("twenty", "five"), chip: "€25", line: ["Sells for ", "€25"] },
+    { words: at("twelve", "fifty"), chip: "€12.50", line: ["Costs no more than ", "€12.50"] },
+  ];
+  D.keep.forEach((k) => { const last = k.words ? MEET.words[k.words[1]] : null; k.from = last ? last.e + .02 : D.point.at; k.land = k.from + .42; });
+  const lastOf = (id) => { const ws = MEET.words.filter((w) => w.clip === id && !w.laugh); return ws.length ? ws[ws.length - 1] : { t: 0, e: 0 }; };
+  D.askedAt = lastOf("again").t; D.downAt = lastOf("down").t;
+  D.cam = [[D.mac, .625, 864, 561], [D.notif + .15, .95, 1300, 240, .8], [D.winOpen - .05, .8, 864, 545, .6], [D.winOpen + .6, 1.42, 832, 561, 1.1]];
+  D.ptr = [[0, 0, 980, 760], [D.notif + .35, D.click - .05, 1530, 84], [D.click + .45, D.click + 1.3, 1290, 930]];
+  return D;
+})();
+/** Where in the meeting the track is at t, in ES2002a's seconds: held between pieces, null before the first. */
+function meetSrc(t) { let s = null; for (const p of MEET.pieces) { if (t < p.at) break; s = Math.min(p.src + (t - p.at), p.to); } return s; }
+const MEET_START = 50.4;   // "Okay. Right." The meeting begins.
+const mmss = (s) => `${String(Math.floor(Math.max(0, s) / 60)).padStart(2, "0")}:${String(Math.floor(Math.max(0, s) % 60)).padStart(2, "0")}`;
+
+/** The room: the whiteboard, the four of them behind the table (as they sat, by role), the table. */
+const BLR = {
+  board: [120, 300, 840, 380], H: 450, foot: 1150, table: 930,
+  people: [
+    { s: "D", who: "beard", x: 176, card: "Marketing" },
+    { s: "B", who: "hoodie", x: 421, card: "Project manager" },
+    { s: "A", who: "suit", x: 666, card: "Industrial design" },
+    { s: "C", who: "blip", x: 908, card: "Interface" },
+  ],
+  // Each figure's mouth (x from its middle, y from its top, as parts of its height) and its idle bob (rate, depth, phase).
+  mouth: { suit: [0, .325], hoodie: [0, .328], blip: [.035, .405], beard: [0, .325] },
+  bob: { suit: [.75, .006, 0], hoodie: [.75, .006, 0], blip: [.9, .008, 0], beard: [.7, .006, 1.3] },
+};
+
+// ---- the whiteboard's drawings: marker, a little crooked, as people draw in meetings ----
+const DOODLE = (() => {
+  const bz = (a, b, c, d, n = 18) => Array.from({ length: n + 1 }, (_, i) => { const s = i / n, u = 1 - s; return [u * u * u * a[0] + 3 * u * u * s * b[0] + 3 * u * s * s * c[0] + s * s * s * d[0], u * u * u * a[1] + 3 * u * u * s * b[1] + 3 * u * s * s * c[1] + s * s * s * d[1]]; });
+  const el = (cx, cy, rx, ry, n = 30) => Array.from({ length: n + 1 }, (_, i) => { const a = -Math.PI / 2 + TAU * i / n; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+  const dot = (x, y, r) => ({ dot: [x, y, r] });
+  return {
+    // The whale ("Is that a whale?"), its tail too big ("Tail's a bit big, I think").
+    whale: { box: [158, 398, 268, 172], ink: "#23262C", strokes: [
+      bz([.05, .56], [.08, .2], [.6, .14], [.79, .46]), bz([.05, .56], [.1, .88], [.6, .88], [.79, .52]),
+      bz([.79, .47], [.86, .36], [.92, .16], [.97, .07]), bz([.97, .07], [.94, .3], [.9, .42], [.86, .49]), bz([.86, .49], [.92, .58], [.95, .8], [.98, .93]), bz([.98, .93], [.9, .8], [.84, .62], [.79, .52]),
+      bz([.07, .62], [.14, .67], [.24, .67], [.31, .63]), [[.25, .17], [.21, .03]], [[.26, .16], [.27, .01]], [[.27, .17], [.34, .05]],
+      [[.3, .66], [.52, .68]], [[.34, .73], [.55, .74]], dot(.2, .46, .016)] },
+    // The beagle, in blue ("So this is blue. Blue beagle.").
+    beagle: { box: [462, 372, 186, 206], ink: "#2C56C6", strokes: [
+      el(.5, .4, .24, .26), bz([.3, .22], [.12, .28], [.1, .62], [.2, .8]), bz([.2, .8], [.28, .85], [.34, .7], [.31, .45]),
+      bz([.7, .22], [.88, .28], [.9, .62], [.8, .8]), bz([.8, .8], [.72, .85], [.66, .7], [.69, .45]),
+      [[.16, .48], [.26, .42]], [[.17, .58], [.28, .52]], [[.19, .68], [.29, .62]], [[.84, .48], [.74, .42]], [[.83, .58], [.72, .52]], [[.81, .68], [.71, .62]],
+      el(.5, .57, .12, .09), dot(.41, .37, .02), dot(.59, .37, .02), dot(.5, .52, .03),
+      bz([.5, .55], [.5, .61], [.45, .63], [.42, .61]), bz([.5, .55], [.5, .61], [.55, .63], [.58, .61]), bz([.3, .68], [.36, .95], [.64, .95], [.7, .68])] },
+    // The project manager's dog, who looks more like a pig, and chases his tail.
+    dog: { box: [702, 404, 228, 170], ink: "#C33B2F", tail: [.76, .12, .24, .48], strokes: [
+      el(.52, .56, .3, .22), el(.21, .4, .14, .14), el(.08, .44, .05, .065), dot(.065, .41, .008), dot(.088, .47, .008),
+      [[.19, .28], [.25, .12], [.3, .3]], dot(.18, .36, .014), bz([.12, .5], [.15, .54], [.2, .54], [.23, .51]),
+      [[.33, .74], [.32, .92]], [[.43, .77], [.43, .94]], [[.62, .77], [.63, .94]], [[.72, .74], [.74, .9]],
+      Array.from({ length: 34 }, (_, i) => { const a = (1 - i / 33) * Math.PI * 3.3, r = .012 + .013 * a; return [.88 + Math.cos(a) * r * .8, .36 - Math.sin(a) * r]; })] },
+  };
+})();
+/** A drawing, its first `k` of strokes, in marker, into a canvas `sc` times its size with a margin round it. */
+function drawDoodle(g, d, k, sc, pad) {
+  const bw = d.box[2] * sc, bh = d.box[3] * sc, n = k * d.strokes.length;
+  g.save(); g.translate(pad * sc, pad * sc); g.strokeStyle = d.ink; g.fillStyle = d.ink; g.lineWidth = 5.2 * sc; g.lineCap = "round"; g.lineJoin = "round"; g.globalAlpha = .93;
+  d.strokes.forEach((s, i) => {
+    const part = clamp(n - i); if (part <= 0) return;
+    if (s.dot) { g.beginPath(); g.arc(s.dot[0] * bw, s.dot[1] * bh, Math.max(s.dot[2] * bw, 3.4 * sc) * Math.min(1, part * 2), 0, TAU); g.fill(); return; }
+    const m = Math.max(2, Math.round(s.length * part));
+    g.beginPath(); for (let j = 0; j < m; j++) { const wob = n1(j * .7 + i * 3.1) * .005; if (j) g.lineTo((s[j][0] + wob) * bw, (s[j][1] - wob) * bh); else g.moveTo((s[j][0] + wob) * bw, (s[j][1] - wob) * bh); } g.stroke();
+  });
+  g.restore();
+}
+const BLD = { pad: 14, c: {}, tiny: null };
+function doodleCanvas(id, k) {
+  const d = DOODLE[id], P0 = BLD.pad, S = 2;
+  let c = BLD.c[id]; if (!c) { c = BLD.c[id] = document.createElement("canvas"); c.width = (d.box[2] + P0 * 2) * S; c.height = (d.box[3] + P0 * 2) * S; c._k = -1; }
+  const kk = Math.round(k * 200) / 200; if (c._k === kk) return c;
+  const g = c.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); drawDoodle(g, d, kk, S, P0); c._k = kk; return c;
+}
+/** A censor's mosaic of part of a drawing: blocks `block` wide, each the marker's average over the board. */
+function blMosaic(ctx, src, sx, sy, sw, sh, x, y, w, h, block, ink) {
+  const tw = Math.max(1, Math.round(w / block)), th = Math.max(1, Math.round(h / block));
+  const c = BLD.tiny || (BLD.tiny = document.createElement("canvas")); c.width = tw; c.height = th;
+  const g = c.getContext("2d", { willReadFrequently: true }); g.clearRect(0, 0, tw, th); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+  g.drawImage(src, sx, sy, sw, sh, 0, 0, tw, th);
+  const im = g.getImageData(0, 0, tw, th), px = im.data, n = parseInt(ink.slice(1), 16), ir = n >> 16 & 255, ig = n >> 8 & 255, ib = n & 255;
+  for (let i = 0; i < px.length; i += 4) { const a = Math.min(1, px[i + 3] / 255 * 3.2); px[i] = lerp(229, ir, a); px[i + 1] = lerp(224, ig, a); px[i + 2] = lerp(214, ib, a); px[i + 3] = 255; }
+  g.putImageData(im, 0, 0);
+  ctx.save(); ctx.imageSmoothingEnabled = false; ctx.drawImage(c, x, y, w, h); ctx.restore();
+}
+/** One drawing on the board: drawn `k` of the way, censored by `cens` (0 clear, 1 blocks), and its tail censored by `tail`. */
+function blDoodle(ctx, id, k, cens, tail) {
+  if (k <= 0) return;
+  const d = DOODLE[id], c = doodleCanvas(id, k), P0 = BLD.pad, [x, y, w, h] = d.box, X = x - P0, Y = y - P0, W = w + P0 * 2, H = h + P0 * 2;
+  if (cens > .02) blMosaic(ctx, c, 0, 0, c.width, c.height, X, Y, W, H, lerp(3, 23, cens), d.ink);
+  else ctx.drawImage(c, X, Y, W, H);
+  if (tail > .02 && d.tail) {
+    const [tx, ty, tw, th] = d.tail, rx = x + tx * w - 6, ry = y + ty * h - 6, rw = tw * w + 12, rh = th * h + 12, S = c.width / W;
+    blMosaic(ctx, c, (rx - X) * S, (ry - Y) * S, rw * S, rh * S, rx, ry, rw, rh, lerp(3, 15, tail), d.ink);
+  }
+}
+/** The board: its frame and tray, old marks rubbed nearly out, the exercise's title, the three drawings, and the eraser at the turn. */
+function blBoard(ctx, t, D) {
+  const [bx, by, bw, bh] = BLR.board;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 40; ctx.shadowOffsetY = 14; ctx.fillStyle = "#77736C"; rr(ctx, bx - 11, by - 11, bw + 22, bh + 22, 7); ctx.fill(); ctx.restore();
+  ctx.fillStyle = "#9A968F"; rr(ctx, bx - 8, by - 8, bw + 16, bh + 16, 5); ctx.fill();
+  const gr = ctx.createLinearGradient(bx, by, bx + bw * .7, by + bh); gr.addColorStop(0, "#EFEBE3"); gr.addColorStop(1, "#DCD6CA"); ctx.fillStyle = gr; ctx.fillRect(bx, by, bw, bh);
+  const sh = ctx.createRadialGradient(bx + bw * .3, by + bh * .2, 0, bx + bw * .3, by + bh * .2, bw * .7); sh.addColorStop(0, "rgba(255,255,255,.35)"); sh.addColorStop(1, "rgba(255,255,255,0)"); ctx.fillStyle = sh; ctx.fillRect(bx, by, bw, bh);
+  // Last meeting's marks, rubbed nearly out.
+  ctx.save(); ctx.globalAlpha = .07; ctx.strokeStyle = "#3A3D44"; ctx.lineWidth = 5; ctx.lineCap = "round";
+  [[[620, 330], [760, 334]], [[640, 352], [700, 350]], [[180, 620], [330, 606], [420, 640]], [[830, 610], [900, 650]]].forEach((s) => { ctx.beginPath(); s.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); });
+  ctx.restore();
+  // The eraser's run at the turn: what it has passed is gone, ghosts and all but a breath.
+  const ek = E.io(seg(t, D.wipe, D.wipe + .6)), ex = lerp(bx - 90, bx + bw + 90, ek);
+  ctx.save(); ctx.beginPath(); ctx.rect(ek > 0 ? ex : bx - 20, by, bx + bw + 40 - (ek > 0 ? ex : bx - 20), bh); ctx.clip();
+  text(ctx, "Favourite animal + why", bx + 34, by + 58, f(44, HAND, 600), "#23262C", .92);
+  ctx.strokeStyle = "rgba(35,38,44,.85)"; ctx.lineWidth = 3.5; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(bx + 34, by + 72); ctx.quadraticCurveTo(bx + 200, by + 66, bx + 400, by + 75); ctx.stroke();
+  const B = D.bleep;
+  blDoodle(ctx, "whale", 1, 1 - E.io(seg(t, D.rv.whale, D.rv.whale + .35)), 0);
+  blDoodle(ctx, "beagle", E.io(seg(t, D.beagle.at + .15, B.beagle.at - .1)), 1 - E.io(seg(t, D.rv.beagle, D.rv.beagle + .35)), 0);
+  const tailOn = Math.max(t >= B.tail.at - .02 && t < D.rv.tail ? 1 : 0, t >= B.aware.at - .02 ? 1 : 0);
+  blDoodle(ctx, "dog", E.io(seg(t, D.pig.at - .3, D.pig.at + .6)), 1 - E.io(seg(t, D.rv.pig, D.rv.pig + .35)), tailOn);
+  ctx.restore();
+  // The tray, two markers on it.
+  ctx.fillStyle = "#86827B"; ctx.fillRect(bx - 4, by + bh + 8, bw + 8, 10); ctx.fillStyle = "#5E5B55"; ctx.fillRect(bx - 4, by + bh + 18, bw + 8, 3);
+  [[bx + 520, "#2C56C6"], [bx + 600, "#23262C"]].forEach(([x, c]) => { ctx.fillStyle = "#ECE8E0"; rr(ctx, x, by + bh + 1, 58, 9, 4); ctx.fill(); ctx.fillStyle = c; rr(ctx, x + 44, by + bh + 1, 16, 9, 4); ctx.fill(); });
+}
+
+/** The eraser's run across the board at the turn, its grip to us. */
+function blEraser(ctx, t, D) {
+  const [bx, by, bw, bh] = BLR.board, ek = E.io(seg(t, D.wipe, D.wipe + .6)), ex = lerp(bx - 90, bx + bw + 90, ek);
+  if (ek <= 0 || ek >= 1) return;
+  ctx.save(); ctx.translate(ex, by + bh * .5 + Math.sin(ek * 26) * 70); ctx.rotate(-.08 + Math.sin(ek * 26) * .07);
+  ctx.fillStyle = "rgba(0,0,0,.22)"; rr(ctx, -78, -26, 164, 62, 14); ctx.fill();
+  ctx.fillStyle = "#3A3C40"; rr(ctx, -82, -30, 164, 60, 12); ctx.fill();
+  const eg = ctx.createLinearGradient(0, -30, 0, 22); eg.addColorStop(0, "#D9DCE0"); eg.addColorStop(1, "#A9ADB3"); ctx.fillStyle = eg; rr(ctx, -80, -30, 160, 46, 12); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.18)"; rr(ctx, -46, -16, 92, 14, 7); ctx.fill();
+  ctx.restore();
+}
+
+/** How much someone is talking, laughing and being bleeped at t; whether their mouth is open. */
+function blWho(s, t) {
+  let talk = 0, laugh = 0, open = false, bar = 0, since = 0, tail = 0;
+  for (const w of MEET.words) {
+    if (w.s !== s) continue;
+    if (w.laugh) { const e = Math.max(w.e, w.t + .7); laugh = Math.max(laugh, E.out(seg(t, w.t - .05, w.t + .12)) * (1 - E.in(seg(t, e, e + .3)))); continue; }
+    talk = Math.max(talk, E.out(seg(t, w.t - .2, w.t)) * (1 - E.in(seg(t, w.e + .25, w.e + .6))));
+    if (t >= w.t && t < w.e && !w.bleep && ((t - w.t) % .2) < .12) open = true;
+  }
+  for (const b of MEET.bleeps) {
+    const bw = MEET.words.find((w) => w.bleep && w.clip === b.clip && Math.abs(w.t - b.at) < .25);
+    if (!bw || bw.s !== s || t < b.at - .02 || t >= b.end + b.tail + .12) continue;
+    bar = 1; since = t - b.at; tail = b.tail ? clamp((t - b.end) / b.tail) : 0;
+  }
+  return { talk, laugh, open, bar, since, tail };
+}
+function blFigTime(p, t) { return t + p.x * .013; }
+/** The four, behind the table: whoever speaks lit and moving their hands, the rest a little back in the dark. */
+function blPeople(ctx, t) {
+  const H = BLR.H;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 1080, BLR.table + 4); ctx.clip();
+  for (const p of BLR.people) {
+    const st = blWho(p.s, t), on = Math.max(st.talk, st.laugh, st.bar), tp = blFigTime(p, t);
+    const k = st.talk * (.1 + .05 * Math.sin(t * TAU * 1.6 + p.x));
+    presenter(ctx, p.x, BLR.foot, H, "shrug", k, tp, lerp(.4, 1, on), p.who, st.laugh > .3 ? "grin" : st.open ? "o" : null);
+    if (st.laugh > 0) text(ctx, "ha ha", p.x + 104, BLR.foot - H + 70 + Math.sin(t * 31 + p.x) * 2.5, f(46, HAND, 600), P.pale, st.laugh * .9, "center");
+  }
+  ctx.restore();
+}
+/** The bars on the mouths: one slams over whoever said the word as it is bleeped, and sinks with the tape when it runs down. */
+function blBars(ctx, t) {
+  const H = BLR.H;
+  for (const p of BLR.people) {
+    const st = blWho(p.s, t); if (!st.bar) continue;
+    const [mxf, myf] = BLR.mouth[p.who], [fr, amp, ph] = BLR.bob[p.who], tp = blFigTime(p, t);
+    const mx = p.x + mxf * H, my = BLR.foot - H + myf * H + Math.sin(tp * TAU * fr + ph) * amp * H, slam = 1 + .45 * (1 - E.out(clamp(st.since / .09)));
+    ctx.save(); ctx.translate(mx, my + st.tail * st.tail * 26); ctx.rotate(-.07 + st.tail * .32); ctx.scale(slam, slam);
+    ctx.fillStyle = "#050404"; rr(ctx, -54, -18, 108, 36, 3); ctx.fill(); ctx.strokeStyle = rgba(P.pale, .55); ctx.lineWidth = 1.5; rr(ctx, -54, -18, 108, 36, 3); ctx.stroke();
+    text(ctx, "BLEEP", 1, 6, f(15, MONO), P.pale, 1, "center", 3.2);
+    ctx.restore();
+  }
+}
+/** The table: its top and edge; a name card before each of them; the project manager's laptop, Tailzu's mark on its lid, its light on; a mug. */
+function blTable(ctx, t, D) {
+  const y = BLR.table;
+  const g = ctx.createLinearGradient(0, y, 0, y + 80); g.addColorStop(0, "#3B2D23"); g.addColorStop(1, "#2D2119"); ctx.fillStyle = g; ctx.fillRect(0, y, 1080, 80);
+  ctx.fillStyle = "rgba(255,226,190,.12)"; ctx.fillRect(0, y, 1080, 2); ctx.fillStyle = "rgba(255,226,190,.06)"; ctx.fillRect(0, y + 79, 1080, 2);
+  const fg = ctx.createLinearGradient(0, y + 81, 0, y + 180); fg.addColorStop(0, "#1A130F"); fg.addColorStop(1, "#0D0B09"); ctx.fillStyle = fg; ctx.fillRect(0, y + 81, 1080, 100);
+  // The project manager's laptop, its back to us, at the back of the table.
+  const lx = 331, ly = y - 64, lw = 180, lh = 100;
+  ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
+  const lg = ctx.createLinearGradient(lx, ly, lx + lw, ly + lh); lg.addColorStop(0, "#B3B7BC"); lg.addColorStop(1, "#8A8E94"); ctx.fillStyle = lg; rr(ctx, lx, ly, lw, lh, 9); ctx.fill(); ctx.restore();
+  ctx.fillStyle = "#6F7378"; ctx.fillRect(lx - 6, ly + lh - 2, lw + 12, 7);
+  ctx.fillStyle = "#15120F"; rr(ctx, lx + lw / 2 - 19, ly + 28, 38, 38, 9); ctx.fill(); menuMark.draw(ctx, lx + lw / 2 - 15, ly + 32, 30, P.pale);
+  const live = .55 + .45 * Math.sin(t * TAU * 1.1); glow(ctx, lx + lw / 2 + 32, ly + 47, 16, P.amber, .35 * live); ctx.fillStyle = rgba(P.amber, .7 + .3 * live); ctx.beginPath(); ctx.arc(lx + lw / 2 + 32, ly + 47, 4, 0, TAU); ctx.fill();
+  // A mug at the marketing end.
+  ctx.fillStyle = "#D6D0C5"; rr(ctx, 262, y - 22, 40, 46, 6); ctx.fill(); ctx.strokeStyle = "#D6D0C5"; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(306, y, 11, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  // The name cards, folded, standing at the front of the table.
+  for (const p of BLR.people) {
+    ctx.font = f(15, MONO); ctx.letterSpacing = "2.6px"; const tw = ctx.measureText(p.card.toUpperCase()).width; ctx.letterSpacing = "0px";
+    const cw = tw + 30, cx = p.x, cy = y + 44;
+    ctx.fillStyle = "rgba(0,0,0,.35)"; ctx.fillRect(cx - cw / 2 + 4, cy + 30, cw, 6);
+    ctx.fillStyle = "#EAE5DC"; ctx.beginPath(); ctx.moveTo(cx - cw / 2, cy + 32); ctx.lineTo(cx - cw / 2 + 5, cy); ctx.lineTo(cx + cw / 2 - 5, cy); ctx.lineTo(cx + cw / 2, cy + 32); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#C9C3B8"; ctx.fillRect(cx - cw / 2 + 5, cy, cw - 10, 2);
+    text(ctx, p.card.toUpperCase(), cx + 1, cy + 22, f(15, MONO), "#2A2520", 1, "center", 2.6);
+  }
+}
+
+/** The caption: what is said, a block per speaker or sentence, words as they come; a bleeped word a bar. */
+const BLCAP = { blocks: {}, pos: {} };
+function blBlocks(clip) {
+  if (BLCAP.blocks[clip]) return BLCAP.blocks[clip];
+  const out = [];
+  MEET.words.forEach((w, i) => {
+    if (w.clip !== clip || w.laugh) return;
+    const last = out[out.length - 1];
+    if (!last || last.s !== w.s || last.done) out.push({ s: w.s, idx: [], done: false });
+    out[out.length - 1].idx.push(i);
+    if (/[.?!—…]$/.test(w.p || "") && !/…/.test(w.p || "")) out[out.length - 1].done = true;
+  });
+  return (BLCAP.blocks[clip] = out);
+}
+function blCaption(ctx, t, D) {
+  const clips = MEET.clips; let ci = 0; for (let i = 0; i < clips.length; i++) if (t >= clips[i].at - .02) ci = i;
+  if (!clips.length || t >= D.already) return;
+  const size = 56, lh = 66, x0 = 70, maxW = 950, top = 1136, edge = 1096, font = f(size, SANS, 500);
+  const cur = clips[ci], prev = clips[ci - 1], keepIdx = new Set(D.keep.flatMap((k) => k.words ? [k.words[0], k.words[0] + 1, k.words[1]] : []));
+  const shown = [];
+  // The clip before gives way as the new one's first words come: it fades and folds up.
+  if (prev) { const go = 1 - seg(t, cur.at - .02, cur.at + .24); if (go > 0) blBlocks(prev.id).forEach((b) => shown.push({ b, clip: prev.id, a: go, fold: E.io(go) })); }
+  const last = 1 - seg(t, cur.end + .9, cur.end + 1.3);
+  blBlocks(cur.id).forEach((b) => shown.push({ b, clip: cur.id, a: last, fold: 1 }));
+  ctx.save(); ctx.font = font; const sp = ctx.measureText(" ").width;
+  // Lay each block out whole, then grow each line in as its first word is said.
+  const lay = shown.map(({ b, clip, a, fold }) => {
+    const ws = b.idx.map((i) => { const w = MEET.words[i]; return { i, w, wd: ctx.measureText(w.w).width, pw: ctx.measureText(w.p || "").width }; });
+    const lines = [[]]; let lw = 0;
+    for (const x of ws) { const add = (lines[lines.length - 1].length ? sp : 0) + x.wd + x.pw; if (lw + add > maxW && lines[lines.length - 1].length) { lines.push([x]); lw = x.wd + x.pw; } else { lines[lines.length - 1].push(x); lw += add; } }
+    const t0 = MEET.words[b.idx[0]].t, whole = clip === "whale";
+    const lineT = lines.map((ln) => whole ? 0 : ln[0].w.t);
+    const rv = D.say[clip] && b === blBlocks(clip)[blBlocks(clip).length - 1] ? D.rv[clip] : null;
+    const grow = (x) => whole ? 1 : E.out(seg(t, x - .04, x + .14));
+    const h = (34 * grow(t0) + lines.reduce((s, ln, k) => s + lh * grow(lineT[k]), 0) + (rv ? 58 * E.out(seg(t, rv - .04, rv + .14)) : 0) + 22) * fold;
+    return { b, clip, a, lines, lineT, t0: whole ? 0 : t0, rv, h, whole };
+  });
+  // From the top, just under the table; once the words run past the room they have, they scroll up.
+  const room = lerp(1580, 1300, E.io(seg(t, D.point.at - .45, D.point.at + .05)));
+  let y = Math.min(top, room - lay.reduce((s0, L) => s0 + L.h, 0));
+  for (const L of lay) { L.y = y; y += L.h; }
+  BLCAP.pos = {};
+  for (const L of lay) {
+    if (t < L.t0 - .04) continue;
+    const fadeTop = clamp((L.y + 30 - edge) / 50), A = L.a * fadeTop; if (A <= 0) continue;
+    let yy = L.y + 26;
+    label(ctx, MEET.roles[L.b.s] || "", x0, yy, 19, P.pale, A * .5 * (L.whole ? 1 : E.out(seg(t, L.t0 - .04, L.t0 + .14))));
+    yy += 8;
+    L.lines.forEach((ln, k) => {
+      const g = L.whole ? 1 : E.out(seg(t, L.lineT[k] - .04, L.lineT[k] + .14)); if (g <= 0) return;
+      yy += lh * g; let x = x0;
+      for (let j = 0; j < ln.length; j++) {
+        const x1 = ln[j], w = x1.w, said = t >= w.t - .03, kept = keepIdx.has(x1.i), bleep = MEET.bleeps.find((b) => w.bleep && b.clip === w.clip && Math.abs(b.at - w.t) < .25);
+        const a = L.whole ? (said ? 1 : .55) : E.out(seg(t, w.t - .03, w.t + .07));
+        if (w.bleep && (L.whole || (bleep ? t >= bleep.at - .02 : said))) {
+          // The words under one bleep, one bar: as wide as they were, never too narrow to read.
+          let run = x1.wd, jj = j; while (ln[jj + 1] && ln[jj + 1].w.bleep && !ln[jj].w.p) { jj++; run += sp + ln[jj].wd; }
+          const b0 = bleep || MEET.bleeps.find((b) => b.clip === w.clip), at0 = b0 ? b0.at : w.t, pop = t < at0 ? 1 : 1 + .22 * (1 - E.out(clamp((t - at0) / .1))), bw = Math.max(run, 120) + 12, bh = size * .9;
+          ctx.save(); ctx.globalAlpha *= A; ctx.translate(x + bw / 2 - 6, yy - size * .33); ctx.scale(pop, pop);
+          ctx.fillStyle = P.pale; rr(ctx, -bw / 2, -bh / 2, bw, bh, 8); ctx.fill();
+          text(ctx, "BLEEP", 0, 6, f(18, MONO), P.ink, 1, "center", 3.6); ctx.restore();
+          x += bw - 12;
+          if (ln[jj].w.p) { text(ctx, ln[jj].w.p, x, yy, font, P.pale, A); x += ln[jj].pw; }
+          x += sp; j = jj; continue;
+        }
+        if (a > 0) {
+          ctx.save(); ctx.globalAlpha *= A * a;
+          text(ctx, w.w, x, yy + (1 - Math.min(1, a)) * 8, font, kept && said ? P.amber : P.pale);
+          if (kept && said) { const u = E.out(seg(t, w.t, w.e + .1)); ctx.fillStyle = rgba(P.amber, .9); ctx.fillRect(x, yy + 12, x1.wd * u, 3); }
+          ctx.restore();
+        }
+        if (kept) BLCAP.pos[x1.i] = [x + x1.wd / 2, yy - size * .3];
+        x += x1.wd;
+        if (w.p) { text(ctx, w.p, x, yy, font, P.pale, A * a); x += x1.pw; }
+        x += sp;
+      }
+    });
+    if (L.rv && t >= L.rv - .04) arrive(ctx, D.say[L.clip], x0, yy + 56, f(42, SERIF, 400, true), rgba(P.pale, .78 * A), L.rv, t, { stagger: .05, dur: .5 });
+  }
+  ctx.restore();
+}
+
+/** The two lines across the top: the rule of the film, its second line turning at the point; the meeting's clock. */
+function blHead(ctx, t, D) {
+  const k = 1 - E.in(seg(t, D.already - .3, D.already)), sw = E.io(seg(t, D.wipe + .25, D.wipe + .75));
+  text(ctx, "A real meeting.", 70, 196, f(56, SERIF, 300), P.pale, k);
+  if (sw < 1) text(ctx, "Small talk, bleeped.", 70, 260, f(56, SERIF, 400, true), P.pale, k * (1 - sw));
+  if (sw > 0) text(ctx, "The point, kept.", 70, 260, f(56, SERIF, 400, true), P.amber, k * sw);
+  // The meeting's own clock, once past the cold open, while the meeting plays.
+  const src = meetSrc(t), show = E.out(seg(t, D.beagle.at - .25, D.beagle.at + .1)) * k;
+  if (src != null && show > 0) {
+    label(ctx, "In the meeting", 1010, 168, 17, P.pale, show * .5, "right");
+    text(ctx, mmss(src - MEET_START), 1010, 222, f(46, MONO), P.pale, show, "right");
+  }
+}
+/** Five minutes, stamped on the board as the tape runs down, in red. */
+function blStamp(ctx, t, D) {
+  const k = seg(t, D.stamp, D.stamp + .1); if (k <= 0 || t > D.wipe + .7) return;
+  const s = lerp(1.9, 1, E.out(k)), red = "#D8432F", [bx, by, bw, bh] = BLR.board, ek = E.io(seg(t, D.wipe, D.wipe + .6));
+  ctx.save(); if (ek > 0) { const ex = lerp(bx - 90, bx + bw + 90, ek); ctx.beginPath(); ctx.rect(ex + 40, 0, 1080, 1920); ctx.clip(); }
+  ctx.translate(540, 494); ctx.rotate(-.11); ctx.scale(s, s); ctx.globalAlpha *= clamp(k * 2);
+  ctx.fillStyle = "rgba(239,235,227,.9)"; rr(ctx, -318, -86, 636, 172, 16); ctx.fill();
+  ctx.strokeStyle = red; ctx.lineWidth = 7; rr(ctx, -310, -80, 620, 160, 14); ctx.stroke(); ctx.lineWidth = 2.5; rr(ctx, -296, -66, 592, 132, 9); ctx.stroke();
+  text(ctx, "5 MINUTES", 0, -4, f(70, MONO), red, 1, "center", 9);
+  text(ctx, "ON FAVOURITE ANIMALS", 0, 46, f(27, MONO), red, 1, "center", 5.5);
+  ctx.restore();
+}
+/** Tailzu's note, under the caption from the point on: the light, the clock, a line for each number as it lands. */
+function blNote(ctx, t, D) {
+  const k = E.out(seg(t, D.point.at - .45, D.point.at + .05)), out = 1 - E.in(seg(t, D.already - .3, D.already)); if (k <= 0 || out <= 0) return;
+  const x = 70, w = 940, h = 214, y = 1330 + (1 - k) * 50;
+  const pulse = Math.max(...[D.askedAt, D.downAt].map((p0) => Math.sin(Math.PI * clamp((t - p0) / .9)) * (t > p0 ? 1 : 0)));
+  ctx.save(); ctx.globalAlpha *= k * out;
+  ctx.save(); ctx.shadowColor = rgba(P.amber, .55 * pulse); ctx.shadowBlur = 50 * pulse; ctx.fillStyle = "#17130F"; rr(ctx, x, y, w, h, 22); ctx.fill(); ctx.restore();
+  ctx.strokeStyle = pulse > .01 ? rgba(P.amber, .25 + .55 * pulse) : rgba(P.pale, .14); ctx.lineWidth = 1.5 + pulse; rr(ctx, x + .75, y + .75, w - 1.5, h - 1.5, 21.25); ctx.stroke();
+  menuMark.draw(ctx, x + 26, y + 20, 30, P.pale); text(ctx, "Tailzu", x + 66, y + 44, f(28, SERIF, 400), P.pale);
+  const src = meetSrc(t), live = .55 + .45 * Math.sin(t * TAU * 1.1);
+  ctx.fillStyle = rgba(P.amber, .7 + .3 * live); ctx.beginPath(); ctx.arc(x + w - 296, y + 37, 7, 0, TAU); ctx.fill(); glow(ctx, x + w - 296, y + 37, 22, P.amber, .3 * live);
+  label(ctx, `Taking notes · ${mmss((src ?? 0) - MEET_START)}`, x + w - 278, y + 44, 18, P.pale, .82);
+  ctx.fillStyle = rgba(P.pale, .1); ctx.fillRect(x + 24, y + 68, w - 48, 1);
+  D.keep.forEach((kp, i) => {
+    const a = E.out(seg(t, kp.land - .06, kp.land + .22)); if (a <= 0) return;
+    const ly = y + 124 + i * 58, glowK = 1 - seg(t, kp.land, kp.land + .8);
+    label(ctx, "You", x + 28, ly - 3, 17, P.pale, a * .5);
+    ctx.font = f(40, SANS, 500); const w1 = ctx.measureText(kp.line[0]).width;
+    text(ctx, kp.line[0], x + 118, ly, f(40, SANS, 500), P.pale, a);
+    ctx.save(); ctx.shadowColor = rgba(P.amber, .8 * glowK); ctx.shadowBlur = 24 * glowK; text(ctx, kp.line[1], x + 118 + w1, ly, f(40, SANS, 600), P.amber, a); ctx.restore();
+  });
+  ctx.restore();
+}
+/** Each number, the moment it is said, lifts out of the caption and flies into the note. */
+function blChips(ctx, t, D) {
+  D.keep.forEach((kp, i) => {
+    const k = seg(t, kp.from, kp.land); if (k <= 0 || k >= 1 || !kp.words) return;
+    const a = BLCAP.pos[kp.words[0]], b = BLCAP.pos[kp.words[1]], from = a && b ? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] : [540, 1300];
+    ctx.font = f(40, SANS, 500); const to = [70 + 118 + ctx.measureText(kp.line[0]).width + 50, 1330 + 124 + i * 58 - 14];
+    const e = E.io(k), x = lerp(from[0], to[0], e), y = lerp(from[1], to[1], e) - Math.sin(Math.PI * e) * 70, s = 1 + .18 * Math.sin(Math.PI * e);
+    ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.globalAlpha *= 1 - E.in(seg(k, .85, 1));
+    ctx.font = f(40, SANS, 600); const tw = ctx.measureText(kp.chip).width + 40;
+    ctx.shadowColor = rgba(P.amber, .7); ctx.shadowBlur = 28; ctx.fillStyle = P.amber; rr(ctx, -tw / 2, -32, tw, 64, 32); ctx.fill(); ctx.shadowColor = "transparent";
+    text(ctx, kp.chip, 0, 14, f(40, SANS, 600), P.ink, 1, "center");
+    ctx.restore();
+  });
+}
+/** Black, and the answer to what was just said. */
+function blAlready(ctx, w, h, t, D) {
+  const k = E.out(seg(t, D.already, D.already + .3));
+  ctx.fillStyle = `rgba(0,0,0,${k})`; ctx.fillRect(0, 0, w, h);
+  arrive(ctx, "Tailzu already was.", w / 2, 980, f(96, SERIF, 400, true), P.pale, D.already + .2, t, { align: "center", stagger: .1, out: D.mac - .55 });
+  const a = E.out(seg(t, D.already + .1, D.already + .4)) * (1 - E.in(seg(t, D.mac - .55, D.mac - .1)));
+  if (a > 0) { const live = .55 + .45 * Math.sin((t - D.already) * TAU * 1.1); glow(ctx, w / 2, 830, 40, P.amber, .4 * live * a); ctx.fillStyle = rgba(P.amber, a); ctx.beginPath(); ctx.arc(w / 2, 830, 9, 0, TAU); ctx.fill(); }
+}
+/** A notification on the real Mac, top right, as Tahoe shows one. */
+function rmNotify(g, k, body, press = 0) {
+  if (k <= 0) return;
+  const w = 372, h = 78, x = RM.W - 14 - w, y = lerp(-h - 10, 46, k);
+  g.save(); g.globalAlpha *= clamp(k * 1.4);
+  g.translate(x + w / 2, y + h / 2); g.scale(1 - .03 * press, 1 - .03 * press); g.translate(-(x + w / 2), -(y + h / 2));
+  g.save(); g.shadowColor = "rgba(0,0,0,.45)"; g.shadowBlur = 28; g.shadowOffsetY = 10; g.fillStyle = "rgba(30,30,32,.4)"; rr(g, x, y, w, h, 18); g.fill(); g.restore();
+  frost(g, () => rr(g, x, y, w, h, 18), { blur: 24, tint: "rgba(40,38,44,.8)", edge: "rgba(255,255,255,.16)" });
+  g.fillStyle = "#15120F"; rr(g, x + 14, y + 19, 40, 40, 10); g.fill(); menuMark.draw(g, x + 18, y + 23, 32, P.pale);
+  text(g, "Tailzu", x + 66, y + 31, sf(13, 700), "#FFFFFF"); text(g, "now", x + w - 14, y + 30, sf(11.5, 400), "rgba(255,255,255,.55)", 1, "right");
+  const lay = layout(g, body, sf(13, 400), w - 82, 17); lay.lines.slice(0, 2).forEach((ln, i) => text(g, ln, x + 66, y + 50 + i * 17, lay.font, "rgba(255,255,255,.9)"));
+  g.restore();
+}
+let blMacBuf = null;
+/** The project manager's Mac, after the meeting: "Notes ready", a click, and the note the app made of it, its numbers ringed. */
+function blMac(ctx, w, h, t, D) {
+  const SS = 2, { W, H } = RM, img = WALL.macMsg, N = DESKAPP.note, im = DESKAPP.noteImg;
+  if (!blMacBuf) { blMacBuf = document.createElement("canvas"); blMacBuf.width = W * SS; blMacBuf.height = H * SS; }
+  const g = blMacBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = "#16233F"; g.fillRect(0, 0, W, H); }
+  const winK = E.out(seg(t, D.winOpen, D.winOpen + .35));
+  if (winK > 0) rmMenuBar(g, img, "Tailzu");
+  rmClock(g, img, "Mon 19 Oct  12:02 PM");
+  rmTray(g, 0, false);
+  if (im && N) {
+    rmTzPage(g, im, N.w, N.at.mast[3], winK, 0, 1, true);
+    const ox = TZW.x, oy = TZW.y + TZW.bar;
+    const L1 = N.at.lines[0], L2 = N.at.lines[1];
+    if (L1 && L2) rmRing(g, [ox + L1[0] + 132, oy + L1[1] + 8, L1[2] - 132, L2[1] + L2[3] - L1[1] - 16], t, [D.ring1, D.card + .3]);
+  }
+  const press = seg(t, D.click, D.click + .08) * (1 - seg(t, D.click + .1, D.click + .3));
+  rmNotify(g, E.out(seg(t, D.notif, D.notif + .45)) * (1 - E.in(seg(t, D.winOpen - .05, D.winOpen + .25))), "Notes ready: " + ((N && N.title) || "Remote control kick-off: price, budget, roles"), press);
+  drawPill(g, .4, (W - 1440) / 2, RM.dockTop - 4, 1440);
+  const [px, py] = ptrAt(D.ptr, t); macArrow(g, px, py);
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z, rw = W * z, rh = H * z;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, 14); ctx.clip(); ctx.drawImage(blMacBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, 13.25); ctx.stroke();
+  // Whose Mac, while it is seen whole; what it is, once the page fills it.
+  const show = clamp((.8 - z) / .15) * E.out(seg(t, D.mac + .2, D.mac + .6));
+  if (show > 0) { label(ctx, "After the meeting", w / 2, 520, 21, P.pale, show * .6, "center"); }
+  const note = E.out(seg(t, D.winOpen + 1.2, D.winOpen + 1.7));
+  if (note > 0) { label(ctx, "The note it wrote", w / 2, 104, 21, P.pale, note * .6, "center"); }
+  const fin = 1 - seg(t, D.mac, D.mac + .35); if (fin > 0) { ctx.fillStyle = `rgba(0,0,0,${fin})`; ctx.fillRect(0, 0, w, h); }
+}
+/** The card: permission, then the promise, then the proof; the project manager, pleased; the address; the credit. */
+function bleepCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu notes · ⌘⌥N", x0, 440, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Talk about beagles.", x0, 570, f(98, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Tailzu takes", x0, 686, f(98, SERIF, 400, true), P.pale, .85, t, { stagger: .12 });
+  arrive(ctx, "the notes.", x0, 802, f(98, SERIF, 400, true), P.pale, 1.05, t, { stagger: .12 });
+  arrive(ctx, "It caught the €12.50 while everyone", x0, 886, f(34, SANS, 400), rgba(P.pale, .72), 1.55, t, { stagger: .04 });
+  arrive(ctx, "was drawing their favourite animal.", x0, 932, f(34, SANS, 400), rgba(P.pale, .72), 1.75, t, { stagger: .04 });
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 822, 1610, 560, "thumbs", seg(t, .6, 1.8), t, E.out(seg(t, .5, 1.2)), "hoodie"); ctx.restore();
+  const k = E.out(seg(t, 2.1, 2.7)), ls = 36, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1290;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Free · Mac · Windows", x0, by + bh + 62, 21, P.pale, k * .6);
+  text(ctx, "Audio: AMI Meeting Corpus (CC BY 4.0), a real meeting, edited and bleeped.", x0, 1668, f(19, SANS, 400), rgba(P.pale, .4), E.out(seg(t, 2.4, 3)));
+}
+function bleepScene(ctx, w, h, t, D) {
+  if (t >= D.card) { bleepCard(ctx, w, h, t - D.card); return; }
+  if (t >= D.mac) { blMac(ctx, w, h, t, D); return; }
+  ctx.fillStyle = "#0D0B09"; ctx.fillRect(0, 0, w, h);
+  glow(ctx, 540, 420, 760, "#3A3027", .5);
+  blBoard(ctx, t, D); blStamp(ctx, t, D); blEraser(ctx, t, D); blPeople(ctx, t); blTable(ctx, t, D); blBars(ctx, t);
+  // From the point on, the room goes down but for a light on whoever is speaking.
+  const dim = E.io(seg(t, D.wipe + .3, D.wipe + 1)) * (1 - seg(t, D.already - .2, D.already));
+  if (dim > 0) {
+    let sx = 0, sw = 0; for (const p of BLR.people) { const k = blWho(p.s, t).talk + (p.s === "B" ? .02 : 0); sx += p.x * k; sw += k; }
+    const cx = sx / sw, sg = ctx.createRadialGradient(cx, 850, 110, cx, 850, 560); sg.addColorStop(0, "rgba(13,11,9,0)"); sg.addColorStop(1, `rgba(13,11,9,${.66 * dim})`);
+    ctx.fillStyle = sg; ctx.fillRect(0, 280, 1080, 830);
+  }
+  ctx.fillStyle = "#0D0B09"; ctx.fillRect(0, 1110, w, h - 1110);
+  blHead(ctx, t, D);
+  blCaption(ctx, t, D); blNote(ctx, t, D); blChips(ctx, t, D);
+  if (t >= D.already) blAlready(ctx, w, h, t, D);
+}
+FILMS.bleeped = { w: 1080, h: 1920, duration: BL.end, v2: true, draw(ctx, t, w, h) { bleepScene(ctx, w, h, t, BL); }, cues() {
+  const D = BL, c = [{ at: 0, kind: "sample", file: "meeting/bleeped.wav", gain: 1 }];
+  c.push({ at: D.stamp, kind: "freeze", gain: .7 }, { at: D.wipe + .05, kind: "open", gain: .5 });
+  [D.rv.whale, D.rv.beagle, D.rv.pig].forEach((r) => c.push({ at: r, kind: "resume", gain: .35 }));
+  D.keep.forEach((k) => c.push({ at: k.from, kind: "send", gain: .4 }, { at: k.land, kind: "land", gain: .8 }));
+  c.push({ at: D.already + .2, kind: "write", gain: .7 }, { at: D.notif, kind: "notify" }, { at: D.click, kind: "click" }, { at: D.winOpen, kind: "open" },
+    { at: D.ring1, kind: "land", gain: .5 }, { at: D.card, kind: "open", gain: .8 },
+    { at: D.turn + .3, kind: "bed", gain: 1.5, dur: D.end - D.turn - .3 });
+  return c;
+} };
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
 const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
