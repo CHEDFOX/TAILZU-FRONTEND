@@ -37,6 +37,7 @@
 <script src="voice/to-him.js"></script>
 <script src="deskapp/note-meta.js"></script>
 <script src="meeting/bleeped.js"></script>
+<script src="meeting/timeline.js"></script>
 <script>
 (function () {
 "use strict";
@@ -4159,10 +4160,12 @@ const BL = (() => {
   D.turn = D.aware.end;
   D.wipe = D.turn + .05;            // the board wiped
   D.already = D.down.end + .3;      // "Tailzu already was."
-  D.mac = D.already + 1.75;
-  D.notif = D.mac + .4; D.click = D.mac + 1.3; D.winOpen = D.mac + 1.4;
-  D.ring1 = D.mac + 3.95;
-  D.card = D.mac + 6.5; D.cardLen = 5.2; D.end = D.card + D.cardLen;
+  D.sweep = [D.already + .55, D.already + 1.75];   // the whole meeting, replayed as its voices
+  D.kept = [0, 1, 2, 3, 4, 5, 6].map((i) => D.already + 1.95 + i * .085);   // the seven things that mattered, dropping in
+  D.mac = D.already + 3.4;
+  D.notif = D.mac + .25; D.click = D.mac + .95; D.winOpen = D.mac + 1.05;
+  D.ring1 = D.mac + 3.3;
+  D.card = D.mac + 5.6; D.cardLen = 5; D.end = D.card + D.cardLen;
   // The point's two numbers: the words they are said in; when each leaves the caption, and lands in the note.
   const pw = MEET.words.filter((w) => w.clip === "point");
   const at = (a, n) => { const i = pw.findIndex((w, k) => w.w.toLowerCase() === a && pw[k + 1] && pw[k + 1].w.toLowerCase() === n); return i < 0 ? null : [MEET.words.indexOf(pw[i]), MEET.words.indexOf(pw[i + 2])]; };
@@ -4519,13 +4522,73 @@ function blChips(ctx, t, D) {
     ctx.restore();
   });
 }
-/** Black, and the answer to what was just said. */
+/**
+ * The answer to what was just said, and its proof: the whole eighteen minutes
+ * replayed as each voice's stretches of talk (meeting/timeline.js, from the
+ * real transcript, coloured as the app's own "Who spoke when" colours them),
+ * the five minutes of animals greyed out under their name, and the seven
+ * moments the note's lines came from dropping in, in amber.
+ */
+const MEET_ALL = window.TZ_MEETING_ALL || { start: 50.4, end: 1109.5, order: ["B", "D", "A", "C"], lanes: {}, animals: [151.8, 453.6], kept: [], words: 0, turns: 0, questions: 0 };
+const BL_LANE = { B: "#C97A12", D: "#00977F", A: "#4B5BD0", C: "#D6456E" };
 function blAlready(ctx, w, h, t, D) {
-  const k = E.out(seg(t, D.already, D.already + .3));
+  const k = E.out(seg(t, D.already, D.already + .3)), out = 1 - E.io(seg(t, D.mac - .45, D.mac - .05));
   ctx.fillStyle = `rgba(0,0,0,${k})`; ctx.fillRect(0, 0, w, h);
-  arrive(ctx, "Tailzu already was.", w / 2, 980, f(96, SERIF, 400, true), P.pale, D.already + .2, t, { align: "center", stagger: .1, out: D.mac - .55 });
-  const a = E.out(seg(t, D.already + .1, D.already + .4)) * (1 - E.in(seg(t, D.mac - .55, D.mac - .1)));
-  if (a > 0) { const live = .55 + .45 * Math.sin((t - D.already) * TAU * 1.1); glow(ctx, w / 2, 830, 40, P.amber, .4 * live * a); ctx.fillStyle = rgba(P.amber, a); ctx.beginPath(); ctx.arc(w / 2, 830, 9, 0, TAU); ctx.fill(); }
+  if (out <= 0) return;
+  ctx.save(); ctx.globalAlpha *= out;
+  arrive(ctx, "Tailzu already was.", w / 2, 690, f(96, SERIF, 400, true), P.pale, D.already + .15, t, { align: "center", stagger: .1 });
+  const M = MEET_ALL, dur = M.end - M.start, x0 = 330, x1 = 990, W = x1 - x0, X = (s0) => x0 + clamp((s0 - M.start) / dur) * W;
+  const sk = E.io(seg(t, D.sweep[0], D.sweep[1])), shown = E.out(seg(t, D.sweep[0] - .25, D.sweep[0]));
+  // What it heard, counting up as the meeting replays.
+  if (shown > 0) {
+    const heard = `${mmss(sk * dur)} heard · ${Math.round(sk * M.words).toLocaleString("en-US")} words · ${M.order.length} voices`;
+    label(ctx, heard, w / 2, 782, 20, P.pale, .62 * shown, "center");
+  }
+  const top = 912, step = 58, lh = 32;
+  ctx.save(); ctx.globalAlpha *= shown;
+  M.order.forEach((sp, i) => {
+    const y = top + i * step;
+    label(ctx, MEET.roles[sp] || sp, 90, y + 21, 14, P.pale, .55);
+    ctx.fillStyle = rgba(P.pale, .05); rr(ctx, x0, y, W, lh, 4); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y - 2, W * sk, lh + 4); ctx.clip(); ctx.fillStyle = BL_LANE[sp] || P.pale;
+    for (const [a, b] of M.lanes[sp] || []) { const xa = X(a), xb = Math.max(X(b), xa + 1.6); ctx.fillRect(xa, y + 3, xb - xa, lh - 6); }
+    ctx.restore();
+  });
+  const bottom = top + (M.order.length - 1) * step + lh;
+  // The animals: greyed under their name once the replay has passed them.
+  const [a0, a1] = M.animals, ga = E.out(seg(t, D.sweep[0] + (a1 - M.start) / dur * (D.sweep[1] - D.sweep[0]), D.sweep[1] + .15));
+  if (ga > 0) {
+    const xa = X(a0), xb = X(a1);
+    ctx.save(); ctx.globalAlpha *= ga;
+    ctx.fillStyle = "rgba(0,0,0,.74)"; ctx.fillRect(xa, top - 8, xb - xa, bottom - top + 16);
+    ctx.beginPath(); ctx.rect(xa, top - 8, xb - xa, bottom - top + 16); ctx.clip(); ctx.strokeStyle = rgba(P.pale, .1); ctx.lineWidth = 2;
+    for (let x = xa - 260; x < xb; x += 14) { ctx.beginPath(); ctx.moveTo(x, bottom + 8); ctx.lineTo(x + 230, top - 8); ctx.stroke(); }
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha *= ga; ctx.strokeStyle = rgba(P.pale, .35); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(xa, top - 22); ctx.lineTo(xa, top - 30); ctx.lineTo(xb, top - 30); ctx.lineTo(xb, top - 22); ctx.stroke(); ctx.restore();
+    label(ctx, "Favourite animals · 5 min", (xa + xb) / 2, top - 42, 14, P.pale, .6 * ga, "center");
+    // The bleep the film gave them, back on the block that was all of it.
+    const pop = 1 + .25 * (1 - E.out(clamp(ga * 1.6))), bw = 112, bh = 36;
+    ctx.save(); ctx.globalAlpha *= ga; ctx.translate((xa + xb) / 2, (top + bottom) / 2); ctx.rotate(-.06); ctx.scale(pop, pop);
+    ctx.fillStyle = P.pale; rr(ctx, -bw / 2, -bh / 2, bw, bh, 7); ctx.fill(); text(ctx, "BLEEP", 0, 6, f(16, MONO), P.ink, 1, "center", 3.4); ctx.restore();
+  }
+  // The playhead, while the meeting replays.
+  if (sk > 0 && sk < 1) {
+    const px = x0 + W * sk; ctx.fillStyle = rgba(P.pale, .9); ctx.fillRect(px - 1, top - 14, 2, bottom - top + 28);
+    label(ctx, mmss(sk * dur), px, bottom + 40, 14, P.pale, .7, "center");
+  }
+  // The seven moments that made the note.
+  let last = 0;
+  M.kept.forEach((s0, i) => {
+    const t0 = D.kept[i] ?? D.kept[D.kept.length - 1], kk = E.out(seg(t, t0, t0 + .22)); if (kk <= 0) return;
+    const x = X(s0), drop = (1 - kk) * -26; last = Math.max(last, kk);
+    ctx.fillStyle = rgba(P.amber, .5 * kk); ctx.fillRect(x - 1, top - 8, 2, bottom - top + 16 + 30 + drop);
+    glow(ctx, x, bottom + 46 + drop, 26, P.amber, .45 * kk);
+    ctx.fillStyle = rgba(P.amber, kk); ctx.beginPath(); ctx.arc(x, bottom + 46 + drop, 7, 0, TAU); ctx.fill();
+  });
+  if (last > 0) label(ctx, "7 things that mattered", (x0 + x1) / 2, bottom + 110, 16, P.amber, E.out(seg(t, D.kept[D.kept.length - 1], D.kept[D.kept.length - 1] + .3)), "center");
+  ctx.restore();
+  ctx.restore();
 }
 /** A notification on the real Mac, top right, as Tahoe shows one. */
 function rmNotify(g, k, body, press = 0) {
@@ -4596,6 +4659,7 @@ function bleepCard(ctx, w, h, t) {
 function bleepScene(ctx, w, h, t, D) {
   if (t >= D.card) { bleepCard(ctx, w, h, t - D.card); return; }
   if (t >= D.mac) { blMac(ctx, w, h, t, D); return; }
+  if (t >= D.already + .35) { ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h); blAlready(ctx, w, h, t, D); return; }
   ctx.fillStyle = "#0D0B09"; ctx.fillRect(0, 0, w, h);
   glow(ctx, 540, 420, 760, "#3A3027", .5);
   blBoard(ctx, t, D); blStamp(ctx, t, D); blEraser(ctx, t, D); blPeople(ctx, t); blTable(ctx, t, D); blBars(ctx, t);
@@ -4616,6 +4680,8 @@ FILMS.bleeped = { w: 1080, h: 1920, duration: BL.end, v2: true, draw(ctx, t, w, 
   c.push({ at: D.stamp, kind: "freeze", gain: .7 }, { at: D.wipe + .05, kind: "open", gain: .5 });
   [D.rv.whale, D.rv.beagle, D.rv.pig].forEach((r) => c.push({ at: r, kind: "resume", gain: .35 }));
   D.keep.forEach((k) => c.push({ at: k.from, kind: "send", gain: .4 }, { at: k.land, kind: "land", gain: .8 }));
+  c.push({ at: D.sweep[0], kind: "open", gain: .4 });
+  D.kept.forEach((at) => c.push({ at, kind: "resume", gain: .32 }));
   c.push({ at: D.already + .2, kind: "write", gain: .7 }, { at: D.notif, kind: "notify" }, { at: D.click, kind: "click" }, { at: D.winOpen, kind: "open" },
     { at: D.ring1, kind: "land", gain: .5 }, { at: D.card, kind: "open", gain: .8 },
     { at: D.turn + .3, kind: "bed", gain: 1.5, dur: D.end - D.turn - .3 });
