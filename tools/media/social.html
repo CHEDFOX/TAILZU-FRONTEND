@@ -32,6 +32,8 @@
 <body>
 <script src="pill/meta.js"></script>
 <script src="deskapp/meta.js"></script>
+<script src="deskapp/today-meta.js"></script>
+<script src="deskapp/voices-meta.js"></script>
 <script src="voice/to-him.js"></script>
 <script>
 (function () {
@@ -1412,7 +1414,7 @@ function drawPill(ctx, tau, x, bottom, sw) {
 }
 
 
-const SYS = '"Inter", -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif';
+const SYS = '"Inter", -apple-system, "SF Pro Text", "Noto Sans Devanagari", "Segoe UI", system-ui, sans-serif';
 const sf = (px, w = 400) => `${w} ${px}px ${SYS}`;
 
 /** The mic key the server sends: its mark, its program, its inset. */
@@ -1697,9 +1699,12 @@ function tzKeyboard(ctx, x0, top, W, o) {
     else text(ctx, k.label ?? k.id, k.x + k.w / 2, k.y + k.h / 2 + k.size * .36, sf(k.size, 400), KB.text, 1, "center");
   }
   // The tone pill: the voice that is writing.
+  const tp = o.tonePress || 0, tcx = tone.x + tone.w / 2, tcy = tone.y + tone.h / 2;
+  ctx.save(); ctx.translate(tcx, tcy); ctx.scale(1 - .06 * tp, 1 - .06 * tp); ctx.translate(-tcx, -tcy);
   ctx.fillStyle = KB.tone.bg; rr(ctx, tone.x, tone.y, tone.w, tone.h, tone.h / 2); ctx.fill();
   ctx.strokeStyle = KB.tone.border; ctx.lineWidth = 1; rr(ctx, tone.x + .5, tone.y + .5, tone.w - 1, tone.h - 1, tone.h / 2 - .5); ctx.stroke();
-  text(ctx, "ZU", tone.x + tone.w / 2, tone.y + tone.h / 2 + 4.6, sf(KB.tone.font, 500), KB.tone.fg, 1, "center");
+  text(ctx, o.toneLabel || "ZU", tone.x + tone.w / 2, tone.y + tone.h / 2 + 4.6, sf(KB.tone.font, 500), KB.tone.fg, 1, "center");
+  ctx.restore();
   // The mic key: its circle, and the mark running the server's program.
   const press = o.micPress || 0, mcx = mic.x + mic.w / 2, mcy = mic.y + mic.h / 2;
   ctx.save(); ctx.translate(mcx, mcy); ctx.scale(1 - .08 * press, 1 - .08 * press); ctx.translate(-mcx, -mcy);
@@ -1894,7 +1899,7 @@ function waChat(ctx, W, H, t, o) {
   ctx.beginPath(); ctx.moveTo(W - 28, 74); ctx.lineTo(W - 24.5, 78); ctx.lineTo(W - 21, 74); ctx.stroke(); ctx.restore();
   // The composer, over the keyboard when it is up.
   const kbTop = H - IPHONE.strip - KB_H * o.kbUp, cy0 = (o.kbUp > 0 ? kbTop : H - IPHONE.strip) - 56;
-  const lines = o.fieldLines || 1, fh = 36 + (lines - 1) * 20, by0 = cy0 - (fh - 36);
+  const lines = o.fieldText ? layout(ctx, o.fieldText, sf(16, 400), W - 42 - 56 - 44, 20).lines.length : 1, fh = 36 + (lines - 1) * 20, by0 = cy0 - (fh - 36);
   ctx.fillStyle = T.bar; ctx.fillRect(0, by0, W, H - by0); ctx.fillStyle = "rgba(0,0,0,.1)"; ctx.fillRect(0, by0, W, .5);
   if (o.kbUp <= 0) homeBar(ctx, W, "#1C1C1E");
   ctx.save(); ctx.strokeStyle = "#1C1C1E"; ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.beginPath(); ctx.moveTo(22, by0 + 28 - 7); ctx.lineTo(22, by0 + 28 + 7); ctx.moveTo(15, by0 + 28); ctx.lineTo(29, by0 + 28); ctx.stroke(); ctx.restore();
@@ -2038,10 +2043,12 @@ function phoneScene(ctx, w, h, t, Pn) {
     Pn.micAt(t);
     if (kbUp > 0) {
       ctx.save(); ctx.beginPath(); ctx.rect(0, c.kbTop, W, H - c.kbTop); ctx.clip();
-      const kb = tzKeyboard(ctx, 0, c.kbTop, W, { t, sim: Pn.sim, flashAt: Pn.land, flashText: Pn.wrote, micPress: Math.max(seg(t, Pn.tapMic, Pn.tapMic + .08) * (1 - seg(t, Pn.tapMic + .1, Pn.tapMic + .25)), seg(t, Pn.tapStop, Pn.tapStop + .08) * (1 - seg(t, Pn.tapStop + .1, Pn.tapStop + .25))) });
+      const toneLabel = Pn.tone ? (t >= Pn.toneTap + .1 ? Pn.tone : (Pn.toneFrom || "ZU")) : "ZU", tonePress = Pn.toneTap != null ? seg(t, Pn.toneTap, Pn.toneTap + .08) * (1 - seg(t, Pn.toneTap + .1, Pn.toneTap + .25)) : 0;
+      const kb = tzKeyboard(ctx, 0, c.kbTop, W, { t, sim: Pn.sim, flashAt: Pn.land, flashText: Pn.wrote, toneLabel, tonePress, micPress: Math.max(seg(t, Pn.tapMic, Pn.tapMic + .08) * (1 - seg(t, Pn.tapMic + .1, Pn.tapMic + .25)), seg(t, Pn.tapStop, Pn.tapStop + .08) * (1 - seg(t, Pn.tapStop + .1, Pn.tapStop + .25))) });
       ctx.fillStyle = KB.ground; ctx.fillRect(0, H - IPHONE.strip, W, IPHONE.strip); homeBar(ctx, W);
       ctx.restore();
       touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapMic, t); touch(ctx, kb.mic.x + 21, kb.mic.y + 21, Pn.tapStop, t);
+      if (Pn.toneTap != null) touch(ctx, kb.tone.x + kb.tone.w / 2, kb.tone.y + kb.tone.h / 2, Pn.toneTap, t);
     }
     touch(ctx, c.fieldBox.x + 140, c.fieldBox.y + c.fieldBox.h / 2, Pn.tapField, t); touch(ctx, c.send.x, c.send.y, Pn.tapSend, t);
     if (!Pn.captionBelow) caption(ctx, Pn.said, W / 2, c.captionY, W - 40, Pn.capFrom, Pn.capTo, t, 15, Pn.tapStop + .4);
@@ -2653,6 +2660,7 @@ const POSES = {
   thumbs: { ra: [.55, 2.1], la: [.18, .12], rh: "thumb", lh: "open", mouth: "smile", brows: .6, tilt: -.06 },
   shrug: { ra: [.95, 1.95], la: [.95, 1.95], rh: "open", lh: "open", mouth: "o", brows: 1, tilt: .1 },
   hips: { ra: [.55, 1.75], la: [.55, 1.75], rh: "hip", lh: "hip", mouth: "smile", brows: .45, tilt: 0 },
+  wave: { ra: [2.5, -.55], la: [.45, 2.05], rh: "open", lh: "phone", mouth: "smile", brows: .7, tilt: -.06 },
 };
 function mixPose(a, b, k) {
   const m = (x, y) => lerp(x, y, k), pick = (x, y) => k < .5 ? x : y;
@@ -2672,6 +2680,7 @@ function arm(g, H, sx, sy, s, a1, a2, hand, hipX, hipY, tone = .4, hi = .56) {
   g.strokeStyle = grey(.84); g.lineWidth = .034 * H;
   if (hand === "point") { g.beginPath(); g.moveTo(px, py); g.lineTo(px + dx * .085 * H, py + dy * .085 * H); g.stroke(); }
   if (hand === "thumb") { g.beginPath(); g.moveTo(px, py); g.lineTo(px, py - .095 * H); g.stroke(); }
+  if (hand === "phone") { g.save(); g.translate(px + s * .01 * H, py - .05 * H); g.rotate(s * .18); g.fillStyle = grey(.12); rr(g, -.034 * H, -.06 * H, .068 * H, .12 * H, .012 * H); g.fill(); g.fillStyle = grey(.9); rr(g, -.026 * H, -.05 * H, .052 * H, .1 * H, .008 * H); g.fill(); g.restore(); }
 }
 /** The figure, feet at the foot of a box W×H, in greys. */
 function drawFigure(g, W, H, p, t) {
@@ -2731,7 +2740,8 @@ function presenter(ctx, cx, bottom, H, name, k, t, alpha, who = "suit") {
   if (name === "tap" && held > .5 && held < 1.5) p.ra[1] += .22 * Math.sin((held - .5) * TAU * 2.2);
   if (name === "tada") { const b = .06 * Math.sin(t * TAU * 1.3); p.ra[0] += b; p.la[0] += b; }
   if (name === "present") p.ra[0] += .03 * Math.sin(t * TAU * .9);
-  (who === "hoodie" ? drawFigureHoodie : who === "blip" ? drawFigureBlip : drawFigure)(g, W, H, p, t);
+  if (name === "wave") p.ra[1] += .3 * Math.sin(t * TAU * 1.4);
+  (who === "hoodie" ? drawFigureHoodie : who === "blip" ? drawFigureBlip : who === "nani" ? drawFigureNani : drawFigure)(g, W, H, p, t);
   const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PRES.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
   for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
     const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
@@ -3192,6 +3202,206 @@ function toHimFilm(spoken) {
 FILMS.toHim = toHimFilm(false);
 FILMS.toHimVoice = toHimFilm(true);
 
+// ---- SAID ONCE: one sentence, three people, three voices ------------------------------
+/**
+ * Late all day, and right every time. The same nine words said to three
+ * people, the keyboard's voice pill tapped once before each: Professional
+ * to the boss, Playful to the best friend, Romantic to the one. The pill
+ * cycles the voices pinned to the keyboard (kb.personality.pinned), and the
+ * name it shows is the voice that writes. The card puts the one sentence
+ * said over the three written.
+ */
+const THREE_SAID = "running late, stuck in traffic, be there in twenty";
+const THREE = [
+  { tag: "01", who: "To the boss", time: "9:41", contact: { name: "Mehta Sir", initial: "M", color: "#4F6D8F" }, from: "ZU", tone: "Professional",
+    msgs: [["in", "Morning! Client walkthrough at 10.", "9:12 AM"], ["in", "Are you on the way?", "9:40 AM"]],
+    wrote: "Apologies, I'm running about 20 minutes late due to traffic. I'll be there shortly.", sentAt: "9:41 AM" },
+  { tag: "02", who: "To the best friend", time: "6:40", contact: { name: "Kabir 🍕", initial: "K", color: "#D96C4F" }, from: "Professional", tone: "Playful",
+    msgs: [["in", "bhai match shuru hone wala hai 🏏", "6:31 PM"], ["in", "kahan hai??", "6:39 PM"]],
+    wrote: "Traffic said no 😩 20 mins, save me a samosa 🥟", sentAt: "6:40 PM" },
+  { tag: "03", who: "To the one", time: "8:55", contact: { name: "Ira ❤️", initial: "I", color: "#B0567A" }, from: "Playful", tone: "Romantic",
+    msgs: [["in", "Table's ready 🕯️", "8:50 PM"], ["in", "Where are you? 🥺", "8:54 PM"]],
+    wrote: "Stuck in traffic, but I'm on my way to you. Twenty minutes, love ❤️", sentAt: "8:55 PM" },
+];
+const THREE_SEG = 6.2, THREE_CARD = 6.4;
+THREE.forEach((s) => {
+  const n = THREE_SAID.split(" ").length, capFrom = 1.55, capTo = 3.35;
+  s.Pn = {
+    time: s.time, way: "banner", light: true, captionBelow: true, device: { z: 1.6, top: 214 }, contact: s.contact,
+    banner: -9, tap: -9, open: -2, tapField: -2, toneTap: .6, toneFrom: s.from, tone: s.tone,
+    tapMic: 1.2, rec: 1.3, voice: capFrom, capFrom, capTo, wordAt: Array.from({ length: n }, (_, k) => k * (capTo - capFrom) / n), instr: [],
+    tapStop: 3.75, stop: 3.85, land: 4.55, tapSend: 5.25, sent: 5.4, end: THREE_SEG, said: THREE_SAID, wrote: s.wrote, app: waChat,
+  };
+  s.Pn.msgs = [...s.msgs.map(([from, text, time]) => ({ from, text, time, at: 0 })), { from: "out", text: s.wrote, time: s.sentAt, at: s.Pn.sent }];
+});
+function threeScene(ctx, w, h, T) {
+  const n = THREE.length;
+  if (T >= n * THREE_SEG) { threeCard(ctx, w, h, T - n * THREE_SEG); return; }
+  const i = Math.floor(T / THREE_SEG), s = THREE[i], t = T - i * THREE_SEG;
+  const inK = i === 0 ? 1 : E.out(seg(t, 0, .32)), outK = E.in(seg(t, THREE_SEG - .32, THREE_SEG));
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  ctx.save(); ctx.translate(w * (1 - inK) - w * outK, 0);
+  phonePart(ctx, w, h, t, s.Pn);
+  label(ctx, `${s.tag} — ${s.who}`, w / 2, 86, 20, P.pale, .6, "center");
+  if (t >= s.Pn.toneTap + .1) arrive(ctx, s.tone + ".", w / 2, 160, f(60, SERIF, 400, true), P.pale, s.Pn.toneTap + .1, t, { align: "center", stagger: .1 });
+  ctx.restore();
+}
+/** A green bubble as WhatsApp draws one, at the card's own size. */
+function cardBubble(ctx, s0, x, y, maxW, size, k) {
+  const lay = layout(ctx, s0, sf(size, 400), maxW - size * 1.4, size * 1.3), bw = lay.width + size * 1.4, bh = lay.lines.length * size * 1.3 + size * .9;
+  ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 18);
+  ctx.fillStyle = "#D9FDD3"; ctx.beginPath(); ctx.roundRect(x, y, bw, bh, size * .9); ctx.fill();
+  lay.lines.forEach((ln, i) => text(ctx, ln, x + size * .7, y + size * 1.25 + i * size * 1.3, lay.font, "#111B21"));
+  ctx.restore(); return bh;
+}
+function threeCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 90;
+  label(ctx, "Said once", x0, 200, 20, P.pale, E.out(seg(t, .1, .5)) * .55);
+  arrive(ctx, "running late, stuck in traffic,", x0, 290, f(66, HAND, 600), P.pale, .2, t, { stagger: .06 });
+  arrive(ctx, "be there in twenty", x0, 364, f(66, HAND, 600), P.pale, .55, t, { stagger: .06 });
+  label(ctx, "Written three ways", x0, 470, 20, P.pale, E.out(seg(t, .9, 1.3)) * .55);
+  let y = 500;
+  THREE.forEach((s, i) => {
+    const k = E.out(seg(t, 1.1 + i * .35, 1.6 + i * .35));
+    text(ctx, `${s.tone.toUpperCase()}  ·  ${s.contact.name.replace(/ .*/, "").toUpperCase()}`, x0, y + 26, f(18, MONO), P.pale, k * .75, "left", 3.5);
+    y += 44 + cardBubble(ctx, s.wrote, x0, y + 44, w - 2 * x0, 32, k) + 30;
+  });
+  arrive(ctx, "Same words.", x0, 1350, f(96, SERIF, 300), P.pale, 2.4, t, { stagger: .1 });
+  arrive(ctx, "Three voices.", x0, 1452, f(96, SERIF, 400, true), P.pale, 2.7, t, { stagger: .12 });
+  const k = E.out(seg(t, 3.3, 3.9)), ls = 34, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 110, bh = 96, by = 1560;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Tap the pill on your keyboard · 16 voices", x0, by + bh + 60, 20, P.pale, k * .6);
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, 150, 1730, 300, "thumbs", seg(t, 3.4, 4.4), t, E.out(seg(t, 3.3, 3.9)), "hoodie"); ctx.restore();
+}
+function threeCues() {
+  const c = [];
+  THREE.forEach((s, i) => {
+    const o = i * THREE_SEG, Pn = s.Pn;
+    if (i) c.push({ at: o, kind: "open", gain: .7 });
+    c.push({ at: o + Pn.toneTap, kind: "click" }, { at: o + Pn.tapMic, kind: "key" }, { at: o + Pn.rec, kind: "listen" }, { at: o + Pn.tapStop, kind: "key" },
+      { at: o + Pn.stop, kind: "stop" }, { at: o + Pn.stop + .3, kind: "write", gain: .8 }, { at: o + Pn.land, kind: "land" }, { at: o + Pn.tapSend, kind: "click" }, { at: o + Pn.sent, kind: "send" });
+  });
+  const T = THREE.length * THREE_SEG;
+  c.push({ at: T + .05, kind: "open", gain: .8 }, ...[0, 1, 2].map((i) => ({ at: T + 1.1 + i * .35, kind: "land", gain: .7 })), { at: 0, kind: "bed", dur: T + THREE_CARD });
+  return c;
+}
+FILMS.saidOnce = { w: 1080, h: 1920, duration: THREE.length * THREE_SEG + THREE_CARD, v2: true, draw(ctx, t, w, h) { threeScene(ctx, w, h, t); }, cues: threeCues };
+
+// ---- TO MAA: said in English, sent in Hindi --------------------------------------------
+/**
+ * The first night in a hostel, and Maa asking in Hindi if he got there. He
+ * answers the way he talks, in English, and ends with "say it in Hindi":
+ * the writer's language command (pipeline/commands.ts, kind "language"),
+ * which composes in that language from the start. It lands in Devanagari,
+ * she answers, and the card is Nani, phone in one hand, waving.
+ */
+const PHONE_MAA = (() => {
+  const said = "tell her I reached safely, the hostel is nice and the food is okay, I'll call after dinner, say it in Hindi";
+  const n = said.split(" ").length, capFrom = 3.55, capTo = 8.4;
+  return {
+    time: "9:41", way: "banner", light: true, captionBelow: true, device: { z: 1.82, top: 126 },
+    contact: { name: "Maa ❤️", initial: "M", color: "#C2733A" }, notif: { name: "Maa ❤️", text: "पहुँच गए बेटा? 🙏" },
+    banner: .4, tap: 1.35, open: 1.5, tapField: 2.45, tapMic: 3.1, rec: 3.2, voice: capFrom, capFrom, capTo,
+    wordAt: Array.from({ length: n }, (_, k) => k * (capTo - capFrom) / n), instr: [[n - 4, n]],
+    tapStop: 8.9, stop: 9.0, write: 9.35, land: 10.1, tapSend: 11.2, sent: 11.35, typing: 12.0, reply: 13.0, end: 14.6, card: 5.6,
+    said, wrote: "माँ, मैं ठीक से पहुँच गया हूँ 😊 हॉस्टल अच्छा है और खाना भी ठीक है। खाने के बाद फ़ोन करता हूँ ❤️",
+    app: waChat,
+  };
+})();
+PHONE_MAA.msgs = [
+  { from: "in", text: "ट्रेन में बैठ गए?", time: "6:05 PM", at: 0 },
+  { from: "out", text: "Haan maa, baith gaya 😊", time: "6:07 PM", at: 0 },
+  { from: "in", text: "खाना टाइम पे खा लेना", time: "6:08 PM", at: 0 },
+  { from: "in", text: "पहुँच गए बेटा? 🙏", time: "9:40 PM", at: 0 },
+  { from: "out", text: PHONE_MAA.wrote, time: "9:41 PM", at: PHONE_MAA.sent },
+  { from: "in", text: "शाबाश बेटा ❤️ अब आराम करो", time: "9:41 PM", at: PHONE_MAA.reply },
+];
+/** The card: Nani with her phone, the message she got floating beside her, the line, the address. */
+function maaCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · 22 Indian languages", x0, 300, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Talk in yours.", x0, 420, f(104, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Send in theirs.", x0, 536, f(104, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
+  arrive(ctx, "End with “say it in Hindi”, or Tamil, or Bengali.", x0, 616, f(32, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
+  presenter(ctx, 330, 1430, 640, "wave", seg(t, .6, 1.8), t, E.out(seg(t, .5, 1.2)), "nani");
+  // What reached her, in her script.
+  const k = E.out(seg(t, 1.5, 2.1)), bx = 612, by = 760;
+  ctx.save(); ctx.globalAlpha *= k; ctx.translate(0, (1 - k) * 24);
+  const lay = layout(ctx, PHONE_MAA.wrote, sf(30, 400), 370, 42), bw = 410, bh = lay.lines.length * 42 + 64;
+  ctx.fillStyle = "#FFFFFF"; ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 26); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(bx + 22, by + bh - 14); ctx.lineTo(bx - 10, by + bh + 4); ctx.lineTo(bx + 30, by + bh); ctx.closePath(); ctx.fill();
+  text(ctx, "Maa’s phone", bx + 22, by + 34, f(16, MONO), "#667781", 1, "left", 2);
+  lay.lines.forEach((ln, i) => text(ctx, ln, bx + 22, by + 76 + i * 42, sf(30, 400), "#111B21"));
+  ctx.restore();
+  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1560;
+  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+}
+FILMS.toMaa = (() => {
+  const Pn = PHONE_MAA, duration = +(Pn.end + Pn.card).toFixed(1);
+  return { w: 1080, h: 1920, duration, v2: true, draw(ctx, t, w, h) {
+    if (t < Pn.end) { phonePart(ctx, w, h, t, Pn); ctx.fillStyle = rgba("#000000", seg(t, Pn.end - .5, Pn.end)); ctx.fillRect(0, 0, w, h); }
+    else maaCard(ctx, w, h, t - Pn.end);
+  }, cues() {
+    const c = phoneCues(Pn);
+    c.push({ at: Pn.write, kind: "write" }, { at: Pn.end + .1, kind: "open", gain: .8 }, { at: Pn.end + 1.5, kind: "notify", gain: .6 }, { at: 0, kind: "bed", dur: duration });
+    return c;
+  } };
+})();
+/**
+ * NANI: grey hair in a bun, round glasses, a bindi, a saree with a border
+ * running over the shoulder and down to the floor, a phone in one hand.
+ */
+function drawFigureNani(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .6) * .005 * H;
+  // The saree: a long fall to the floor, the pallu across, its border striped.
+  const top = .44 * H + bob;
+  const sg = g.createLinearGradient(cx - .2 * H, 0, cx + .2 * H, 0); sg.addColorStop(0, grey(.62)); sg.addColorStop(.5, grey(.5)); sg.addColorStop(1, grey(.38));
+  g.fillStyle = sg; g.beginPath(); g.moveTo(cx - .15 * H, top); g.quadraticCurveTo(cx - .23 * H, .7 * H, cx - .2 * H, .965 * H); g.lineTo(cx + .2 * H, .965 * H); g.quadraticCurveTo(cx + .23 * H, .7 * H, cx + .15 * H, top); g.closePath(); g.fill();
+  g.fillStyle = grey(.2); g.fillRect(cx - .205 * H, .935 * H, .41 * H, .03 * H); g.fillStyle = grey(.86); g.fillRect(cx - .205 * H, .928 * H, .41 * H, .008 * H);
+  g.save(); g.beginPath(); g.moveTo(cx + .15 * H, top); g.lineTo(cx + .06 * H, top); g.lineTo(cx - .2 * H, .8 * H); g.lineTo(cx - .2 * H, .9 * H); g.closePath(); g.clip();
+  g.fillStyle = grey(.72); g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 12; i++) { g.strokeStyle = grey(i % 2 ? .25 : .9); g.lineWidth = .012 * H; g.beginPath(); g.moveTo(cx + .15 * H - i * .004 * H, top - .02 * H); g.lineTo(cx - .2 * H - i * .004 * H, .86 * H + i * .004 * H); g.stroke(); }
+  g.restore();
+  // Slippers.
+  g.fillStyle = grey(.18); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(cx + s * .07 * H, .972 * H, .06 * H, .018 * H, 0, 0, TAU); g.fill(); });
+  // Arms.
+  arm(g, H, cx + .15 * H, top + .03 * H, 1, p.ra[0], p.ra[1], p.rh, cx + .17 * H, .66 * H, .7, .82);
+  arm(g, H, cx - .15 * H, top + .03 * H, -1, p.la[0], p.la[1], p.lh, cx - .17 * H, .66 * H, .7, .82);
+  // The head: her bun, her parting, her glasses, her bindi, her smile.
+  const hx = cx, hy = .27 * H + bob, R = .135 * H;
+  g.save(); g.translate(hx, hy + R); g.rotate(p.tilt); g.translate(-hx, -(hy + R));
+  g.fillStyle = grey(.66); g.beginPath(); g.arc(hx + .02 * H, hy - R * 1.02, .065 * H, 0, TAU); g.fill();
+  g.fillStyle = grey(.5); g.beginPath(); g.arc(hx + .02 * H, hy - R * 1.02, .03 * H, 0, TAU); g.fill();
+  const fg = g.createRadialGradient(hx - .05 * H, hy - .05 * H, 0, hx, hy, R * 1.25); fg.addColorStop(0, grey(.92)); fg.addColorStop(.65, grey(.76)); fg.addColorStop(1, grey(.5));
+  g.fillStyle = fg; g.beginPath(); g.ellipse(hx, hy, R, R * 1.08, 0, 0, TAU); g.fill();
+  g.save(); g.beginPath(); g.ellipse(hx, hy, R * 1.02, R * 1.1, 0, Math.PI, TAU); g.clip();
+  g.fillStyle = grey(.7); g.beginPath(); g.ellipse(hx, hy - R * .55, R * 1.1, R * .6, 0, 0, TAU); g.fill();
+  g.strokeStyle = grey(.35); g.lineWidth = .008 * H; g.beginPath(); g.moveTo(hx, hy - R * 1.1); g.lineTo(hx, hy - R * .55); g.stroke();
+  g.restore();
+  g.fillStyle = grey(.2); g.beginPath(); g.arc(hx, hy - R * .3, .011 * H, 0, TAU); g.fill();
+  const blink = ((t * 1000 + 900) % 3300) < 120;
+  [-1, 1].forEach((s) => {
+    const ex = hx + s * .052 * H, ey = hy + .01 * H;
+    g.strokeStyle = grey(.12); g.lineWidth = .009 * H; g.beginPath(); g.arc(ex, ey, .036 * H, 0, TAU); g.stroke();
+    if (blink) { g.beginPath(); g.moveTo(ex - .016 * H, ey); g.lineTo(ex + .016 * H, ey); g.stroke(); }
+    else { g.fillStyle = grey(.08); g.beginPath(); g.arc(ex + .004 * H, ey + .004 * H, .012 * H, 0, TAU); g.fill(); }
+    g.strokeStyle = grey(.4); g.lineWidth = .009 * H; g.beginPath(); g.arc(ex, ey - .03 * H - p.brows * .012 * H, .03 * H, Math.PI * 1.2, Math.PI * 1.8); g.stroke();
+  });
+  g.strokeStyle = grey(.12); g.lineWidth = .009 * H; g.beginPath(); g.moveTo(hx - .016 * H, hy + .01 * H); g.lineTo(hx + .016 * H, hy + .01 * H); g.stroke();
+  g.strokeStyle = grey(.12); g.lineWidth = .012 * H; g.beginPath(); g.arc(hx, hy + .045 * H, .045 * H, Math.PI * .2, Math.PI * .8); g.stroke();
+  g.fillStyle = grey(.62); [-1, 1].forEach((s) => { g.beginPath(); g.arc(hx + s * .085 * H, hy + .06 * H, .016 * H, 0, TAU); g.fill(); });
+  g.restore();
+}
+
 // ---- a real Mac: Apple's own macOS Tahoe screens, the app's own pages ------------------
 /**
  * The screens are Apple's press pictures of macOS Tahoe 26 on a 16-inch
@@ -3204,12 +3414,13 @@ FILMS.toHimVoice = toHimFilm(true);
  */
 const RM = { W: 1728, H: 1122, k: 3498 / 1728, dockTop: 1038 };
 const TZW = { x: 304, y: 150, w: 1120, h: 780, bar: 28 };
-const DESKAPP = { meta: window.TZ_DESK_META || null, img: {}, tray: null, trayLive: null };
+const DESKAPP = { meta: window.TZ_DESK_META || null, today: window.TZ_DESK_TODAY || null, voices: window.TZ_DESK_VOICES || null, todayImg: null, voicesImg: {}, img: {}, tray: null, trayLive: null };
 function loadDeskApp() {
   const one = (src) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
   const m = DESKAPP.meta, shots = m ? m.shots.map((id) => one(`deskapp/${id}.png`).then((im) => { DESKAPP.img[id] = im; })) : [];
-  return Promise.all([one("deskapp/tray.png"), one("deskapp/tray-live.png"), ...shots]).then(([tray, live]) => {
-    DESKAPP.trayLive = live; if (!tray) return;
+  const voices = ["chats", "work", "email", "picked"].map((k) => one(`deskapp/voices-${k}.png`).then((im) => { DESKAPP.voicesImg[k] = im; }));
+  return Promise.all([one("deskapp/tray.png"), one("deskapp/tray-live.png"), one("deskapp/today-full.png"), ...shots, ...voices]).then(([tray, live, today]) => {
+    DESKAPP.trayLive = live; DESKAPP.todayImg = today; if (!tray) return;
     // The tray icon is a template image: black, drawn in the menu bar's ink.
     const c = document.createElement("canvas"); c.width = tray.width; c.height = tray.height; const x = c.getContext("2d");
     x.drawImage(tray, 0, 0); x.globalCompositeOperation = "source-in"; x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, c.width, c.height); DESKAPP.tray = c;
@@ -3568,6 +3779,310 @@ const LESSON_MACZ = { who: "blip", freezes: [
   { at: MACZ.landb + .55, hold: 2.7, pose: "thumbs", tag: "Select and say", title: "Select. *Say* the change.", body: "Highlight any text, tap control twice, say simpler, shorter or more formal. It is rewritten in place.", focus: () => { const b = rnRewrite.box || [58, 840, 740, 110]; return [b[0] - 4, b[1] - 4, b[2] + 8, b[3] + 8]; } },
 ] };
 FILMS.lessonMacZara = lessonFilm(MACZ, LESSON_MACZ, macZScene, macZCues);
+
+// ---- TIME BACK: one Sunday, said; then the app's own count of it ------------------------
+/**
+ * A day on a Mac in four stops: a reply in Messages at 9:12 AM, a line in
+ * Notes at 2:02 PM, another reply at 9:03 PM, and at 11:48 PM the Tailzu
+ * window's Today page. Between the stops the clock runs and the day's words
+ * count up. The page is the desktop app's own, drawn against a backend
+ * whose in-memory stores hold that day (desk-seed/), so every figure on it
+ * (2,485 words, 46 min back, said 17 min against typed 1 h 02, the hours,
+ * the streak) is the app's own arithmetic. The counter between the stops is
+ * the same day's running total.
+ */
+const TB = (() => {
+  const T = DESKAPP.today || { w: 1120, h: 1664, at: { mast: [0, 0, 1120, 60], back: [367, 227, 175, 92], race: [592, 406, 372, 25], backLine: [592, 555, 372, 28] } };
+  const D = {
+    // A: Messages, morning.
+    a: { tap1: 1.45, tap2: 1.65, rec: 1.7, capFrom: 1.95, capTo: 2.75, stop1: 3.0, stop2: 3.2, land: 3.75, enter: 4.2, sent: 4.3,
+      said: "count me in for saturday", wrote: "Count me in for Saturday! 🚴" },
+    t1: [4.9, 6.4, 9 * 60 + 12, 14 * 60 + 2, 84, 940], cut1: 5.75,
+    // B: Notes, afternoon.
+    b: { click: 7.25, tap1: 7.7, tap2: 7.9, rec: 7.95, capFrom: 8.15, capTo: 9.35, stop1: 9.55, stop2: 9.75, land: 10.25,
+      said: "ask professor rao about the critiques of gardner's theory", wrote: "Ask Prof. Rao about the critiques of Gardner's theory." },
+    t2: [10.9, 12.4, 14 * 60 + 2, 21 * 60 + 3, 940, 2100], cut2: 11.75,
+    // C: Messages, night.
+    c: { tap1: 13.4, tap2: 13.6, rec: 13.65, capFrom: 13.9, capTo: 15.1, stop1: 15.3, stop2: 15.5, land: 16.0, enter: 16.5, sent: 16.6,
+      said: "reached home, legs are dead, same time next week?", wrote: "Reached home, legs are dead 😅 Same time next week?" },
+    t3: [17.2, 18.4, 21 * 60 + 3, 23 * 60 + 48, 2100, 2485],
+    // D: the Today page.
+    trayClick: 19.2, menuOpen: 19.25, openHover: 19.75, openClick: 20.05, winOpen: 20.15, scrollFrom: 22.7, scrollTo: 23.6,
+    ringBack: [21.5, 22.5], ringLine: [24.1, 25.6], card: 25.9, cardLen: 5.6,
+    page: T,
+  };
+  D.end = D.card + D.cardLen;
+  D.scroll = Math.max(0, Math.min(T.h - 780, T.at.race[1] - 130));
+  const ox = TZW.x, oy = TZW.y + TZW.bar, mh = T.at.mast[3];
+  D.backBox = [ox + T.at.back[0] - 12, oy + T.at.back[1] - 10, T.at.back[2] + 24, T.at.back[3] + 20];
+  D.lineBox = [ox + T.at.backLine[0] - 12, oy + T.at.backLine[1] - D.scroll - 8, T.at.backLine[2] + 24, T.at.backLine[3] + 16];
+  D.raceC = [ox + T.at.race[0] + T.at.race[2] / 2, oy + T.at.race[1] - D.scroll + 110];
+  D.ptr = [
+    [0, 0, 1150, 980], [D.t1[0] + .9, D.t1[0] + .9, 700, 760], [6.6, 7.2, 560, 948, "ibeam"], [7.4, 7.9, 640, 1000, "arrow"],
+    [D.t2[0] + .9, D.t2[0] + .9, 1150, 980], [D.t3[0] + .2, 19.1, 1331, 19], [19.3, 19.7, 1400, 105], [20.3, 21.0, 1200, 860],
+  ];
+  D.cam = [
+    [0, .625, 864, 561], [.6, 1.75, 1052, 760, .8], [D.t1[0], .625, 864, 561, .6], [6.4, 1.46, 416, 880, .8],
+    [D.t2[0], .625, 864, 561, .6], [12.4, 1.75, 1052, 760, .8], [D.t3[0], .625, 864, 561, .6],
+    [20.2, .9, 864, 545, .7], [20.9, 1.27, 864, D.backBox[1] + D.backBox[3] / 2 - 30, .8], [22.7, 1.5, D.raceC[0], D.raceC[1], .9],
+  ];
+  return D;
+})();
+const tbTime = (m) => { m = Math.round(m); const h = Math.floor(m / 60) % 24, mm = m % 60; return `${h % 12 || 12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
+/** The day's clock and words as they stand at film time t. */
+function tbDay(t, D) {
+  let m = 9 * 60 + 12, w = 84;
+  for (const [t0, t1, m0, m1, w0, w1] of [D.t1, D.t2, D.t3]) {
+    if (t < t0) break;
+    const k = E.io(seg(t, t0 + .5, t1 - .2)); m = lerp(m0, m1, k); w = lerp(w0, w1, k);
+  }
+  return { m, w: Math.round(w) };
+}
+/** The menu bar's clock, set to `s`: its ground is the wallpaper under it, as rmMenuBar's is. */
+function rmClock(g, img, s0) {
+  const K = RM.k; g.drawImage(img, 1560 * K, 39 * K, 160 * K, 3 * K, 1560, 0, 160, 37);
+  g.save(); g.shadowColor = "rgba(0,0,0,.18)"; g.shadowBlur = 3; text(g, s0, 1712, 24, sf(14.5, 500), "#FFFFFF", 1, "right"); g.restore();
+}
+/** Messages with several sent, oldest first: the conversation scrolled up by all of them. */
+function rmSentList(g, img, list, extra = 0) {
+  const F = rmFonts(g).msg, ms = list.map(({ msg, k }) => { const lay = layout(g, msg, sf(F, 400), 300, 19); return { lay, k, bw: lay.width + 26, bh: lay.lines.length * 19 + 14 }; });
+  const total = ms.reduce((a, m) => a + (m.bh + 26) * E.out(m.k), 0) + extra; rmScroll(g, img, total);
+  let y = 842 - 22 - extra;
+  for (let i = ms.length - 1; i >= 0; i--) {
+    const m = ms[i]; if (m.k <= 0) continue;
+    const bx = 1297 - m.bw, by = y - m.bh + (1 - E.out(m.k)) * 20;
+    g.save(); g.globalAlpha *= clamp(m.k * 2);
+    const gr = g.createLinearGradient(0, by, 0, by + m.bh); gr.addColorStop(0, "#1E8EF2"); gr.addColorStop(1, "#0A6ED6"); g.fillStyle = gr;
+    g.beginPath(); g.roundRect(bx, by, m.bw, m.bh, 17); g.fill();
+    if (i === ms.length - 1) { g.beginPath(); g.moveTo(bx + m.bw - 14, by + m.bh - 9); g.quadraticCurveTo(bx + m.bw + 1, by + m.bh, bx + m.bw + 6, by + m.bh + 1); g.quadraticCurveTo(bx + m.bw - 6, by + m.bh + 2, bx + m.bw - 18, by + m.bh - 1); g.closePath(); g.fill(); }
+    m.lay.lines.forEach((ln, j) => text(g, ln, bx + 13, by + 20 + j * 19, sf(F, 400), "#FFFFFF"));
+    if (i === ms.length - 1) text(g, "Delivered", 1297, 842 - 6 - extra, sf(11, 500), "#8E8E93", E.out(seg(m.k, .5, 1)), "right");
+    g.restore();
+    y -= (m.bh + 26) * E.out(m.k);
+  }
+}
+/** The Tailzu window on its Today page, scrolled `sc` points: the masthead stays, the page moves under it. */
+function rmTzToday(g, k, sc) {
+  const im = DESKAPP.todayImg, T = TB.page; if (k <= 0 || !im) return;
+  const { x, y, w, h, bar } = TZW, H = h + bar, R = 16, cx = x + w / 2, cy = y + H / 2, sc0 = lerp(.96, 1, k), S = im.width / T.w, mh = T.at.mast[3];
+  g.save(); g.globalAlpha *= k; g.translate(cx, cy); g.scale(sc0, sc0); g.translate(-cx, -cy);
+  g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 60; g.shadowOffsetY = 22; g.fillStyle = "#151210"; rr(g, x, y, w, H, R); g.fill(); g.restore();
+  g.save(); g.beginPath(); g.roundRect(x, y, w, H, R); g.clip();
+  g.fillStyle = "#26231F"; g.fillRect(x, y, w, bar);
+  g.drawImage(im, 0, (mh + sc) * S, T.w * S, (h - mh) * S, x, y + bar + mh, w, h - mh);
+  g.drawImage(im, 0, 0, T.w * S, mh * S, x, y + bar, w, mh);
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(x, y + bar - 1, w, 1);
+  g.restore();
+  ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(x + 18 + i * 20, y + bar / 2, 6.2, 0, TAU); g.fill(); });
+  text(g, "Tailzu", cx, y + bar / 2 + 4.5, sf(13, 600), "rgba(255,255,255,.85)", 1, "center");
+  g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1; rr(g, x + .5, y + .5, w - 1, H - 1, R - .5); g.stroke();
+  g.restore();
+}
+/** A pale ring drawn round something on the screen, on and off between [t0, t1]. */
+function rmRing(g, box, t, [t0, t1]) {
+  const k = E.out(seg(t, t0, t0 + .35)) * (1 - E.in(seg(t, t1 - .3, t1))); if (k <= 0) return;
+  const [x, y, w, h] = box, p = 4 * (1 - k);
+  g.save(); g.globalAlpha *= k; g.shadowColor = "rgba(243,226,198,.6)"; g.shadowBlur = 14; g.strokeStyle = P.pale; g.lineWidth = 2.2; rr(g, x - p, y - p, w + 2 * p, h + 2 * p, 12); g.stroke(); g.restore();
+}
+let tbBuf = null;
+function timeBackScene(ctx, w, h, t, D) {
+  if (t >= D.card) { timeBackCard(ctx, w, h, t - D.card); return; }
+  const SS = 2, { W, H } = RM;
+  const notes = t >= D.cut1 && t < D.cut2, img = notes ? WALL.macNotes : WALL.macMsg, part = t < D.cut1 ? D.a : notes ? D.b : t < D.t3[0] ? D.c : null;
+  if (!tbBuf) { tbBuf = document.createElement("canvas"); tbBuf.width = W * SS; tbBuf.height = H * SS; }
+  const g = tbBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = "#16233F"; g.fillRect(0, 0, W, H); }
+  const day = tbDay(t, D), winK = E.out(seg(t, D.winOpen, D.winOpen + .3));
+  const menuK = t >= D.menuOpen && t < D.openClick + .14 ? E.out(seg(t, D.menuOpen, D.menuOpen + .12)) * (1 - seg(t, D.openClick + .02, D.openClick + .14)) : 0;
+  const listening = part && t >= part.rec && t < part.stop2 + .1;
+  if (!notes) {
+    const sent = [];
+    if (t >= D.a.sent) sent.push({ msg: D.a.wrote, k: seg(t, D.a.sent, D.a.sent + .4) });
+    if (t >= D.c.sent) sent.push({ msg: D.c.wrote, k: seg(t, D.c.sent, D.c.sent + .4) });
+    const P0 = t < D.cut1 ? D.a : D.c, landed = t >= P0.land && t < P0.sent;
+    let grow = 0;
+    if (landed) { g.save(); grow = (layout(g, P0.wrote, sf(rmFonts(g).msg, 400), RMSG.field[2] - 30, 19).lines.length - 1) * 19 * E.out(seg(t, P0.land, P0.land + .2)); g.restore(); }
+    rmSentList(g, img, sent, grow);
+    rmComposer(g, { text: landed ? P0.wrote : "", k: E.out(seg(t, P0.land, P0.land + .2)), caret: !landed && Math.floor(t * 1.9) % 2 === 0 && t > .3 && t < D.t3[0] });
+    if (winK > 0) rmMenuBar(g, img, "Tailzu");
+  } else {
+    if (t >= D.b.click) { rmMenuBar(g, img, "Notes"); ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(60 + i * 26, 93, 7, 0, TAU); g.fill(); }); }
+    const F = rmFonts(g).notes, font = sf(F, 400);
+    if (t >= D.b.land) { const k = E.out(seg(t, D.b.land, D.b.land + .25)); text(g, "–", 66, 973, font, "#2B2B2B", k); text(g, D.b.wrote, 83, 973, font, "#2B2B2B", k); }
+    else if (t >= D.b.click && Math.floor(t * 1.9) % 2 === 0) { g.fillStyle = "#2B2B2B"; g.fillRect(558, 939, 1.4, 18); }
+  }
+  rmClock(g, img, `Sun 18 Oct  ${tbTime(day.m)}`);
+  rmTray(g, menuK, listening);
+  rmTzToday(g, winK, D.scroll * E.io(seg(t, D.scrollFrom, D.scrollTo)));
+  rmRing(g, D.backBox, t, D.ringBack); rmRing(g, D.lineBox, t, D.ringLine);
+  rmTrayMenu(g, menuK, t >= D.openHover ? "Open Tailzu" : null);
+  drawPill(g, part ? pillTau(t, part.rec, part.stop2 + .1, part.land) : .4, (W - 1440) / 2, RM.dockTop - 4, 1440);
+  const [px, py, kind] = ptrAt(D.ptr, t); (kind === "ibeam" ? macIbeam : macArrow)(g, px, py);
+
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const lift = notes ? 150 * E.io(seg(t, 6.4, 7.2)) * (1 - E.io(seg(t, D.t2[0], D.t2[0] + .6))) : 0;
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z - lift, rw = W * z, rh = H * z;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, 14); ctx.clip(); ctx.drawImage(tbBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, 13.25); ctx.stroke();
+  for (const c of [D.cut1, D.cut2]) { const dip = 1 - clamp(Math.abs(t - c) / .28); if (dip > 0) { ctx.fillStyle = `rgba(0,0,0,${dip})`; ctx.fillRect(0, 0, w, h); } }
+  // The day, over the Mac whenever it is seen whole: the hour, and the words so far.
+  const show = clamp((.95 - z) / .25);
+  if (show > 0) {
+    ctx.save(); ctx.globalAlpha *= show;
+    label(ctx, "Sunday", w / 2, 300, 22, P.pale, .55, "center");
+    text(ctx, tbTime(day.m), w / 2, 432, f(132, SERIF, 300), P.pale, 1, "center");
+    text(ctx, day.w.toLocaleString("en-US"), w / 2, 1430, f(72, SANS, 500), P.pale, 1, "center");
+    label(ctx, "Words today", w / 2, 1486, 20, P.pale, .55, "center");
+    ctx.restore();
+  }
+  const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250), key = ["⌃ control"];
+  for (const P0 of [D.a, D.b, D.c]) {
+    [[P0.tap1, -1], [P0.tap2, 1], [P0.stop1, -1], [P0.stop2, 1]].forEach(([at, s0]) => keyHud(ctx, key, w / 2 + s0 * 104, hudY, at, t));
+    if (P0.enter) keyHud(ctx, ["↩ return"], w / 2, hudY, P0.enter, t);
+    captionMark(ctx, P0.said, [], w / 2, hudY + 110, w - 80, P0.capFrom, P0.capTo, t, 40, P0.stop2 + .4);
+  }
+}
+function timeBackCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Sunday, 18 October · Tailzu for Mac", x0, 470, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "46 minutes back.", x0, 600, f(104, SERIF, 400, true), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Today alone.", x0, 716, f(104, SERIF, 300), P.pale, .7, t, { stagger: .12 });
+  arrive(ctx, "Said in 17 minutes. Typing it would", x0, 800, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
+  arrive(ctx, "have taken an hour and two.", x0, 846, f(34, SANS, 400), rgba(P.pale, .7), 1.3, t, { stagger: .04 });
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 560, 620, "tada", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "blip"); ctx.restore();
+  const k = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
+}
+function timeBackCues(D) {
+  const c = [];
+  for (const P0 of [D.a, D.b, D.c]) {
+    if (P0.click) c.push({ at: P0.click, kind: "click" });
+    c.push({ at: P0.tap1, kind: "key" }, { at: P0.tap2, kind: "key" }, { at: P0.rec, kind: "listen" }, { at: P0.stop1, kind: "key" }, { at: P0.stop2, kind: "key" },
+      { at: P0.stop2 + .12, kind: "stop" }, { at: P0.stop2 + .4, kind: "write", gain: .8 }, { at: P0.land, kind: "land" });
+    if (P0.enter) c.push({ at: P0.enter, kind: "key" }, { at: P0.sent, kind: "send" });
+  }
+  for (const [t0, t1] of [D.t1, D.t2, D.t3]) {
+    c.push({ at: t0, kind: "open", gain: .7 });
+    for (let x = t0 + .55; x < t1 - .25; x += .09) c.push({ at: x, kind: "resume", gain: .35 });
+    c.push({ at: t1 - .2, kind: "land", gain: .6 });
+  }
+  c.push({ at: D.trayClick, kind: "click" }, { at: D.openClick, kind: "click" }, { at: D.winOpen, kind: "open" }, { at: D.ringBack[0], kind: "land", gain: .5 },
+    { at: D.scrollFrom, kind: "open", gain: .4 }, { at: D.ringLine[0], kind: "land", gain: .5 }, { at: D.card, kind: "open", gain: .8 }, { at: 0, kind: "bed", dur: D.end });
+  return c;
+}
+FILMS.timeBack = { w: 1080, h: 1920, duration: TB.end, v2: true, draw(ctx, t, w, h) { timeBackScene(ctx, w, h, t, TB); }, cues() { return timeBackCues(TB); } };
+
+// ---- VOICES: the app's own gallery of sixteen ways to say one thing --------------------
+/**
+ * The desktop app's Voices page, as it is: "Same words. The voice you
+ * choose." One sentence said, sixteen cards writing it, each in its own
+ * colour. The camera glides down the gallery as the page scrolls, the tabs
+ * change what was said (Chats, Work, Email), and Witty is chosen: the page
+ * moves it to the front, "In use, everywhere". Every frame of the window
+ * is the page drawn by Chromium against the backend (capture-desk.mjs,
+ * MODE=voices).
+ */
+const VX = (() => {
+  const V = DESKAPP.voices || { w: 1120, h: 1672, tabs: { CHATS: [160, 267, 69, 27], WORK: [229, 267, 61, 27], EMAIL: [289, 267, 69, 27] }, cards: { WITTY: [156, 562, 259, 170] } };
+  const ox = TZW.x, oy = TZW.y + TZW.bar, c = (r) => [ox + r[0] + r[2] / 2, oy + r[1] + r[3] / 2];
+  const D = {
+    winOpen: .45, work: 7.3, email: 9.45, chats: 11.65, pick: 13.0, card: 15.3, cardLen: 5.4, page: V,
+    scroll: [[1.9, 3.6, 0, 300], [3.9, 5.7, 300, 620], [6.0, 6.6, 620, 0], [7.6, 8.8, 0, 220], [8.9, 9.3, 220, 0], [9.7, 10.9, 0, 220], [11.0, 11.4, 220, 0]],
+    tabWork: c(V.tabs.WORK), tabEmail: c(V.tabs.EMAIL), tabChats: c(V.tabs.CHATS), witty: c(V.cards.WITTY),
+    pickedBox: [ox + 156 - 6, oy + 358 - 6, 259 + 12, 170 + 12],
+  };
+  D.end = D.card + D.cardLen;
+  D.ptr = [[0, 0, 1180, 990], [6.7, 7.2, D.tabWork[0], D.tabWork[1]], [9.0, 9.4, D.tabEmail[0], D.tabEmail[1]], [11.2, 11.6, D.tabChats[0], D.tabChats[1]],
+    [12.0, 12.85, D.witty[0], D.witty[1]], [13.5, 14.1, 1210, 900]];
+  D.cam = [[0, .625, 864, 561], [.7, 1.0, 864, 545, .9], [1.6, 1.32, 863, 560, .9], [6.0, 1.18, 864, 545, .6], [12.0, 1.3, 760, 690, .7], [13.15, 1.75, D.pickedBox[0] + 140, D.pickedBox[1] + 80, .8]];
+  return D;
+})();
+/** How far the Voices page is scrolled at t. */
+function vxScroll(t, D) { let y = 0; for (const [t0, t1, a, b] of D.scroll) { if (t < t0) break; y = lerp(a, b, E.io(seg(t, t0, t1))); } return y; }
+/** A desk page captured whole, in the Tailzu window: the masthead held, the page scrolled `sc` under it; `alpha` for crossfades. */
+function rmTzPage(g, im, pageW, mh, k, sc, alpha = 1, chrome = true) {
+  if (k <= 0 || !im) return;
+  const { x, y, w, h, bar } = TZW, H = h + bar, R = 16, cx = x + w / 2, cy = y + H / 2, z = lerp(.96, 1, k), S = im.width / pageW;
+  g.save(); g.globalAlpha *= k; g.translate(cx, cy); g.scale(z, z); g.translate(-cx, -cy);
+  if (chrome) { g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 60; g.shadowOffsetY = 22; g.fillStyle = "#151210"; rr(g, x, y, w, H, R); g.fill(); g.restore(); }
+  g.save(); g.beginPath(); g.roundRect(x, y, w, H, R); g.clip(); g.globalAlpha *= alpha;
+  if (chrome) { g.fillStyle = "#26231F"; g.fillRect(x, y, w, bar); }
+  g.drawImage(im, 0, (mh + sc) * S, pageW * S, (h - mh) * S, x, y + bar + mh, w, h - mh);
+  g.drawImage(im, 0, 0, pageW * S, mh * S, x, y + bar, w, mh);
+  g.fillStyle = "rgba(0,0,0,.55)"; g.fillRect(x, y + bar - 1, w, 1);
+  g.restore();
+  if (chrome) {
+    ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(x + 18 + i * 20, y + bar / 2, 6.2, 0, TAU); g.fill(); });
+    text(g, "Tailzu", cx, y + bar / 2 + 4.5, sf(13, 600), "rgba(255,255,255,.85)", 1, "center");
+    g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1; rr(g, x + .5, y + .5, w - 1, H - 1, R - .5); g.stroke();
+  }
+  g.restore();
+}
+let vxBuf = null;
+function voicesScene(ctx, w, h, t, D) {
+  if (t >= D.card) { voicesCard(ctx, w, h, t - D.card); return; }
+  const SS = 2, { W, H } = RM, img = WALL.macMsg, V = D.page;
+  if (!vxBuf) { vxBuf = document.createElement("canvas"); vxBuf.width = W * SS; vxBuf.height = H * SS; }
+  const g = vxBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = "#16233F"; g.fillRect(0, 0, W, H); }
+  const winK = E.out(seg(t, D.winOpen, D.winOpen + .35));
+  if (winK > 0) rmMenuBar(g, img, "Tailzu");
+  rmClock(g, img, "Sun 18 Oct  8:14 PM");
+  rmTray(g, 0, false);
+  // Which tab is up, crossfading to the next for a fifth of a second.
+  const steps = [[0, "chats"], [D.work, "work"], [D.email, "email"], [D.chats, "chats"], [D.pick, "picked"]];
+  let cur = 0; while (cur + 1 < steps.length && t >= steps[cur + 1][0]) cur++;
+  const sc = vxScroll(t, D), mh = 60, fadeIn = cur ? seg(t, steps[cur][0], steps[cur][0] + .2) : 1;
+  rmTzPage(g, DESKAPP.voicesImg[steps[cur ? cur - 1 : 0][1]], V.w, mh, winK, sc, 1, true);
+  if (cur) rmTzPage(g, DESKAPP.voicesImg[steps[cur][1]], V.w, mh, winK, sc, fadeIn, false);
+  rmRing(g, D.pickedBox, t, [D.pick + .35, D.card - .2]);
+  drawPill(g, .4, (W - 1440) / 2, RM.dockTop - 4, 1440);
+  const [px, py, kind] = ptrAt(D.ptr, t); (kind === "ibeam" ? macIbeam : macArrow)(g, px, py);
+
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(D, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const rx = w / 2 - cx * z, ry = h / 2 - cy * z, rw = W * z, rh = H * z;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, 14); ctx.clip(); ctx.drawImage(vxBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, 13.25); ctx.stroke();
+  // Over the Mac while it is seen whole: the one thing said, sixteen ways to come.
+  const show = clamp((1.08 - z) / .3) * (t < 2 ? 1 : 0);
+  if (show > 0) {
+    ctx.save(); ctx.globalAlpha *= show;
+    label(ctx, "Said once", w / 2, 330, 21, P.pale, .55, "center");
+    text(ctx, "haan bhai kal milte hain paanch baje", w / 2, 430, f(66, HAND, 600), P.pale, 1, "center");
+    label(ctx, "Sixteen ways to write it", w / 2, 1450, 21, P.pale, .55 * clamp((.72 - z) / .08), "center");
+    ctx.restore();
+  }
+}
+function voicesCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · Voices", x0, 470, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Same words.", x0, 600, f(110, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Sixteen voices.", x0, 720, f(110, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
+  arrive(ctx, "Pick one here, and it writes everything", x0, 804, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
+  arrive(ctx, "you say, on your Mac and your phone.", x0, 850, f(34, SANS, 400), rgba(P.pale, .7), 1.3, t, { stagger: .04 });
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 840, h - 470, 560, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "suit"); ctx.restore();
+  const k = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - k) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
+}
+FILMS.voicesMac = { w: 1080, h: 1920, duration: VX.end, v2: true, draw(ctx, t, w, h) { voicesScene(ctx, w, h, t, VX); }, cues() {
+  const D = VX, c = [{ at: D.winOpen, kind: "open" }, { at: D.work, kind: "click" }, { at: D.email, kind: "click" }, { at: D.chats, kind: "click" }, { at: D.pick, kind: "click" }, { at: D.pick + .2, kind: "land" }, { at: D.card, kind: "open", gain: .8 }, { at: 0, kind: "bed", dur: D.end }];
+  for (const [t0, t1] of D.scroll) c.push({ at: t0, kind: "open", gain: .35 });
+  return c;
+} };
 
 
 

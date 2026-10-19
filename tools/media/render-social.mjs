@@ -50,6 +50,10 @@ const FILMS = [
   { id: "toHim", file: "tailzu-to-him-9x16.mp4" },
   { id: "toHimVoice", file: "tailzu-to-him-voice-9x16.mp4" },
   { id: "lessonMacZara", file: "tailzu-lesson-mac-zara-9x16.mp4" },
+  { id: "saidOnce", file: "tailzu-said-once-three-voices-9x16.mp4" },
+  { id: "toMaa", file: "tailzu-to-maa-9x16.mp4" },
+  { id: "timeBack", file: "tailzu-mac-time-back-9x16.mp4" },
+  { id: "voicesMac", file: "tailzu-mac-voices-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
