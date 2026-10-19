@@ -4488,8 +4488,12 @@ function blNote(ctx, t, D) {
   ctx.strokeStyle = pulse > .01 ? rgba(P.amber, .25 + .55 * pulse) : rgba(P.pale, .14); ctx.lineWidth = 1.5 + pulse; rr(ctx, x + .75, y + .75, w - 1.5, h - 1.5, 21.25); ctx.stroke();
   menuMark.draw(ctx, x + 26, y + 20, 30, P.pale); text(ctx, "Tailzu", x + 66, y + 44, f(28, SERIF, 400), P.pale);
   const src = meetSrc(t), live = .55 + .45 * Math.sin(t * TAU * 1.1);
-  ctx.fillStyle = rgba(P.amber, .7 + .3 * live); ctx.beginPath(); ctx.arc(x + w - 296, y + 37, 7, 0, TAU); ctx.fill(); glow(ctx, x + w - 296, y + 37, 22, P.amber, .3 * live);
-  label(ctx, `Taking notes · ${mmss((src ?? 0) - MEET_START)}`, x + w - 278, y + 44, 18, P.pale, .82);
+  // The light and the clock, set from the card's right edge in: the clock's width measured, so it stays inside.
+  const clock = `Taking notes · ${mmss((src ?? 0) - MEET_START)}`.toUpperCase(), right = x + w - 28;
+  ctx.save(); ctx.font = f(18, MONO); ctx.letterSpacing = `${18 * .22}px`; const cw = ctx.measureText(clock).width; ctx.restore();
+  const dot = right - cw - 22;
+  ctx.fillStyle = rgba(P.amber, .7 + .3 * live); ctx.beginPath(); ctx.arc(dot, y + 37, 7, 0, TAU); ctx.fill(); glow(ctx, dot, y + 37, 22, P.amber, .3 * live);
+  label(ctx, clock, right, y + 44, 18, P.pale, .82, "right");
   ctx.fillStyle = rgba(P.pale, .1); ctx.fillRect(x + 24, y + 68, w - 48, 1);
   D.keep.forEach((kp, i) => {
     const a = E.out(seg(t, kp.land - .06, kp.land + .22)); if (a <= 0) return;
