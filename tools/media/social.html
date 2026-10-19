@@ -3257,25 +3257,26 @@ function cardBubble(ctx, s0, x, y, maxW, size, k) {
 function threeCard(ctx, w, h, t) {
   ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
   const x0 = 90;
-  label(ctx, "Said once", x0, 200, 20, P.pale, E.out(seg(t, .1, .5)) * .55);
+  label(ctx, "What you said", x0, 200, 20, P.pale, E.out(seg(t, .1, .5)) * .55);
   arrive(ctx, "running late, stuck in traffic,", x0, 290, f(66, HAND, 600), P.pale, .2, t, { stagger: .06 });
   arrive(ctx, "be there in twenty", x0, 364, f(66, HAND, 600), P.pale, .55, t, { stagger: .06 });
-  label(ctx, "Written three ways", x0, 470, 20, P.pale, E.out(seg(t, .9, 1.3)) * .55);
+  label(ctx, "What they read", x0, 470, 20, P.pale, E.out(seg(t, .9, 1.3)) * .55);
   let y = 500;
   THREE.forEach((s, i) => {
     const k = E.out(seg(t, 1.1 + i * .35, 1.6 + i * .35));
-    text(ctx, `${s.tone.toUpperCase()}  ·  ${s.contact.name.replace(/ .*/, "").toUpperCase()}`, x0, y + 26, f(18, MONO), P.pale, k * .75, "left", 3.5);
+    text(ctx, `${s.who.replace(/^To /, "").toUpperCase()}  ·  ${s.tone.toUpperCase()}`, x0, y + 26, f(18, MONO), P.pale, k * .75, "left", 3.5);
     y += 44 + cardBubble(ctx, s.wrote, x0, y + 44, w - 2 * x0, 32, k) + 30;
   });
-  arrive(ctx, "Same words.", x0, 1350, f(96, SERIF, 300), P.pale, 2.4, t, { stagger: .1 });
-  arrive(ctx, "Three voices.", x0, 1452, f(96, SERIF, 400, true), P.pale, 2.7, t, { stagger: .12 });
-  const k = E.out(seg(t, 3.3, 3.9)), ls = 34, dy = (1 - k) * 22;
+  arrive(ctx, "You were never", x0, 1200, f(88, SERIF, 300), P.pale, 2.4, t, { stagger: .1 });
+  arrive(ctx, "one person.", x0, 1294, f(88, SERIF, 300), P.pale, 2.65, t, { stagger: .1 });
+  arrive(ctx, "Why type like one?", x0, 1396, f(88, SERIF, 400, true), P.pale, 3.05, t, { stagger: .12 });
+  const k = E.out(seg(t, 3.6, 4.2)), ls = 34, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 110, bh = 96, by = 1560;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 110, bh = 96, by = 1500;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
   text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
-  label(ctx, "Tap the pill on your keyboard · 16 voices", x0, by + bh + 60, 20, P.pale, k * .6);
-  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, 150, 1730, 300, "thumbs", seg(t, 3.4, 4.4), t, E.out(seg(t, 3.3, 3.9)), "hoodie"); ctx.restore();
+  label(ctx, "One tap on the voice pill · 16 voices · free", x0, by + bh + 60, 20, P.pale, k * .6);
+  ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, 150, 1730, 300, "thumbs", seg(t, 3.7, 4.7), t, E.out(seg(t, 3.6, 4.2)), "hoodie"); ctx.restore();
 }
 function threeCues() {
   const c = [];
@@ -4065,11 +4066,11 @@ function voicesScene(ctx, w, h, t, D) {
 function voicesCard(ctx, w, h, t) {
   ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
   const x0 = 96;
-  label(ctx, "Tailzu · Voices", x0, 470, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
-  arrive(ctx, "Same words.", x0, 600, f(110, SERIF, 300), P.pale, .3, t, { stagger: .1 });
-  arrive(ctx, "Sixteen voices.", x0, 720, f(110, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
-  arrive(ctx, "Pick one here, and it writes everything", x0, 804, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
-  arrive(ctx, "you say, on your Mac and your phone.", x0, 850, f(34, SANS, 400), rgba(P.pale, .7), 1.3, t, { stagger: .04 });
+  label(ctx, "16 voices · one of them is yours", x0, 470, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Sound like you,", x0, 600, f(110, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "on your best day.", x0, 720, f(110, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
+  arrive(ctx, "Boardroom to bedtime. Choose once, and", x0, 804, f(34, SANS, 400), rgba(P.pale, .7), 1.2, t, { stagger: .04 });
+  arrive(ctx, "every word you say lands the way you meant.", x0, 850, f(34, SANS, 400), rgba(P.pale, .7), 1.45, t, { stagger: .04 });
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 840, h - 470, 560, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "suit"); ctx.restore();
   const k = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
