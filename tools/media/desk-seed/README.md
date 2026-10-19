@@ -35,3 +35,29 @@ The seeded Sunday is 28 dictations and 2,485 words; the page itself says
 46 minutes back (said 17 min against typed 1 h 02 at 40 wpm) and a 14-day
 streak. The counter between the film's stops is that same day's running
 total.
+
+## A meeting, for the note page
+
+The "Bleeped" film ends on the note Tailzu made of a real meeting (AMI's
+ES2002a, `meeting/README.md`), drawn by the desktop app's own note page. In
+the same throwaway copy:
+
+1. `src/notes/store.ts`, appended:
+   `export function __filmNote(userId: string, note: Note): void { mem(userId).push(note); }`
+2. `python3 tools/media/meeting/note-seed.py` writes `note-seed.json` here:
+   the meeting's own words in turns, the project manager (who took the
+   note) as "You", the others "Speaker 1" to "Speaker 3". Put it and
+   `film-note.ts` in the copy's `src/`, and start that in place of the server:
+
+       cd /tmp/be/tulmi && NODE_ENV=development DEV_SKIP_AUTH=true OPENROUTER_API_KEY=film OPENAI_API_KEY=film \
+         STT_PROVIDER=openai PORT=8789 HOST=127.0.0.1 npx tsx src/film-note.ts
+
+3. Capture the page:
+
+       MODE=note BASE=http://127.0.0.1:8789 CLOCK=2026-10-19T06:32:30Z node tools/media/capture-desk.mjs
+
+The note's title, paragraph and seven highlights were written by hand, in
+the writer's own form (`src/notes/organise.ts`), from what was said: the
+writer needs a model key the copy does not have. Everything under "The
+conversation in numbers" is the page's own arithmetic on the real
+transcript: 147 words a minute, 4 voices, 163 turns, 33 questions.

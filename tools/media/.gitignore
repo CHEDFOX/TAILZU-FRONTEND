@@ -4,3 +4,5 @@ node_modules/
 pill/
 wallpapers/
 deskapp/
+meeting/src/
+__pycache__/
