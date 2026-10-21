@@ -3,12 +3,16 @@
  * Render social.html into files to post.
  *
  *   PW_ROOT=<dir with playwright> node tools/media/render-social.mjs <outDir> [--only=river,tones,...] [--stills] [--posters]
+ *     [--size=1280x720] [--suffix=-bare-16x9] [--query="bare=1&gx=.32&gy=.30&band=.09&loop=14"]
  *
  * Films are captured frame by frame from the page's own draw function at a
  * fixed clock, so the MP4 is the design exactly; H.264, 30fps, faststart, a
  * few MB each. A film that lists sound cues (window.__cues) gets its track
  * made by sound.mjs and muxed in; the others are silent. Posters are one capture each.
  * --stills writes a handful of frames per film to <outDir>/stills instead.
+ * --size draws at that size instead of the film's own (&w=&h=), --query adds
+ * page parameters (the website's bare river), and --suffix replaces the ratio
+ * in the file name (tailzu-heard-9x16.mp4 → tailzu-heard-bare-16x9.mp4).
  */
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
@@ -22,11 +26,16 @@ const require = createRequire(path.join(process.env.PW_ROOT || here, "/"));
 const { chromium } = require("playwright");
 
 const out = process.argv[2];
-if (!out) { console.error("usage: render-social.mjs <outDir> [--only=a,b] [--stills] [--posters]"); process.exit(1); }
+if (!out) { console.error("usage: render-social.mjs <outDir> [--only=a,b] [--stills] [--posters] [--size=WxH] [--suffix=-name] [--query=\"k=v&...\"]"); process.exit(1); }
 const onlyArg = process.argv.find((a) => a.startsWith("--only="));
 const only = onlyArg ? onlyArg.slice(7).split(",") : null;
 const stills = process.argv.includes("--stills");
 const postersOnly = process.argv.includes("--posters");
+const arg = (name) => { const a = process.argv.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
+const sizeArg = arg("size"), suffix = arg("suffix"), extra = arg("query");
+if (sizeArg && !/^\d+x\d+$/.test(sizeArg)) { console.error("--size is WxH, e.g. --size=1280x720"); process.exit(1); }
+const [sizeW, sizeH] = sizeArg ? sizeArg.split("x").map(Number) : [0, 0];
+const named = (file) => suffix ? file.replace(/-\d+x\d+(\.\w+)$/, `${suffix}$1`) : file;
 const FPS = 30;
 
 const FILMS = [
@@ -68,7 +77,10 @@ async function open(kind, id) {
   const page = await browser.newPage({ viewport: { width: 400, height: 400 }, deviceScaleFactor: 1 });
   await page.route("**/*", (r) => r.request().url().startsWith("file:") ? r.continue() : r.abort());
   page.on("pageerror", (e) => { console.error(`${id}: page error:`, e.message); process.exitCode = 1; });
-  await page.goto(`${url}?render=${kind}&id=${id}`);
+  const q = new URLSearchParams({ render: kind, id });
+  if (sizeArg) { q.set("w", String(sizeW)); q.set("h", String(sizeH)); }
+  if (extra) for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);
+  await page.goto(`${url}?${q}`);
   await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000 });
   const size = await page.evaluate(() => { const c = document.querySelector("canvas"); return { w: c.width, h: c.height }; });
   await page.setViewportSize({ width: size.w, height: size.h });
@@ -84,7 +96,7 @@ if (!postersOnly) for (const F of FILMS) {
     const at = process.env.AT ? process.env.AT.split(",").map(Number) : [.8, 2, 3.5, 5, 7, 9, 11, duration - .8];
     for (const t of at.filter((x) => x < duration)) {
       await page.evaluate((t) => window.__frame(t), t);
-      await page.locator("canvas").screenshot({ path: path.join(dir, `${F.id}-${t.toFixed(1)}s.png`) });
+      await page.locator("canvas").screenshot({ path: path.join(dir, `${F.id}${suffix || ""}-${t.toFixed(1)}s.png`) });
     }
     console.log(`${F.id}: stills`);
   } else {
@@ -100,26 +112,27 @@ if (!postersOnly) for (const F of FILMS) {
       // blotches. A light temporal denoise keeps the look and lands at a few MB.
       "-vf", "hqdn3d=4:3:8:6",
       "-c:v", "libx264", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "slow",
-      "-movflags", "+faststart", "-an", path.join(out, F.file)]);
+      "-movflags", "+faststart", "-an", path.join(out, named(F.file))]);
     fs.rmSync(dir, { recursive: true, force: true });
     if (r.status !== 0) { console.error(r.stderr.toString()); process.exit(1); }
     const cues = await page.evaluate((id) => window.__cues ? window.__cues(id) : [], F.id);
+    const file = named(F.file);
     if (cues.length) {
-      const wav = path.join(out, F.file + ".wav"), silent = path.join(out, "." + F.file);
+      const wav = path.join(out, file + ".wav"), silent = path.join(out, "." + file);
       fs.writeFileSync(wav, renderSound(cues, duration));
-      fs.renameSync(path.join(out, F.file), silent);
-      const m = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", path.join(out, F.file)]);
+      fs.renameSync(path.join(out, file), silent);
+      const m = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", silent, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", path.join(out, file)]);
       fs.rmSync(silent, { force: true }); fs.rmSync(wav, { force: true });
       if (m.status !== 0) { console.error(m.stderr.toString()); process.exit(1); }
     }
-    console.log(`${F.file}  ${w}x${h}  ${n} frames  ${cues.length ? cues.length + " sounds  " : ""}${(fs.statSync(path.join(out, F.file)).size / 1e6).toFixed(1)} MB`);
+    console.log(`${file}  ${w}x${h}  ${n} frames  ${cues.length ? cues.length + " sounds  " : ""}${(fs.statSync(path.join(out, file)).size / 1e6).toFixed(1)} MB`);
   }
   await page.close();
 }
 if (!stills || postersOnly) for (const id of POSTERS) {
   if (only && !only.includes(id)) continue;
   const { page, w, h } = await open("poster", id);
-  const file = `tailzu-${id}-4x5.png`;
+  const file = named(`tailzu-${id}-4x5.png`);
   await page.locator("canvas").screenshot({ path: path.join(out, file) });
   console.log(`${file}  ${w}x${h}`);
   await page.close();

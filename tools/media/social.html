@@ -10,6 +10,8 @@
   listens. Every sentence is one the product already shows (SITE_UI).
 
     ?render=film&id=<film>&w=&h=     window.__frame(t) draws it
+    ?render=film&id=river&bare=1&gx=&gy=&band=&from=top&span=&loop=
+                                     the website's bare river (no word, exact loop)
     ?render=poster&id=<poster>&w=&h=
     (no query)                       every film playing, every poster, for review
 
@@ -329,6 +331,77 @@ FILMS.river = { w: 1080, h: 1920, duration: 15, draw(ctx, t, w, h) {
   if (t > 12.4) endCard(ctx, w, h, t - 12.4);
   vignette(ctx, w, h, .5); grain(ctx, w, h, .05, t);
 } };
+/**
+ * THE BARE RIVER, for the website's first screen (?render=film&id=river&bare=1).
+ * The same river with no word, no label, no end card, no amber heat and no
+ * per-frame grain, so the page's real h1 is the word it pours into. It loops
+ * exactly: each phrase's speed is quantised so it laps a whole number of
+ * times in `loop` seconds, so frame `loop` is frame 0.
+ *   &gx=&gy=&band=   the gate: x and the baseline y as fractions of the frame,
+ *                    and the height of the band the words arrive in
+ *   &from=top        portrait: the speech falls from the top onto the first line
+ *   &span=           portrait: how much of the width that line takes
+ *   &loop=14         the loop, in seconds
+ *   &dense=&alpha=   portrait (the phone's first screen): more phrases (x n) and
+ *                    brighter ones (x each layer's alpha, at most 1), so the
+ *                    speech reads through the page's h1 on a small screen
+ */
+(function bareRiver() {
+  const Q = new URLSearchParams(location.search);
+  if (!Q.get("bare")) return;
+  const GX = +Q.get("gx") || .33, GY = +Q.get("gy") || .53, BAND = +Q.get("band") || .09, TOP = Q.get("from") === "top", SPAN = +Q.get("span") || .7, LOOP = +Q.get("loop") || 14;
+  const DENSE = +Q.get("dense") || 1, ALPHA = +Q.get("alpha") || 1;
+  const SPEED = 1.8, REST = 1.35;
+  FILMS.river.duration = LOOP;
+  FILMS.river.draw = function (ctx, t, w, h) {
+    field(ctx, w, h, P.violetHi, P.violetLo, .1);
+    glow(ctx, w * .5, h * .5, w * .9, P.pale, .06);
+    const gx = GX * w, gy = GY * h, band = BAND * h, unit = TOP ? Math.min(w * 1.25, h * .62) : w;
+    const layers = [{ n: TOP ? 22 : 26, size: unit * .024, blur: 3.2, a: .26 }, { n: TOP ? 15 : 18, size: unit * .032, blur: 1.2, a: .46 }, { n: TOP ? 8 : 9, size: unit * .042, blur: 0, a: .82 }]
+      .map((L) => ({ ...L, n: Math.round(L.n * DENSE), a: Math.min(1, L.a * ALPHA) }));
+    if (!FILMS.river.bufBare) FILMS.river.bufBare = layers.map(() => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; });
+    layers.forEach((L, li) => {
+      const c = FILMS.river.bufBare[li], g = c.getContext("2d"); g.clearRect(0, 0, w, h); g.textBaseline = "middle";
+      const r = rng(li * 131 + 7);
+      for (let k = 0; k < L.n; k++) {
+        const side = r(), phrase = RIVER[Math.floor(r() * RIVER.length)], ph = r(), sp0 = .06 + r() * .045;
+        const laps = Math.max(1, Math.round(sp0 * SPEED * LOOP / REST)), sp = laps * REST / (SPEED * LOOP);
+        let P0, P1, P2, P3;
+        if (!TOP) {
+          // Landscape: from the left edge (and a few from the corners) into the gate.
+          P0 = side < .82 ? [-w * (.08 + r() * .3), h * (.05 + r() * .9)] : side < .91 ? [w * r() * .15, -h * .07] : [w * r() * .15, h * 1.07];
+          P3 = [gx - w * (.005 + r() * .04), gy - band + r() * band];
+          P2 = [gx - w * (.12 + r() * .1), P3[1] + (r() - .5) * band * .4];
+          P1 = [lerp(P0[0], P2[0], .5) + (r() - .5) * w * .14, lerp(P0[1], P3[1], .45) + (r() - .5) * h * .2];
+        } else {
+          // Portrait: it rains, from above the frame (a few from the left edge,
+          // high up), curving down onto the top of the first line.
+          const x3 = gx + Math.pow(r(), 1.6) * SPAN * w * .55;
+          P0 = side < .7 ? [w * (-.15 + r() * 1.1), -h * (.03 + r() * .1)] : [-w * (.12 + r() * .25), h * (.02 + r() * .26)];
+          P3 = [x3, gy - band * (.15 + r() * .85)];
+          P2 = [x3 - w * (.16 + r() * .14), P3[1] - h * (.015 + r() * .03)];
+          P1 = [lerp(P0[0], P2[0], .5) + (r() - .5) * w * .3, lerp(P0[1], P2[1], .55) + (r() - .5) * h * .05];
+        }
+        const bez = (u) => { const v = 1 - u; return [v * v * v * P0[0] + 3 * v * v * u * P1[0] + 3 * v * u * u * P2[0] + u * u * u * P3[0], v * v * v * P0[1] + 3 * v * v * u * P1[1] + 3 * v * u * u * P2[1] + u * u * u * P3[1]]; };
+        g.font = f(L.size * (/[a-z]/i.test(phrase) ? 1.25 : 1), HAND, 600);
+        const pw = phrase.split(" "), widths = pw.map(x => g.measureText(x + " ").width);
+        const len = Math.hypot(P3[0] - P0[0], P3[1] - P0[1]) * 1.25;
+        const head = ((t * sp * SPEED + ph) % REST + REST) % REST;
+        let off = 0;
+        pw.forEach((word, wi) => {
+          const u = head - off / len; off += widths[wi];
+          if (u <= 0 || u >= 1) return;
+          const [x, y] = bez(u), [x2, y2] = bez(Math.min(1, u + .01));
+          const fade = (1 - E.soft(seg(u, .56, .93))) * E.soft(seg(u, 0, .06));
+          if (fade < .01) return;
+          g.save(); g.translate(x, y); g.rotate(Math.atan2(y2 - y, x2 - x)); g.globalAlpha = fade * L.a; g.fillStyle = P.pale; g.fillText(word, 0, 0); g.restore();
+        });
+      }
+      ctx.save(); if (L.blur) ctx.filter = `blur(${L.blur}px)`; ctx.drawImage(c, 0, 0); ctx.restore();
+    });
+    vignette(ctx, w, h, .42);
+  };
+})();
 
 /**
  * SAID, THEN WRITTEN. Three sentences, each the product's own proof: filler
