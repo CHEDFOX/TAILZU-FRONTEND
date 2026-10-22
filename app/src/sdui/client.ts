@@ -18,6 +18,7 @@ import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth, setWidgetTheme } from "../../modules/tulmi-bridge";
 import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
+import { loadRemoteFonts } from "./remoteFonts";
 import { isBackendPath } from "../security";
 import { logMetaEvents } from "../telemetry/meta";
 
@@ -776,6 +777,11 @@ export async function fetchAuthConfig(): Promise<
     // SduiApp has not committed one yet, so without this the auth screen's
     // words, sizes and switches would all be the compiled-in fallbacks.
     setKnobs(b);
+    // The faces the sign-in screen is set in. This runs before SduiApp has
+    // committed a bootstrap (that is what registers fonts for the rest of the
+    // app), so without this the first screen a new person sees would be drawn
+    // in the system font. It never blocks: the gate decides how long to wait.
+    loadRemoteFonts((b as unknown as { fonts?: Record<string, unknown> }).fonts);
     return {
       enablePhone: bool("auth.enablePhone", false) || f["auth.enablePhone"] === "true",
       // The one address that takes a password instead of a code. Empty

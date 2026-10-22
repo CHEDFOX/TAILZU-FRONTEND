@@ -81,6 +81,25 @@ function primeKnobs(): void {
   } catch { /* the fallbacks stand */ }
 }
 
+/**
+ * Blip's overlay, or nothing.
+ *
+ * Loaded on its own, apart from the app's modules above, so that if it cannot
+ * load (a Skia that is not in this binary, a drawing module that throws as it
+ * is evaluated) the cost is Blip and only Blip. The sign-in and the rest of the
+ * app never depend on it.
+ */
+function loadBlipHost(): React.ComponentType | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("./src/onboard/BlipHost").default as React.ComponentType;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[Tailzu] Blip could not load:", e);
+    return null;
+  }
+}
+
 /** Last-resort screen. Depends on nothing but react-native (knobs optional). */
 function BootFailure({ error }: { error: unknown }) {
   const e = error as { message?: string; stack?: string };
@@ -116,15 +135,25 @@ export default function App() {
     const SduiApp = require("./src/sdui/SduiApp").default;
     const { ErrorBoundary } = require("./src/sdui/ErrorBoundary");
     /* eslint-enable @typescript-eslint/no-require-imports */
+    const BlipHost = loadBlipHost();
     return (
       // SafeAreaProvider is REQUIRED, not decorative: useSafeAreaInsets() throws
       // without it, and the tab bar calls it on every render. It wraps the
       // ErrorBoundary rather than sitting inside it so the recovery UI is
       // inset-aware too.
       <SafeAreaProvider>
-        <ErrorBoundary onReset={() => { Updates?.reloadAsync?.().catch(() => {}); }}>
+        <ErrorBoundary
+          onReset={() => { Updates?.reloadAsync?.().catch(() => {}); }}
+          // The error card must never sit under Blip's paper.
+          onError={() => { try { require("./src/onboard/stageBus").abandon(); } catch { /* no overlay, nothing to let go */ } }}
+        >
           <SduiApp />
         </ErrorBoundary>
+        {/* Blip, the onboarding's one character, drawn above whatever is
+            showing and mounted once for the life of the app, so he is never
+            rebuilt when a screen or the sign-in gate is. It draws nothing at
+            all outside onboarding, and takes no touches. */}
+        {BlipHost ? <BlipHost /> : null}
       </SafeAreaProvider>
     );
   } catch (err) {

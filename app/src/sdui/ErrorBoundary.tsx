@@ -27,6 +27,16 @@ type Props = {
   children: React.ReactNode;
   /** Called when the user taps "Reset" — e.g. clear the SDUI cache + reboot. */
   onReset?: () => void;
+  /**
+   * What to draw INSTEAD of the error card when something inside throws, and
+   * the call that says so. For a part of the app that has somewhere better to
+   * go than an apology: the sign-in gate wraps the server's tree in one, and
+   * on a throw drops to its own native screen, so a bad tree costs someone the
+   * look and never the way in. `fallback` may be null (draw nothing). Absent,
+   * the boundary is exactly what it always was.
+   */
+  fallback?: React.ReactNode;
+  onError?: (error: Error) => void;
 };
 type State = { error: Error | null; stack?: string };
 
@@ -47,6 +57,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
       .split("\n").map((l) => l.trim()).filter(Boolean).slice(0, num("errorBoundary.stackFrames", 4)).join(" › ");
     if (frames) this.setState((st) => ({ ...st, stack: frames }));
     try { Sentry?.captureException?.(error); } catch { /* reporting is best-effort */ }
+    try { this.props.onError?.(error); } catch { /* a handler that throws must not become the next error */ }
   }
 
   private retry = () => this.setState({ error: null });
@@ -58,6 +69,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.fallback !== undefined) return this.props.fallback;
     const bg = color("errorBoundary.bg", "#0e0e12");
     return (
       <View style={{ flex: 1, backgroundColor: bg, alignItems: "center", justifyContent: "center", padding: num("errorBoundary.padding", 32) }}>

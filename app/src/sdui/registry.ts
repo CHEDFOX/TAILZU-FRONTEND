@@ -123,6 +123,16 @@ export const CORE_COMPONENTS = [
   "SwipePill", "AppleSignIn", "GoogleSignIn", "CodeEntry", "AuthPhase",
   // Entrance motion, and the neural field backdrop.
   "Rise", "NeuralField",
+  /**
+   * The onboarding run, and the one character that walks through it.
+   * OnboardStage holds a run of steps and glides between them; BlipSpot marks
+   * where Blip stands in a step. Declaring them also promises what ships in the
+   * same bundle for them: SwipePill variant "field", CodeEntry variant
+   * "boxes", the labelled Google/Apple buttons, VoiceButton's `hold` and
+   * `bind.state`. The server draws the new onboarding only for a bundle that
+   * says both names, and serves today's to every other.
+   */
+  "OnboardStage", "BlipSpot",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",

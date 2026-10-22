@@ -36,6 +36,15 @@ export type AuthFlow = {
   setCode: (next: string) => void;
   /** True for the ~400ms after a wrong code, so a pill can go red and shake. */
   codeError: boolean;
+  /**
+   * What the network is doing behind the code step: a code is on its way
+   * (sending), or every attempt to send one failed (sendFailed). The code step
+   * says so in its own words, and holds "send it again" while one is in
+   * flight, so a second tap cannot orphan the first. Both are the gate's own
+   * state, published as it is.
+   */
+  sending: boolean;
+  sendFailed: boolean;
 
   /** Which methods this build and this backend actually offer. */
   phoneEnabled: boolean;
