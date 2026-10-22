@@ -42,6 +42,11 @@
 <script src="deskapp/note-meta.js"></script>
 <script src="meeting/bleeped.js"></script>
 <script src="meeting/timeline.js"></script>
+<script src="app/blip/meta.js"></script>
+<script src="voice/hands.js"></script>
+<script src="voice/downloads.js"></script>
+<script src="voice/due.js"></script>
+<script src="voice/pay.js"></script>
 <script>
 (function () {
 "use strict";
@@ -3574,6 +3579,43 @@ function loadDeskApp() {
     x.drawImage(tray, 0, 0); x.globalCompositeOperation = "source-in"; x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, c.width, c.height); DESKAPP.tray = c;
   });
 }
+// ---- the phone app's own: its faces, the apps' logos, Blip ------------------------------
+/**
+ * What the Tailzu app draws its screens with, so a film's phone shows the app
+ * as it is: the app's typefaces (app/fonts, copied from the backend's
+ * tulmi/fonts, OFL), the logo tiles it shows for connected apps (app/icons,
+ * from tulmi/icons; the marks are their owners', see NOTICE), and Blip's
+ * poses as frames (app/blip, from tulmi/blip's animated WebPs, so a film
+ * draws the same frame at the same time every render).
+ */
+const APPFONT = { grotesk: ["Tailzu Grotesk", "grotesk"], ui: ["Tailzu UI", "ui"], uiMedium: ["Tailzu UI Medium", "ui-medium"], uiBold: ["Tailzu UI Bold", "ui-bold"],
+  label: ["Tailzu Label", "label"], written: ["Tailzu Written", "written"], writtenLight: ["Tailzu Written Light", "written-light"], writtenItalic: ["Tailzu Written Italic", "written-italic"],
+  writtenLightItalic: ["Tailzu Written Light Italic", "written-light-italic"], writtenBold: ["Tailzu Written Bold", "written-bold"], hand: ["Tailzu Hand", "hand"], said: ["Tailzu Said", "said"] };
+/** A CSS font in one of the app's faces: af("uiMedium", 14.5). */
+const af = (face, px) => `${Math.max(1, px)}px "${APPFONT[face][0]}"`;
+/** The app's colours (tulmi/src/experience/phoneLook.ts PHONE_LOOK, touches.ts NEON). */
+const APPLOOK = { ground: "#0F0D0B", card: "#1A1611", cardEdge: "rgba(243,226,198,0.12)", ink: "#F3E2C6", ink2: "rgba(243,226,198,0.66)", ink3: "rgba(243,226,198,0.5)",
+  rule: "rgba(243,226,198,0.07)", track: "rgba(243,226,198,0.08)", accent: "#E8A23C", neon: "#39FF14", onInk: "#0B0B0D" };
+const APP_ICONS = ["google-calendar", "google-tasks", "google-classroom", "google-docs", "whatsapp", "uber", "maps", "email-handoff", "spotify"];
+const APP = { icons: {}, blip: {} };
+function loadApp() {
+  const one = (src) => new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+  const faces = Object.values(APPFONT).map(([fam, file]) => new FontFace(fam, `url(app/fonts/${file}.ttf)`).load().then((ff) => document.fonts.add(ff)).catch(() => {}));
+  const icons = APP_ICONS.map((id) => one(`app/icons/${id}.png`).then((im) => { APP.icons[id] = im; }));
+  const blip = Object.entries(window.TZ_BLIP || {}).map(([pose, m]) => Promise.all(m.ms.map((_, i) => one(`app/blip/${pose}/${String(i).padStart(3, "0")}.png`))).then((fr) => { APP.blip[pose] = { ...m, frames: fr }; }));
+  return Promise.all([...faces, ...icons, ...blip]);
+}
+/** A connected app's logo tile, as the phone shows it, `s` square at (x, y). */
+function appIcon(ctx, id, x, y, s) { const im = APP.icons[id]; if (im) ctx.drawImage(im, x, y, s, s); return !!im; }
+/** Blip in one of its poses (APP.blip), looping on its own clock from `t0`, its box `h` tall with its foot at (cx, bottom). */
+function blipAt(ctx, pose, t, cx, bottom, h, t0 = 0, alpha = 1) {
+  const b = APP.blip[pose]; if (!b) return;
+  const total = b.ms.reduce((a, x) => a + x, 0); let ms = (((t - t0) * 1000) % total + total) % total, i = 0;
+  while (i < b.ms.length - 1 && ms >= b.ms[i]) { ms -= b.ms[i]; i++; }
+  const im = b.frames[i]; if (!im) return;
+  const w = h * b.w / b.h; ctx.save(); ctx.globalAlpha *= alpha; ctx.drawImage(im, cx - w / 2, bottom - h, w, h); ctx.restore();
+}
+
 /** The fonts' sizes, measured against the pictures' own lines of text. */
 let RM_FONT = null;
 function rmFonts(g) {
@@ -4828,6 +4870,18 @@ FILMS.bleeped = { w: 1080, h: 1920, duration: BL.end, v2: true, draw(ctx, t, w, 
   return c;
 } };
 
+// ==== FILM: hands =========================================================================
+// (built in its own block; the You tab's Hand it to me card, a cook with her hands full)
+
+// ==== FILM: downloads =========================================================================
+// (built in its own block; the Mac's Downloads sorted by voice)
+
+// ==== FILM: due =========================================================================
+// (built in its own block; what's due this week, from Classroom into Tasks)
+
+// ==== FILM: pay =========================================================================
+// (built in its own block; a UPI payment filled in, paid only by the person)
+
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
 const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
   "noto-sans-devanagari/400", "noto-sans-bengali/400", "noto-sans-tamil/400", "noto-sans-telugu/400", "noto-sans-kannada/400", "noto-sans-malayalam/400",
@@ -4843,7 +4897,7 @@ async function fontsReady() {
     ...INDIA.map(([n]) => [f(40, SERIF), n]), ...RIVER.map(s => [f(40, HAND, 600), s])];
   await Promise.race([Promise.all(probes.map(([ft, s]) => document.fonts.load(ft, s))), new Promise(r => setTimeout(r, RENDER ? 25000 : 8000))]);
   await document.fonts.ready;
-  await loadPill(); await loadWallpapers(); await loadDeskApp();
+  await loadPill(); await loadWallpapers(); await loadDeskApp(); await loadApp();
 }
 window.TZ = { FILMS, POSTERS };
 window.__cues = (id) => (FILMS[id] && FILMS[id].cues) ? FILMS[id].cues() : [];

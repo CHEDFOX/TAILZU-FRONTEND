@@ -64,6 +64,10 @@ const FILMS = [
   { id: "timeBack", file: "tailzu-mac-time-back-9x16.mp4" },
   { id: "voicesMac", file: "tailzu-mac-voices-9x16.mp4" },
   { id: "bleeped", file: "tailzu-bleeped-meeting-9x16.mp4" },
+  { id: "hands", file: "tailzu-hand-it-over-9x16.mp4" },
+  { id: "downloads", file: "tailzu-mac-downloads-sorted-9x16.mp4" },
+  { id: "due", file: "tailzu-whats-due-9x16.mp4" },
+  { id: "pay", file: "tailzu-you-press-pay-9x16.mp4" },
 ];
 const POSTERS = ["autocorrect", "taps", "boss", "spanish", "messy", "onekey", "talk", "hinglish", "keyless", "tones", "languages", "desktop"];
 
