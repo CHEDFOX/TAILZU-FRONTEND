@@ -396,7 +396,9 @@ export type ActionSpec =
       assignTo?: string;
     }
   // auth
-  | { kind: "biometricPrompt"; reason?: string; onSuccess?: ActionRef; onError?: ActionRef }
+  /** `onUnavailable` runs when the phone has no Face ID, fingerprint or
+   *  passcode to check against (not when the person cancels: that is onError). */
+  | { kind: "biometricPrompt"; reason?: string; onSuccess?: ActionRef; onError?: ActionRef; onUnavailable?: ActionRef }
   | { kind: "signOut" }
   // IAP
   | { kind: "iap.showPaywall"; offeringId?: string; packageId?: string; onSuccess?: ActionRef; onError?: ActionRef }
