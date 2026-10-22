@@ -25,10 +25,14 @@
  *     fetches and hands to the OS; it should not be able to be anything else.
  */
 import * as Font from "expo-font";
+import { createFontGate } from "./fontGate";
 import { bool, list, num } from "./knobs";
 
 const loaded = new Set<string>();
 const inFlight = new Set<string>();
+// Who is loading, so the one screen that must not draw in the wrong face can
+// wait a moment for it (fontsReady, below). Nothing else waits.
+const gate = createFontGate();
 
 /** A plausible font: https, and a real font extension. */
 function usable(name: string, url: string): boolean {
@@ -56,12 +60,24 @@ export function loadRemoteFonts(fonts: Record<string, unknown> | undefined): voi
     if (loaded.has(name) || inFlight.has(name)) continue;
     if (!usable(name, url)) continue;
     inFlight.add(name);
+    gate.start(name);
     // Deliberately not awaited: the first screens should draw immediately in
     // the system font rather than wait on a network fetch for a typeface.
     Font.loadAsync({ [name]: url })
-      .then(() => { loaded.add(name); })
-      .catch(() => { /* one bad font must not cost the others, or the app */ })
+      .then(() => { loaded.add(name); gate.done(name, true); })
+      .catch(() => { gate.done(name, false); /* one bad font must not cost the others, or the app */ })
       .finally(() => { inFlight.delete(name); });
   }
+}
+
+/**
+ * Resolves when every named face that is loading is ready, or after `ms`,
+ * whichever is first. Faces already loaded, never requested, or failed are not
+ * waited for, so this costs nothing when there is nothing to wait for. Only the
+ * sign-in gate calls it, for the faces of the first thing a person sees.
+ */
+export function fontsReady(names: string[], ms: number): Promise<void> {
+  if (!bool("fonts.remote", true)) return Promise.resolve();
+  return gate.ready(names, ms);
 }
 

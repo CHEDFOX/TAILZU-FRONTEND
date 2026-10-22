@@ -34,6 +34,7 @@ import { errorDetail, streamErrorMessage, userErrorMessage } from "./client";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
 import { VoiceToggle, RefineButton, DraftButton } from "./morphControls";
 import { SpringPressable } from "./motion";
+import { createHold, type HoldIO } from "./holdToSpeak";
 import { DictionaryEditor, WordChips } from "./dictionary";
 import { Image as ExpoImage } from "expo-image";
 import { resolveMedia } from "../media/resolveMedia";
@@ -861,20 +862,32 @@ const Hero = ({ props, style }: CompProps) => {
  *     /v1/transcribe-clean, writes the cleaned text once.
  *
  * Live falls back to file-based automatically if the native module is missing.
+ *
+ * Two more things the server can ask for, both off unless it does:
+ *   • props.hold === true: hold to speak. Press-in starts, release stops, the
+ *     way a walkie-talkie works. A press too short to have said anything (under
+ *     ui.VoiceButton.holdMinMs) is thrown away and reported as an error, so a
+ *     tap is not mistaken for a recording. Always the file-based path: a held
+ *     button is a short try-it, not a live session.
+ *   • bind.state: where to write what the button is doing, "idle", "recording"
+ *     or "busy", so the screen around it can say so (a ring, a line of words).
+ * And its children, when it has any, are drawn in place of the label.
  */
-const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
+const VoiceButton = ({ node, props, style, store, fire, children }: CompProps) => {
   const theme = useTheme();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
   const bindPath = node.bind?.value;
+  const statePath = node.bind?.state;
+  const hold = props.hold === true;
 
   // Live (streaming) session + the text committed so far this dictation.
   const live = useRef<{ session: LiveSession | null; committed: string }>({
     session: null,
     committed: "",
   });
-  const wantLive = props.live === true && isStreamAvailable();
+  const wantLive = props.live === true && !hold && isStreamAvailable();
 
   // What a failure says. The node's words first, then the ui.VoiceButton.*
   // knobs, then these. These are the ONLY words a failure shows: an error's
@@ -899,6 +912,17 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
   // which refined the text and fired onChange into a screen that had gone.
   const recordingRef = useRef(false);
   useEffect(() => { recordingRef.current = recording; }, [recording]);
+  // What the button is doing, for the screen around it. Written only when it
+  // changes, and put back to idle when the button goes, so a step that glides
+  // away mid-recording does not leave a ring lit behind it.
+  useEffect(() => {
+    if (!statePath) return;
+    const now = busy ? "busy" : recording ? "recording" : "idle";
+    if (store.get(statePath) !== now) store.set(statePath, now);
+  }, [statePath, busy, recording, store]);
+  useEffect(() => () => {
+    if (statePath && store.get(statePath) !== "idle") store.set(statePath, "idle");
+  }, [statePath, store]);
   useEffect(() => () => {
     if (recordingRef.current) {
       try { live.current.session?.cancel(); } catch { /* already gone */ }
@@ -1017,6 +1041,49 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
     }
   }
 
+  // HOLD TO SPEAK. The order of events (finger down, recorder ready, finger up,
+  // too short to count) is holdToSpeak's, which is tested on its own; what it
+  // is told to DO is here. The machine is built once, so it reads the latest
+  // closures through a ref (they close over state that changes every render).
+  const holdIO = useRef<HoldIO | null>(null);
+  holdIO.current = {
+    prepare: async () => {
+      try {
+        const perm = await AudioModule.requestRecordingPermissionsAsync();
+        if (!perm.granted) { fire("onError", errPermission); return false; }
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        await recorder.prepareToRecordAsync();
+        return true;
+      } catch (e) {
+        failWith(e, errMic);
+        return false;
+      }
+    },
+    record: () => { recorder.record(); setRecording(true); },
+    finish: () => stop(),
+    discard: async () => {
+      // Too short to have said anything: a tap. Drop it, and say so.
+      setRecording(false);
+      try { await recorder.stop(); } catch { /* nothing was recorded */ }
+      fire("onError", errNoAudio);
+    },
+    busy: () => busy,
+    now: () => Date.now(),
+    minMs: () => K.num("ui.VoiceButton.holdMinMs", 350),
+  };
+  const holder = useRef<ReturnType<typeof createHold> | null>(null);
+  if (!holder.current) {
+    holder.current = createHold({
+      prepare: () => holdIO.current!.prepare(),
+      record: () => holdIO.current!.record(),
+      finish: () => holdIO.current!.finish(),
+      discard: () => holdIO.current!.discard(),
+      busy: () => holdIO.current!.busy(),
+      now: () => holdIO.current!.now(),
+      minMs: () => holdIO.current!.minMs(),
+    });
+  }
+
   const label = busy
     ? (props.transcribingLabel ?? K.txt("ui.VoiceButton.transcribingLabel", "Transcribing…"))
     : recording
@@ -1034,8 +1101,15 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
 
   return (
     <Pressable
-      onPress={onPress}
+      // A held button acts on press-in and release, never on the tap between.
+      onPress={hold ? undefined : onPress}
+      onPressIn={hold ? () => { void holder.current!.press(); } : undefined}
+      onPressOut={hold ? () => { void holder.current!.release(); } : undefined}
       disabled={busy}
+      // Its children draw the face (an icon, no words), so a held button is
+      // named for a screen reader here: the node's own, else the knob's.
+      accessibilityRole={hold ? "button" : undefined}
+      accessibilityLabel={hold ? String(props.accessibilityLabel || props.label || K.txt("ui.VoiceButton.holdLabel", "Hold to speak")) : undefined}
       style={[
         {
           backgroundColor: bg,
@@ -1047,7 +1121,11 @@ const VoiceButton = ({ node, props, style, store, fire }: CompProps) => {
         style,
       ]}
     >
-      <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? String(props.recordingColor ?? K.color("ui.VoiceButton.recordingColor", "#fff")) : readableOn(String(props.background ?? theme.color.primary)) }]}>{label}</Text>
+      {/* `children` is an empty ARRAY for a node with none, so length is the
+          only honest test (GoogleSignIn learned this the hard way). */}
+      {React.Children.count(children) > 0 ? children : (
+        <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? String(props.recordingColor ?? K.color("ui.VoiceButton.recordingColor", "#fff")) : readableOn(String(props.background ?? theme.color.primary)) }]}>{label}</Text>
+      )}
     </Pressable>
   );
 };
@@ -1411,6 +1489,8 @@ import { WordMeter } from "./WordMeter";
 import { NeuralField } from "./NeuralField";
 import { AuroraOrb } from "./AuroraOrb";
 import { PieChart } from "./PieChart";
+import { OnboardStage } from "../onboard/OnboardStage";
+import { BlipSpot } from "../onboard/BlipSpot";
 
 // V3 FIRST, so every name registered below wins a collision. The one that
 // mattered is PieChart: V3's donut (which reads `data`) used to be spread LAST
@@ -1427,4 +1507,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
+  OnboardStage, BlipSpot,
 };

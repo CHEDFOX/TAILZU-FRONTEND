@@ -52,6 +52,9 @@ import type { Node, ThemeTokens } from "../sdui/types";
 import { MediaPlayer } from "../media/MediaPlayer";
 import { useEdgeSwipeBack } from "../sdui/gestures";
 import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
+import { fontsReady } from "../sdui/remoteFonts";
+import { ErrorBoundary } from "../sdui/ErrorBoundary";
+import { abandon as abandonOnboard } from "../onboard/stageBus";
 import { setAuthName } from "../storage";
 import { AUTH_METHODS, countries, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";
@@ -276,7 +279,46 @@ export type PillLook = {
   fontSize?: number; paddingLeft?: number;
 };
 
-export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
+/**
+ * What the onboarding sign-in asks of a pill beyond its look: a plain field
+ * with a button under it instead of a swipe. Every key is optional; a pill
+ * that is sent none of them is the pill it always was, which is what the
+ * native screen and today's server tree keep drawing.
+ */
+export type FieldLook = {
+  variant?: "field";
+  submitLabel?: string;
+  placeholder?: string;
+  /** Phone: the country the number box opens on when the device's own is not on the list. */
+  presetCountry?: string;
+  buttonBackground?: string; buttonTextColor?: string; buttonHeight?: number; buttonRadius?: number;
+  countryBackground?: string; countryBorderColor?: string;
+};
+
+/**
+ * What the person has typed, kept for as long as the gate is up. The sign-in
+ * step is a layer that is taken away when the code step glides in, so coming
+ * back to correct one character ("Change it") would otherwise find an empty
+ * field. Cleared when the gate goes, so the next person on this phone does not
+ * find the last one's address.
+ */
+const typedMemory = new Map<string, string>();
+
+/** One sign-in method: the swipe pill, or (variant "field") a plain field and a button. */
+export function MethodPill(props: {
+  field: Field;
+  onSubmit: (f: Field, value: string) => void;
+  hintDelay: number;
+  resetAt?: number;
+  look?: PillLook & FieldLook;
+  style?: object;
+}) {
+  return props.look?.variant === "field"
+    ? <FieldPill field={props.field} onSubmit={props.onSubmit} look={props.look} style={props.style} />
+    : <SwipeMethodPill {...props} />;
+}
+
+function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
   field: Field;
   onSubmit: (f: Field, value: string) => void;
   hintDelay: number;
@@ -588,6 +630,141 @@ export function MethodPill({ field, onSubmit, hintDelay, look, style, resetAt }:
   );
 }
 
+/**
+ * The onboarding sign-in's way of asking: a plain box, and under it a full
+ * width button that says what it will do ("Continue with email"). Nothing to
+ * swipe and nothing to find: the button is enabled when the box holds
+ * something worth sending, and it goes through the same path the swipe does
+ * (a haptic, then onSubmit), so the flow behind it cannot tell the difference.
+ *
+ * A phone number opens at once with a country chip on its left, which is
+ * where this person probably is: the device's own region if it is on the list,
+ * else the one the server named. Tapping the chip opens the same picker the
+ * swipe pill has.
+ */
+function FieldPill({ field, onSubmit, look, style }: {
+  field: Field;
+  onSubmit: (f: Field, value: string) => void;
+  look: PillLook & FieldLook;
+  style?: object;
+}) {
+  const isPhone = field.type === "phone";
+  const L = {
+    height: look.height ?? 48,
+    radius: look.radius ?? 16,
+    background: look.background ?? "#FFFFFF",
+    borderColor: look.borderColor ?? "#1C1A17",
+    textColor: look.textColor ?? "#1C1A17",
+    placeholderColor: look.placeholderColor ?? "rgba(28,26,23,0.56)",
+    fontSize: look.fontSize ?? 17,
+    buttonBackground: look.buttonBackground ?? "#1C1A17",
+    buttonTextColor: look.buttonTextColor ?? "#FCFBF8",
+    buttonHeight: look.buttonHeight ?? look.height ?? 48,
+    buttonRadius: look.buttonRadius ?? look.radius ?? 16,
+    countryBackground: look.countryBackground ?? "#FCFBF8",
+    countryBorderColor: look.countryBorderColor ?? "rgba(28,26,23,0.13)",
+  };
+  const [value, setValueState] = useState(() => typedMemory.get(field.type) ?? "");
+  const setValue = (v: string) => { typedMemory.set(field.type, v); setValueState(v); };
+  const [country, setCountry] = useState<Country>(() => {
+    const region = (Localization.getLocales?.()?.[0]?.regionCode || "").toUpperCase();
+    const saved = typedMemory.get("phone:country");
+    const list = countries();
+    return list.find((c) => c.iso === saved) ?? list.find((c) => c.iso === region)
+      ?? pickCountry(look.presetCountry ?? region);
+  });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+
+  const digits = value.replace(/\D/g, "");
+  const valid = isPhone
+    ? digits.length >= num("auth.phone.minDigits", 6) && digits.length <= num("auth.phone.maxDigits", 14)
+    : emailRx().test(value.trim());
+  const submitValue = isPhone ? `${country.dial}${digits}` : value.trim();
+  const valRef = useRef(submitValue);
+  const validRef = useRef(valid);
+  useEffect(() => { valRef.current = submitValue; validRef.current = valid; }, [submitValue, valid]);
+
+  const commit = () => {
+    if (!validRef.current) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    onSubmit(field, valRef.current);
+  };
+
+  const openPicker = () => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); };
+
+  return (
+    <View style={[{ gap: 8 }, style]}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {isPhone && (
+          <Pressable
+            onPress={openPicker}
+            accessibilityRole="button"
+            accessibilityLabel={txt("auth.a11y.changeCountry", "Country {name}, change", { name: country.name })}
+            style={{
+              height: L.height, flexDirection: "row", alignItems: "center", gap: 3,
+              paddingLeft: 13, paddingRight: 8, borderRadius: L.radius,
+              borderWidth: 1.5, borderColor: L.countryBorderColor, backgroundColor: L.countryBackground,
+            }}
+          >
+            <Text style={{ fontSize: 15, fontWeight: "700", color: L.textColor }}>{country.iso} {country.dial}</Text>
+            <Chevron c={L.textColor} />
+          </Pressable>
+        )}
+        <TextInput
+          ref={inputRef}
+          underlineColorAndroid="transparent"
+          style={{
+            flex: 1, minWidth: 0, height: L.height, borderRadius: L.radius,
+            borderWidth: 1.5, borderColor: L.borderColor, backgroundColor: L.background,
+            paddingHorizontal: 14, paddingVertical: 0,
+            fontSize: L.fontSize, fontWeight: "600", letterSpacing: L.fontSize * 0.02, color: L.textColor,
+          }}
+          placeholder={look.placeholder ?? (isPhone ? txt("auth.phone.placeholder", "Number") : txt("auth.email.placeholder", "Email"))}
+          placeholderTextColor={L.placeholderColor}
+          value={value}
+          onChangeText={setValue}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType={isPhone ? "phone-pad" : "email-address"}
+          textContentType={isPhone ? "telephoneNumber" : "emailAddress"}
+          autoComplete={isPhone ? "tel-national" : "email"}
+          returnKeyType="go"
+          onSubmitEditing={commit}
+        />
+      </View>
+      <Pressable
+        onPress={commit}
+        disabled={!valid}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !valid }}
+        style={({ pressed }) => ({
+          height: L.buttonHeight, borderRadius: L.buttonRadius, backgroundColor: L.buttonBackground,
+          alignItems: "center", justifyContent: "center",
+          opacity: !valid ? 0.3 : pressed ? 0.7 : 1,
+        })}
+      >
+        <Text style={{ fontSize: 16, fontWeight: "600", color: L.buttonTextColor }}>
+          {look.submitLabel ?? txt("auth.submit", "Continue")}
+        </Text>
+      </Pressable>
+      {isPhone && (
+        <CountryPickerModal
+          visible={pickerOpen}
+          current={country}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(c) => {
+            setCountry(c);
+            typedMemory.set("phone:country", c.iso);
+            Haptics.selectionAsync().catch(() => {});
+            setTimeout(() => inputRef.current?.focus(), num("auth.anim.pickerFocusMs", 260));
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
 // tiny spinner for the verifying moment
 function MicroLoader() {
   const spin = useRef(new Animated.Value(0)).current;
@@ -637,6 +814,11 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // until bootstrap answers, so the native tree is what renders on a cold
   // start and on any backend that cannot be reached.
   const [sduiTree, setSduiTree] = useState<Node | null>(null);
+  // True while the onboarding tree has arrived but its two faces have not
+  // (see the wait in the config effect). Nothing is drawn for that moment, so
+  // the first words anyone reads are never set in one face and swapped to
+  // another.
+  const [fontsHold, setFontsHold] = useState(false);
   const [scrim, setScrim] = useState(() => num("auth.scrim", 0.42));
   // The entrance, from the server. Defaults match what the backend ships, so a
   // cold start with no network looks the same as a warm one.
@@ -727,6 +909,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     ...(phoneEnabled ? [{ id: "phone", type: "phone" as const }] : []),
   ];
 
+  // Whatever was typed goes with the gate, not the next person's screen.
+  useEffect(() => () => { typedMemory.clear(); }, []);
+
   useEffect(() => {
     Animated.timing(arrival, { toValue: 1, duration: num("auth.anim.arrivalMs", 900), easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: true }).start();
     if (Platform.OS === "ios") AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => {});
@@ -759,7 +944,22 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       if (missing.length) {
         console.warn("[Tailzu][auth] server screen needs components this build lacks:", missing.join(", "));
       }
-      setSduiTree(missing.length ? null : tree);
+      const usable = missing.length ? null : tree;
+      if (usable && usable.type === "OnboardStage") {
+        // THE ONBOARDING TREE WAITS FOR ITS TWO FACES, BRIEFLY. Hello is the
+        // first thing a person reads and it is set in a face that arrives over
+        // the network; drawing it in the system font and swapping would be a
+        // flicker at the one moment there is no second chance. So nothing is
+        // drawn until the faces are in, or onboard.fontWaitMs (600) has
+        // passed, whichever is first. A dead font URL costs the wait and
+        // nothing more: the system face draws instead.
+        setFontsHold(true);
+        const settle = () => { if (alive) { setSduiTree(usable); setFontsHold(false); } };
+        fontsReady(list<string>("onboard.fonts", ["Tailzu Grotesk", "Tailzu Hand"]), num("onboard.fontWaitMs", 600))
+          .then(settle, settle);
+      } else {
+        setSduiTree(usable);
+      }
       // Why the server tree did or did not draw, on the next launch's
       // bootstrap. A console warning is invisible without a cable attached,
       // and this screen has already cost a day of guessing at exactly that.
@@ -1127,6 +1327,12 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   const sduiCtx = useAuthSduiCtx(authFlags, authLabels);
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [num("auth.anim.arrivalRise", 12), 0] });
   const onCode = phase === "verify" || phase === "verifying";
+  // The onboarding run is a stage: it keeps its own steps, glides between them
+  // and holds the arrow ("Change it") itself. So the gate gives it a still
+  // frame to stand in (it fades in, but does not rise, because Blip's feet are
+  // measured against where the stage is) and draws no back arrow of its own.
+  // The edge-swipe back stays.
+  const drawingStage = !fontsHold && !!sduiTree && !!authTheme && sduiTree.type === "OnboardStage";
   // The code step's own art when there is some, the entry's otherwise — so one
   // upload still dresses the whole flow and a second is an option, not a duty.
   const shownBackground = onCode ? (backgroundCode ?? background) : background;
@@ -1142,6 +1348,8 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
     codeLength: CODE_LEN,
     setCode: (next) => { setCode(next.replace(/\D/g, "").slice(0, CODE_LEN)); if (codeError) setCodeError(false); },
     codeError,
+    sending,
+    sendFailed,
     phoneEnabled,
     appleAvailable,
     googleEnabled,
@@ -1214,15 +1422,28 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
             provider rather than moved. So this is a change of DRAWING, not of
             behaviour, and turning the flag off returns the original screen
             without a build. */}
-        {!cfgSettled ? null : sduiTree && authTheme ? (
+        {!cfgSettled || fontsHold ? null : sduiTree && authTheme ? (
           // The theme is REQUIRED, not decorative: every node reads its colours
           // and sizes from it, and RenderNode throws without one rather than
           // falling back — which on this screen means an error card instead of
           // a way into the app. So the tree is only drawn once the tokens have
           // arrived, and the native screen covers the gap.
           <ThemeContext.Provider value={authTheme}>
-            <Animated.View style={[s.kav, { opacity: arrival, transform: [{ translateY }] }]}>
-              <RenderNode node={sduiTree} ctx={sduiCtx} />
+            <Animated.View style={[s.kav, drawingStage ? { opacity: arrival } : { opacity: arrival, transform: [{ translateY }] }]}>
+              {/* A tree that throws while drawing drops to the native screen
+                  instead of the app-wide error card: a bad tree costs someone
+                  the look, never the way in. */}
+              <ErrorBoundary
+                fallback={null}
+                onError={() => {
+                  setSduiTree(null);
+                  // Blip's overlay would otherwise keep paper over the native
+                  // screen this drops to, waiting for a stage that is not coming.
+                  abandonOnboard();
+                }}
+              >
+                <RenderNode node={sduiTree} ctx={sduiCtx} />
+              </ErrorBoundary>
             </Animated.View>
           </ThemeContext.Provider>
         ) : (
@@ -1322,7 +1543,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       </TouchableWithoutFeedback>
 
       {/* top-left back arrow (code step) */}
-      {onCode && (
+      {onCode && !drawingStage && (
         <TouchableOpacity
           onPress={goBack} style={s.backTopLeft} activeOpacity={0.6} hitSlop={12}
           accessibilityRole="button" accessibilityLabel={txt("auth.a11y.back", "Back")}
