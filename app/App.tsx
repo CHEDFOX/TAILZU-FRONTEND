@@ -100,6 +100,54 @@ function loadBlipHost(): React.ComponentType | null {
   }
 }
 
+/**
+ * THE VERY FIRST LAUNCH WAITS A MOMENT FOR THE NEWEST UPDATE.
+ *
+ * expo-updates fetches an update in the background and applies it on the NEXT
+ * launch, so a fresh download used to run the store's own JavaScript through
+ * the whole onboarding. On an install's first launch only, it now asks for an
+ * update and, when one is there and lands within a few seconds, restarts into
+ * it before anything is drawn. The mark is written before the wait, so a
+ * restart (or a crash) never waits again; every later launch is as before.
+ */
+let bootKv: any = null;
+function firstLaunch(): boolean {
+  try {
+    if (!Updates?.isEnabled || (globalThis as { __DEV__?: boolean }).__DEV__) return false;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createMMKV } = require("react-native-mmkv");
+    bootKv = bootKv ?? createMMKV({ id: "tailzu.boot" });
+    if (bootKv.getBoolean("launched")) return false;
+    bootKv.set("launched", true);
+    // An install that has ever reached the server keeps its last bootstrap
+    // (storage.readKnobSnapshotSync): it is not new, and never waits.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return !require("./src/storage").readKnobSnapshotSync();
+  } catch { return false; }
+}
+function useFirstLaunchUpdate(): boolean {
+  const [ready, setReady] = React.useState(() => !firstLaunch());
+  React.useEffect(() => {
+    if (ready) return;
+    const ms = knobFns().num("boot.firstLaunchUpdateMs", 6000);
+    let done = false;
+    const go = () => { if (!done) { done = true; setReady(true); } };
+    const timer = setTimeout(go, ms);
+    (async () => {
+      try {
+        const res = await Updates.checkForUpdateAsync();
+        if (done || !res?.isAvailable) return go();
+        await Updates.fetchUpdateAsync();
+        if (done) return;            // too slow: it applies on the next launch, as before
+        done = true;
+        await Updates.reloadAsync(); // straight into the newest code
+      } catch { go(); }
+    })();
+    return () => clearTimeout(timer);
+  }, [ready]);
+  return ready;
+}
+
 /** Last-resort screen. Depends on nothing but react-native (knobs optional). */
 function BootFailure({ error }: { error: unknown }) {
   const e = error as { message?: string; stack?: string };
@@ -127,6 +175,8 @@ function BootFailure({ error }: { error: unknown }) {
 }
 
 export default function App() {
+  const ready = useFirstLaunchUpdate();
+  if (!ready) return <View style={{ flex: 1, backgroundColor: knobFns().color("boot.waitBg", "#0B0B0D") }} />;
   try {
     // Before the app's own modules: their module-scope values read knobs too.
     primeKnobs();
