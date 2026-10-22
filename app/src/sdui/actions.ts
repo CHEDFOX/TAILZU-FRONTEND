@@ -37,7 +37,8 @@ import { registerForPushToken, unregisterPushToken } from "../notifications/push
 import { completeKeyboardHandoff, cancelKeyboardHandoff, endFlowSession } from "../../modules/tulmi-bridge";
 import { setLanguage } from "../storage";
 import { armFlow } from "../widgets/flow";
-import { isOpenableUrl, isWebUrl, safeFileName } from "../security";
+import { isHandoffUrl, isOpenableUrl, isWebUrl, safeFileName } from "../security";
+import { fillText, navParams, resolveValue } from "./fill";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -57,50 +58,6 @@ export interface Ctx {
   nav: NavApi;
   toast: (message: string, tone?: string) => void;
   event?: any;
-}
-
-/** Resolve "$state.x" / "$event" / "$flags.x" placeholders inside any value. */
-export function resolveValue(value: any, ctx: Ctx): any {
-  if (typeof value === "string" && value.startsWith("$")) {
-    if (value === "$event") return ctx.event;
-    if (value === "$state") return ctx.store.snapshot();
-    if (value.startsWith("$state.")) return ctx.store.get(value.slice("$state.".length));
-    if (value.startsWith("$flags.")) return ctx.flags[value.slice("$flags.".length)];
-    return value;
-  }
-  if (Array.isArray(value)) return value.map((v) => resolveValue(v, ctx));
-  if (value && typeof value === "object") {
-    const out: Record<string, any> = {};
-    for (const k of Object.keys(value)) out[k] = resolveValue(value[k], ctx);
-    return out;
-  }
-  return value;
-}
-
-/**
- * Words an action puts in front of someone — a toast, a copied line. An
- * "@key" is the catalog's copy; "$state.x" inside a sentence is filled in.
- *
- * resolveValue only rewrites a string that IS a reference, so these reached
- * the screen as written: "@history.detail.toast", "Writing as $state.vcName.".
- * A key the catalog lacks, or a value that is not there, gives "" — the caller
- * shows nothing rather than an identifier. Only the ACTION's own literal is
- * looked up: a row's text that starts with "@" is a sentence, not a key.
- */
-export function fillText(value: any, ctx: Ctx): string {
-  if (typeof value !== "string") {
-    const v = resolveValue(value, ctx);
-    return v == null ? "" : typeof v === "string" ? v : String(v);
-  }
-  if (value.startsWith("@")) return ctx.labels[value.slice(1)] ?? "";
-  if (value === "$event" || /^\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]$/.test(value)) {
-    const v = resolveValue(value, ctx);
-    return v == null ? "" : String(v);
-  }
-  return value.replace(/\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]/g, (m) => {
-    const v = resolveValue(m, ctx);
-    return v == null ? "" : String(v);
-  });
 }
 
 /**
@@ -168,9 +125,13 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
 
 const linkFailed = (ctx: Ctx) => ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error");
 
-/** Hand a URL to the OS — only a scheme security.isOpenableUrl allows. */
-function openExternal(url: unknown, ctx: Ctx): void {
-  if (!isOpenableUrl(url)) { console.warn("[sdui] openUrl refused:", String(url).slice(0, 80)); linkFailed(ctx); return; }
+/**
+ * Hand a URL to the OS — only a scheme security.isOpenableUrl allows, and for
+ * an assistant's hand-off (`handoff`) only a link on its list (isHandoffUrl).
+ */
+function openExternal(url: unknown, ctx: Ctx, handoff = false): void {
+  const allowed = handoff ? isHandoffUrl(url) : isOpenableUrl(url);
+  if (!allowed || typeof url !== "string") { console.warn("[sdui] openUrl refused:", String(url).slice(0, 80)); linkFailed(ctx); return; }
   Linking.openURL(url).catch(() => linkFailed(ctx));
 }
 
@@ -228,10 +189,17 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
 
   switch (action.kind) {
     // ------------------------------------------------------------------- nav
-    case "navigate":
-      if (action.replace) ctx.nav.replace(action.screenId, action.params);
-      else ctx.nav.push(action.screenId, action.params);
+    // Params can be references too ("$state.ask.res.taskId"): the screen to
+    // open is sometimes one an answer named — the task an ask just left
+    // waiting for approval. Filled in as callEndpoint's body is; a literal
+    // param goes as written. The server sends a reference only to a bundle
+    // that says it can (ActionParams in the registry).
+    case "navigate": {
+      const params = navParams(action.params, ctx);
+      if (action.replace) ctx.nav.replace(action.screenId, params);
+      else ctx.nav.push(action.screenId, params);
       break;
+    }
     case "navigateBack":
     case "dismiss": ctx.nav.back(); break;
     case "switchTab": ctx.nav.switchTab(action.tabId); break;
@@ -240,7 +208,7 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // cannot be written into the screen. Resolved here, then held to the same
     // checks as a literal one (openExternal / isWebUrl), so a state value
     // opens nothing a typed address could not.
-    case "openUrl": openExternal(fillText(action.url, ctx), ctx); break;
+    case "openUrl": openExternal(fillText(action.url, ctx), ctx, action.handoff === true); break;
     case "openInAppBrowser":
       try {
         const url = fillText(action.url, ctx);

@@ -322,7 +322,8 @@ export type ActionSpec =
   | { kind: "navigate"; screenId: string; params?: Record<string, any>; replace?: boolean }
   | { kind: "navigateBack" }
   | { kind: "switchTab"; tabId: string }
-  | { kind: "openUrl"; url: string; external?: boolean }
+  /** `handoff: true`: an assistant's answer, opened only if it is on the hand-off list (security.isHandoffUrl). */
+  | { kind: "openUrl"; url: string; external?: boolean; handoff?: boolean }
   | { kind: "openSettings"; target?: "app" | "keyboard" }
   | { kind: "openInAppBrowser"; url: string }
   | { kind: "dismiss" }
