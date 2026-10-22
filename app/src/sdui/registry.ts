@@ -103,6 +103,14 @@ export const CORE_COMPONENTS = [
    * this.
    */
   "ActionUrl",
+  /**
+   * NOT A COMPONENT — a declaration that this bundle's navigate fills in
+   * "$state.x" in its params, so a screen can open what an answer named (the
+   * task an ask just left waiting for approval). An older bundle would send
+   * the reference itself as the param; the backend sends one only to a bundle
+   * that says this.
+   */
+  "ActionParams",
   // Coverflow — a deck of cards turned in depth, dragged and thrown.
   // Reels — one child per screenful, snapped vertically.
   "Coverflow", "Reels",

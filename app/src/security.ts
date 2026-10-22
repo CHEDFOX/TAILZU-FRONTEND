@@ -63,16 +63,104 @@ export function isWebUrl(url: unknown): url is string {
 
 /**
  * What `openUrl` may hand to the operating system: a web page, a mail, a
- * call, a text, the app's own settings page or this app's own scheme. Not
- * `javascript:`, `file:`, `content:`, `data:`, Android `intent:` (which can
- * start any activity) or another app's private scheme.
+ * call, a text, a UPI payment, the app's own settings page or this app's own
+ * scheme. Not `javascript:`, `file:`, `content:`, `data:`, Android `intent:`
+ * (which can start any activity) or another app's private scheme.
  */
-const OPENABLE = new Set(["https:", "http:", "mailto:", "tel:", "sms:", "app-settings:", "tulmi:"]);
+const OPENABLE = new Set(["https:", "http:", "mailto:", "tel:", "sms:", "upi:", "app-settings:", "tulmi:"]);
+/**
+ * A UPI payment and nothing else: upi://pay?pa=… (NPCI's linking spec), the
+ * link the assistant's hand-off writes. The UPI app opens with the payee and
+ * the amount filled in, and the PIN is typed there, by the person. Not a
+ * mandate, a collect request or any other link a UPI app answers to, and
+ * nothing a space, a backslash or a control character could split.
+ */
+const UPI_PAY = /^upi:\/\/pay\?pa=[^&#]+(?:&[^#]*)?$/i;
 export function isOpenableUrl(url: unknown): url is string {
   if (typeof url !== "string") return false;
   const scheme = /^([a-z][a-z0-9+.-]*:)/i.exec(url.trim())?.[1]?.toLowerCase();
   if (!scheme || !OPENABLE.has(scheme)) return false;
+  // eslint-disable-next-line no-control-regex
+  if (scheme === "upi:") return UPI_PAY.test(url) && !/[\s\\\u0000-\u001f\u007f]/.test(url);
   return scheme === "https:" || scheme === "http:" ? isWebUrl(url.trim()) : true;
+}
+
+/** The longest hand-off the assistant writes (the backend's LINK_MAX), as the desktop opens. */
+const HANDOFF_MAX = 8000;
+/** A Telegram username as a t.me path: a letter, then letters, digits or _, 4 to 32 in all. */
+const TG_CHAT = /^\/([A-Za-z][A-Za-z0-9_]{3,31})$/;
+/** t.me's own pages, which are no one's username: they join, log in, pay or set a proxy. */
+const TG_PAGES = new Set([
+  "share", "proxy", "socks", "joinchat", "login", "confirmphone", "setlanguage", "addstickers", "addemoji",
+  "addtheme", "addlist", "invoice", "giftcode", "boost", "contact", "premium", "stars", "nft",
+]);
+/**
+ * The https hand-offs: the exact origin and path the backend writes, the
+ * query keys each may carry, and a key that must have one value. Paths are
+ * read as written, never normalised, and Spotify's one free segment is never
+ * "." or "..", which the OS would walk out of /search/ on.
+ */
+const HANDOFF_WEB: ReadonlyArray<{ at: string; path: RegExp; keys: readonly string[]; fixed?: readonly [string, string] }> = [
+  { at: "https://wa.me", path: /^\/(?:\d{6,15})?$/, keys: ["text"] },
+  { at: "https://api.whatsapp.com", path: /^\/send$/, keys: ["phone", "text"] },
+  { at: "https://t.me", path: /^\/share\/url$/, keys: ["url", "text"] },
+  { at: "https://t.me", path: TG_CHAT, keys: ["text"] },
+  { at: "https://www.google.com", path: /^\/maps\/dir\/$/, keys: ["api", "destination", "travelmode"], fixed: ["api", "1"] },
+  { at: "https://www.google.com", path: /^\/maps\/search\/$/, keys: ["api", "query"], fixed: ["api", "1"] },
+  { at: "https://m.uber.com", path: /^\/ul\/$/, keys: ["action", "pickup", "dropoff[formatted_address]"] },
+  { at: "https://www.amazon.in", path: /^\/s$/, keys: ["k"] },
+  { at: "https://www.flipkart.com", path: /^\/search$/, keys: ["q"] },
+  { at: "https://www.youtube.com", path: /^\/results$/, keys: ["search_query"] },
+  { at: "https://music.youtube.com", path: /^\/search$/, keys: ["q"] },
+  { at: "https://open.spotify.com", path: /^\/search\/(?!(?:\.|%2[eE]){1,2}$)[^/]+$/, keys: [] },
+  { at: "https://www.threads.com", path: /^\/intent\/post$/, keys: ["text", "url"] },
+  { at: "https://www.threads.net", path: /^\/intent\/post$/, keys: ["text", "url"] },
+  { at: "https://www.booking.com", path: /^\/searchresults\.html$/, keys: ["ss", "checkin", "checkout", "group_adults", "no_rooms"] },
+  { at: "https://mail.google.com", path: /^\/mail\/$/, keys: ["view", "fs", "to", "cc", "bcc", "su", "body"], fixed: ["view", "cm"] },
+];
+const MAILTO_KEYS = ["to", "cc", "bcc", "subject", "body"];
+
+/** A query's pairs with their keys decoded, or null when one is not a key on `keys` or comes twice. */
+function queryPairs(query: string | undefined, keys: readonly string[]): Map<string, string> | null {
+  const out = new Map<string, string>();
+  if (!query) return out;
+  for (const part of query.split("&")) {
+    const at = part.indexOf("=");
+    let k: string;
+    try { k = decodeURIComponent(at < 0 ? part : part.slice(0, at)).toLowerCase(); } catch { return null; }
+    if (!keys.includes(k) || out.has(k)) return null;
+    out.set(k, at < 0 ? "" : part.slice(at + 1));
+  }
+  return out;
+}
+
+/**
+ * What an answer of the assistant may open (openUrl with `handoff`): only a
+ * link on its hand-off list, in the form the backend writes it
+ * (tulmi/src/connectors/handoffs/links.ts), whatever the answer says. A
+ * WhatsApp, Telegram or Threads draft, a Maps route or search, an Uber ride,
+ * a shop's, YouTube's or Spotify's search, Booking.com's results, a Gmail or
+ * mailto: draft, and the phone's own: a call (tel:+digits), a text
+ * (sms:digits?body=) and a UPI payment (upi://pay?pa=&pn=&am=&cu=INR&tn=).
+ * Never another site, another parameter, or anything unencoded.
+ */
+export function isHandoffUrl(url: unknown): url is string {
+  // eslint-disable-next-line no-control-regex
+  if (typeof url !== "string" || !url || url.length > HANDOFF_MAX || /[\s\\\u0000-\u001f\u007f-\u009f]/.test(url)) return false;
+  if (/^tel:\+?\d{3,15}$/.test(url)) return true;
+  if (/^sms:(?:\+?\d{3,15})?\?body=[^&#]*$/.test(url)) return true;
+  if (/^upi:\/\/pay\?pa=[A-Za-z0-9._-]+@[A-Za-z0-9.-]+&pn=[^&#]*&am=\d{1,6}\.\d{2}&cu=INR(?:&tn=[^&#]*)?$/.test(url)) return true;
+  const mail = /^mailto:([^?#]+)(?:\?([^#]*))?$/.exec(url);
+  if (mail) return queryPairs(mail[2], MAILTO_KEYS) !== null;
+  const web = /^(https:\/\/[a-z0-9.-]+)(\/[^?#]*)(?:\?([^#]*))?$/.exec(url);
+  if (!web) return false;
+  const [, origin, path, query] = web;
+  return HANDOFF_WEB.some((h) => {
+    if (h.at !== origin || !h.path.test(path!)) return false;
+    if (h.path === TG_CHAT && TG_PAGES.has(TG_CHAT.exec(path!)![1]!.toLowerCase())) return false;
+    const pairs = queryPairs(query, h.keys);
+    return !!pairs && (!h.fixed || pairs.get(h.fixed[0]) === h.fixed[1]);
+  });
 }
 
 /** A page the WebView node may show: https on tailzu.space. */
