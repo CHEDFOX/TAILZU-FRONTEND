@@ -95,6 +95,14 @@ export const CORE_COMPONENTS = [
    * those only to a bundle that says this.
    */
   "ActionText",
+  /**
+   * NOT A COMPONENT — a declaration that this bundle's openUrl and
+   * openInAppBrowser fill in "$state.x" in the address, so a page the server
+   * only learns after a call (a connected app's sign-in) can be opened from
+   * the answer. The backend sends the Connect tap only to a bundle that says
+   * this.
+   */
+  "ActionUrl",
   // Coverflow — a deck of cards turned in depth, dragged and thrown.
   // Reels — one child per screenful, snapped vertically.
   "Coverflow", "Reels",

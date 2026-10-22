@@ -235,11 +235,17 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "navigateBack":
     case "dismiss": ctx.nav.back(); break;
     case "switchTab": ctx.nav.switchTab(action.tabId); break;
-    case "openUrl": openExternal(action.url, ctx); break;
+    // The address can be a reference ("$state.link.authorizeUrl"): a sign-in
+    // page the server only knows after a call (callEndpoint ... assignTo)
+    // cannot be written into the screen. Resolved here, then held to the same
+    // checks as a literal one (openExternal / isWebUrl), so a state value
+    // opens nothing a typed address could not.
+    case "openUrl": openExternal(fillText(action.url, ctx), ctx); break;
     case "openInAppBrowser":
       try {
-        if (!isWebUrl(action.url)) throw new Error("not a web page");
-        await WebBrowser.openBrowserAsync(action.url);
+        const url = fillText(action.url, ctx);
+        if (!isWebUrl(url)) throw new Error("not a web page");
+        await WebBrowser.openBrowserAsync(url);
       } catch { linkFailed(ctx); }
       break;
     case "openSettings": {
@@ -611,8 +617,17 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "biometricPrompt": {
       try {
         const has = await LocalAuthentication.hasHardwareAsync();
+        // NOTHING TO CHECK AGAINST is not a failed check. A phone with no
+        // screen lock at all (no Face ID, fingerprint or passcode) cannot
+        // answer the prompt either way, and "you cancelled" and "this phone
+        // can't" are different things for the screen to say. The screen names
+        // what happens then (onUnavailable); without one this is what it
+        // always was, an error. A passcode counts: the system prompt falls
+        // back to it.
+        const level = await LocalAuthentication.getEnrolledLevelAsync().catch(() => LocalAuthentication.SecurityLevel.NONE);
+        if (action.onUnavailable && level === LocalAuthentication.SecurityLevel.NONE) { await runAction(action.onUnavailable, ctx); break; }
         if (!has) { await runAction(action.onError, ctx); break; }
-        const res = await LocalAuthentication.authenticateAsync({ promptMessage: action.reason ?? txt("auth.biometric.prompt", "Authenticate") });
+        const res = await LocalAuthentication.authenticateAsync({ promptMessage: fillText(action.reason, ctx) || txt("auth.biometric.prompt", "Authenticate") });
         await runAction(res.success ? action.onSuccess : action.onError, ctx);
       } catch { await runAction(action.onError, ctx); }
       break;
