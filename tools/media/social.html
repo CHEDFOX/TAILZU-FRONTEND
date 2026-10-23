@@ -5050,9 +5050,9 @@ function handsYou(g, t, paint, scrOverride) {
   // Speak, and Do it.
   const press = (a, b) => 1 - .3 * seg(t, a, a + .06) * (1 - seg(t, b - .1, b + .12));
   g.save(); g.globalAlpha *= press(Hn.tapSpeak, Hn.tapSpeak + .2) * press(Hn.tapStop, Hn.tapStop + .2) * (transcribing ? .6 : 1);
-  // The app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop & transcribe"; then "Transcribing…" at 60%.
+  // The app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop"; then "Transcribing…" at 60%.
   g.fillStyle = listening ? "#e0556b" : "rgba(243,226,198,0.08)"; rr(g, IX, yBtn, vbW, 48, 24); g.fill();
-  handsT(g, listening ? "■ Stop & transcribe" : transcribing ? "Transcribing…" : "Speak", IX + vbW / 2, yBtn, "uiMedium", 15, listening ? "#FFFFFF" : APPLOOK.ink, { lh: 48, align: "center" });
+  handsT(g, listening ? "■ Stop" : transcribing ? "Transcribing…" : "Speak", IX + vbW / 2, yBtn, "uiMedium", 15, listening ? "#FFFFFF" : APPLOOK.ink, { lh: 48, align: "center" });
   g.restore();
   g.save(); g.globalAlpha *= press(Hn.tapDo, Hn.tapDo + .2);
   g.fillStyle = APPLOOK.ink; rr(g, IX + vbW + 8, yBtn, doW, 48, 24); g.fill();
@@ -6141,7 +6141,7 @@ function dueAsk(g, W, H, t, D) {
   // Speak and Do it. Listening turns Speak to the danger colour and "Stop & transcribe"; then "Transcribing…" at 60%.
   const bt = fieldTop + fieldH + 12; g.save(); g.font = af("uiMedium", 15);
   const doW = g.measureText("Do It").width + 44, spW = IW - 8 - doW; g.restore();
-  duePill(g, X, bt, spW, rec ? "#e0556b" : "#141418", rec ? "■ Stop & transcribe" : work ? "Transcribing…" : "Speak", "#FFFFFF", Math.max(duePress(t, D.tapSpeak), duePress(t, D.tapStop)), work ? .6 : 1);
+  duePill(g, X, bt, spW, rec ? "#e0556b" : "#141418", rec ? "■ Stop" : work ? "Transcribing…" : "Speak", "#FFFFFF", Math.max(duePress(t, D.tapSpeak), duePress(t, D.tapStop)), work ? .6 : 1);
   duePill(g, X + spW + 8, bt, doW, "#FFFFFF", "Do It", "#0B0B0D", duePress(t, D.tapDo));
   let y = bt + 48;
   if (t >= D.busy && t < D.answer) {
@@ -6471,12 +6471,12 @@ function payAsk(g, t, W, H) {
   g.strokeStyle = "rgba(243,226,198,0.12)"; g.lineWidth = 1; rr(g, G.X + .5, G.fieldTop + .5, G.Wd - 1, G.fh - 1, 13.5); g.stroke();
   if (!shown) text(g, "Type or say what you need", G.X + 13, base(G.fieldTop + 15.5, 20.5, 15.5), af("ui", 15.5), APPLOOK.ink3);
   else layout(g, shown, af("ui", 15.5), G.Wd - 26, 20.5).lines.forEach((ln, i) => text(g, ln, G.X + 13, base(G.fieldTop + 15.5 + i * 20.5, 20.5, 15.5), af("ui", 15.5), ink));
-  // Speak, the app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop & transcribe"; then "Transcribing…" at 60%.
+  // Speak, the app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop"; then "Transcribing…" at 60%.
   const S = G.speak, listening = t >= A.rec && t < A.stop, working = t >= A.stop && t < A.fill;
   const press = Math.max(payBump(t, A.tapSpeak), payBump(t, A.tapStop)), ps = 1 - .045 * press;
   g.save(); g.translate(S.x + S.w / 2, S.y + 24); g.scale(ps, ps); g.translate(-(S.x + S.w / 2), -(S.y + 24)); g.globalAlpha *= working ? .6 : 1;
   g.fillStyle = listening ? "#e0556b" : "#141418"; rr(g, S.x, S.y, S.w, S.h, 24); g.fill();
-  text(g, listening ? "■ Stop & transcribe" : working ? "Transcribing…" : "Speak", S.x + S.w / 2, base(S.y + 13, 22, 15), af("uiMedium", 15), "#FFFFFF", 1, "center");
+  text(g, listening ? "■ Stop" : working ? "Transcribing…" : "Speak", S.x + S.w / 2, base(S.y + 13, 22, 15), af("uiMedium", 15), "#FFFFFF", 1, "center");
   g.restore();
   const D = G.go, gp = 1 - .045 * payBump(t, A.tapGo);
   g.save(); g.translate(D.x + D.w / 2, D.y + 24); g.scale(gp, gp); g.translate(-(D.x + D.w / 2), -(D.y + 24));
