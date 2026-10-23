@@ -26,7 +26,7 @@ itself, which the film lays under its scene from the first frame:
 
 | read | who | room |
 |---|---|---|
-| `hands` | a parent cooking | a pan frying, a chimney fan |
+| `hands` | a mother cooking | a pan frying, a chimney fan |
 | `downloads` | at her Mac | room tone, a ceiling fan |
 | `due` | a student at 11:48 PM | a ceiling fan, crickets outside |
 | `pay` | at dinner with friends | chatter (`babble.py`), cutlery, the AC |

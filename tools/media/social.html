@@ -1025,6 +1025,52 @@ function endCard2(ctx, w, h, t, o = {}) {
   label(ctx, o.foot ?? "Free to start · iPhone · Android · Windows · Mac", w / 2, by + bh + u * .075, u * .02, P.pale, k * .6, "center");
   ctx.restore();
 }
+/**
+ * How a film signs off: the name, written in the brand's serif, glitching in.
+ * It arrives in stutters (GLITCH: [start, length] in seconds from `t0`, the
+ * same moments sound.mjs's "glitch" sounds, passed in its cue), each one a
+ * burst of sliced, shifted, colour-split copies of the word, more of it
+ * holding between bursts, until it settles clean at GLITCH_SETTLE; then the
+ * address under it. `x, y` is the word's top left.
+ */
+const GLITCH = [[0, .045], [.07, .03], [.12, .06], [.2, .025], [.24, .05], [.33, .03], [.38, .07]], GLITCH_SETTLE = .5;
+const WORDMARK = { size: 84, c: null, red: null, cyan: null, base: 0 };
+function wordmark() {
+  if (WORDMARK.c) return WORDMARK;
+  const font = f(WORDMARK.size, SERIF, 400), m = canvasOf(10, 10).getContext("2d"); m.font = font;
+  const w = Math.ceil(m.measureText("Tailzu").width) + 24, h = Math.ceil(WORDMARK.size * 1.3), base = Math.round(WORDMARK.size * 1.02);
+  const one = (color) => { const c = canvasOf(w, h), g = c.getContext("2d"); g.font = font; g.fillStyle = color; g.fillText("Tailzu", 12, base); return c; };
+  return Object.assign(WORDMARK, { c: one(P.pale), red: one("#FF3D6E"), cyan: one("#36E3FF"), base, w, h });
+}
+function signOff(ctx, x, y, t, t0, sub = "tailzu.space") {
+  const s = t - t0; if (s < 0) return;
+  const M = wordmark(), live = GLITCH.some(([a, d]) => s >= a && s < a + d), settled = s >= GLITCH_SETTLE;
+  const shown = settled ? 1 : GLITCH.filter(([a]) => s >= a).length / GLITCH.length; if (!shown) return;
+  const R = rng(Math.floor(s * 60) * 7 + 3), dx0 = x - 12;
+  // The word in bands, each shifted on its own, red and cyan ghosts either side.
+  const draw = (bands, shift, split, keep) => {
+    let sy = 0; const hs = []; for (let i = 0; i < bands; i++) hs.push(.5 + R());
+    const sum = hs.reduce((a, b) => a + b, 0);
+    hs.forEach((hk) => {
+      const sh = Math.max(1, Math.round(M.h * hk / sum)), dx = (R() - .5) * 2 * shift;
+      if (R() < keep) {
+        if (split > .2) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha *= .75; ctx.drawImage(M.red, 0, sy, M.w, sh, dx0 + dx - split, y + sy, M.w, sh); ctx.drawImage(M.cyan, 0, sy, M.w, sh, dx0 + dx + split, y + sy, M.w, sh); ctx.restore(); }
+        ctx.drawImage(M.c, 0, sy, M.w, sh, dx0 + dx, y + sy, M.w, sh);
+      }
+      sy += sh;
+    });
+  };
+  if (settled) {
+    // Clean, the last of the colour slipping back into it.
+    const k = 1 - E.out(seg(s, GLITCH_SETTLE, GLITCH_SETTLE + .35));
+    if (k > 0) { ctx.save(); ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha *= .6 * k; ctx.drawImage(M.red, dx0 - 5 * k, y); ctx.drawImage(M.cyan, dx0 + 5 * k, y); ctx.restore(); }
+    ctx.drawImage(M.c, dx0, y);
+  } else if (live) draw(7 + Math.floor(R() * 6), 46, 6 + R() * 14, .85);
+  else draw(10, 3, 2, shown * 1.1);
+  // A scanline or two across it while it is unsettled.
+  if (!settled && live) { ctx.fillStyle = rgba(P.pale, .5); for (let i = 0; i < 2; i++) ctx.fillRect(dx0 + (R() - .3) * 60, y + R() * M.h, M.w * (.4 + R() * .8), 2); }
+  text(ctx, sub, x + 2, y + M.h + 34, f(28, SANS, 400), rgba(P.pale, .6), E.out(seg(s, .85, 1.35)));
+}
 /** Where a point drawn under the current transform lands on the frame. */
 const onFrame = (ctx, x, y) => { const p = ctx.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x, p.y]; };
 
@@ -3480,12 +3526,7 @@ function maaCard(ctx, w, h, t) {
   text(ctx, "Maa’s phone", bx + 22, by + 34, f(16, MONO), "#667781", 1, "left", 2);
   lay.lines.forEach((ln, i) => text(ctx, ln, bx + 22, by + 76 + i * 42, sf(30, 400), "#111B21"));
   ctx.restore();
-  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
-  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1560;
-  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
-  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+  signOff(ctx, x0, 1530, t, 2.4);
 }
 FILMS.toMaa = (() => {
   const Pn = PHONE_MAA, duration = +(Pn.end + Pn.card).toFixed(1);
@@ -3494,7 +3535,7 @@ FILMS.toMaa = (() => {
     else maaCard(ctx, w, h, t - Pn.end);
   }, cues() {
     const c = phoneCues(Pn);
-    c.push({ at: Pn.write, kind: "write" }, { at: Pn.end + .1, kind: "open", gain: .8 }, { at: Pn.end + 1.5, kind: "notify", gain: .6 }, { at: 0, kind: "bed", dur: duration });
+    c.push({ at: Pn.write, kind: "write" }, { at: Pn.end + .1, kind: "open", gain: .8 }, { at: Pn.end + 1.5, kind: "notify", gain: .6 }, { at: 0, kind: "bed", dur: duration }, { at: Pn.end + 2.4, kind: "glitch", hits: GLITCH, settle: GLITCH_SETTLE });
     return c;
   } };
 })();
@@ -4890,7 +4931,7 @@ const HANDS = (() => {
     push: 11.75, sheet: 12.1, tapOk: 13.4, hud: 13.5, tick: 14.05, hudOut: 14.5, sheetOut: 14.55, pop: 14.85, back: 15.05,
     scroll: 15.2, rows: [15.95], proof: 17.2, proofEnd: 19.6, end: 19.8, card: 6.0,
     said_: HANDS_VOICE.said, wordAt: HANDS_VOICE.words, instr: [],
-    text: "Put Aarav’s parent-teacher meeting on Thursday at 5, and remind me to pay the electricity bill on Friday morning.",
+    text: "Put Riya’s parent-teacher meeting on Thursday at 5, and remind me to pay the electricity bill on Friday morning.",
     answer: "Done. Parent-teacher meeting is on your calendar, Thursday 29 Oct at 5 PM. I’ll remind you to pay the electricity bill on Friday at 9 AM.",
     preview: "Add the event “Parent-teacher meeting”, Thu 29 Oct, 5:00–6:00 PM",
     note: "Approve once, and I’ll do this in Google Calendar without asking again. Deleting always asks.",
@@ -5245,8 +5286,30 @@ function drawFigureOctopus(g, W, H, p, t) {
   const mg = g.createRadialGradient(-.09 * H, -.13 * H, 0, 0, 0, .36 * H); mg.addColorStop(0, grey(1)); mg.addColorStop(.5, grey(.86)); mg.addColorStop(1, grey(.58));
   g.fillStyle = mg; mantle(); g.fill();
   g.save(); mantle(); g.clip();
-  [[-.12, -.2, .03, 1], [.03, -.24, .022, 1], [-.2, -.08, .02, 1], [.12, -.17, .028, 1], [.2, -.05, .02, .62], [-.03, -.13, .016, .62], [.17, -.22, .013, 1], [-.17, .04, .014, .62]].forEach(([dx, dy, r, c]) => { g.fillStyle = grey(c); g.beginPath(); g.arc(dx * H, dy * H, r * H, 0, TAU); g.fill(); });
+  [[-.2, -.06, .02, 1], [.21, -.02, .018, .62], [-.17, .05, .014, .62], [.19, .07, .012, 1]].forEach(([dx, dy, r, c]) => { g.fillStyle = grey(c); g.beginPath(); g.arc(dx * H, dy * H, r * H, 0, TAU); g.fill(); });
+  // Her hair: dark, parted on one side, swept over the top of her head, a strand or two catching the light.
+  const hair = () => { g.beginPath(); g.moveTo(-.3 * H, .02 * H); g.bezierCurveTo(-.3 * H, -.36 * H, .3 * H, -.36 * H, .3 * H, .0); g.bezierCurveTo(.25 * H, -.08 * H, .16 * H, -.1 * H, .1 * H, -.12 * H);
+    g.bezierCurveTo(.04 * H, -.14 * H, -.02 * H, -.17 * H, -.05 * H, -.19 * H); g.bezierCurveTo(-.1 * H, -.14 * H, -.2 * H, -.1 * H, -.3 * H, .02 * H); g.closePath(); };
+  g.fillStyle = grey(.2); hair(); g.fill();
+  g.strokeStyle = grey(.46); g.lineWidth = .009 * H; g.lineCap = "round";
+  [[-.22, -.06, -.08, -.21], [-.15, -.09, -.03, -.22], [.12, -.16, .2, -.08], [.06, -.19, .16, -.15]].forEach(([a, b, c, d]) => { g.beginPath(); g.moveTo(a * H, b * H); g.quadraticCurveTo((a + c) / 2 * H, (Math.min(b, d) - .04) * H, c * H, d * H); g.stroke(); });
   g.restore();
+  g.strokeStyle = grey(.02); g.lineWidth = .016 * H; hair(); g.stroke();
+  // The bun on top, and a flower tucked in it.
+  g.fillStyle = grey(.02); g.beginPath(); g.arc(.03 * H, -.33 * H, .085 * H, 0, TAU); g.fill();
+  g.fillStyle = grey(.24); g.beginPath(); g.arc(.03 * H, -.33 * H, .074 * H, 0, TAU); g.fill();
+  g.strokeStyle = grey(.46); g.lineWidth = .01 * H; g.beginPath(); g.arc(.03 * H, -.33 * H, .045 * H, Math.PI * .9, Math.PI * 2.2); g.stroke();
+  const fx = .1 * H, fy = -.39 * H;
+  for (let k = 0; k < 5; k++) { const a = k * TAU / 5 + t * .3; g.fillStyle = grey(.02); g.beginPath(); g.ellipse(fx + Math.cos(a) * .026 * H, fy + Math.sin(a) * .026 * H, .024 * H, .017 * H, a, 0, TAU); g.fill(); g.fillStyle = grey(.97); g.beginPath(); g.ellipse(fx + Math.cos(a) * .026 * H, fy + Math.sin(a) * .026 * H, .018 * H, .012 * H, a, 0, TAU); g.fill(); }
+  g.fillStyle = grey(.5); g.beginPath(); g.arc(fx, fy, .012 * H, 0, TAU); g.fill();
+  // Earrings: a small drop hanging at each side.
+  [-1, 1].forEach((s) => {
+    const ex = s * .262 * H, ey = .1 * H + Math.sin(t * 3 + s) * .004 * H;
+    g.strokeStyle = grey(.02); g.lineWidth = .007 * H; g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex, ey + .03 * H); g.stroke();
+    g.fillStyle = grey(.02); g.beginPath(); g.arc(ex, ey + .052 * H, .027 * H, Math.PI, TAU); g.lineTo(ex + .03 * H, ey + .064 * H); g.lineTo(ex - .03 * H, ey + .064 * H); g.closePath(); g.fill();
+    g.fillStyle = grey(.9); g.beginPath(); g.arc(ex, ey + .054 * H, .02 * H, Math.PI, TAU); g.lineTo(ex + .022 * H, ey + .059 * H); g.lineTo(ex - .022 * H, ey + .059 * H); g.closePath(); g.fill();
+    g.fillStyle = grey(.9); g.beginPath(); g.arc(ex, ey + .074 * H, .007 * H, 0, TAU); g.fill();
+  });
   // Face: cheeks, eyes with their slits, brows, mouth.
   g.fillStyle = grey(1); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(s * .17 * H, .11 * H, .036 * H, .022 * H, 0, 0, TAU); g.fill(); });
   const blink = ((t * 1000 + 1300) % 3100) < 120 || glad > .5;
@@ -5257,12 +5320,23 @@ function drawFigureOctopus(g, W, H, p, t) {
       g.fillStyle = grey(.04); g.beginPath(); g.ellipse(ex, ey, .074 * H, (blink ? .006 : .082) * H, 0, 0, TAU); g.fill();
       if (!blink) { g.fillStyle = grey(1); g.beginPath(); g.ellipse(ex, ey, .065 * H, .073 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.06); rr(g, ex - .038 * H + s * .006 * H, ey - .008 * H, .076 * H, .034 * H, .014 * H); g.fill(); g.fillStyle = grey(1); g.beginPath(); g.arc(ex - .022 * H, ey - .034 * H, .01 * H, 0, TAU); g.fill(); }
     }
-    g.strokeStyle = grey(.1); g.lineWidth = .016 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey - .08 * H - p.brows * .022 * H, .055 * H, Math.PI * 1.2, Math.PI * 1.8); g.stroke();
+    // Lashes, three to an eye, sweeping out.
+    g.strokeStyle = grey(.03); g.lineWidth = .011 * H; g.lineCap = "round";
+    const lid = glad > .5 ? [ex, ey + .024 * H, .055 * H] : [ex, ey, .074 * H];
+    [.18, .3, .42].forEach((q) => { const a = -Math.PI / 2 + s * q * Math.PI * .62, r0 = lid[2] * (glad > .5 ? 1 : 1.04), x0 = lid[0] + Math.cos(a) * r0, y0 = lid[1] + Math.sin(a) * (glad > .5 ? r0 : .082 * H * 1.02);
+      g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(a - s * .35) * .032 * H, y0 + Math.sin(a - s * .35) * .032 * H); g.stroke(); });
+    g.strokeStyle = grey(.14); g.lineWidth = .011 * H; g.beginPath(); g.arc(ex + s * .006 * H, ey - .085 * H - p.brows * .02 * H, .05 * H, Math.PI * 1.25, Math.PI * 1.75); g.stroke();
   });
+  g.fillStyle = grey(.08); g.beginPath(); g.arc(0, -.045 * H, .012 * H, 0, TAU); g.fill();
   const my = .17 * H, talking = p.mouth === "o", open = talking ? .55 + .45 * Math.abs(Math.sin(t * 17)) : 0;
-  if (talking) { g.fillStyle = grey(.04); g.beginPath(); g.ellipse(0, my, .038 * H, .034 * H * open + .007 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.7); g.beginPath(); g.ellipse(0, my + .009 * H, .02 * H, .011 * H * open, 0, 0, TAU); g.fill(); }
+  if (talking) { g.fillStyle = grey(.04); g.beginPath(); g.ellipse(0, my, .045 * H, .04 * H * open + .012 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.36); g.beginPath(); g.ellipse(0, my, .038 * H, .033 * H * open + .007 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.06); g.beginPath(); g.ellipse(0, my, .026 * H, .024 * H * open + .002 * H, 0, 0, TAU); g.fill(); }
   else if (p.mouth === "grin" || glad > .5) { g.fillStyle = grey(.04); g.beginPath(); g.ellipse(0, my - .012 * H, .056 * H, .04 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.78); g.beginPath(); g.ellipse(0, my + .012 * H, .028 * H, .011 * H, 0, 0, TAU); g.fill(); }
-  else { g.strokeStyle = grey(.05); g.lineWidth = .016 * H; g.lineCap = "round"; g.beginPath(); g.arc(0, my - .034 * H, .056 * H, Math.PI * .22, Math.PI * .78); g.stroke(); }
+  else {
+    // Her lips: a full smile, darker than her face, with a little light on the lower one.
+    g.fillStyle = grey(.04); g.beginPath(); g.moveTo(-.05 * H, my - .006 * H); g.quadraticCurveTo(0, my + .008 * H, .05 * H, my - .006 * H); g.quadraticCurveTo(0, my + .05 * H, -.05 * H, my - .006 * H); g.fill();
+    g.fillStyle = grey(.36); g.beginPath(); g.moveTo(-.04 * H, my - .002 * H); g.quadraticCurveTo(0, my + .01 * H, .04 * H, my - .002 * H); g.quadraticCurveTo(0, my + .04 * H, -.04 * H, my - .002 * H); g.fill();
+    g.fillStyle = grey(.62); g.beginPath(); g.ellipse(-.006 * H, my + .022 * H, .014 * H, .005 * H, 0, 0, TAU); g.fill();
+  }
   g.restore();
   // The apron over the lower body: straps up round the neck, a bib, a pocket, spots, a bow.
   const ay = .53 * H + bob;
@@ -5274,6 +5348,9 @@ function drawFigureOctopus(g, W, H, p, t) {
   g.fillStyle = grey(.4); g.fillRect(0, Y(.765), W, .04 * H); g.restore();
   g.fillStyle = grey(.58); rr(g, X(-.07), Y(.6), .14 * H, .09 * H, .014 * H); g.fill(); g.fillStyle = grey(.96); rr(g, X(-.063), Y(.608), .126 * H, .074 * H, .01 * H); g.fill();
   g.strokeStyle = grey(.4); g.lineWidth = .008 * H; g.beginPath(); g.moveTo(X(-.063), Y(.608)); g.lineTo(X(.063), Y(.608)); g.stroke();
+  // The frill along its hem.
+  for (let k = 0; k <= 8; k++) { const u = k / 8, qx = (1 - u) ** 2 * X(.19) + 2 * u * (1 - u) * X(0) + u * u * X(-.19), qy = (1 - u) ** 2 * Y(.77) + 2 * u * (1 - u) * Y(.82) + u * u * Y(.77);
+    g.fillStyle = grey(.02); g.beginPath(); g.arc(qx, qy, .028 * H, 0, Math.PI); g.fill(); g.fillStyle = grey(.94); g.beginPath(); g.arc(qx, qy, .02 * H, 0, Math.PI); g.fill(); }
   g.fillStyle = grey(.95); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(X(.2), Y(.66) + s * .02 * H, .045 * H, .018 * H, s * .5 + .3, 0, TAU); g.fill(); }); g.fillStyle = grey(.5); g.beginPath(); g.arc(X(.185), Y(.66), .012 * H, 0, TAU); g.fill();
   g.restore();
 }
@@ -5375,12 +5452,7 @@ function handsCard(ctx, w, h, t) {
   arrive(ctx, "Hand it over.", x0, 536, f(104, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
   arrive(ctx, "Say it once. It lands in your apps.", x0, 616, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .045 });
   handsPresenter(ctx, 610, 1450, 640, "wave", seg(t, .6, 1.8), t, E.out(seg(t, .5, 1.2)), drawFigureOctopus, "smile");
-  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
-  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1560;
-  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
-  label(ctx, "Free to start · iPhone · Android", x0, by + bh + 64, 21, P.pale, kk * .6);
+  signOff(ctx, x0, 1530, t, 2.4);
 }
 FILMS.hands = { w: 1080, h: 1920, duration: HANDS.duration, v2: true, draw(ctx, t, w, h) {
   const Hn = HANDS;
@@ -5400,7 +5472,7 @@ FILMS.hands = { w: 1080, h: 1920, duration: HANDS.duration, v2: true, draw(ctx, 
     { at: Hn.tapDo, kind: "click" }, { at: Hn.push, kind: "open", gain: .5 }, { at: Hn.sheet, kind: "open", gain: .35 },
     { at: Hn.tapOk, kind: "click" }, { at: Hn.tick, kind: "land", gain: .8 }, { at: Hn.sheetOut, kind: "open", gain: .3 },
     { at: Hn.back + .05, kind: "write", gain: .6 }, { at: Hn.rows[0], kind: "land", gain: .4 },
-    { at: Hn.proof, kind: "open", gain: .5 }, { at: Hn.end + .1, kind: "open", gain: .8 }, { at: Hn.end, kind: "bed", dur: Hn.card, gain: .9 },
+    { at: Hn.proof, kind: "open", gain: .5 }, { at: Hn.end + .1, kind: "open", gain: .8 }, { at: Hn.end, kind: "bed", dur: Hn.card, gain: .9 }, { at: Hn.end + 2.4, kind: "glitch", hits: GLITCH, settle: GLITCH_SETTLE },
   ];
 } };
 
@@ -5983,12 +6055,7 @@ function dlEnd(ctx, w, h, t) {
   arrive(ctx, "It moves, never deletes. The Trash always asks.", x0, 806, f(33, SANS, 400), rgba(P.pale, .7), 1.15, t, { stagger: .04 });
   const p = dlMixPose(DLPOSE.cheer, DLPOSE.stack, E.out(seg(t, .3, 1.0)));
   dlPresenter(ctx, 770, 1395, 540, Object.assign({}, p, { happy: lerp(1, .55, seg(t, .6, 1.2)) }), t, E.out(seg(t, .4, 1.1)), "smile");
-  const kk = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - kk) * 22;
-  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1425;
-  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
-  label(ctx, "Free to start · Mac · Windows", x0, by + bh + 64, 21, P.pale, kk * .6);
+  signOff(ctx, x0, 1395, t, 1.9);
 }
 FILMS.downloads = { w: 1080, h: 1920, duration: DL.end, v2: true, draw(ctx, t, w, h) { dlScene(ctx, w, h, t); }, cues() {
   const D = DL, c = [{ at: 0, kind: "sample", file: "voice/downloads-room.wav", gain: 1 }, { at: D.voice, kind: "sample", file: "voice/downloads.wav", gain: 1 }];
@@ -5997,7 +6064,7 @@ FILMS.downloads = { w: 1080, h: 1920, duration: DL.end, v2: true, draw(ctx, t, w
   DL_FOLDERS.forEach((_, j) => c.push({ at: dlFolderPop(j) + .06, kind: "land", gain: .4 }));
   DL_MOVERS.forEach((it, i) => { if (i % 2 === 0) c.push({ at: it.ts + D.flyDur * .9, kind: "resume", gain: .3 }); });
   DL_DUPES.forEach((it, i) => { if (i % 2 === 0) c.push({ at: it.tt + D.trashDur * .9, kind: "resume", gain: .3 }); });
-  c.push({ at: DL_DUPES[0].tt + D.trashDur * .85, kind: "land", gain: .8 }, { at: D.done, kind: "notify", gain: .6 }, { at: D.card + .1, kind: "open", gain: .8 }, { at: D.card, kind: "bed", dur: D.cardLen, gain: .9 });
+  c.push({ at: DL_DUPES[0].tt + D.trashDur * .85, kind: "land", gain: .8 }, { at: D.done, kind: "notify", gain: .6 }, { at: D.card + .1, kind: "open", gain: .8 }, { at: D.card, kind: "bed", dur: D.cardLen, gain: .9 }, { at: D.card + 1.9, kind: "glitch", hits: GLITCH, settle: GLITCH_SETTLE });
   return c;
 } };
 
@@ -6337,12 +6404,7 @@ function dueCard(ctx, w, h, t) {
   arrive(ctx, "Reads Google Classroom. Puts it in your Tasks.", x0, 616, f(32, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
   const k = seg(t, .5, 1.7);
   duePresenter(ctx, 590, 1500, 760, "list", k, t, E.out(seg(t, .4, 1.1)), drawFigureOwl, null);
-  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
-  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1560;
-  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
-  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+  signOff(ctx, x0, 1530, t, 2.4);
 }
 FILMS.due = { w: 1080, h: 1920, duration: +(DUE.end + DUE.card).toFixed(1), v2: true, draw(ctx, t, w, h) {
   if (t < DUE.end) { dueScene(ctx, w, h, t, DUE); ctx.fillStyle = rgba("#000000", seg(t, DUE.fade, DUE.end)); ctx.fillRect(0, 0, w, h); }
@@ -6352,7 +6414,7 @@ FILMS.due = { w: 1080, h: 1920, duration: +(DUE.end + DUE.card).toFixed(1), v2: 
   c.push({ at: D.tapSpeak, kind: "key" }, { at: D.rec, kind: "listen" }, { at: D.tapStop, kind: "key" }, { at: D.stop, kind: "stop" }, { at: D.fill, kind: "land", gain: .8 },
     { at: D.tapDo, kind: "click" }, { at: D.tapDo + .12, kind: "send", gain: .6 }, { at: D.answer, kind: "land", gain: .7 }, { at: D.swipe, kind: "open", gain: .6 });
   D.land.forEach((at) => c.push({ at, kind: "land", gain: .6 }));
-  c.push({ at: D.end + .1, kind: "open", gain: .8 }, { at: D.end, kind: "bed", dur: D.card, gain: .9 });
+  c.push({ at: D.end + .1, kind: "open", gain: .8 }, { at: D.end, kind: "bed", dur: D.card, gain: .9 }, { at: D.end + 2.4, kind: "glitch", hits: GLITCH, settle: GLITCH_SETTLE });
   return c;
 } };
 
@@ -6685,12 +6747,7 @@ function payCard(ctx, w, h, t) {
   arrive(ctx, "You press pay.", x0, 536, f(104, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
   arrive(ctx, "Tailzu never pays. Your PIN stays yours.", x0, 616, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .045 });
   payPresenter(ctx, w / 2 - 10, 1500, 720, "salute", seg(t, .6, 1.6), t, E.out(seg(t, .5, 1.2)), drawFigurePig, null, { look: [0, 0], spin: t * 2.4 });
-  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
-  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1580;
-  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
-  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+  signOff(ctx, x0, 1550, t, 2.4);
 }
 FILMS.pay = (() => {
   const A = PAY, duration = +(A.end + A.card).toFixed(1);
@@ -6707,7 +6764,7 @@ FILMS.pay = (() => {
       { at: A.tapSpeak, kind: "click" }, { at: A.rec, kind: "listen" }, { at: A.tapStop, kind: "key" }, { at: A.stop, kind: "stop" }, { at: A.fill, kind: "land" },
       { at: A.tapGo, kind: "click" }, { at: A.answer, kind: "write", gain: .7 }, { at: A.open, kind: "open" }, { at: A.tapPay, kind: "click" }];
     A.keys.forEach((at) => c.push({ at, kind: "key", gain: .8 }));
-    c.push({ at: A.ok, kind: "notify" }, { at: A.ok + .1, kind: "land", gain: .6 }, { at: A.end + .1, kind: "open", gain: .8 }, { at: A.end, kind: "bed", dur: duration - A.end, gain: .9 });
+    c.push({ at: A.ok, kind: "notify" }, { at: A.ok + .1, kind: "land", gain: .6 }, { at: A.end + .1, kind: "open", gain: .8 }, { at: A.end, kind: "bed", dur: duration - A.end, gain: .9 }, { at: A.end + 2.4, kind: "glitch", hits: GLITCH, settle: GLITCH_SETTLE });
     return c;
   } };
 })();
