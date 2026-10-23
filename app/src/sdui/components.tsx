@@ -10,6 +10,7 @@ import {
   Animated,
   Easing,
   Image,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -356,9 +357,43 @@ const Screen = ({ props, children, style }: CompProps) => {
    * that holds its touches cannot be scrolled by dragging from ON a control.
    */
   const hold = props?.holdTouches === true;
+  /**
+   * A FIELD THE KEYBOARD COVERED.
+   *
+   * A box low on a screen (Connected apps' search sits under every tile) went
+   * under the keyboard the moment it was tapped, and what was typed into it
+   * could not be seen. iOS lifts the content and scrolls the focused field
+   * into view itself, asked with automaticallyAdjustKeyboardInsets. Android
+   * does nothing: the app draws edge to edge, so the window no longer shrinks
+   * for the keyboard. There the screen gets room under its content as tall as
+   * the keyboard, and once that has landed, the focused field is scrolled up
+   * to sit just above it.
+   */
+  const scroll = useRef<ScrollView>(null);
+  const scrolled = useRef(0);
+  const [kb, setKb] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      const top = e?.endCoordinates?.screenY ?? 0;
+      setKb(e?.endCoordinates?.height ?? 0);
+      const input = TextInput.State.currentlyFocusedInput?.() as unknown as { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
+      if (!input?.measureInWindow || !top) return;
+      setTimeout(() => input.measureInWindow!((_x, y, _w, h) => {
+        const under = y + h + K.num("ui.Screen.keyboardGap", 16) - top;
+        if (under > 0) scroll.current?.scrollTo({ y: scrolled.current + under, animated: true });
+      }), 60);
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKb(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   return (
     <ScreenViewport.Provider value={vh}>
     <ScrollView
+      ref={scroll}
+      automaticallyAdjustKeyboardInsets
+      onScroll={(e) => { scrolled.current = e.nativeEvent.contentOffset.y; }}
+      scrollEventThrottle={16}
       onLayout={(e) => {
         const h = Math.round(e.nativeEvent.layout.height);
         if (h > 0 && h !== vh) setVh(h);
@@ -371,7 +406,7 @@ const Screen = ({ props, children, style }: CompProps) => {
           paddingHorizontal: theme.space.content ?? theme.space.lg,
           paddingTop: theme.space.contentTop ?? theme.space.lg,
           // Airy scroll buffer (clears the tab bar).
-          paddingBottom: Number(props?.paddingBottom ?? K.num("ui.Screen.paddingBottom", 120)),
+          paddingBottom: Number(props?.paddingBottom ?? K.num("ui.Screen.paddingBottom", 120)) + kb,
         },
         content,
       ]}
