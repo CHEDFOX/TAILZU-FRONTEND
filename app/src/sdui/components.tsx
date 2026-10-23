@@ -1539,6 +1539,7 @@ import { AuroraOrb } from "./AuroraOrb";
 import { PieChart } from "./PieChart";
 import { OnboardStage } from "../onboard/OnboardStage";
 import { BlipSpot } from "../onboard/BlipSpot";
+import { BlipRoam } from "../onboard/BlipRoam";
 
 // V3 FIRST, so every name registered below wins a collision. The one that
 // mattered is PieChart: V3's donut (which reads `data`) used to be spread LAST
@@ -1555,5 +1556,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
-  OnboardStage, BlipSpot,
+  OnboardStage, BlipSpot, BlipRoam,
 };

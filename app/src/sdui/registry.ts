@@ -133,6 +133,13 @@ export const CORE_COMPONENTS = [
    * says both names, and serves today's to every other.
    */
   "OnboardStage", "BlipSpot",
+  /**
+   * Blip on the top edge of a card, doing his round there: walking, sneaking,
+   * ducking behind it, peeking, jumping into it and back (onboard/BlipRoam).
+   * The You tab's task card asks for him only from a bundle that says this;
+   * every other gets the waving picture by the greeting, as before.
+   */
+  "BlipRoam",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
