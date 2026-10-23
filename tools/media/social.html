@@ -4872,15 +4872,1845 @@ FILMS.bleeped = { w: 1080, h: 1920, duration: BL.end, v2: true, draw(ctx, t, w, 
 
 // ==== FILM: hands =========================================================================
 // (built in its own block; the You tab's Hand it to me card, a cook with her hands full)
+/**
+ * HAND IT OVER: the You tab's "Hand it to me" card. She says two chores in
+ * one breath while her hands are full, taps Do it, approves the first write
+ * to Google Calendar once (Face ID), and both land in her apps. The voice is
+ * a real read (voice/hands.wav); its word times drive the caption, the level
+ * bars, and the octopus's mouth. The phone is the app's own screen: the You
+ * tab (assistant.ts youCard, catalog.ts underGreeting), the confirm page and
+ * its sheet, then Google Calendar's Schedule view as the proof.
+ */
+const HANDS_VOICE = (window.TZ_VOICE && window.TZ_VOICE.hands) || { said: "", words: [], end: 8 };
+const HANDS = (() => {
+  const voice = 1.0, said = voice + HANDS_VOICE.end;
+  return {
+    time: "6:42", device: { z: 1.6, top: 86 },
+    tapSpeak: .5, rec: .55, voice, said, tapStop: 9.4, stop: 9.45, land: 9.8, tapDo: 10.6,
+    push: 11.75, sheet: 12.1, tapOk: 13.4, hud: 13.5, tick: 14.05, hudOut: 14.5, sheetOut: 14.55, pop: 14.85, back: 15.05,
+    scroll: 15.2, rows: [15.95], proof: 17.2, proofEnd: 19.6, end: 19.8, card: 6.0,
+    said_: HANDS_VOICE.said, wordAt: HANDS_VOICE.words, instr: [],
+    text: "Put Aarav’s parent-teacher meeting on Thursday at 5, and remind me to pay the electricity bill on Friday morning.",
+    answer: "Done. Parent-teacher meeting is on your calendar, Thursday 29 Oct at 5 PM. I’ll remind you to pay the electricity bill on Friday at 9 AM.",
+    preview: "Add the event “Parent-teacher meeting”, Thu 29 Oct, 5:00–6:00 PM",
+    note: "Approve once, and I’ll do this in Google Calendar without asking again. Deleting always asks.",
+    sub: "Tell me what to do, and I’ll do it in your apps.",
+    ex: ["Tell Mom I’m on my way on WhatsApp", "Kal 9 baje gym ka reminder", "Directions to the airport"],
+    // One ask is one task: done, it is the latest done, which is the one done task Coming up shows (assistant.ts comingUp).
+    up: { title: "PTM on Thursday, bill on Friday", sub: "Added to Google Tasks" },
+    old: { title: "Email the society about the lift", sub: "Sent in Gmail" },
+  };
+})();
+HANDS.duration = +(HANDS.end + HANDS.card).toFixed(1);
+// The Pn the caption wants: what is said, on the voice's own clock.
+const HANDS_PN = { said: HANDS_VOICE.said, voice: HANDS.voice, wordAt: HANDS_VOICE.words, instr: [] };
+
+/** A word is being said at `t` (film seconds): from its start to just before the next, at most 0.42 s. */
+function handsSpeaking(t) {
+  const w = HANDS_VOICE.words, s = t - HANDS.voice; if (s < 0 || s > HANDS_VOICE.end) return 0;
+  let i = w.length - 1; while (i > 0 && w[i] > s) i--;
+  const stop = Math.min(i + 1 < w.length ? w[i + 1] - .07 : HANDS_VOICE.end, w[i] + .42);
+  return s >= w[i] && s < stop ? 1 : 0;
+}
+const HANDS_HELLO = ["Hello", "नमस्ते", "Hola", "你好", "Bonjour"];
+const handsCap = (s) => s.replace(/(^|[\s(“])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+const handsInk = (a) => `rgba(243,226,198,${a})`;
+
+/** A text in one of the app's faces. y is the top of a line box `lh` tall: the baseline sits where the phone sets it. */
+function handsT(g, s, x, y, face, px, color, o = {}) {
+  const lh = o.lh ?? Math.round(px * 1.45);
+  g.save(); g.font = af(face, px) + (o.script ? `, ${SCRIPTS}` : ""); g.fillStyle = color; g.textBaseline = "alphabetic"; g.textAlign = o.align || "left";
+  if (o.track) g.letterSpacing = `${o.track}px`;
+  if (o.a != null) g.globalAlpha *= clamp(o.a);
+  g.fillText(o.up ? s.toUpperCase() : s, x, y + lh / 2 + px * .345); g.restore();
+}
+/** The app's small label: capitals, 9.5, tracked. */
+const handsLabel = (g, s, x, y, color = APPLOOK.ink3, o = {}) => handsT(g, s, x, y, "label", 9.5, color, { lh: 14, track: 1.5, up: true, ...o });
+const handsWidth = (g, s, face, px, track = 0) => { g.save(); g.font = af(face, px); if (track) g.letterSpacing = `${track}px`; const w = g.measureText(s).width; g.restore(); return w; };
+/** Text on one line, cut short with an ellipsis if it would run past `maxW` (numberOfLines 1). */
+function handsFit(g, s, face, px, maxW) {
+  if (handsWidth(g, s, face, px) <= maxW) return s;
+  let n = s.length; while (n > 1 && handsWidth(g, s.slice(0, n).trimEnd() + "…", face, px) > maxW) n--;
+  return s.slice(0, n).trimEnd() + "…";
+}
+function handsChevron(g, x, y, size, color) {
+  g.save(); g.strokeStyle = color; g.lineWidth = 2.4 * size / 24; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath();
+  g.moveTo(x + 9 / 24 * size, y + 5 / 24 * size); g.lineTo(x + 16 / 24 * size, y + 12 / 24 * size); g.lineTo(x + 9 / 24 * size, y + 19 / 24 * size); g.stroke(); g.restore();
+}
+/** Gmail shows as a letter tile (the app has no logo for it): 28 square, the letter in the bold face. */
+function handsLetterTile(g, x, y, s, ch) {
+  g.fillStyle = "rgba(255,255,255,0.08)"; rr(g, x, y, s, s, s * .29); g.fill();
+  handsT(g, ch, x + s / 2, y, "uiBold", 12, APPLOOK.ink, { lh: s, align: "center" });
+}
+
+/** The You tab, measured and (if `paint`) drawn at film time t. Returns where things are, so a finger can land on them. */
+function handsYou(g, t, paint, scrOverride) {
+  const Hn = HANDS, X = 24, CW = 345, IX = 45, IW = 303;
+  const scr = scrOverride ?? handsScroll(t);
+  const listening = t >= Hn.tapSpeak && t < Hn.tapStop, transcribing = t >= Hn.tapStop && t < Hn.land;
+  const typed = t >= Hn.land && t < Hn.push + .4, busy = t >= Hn.tapDo && t < Hn.push + .1;
+  const sub = layout(g, Hn.sub, af("ui", 14.5), IW, 21).lines;
+  const fl = layout(g, Hn.text, af("ui", 15.5), IW - 32, 23).lines;
+  const fullH = Math.max(52, fl.length * 23 + 29), fH = typed ? lerp(52, fullH, E.out(seg(t, Hn.land, Hn.land + .25))) : 52;
+  const ans = layout(g, Hn.answer, af("ui", 15.5), IW - 28, 23).lines;
+  const kAns = E.out(seg(t, Hn.back + .05, Hn.back + .4)), ansH = kAns * (12 + 28 + ans.length * 23);
+  // The examples wrap like text: as many as fit a row of 303, 8 apart.
+  const chips = []; let cx = 0, cy = 0;
+  Hn.ex.forEach((s) => { const w = handsWidth(g, s, "ui", 13.5) + 30; if (cx && cx + w > IW) { cx = 0; cy += 48; } chips.push({ s, x: cx, y: cy, w }); cx += w + 8; });
+  const chipsH = cy + 40;
+  // The new done task takes the old one's place: Coming up shows the latest done only.
+  const k1 = E.out(seg(t, Hn.rows[0], Hn.rows[0] + .4)), listH = 60;
+  // Walk down the card.
+  let y = 206 - scr; const o = { card: { x: X, y, w: CW } };
+  const yTitle = y + 21, ySub = yTitle + 38 + 6, yField = ySub + sub.length * 21 + 16, yBtn = yField + fH + 10;
+  const doW = Math.ceil(handsWidth(g, "Do It", "uiMedium", 15)) + 44, vbW = IW - 8 - doW;
+  let yy = yBtn + 48;
+  const yBusy = yy + 12; if (busy) yy += 12 + 20;
+  const yAns = yy + 12; yy += ansH;
+  const yChips = yy + 16; yy = yChips + chipsH;
+  const yUp = yy + 26, yRows = yUp + 14 + 12, yRule = yRows + listH + 22, yFoot = yRule + 1 + 14, yEnd = yFoot + 28 + 20 + 1;
+  Object.assign(o, { yAns, yTitle, yField, yBtn, fH, vbW, doW, yEnd, yRows, listH, speak: { x: IX + vbW / 2, y: yBtn + 24 }, doit: { x: IX + vbW + 8 + doW / 2, y: yBtn + 24 }, scroll: scr });
+  o.card.h = yEnd - o.card.y;
+  if (!paint) return o;
+
+  // The hello and the name (fixed to the glass), the gear; they leave as the page rises under them.
+  const fix = 1 - seg(scr, 0, 40);
+  if (fix > 0) {
+    // The hello turns over every 2.6 s, a crossfade of 0.62: Hello, नमस्ते, Hola, 你好, Bonjour (catalog.ts helloCycle).
+    const hi = Math.floor(t / 2.6), hk = (t % 2.6) / 2.6 * 2.6, hv = hk < .31 && hi > 0 ? hk / .31 : hk > 2.6 - .31 ? (2.6 - hk) / .31 : 1;
+    handsT(g, HANDS_HELLO[hi % HANDS_HELLO.length], 18, 56, "ui", 13, "rgba(255,255,255,0.42)", { lh: 22, track: 1.6, a: fix * clamp(hv), script: true });
+    handsT(g, "Asha", 18, 85, "writtenLight", 26, "rgba(255,255,255,0.96)", { lh: 31, track: .2, a: fix });
+    g.save(); g.globalAlpha *= fix; g.fillStyle = "rgba(255,255,255,0.10)"; g.beginPath(); g.arc(343 + 17, 58 + 17, 17, 0, TAU); g.fill();
+    g.strokeStyle = "rgba(255,255,255,0.66)"; g.lineWidth = 2.1 * 15 / 24; g.lineCap = "round"; g.beginPath(); const gx = 360 - 7.5, gy = 75 - 7.5, u = 15 / 24;
+    g.moveTo(gx + 12 * u, gy + 7 * u); g.lineTo(gx + 21 * u, gy + 7 * u); g.moveTo(gx + 7.5 * u, gy + 12 * u); g.lineTo(gx + 21 * u, gy + 12 * u); g.moveTo(gx + 3 * u, gy + 17 * u); g.lineTo(gx + 21 * u, gy + 17 * u); g.stroke(); g.restore();
+  }
+  // Blip's greeting row: the day's line, as the app words it for the evening.
+  const gy0 = 118 - scr;
+  if (gy0 > -80) {
+    blipAt(g, "wave-l", t, 24 + 24, gy0 + 64, 64);
+    const gl = layout(g, "Good evening. Anything to write up before the day ends?", af("ui", 15), 283, 22).lines;
+    gl.forEach((ln, i) => handsT(g, ln, 86, gy0 + 32 - gl.length * 11 + i * 22, "ui", 15, APPLOOK.ink2, { lh: 22 }));
+  }
+  // The next card down, its top peeking in: the voice card, in the cream room.
+  g.fillStyle = "#F3EDE2"; rr(g, X, yEnd + 42, CW, 400, 20); g.fill();
+  // The card.
+  g.fillStyle = APPLOOK.card; rr(g, X, o.card.y, CW, o.card.h, 20); g.fill();
+  g.strokeStyle = APPLOOK.cardEdge; g.lineWidth = 1; rr(g, X + .5, o.card.y + .5, CW - 1, o.card.h - 1, 19.5); g.stroke();
+  handsT(g, "Hand It To Me", IX, yTitle, "grotesk", 26, APPLOOK.ink, { lh: 38, track: -.6 });
+  sub.forEach((ln, i) => handsT(g, ln, IX, ySub + i * 21, "ui", 14.5, APPLOOK.ink2, { lh: 21 }));
+  // The field.
+  g.fillStyle = "rgba(243,226,198,0.06)"; rr(g, IX, yField, IW, fH, 14); g.fill();
+  g.strokeStyle = "rgba(243,226,198,0.12)"; g.lineWidth = 1; rr(g, IX + .5, yField + .5, IW - 1, fH - 1, 13.5); g.stroke();
+  if (typed) {
+    const flash = 1 - seg(t, Hn.land, Hn.land + .5);
+    if (flash > 0) { g.fillStyle = `rgba(243,226,198,${.1 * flash})`; rr(g, IX, yField, IW, fH, 14); g.fill(); }
+    fl.forEach((ln, i) => handsT(g, ln, IX + 16, yField + 14.5 + i * 23, "ui", 15.5, APPLOOK.ink, { lh: 23, a: E.out(seg(t, Hn.land + i * .05, Hn.land + .25 + i * .05)) }));
+  } else handsT(g, "Type or say what you need", IX + 16, yField + 14.5, "ui", 15.5, APPLOOK.ink3, { lh: 23 });
+  // Speak, and Do it.
+  const press = (a, b) => 1 - .3 * seg(t, a, a + .06) * (1 - seg(t, b - .1, b + .12));
+  g.save(); g.globalAlpha *= press(Hn.tapSpeak, Hn.tapSpeak + .2) * press(Hn.tapStop, Hn.tapStop + .2) * (transcribing ? .6 : 1);
+  // The app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop & transcribe"; then "Transcribing…" at 60%.
+  g.fillStyle = listening ? "#e0556b" : "rgba(243,226,198,0.08)"; rr(g, IX, yBtn, vbW, 48, 24); g.fill();
+  handsT(g, listening ? "■ Stop & transcribe" : transcribing ? "Transcribing…" : "Speak", IX + vbW / 2, yBtn, "uiMedium", 15, listening ? "#FFFFFF" : APPLOOK.ink, { lh: 48, align: "center" });
+  g.restore();
+  g.save(); g.globalAlpha *= press(Hn.tapDo, Hn.tapDo + .2);
+  g.fillStyle = APPLOOK.ink; rr(g, IX + vbW + 8, yBtn, doW, 48, 24); g.fill();
+  handsT(g, "Do It", IX + vbW + 8 + doW / 2, yBtn, "uiMedium", 15, APPLOOK.onInk, { lh: 48, align: "center" }); g.restore();
+  if (busy) handsT(g, "On It…", IX, yBusy, "ui", 13.5, APPLOOK.ink2, { lh: 20, a: E.out(seg(t, Hn.tapDo + .1, Hn.tapDo + .4)) });
+  // The answer.
+  if (kAns > 0) {
+    g.save(); g.globalAlpha *= kAns; g.fillStyle = "rgba(243,226,198,0.08)"; rr(g, IX, yAns, IW, ansH - 12, 16); g.fill(); g.beginPath(); g.rect(IX, yAns, IW, ansH - 12); g.clip();
+    ans.forEach((ln, i) => handsT(g, ln, IX + 14, yAns + 14 + i * 23, "ui", 15.5, APPLOOK.ink, { lh: 23, a: E.out(seg(t, Hn.back + .15 + i * .07, Hn.back + .45 + i * .07)) })); g.restore();
+  }
+  // The examples to tap.
+  chips.forEach((c) => { g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = 1; rr(g, IX + c.x + .5, yChips + c.y + .5, c.w - 1, 39, 19.5); g.stroke(); handsT(g, c.s, IX + c.x + 15, yChips + c.y + 10, "ui", 13.5, APPLOOK.ink, { lh: 20 }); });
+  // Coming up.
+  handsLabel(g, "Coming up", IX, yUp);
+  const sa = handsWidth(g, "See All", "uiMedium", 13); handsT(g, "See All", IX + IW - 17 - sa, yUp - 2, "uiMedium", 13, APPLOOK.ink, { lh: 19 }); handsChevron(g, IX + IW - 11, yUp + 1.5, 11, APPLOOK.ink2);
+  const rows = [{ ...Hn.up, k: k1 }, { ...Hn.old, k: 1 - k1 }];
+  let ry = yRows;
+  rows.forEach((r) => {
+    if (r.k <= 0) return; const rh = 60 * r.k;
+    g.save(); g.globalAlpha *= r.k; g.translate(0, (1 - r.k) * -8);
+    g.fillStyle = APPLOOK.track; rr(g, IX, ry, IW, 60, 16); g.fill();
+    g.strokeStyle = APPLOOK.neon; g.lineWidth = 2.8 * 20 / 24; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath();
+    const tx = IX + 10 + 7, ty = ry + 10 + 7, ts = 20 / 24; g.moveTo(tx + 5 * ts, ty + 12.5 * ts); g.lineTo(tx + 10 * ts, ty + 17.5 * ts); g.lineTo(tx + 19 * ts, ty + 7 * ts); g.stroke();
+    handsT(g, handsFit(g, r.title, "uiMedium", 14.5, 235), IX + 56, ry + 10, "uiMedium", 14.5, APPLOOK.ink, { lh: 21 });
+    handsT(g, r.sub, IX + 56, ry + 33, "ui", 12, APPLOOK.ink2, { lh: 17 });
+    g.restore(); ry += rh + 8 * r.k;
+  });
+  // The foot: connected, the apps' logos, a way to more.
+  g.fillStyle = "rgba(243,226,198,0.07)"; g.fillRect(IX, yRule, IW, 1);
+  g.fillStyle = APPLOOK.neon; g.beginPath(); g.arc(IX + 3.5, yFoot + 14, 3.5, 0, TAU); g.fill();
+  g.strokeStyle = "rgba(21,19,17,0.5)"; g.lineWidth = 1; g.beginPath(); g.arc(IX + 3.5, yFoot + 14, 4, 0, TAU); g.stroke();
+  let lx = IX + 7 + 4 + 6; appIcon(g, "google-calendar", lx, yFoot, 28); lx += 34; appIcon(g, "google-tasks", lx, yFoot, 28); lx += 34; handsLetterTile(g, lx, yFoot, 28, "G"); lx += 34; appIcon(g, "google-docs", lx, yFoot, 28);
+  const am = handsWidth(g, "Add More Apps", "uiMedium", 13); handsT(g, "Add More Apps", IX + IW - 17 - am, yFoot + 4.5, "uiMedium", 13, APPLOOK.ink, { lh: 19 }); handsChevron(g, IX + IW - 11, yFoot + 8.5, 11, APPLOOK.ink2);
+  return o;
+}
+/** How far the page has been pulled up: after the answer lands she drags it so the rows are in view. */
+function handsScroll(t) { return HANDS_SCROLL * E.io(seg(t, HANDS.scroll, HANDS.scroll + .75)); }
+let HANDS_SCROLL = null;
+
+/** The page the confirm sheet opens on: the head the assistant's pages all have, on the Ask ground. */
+function handsApprovePage(g) {
+  g.fillStyle = "#0B0B0D"; g.fillRect(0, 0, 393, 852);
+  g.fillStyle = "rgba(255,255,255,0.08)"; g.beginPath(); g.arc(24 + 16, 56 + 16, 16, 0, TAU); g.fill();
+  g.strokeStyle = "#FFFFFF"; g.lineWidth = 2.3 * 14 / 24; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); const u = 14 / 24, bx = 40 - 7, by = 72 - 7;
+  g.moveTo(bx + 14.5 * u, by + 5 * u); g.lineTo(bx + 8 * u, by + 12 * u); g.lineTo(bx + 14.5 * u, by + 19 * u); g.stroke();
+  handsLabel(g, "Tasks", 24, 56 + 32 + 18);
+  handsT(g, "Waiting For You", 24, 56 + 32 + 18 + 14 + 8, "grotesk", 26, APPLOOK.ink, { lh: 38, track: -.6 });
+}
+/** The confirm sheet, `k` of the way up: what is about to be written, word for word, and the one tap that allows it. */
+function handsSheet(g, k, t) {
+  const H = 852, h = 397, top = H - h * k;
+  g.fillStyle = `rgba(0,0,0,${.6 * Math.min(1, k * 1.4)})`; g.fillRect(0, 0, 393, 852);
+  g.save(); g.fillStyle = "#141418"; g.beginPath(); g.roundRect(0, top, 393, h + 40, [26, 26, 0, 0]); g.fill();
+  const X = 20, W = 353; let y = top + 20;
+  g.fillStyle = "rgba(255,255,255,0.22)"; rr(g, 393 / 2 - 20, y, 40, 5, 2.5); g.fill(); y += 17;
+  appIcon(g, "google-calendar", X, y, 46);
+  handsT(g, "Ready To Make This Change?", X + 58, y, "uiBold", 19, "#FFFFFF", { lh: 28 });
+  handsT(g, "Google Calendar", X + 58, y + 30, "ui", 13, "rgba(255,255,255,0.56)", { lh: 19 }); y += 46 + 16;
+  handsLabel(g, "The exact change", X, y); y += 14 + 8;
+  const pv = layout(g, HANDS.preview, af("ui", 15.5), W - 28, 23).lines;
+  g.fillStyle = "rgba(255,255,255,0.06)"; rr(g, X, y, W, 28 + pv.length * 23, 14); g.fill();
+  pv.forEach((ln, i) => handsT(g, ln, X + 14, y + 14 + i * 23, "ui", 15.5, "#FFFFFF", { lh: 23 })); y += 28 + pv.length * 23 + 12;
+  const nt = layout(g, handsCap(HANDS.note), af("ui", 13), W, 19).lines;
+  nt.forEach((ln, i) => handsT(g, ln, X, y + i * 19, "ui", 13, "rgba(255,255,255,0.56)", { lh: 19 })); y += nt.length * 19 + 14;
+  const ok = { x: X + W / 2, y: y + 24 }, pr = 1 - .3 * seg(t, HANDS.tapOk, HANDS.tapOk + .06) * (1 - seg(t, HANDS.tapOk + .2, HANDS.tapOk + .45));
+  g.save(); g.globalAlpha *= pr; g.fillStyle = "#FFFFFF"; rr(g, X, y, W, 48, 24); g.fill(); handsT(g, "Approve", X + W / 2, y, "uiMedium", 15, "#0B0B0D", { lh: 48, align: "center" }); g.restore();
+  y += 48 + 8; const hw = (W - 8) / 2;
+  g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = 1; rr(g, X + .5, y + .5, hw - 1, 47, 23.5); g.stroke();
+  handsT(g, "Edit", X + hw / 2, y, "uiMedium", 15, "#FFFFFF", { lh: 48, align: "center" });
+  handsT(g, "Not Now", X + hw + 8 + hw / 2, y, "uiMedium", 15, "rgba(255,255,255,0.56)", { lh: 48, align: "center" });
+  g.restore();
+  return { ok };
+}
+/** iOS's Face ID prompt: a dark square mid-screen, the face scanned, then a tick. */
+function handsFaceId(g, t) {
+  const a = E.out(seg(t, HANDS.hud, HANDS.hud + .14)) * (1 - E.in(seg(t, HANDS.hudOut - .15, HANDS.hudOut)));
+  if (a <= 0) return;
+  const cx = 196.5, cy = 426, S = 118, sc = lerp(.86, 1, E.out(seg(t, HANDS.hud, HANDS.hud + .2))), tk = E.out(seg(t, HANDS.tick, HANDS.tick + .3));
+  g.save(); g.globalAlpha *= a; g.translate(cx, cy); g.scale(sc, sc);
+  g.shadowColor = "rgba(0,0,0,.45)"; g.shadowBlur = 30; g.fillStyle = "rgba(36,36,38,0.94)"; rr(g, -S / 2, -S / 2, S, S, 28); g.fill(); g.shadowColor = "transparent";
+  g.strokeStyle = "#FFFFFF"; g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = 3;
+  if (tk < 1) {
+    g.save(); g.globalAlpha *= 1 - tk; const q = 25, c = 9, sc2 = 1 + .06 * Math.sin((t - HANDS.hud) * 14);
+    g.scale(sc2, sc2);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => { g.beginPath(); g.moveTo(sx * q, sy * (q - c)); g.lineTo(sx * q, sy * q); g.lineTo(sx * (q - c), sy * q); g.stroke(); });
+    g.lineWidth = 3.2; g.beginPath(); g.moveTo(-9.5, -9); g.lineTo(-9.5, -2); g.moveTo(9.5, -9); g.lineTo(9.5, -2); g.moveTo(0, -6); g.lineTo(-1.5, 4.5); g.lineTo(2.5, 4.5);
+    g.moveTo(-10, 13); g.quadraticCurveTo(0, 20, 10, 13); g.stroke(); g.restore();
+  }
+  if (tk > 0) {
+    g.strokeStyle = "#FFFFFF"; g.lineWidth = 3.4; g.beginPath(); g.arc(0, 0, 27, -Math.PI / 2, -Math.PI / 2 + TAU * E.out(seg(tk, 0, .7))); g.stroke();
+    const p = seg(tk, .35, 1); g.beginPath(); g.moveTo(-11, 1); const a1 = clamp(p * 2); g.lineTo(-11 + 7 * a1, 1 + 8 * a1);
+    if (p > .5) { const a2 = (p - .5) * 2; g.lineTo(-4 + 17 * a2, 9 - 20 * a2); } g.stroke();
+  }
+  g.restore();
+}
+
+/** Google Calendar's Schedule view as the iPhone app draws it (light): the month, then the day with its event. */
+function handsCalendar(g, t) {
+  const W = 393, H = 852, ink = "#202124", dim = "#5F6368", font = (w, px) => `${w} ${px}px ${SYS}`;
+  g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H);
+  // The app bar: menu, the month and its caret, search, today, the account.
+  g.strokeStyle = dim; g.lineWidth = 2; g.lineCap = "round"; [0, 6, 12].forEach((d) => { g.beginPath(); g.moveTo(18, 74 + d); g.lineTo(34, 74 + d); g.stroke(); });
+  text(g, "October", 56, 87, font(400, 23), ink); g.font = font(400, 23); const mw = g.measureText("October").width;
+  g.fillStyle = dim; g.beginPath(); g.moveTo(56 + mw + 10, 79); g.lineTo(56 + mw + 20, 79); g.lineTo(56 + mw + 15, 85); g.closePath(); g.fill();
+  g.strokeStyle = dim; g.lineWidth = 2; g.beginPath(); g.arc(279, 78, 6.5, 0, TAU); g.moveTo(283.7, 82.7); g.lineTo(289, 88); g.stroke();
+  g.lineWidth = 1.8; rr(g, 307, 67, 22, 22, 4); g.stroke(); g.fillStyle = dim; g.fillRect(307, 67, 22, 6); text(g, "27", 318, 85, font(600, 10.5), dim, 1, "center");
+  g.fillStyle = "#8E5BC9"; g.beginPath(); g.arc(358, 78, 14, 0, TAU); g.fill(); text(g, "A", 358, 83.5, font(500, 15), "#FFFFFF", 1, "center");
+  // The month's own banner row is long gone; the days run on.
+  const day = (y, dow, num, blue) => {
+    text(g, dow, 38, y + 16, font(500, 11), blue ? "#1A73E8" : dim, 1, "center", .6);
+    if (blue) { g.fillStyle = "#1A73E8"; g.beginPath(); g.arc(38, y + 40, 19, 0, TAU); g.fill(); }
+    text(g, String(num), 38, y + 47, font(400, 20), blue ? "#FFFFFF" : ink, 1, "center");
+  };
+  const y0 = 130;
+  g.fillStyle = "#E8EAED"; g.fillRect(0, y0 - 14, W, 1);
+  day(y0, "THU", 29, true);
+  const cy = y0 + 4, ch = 52;
+  g.fillStyle = "#039BE5"; rr(g, 72, cy, 301, ch, 10); g.fill();
+  text(g, "Parent-teacher meeting", 86, cy + 22, font(500, 14.5), "#FFFFFF"); text(g, "5 – 6pm", 86, cy + 41, font(400, 12.5), "rgba(255,255,255,0.92)");
+  const y1 = y0 + 96; g.fillStyle = "#E8EAED"; g.fillRect(0, y1 - 14, W, 1);
+  day(y1, "FRI", 30, false);
+  g.fillStyle = "#1A73E8"; rr(g, 72, y1 + 4, 301, 44, 10); g.fill();
+  g.strokeStyle = "#FFFFFF"; g.lineWidth = 1.8; g.beginPath(); g.arc(91, y1 + 26, 7, 0, TAU); g.stroke(); g.beginPath(); g.moveTo(87.5, y1 + 26); g.lineTo(90, y1 + 28.5); g.lineTo(94.5, y1 + 23.5); g.stroke();
+  text(g, "Pay the electricity bill", 108, y1 + 24, font(500, 14), "#FFFFFF"); text(g, "9am", 108, y1 + 40, font(400, 12), "rgba(255,255,255,0.92)");
+  // The button that adds an event.
+  g.save(); g.shadowColor = "rgba(60,64,67,.35)"; g.shadowBlur = 10; g.shadowOffsetY = 3; g.fillStyle = "#D3E3FD"; rr(g, 305, 742, 64, 64, 18); g.fill(); g.restore();
+  g.strokeStyle = "#041E49"; g.lineWidth = 2.6; g.beginPath(); g.moveTo(337, 764); g.lineTo(337, 784); g.moveTo(327, 774); g.lineTo(347, 774); g.stroke();
+  return { chip: { x: 72, y: cy, w: 301, h: ch } };
+}
+
+// ---- the octopus in an apron: in greys, then put through the same halftone -------------
+/** Poses are numbers here: how far the free arm is up and waving, how glad, how much it wobbles, the brows, the tilt. */
+const HANDS_POSE = {
+  cook: { wave: 0, glad: 0, wob: 0, brows: .35, tilt: 0 },
+  glad: { wave: 0, glad: 1, wob: 1, brows: 1, tilt: -.05 },
+  wave: { wave: 1, glad: .75, wob: 0, brows: .85, tilt: .05 },
+};
+const HANDS_BOX = 1.5, HANDS_BODY = .7;   // the figure's box is 1.5 H wide; its body stands .7 H in from the left, the pot beyond it
+/**
+ * One arm: a tapered curve from the shoulder S to the hand T, bending a little, swaying a little, shaded in
+ * two passes with a row of suckers along it. Returns the points, so what the hand holds can be put at the end.
+ */
+function handsLimb(g, H, S, T, bend, t, ph, r0, r1, tone, hi, curl = 0) {
+  const dx = T[0] - S[0], dy = T[1] - S[1], L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L, sw = Math.sin(t * 1.9 + ph) * .035 * L;
+  const c1 = [S[0] + dx * .33 + nx * (bend * L + sw), S[1] + dy * .33 + ny * (bend * L + sw)], c2 = [S[0] + dx * .68 - nx * (bend * L * .7 + sw), S[1] + dy * .68 - ny * (bend * L * .7 + sw)];
+  const pts = [], N = 26;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, v = 1 - u, x = v * v * v * S[0] + 3 * v * v * u * c1[0] + 3 * v * u * u * c2[0] + u * u * u * T[0], y = v * v * v * S[1] + 3 * v * v * u * c1[1] + 3 * v * u * u * c2[1] + u * u * u * T[1];
+    pts.push([x, y, lerp(r0, r1, Math.pow(u, .8))]);
+  }
+  // A curled tip: the last bit winds in on itself.
+  if (curl) { const [lx, ly, lr] = pts[N]; let a = Math.atan2(dy, dx), px = lx, py = ly; for (let i = 1; i <= 12; i++) { a += curl * .36; const st = (1 - i / 14) * .032 * H; px += Math.cos(a) * st; py += Math.sin(a) * st; pts.push([px, py, Math.max(.006 * H, lr * (1 - i / 14))]); } }
+  g.fillStyle = grey(.04); pts.forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r + .007 * H, 0, TAU); g.fill(); });
+  g.fillStyle = grey(tone); pts.forEach(([x, y, r]) => { g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); });
+  g.fillStyle = grey(hi); pts.forEach(([x, y, r]) => { g.beginPath(); g.arc(x - r * .22, y - r * .28, r * .52, 0, TAU); g.fill(); });
+  g.fillStyle = grey(Math.min(.97, hi + .3));
+  for (let i = 6; i < pts.length - 1; i += 3) { const [x, y, r] = pts[i], [x2, y2] = pts[i + 1], ax = y2 - y, ay = x - x2, al = Math.hypot(ax, ay) || 1; g.beginPath(); g.arc(x + ax / al * r * .55, y + ay / al * r * .55, Math.max(.004 * H, r * .22), 0, TAU); g.fill(); }
+  return pts;
+}
+/** The octopus, standing at the foot of a box 1.5 H by H; the pot beside it on the left. */
+function drawFigureOctopus(g, W, H, p, t) {
+  const bx = H * HANDS_BODY, bob = Math.sin(t * TAU * .7) * .005 * H, wob = p.wob * Math.sin(t * 15.5), glad = p.glad;
+  const X = (d) => bx + d * H, Y = (y) => y * H, ARM = [.58, .84], GRIP = (hx, hy) => { g.strokeStyle = grey(.04); g.lineWidth = .036 * H; g.beginPath(); g.arc(hx, hy, .02 * H, 0, TAU); g.stroke(); g.strokeStyle = grey(ARM[0]); g.lineWidth = .022 * H; g.beginPath(); g.arc(hx, hy, .02 * H, 0, TAU); g.stroke(); };
+  g.save(); g.translate(bx, H); g.scale(1 + .05 * wob, 1 - .05 * wob); g.translate(-bx, -H);
+  // The pot on its ring: a rim with a swirl, steam going up.
+  const potX = X(-.5), ang = t * 3.3;
+  g.fillStyle = grey(.04); g.beginPath(); g.ellipse(potX, Y(.972), .17 * H, .03 * H, 0, 0, TAU); g.fill();
+  const pg = g.createLinearGradient(potX - .13 * H, 0, potX + .13 * H, 0); pg.addColorStop(0, grey(.7)); pg.addColorStop(.3, grey(.55)); pg.addColorStop(1, grey(.32));
+  g.fillStyle = grey(.04); rr(g, potX - .14 * H, Y(.795), .28 * H, .19 * H, .04 * H); g.fill();
+  g.fillStyle = pg; rr(g, potX - .13 * H, Y(.805), .26 * H, .17 * H, .035 * H); g.fill();
+  g.strokeStyle = grey(.85); g.lineWidth = .016 * H; g.lineCap = "round";
+  [-1, 1].forEach((s) => { g.beginPath(); g.arc(potX + s * .135 * H, Y(.86), .035 * H, s > 0 ? -Math.PI / 2 : Math.PI / 2, s > 0 ? Math.PI / 2 : Math.PI * 1.5); g.stroke(); });
+  g.fillStyle = grey(.9); g.beginPath(); g.ellipse(potX, Y(.805), .14 * H, .028 * H, 0, 0, TAU); g.fill();
+  g.fillStyle = grey(.2); g.beginPath(); g.ellipse(potX, Y(.806), .12 * H, .02 * H, 0, 0, TAU); g.fill();
+  g.strokeStyle = grey(.8); g.lineWidth = .008 * H; g.beginPath(); g.ellipse(potX, Y(.806), .075 * H, .012 * H, 0, ang, ang + 4.2); g.stroke();
+  for (let i = 0; i < 3; i++) {
+    const ph = (t * .32 + i / 3) % 1, a = Math.sin(Math.PI * ph) * .9, sx = potX + (i - 1) * .07 * H + Math.sin(t * 1.8 + i * 2) * .018 * H, sy = Y(.77 - ph * .3);
+    g.strokeStyle = grey(.95 * a); g.lineWidth = .018 * H; g.beginPath(); g.moveTo(sx, sy + .06 * H); g.bezierCurveTo(sx + .03 * H, sy + .03 * H, sx - .03 * H, sy, sx, sy - .05 * H); g.stroke();
+  }
+  // The legs: two arms standing it on the floor, each curled at the foot.
+  [-1, 1].forEach((s, i) => handsLimb(g, H, [X(s * .06), Y(.62)], [X(s * .24), Y(.95)], s * .16, t, i * 2, .06 * H, .024 * H, ARM[0], ARM[1], -s * 1.1));
+  // The spoon arm: its hand above the pot, the spoon going round in it.
+  const sx0 = X(-.3) + Math.cos(ang) * .018 * H, sy0 = Y(.69) + Math.sin(ang) * .012 * H, spoonEnd = [potX + Math.cos(ang + 1.3) * .055 * H, Y(.85) + Math.sin(ang + 1.3) * .006 * H];
+  g.strokeStyle = grey(.04); g.lineWidth = .034 * H; g.beginPath(); g.moveTo(sx0, sy0 - .02 * H); g.lineTo(spoonEnd[0], spoonEnd[1]); g.stroke();
+  g.strokeStyle = grey(.85); g.lineWidth = .022 * H; g.beginPath(); g.moveTo(sx0, sy0 - .02 * H); g.lineTo(spoonEnd[0], spoonEnd[1]); g.stroke();
+  handsLimb(g, H, [X(-.16), Y(.6)], [sx0, sy0], -.2, t, 1.1, .055 * H, .022 * H, ARM[0], ARM[1]); GRIP(sx0, sy0 - .01 * H);
+  // The spatula arm: raised, the spatula up from its hand.
+  const spT = [X(-.4), Y(.3 + Math.sin(t * 2.1) * .012)];
+  g.save(); g.translate(spT[0], spT[1]); g.rotate(-.35);
+  g.fillStyle = grey(.04); rr(g, -.019 * H, -.2 * H, .038 * H, .24 * H, .01 * H); g.fill(); rr(g, -.054 * H, -.28 * H, .108 * H, .13 * H, .014 * H); g.fill();
+  g.fillStyle = grey(.85); rr(g, -.012 * H, -.19 * H, .024 * H, .22 * H, .008 * H); g.fill(); g.fillStyle = grey(.95); rr(g, -.046 * H, -.272 * H, .092 * H, .114 * H, .01 * H); g.fill();
+  g.fillStyle = grey(.2); [-.02, .02].forEach((dx) => [-.245, -.21].forEach((dy) => { g.beginPath(); g.arc(dx * H, dy * H, .006 * H, 0, TAU); g.fill(); })); g.restore();
+  handsLimb(g, H, [X(-.14), Y(.57)], spT, .22, t, 2.3, .055 * H, .02 * H, ARM[0], ARM[1]); GRIP(spT[0], spT[1]);
+  // The bag arm: the school bag on its strap, swinging.
+  const bgT = [X(.4), Y(.62 + Math.sin(t * 1.4) * .01)];
+  handsLimb(g, H, [X(.15), Y(.6)], bgT, -.16, t, 3.1, .055 * H, .022 * H, ARM[0], ARM[1]); GRIP(bgT[0], bgT[1]);
+  g.save(); g.translate(bgT[0], bgT[1]); g.rotate(Math.sin(t * 1.4 + 1) * .12);
+  g.strokeStyle = grey(.8); g.lineWidth = .014 * H; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, .05 * H); g.stroke();
+  g.fillStyle = grey(.04); rr(g, -.07 * H, .037 * H, .14 * H, .16 * H, .032 * H); g.fill();
+  g.fillStyle = grey(.7); rr(g, -.062 * H, .045 * H, .124 * H, .144 * H, .028 * H); g.fill();
+  g.fillStyle = grey(.38); rr(g, -.047 * H, .11 * H, .094 * H, .062 * H, .014 * H); g.fill(); g.fillStyle = grey(.95); g.fillRect(-.047 * H, .11 * H, .094 * H, .009 * H);
+  g.fillStyle = grey(.95); g.beginPath(); g.arc(0, .078 * H, .01 * H, 0, TAU); g.fill(); g.restore();
+  // The ladle arm: raised on the right, the ladle's bowl up.
+  const ldT = [X(.3), Y(.44 + Math.sin(t * 1.6 + 1) * .01)];
+  g.save(); g.translate(ldT[0], ldT[1]); g.rotate(.12);
+  g.fillStyle = grey(.04); rr(g, -.019 * H, -.2 * H, .038 * H, .26 * H, .01 * H); g.fill(); g.beginPath(); g.arc(0, -.235 * H, .064 * H, 0, TAU); g.fill();
+  g.fillStyle = grey(.85); rr(g, -.012 * H, -.19 * H, .024 * H, .24 * H, .008 * H); g.fill(); g.fillStyle = grey(.9); g.beginPath(); g.arc(0, -.235 * H, .056 * H, 0, TAU); g.fill();
+  g.fillStyle = grey(.2); g.beginPath(); g.ellipse(0, -.232 * H, .04 * H, .036 * H, 0, 0, TAU); g.fill(); g.restore();
+  handsLimb(g, H, [X(.15), Y(.57)], ldT, -.22, t, 4.2, .055 * H, .02 * H, ARM[0], ARM[1]); GRIP(ldT[0], ldT[1]);
+  // The phone arm: the phone held up beside her, its screen lit.
+  const phT = [X(-.35), Y(.54 + Math.sin(t * 1.2 + 2) * .008)];
+  handsLimb(g, H, [X(-.13), Y(.62)], phT, .18, t, 5.3, .055 * H, .022 * H, ARM[0], ARM[1]);
+  g.save(); g.translate(phT[0] - .01 * H, phT[1] - .05 * H); g.rotate(-.18);
+  g.fillStyle = grey(.04); rr(g, -.054 * H, -.086 * H, .108 * H, .18 * H, .022 * H); g.fill(); g.fillStyle = grey(.32); rr(g, -.046 * H, -.078 * H, .092 * H, .164 * H, .018 * H); g.fill();
+  g.fillStyle = grey(1); rr(g, -.039 * H, -.069 * H, .078 * H, .146 * H, .013 * H); g.fill(); g.fillStyle = grey(.4); [-.04, -.012, .016].forEach((dy) => { rr(g, -.026 * H, dy * H, .052 * H, .013 * H, .004 * H); g.fill(); });
+  g.restore(); GRIP(phT[0], phT[1]);
+  // The free arm: a tea towel over it at rest; up and waving when it is time.
+  const wv = p.wave, wag = Math.sin(t * 7.5) * .05 * wv;
+  const frT = [X(lerp(.54, .6 + wag, wv)), Y(lerp(.64, .17 + Math.abs(wag) * .1, wv))];
+  const fr = handsLimb(g, H, [X(.17), Y(.64)], frT, lerp(-.14, .26, wv), t, 6.4, .055 * H, .024 * H, ARM[0], ARM[1], lerp(-.9, 1.1, wv));
+  const tw = fr[12];
+  g.save(); g.translate(tw[0], tw[1]); g.rotate(Math.sin(t * 2.4) * .08 + wv * Math.sin(t * 7.5) * .25);
+  g.fillStyle = grey(.04); rr(g, -.046 * H, -.012 * H, .092 * H, .15 * H, .014 * H); g.fill();
+  g.fillStyle = grey(.95); rr(g, -.04 * H, -.006 * H, .08 * H, .138 * H, .01 * H); g.fill();
+  g.fillStyle = grey(.4); [.03, .07, .11].forEach((dy) => g.fillRect(-.04 * H, dy * H, .08 * H, .014 * H)); g.restore();
+  // The body: a mantle, tilted a touch, spotted, with a face on it.
+  const hy = .31 * H + bob;
+  g.save(); g.translate(bx, hy); g.rotate(p.tilt);
+  const mantle = () => { g.beginPath(); g.moveTo(0, -.29 * H); g.bezierCurveTo(.2 * H, -.29 * H, .3 * H, -.06 * H, .25 * H, .12 * H); g.bezierCurveTo(.23 * H, .23 * H, .12 * H, .28 * H, 0, .28 * H); g.bezierCurveTo(-.12 * H, .28 * H, -.23 * H, .23 * H, -.25 * H, .12 * H); g.bezierCurveTo(-.3 * H, -.06 * H, -.2 * H, -.29 * H, 0, -.29 * H); g.closePath(); };
+  g.lineJoin = "round"; mantle(); g.strokeStyle = grey(.02); g.lineWidth = .022 * H; g.stroke();
+  const mg = g.createRadialGradient(-.09 * H, -.13 * H, 0, 0, 0, .36 * H); mg.addColorStop(0, grey(1)); mg.addColorStop(.5, grey(.86)); mg.addColorStop(1, grey(.58));
+  g.fillStyle = mg; mantle(); g.fill();
+  g.save(); mantle(); g.clip();
+  [[-.12, -.2, .03, 1], [.03, -.24, .022, 1], [-.2, -.08, .02, 1], [.12, -.17, .028, 1], [.2, -.05, .02, .62], [-.03, -.13, .016, .62], [.17, -.22, .013, 1], [-.17, .04, .014, .62]].forEach(([dx, dy, r, c]) => { g.fillStyle = grey(c); g.beginPath(); g.arc(dx * H, dy * H, r * H, 0, TAU); g.fill(); });
+  g.restore();
+  // Face: cheeks, eyes with their slits, brows, mouth.
+  g.fillStyle = grey(1); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(s * .17 * H, .11 * H, .036 * H, .022 * H, 0, 0, TAU); g.fill(); });
+  const blink = ((t * 1000 + 1300) % 3100) < 120 || glad > .5;
+  [-1, 1].forEach((s) => {
+    const ex = s * .098 * H, ey = .03 * H;
+    if (glad > .5) { g.strokeStyle = grey(.04); g.lineWidth = .022 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey + .024 * H, .055 * H, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); }
+    else {
+      g.fillStyle = grey(.04); g.beginPath(); g.ellipse(ex, ey, .074 * H, (blink ? .006 : .082) * H, 0, 0, TAU); g.fill();
+      if (!blink) { g.fillStyle = grey(1); g.beginPath(); g.ellipse(ex, ey, .065 * H, .073 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.06); rr(g, ex - .038 * H + s * .006 * H, ey - .008 * H, .076 * H, .034 * H, .014 * H); g.fill(); g.fillStyle = grey(1); g.beginPath(); g.arc(ex - .022 * H, ey - .034 * H, .01 * H, 0, TAU); g.fill(); }
+    }
+    g.strokeStyle = grey(.1); g.lineWidth = .016 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey - .08 * H - p.brows * .022 * H, .055 * H, Math.PI * 1.2, Math.PI * 1.8); g.stroke();
+  });
+  const my = .17 * H, talking = p.mouth === "o", open = talking ? .55 + .45 * Math.abs(Math.sin(t * 17)) : 0;
+  if (talking) { g.fillStyle = grey(.04); g.beginPath(); g.ellipse(0, my, .038 * H, .034 * H * open + .007 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.7); g.beginPath(); g.ellipse(0, my + .009 * H, .02 * H, .011 * H * open, 0, 0, TAU); g.fill(); }
+  else if (p.mouth === "grin" || glad > .5) { g.fillStyle = grey(.04); g.beginPath(); g.ellipse(0, my - .012 * H, .056 * H, .04 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.78); g.beginPath(); g.ellipse(0, my + .012 * H, .028 * H, .011 * H, 0, 0, TAU); g.fill(); }
+  else { g.strokeStyle = grey(.05); g.lineWidth = .016 * H; g.lineCap = "round"; g.beginPath(); g.arc(0, my - .034 * H, .056 * H, Math.PI * .22, Math.PI * .78); g.stroke(); }
+  g.restore();
+  // The apron over the lower body: straps up round the neck, a bib, a pocket, spots, a bow.
+  const ay = .53 * H + bob;
+    const apron = () => { g.beginPath(); g.moveTo(X(-.11), ay); g.lineTo(X(.11), ay); g.bezierCurveTo(X(.12), Y(.64), X(.17), Y(.7), X(.19), Y(.77)); g.quadraticCurveTo(X(0), Y(.82), X(-.19), Y(.77)); g.bezierCurveTo(X(-.17), Y(.7), X(-.12), Y(.64), X(-.11), ay); g.closePath(); };
+  apron(); g.strokeStyle = grey(.02); g.lineWidth = .022 * H; g.lineJoin = "round"; g.stroke();
+  const ag = g.createLinearGradient(X(-.2), 0, X(.2), 0); ag.addColorStop(0, grey(1)); ag.addColorStop(1, grey(.82)); g.fillStyle = ag; apron(); g.fill();
+  g.save(); apron(); g.clip(); g.fillStyle = grey(.5);
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 6; c++) { const dx = (c - 2.5) * .052 + (r % 2) * .026, dy = .555 + r * .045; if (dy < .6 || dy > .7 || Math.abs(dx) > .105) { g.beginPath(); g.arc(X(dx), Y(dy), .009 * H, 0, TAU); g.fill(); } }
+  g.fillStyle = grey(.4); g.fillRect(0, Y(.765), W, .04 * H); g.restore();
+  g.fillStyle = grey(.58); rr(g, X(-.07), Y(.6), .14 * H, .09 * H, .014 * H); g.fill(); g.fillStyle = grey(.96); rr(g, X(-.063), Y(.608), .126 * H, .074 * H, .01 * H); g.fill();
+  g.strokeStyle = grey(.4); g.lineWidth = .008 * H; g.beginPath(); g.moveTo(X(-.063), Y(.608)); g.lineTo(X(.063), Y(.608)); g.stroke();
+  g.fillStyle = grey(.95); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(X(.2), Y(.66) + s * .02 * H, .045 * H, .018 * H, s * .5 + .3, 0, TAU); g.fill(); }); g.fillStyle = grey(.5); g.beginPath(); g.arc(X(.185), Y(.66), .012 * H, 0, TAU); g.fill();
+  g.restore();
+}
+const HANDS_PRES = { buf: null, out: null };
+/**
+ * The octopus put through the presenters' halftone (an ordered dither to the cream dots): its box is 1.5 H wide
+ * and its body stands HANDS_BODY H in from the left, so `cx` is where the body is, not the box. `k` is how far
+ * into `pose` it has got; `mouth` is "o" while a word is said, "smile" between.
+ */
+function handsPresenter(ctx, cx, bottom, H, pose, k, t, alpha, drawFn, mouth) {
+  const W = Math.round(H * HANDS_BOX), d = PRES.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d), B = HANDS_PRES;
+  if (!B.buf || B.buf.width !== bw || B.buf.height !== bh) { B.buf = document.createElement("canvas"); B.buf.width = bw; B.buf.height = bh; B.out = document.createElement("canvas"); B.out.width = bw; B.out.height = bh; }
+  const g = B.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
+  const e = E.out(clamp(k)), a = HANDS_POSE.cook, b = HANDS_POSE[pose] || a;
+  const p = { wave: lerp(a.wave, b.wave, e), glad: lerp(a.glad, b.glad, e), wob: lerp(a.wob, b.wob, e), brows: lerp(a.brows, b.brows, e), tilt: lerp(a.tilt, b.tilt, e), mouth: mouth || "smile" };
+  drawFn(g, W, H, p, t);
+  const im = g.getImageData(0, 0, bw, bh), src = im.data, o = B.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (y * bw + x) * 4, al = src[i + 3]; if (al < 90) continue;
+    const lum = (src[i] * .3 + src[i + 1] * .59 + src[i + 2] * .11) / 255 * (al / 255), th = (BAYER[(y & 7) * 8 + (x & 7)] + .5) / 64;
+    if (lum > th) { dd[i] = 0xF3; dd[i + 1] = 0xE2; dd[i + 2] = 0xC6; dd[i + 3] = 255; }
+  }
+  o.putImageData(od, 0, 0);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.imageSmoothingEnabled = false; ctx.drawImage(B.out, Math.round(cx - H * HANDS_BODY), Math.round(bottom - H), bw * d, bh * d); ctx.restore();
+}
+
+// ---- the phone, the scene, the card --------------------------------------------------------
+let handsBuf = null, HANDS_AT = null;
+/** The phone's screen at film time t: the You tab; the confirm page pushed over it with its sheet and the Face ID prompt; Google Calendar as the proof. */
+function handsPhone(g, w, h, t) {
+  const { W, H } = IPHONE, S = w / W, Hn = HANDS;
+  g.save(); g.scale(S, S);
+  if (HANDS_SCROLL == null) HANDS_SCROLL = Math.max(0, Math.round(handsYou(g, Hn.rows[0] + 1, false, 0).yAns - 184));
+  const page = E.io(seg(t, Hn.push, Hn.push + .38)) * (1 - E.io(seg(t, Hn.pop, Hn.pop + .36)));
+  const cal = E.out(seg(t, Hn.proof, Hn.proof + .2)) * (1 - E.out(seg(t, Hn.proofEnd - .01, Hn.proofEnd)));
+  let cream = false;
+  // The You tab, pushed aside a little as the page comes over it.
+  if (page < 1 && cal < 1) {
+    g.save(); g.translate(-page * W * .28, 0); g.fillStyle = APPLOOK.ground; g.fillRect(0, 0, W, H);
+    const geo = handsYou(g, t, true);
+    // Under the status bar, the page rising is let go into the ground.
+    const sc = seg(geo.scroll, 0, 30); if (sc > 0) { const gr = g.createLinearGradient(0, 0, 0, 80); gr.addColorStop(0, rgba("#0F0D0B", sc)); gr.addColorStop(.62, rgba("#0F0D0B", sc)); gr.addColorStop(1, rgba("#0F0D0B", 0)); g.fillStyle = gr; g.fillRect(0, 0, W, 80); }
+    g.fillStyle = `rgba(0,0,0,${.4 * page})`; g.fillRect(0, 0, W, H); g.restore();
+    handsDrag(g, t, geo); cream = geo.yEnd + 42 < 836 && page < .5;
+  }
+  if (page > 0 && cal < 1) {
+    g.save(); g.translate(W * (1 - page), 0);
+    g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 24; g.fillStyle = "#0B0B0D"; g.fillRect(-4, 0, 4, H); g.shadowColor = "transparent";
+    handsApprovePage(g);
+    const up = E.out(seg(t, Hn.sheet, Hn.sheet + .35)) * (1 - E.io(seg(t, Hn.sheetOut, Hn.sheetOut + .35)));
+    if (up > 0) handsSheet(g, up, t);
+    g.restore();
+  }
+  if (cal > 0) {
+    const z = 1 + .07 * E.io(seg(t, Hn.proof + .4, Hn.proofEnd)), sc = lerp(.96, 1, E.out(seg(t, Hn.proof, Hn.proof + .25)));
+    g.save(); g.globalAlpha *= cal; const cx = 140, cy = 160; g.translate(W / 2, H / 2); g.scale(sc, sc); g.translate(-W / 2, -H / 2);
+    g.beginPath(); g.rect(0, 0, W, H); g.clip(); g.translate(cx, cy); g.scale(z, z); g.translate(-cx, -cy);
+    handsCalendar(g, t); g.restore();
+  }
+  handsFaceId(g, t);
+  // The touches: where a finger lands is where the button is at that moment.
+  if (!HANDS_AT) HANDS_AT = { speak: handsYou(g, Hn.tapSpeak, false).speak, stop: handsYou(g, Hn.tapStop, false).speak, doit: handsYou(g, Hn.tapDo, false).doit };
+  touch(g, HANDS_AT.speak.x, HANDS_AT.speak.y, Hn.tapSpeak, t); touch(g, HANDS_AT.stop.x, HANDS_AT.stop.y, Hn.tapStop, t); touch(g, HANDS_AT.doit.x, HANDS_AT.doit.y, Hn.tapDo, t);
+  if (t >= Hn.tapOk && t < Hn.tapOk + .4) touch(g, 196.5, handsSheetOk(), Hn.tapOk, t);
+  const light = cal > .5, rec = seg(t, Hn.rec, Hn.rec + .3) * (1 - seg(t, Hn.stop, Hn.stop + .3));
+  iosStatusBar(g, W, Hn.time, rec, light ? "#202124" : "#FFFFFF"); homeBar(g, W, light ? "#202124" : cream ? "#1B1712" : "#FFFFFF");
+  g.restore();
+}
+/** Where Approve sits on the sheet (its row, from the sheet's own measure). */
+function handsSheetOk() { return 852 - 397 + 20 + 17 + 62 + 22 + (28 + 2 * 23) + 12 + 2 * 19 + 14 + 24; }
+/** The finger that draws the page up: it travels as far as the page does. */
+function handsDrag(g, t, geo) {
+  const k = seg(t, HANDS.scroll - .12, HANDS.scroll + .9); if (k <= 0 || k >= 1) return;
+  const a = .55 * Math.min(seg(k, 0, .1), 1 - seg(k, .9, 1)), y = 660 - handsScroll(t);
+  g.save(); g.globalAlpha *= a; g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(300, y, 18, 0, TAU); g.fill(); g.restore();
+}
+/** The phone in its body, placed in the frame. Returns the screen's rect. */
+function handsFrame(ctx, w, t) {
+  const K = 3, { W, H } = IPHONE, dev = HANDS.device;
+  if (!handsBuf) { handsBuf = document.createElement("canvas"); handsBuf.width = W * K; handsBuf.height = H * K; }
+  const g = handsBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W * K, H * K);
+  handsPhone(g, W * K, H * K, t);
+  const z = dev.z, sw = W * z, sh = H * z, sx = Math.round(w / 2 - sw / 2), sy = dev.top;
+  iphoneBody(ctx, sx, sy, sw, sh, z);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, IPHONE.screenR * z); ctx.clip(); ctx.drawImage(handsBuf, sx, sy, sw, sh); ctx.restore();
+  return { rx: sx, ry: sy, rw: sw, rh: sh, z };
+}
+/** The octopus under the phone, at its bottom right, stirring; glad at the Face ID tick and at the proof. */
+function handsOctopus(ctx, t, alpha) {
+  const Hn = HANDS, glad = Math.max(Math.sin(Math.PI * seg(t, Hn.tick, Hn.tick + 1.5)), Math.sin(Math.PI * seg(t, Hn.proof + .5, Hn.proof + 1.9)) * .8);
+  handsPresenter(ctx, 772, 1912, 430, glad > .02 ? "glad" : "cook", glad, t, alpha, drawFigureOctopus, glad > .35 ? "grin" : handsSpeaking(t) ? "o" : "smile");
+}
+/** The end card: Hands full? Hand it over. The octopus large, a free arm waving. */
+function handsCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · Hand it to me", x0, 300, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Hands full?", x0, 420, f(104, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Hand it over.", x0, 536, f(104, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
+  arrive(ctx, "Say it once. It lands in your apps.", x0, 616, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .045 });
+  handsPresenter(ctx, 610, 1450, 640, "wave", seg(t, .6, 1.8), t, E.out(seg(t, .5, 1.2)), drawFigureOctopus, "smile");
+  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1560;
+  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android", x0, by + bh + 64, 21, P.pale, kk * .6);
+}
+FILMS.hands = { w: 1080, h: 1920, duration: HANDS.duration, v2: true, draw(ctx, t, w, h) {
+  const Hn = HANDS;
+  if (t < Hn.end) {
+    ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+    handsFrame(ctx, w, t);
+    handsOctopus(ctx, t, E.out(seg(t, .1, .6)));
+    captionSpoken(ctx, HANDS_PN, 292, 1672, 520, t, 38, Hn.said + .7);
+    ctx.fillStyle = rgba("#000000", 1 - seg(t, 0, .35)); ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = rgba("#000000", seg(t, Hn.end - .5, Hn.end)); ctx.fillRect(0, 0, w, h);
+  } else handsCard(ctx, w, h, t - Hn.end);
+}, cues() {
+  const Hn = HANDS;
+  return [
+    { at: 0, kind: "sample", file: "voice/hands-room.wav", gain: 1 }, { at: Hn.voice, kind: "sample", file: "voice/hands.wav", gain: 1 },
+    { at: Hn.tapSpeak, kind: "key" }, { at: Hn.rec, kind: "listen" }, { at: Hn.tapStop, kind: "key" }, { at: Hn.stop, kind: "stop" }, { at: Hn.land, kind: "land" },
+    { at: Hn.tapDo, kind: "click" }, { at: Hn.push, kind: "open", gain: .5 }, { at: Hn.sheet, kind: "open", gain: .35 },
+    { at: Hn.tapOk, kind: "click" }, { at: Hn.tick, kind: "land", gain: .8 }, { at: Hn.sheetOut, kind: "open", gain: .3 },
+    { at: Hn.back + .05, kind: "write", gain: .6 }, { at: Hn.rows[0], kind: "land", gain: .4 },
+    { at: Hn.proof, kind: "open", gain: .5 }, { at: Hn.end + .1, kind: "open", gain: .8 }, { at: Hn.end, kind: "bed", dur: Hn.card, gain: .9 },
+  ];
+} };
 
 // ==== FILM: downloads =========================================================================
 // (built in its own block; the Mac's Downloads sorted by voice)
+/**
+ * DOWNLOADS, SORTED. A Mac's Downloads folder, a hoarder's, cleaned up by
+ * saying so: double-tap Control, say it, and Tailzu shows what it will do on
+ * its card (the desktop app's own: guide.html, the words of localfiles.js
+ * and agent.js's planCard). The files fly into five new folders; then a
+ * second card, because the Trash always asks, and the duplicates slide into
+ * the Dock's bin. Nothing is deleted: it is the Trash. The voice is a real
+ * read (voice/downloads.wav); a raccoon, in dots, keeps the box and tidies
+ * with it. Every frame of the screen is drawn here over Apple's own press
+ * picture of macOS Tahoe (RM): the Finder, the Dock's bin, the card.
+ */
+const DLV = (window.TZ_VOICE && window.TZ_VOICE.downloads) || { said: "Clean up my Downloads. Invoices in one folder, screenshots in another... and bin the duplicates.", words: [0, .86, 1.04, 1.3, 2.48, 2.86, 3.08, 3.32, 4.44, 4.48, 4.78, 5.08, 5.68, 5.92, 6.14], end: 6.68 };
+const DL = (() => {
+  const D = { tap1: .55, tap2: .78, rec: .86, voice: 1.0, stop1: 8.1, stop2: 8.32, card1: 9.0, click1: 11.1, move: 11.25, card2: 13.15, click2: 14.75, trash: 14.85, done: 15.95, fade: 17.0, card: 17.5, cardLen: 6.4 };
+  D.end = D.card + D.cardLen; D.said = DLV.said; D.wordAt = DLV.words; D.instr = [];
+  D.flyDur = .72; D.gap = .038; D.trashDur = .62; D.trashGap = .025;
+  return D;
+})();
+/** The five folders it makes, in the order they stand, and what goes in each. */
+const DL_FOLDERS = [["inv", "Invoices"], ["shot", "Screenshots"], ["photo", "Photos"], ["doc", "Documents"], ["inst", "Installers"]];
+/** What the visible part of Downloads holds, in the order the Finder shows it: the five kinds, and the copies ("dupe") that go to the Trash. */
+const DL_FILES = `shot|Screenshot 2026-10-21 at 11.04.12 PM.png
+inv|invoice_Oct_2026.pdf
+photo|IMG_4417.HEIC
+doc|resume_final_FINAL(1).docx
+inst|Zoom.pkg
+dupe|IMG_4417 (1).HEIC
+photo|WhatsApp Image 2026-10-19 at 9.12.44 PM.jpeg
+dupe|invoice_Oct_2026 (2).pdf
+shot|Screenshot 2026-10-19 at 9.30.05 AM.png
+dupe|Zoom (1).pkg
+inv|swiggy-invoice-8812.pdf
+doc|boarding-pass.pdf
+dupe|Untitled (1).zip
+inst|Notion-2.41.dmg
+dupe|invoice_Oct_2026 (1).pdf
+shot|Screenshot 2026-10-24 at 6.18.40 PM.png
+photo|IMG_4402.HEIC
+dupe|Screenshot 2026-10-21 at 11.04.12 PM (1).png
+inv|Amazon_Invoice_4471.pdf
+dupe|WhatsApp Image 2026-10-19 at 9.12.44 PM (1).jpeg
+shot|Screenshot 2026-10-12 at 2.51.09 PM.png
+doc|Notes-Q3-planning.docx
+dupe|swiggy-invoice-8812 (1).pdf
+photo|DSC_0192.jpg
+dupe|Notion-2.41 (1).dmg
+shot|Screenshot 2026-09-30 at 1.07.33 PM.png
+inv|Airtel_bill_Sep.pdf
+dupe|Archive (1).zip
+inst|googlechrome.dmg
+dupe|IMG_4402 (1).HEIC
+shot|Screenshot 2026-10-26 at 8.45.21 AM.png
+photo|WhatsApp Image 2026-10-23 at 6.01.10 PM.jpeg
+dupe|boarding-pass (1).pdf
+doc|budget_2026.xlsx
+dupe|resume_final_FINAL (2).docx
+shot|Screenshot 2026-10-22 at 10.12.58 AM.png
+inv|invoice-0342.pdf
+dupe|Screenshot 2026-10-19 at 9.30.05 AM (1).png
+photo|IMG_4351.JPG
+dupe|Amazon_Invoice_4471 (1).pdf
+inst|VLC-3.0.21.dmg
+dupe|budget_2026 (1).xlsx
+shot|Screenshot 2026-10-05 at 4.40.02 PM.png
+inv|Receipt-2051-3394.pdf
+dupe|DSC_0192 (1).jpg
+photo|IMG_4388.HEIC
+shot|Screenshot 2026-10-17 at 7.26.17 PM.png
+dupe|googlechrome (1).dmg`.split("\n").map((l) => l.split("|"));
+/** Where the Finder window is on the 1728×1122 screen (it covers the press picture's Messages window), and its icon grid: 7 across, 100 points each way. */
+const DLW = { x: 394, y: 132, w: 940, h: 790, side: 212 };
+const DLG = { cols: 7, cw: 102, ch: 100, x: 609, y: 192 };
+const dlCell = (i) => [DLG.x + (i % DLG.cols) * DLG.cw + DLG.cw / 2, DLG.y + Math.floor(i / DLG.cols) * DLG.ch + 36];
+const dlBase = (n) => n.replace(/ ?\(\d\)(?=\.\w+$)/, "");
+const dlHash = (s) => { let h = 7; for (const c of s) h = (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0; return h; };
+const dlKind = (n) => { const e = n.split(".").pop().toLowerCase(); return /^screenshot/i.test(n) ? "shot" : { pdf: "pdf", docx: "docx", xlsx: "xlsx", pkg: "pkg", dmg: "dmg", zip: "zip" }[e] || "photo"; };
+/** Each file: where it starts, where it goes, and when. The movers fly into their folder; the copies shuffle up, then fly to the Dock's bin. */
+const DLI = (() => {
+  let m = 0, d = 0;
+  return DL_FILES.map(([cat, name], i) => {
+    const it = { cat, name, i, kind: dlKind(name), seed: dlHash(dlBase(name)), p0: dlCell(i) };
+    if (cat === "dupe") { it.rank = d++; it.p1 = dlCell(5 + it.rank); it.rs = DL.move + 1.0 + it.rank * .012; it.tt = DL.trash + it.rank * DL.trashGap; }
+    else { it.rank = m++; it.fi = DL_FOLDERS.findIndex((x) => x[0] === cat); it.p1 = dlCell(it.fi); it.ts = DL.move + it.rank * DL.gap; }
+    return it;
+  });
+})();
+const DL_MOVERS = DLI.filter((it) => it.cat !== "dupe"), DL_DUPES = DLI.filter((it) => it.cat === "dupe");
+/** The Dock's bin in the press picture: its centre, and the empty bin's box that is covered. */
+const DLT = { x: 1562, y: 1080 };
+const dlMeasure = document.createElement("canvas").getContext("2d");
+
+// ---- file icons, as macOS draws them, each made once at 3× and kept -----------------
+const dlIcons = new Map();
+function dlIcon(kind, seed = 0) {
+  const key = kind === "photo" || kind === "shot" ? `${kind}${seed}` : kind;
+  if (dlIcons.has(key)) return dlIcons.get(key);
+  const cv = document.createElement("canvas"); cv.width = cv.height = 192; const g = cv.getContext("2d"); g.scale(3, 3); g.lineJoin = "round";
+  DL_DRAW[kind](g, seed);
+  dlIcons.set(key, cv); return cv;
+}
+/** A document: a white page with its corner turned, faint lines, and a band of the kind's colour with its name. */
+function dlPage(g, band, tag, bg = ["#FFFFFF", "#E3E5EA"]) {
+  const x = 10, y = 3, w = 44, h = 58, c = 12, r = 4;
+  const path = () => { g.beginPath(); g.moveTo(x + r, y); g.lineTo(x + w - c, y); g.lineTo(x + w, y + c); g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r); g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r); g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r); g.closePath(); };
+  g.save(); g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 3.5; g.shadowOffsetY = 1.6;
+  const gr = g.createLinearGradient(0, y, 0, y + h); gr.addColorStop(0, bg[0]); gr.addColorStop(1, bg[1]); path(); g.fillStyle = gr; g.fill(); g.restore();
+  g.save(); path(); g.clip();
+  g.fillStyle = "rgba(60,64,80,.2)"; [[9, 14, 26], [9, 19.5, 22], [9, 25, 26]].forEach(([dx, dy, lw]) => g.fillRect(x + dx - 3, y + dy, lw, 2.2));
+  if (band) { g.fillStyle = band; g.fillRect(x, y + h - 25, w, 15); text(g, tag, x + w / 2, y + h - 14.2, sf(8.2, 700), "#FFFFFF", 1, "center", .3); }
+  g.restore();
+  g.fillStyle = "#CBCED6"; g.beginPath(); g.moveTo(x + w - c, y); g.lineTo(x + w, y + c); g.lineTo(x + w - c, y + c); g.closePath(); g.fill();
+  g.strokeStyle = "rgba(0,0,0,.2)"; g.lineWidth = .7; path(); g.stroke();
+}
+/** A picture's thumbnail: a white edge, a shadow, a little scene inside. */
+function dlThumb(g, seed, shot) {
+  const r = rng(seed + 3), port = !shot && seed % 3 === 2, w = port ? 40 : 56, h = port ? 52 : shot ? 38 : 42, x = (64 - w) / 2, y = (64 - h) / 2 + 1;
+  g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 4; g.shadowOffsetY = 2; g.fillStyle = "#F1F1F3"; rr(g, x - 2.2, y - 2.2, w + 4.4, h + 4.4, 2.4); g.fill(); g.restore();
+  g.save(); rr(g, x, y, w, h, 1.2); g.clip(); g.translate(x, y);
+  (shot ? DL_SHOTS : DL_SCENES)[seed % (shot ? DL_SHOTS.length : DL_SCENES.length)](g, w, h, r);
+  g.restore();
+}
+const DL_SCENES = [
+  (g, w, h, r) => { const s = g.createLinearGradient(0, 0, 0, h); s.addColorStop(0, "#35407A"); s.addColorStop(.55, "#E27A55"); s.addColorStop(1, "#F6C879"); g.fillStyle = s; g.fillRect(0, 0, w, h); g.fillStyle = "#FFE7A8"; g.beginPath(); g.arc(w * (.3 + r() * .4), h * .62, h * .13, 0, TAU); g.fill(); g.fillStyle = "#2B2A3C"; g.beginPath(); g.moveTo(0, h); g.lineTo(0, h * .78); g.quadraticCurveTo(w * .35, h * .6, w * .6, h * .8); g.quadraticCurveTo(w * .85, h * .68, w, h * .78); g.lineTo(w, h); g.fill(); },
+  (g, w, h, r) => { const s = g.createLinearGradient(0, 0, 0, h); s.addColorStop(0, "#5BA8EE"); s.addColorStop(1, "#C6E6FA"); g.fillStyle = s; g.fillRect(0, 0, w, h); g.fillStyle = "#FFFFFF"; [[.25, .28, .12], [.62, .2, .1]].forEach(([a, b, c]) => { g.beginPath(); g.ellipse(w * a, h * b, w * c, h * .09, 0, 0, TAU); g.fill(); }); g.fillStyle = "#58A560"; g.beginPath(); g.ellipse(w * .3, h * 1.02, w * .5, h * .42, 0, 0, TAU); g.fill(); g.fillStyle = "#3E8A4C"; g.beginPath(); g.ellipse(w * .85, h * 1.05, w * .5, h * .38, 0, 0, TAU); g.fill(); },
+  (g, w, h, r) => { g.fillStyle = "#E9DCC9"; g.fillRect(0, 0, w, h); g.fillStyle = "#C9733B"; g.fillRect(0, 0, w, h); g.fillStyle = "#FBF6EC"; g.beginPath(); g.arc(w * .5, h * .52, Math.min(w, h) * .4, 0, TAU); g.fill(); ["#E4572E", "#7BAE48", "#F2B134", "#B4432B"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(w * (.38 + i * .08), h * (.46 + (i % 2) * .1), h * .09, 0, TAU); g.fill(); }); },
+  (g, w, h, r) => { const s = g.createLinearGradient(0, 0, 0, h); s.addColorStop(0, "#121A3A"); s.addColorStop(1, "#3B4F8C"); g.fillStyle = s; g.fillRect(0, 0, w, h); for (let i = 0; i < 9; i++) { const bw = w / 9, bh = h * (.3 + r() * .45); g.fillStyle = "#0B0F24"; g.fillRect(i * bw, h - bh, bw - .6, bh); g.fillStyle = "#F6D472"; for (let k = 0; k < 6; k++) if (r() > .5) g.fillRect(i * bw + 1.4 + (k % 2) * 3, h - bh + 2 + Math.floor(k / 2) * 4, 1.5, 1.5); } },
+  (g, w, h, r) => { const s = g.createLinearGradient(0, 0, 0, h); s.addColorStop(0, "#8EC5E8"); s.addColorStop(1, "#E7C9A9"); g.fillStyle = s; g.fillRect(0, 0, w, h); g.fillStyle = "#3E4A6B"; g.beginPath(); g.ellipse(w * .5, h * 1.02, w * .42, h * .34, 0, 0, TAU); g.fill(); g.fillStyle = "#E2B48C"; g.beginPath(); g.arc(w * .5, h * .42, h * .2, 0, TAU); g.fill(); g.fillStyle = "#3A2B22"; g.beginPath(); g.arc(w * .5, h * .36, h * .21, Math.PI, TAU); g.fill(); },
+  (g, w, h, r) => { const s = g.createLinearGradient(0, 0, 0, h); s.addColorStop(0, "#7FC4F0"); s.addColorStop(.5, "#CFEAF8"); s.addColorStop(.52, "#2F8FCB"); s.addColorStop(.8, "#3AA3DD"); s.addColorStop(.81, "#EAD7A8"); s.addColorStop(1, "#D9BF86"); g.fillStyle = s; g.fillRect(0, 0, w, h); g.fillStyle = "#FFFFFF"; g.globalAlpha = .7; g.fillRect(0, h * .74, w, 1.2); },
+];
+const DL_SHOTS = [
+  (g, w, h, r) => { g.fillStyle = "#1E2230"; g.fillRect(0, 0, w, h); g.fillStyle = "#2A2F40"; g.fillRect(0, 0, w, 5); ["#FF5F57", "#FEBC2E", "#28C840"].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(3 + i * 3.6, 2.5, 1.1, 0, TAU); g.fill(); }); for (let i = 0; i < 9; i++) { g.fillStyle = ["#7AA2F7", "#9ECE6A", "#E0AF68", "#BB9AF7"][Math.floor(r() * 4)]; g.fillRect(8 + (i % 3 === 2 ? 4 : 0), 8 + i * 3.2, 8 + r() * 26, 1.6); } },
+  (g, w, h, r) => { g.fillStyle = "#F4F5F8"; g.fillRect(0, 0, w, h); g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, w, 6); g.fillStyle = "#4F7DF3"; g.beginPath(); g.arc(4, 3, 1.5, 0, TAU); g.fill(); const s = g.createLinearGradient(0, 0, w, 0); s.addColorStop(0, "#4F7DF3"); s.addColorStop(1, "#8A5CF0"); g.fillStyle = s; g.fillRect(4, 9, w - 8, 14); g.fillStyle = "#FFFFFF"; [0, 1, 2].forEach((i) => { g.fillRect(4 + i * ((w - 8) / 3), 26, (w - 8) / 3 - 2, 9); }); },
+  (g, w, h, r) => { g.fillStyle = "#E9EEF5"; g.fillRect(0, 0, w, h); [[4, 5, 26, "#FFFFFF"], [24, 14, 28, "#3B82F6"], [4, 23, 20, "#FFFFFF"], [26, 31, 24, "#3B82F6"]].forEach(([x, y, bw, c]) => { g.fillStyle = c; rr(g, x, y, bw, 6, 3); g.fill(); }); },
+  (g, w, h, r) => { g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, w, h); g.fillStyle = "#EEF0F4"; g.fillRect(0, 0, w, 5); [0, 1, 2, 3, 4].forEach((i) => { const bh = 8 + r() * 18; g.fillStyle = ["#4F7DF3", "#F59E0B", "#10B981"][i % 3]; g.fillRect(8 + i * 9, h - 4 - bh, 6, bh); }); },
+];
+const DL_DRAW = {
+  pdf: (g) => dlPage(g, "#E5484D", "PDF"), docx: (g) => dlPage(g, "#2F6FDB", "DOCX"), xlsx: (g) => dlPage(g, "#1F9D55", "XLSX"),
+  photo: (g, seed) => dlThumb(g, seed, false), shot: (g, seed) => dlThumb(g, seed, true),
+  zip: (g) => {
+    dlPage(g, null, "", ["#F4F1E8", "#DAD4C2"]);
+    for (let k = 0; k < 13; k++) { g.fillStyle = k % 2 ? "#4A4A50" : "#B9B3A2"; g.fillRect(k % 2 ? 31 : 33, 4 + k * 2.6, 2, 1.7); }
+    g.fillStyle = "#4A4A50"; rr(g, 29.5, 38, 5, 8, 2.2); g.fill(); g.strokeStyle = "#4A4A50"; g.lineWidth = 1.1; g.beginPath(); g.arc(32, 49, 2.6, 0, TAU); g.stroke();
+  },
+  pkg: (g) => {
+    g.save(); g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 3.5; g.shadowOffsetY = 2;
+    g.fillStyle = "#C79656"; g.beginPath(); g.moveTo(7, 25); g.lineTo(32, 33); g.lineTo(32, 60); g.lineTo(7, 51); g.closePath(); g.fill();
+    g.fillStyle = "#AB7B3F"; g.beginPath(); g.moveTo(57, 25); g.lineTo(32, 33); g.lineTo(32, 60); g.lineTo(57, 51); g.closePath(); g.fill(); g.restore();
+    g.fillStyle = "#E3BF88"; g.beginPath(); g.moveTo(7, 25); g.lineTo(32, 17); g.lineTo(57, 25); g.lineTo(32, 33); g.closePath(); g.fill();
+    g.fillStyle = "#F1E4BE"; g.beginPath(); g.moveTo(28.2, 18.2); g.lineTo(35.8, 18.2); g.lineTo(35.8, 34); g.lineTo(28.2, 34); g.closePath(); g.fill(); g.fillStyle = "#F1E4BE"; g.beginPath(); g.moveTo(32, 33); g.lineTo(32, 60); g.lineTo(28, 58.6); g.lineTo(28, 31.8); g.closePath(); g.fill();
+    g.fillStyle = "#4F8DF0"; g.beginPath(); g.moveTo(11, 33); g.lineTo(23, 37); g.lineTo(23, 46); g.lineTo(11, 42); g.closePath(); g.fill();
+  },
+  dmg: (g) => {
+    g.save(); g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 3.5; g.shadowOffsetY = 2;
+    const s = g.createLinearGradient(0, 16, 0, 52); s.addColorStop(0, "#F4F5F8"); s.addColorStop(1, "#AEB2BD"); g.fillStyle = s; rr(g, 6, 16, 52, 36, 7); g.fill(); g.restore();
+    g.fillStyle = "rgba(255,255,255,.65)"; rr(g, 8, 17.5, 48, 6, 4); g.fill(); g.fillStyle = "#8E93A0"; rr(g, 12, 38, 28, 2.6, 1.3); g.fill(); g.fillStyle = "#6D7280"; rr(g, 12, 43, 18, 2.6, 1.3); g.fill();
+    g.fillStyle = "#4C8DF6"; g.beginPath(); g.arc(48, 42, 3.2, 0, TAU); g.fill(); g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(47.2, 41.2, 1, 0, TAU); g.fill();
+  },
+  folder: (g) => {
+    g.save(); g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 4; g.shadowOffsetY = 2.4;
+    const back = g.createLinearGradient(0, 8, 0, 54); back.addColorStop(0, "#63B6F8"); back.addColorStop(1, "#3A86E4"); g.fillStyle = back;
+    g.beginPath(); g.moveTo(2, 14); g.arcTo(2, 8, 8, 8, 5); g.lineTo(23, 8); g.arcTo(26, 8, 28, 11, 3); g.lineTo(30, 13.5); g.lineTo(56, 13.5); g.arcTo(62, 13.5, 62, 19.5, 5); g.lineTo(62, 50); g.arcTo(62, 56, 56, 56, 5); g.lineTo(8, 56); g.arcTo(2, 56, 2, 50, 5); g.closePath(); g.fill(); g.restore();
+    const front = g.createLinearGradient(0, 17, 0, 56); front.addColorStop(0, "#8AD0FC"); front.addColorStop(1, "#4DA8F2"); g.fillStyle = front; rr(g, 2, 18, 60, 38, 5); g.fill();
+    g.strokeStyle = "rgba(255,255,255,.6)"; g.lineWidth = 1; g.beginPath(); g.moveTo(7, 18.5); g.lineTo(57, 18.5); g.stroke();
+  },
+};
+/** A file's name under its icon as Finder sets it: two lines at most, broken after a space, hyphen, underscore or dot, the end of the second elided in the middle. */
+const dlWraps = new Map();
+function dlWrap(name, maxW = 94) {
+  if (dlWraps.has(name)) return dlWraps.get(name);
+  const g = dlMeasure; g.font = sf(12, 400); const wd = (s) => g.measureText(s).width;
+  let lines;
+  if (wd(name) <= maxW) lines = [name];
+  else {
+    const toks = name.match(/[^ \-_.]*[ \-_.]?/g).filter(Boolean); let a = "", i = 0;
+    for (; i < toks.length; i++) { if (wd((a + toks[i]).trimEnd()) > maxW && a) break; a += toks[i]; }
+    let b = toks.slice(i).join("");
+    if (!a) { a = name.slice(0, 12); b = name.slice(12); }
+    if (wd(b) > maxW) { let h = Math.ceil(b.length / 2), tl = Math.floor(b.length / 2); while (h > 1 && wd(b.slice(0, h) + "…" + b.slice(b.length - tl)) > maxW) { if (h > tl) h--; else tl--; } b = b.slice(0, h) + "…" + b.slice(b.length - tl); }
+    lines = [a.trimEnd(), b];
+  }
+  dlWraps.set(name, lines); return lines;
+}
+function dlLabel(g, name, cx, top, a = 1) {
+  if (a <= 0) return;
+  dlWrap(name).forEach((ln, i) => text(g, ln, cx, top + 11.5 + i * 14, sf(12, 400), "#EDEDF0", a, "center"));
+}
+
+// ---- the screen: the menu bar, the Finder, the Dock's bin -------------------------------
+/** Finder's menu bar over the press picture's Messages one: the ground is the wallpaper's own row under it, as rmMenuBar does. */
+function dlMenuBar(g, img) {
+  const K = RM.k; g.drawImage(img, 52 * K, 39 * K, 660 * K, 3 * K, 52, 0, 660, 37);
+  g.save(); g.shadowColor = "rgba(0,0,0,.18)"; g.shadowBlur = 3;
+  let x = 62; text(g, "Finder", x, 24, sf(14.5, 700), "#FFFFFF"); g.font = sf(14.5, 700); x += g.measureText("Finder").width + 23;
+  for (const m of ["File", "Edit", "View", "Go", "Window", "Help"]) { text(g, m, x, 24, sf(14.5, 500), "#FFFFFF"); g.font = sf(14.5, 500); x += g.measureText(m).width + 23; }
+  g.restore();
+}
+/** A sidebar's small line icon, 16 points square at (x, y). */
+function dlSideIcon(g, kind, x, y, col) {
+  g.save(); g.translate(x, y); g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.35; g.lineCap = "round"; g.lineJoin = "round";
+  const arc = (r, a0, a1) => { g.beginPath(); g.arc(8, 10, r, a0, a1); g.stroke(); };
+  if (kind === "airdrop") { arc(3.4, Math.PI * 1.15, Math.PI * 1.85); arc(6.6, Math.PI * 1.15, Math.PI * 1.85); g.beginPath(); g.arc(8, 11, 1.4, 0, TAU); g.fill(); }
+  else if (kind === "recents") { g.beginPath(); g.arc(8, 8, 6.4, 0, TAU); g.stroke(); g.beginPath(); g.moveTo(8, 4.2); g.lineTo(8, 8); g.lineTo(10.6, 9.6); g.stroke(); }
+  else if (kind === "apps") { g.beginPath(); g.moveTo(2.8, 13.4); g.lineTo(8, 2.4); g.lineTo(13.2, 13.4); g.moveTo(4.8, 9.6); g.lineTo(11.2, 9.6); g.stroke(); }
+  else if (kind === "desktop") { rr(g, 1.4, 2.6, 13.2, 8.6, 1.8); g.stroke(); g.beginPath(); g.moveTo(4.6, 14); g.lineTo(11.4, 14); g.stroke(); }
+  else if (kind === "docs") { g.beginPath(); g.moveTo(3.6, 1.8); g.lineTo(9.4, 1.8); g.lineTo(12.6, 5); g.lineTo(12.6, 14.2); g.lineTo(3.6, 14.2); g.closePath(); g.stroke(); g.beginPath(); g.moveTo(9.2, 1.9); g.lineTo(9.2, 5.2); g.lineTo(12.5, 5.2); g.stroke(); }
+  else if (kind === "downloads") { g.beginPath(); g.arc(8, 8, 6.6, 0, TAU); g.stroke(); g.beginPath(); g.moveTo(8, 4.6); g.lineTo(8, 10.6); g.moveTo(5.2, 8.2); g.lineTo(8, 11); g.lineTo(10.8, 8.2); g.stroke(); }
+  else if (kind === "cloud") { g.beginPath(); g.moveTo(4.6, 12.4); g.bezierCurveTo(1.2, 12.4, 1, 7.6, 4.4, 7.6); g.bezierCurveTo(4.8, 4.2, 10.4, 3.6, 11.4, 7.4); g.bezierCurveTo(14.8, 7.2, 15.2, 12.4, 11.6, 12.4); g.closePath(); g.stroke(); }
+  else if (kind === "drive") { rr(g, 1.4, 5, 13.2, 6.6, 2); g.stroke(); g.beginPath(); g.arc(11.6, 8.3, .9, 0, TAU); g.fill(); }
+  g.restore();
+}
+/** The Finder window as Tahoe draws it in dark: a floating glass sidebar, the toolbar's glass pills, the icon view, the status line. Items are drawn by the caller's list. */
+function dlWindow(g, d) {
+  const { x, y, w, h, side } = DLW, R = 24, blue = "#58AEFF";
+  g.save(); g.shadowColor = "rgba(0,0,0,.55)"; g.shadowBlur = 60; g.shadowOffsetY = 22; g.fillStyle = "#1E1E1F"; rr(g, x, y, w, h, R); g.fill(); g.restore();
+  g.save(); g.beginPath(); g.roundRect(x, y, w, h, R); g.clip();
+  g.fillStyle = "#1E1E1F"; g.fillRect(x, y, w, h);
+  // The sidebar: frosted glass, inset from the window's edge.
+  const sg = g.createLinearGradient(x, y, x, y + h); sg.addColorStop(0, "rgba(62,68,86,.96)"); sg.addColorStop(1, "rgba(46,50,64,.96)");
+  g.fillStyle = sg; rr(g, x + 8, y + 8, side - 16, h - 16, 18); g.fill(); g.strokeStyle = "rgba(255,255,255,.1)"; g.lineWidth = 1; rr(g, x + 8.5, y + 8.5, side - 17, h - 17, 17.5); g.stroke();
+  trafficLights(g, x + 29, y + 27);
+  let yy = y + 66;
+  const head = (s) => { text(g, s, x + 28, yy, sf(11, 600), "rgba(255,255,255,.42)"); yy += 22; };
+  const row = (ic, s, on) => {
+    if (on) { g.fillStyle = "rgba(255,255,255,.14)"; rr(g, x + 18, yy - 18, side - 36, 28, 9); g.fill(); }
+    dlSideIcon(g, ic, x + 27, yy - 14, blue); text(g, s, x + 52, yy + 1, sf(13, on ? 500 : 400), "#F2F2F5"); yy += 30;
+  };
+  head("Favorites"); row("airdrop", "AirDrop"); row("recents", "Recents"); row("apps", "Applications"); row("desktop", "Desktop"); row("docs", "Documents"); row("downloads", "Downloads", true);
+  yy += 12; head("iCloud"); row("cloud", "iCloud Drive");
+  yy += 12; head("Locations"); row("drive", "Macintosh HD");
+  // The toolbar: back and forward, the folder's name, the glass controls.
+  const cx0 = x + side + 4, pill = (px, pw) => { g.fillStyle = "rgba(255,255,255,.085)"; rr(g, px, y + 12, pw, 32, 16); g.fill(); g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1; rr(g, px + .5, y + 12.5, pw - 1, 31, 15.5); g.stroke(); };
+  pill(cx0, 66); g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1.7; g.lineCap = "round"; g.lineJoin = "round";
+  g.beginPath(); g.moveTo(cx0 + 22, y + 21.5); g.lineTo(cx0 + 16, y + 28); g.lineTo(cx0 + 22, y + 34.5); g.stroke(); g.save(); g.globalAlpha = .32; g.beginPath(); g.moveTo(cx0 + 44, y + 21.5); g.lineTo(cx0 + 50, y + 28); g.lineTo(cx0 + 44, y + 34.5); g.stroke(); g.restore();
+  g.drawImage(dlIcon("folder"), cx0 + 78, y + 15, 26, 26); text(g, "Downloads", cx0 + 110, y + 34, sf(16, 700), "#F6F6F8");
+  let rx = x + w - 16; const circ = (draw) => { rx -= 32; pill(rx, 32); g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1.5; g.lineCap = "round"; g.lineJoin = "round"; draw(rx + 16, y + 28); rx -= 8; };
+  circ((cx, cy) => { g.beginPath(); g.arc(cx - 1.5, cy - 1.5, 5.2, 0, TAU); g.stroke(); g.beginPath(); g.moveTo(cx + 2.4, cy + 2.4); g.lineTo(cx + 6.4, cy + 6.4); g.stroke(); });
+  circ((cx, cy) => { rr(g, cx - 6, cy - 2, 12, 9, 2); g.stroke(); g.beginPath(); g.moveTo(cx, cy - 8); g.lineTo(cx, cy + 2); g.moveTo(cx - 3.2, cy - 4.8); g.lineTo(cx, cy - 8.2); g.lineTo(cx + 3.2, cy - 4.8); g.stroke(); });
+  rx -= 56; pill(rx, 56); g.strokeStyle = "rgba(255,255,255,.85)"; g.lineWidth = 1.4; [[0, 0], [1, 0], [0, 1], [1, 1]].forEach(([a, b]) => { rr(g, rx + 11 + a * 8, y + 21 + b * 8, 6, 6, 1.5); g.stroke(); }); g.beginPath(); g.moveTo(rx + 40, y + 26); g.lineTo(rx + 43.4, y + 29.6); g.lineTo(rx + 46.8, y + 26); g.stroke(); rx -= 8;
+  rx -= 132; pill(rx, 132); g.fillStyle = "rgba(255,255,255,.2)"; rr(g, rx + 3, y + 15, 33, 26, 13); g.fill(); g.strokeStyle = "rgba(255,255,255,.9)"; g.lineWidth = 1.4;
+  [0, 1].forEach((a) => [0, 1].forEach((b) => { rr(g, rx + 12 + a * 8, y + 22 + b * 8, 6, 6, 1.5); g.stroke(); }));
+  g.beginPath(); [0, 1, 2].forEach((i) => { g.moveTo(rx + 51, y + 22 + i * 5); g.lineTo(rx + 63, y + 22 + i * 5); }); g.stroke();
+  [0, 1, 2].forEach((i) => rr(g, rx + 74 + i * 6, y + 21, 4.4, 14, 1.2)); g.stroke(); rr(g, rx + 100, y + 21, 12, 9, 1.6); g.stroke(); g.beginPath(); g.moveTo(rx + 100, y + 33); g.lineTo(rx + 112, y + 33); g.stroke();
+  // The icons, then the status line.
+  d.items(g);
+  text(g, d.status, x + side + (w - side - 8) / 2, y + h - 9, sf(11.5, 400), "rgba(235,235,245,.46)", 1, "center");
+  g.restore();
+  g.strokeStyle = "rgba(255,255,255,.14)"; g.lineWidth = 1; rr(g, x + .5, y + .5, w - 1, h - 1, R - .5); g.stroke();
+}
+/** The Dock's bin: the press picture's empty one is covered with the glass beside it, and one is drawn in its place, with paper over its rim once it is full. */
+function dlBin(g, img, full, bump) {
+  const K = RM.k; g.drawImage(img, 1532 * K, 1047 * K, 6 * K, 64 * K, 1538, 1047, 50, 64);
+  const cx = DLT.x, top = 1056, s = 1 + bump * .09;
+  g.save(); g.translate(cx, top + 48); g.scale(s, s); g.translate(-cx, -(top + 48));
+  const body = () => { g.beginPath(); g.moveTo(cx - 19, top + 6); g.lineTo(cx - 15, top + 44); g.quadraticCurveTo(cx - 14.6, top + 48, cx - 11, top + 48); g.lineTo(cx + 11, top + 48); g.quadraticCurveTo(cx + 14.6, top + 48, cx + 15, top + 44); g.lineTo(cx + 19, top + 6); g.closePath(); };
+  if (full) {
+    [[-9, -9, .26, 15, "#F4F4F6"], [2, -12, -.2, 14, "#FFFFFF"], [10, -6, .6, 12, "#E8E9EE"], [-3, -5, 0, 13, "#FBFBFC"]].forEach(([dx, dy, rot, sz, c]) => {
+      g.save(); g.translate(cx + dx, top + 8 + dy); g.rotate(rot); g.fillStyle = c; g.strokeStyle = "rgba(60,70,90,.45)"; g.lineWidth = .8;
+      g.beginPath(); g.moveTo(-sz / 2, 2); g.lineTo(-sz * .3, -sz * .48); g.lineTo(sz * .1, -sz * .3); g.lineTo(sz * .46, -sz * .5); g.lineTo(sz / 2, 4); g.closePath(); g.fill(); g.stroke();
+      g.beginPath(); g.moveTo(-sz * .1, -sz * .2); g.lineTo(sz * .05, sz * .12); g.stroke(); g.restore();
+    });
+  }
+  const gr = g.createLinearGradient(cx - 19, 0, cx + 19, 0); gr.addColorStop(0, "rgba(232,242,252,.62)"); gr.addColorStop(.35, "rgba(255,255,255,.34)"); gr.addColorStop(.75, "rgba(226,238,250,.5)"); gr.addColorStop(1, "rgba(206,224,244,.6)");
+  g.fillStyle = gr; body(); g.fill(); g.strokeStyle = "rgba(255,255,255,.66)"; g.lineWidth = 1; g.stroke();
+  g.strokeStyle = "rgba(255,255,255,.22)"; g.lineWidth = 1.2; [-7, 0, 7].forEach((dx) => { g.beginPath(); g.moveTo(cx + dx * .9, top + 12); g.lineTo(cx + dx * .78, top + 42); g.stroke(); });
+  g.fillStyle = "rgba(240,247,255,.75)"; g.strokeStyle = "rgba(255,255,255,.8)"; g.beginPath(); g.ellipse(cx, top + 6, 20, 4.2, 0, 0, TAU); g.fill(); g.stroke();
+  g.fillStyle = "rgba(120,150,190,.3)"; g.beginPath(); g.ellipse(cx, top + 6.5, 16.5, 2.6, 0, 0, TAU); g.fill();
+  g.restore();
+}
+
+// ---- the files at time t: where each is, and the folders that open -------------------
+const dlPop = (x) => { const c1 = 1.70158, c3 = c1 + 1; return x <= 0 ? 0 : x >= 1 ? 1 : 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+const dlBez = (p0, c, p1, u) => [(1 - u) * (1 - u) * p0[0] + 2 * (1 - u) * u * c[0] + u * u * p1[0], (1 - u) * (1 - u) * p0[1] + 2 * (1 - u) * u * c[1] + u * u * p1[1]];
+/** An arc between two points: bowed to one side by a share of its length and lifted. */
+function dlArc(p0, p1, side, bow, lift) {
+  const dx = p1[0] - p0[0], dy = p1[1] - p0[1], L = Math.hypot(dx, dy) || 1;
+  return [(p0[0] + p1[0]) / 2 - dy / L * L * bow * side, (p0[1] + p1[1]) / 2 + dx / L * L * bow * side - lift];
+}
+/** One file at time t: its icon's centre, its size, opacity, turn, its name's opacity, and whether it is in the air. */
+function dlAt(it, t) {
+  const st = { x: it.p0[0], y: it.p0[1], s: 1, a: 1, rot: 0, la: 1, air: false, gone: false };
+  if (it.cat !== "dupe") {
+    const k = (t - it.ts) / DL.flyDur; if (k <= 0) return st; if (k >= 1) { st.gone = true; return st; }
+    const side = (it.seed & 1 ? 1 : -1), u = E.io(k), c = dlArc(it.p0, it.p1, side, .22, 46), p = dlBez(it.p0, c, it.p1, u);
+    return { x: p[0], y: p[1], s: (1 + .14 * Math.sin(Math.PI * Math.min(1, k * 2.6))) * lerp(1, .36, E.in(seg(k, .3, 1))), a: 1 - E.in(seg(k, .8, 1)), rot: Math.sin(k * 5 + it.seed) * .22 * Math.sin(Math.PI * k), la: 1 - seg(k, 0, .18), air: true, gone: false };
+  }
+  const kt = (t - it.tt) / DL.trashDur;
+  if (kt >= 1) { st.gone = true; return st; }
+  if (kt > 0) {
+    const from = it.p1, side = (it.seed & 1 ? 1 : -1), u = E.io(kt), c = dlArc(from, [DLT.x, DLT.y], side, .16, 90), p = dlBez(from, c, [DLT.x, DLT.y], u);
+    return { x: p[0], y: p[1], s: (1 + .12 * Math.sin(Math.PI * Math.min(1, kt * 2.6))) * lerp(1, .34, E.in(seg(kt, .25, 1))), a: 1 - E.in(seg(kt, .84, 1)), rot: Math.sin(kt * 4 + it.seed) * .2 * Math.sin(Math.PI * kt), la: 1 - seg(kt, 0, .16), air: true, gone: false };
+  }
+  const u = E.io(seg(t, it.rs, it.rs + .55)); st.x = lerp(it.p0[0], it.p1[0], u); st.y = lerp(it.p0[1], it.p1[1], u); return st;
+}
+/** The five folders: when each opens, and how it bumps as files land in it. */
+const dlFolderPop = (j) => DL.move + .2 + j * .09;
+function dlFolder(j, t) {
+  const k = dlPop(seg(t, dlFolderPop(j), dlFolderPop(j) + .38)); if (k <= 0) return null;
+  let bump = 0; for (const it of DL_MOVERS) if (it.fi === j) { const dt = t - (it.ts + DL.flyDur * .9); if (dt > 0) bump += Math.exp(-dt * 11) * Math.sin(dt * 34) * .5; }
+  return { k, bump, x: dlCell(j)[0], y: dlCell(j)[1] };
+}
+/** The status line: what the folder holds, counting down as the files go. */
+function dlStatus(t) {
+  let n = 214 + DL_FOLDERS.filter((_, j) => t >= dlFolderPop(j) + .15).length;
+  n -= Math.round(196 * DL_MOVERS.filter((it) => t >= it.ts + DL.flyDur * .9).length / 30);
+  n -= DL_DUPES.filter((it) => t >= it.tt + DL.trashDur * .9).length;
+  return `${n} items, 61.2 GB available`;
+}
+/** The icons at rest in the window (the airborne ones are drawn later, over everything). */
+function dlItems(g, t) {
+  const draw = (cv, cx, cy, s = 1) => g.drawImage(cv, cx - 32 * s, cy - 32 * s, 64 * s, 64 * s);
+  for (const it of DLI) { const st = dlAt(it, t); if (st.gone || st.air) continue; draw(dlIcon(it.kind, it.seed), st.x, st.y); dlLabel(g, it.name, st.x, st.y + 36); }
+  DL_FOLDERS.forEach(([, name], j) => {
+    const F = dlFolder(j, t); if (!F) return;
+    const s = F.k * (1 + F.bump * .1); g.save(); g.globalAlpha *= clamp(F.k * 1.5); draw(dlIcon("folder"), F.x, F.y + 2, s); g.restore(); dlLabel(g, name, F.x, F.y + 36, clamp(F.k * 2 - .4));
+  });
+}
+/** The files in the air: lifted, turning, going small as they reach their folder or the bin. */
+function dlFlying(g, t) {
+  for (const it of DLI) {
+    const st = dlAt(it, t); if (!st.air) continue;
+    g.save(); g.translate(st.x, st.y); g.rotate(st.rot); g.globalAlpha *= st.a; g.shadowColor = "rgba(0,0,0,.4)"; g.shadowBlur = 12 * st.s; g.shadowOffsetY = 7 * st.s;
+    g.drawImage(dlIcon(it.kind, it.seed), -32 * st.s, -32 * st.s, 64 * st.s, 64 * st.s); g.restore();
+    if (st.la > 0) dlLabel(g, it.name, st.x, st.y + 36 * st.s, st.la * st.a);
+  }
+}
+
+// ---- the card: the desktop app's own confirm card (guide.html), its words from localfiles.js --------
+const DLC = { w: 348, ink: "#151210", pale: "#F3E2C6", p2: "rgba(243,226,198,.68)", p3: "rgba(243,226,198,.42)", live: "#E8A23C" };
+const DL_CARDS = {
+  plan: {
+    state: "confirm", title: "Okay to change these files?", app: "This computer", label: "What I’ll do", heard: DLV.said,
+    quote: "I’ll move 196 files into 5 folders inside Downloads.\n• invoice_Oct_2026.pdf → Invoices/\n• Screenshot 2026-10-21 at 11.04.12 PM.png → Screenshots/\n• IMG_4417.HEIC → Photos/\n• resume_final_FINAL(1).docx → Documents/\n• Zoom.pkg → Installers/\n…and 191 more",
+    note: "Approve once, and I’ll do this kind of change on this computer without asking again. I only touch the folders you allowed, and I can undo it.", ok: "Approve", later: "Not now", hint: "or tap Ctrl twice",
+  },
+  trash: {
+    state: "confirm", title: "Move these to the Trash?", app: "This computer", label: "What I’ll do", heard: DLV.said,
+    quote: "I’ll move 18 files to the Trash.\n• IMG_4417 (1).HEIC (3.1 MB)\n• invoice_Oct_2026 (2).pdf (212 KB)\n• Zoom (1).pkg (118 MB)\n…and 15 more",
+    note: "Moving to the Trash always asks. You can put things back from the Trash.", ok: "Approve", later: "Not now", hint: "or tap Ctrl twice",
+  },
+  doing: { state: "doing", title: "Working on your files…", foot: "Esc to stop" },
+  done: { state: "done", title: "Done", say: "Done" },
+};
+/** Where each line of a card goes, from its top-left, as the page lays it out (its 348-point column, 18 in). */
+function dlCardLay(C) {
+  const g = dlMeasure, inW = 312, L = {}; let y = 15; y += 22;
+  if (C.state === "confirm") {
+    const hf = `italic 400 15.5px ${SERIF}`; let hl = layout(g, C.heard, hf, inW, 20.77).lines;
+    if (hl.length > 2) { let s = hl[1]; g.font = hf; while (s.length && g.measureText(s + "…").width > inW) s = s.slice(0, -1); hl = [hl[0], s.trimEnd() + "…"]; }
+    L.heard = { lines: hl, y: y + 11 }; y += 11 + hl.length * 20.77; y += 13; L.what = { y }; y += 12;
+    const ql = C.quote.split("\n").flatMap((p) => layout(g, p, `400 17px ${SERIF}`, inW - 14, 23.12).lines); L.quote = { lines: ql, y: y + 7, h: ql.length * 23.12 + 2 }; y += 7 + L.quote.h;
+    const nl = layout(g, C.note, `400 12.5px ${SANS}`, inW, 17.5).lines; L.note = { lines: nl, y: y + 10 }; y += 10 + nl.length * 17.5; y += 15;
+    g.font = `600 13.5px ${SANS}`; const okW = g.measureText(C.ok).width + 36, noW = g.measureText(C.later).width + 24;
+    L.ok = { x: 18, y, w: okW, h: 33.5 }; L.no = { x: 18 + okW + 4, y, w: noW, h: 33.5 }; y += 33.5;
+  } else if (C.state === "doing") { y += 13; L.foot = { y }; y += 9.5; }
+  else { y += 10; L.say = { y }; y += 22.7; }
+  L.h = y + 16; return L;
+}
+/** The card at its place on the screen: `o.bottom` is its foot, `a` its opacity, `sc` its size (about its foot), `hover` and `press` for Approve. */
+function dlDrawCard(g, C, o) {
+  const L = dlCardLay(C), W = DLC.w, x = o.x, y = o.bottom - L.h, mono = `500 10px ${MONO}`;
+  g.save(); g.globalAlpha *= o.a; g.translate(x + W / 2, o.bottom); g.scale(o.sc, o.sc); g.translate(-(x + W / 2), -o.bottom);
+  g.save(); g.shadowColor = "rgba(0,0,0,.5)"; g.shadowBlur = 46; g.shadowOffsetY = 24; g.fillStyle = DLC.ink; rr(g, x, y, W, L.h, 18); g.fill(); g.restore();
+  g.fillStyle = DLC.ink; rr(g, x, y, W, L.h, 18); g.fill(); g.strokeStyle = "rgba(243,226,198,.12)"; g.lineWidth = 1; rr(g, x + .5, y + .5, W - 1, L.h - 1, 17.5); g.stroke();
+  g.translate(x, y);
+  const conf = C.state === "confirm";
+  g.fillStyle = conf ? DLC.live : C.state === "done" ? DLC.pale : DLC.p3; g.beginPath(); g.arc(21, 26, 3, 0, TAU); g.fill();
+  text(g, C.title.toUpperCase(), 32, 29.6, mono, conf ? DLC.live : DLC.p2, 1, "left", 1.8);
+  g.strokeStyle = DLC.p3; g.lineWidth = 1.4; g.lineCap = "round"; g.beginPath(); g.moveTo(W - 34, 21); g.lineTo(W - 26, 29); g.moveTo(W - 26, 21); g.lineTo(W - 34, 29); g.stroke();
+  if (conf) {
+    L.heard.lines.forEach((ln, i) => text(g, ln, 18, L.heard.y + 15.4 + i * 20.77, `italic 400 15.5px ${SERIF}`, DLC.p2));
+    text(g, `${C.app} · ${C.label}`.toUpperCase(), 18, L.what.y + 9.4, mono, DLC.p3, 1, "left", 1.6);
+    g.fillStyle = DLC.live; g.fillRect(18, L.quote.y, 2, L.quote.h);
+    L.quote.lines.forEach((ln, i) => text(g, ln, 32, L.quote.y + 17.6 + i * 23.12, `400 17px ${SERIF}`, DLC.pale));
+    L.note.lines.forEach((ln, i) => text(g, ln, 18, L.note.y + 12.4 + i * 17.5, `400 12.5px ${SANS}`, DLC.p2));
+    const ok = L.ok, no = L.no, ps = o.press ? .97 : 1;
+    g.save(); g.translate(ok.x + ok.w / 2, ok.y + ok.h / 2); g.scale(ps, ps); g.fillStyle = o.hover || o.press ? "#FFF6E8" : DLC.pale; rr(g, -ok.w / 2, -ok.h / 2, ok.w, ok.h, ok.h / 2); g.fill();
+    text(g, C.ok, 0, 4.9, `600 13.5px ${SANS}`, DLC.ink, 1, "center"); g.restore();
+    text(g, C.later, no.x + no.w / 2, no.y + 21.4, `600 13.5px ${SANS}`, DLC.p2, 1, "center");
+    text(g, C.hint.toUpperCase(), W - 18, ok.y + 20.4, `500 9.5px ${MONO}`, DLC.p3, 1, "right", 1.14);
+  } else if (C.state === "doing") text(g, C.foot.toUpperCase(), 18, L.foot.y + 8.2, `500 9.5px ${MONO}`, DLC.p3, 1, "left", 1.33);
+  else {
+    text(g, C.say, 18, L.say.y + 16.6, `500 16px ${SANS}`, DLC.pale); g.font = `500 16px ${SANS}`; const cx = 22 + g.measureText(C.say + " ").width;
+    g.strokeStyle = DLC.pale; g.lineWidth = 1.9; g.lineJoin = "round"; g.beginPath(); g.moveTo(cx, L.say.y + 12.4); g.lineTo(cx + 3.6, L.say.y + 16); g.lineTo(cx + 10.6, L.say.y + 7.6); g.stroke();
+  }
+  g.restore();
+}
+const DL_CARD_X = 864 - DLC.w / 2, DL_CARD_FOOT = 985;
+/** Which cards are up at t: the plan, the working card, the Trash question, the working card, "Done"; each over the last for a breath. */
+function dlCardList(t) {
+  const D = DL, run = [[DL_CARDS.plan, D.card1, D.click1 + .14], [DL_CARDS.doing, D.click1 + .14, D.card2], [DL_CARDS.trash, D.card2, D.click2 + .14], [DL_CARDS.doing, D.click2 + .14, D.done], [DL_CARDS.done, D.done, 16.7]];
+  return run.map(([C, s, e], i) => {
+    const big = i === 0 || i === 2, a = seg(t, s + (i ? .06 : 0), s + (i ? .06 : 0) + (big ? .3 : .16)) * (1 - seg(t, e, e + .1)); if (a <= 0) return null;
+    const sc = lerp(big ? .9 : .97, 1, E.out(seg(t, s, s + (big ? .38 : .22)))) * (1 - .02 * seg(t, e, e + .1));
+    return { C, a, sc, press: (i === 0 && t >= D.click1 && t < D.click1 + .14) || (i === 2 && t >= D.click2 && t < D.click2 + .14), i };
+  }).filter(Boolean);
+}
+const dlApprove = (C) => { const L = dlCardLay(C); return [DL_CARD_X + L.ok.x + L.ok.w / 2, DL_CARD_FOOT - L.h + L.ok.y + L.ok.h / 2]; };
+/** The pointer: at rest in the window, over to Approve for the plan, away, over to Approve for the Trash, away. */
+function dlPtr(t) {
+  const a1 = dlApprove(DL_CARDS.plan), a2 = dlApprove(DL_CARDS.trash);
+  return ptrAt([[0, 0, 1196, 520], [2.4, 4.6, 1150, 566], [5.6, 7.4, 1212, 498], [9.75, 10.7, a1[0], a1[1]], [11.3, 11.9, 1240, 470], [13.85, 14.6, a2[0], a2[1]], [14.95, 15.5, 1210, 430]], t);
+}
+
+// ---- the raccoon: the hoarder who finally tidied ------------------------------------------------------
+/**
+ * RACCOON: a round head under two pointed ears, a bandit's mask (the dark
+ * band that is almost no dots, so the eyes in it are the brightest thing
+ * drawn), a plump belly, short legs and a long striped tail. The pose says
+ * where the paws are (`rh`, `lh`: [x from the middle, y], in heights), what
+ * it carries (`prop`: a box of papers, a folder, a stack of folders), the
+ * mouth, how happy (closed eyes), where it looks, and the tail's wag.
+ */
+const DLPOSE = {
+  box: { rh: [.225, .78], lh: [-.225, .78], prop: "box", mouth: "smile", look: [.35, .2], tilt: 0, happy: 0, wag: .5 },
+  hug: { rh: [.2, .72], lh: [-.2, .72], prop: "folder", mouth: "smile", look: [0, .4], tilt: .05, happy: .7, wag: 1 },
+  wave: { rh: [.335, .27], lh: [-.12, .75], prop: null, mouth: "smile", look: [.3, .3], tilt: -.06, happy: .3, wag: 1.3 },
+  cheer: { rh: [.3, .14], lh: [-.3, .14], prop: null, mouth: "grin", look: [0, 0], tilt: 0, happy: 1, wag: 1.8 },
+  stack: { rh: [.225, .84], lh: [-.225, .84], prop: "stack", mouth: "smile", look: [0, .3], tilt: -.03, happy: .5, wag: 1.2 },
+};
+const dlMixPose = (a, b, k) => {
+  const m = (x, y) => lerp(x, y, k), pick = (x, y) => k < .5 ? x : y;
+  return { rh: [m(a.rh[0], b.rh[0]), m(a.rh[1], b.rh[1])], lh: [m(a.lh[0], b.lh[0]), m(a.lh[1], b.lh[1])], prop: pick(a.prop, b.prop), mouth: pick(a.mouth, b.mouth), look: [m(a.look[0], b.look[0]), m(a.look[1], b.look[1])], tilt: m(a.tilt, b.tilt), happy: m(a.happy, b.happy), wag: m(a.wag, b.wag) };
+};
+/** One arm from the shoulder to a paw at (hx, hy), the elbow bent down and out; the paw's place is returned. */
+function dlArm(g, H, sx, sy, s, hx, hy) {
+  const L1 = .155 * H, L2 = .15 * H, dx = hx - sx, dy = hy - sy, d0 = Math.hypot(dx, dy) || 1, d = Math.min(d0, L1 + L2 - .004 * H), a = Math.atan2(dy, dx);
+  const an = Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1)), e1 = [sx + L1 * Math.cos(a + an), sy + L1 * Math.sin(a + an)], e2 = [sx + L1 * Math.cos(a - an), sy + L1 * Math.sin(a - an)];
+  const e = (s * (e1[0] - sx) + .6 * e1[1]) > (s * (e2[0] - sx) + .6 * e2[1]) ? e1 : e2, px = sx + Math.cos(a) * d, py = sy + Math.sin(a) * d;
+  g.lineCap = "round"; g.lineJoin = "round"; g.strokeStyle = grey(.5); g.lineWidth = .08 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(e[0], e[1]); g.lineTo(px, py); g.stroke();
+  g.strokeStyle = grey(.68); g.lineWidth = .026 * H; g.beginPath(); g.moveTo(sx - s * .012 * H, sy - .018 * H); g.lineTo(e[0] - s * .012 * H, e[1] - .018 * H); g.stroke();
+  return [px, py];
+}
+function drawFigureRaccoon(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .75) * .006 * H, hy = .3 * H + bob, wag = Math.sin(t * TAU * .8) * p.wag, G = grey;
+  // The tail, behind: up the right in a long curve, banded, its tip dark.
+  const tx = cx + .33 * H + wag * .02 * H, ty = .38 * H, tail = () => { g.beginPath(); g.moveTo(cx + .11 * H, .86 * H); g.bezierCurveTo(cx + .44 * H, .92 * H, cx + .5 * H, .56 * H + wag * .012 * H, tx, ty); };
+  g.save(); g.lineCap = "butt"; g.lineWidth = .15 * H; g.strokeStyle = G(.68); tail(); g.stroke(); g.setLineDash([.05 * H, .05 * H]); g.strokeStyle = G(.16); tail(); g.stroke(); g.setLineDash([]);
+  g.fillStyle = G(.14); g.beginPath(); g.arc(tx, ty, .075 * H, 0, TAU); g.fill(); g.restore();
+  // The body, its pale belly, the legs and the feet.
+  const bg = g.createLinearGradient(cx - .2 * H, 0, cx + .2 * H, 0); bg.addColorStop(0, G(.64)); bg.addColorStop(.55, G(.5)); bg.addColorStop(1, G(.36));
+  [-1, 1].forEach((s) => { g.fillStyle = G(.46); rr(g, cx + s * .1 * H - .05 * H, .86 * H, .1 * H, .09 * H, .03 * H); g.fill(); g.fillStyle = G(.4); g.beginPath(); g.ellipse(cx + s * .105 * H, .955 * H, .085 * H, .035 * H, 0, 0, TAU); g.fill(); });
+  g.fillStyle = bg; g.beginPath(); g.ellipse(cx, .68 * H, .205 * H, .255 * H, 0, 0, TAU); g.fill();
+  g.fillStyle = G(.86); g.beginPath(); g.ellipse(cx, .71 * H, .125 * H, .175 * H, 0, 0, TAU); g.fill();
+  // The arms, to where the paws go; what is carried goes over them, the paws over that.
+  const sh = .52 * H + bob, rp = dlArm(g, H, cx + .165 * H, sh, 1, cx + p.rh[0] * H, p.rh[1] * H), lp = dlArm(g, H, cx - .165 * H, sh, -1, cx + p.lh[0] * H, p.lh[1] * H);
+  if (p.prop === "box") {
+    const bw = .46 * H, bh = .27 * H, bx = cx - bw / 2, by = .65 * H + bob * .6;
+    g.lineJoin = "round"; g.strokeStyle = G(.03); g.lineWidth = .016 * H;
+    [[-.12, -.03, -.16, .15, .98], [-.02, -.07, .05, .18, .9], [.09, -.04, .17, .15, .98]].forEach(([dx, dy, rot, hh, l]) => {
+      g.save(); g.translate(cx + dx * H, by + dy * H + .03 * H); g.rotate(rot); g.fillStyle = G(l); rr(g, -.06 * H, -hh * H, .12 * H, hh * H + .06 * H, .008 * H); g.fill(); g.stroke();
+      g.fillStyle = G(.3); [.25, .5].forEach((q) => g.fillRect(-.04 * H, -hh * H + q * hh * H, .08 * H, .01 * H)); g.restore();
+    });
+    const gr = g.createLinearGradient(0, by, 0, by + bh); gr.addColorStop(0, G(.5)); gr.addColorStop(1, G(.34)); g.fillStyle = gr; rr(g, bx, by, bw, bh, .012 * H); g.fill(); g.stroke();
+    g.fillStyle = G(.26); g.fillRect(bx + .008 * H, by + .008 * H, bw - .016 * H, .03 * H); g.fillStyle = G(.9); g.fillRect(cx - .03 * H, by, .06 * H, bh * .66); g.strokeRect(cx - .03 * H, by, .06 * H, bh * .66);
+    g.fillStyle = G(.94); g.fillRect(bx + .05 * H, by + .13 * H, .12 * H, .07 * H); g.strokeRect(bx + .05 * H, by + .13 * H, .12 * H, .07 * H); g.fillStyle = G(.3); [.152, .176].forEach((q) => g.fillRect(bx + .062 * H, by + q * H, .09 * H, .008 * H));
+  } else if (p.prop === "folder") {
+    const sq = 1 + (p.squeeze || 0) * .09, fw = .44 * H * sq, fh = .3 * H * sq, fx = cx - fw / 2, fy = .7 * H - fh / 2;
+    g.lineJoin = "round"; g.strokeStyle = G(.03); g.lineWidth = .016 * H; g.fillStyle = G(.5); rr(g, fx, fy - .04 * H, .18 * H, .07 * H, .014 * H); g.fill(); g.stroke(); rr(g, fx, fy, fw, fh, .02 * H); g.fill(); g.stroke();
+    const gr = g.createLinearGradient(0, fy, 0, fy + fh); gr.addColorStop(0, G(.96)); gr.addColorStop(1, G(.74)); g.fillStyle = gr; rr(g, fx, fy + .05 * H, fw, fh - .05 * H, .02 * H); g.fill(); g.stroke();
+    g.fillStyle = G(1); g.fillRect(fx + .02 * H, fy + .056 * H, fw - .04 * H, .008 * H);
+  } else if (p.prop === "stack") {
+    [[.9, -.01, .06], [.66, .016, .17], [.84, -.014, .28], [.74, .01, .39]].forEach(([l, dx, tx], i) => {
+      const fw = .46 * H, fh = .2 * H, fx = cx - fw / 2 + dx * H, fy = (.5 + i * .075) * H + bob * .4;
+      g.lineJoin = "round"; g.strokeStyle = G(.03); g.lineWidth = .016 * H; g.fillStyle = G(l - .12); rr(g, fx + tx * H * .72 - .02 * H, fy - .04 * H, .15 * H, .06 * H, .014 * H); g.fill(); g.stroke();
+      g.fillStyle = G(l); rr(g, fx, fy, fw, fh, .016 * H); g.fill(); g.stroke(); g.fillStyle = G(Math.min(1, l + .1)); g.fillRect(fx + .012 * H, fy + .008 * H, fw - .024 * H, .007 * H);
+    });
+  }
+  g.fillStyle = G(.26); [rp, lp].forEach(([x, y]) => { g.beginPath(); g.arc(x, y, .047 * H, 0, TAU); g.fill(); });
+  // The head, tilted a little: ears, cheeks, the mask, the eyes in it, the muzzle and the mouth.
+  g.save(); g.translate(cx, hy + .1 * H); g.rotate(p.tilt); g.translate(-cx, -(hy + .1 * H));
+  [-1, 1].forEach((s) => {
+    const ear = (k) => { g.beginPath(); g.moveTo(cx + s * (.05 * H + k * .02 * H), hy - (.12 - k * .02) * H); g.quadraticCurveTo(cx + s * .07 * H, hy - (.215 - k * .03) * H, cx + s * (.14 - k * .015) * H, hy - (.225 - k * .035) * H); g.quadraticCurveTo(cx + s * (.19 - k * .02) * H, hy - (.15 - k * .02) * H, cx + s * (.17 - k * .02) * H, hy - (.05 - k * .01) * H); g.closePath(); };
+    g.fillStyle = G(.56); ear(0); g.fill(); g.strokeStyle = G(.9); g.lineWidth = .009 * H; g.stroke(); g.fillStyle = G(.16); ear(1); g.fill();
+    g.fillStyle = G(.82); g.beginPath(); g.moveTo(cx + s * .185 * H, hy - .02 * H); g.lineTo(cx + s * .25 * H, hy + .075 * H); g.lineTo(cx + s * .16 * H, hy + .11 * H); g.closePath(); g.fill();
+  });
+  const hg = g.createRadialGradient(cx - .05 * H, hy - .06 * H, 0, cx, hy, .23 * H); hg.addColorStop(0, G(.98)); hg.addColorStop(.6, G(.84)); hg.addColorStop(1, G(.58));
+  g.fillStyle = hg; g.beginPath(); g.ellipse(cx, hy, .205 * H, .165 * H, 0, 0, TAU); g.fill();
+  g.strokeStyle = G(.3); g.lineWidth = .026 * H; g.lineCap = "round"; g.beginPath(); g.moveTo(cx, hy - .16 * H); g.lineTo(cx, hy - .05 * H); g.stroke();
+  g.fillStyle = G(.07); [-1, 1].forEach((s) => { g.save(); g.translate(cx + s * .09 * H, hy + .008 * H); g.rotate(-s * .3); g.beginPath(); g.ellipse(0, 0, .08 * H, .052 * H, 0, 0, TAU); g.fill(); g.restore(); }); g.fillRect(cx - .05 * H, hy - .02 * H, .1 * H, .05 * H);
+  g.fillStyle = G(.99); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(cx + s * .09 * H, hy - .064 * H - p.happy * .008 * H, .036 * H, .014 * H, -s * .2, 0, TAU); g.fill(); });
+  const blink = ((t * 1000 + 500) % 3100) < 110;
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * .088 * H, ey = hy + .008 * H;
+    if (p.happy > .8) { g.strokeStyle = G(1); g.lineWidth = .016 * H; g.beginPath(); g.arc(ex, ey + .014 * H, .028 * H, Math.PI * 1.12, Math.PI * 1.88); g.stroke(); return; }
+    g.fillStyle = G(1); g.beginPath(); g.ellipse(ex, ey, .031 * H, blink ? .004 * H : .036 * H, 0, 0, TAU); g.fill();
+    if (!blink) { g.fillStyle = G(.04); g.beginPath(); g.arc(ex + p.look[0] * .009 * H, ey + p.look[1] * .009 * H, .0175 * H, 0, TAU); g.fill(); g.fillStyle = G(1); g.beginPath(); g.arc(ex + p.look[0] * .009 * H - .005 * H, ey + p.look[1] * .009 * H - .006 * H, .005 * H, 0, TAU); g.fill(); }
+  });
+  g.fillStyle = G(.98); g.beginPath(); g.ellipse(cx, hy + .082 * H, .097 * H, .07 * H, 0, 0, TAU); g.fill();
+  g.fillStyle = G(.06); g.beginPath(); g.moveTo(cx - .03 * H, hy + .05 * H); g.quadraticCurveTo(cx, hy + .043 * H, cx + .03 * H, hy + .05 * H); g.quadraticCurveTo(cx + .022 * H, hy + .074 * H, cx, hy + .076 * H); g.quadraticCurveTo(cx - .022 * H, hy + .074 * H, cx - .03 * H, hy + .05 * H); g.fill();
+  g.strokeStyle = G(.2); g.lineWidth = .008 * H; g.beginPath(); g.moveTo(cx, hy + .076 * H); g.lineTo(cx, hy + .092 * H); g.stroke();
+  const my = hy + .098 * H;
+  if (p.mouth === "smile") { g.strokeStyle = G(.12); g.lineWidth = .012 * H; [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * .024 * H, my - .012 * H, .024 * H, Math.PI * .12, Math.PI * .88); g.stroke(); }); }
+  else if (p.mouth === "grin") { g.fillStyle = G(.08); g.beginPath(); g.ellipse(cx, my - .008 * H, .06 * H, .046 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = G(.55); g.beginPath(); g.ellipse(cx, my + .026 * H, .03 * H, .012 * H, 0, 0, TAU); g.fill(); }
+  else { g.fillStyle = G(.08); g.beginPath(); g.ellipse(cx, my + .006 * H, .024 * H, .032 * H, 0, 0, TAU); g.fill(); g.fillStyle = G(.5); g.beginPath(); g.ellipse(cx, my + .02 * H, .014 * H, .01 * H, 0, 0, TAU); g.fill(); }
+  g.restore();
+}
+/** presenter() for the raccoon: the figure drawn in greys into its own small buffer, then put through the same ordered dither to cream dots. */
+const DLP = { dot: 3, buf: null, out: null };
+function dlPresenter(ctx, cx, bottom, H, p, t, alpha, mouth) {
+  const W = Math.round(H * 1.05), d = DLP.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
+  if (!DLP.buf || DLP.buf.width !== bw || DLP.buf.height !== bh) { DLP.buf = document.createElement("canvas"); DLP.buf.width = bw; DLP.buf.height = bh; DLP.out = document.createElement("canvas"); DLP.out.width = bw; DLP.out.height = bh; }
+  const g = DLP.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
+  drawFigureRaccoon(g, W, H, mouth ? Object.assign({}, p, { mouth }) : p, t);
+  const im = g.getImageData(0, 0, bw, bh), src = im.data, o = DLP.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
+    const lum = (src[i] * .3 + src[i + 1] * .59 + src[i + 2] * .11) / 255 * (a / 255), th = (BAYER[(y & 7) * 8 + (x & 7)] + .5) / 64;
+    if (lum > th) { dd[i] = 0xF3; dd[i + 1] = 0xE2; dd[i + 2] = 0xC6; dd[i + 3] = 255; } else dd[i + 3] = 255;
+  }
+  o.putImageData(od, 0, 0);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.imageSmoothingEnabled = false; ctx.drawImage(DLP.out, Math.round(cx - W / 2), Math.round(bottom - H), bw * d, bh * d); ctx.restore();
+}
+/** What the raccoon does and when: it keeps the box, hugs a folder while the files fly, waves the copies off, and cheers at "Done". */
+const DL_POSES = [[0, "box"], [11.0, "hug"], [13.3, "box"], [14.75, "wave"], [15.95, "cheer"]];
+function dlPoseAt(t) {
+  let p = DLPOSE[DL_POSES[0][1]];
+  for (let i = 1; i < DL_POSES.length; i++) { const [t0, n] = DL_POSES[i]; if (t < t0) break; p = dlMixPose(p, DLPOSE[n], E.io(seg(t, t0, t0 + .4))); }
+  let sq = 0; for (const it of DL_MOVERS) { const dt = t - (it.ts + DL.flyDur * .9); if (dt > 0) sq += Math.exp(-dt * 9) * (.5 + .5 * Math.sin(dt * 30)); }
+  return Object.assign({}, p, { squeeze: Math.min(1, sq) });
+}
+/** "o" while a word is being said, "smile" between, from the voice's own word times. */
+function dlMouth(t) {
+  const lt = t - DL.voice, ws = DLV.words, sd = DLV.said.split(" "); if (lt < 0 || lt > DLV.end) return "smile";
+  let i = ws.length - 1; while (i > 0 && lt < ws[i]) i--;
+  const len = Math.min((ws[i + 1] ?? DLV.end) - ws[i] - .03, .1 + .07 * sd[i].length, .75), dt = lt - ws[i];
+  return dt >= 0 && dt < len && Math.sin(dt * TAU * 3.4) > -.35 ? "o" : "smile";
+}
+
+// ---- the film ---------------------------------------------------------------------------------------
+/** The camera: the Finder window filling the frame, in for each card, out to follow the files, over to the Dock's bin, then in on the five folders. */
+DL.cam = [[0, 1.25, 864, 561], [8.75, 1.5, 864, 561, .75], [11.2, 1.06, 880, 561, .9], [12.9, 1.5, 864, 561, .75], [14.82, .98, 1120, 561, .65], [15.95, 1.3, 864, 561, .95]];
+let dlBuf = null;
+function dlScene(ctx, w, h, t) {
+  if (!SCREEN && t >= DL.card) { dlEnd(ctx, w, h, t - DL.card); return; }
+  const SS = 2, { W, H } = RM, img = WALL.macMsg;
+  if (!dlBuf) { dlBuf = document.createElement("canvas"); dlBuf.width = W * SS; dlBuf.height = H * SS; }
+  const g = dlBuf.getContext("2d"); g.setTransform(SS, 0, 0, SS, 0, 0); g.clearRect(0, 0, W, H);
+  if (img) g.drawImage(img, 0, 0, W, H); else { g.fillStyle = "#16233F"; g.fillRect(0, 0, W, H); }
+  dlMenuBar(g, img); rmClock(g, img, "Tue 27 Oct  4:17 PM"); rmTray(g, 0, t >= DL.rec && t < DL.stop2 + .1);
+  dlWindow(g, { items: (gg) => dlItems(gg, t), status: dlStatus(t) });
+  let bump = 0; for (const it of DL_DUPES) { const dt = t - (it.tt + DL.trashDur * .9); if (dt > 0) bump += Math.exp(-dt * 12) * Math.sin(dt * 30) * .4; }
+  dlBin(g, img, t >= DL_DUPES[0].tt + DL.trashDur * .85, bump);
+  drawPill(g, pillTau(t, DL.rec, DL.stop2 + .1, DL.card1), (W - 1440) / 2, RM.dockTop - 4, 1440);
+  dlFlying(g, t);
+  const [px, py] = dlPtr(t);
+  for (const c of dlCardList(t)) {
+    const [ax, ay] = c.i === 0 || c.i === 2 ? dlApprove(c.C) : [0, 0], hov = c.i === 0 || c.i === 2 ? Math.abs(px - ax) < 48 && Math.abs(py - ay) < 17 : false;
+    dlDrawCard(g, c.C, { x: DL_CARD_X, bottom: DL_CARD_FOOT, a: c.a, sc: c.sc, hover: hov, press: c.press });
+  }
+  macArrow(g, px, py);
+  if (SCREEN) { rmFit(ctx, w, h, dlBuf); return; }
+
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const [z, cx0, cy0] = camAt(DL, t);
+  const cx = W * z <= w ? W / 2 : clamp(cx0, w / (2 * z), W - w / (2 * z)), cy = H * z <= h ? H / 2 : clamp(cy0, h / (2 * z), H - h / (2 * z));
+  const lift = 90 * (1 - seg(z, 1.2, 1.5)), rx = w / 2 - cx * z, ry = h / 2 - cy * z - lift, rw = W * z, rh = H * z;
+  ctx.save(); ctx.beginPath(); ctx.roundRect(rx, ry, rw, rh, 14); ctx.clip(); ctx.drawImage(dlBuf, rx, ry, rw, rh); ctx.restore();
+  ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1.5; rr(ctx, rx + .75, ry + .75, rw - 1.5, rh - 1.5, 13.25); ctx.stroke();
+  // Under the screen: the two taps of Control, the words as they are said, and the raccoon, peeking over the screen's foot.
+  const bottom = Math.min(ry + rh, h), hudY = Math.min(bottom + 70, h - 250), kx = 385, key = ["⌃ control"];
+  [[DL.tap1, -1], [DL.tap2, 1], [DL.stop1, -1], [DL.stop2, 1]].forEach(([at, s0]) => keyHud(ctx, key, kx + s0 * 104, hudY, at, t));
+  captionSpoken(ctx, DL, kx, hudY + 110, 720, t, 40, DL.stop2 + .4);
+  const rise = 1 - E.out(seg(t, .3, .95)), rTop = Math.min(bottom - 46, h - 250) + rise * 300;
+  dlPresenter(ctx, 850, rTop + 360, 360, dlPoseAt(t), t, 1, dlMouth(t));
+  if (t > DL.fade) { ctx.fillStyle = rgba("#000000", seg(t, DL.fade, DL.card)); ctx.fillRect(0, 0, w, h); }
+  else if (t < .45) { ctx.fillStyle = rgba("#000000", 1 - seg(t, 0, .45)); ctx.fillRect(0, 0, w, h); }
+}
+/** The end card: the words at the left, the raccoon carrying its stack of folders, the address under. */
+function dlEnd(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu for Mac · This computer", x0, 470, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Downloads,", x0, 600, f(112, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "sorted.", x0, 722, f(112, SERIF, 400, true), P.pale, .7, t, { stagger: .12 });
+  arrive(ctx, "It moves, never deletes. The Trash always asks.", x0, 806, f(33, SANS, 400), rgba(P.pale, .7), 1.15, t, { stagger: .04 });
+  const p = dlMixPose(DLPOSE.cheer, DLPOSE.stack, E.out(seg(t, .3, 1.0)));
+  dlPresenter(ctx, 770, 1395, 540, Object.assign({}, p, { happy: lerp(1, .55, seg(t, .6, 1.2)) }), t, E.out(seg(t, .4, 1.1)), "smile");
+  const kk = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - kk) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1425;
+  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
+  label(ctx, "Free to start · Mac · Windows", x0, by + bh + 64, 21, P.pale, kk * .6);
+}
+FILMS.downloads = { w: 1080, h: 1920, duration: DL.end, v2: true, draw(ctx, t, w, h) { dlScene(ctx, w, h, t); }, cues() {
+  const D = DL, c = [{ at: 0, kind: "sample", file: "voice/downloads-room.wav", gain: 1 }, { at: D.voice, kind: "sample", file: "voice/downloads.wav", gain: 1 }];
+  c.push({ at: D.tap1, kind: "key" }, { at: D.tap2, kind: "key" }, { at: D.rec, kind: "listen" }, { at: D.stop1, kind: "key" }, { at: D.stop2, kind: "key" }, { at: D.stop2 + .12, kind: "stop" }, { at: D.stop2 + .45, kind: "write", gain: .7 });
+  c.push({ at: D.card1, kind: "open", gain: .6 }, { at: D.click1, kind: "click" }, { at: D.card2, kind: "open", gain: .6 }, { at: D.click2, kind: "click" });
+  DL_FOLDERS.forEach((_, j) => c.push({ at: dlFolderPop(j) + .06, kind: "land", gain: .4 }));
+  DL_MOVERS.forEach((it, i) => { if (i % 2 === 0) c.push({ at: it.ts + D.flyDur * .9, kind: "resume", gain: .3 }); });
+  DL_DUPES.forEach((it, i) => { if (i % 2 === 0) c.push({ at: it.tt + D.trashDur * .9, kind: "resume", gain: .3 }); });
+  c.push({ at: DL_DUPES[0].tt + D.trashDur * .85, kind: "land", gain: .8 }, { at: D.done, kind: "notify", gain: .6 }, { at: D.card + .1, kind: "open", gain: .8 }, { at: D.card, kind: "bed", dur: D.cardLen, gain: .9 });
+  return c;
+} };
 
 // ==== FILM: due =========================================================================
 // (built in its own block; what's due this week, from Classroom into Tasks)
+/**
+ * What's due: 11:48 at night, a student asks Tailzu what she has to submit this
+ * week and to put it in her tasks. The phone is the app's own Ask screen
+ * (assistant.ts askScreen, the dump in ask-approve.txt); the field fills from
+ * her voice, Do it, Blip thinks, the answer; then Google Tasks (approved
+ * before, so nothing asks again) with the three Classroom tasks and their due
+ * dates. The read is voice/due.wav and its word times are on voice/due.js.
+ * Beside the phone, a dotted owl in a hoodie listens along; she is the one who
+ * speaks, so her beak moves with the words.
+ */
+const DUE = (() => {
+  const V = (window.TZ_VOICE && window.TZ_VOICE.due) || { said: "Okay wait... what all do I have to submit this week? Just put it all in my tasks.", words: [0, .54, .9, 1.08, 1.26, 1.42, 1.5, 1.66, 1.8, 2.1, 2.34, 3, 3.14, 3.34, 3.48, 3.78, 3.96, 4.14], end: 4.52 };
+  return {
+    time: "11:48", batt: 18, said: V.said, wordAt: V.words, instr: [], voice: .9, voiceEnd: .9 + V.end,
+    tapSpeak: .5, rec: .6, tapStop: 5.95, stop: 6.05, fill: 6.6, tapDo: 7.3, busy: 7.34, answer: 8.9,
+    swipe: 10.75, land: [11.4, 11.85, 12.3], fade: 14.1, end: 14.6, card: 6.2,
+    typed: "What all do I have to submit this week? Put it all in my tasks.",
+    say: "3 things are due this week. They’re in your Google Tasks now, with their due dates.",
+    title: "Tell Me What To Do, And I’ll Open The Right App With It Ready.",
+    chips: ["Tell Mom I’m on my way on WhatsApp", "Kal 9 baje gym ka reminder", "Directions to the airport"],
+    tasks: [
+      { title: "Physics lab report", due: "Thu, 29 Oct", soon: true },
+      { title: "English essay: A place that shaped me", due: "Fri, 30 Oct" },
+      { title: "Maths worksheet 7", due: "Sun, 1 Nov" },
+    ],
+  };
+})();
+
+// ---- the phone: the app's Ask screen, Google Tasks, and the way between ------------------
+/** The status bar's clock, signal, wifi and a battery at `pct` (red under 20, as iOS does); the island is drawn last, over everything. */
+function dueStatus(g, W, time, ink, pct) {
+  text(g, time, 54, 31, sf(17, 600), ink, 1, "center");
+  const x = W - 84; g.fillStyle = ink;
+  for (let i = 0; i < 4; i++) { const bh = 4 + i * 2.6; rr(g, x + i * 5.2, 33 - bh, 3.4, bh, 1); g.fill(); }
+  g.save(); g.strokeStyle = ink; g.lineWidth = 2; g.lineCap = "round";
+  for (let r = 0; r < 3; r++) { g.beginPath(); g.arc(x + 32, 33, 3 + r * 4, Math.PI * 1.25, Math.PI * 1.75); g.stroke(); }
+  g.restore();
+  g.strokeStyle = rgba(ink, .4); g.lineWidth = 1; rr(g, x + 44.5, 23.5, 25, 12, 3.5); g.stroke();
+  g.fillStyle = "#FF3B30"; rr(g, x + 46, 25, Math.max(3.5, 21 * pct / 100), 9, 2); g.fill();
+  g.fillStyle = rgba(ink, .45); rr(g, x + 71, 27.5, 1.5, 4, 1); g.fill();
+  text(g, String(pct), x + 57, 33, sf(8.5, 700), ink, 1, "center");
+}
+/** A pill as the app draws one, 48 tall, pressed to `press` (the spring's .96 and a dim). */
+function duePill(g, x, y, w, fill, label, ink, press = 0, a = 1) {
+  g.save(); g.translate(x + w / 2, y + 24); const s = 1 - .04 * press; g.scale(s, s); g.globalAlpha *= a * (1 - .12 * press);
+  g.fillStyle = fill; rr(g, -w / 2, -24, w, 48, 24); g.fill();
+  text(g, label, 0, 5.2, af("uiMedium", 15), ink, 1, "center"); g.restore();
+}
+const duePress = (t, t0) => seg(t, t0, t0 + .07) * (1 - seg(t, t0 + .11, t0 + .26));
+/** The Ask screen: back button, label, the Grotesk line, the field, Speak and Do it, Blip and "On It…" while it works, the answer, "Try saying" and its chips. */
+function dueAsk(g, W, H, t, D) {
+  const X = 24, IW = W - 48, rec = t >= D.rec && t < D.stop, work = t >= D.stop && t < D.fill, has = t >= D.fill && t < D.answer;
+  g.fillStyle = "#0B0B0D"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "rgba(255,255,255,0.08)"; g.beginPath(); g.arc(X + 16, 72, 16, 0, TAU); g.fill();
+  g.save(); g.translate(X + 9, 65); g.scale(14 / 24, 14 / 24); g.strokeStyle = "#FFFFFF"; g.lineWidth = 2.4; g.lineCap = "round"; g.lineJoin = "round";
+  g.beginPath(); g.moveTo(14.5, 5); g.lineTo(8, 12); g.lineTo(14.5, 19); g.stroke(); g.restore();
+  text(g, "ASK ME", X, 116, af("label", 9.5), APPLOOK.ink3, 1, "left", 1.6);
+  const tl = layout(g, D.title, af("grotesk", 26), IW, 38);
+  tl.lines.forEach((ln, i) => text(g, ln, X, 128 + i * 38 + 28, af("grotesk", 26), APPLOOK.ink));
+  // The field grows with what is in it.
+  const fieldTop = 128 + 38 * tl.lines.length + 20 + 8 + 18, fl = has ? layout(g, D.typed, af("ui", 15.5), IW - 28, 22) : null, fieldH = Math.max(52, (fl ? fl.lines.length : 1) * 22 + 30);
+  g.fillStyle = "rgba(243,226,198,0.06)"; rr(g, X, fieldTop, IW, fieldH, 14); g.fill();
+  g.strokeStyle = "rgba(243,226,198,0.12)"; g.lineWidth = 1; rr(g, X + .5, fieldTop + .5, IW - 1, fieldH - 1, 13.5); g.stroke();
+  if (fl) {
+    const k = E.out(seg(t, D.fill, D.fill + .35));
+    g.save(); g.beginPath(); g.rect(X, fieldTop, IW * (.15 + .85 * k), fieldH); g.clip();
+    fl.lines.forEach((ln, i) => text(g, ln, X + 14, fieldTop + 15 + i * 22 + 16.5, af("ui", 15.5), APPLOOK.ink, k)); g.restore();
+  } else text(g, "Type or say what you need", X + 14, fieldTop + 31.3, af("ui", 15.5), APPLOOK.ink3);
+  // Speak and Do it. Listening turns Speak to the danger colour and "Stop & transcribe"; then "Transcribing…" at 60%.
+  const bt = fieldTop + fieldH + 12; g.save(); g.font = af("uiMedium", 15);
+  const doW = g.measureText("Do It").width + 44, spW = IW - 8 - doW; g.restore();
+  duePill(g, X, bt, spW, rec ? "#e0556b" : "#141418", rec ? "■ Stop & transcribe" : work ? "Transcribing…" : "Speak", "#FFFFFF", Math.max(duePress(t, D.tapSpeak), duePress(t, D.tapStop)), work ? .6 : 1);
+  duePill(g, X + spW + 8, bt, doW, "#FFFFFF", "Do It", "#0B0B0D", duePress(t, D.tapDo));
+  let y = bt + 48;
+  if (t >= D.busy && t < D.answer) {
+    y += 14; blipAt(g, "think-s", t, X + 26.5, y + 58, 58, D.busy);
+    text(g, "On It…", X + 65, y + 34.5, af("ui", 13.5), "rgba(255,255,255,0.56)"); y += 58;
+  }
+  if (t >= D.answer) {
+    const k = E.out(seg(t, D.answer, D.answer + .3)), al = layout(g, D.say, af("ui", 15.5), IW - 28, 23), bh = al.lines.length * 23 + 28; y += 16;
+    g.save(); g.globalAlpha *= k; g.fillStyle = "#141418"; rr(g, X, y, IW, bh, 16); g.fill();
+    al.lines.forEach((ln, i) => text(g, ln, X + 14, y + 14 + i * 23 + 16.8, af("ui", 15.5), "#FFFFFF")); g.restore(); y += bh;
+  }
+  text(g, "TRY SAYING", X, y + 28 + 10, af("label", 9.5), APPLOOK.ink3, 1, "left", 1.6);
+  y += 28 + 14 + 12; let cx = X, cy = y; g.save(); g.font = af("ui", 13.5);
+  D.chips.forEach((c) => {
+    const cw = g.measureText(c).width + 28; if (cx > X && cx + cw > X + IW) { cx = X; cy += 38 + 8; }
+    g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = 1; rr(g, cx + .5, cy + .5, cw - 1, 37, 18.5); g.stroke();
+    text(g, c, cx + 14, cy + 24.3, af("ui", 13.5), "#FFFFFF"); cx += cw + 8;
+  }); g.restore();
+  return { speak: [X + spW / 2, bt + 24], doit: [X + spW + 8 + doW / 2, bt + 24] };
+}
+/** The tasks as Google Tasks for iPhone draws "My Tasks": its tabs, the open circle, the title, the note, the date chip, the new-task button. Unbranded beyond its blue. */
+function dueTasks(g, W, H, t, D) {
+  g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H);
+  // The tabs: starred, My Tasks (underlined), New list.
+  const ink = "#202124", grey2 = "#5F6368", blue = "#1A73E8";
+  g.save(); g.translate(34, 82); g.strokeStyle = grey2; g.lineWidth = 1.7; g.lineJoin = "round"; g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 4.6 : 10; g[i ? "lineTo" : "moveTo"](Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.stroke(); g.restore();
+  g.save(); g.font = sf(14.5, 500); const mw = g.measureText("My Tasks").width; g.restore();
+  text(g, "My Tasks", 76, 88, sf(14.5, 500), blue); g.fillStyle = blue; rr(g, 70, 107, mw + 12, 3, 1.5); g.fill();
+  g.strokeStyle = grey2; g.lineWidth = 1.7; g.lineCap = "round"; g.beginPath(); g.moveTo(173, 82); g.lineTo(183, 82); g.moveTo(178, 77); g.lineTo(178, 87); g.stroke();
+  text(g, "New list", 194, 88, sf(14.5, 500), grey2);
+  g.fillStyle = "#E8EAED"; g.fillRect(0, 110, W, 1);
+  // The rows, each arriving on its own beat.
+  let y = 124;
+  if (t < D.land[0] + .25) { const a = 1 - seg(t, D.land[0], D.land[0] + .25); text(g, "No tasks yet", W / 2, 396, sf(19, 400), ink, a, "center"); text(g, "Add your to-dos and keep track of them", W / 2, 424, sf(14, 400), grey2, a, "center"); text(g, "across Google Workspace", W / 2, 444, sf(14, 400), grey2, a, "center"); }
+  D.tasks.forEach((k, i) => {
+    const tl = layout(g, k.title, sf(16, 400), W - 66 - 20, 22), rh = 80 + 22 * tl.lines.length, a = E.out(seg(t, D.land[i], D.land[i] + .4));
+    if (a > 0) {
+      g.save(); g.globalAlpha *= a; g.translate(0, -(1 - a) * 14);
+      g.fillStyle = rgba("#D2E3FC", .75 * (1 - seg(t, D.land[i] + .25, D.land[i] + 1.5))); g.fillRect(0, y, W, rh);
+      g.strokeStyle = grey2; g.lineWidth = 1.9; g.beginPath(); g.arc(34, y + 25, 10, 0, TAU); g.stroke();
+      tl.lines.forEach((ln, j) => text(g, ln, 66, y + 30 + j * 22, sf(16, 400), ink));
+      const ny = y + 30 + 22 * (tl.lines.length - 1) + 21 - 4 + 4; text(g, "From Google Classroom", 66, ny, sf(13.5, 400), grey2);
+      g.save(); g.font = sf(12.5, 500); const cw = g.measureText(k.due).width + 24; g.restore();
+      g.fillStyle = k.soon ? "#FCE8E6" : "#F1F3F4"; rr(g, 66, ny + 9, cw, 26, 8); g.fill();
+      g.strokeStyle = k.soon ? "#F6C0BA" : "#DADCE0"; g.lineWidth = 1; rr(g, 66.5, ny + 9.5, cw - 1, 25, 7.5); g.stroke();
+      text(g, k.due, 66 + cw / 2, ny + 27, sf(12.5, 500), k.soon ? "#C5221F" : "#3C4043", 1, "center"); g.restore();
+    }
+    y += rh;
+  });
+  // The bottom bar: the menu, the new-task button.
+  g.save(); g.shadowColor = "rgba(60,64,67,.2)"; g.shadowBlur = 8; g.shadowOffsetY = -1; g.fillStyle = "#FFFFFF"; g.fillRect(0, H - 82, W, 82); g.restore();
+  g.strokeStyle = grey2; g.lineWidth = 1.9; g.lineCap = "round"; [0, 6, 12].forEach((o) => { g.beginPath(); g.moveTo(24, H - 64 + o); g.lineTo(42, H - 64 + o); g.stroke(); });
+  g.fillStyle = "#D3E3FD"; rr(g, W - 16 - 56, H - 82 + 4, 56, 56, 16); g.fill();
+  g.strokeStyle = "#0B57D0"; g.lineWidth = 2.4; g.beginPath(); g.moveTo(W - 44 - 9, H - 50); g.lineTo(W - 44 + 9, H - 50); g.moveTo(W - 44, H - 59); g.lineTo(W - 44, H - 41); g.stroke();
+}
+/** The phone's screen at one moment: Ask, Google Tasks, and the swipe along the home bar between them (the app switcher's slide). */
+function dueScreens(g, W, H, t, D) {
+  const p = E.io(seg(t, D.swipe, D.swipe + .5)), m = Math.sin(Math.PI * p), s = 1 - .07 * m;
+  const pos = {};
+  const place = (draw, dx, ink) => {
+    g.save(); if (p > 0 && p < 1) { g.translate(W / 2 + dx, H / 2); g.scale(s, s); g.translate(-W / 2, -H / 2); g.beginPath(); g.roundRect(0, 0, W, H, 55); g.clip(); }
+    const r = draw(g, W, H, t, D); g.restore(); return r;
+  };
+  if (p < 1) Object.assign(pos, place(dueAsk, p * W * 1.04, "#FFFFFF") || {});
+  if (p > 0) place(dueTasks, -(1 - p) * W * 1.04, "#1C1C1E");
+  // The status bar, the island and the home bar stay put while the apps slide (light on the dark app, dark on the light one); then the finger that swipes.
+  dueStatus(g, W, D.time, mix("#FFFFFF", "#1C1C1E", E.io(seg(p, .1, .3))), D.batt);
+  g.fillStyle = "#000"; rr(g, W / 2 - IPHONE.island.w / 2, IPHONE.island.y, IPHONE.island.w, IPHONE.island.h, IPHONE.island.h / 2); g.fill();
+  homeBar(g, W, mix("#FFFFFF", "#1C1C1E", p));
+  const sw = seg(t, D.swipe - .12, D.swipe + .42);
+  if (sw > 0 && sw < 1) { g.save(); g.globalAlpha *= Math.min(1, sw * 8, (1 - sw) * 5) * .55; g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(lerp(70, 320, E.io(sw)), H - 22, 17, 0, TAU); g.fill(); g.restore(); }
+  if (pos.speak) { touch(g, pos.speak[0], pos.speak[1], D.tapSpeak, t); touch(g, pos.speak[0], pos.speak[1], D.tapStop, t); touch(g, pos.doit[0], pos.doit[1], D.tapDo, t); }
+}
+/** The phone drawn at 3x and set in its body, as phoneFrame does it, with the screen's light on the room when the screen is a light one. */
+let dueBuf = null;
+function dueFrame(ctx, w, h, t, D, dev) {
+  const K = 3, { W, H } = IPHONE;
+  if (!dueBuf) { dueBuf = document.createElement("canvas"); dueBuf.width = W * K; dueBuf.height = H * K; }
+  const g = dueBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W * K, H * K); g.save(); g.scale(K, K); dueScreens(g, W, H, t, D); g.restore();
+  const z = dev.z, sw = W * z, sh = H * z, sx = Math.round(w / 2 - sw / 2), sy = dev.top, light = E.io(seg(t, D.swipe, D.swipe + .5));
+  glow(ctx, w / 2, sy + sh * .52, sh * .78, "#CFE0FF", .05 + .17 * light);
+  iphoneBody(ctx, sx, sy, sw, sh, z);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, IPHONE.screenR * z); ctx.clip(); ctx.drawImage(dueBuf, sx, sy, sw, sh); ctx.restore();
+  return { rx: sx, ry: sy, rw: sw, rh: sh, z };
+}
+
+// ---- the owl: a dotted student in a hoodie, glasses, a pencil behind its ear, a mug --------
+/** An arm in two bones to a hand at (x, y): the elbow goes out to the side. Drawn dark first, so it parts from the body. Returns the hand. */
+function dueWing(g, H, sx, sy, s, hx, hy) {
+  const L1 = .17 * H, L2 = .16 * H; const dx = hx - sx, dy = hy - sy, d = Math.hypot(dx, dy), dd = clamp(d, Math.abs(L1 - L2) + 1, L1 + L2 - 1);
+  const a = Math.atan2(dy, dx), A = Math.acos(clamp((L1 * L1 + dd * dd - L2 * L2) / (2 * L1 * dd), -1, 1));
+  const e1 = [sx + Math.cos(a + A) * L1, sy + Math.sin(a + A) * L1], e2 = [sx + Math.cos(a - A) * L1, sy + Math.sin(a - A) * L1];
+  const e = (e1[0] - sx) * s > (e2[0] - sx) * s ? e1 : e2, px = d > L1 + L2 ? sx + dx / d * (L1 + L2) : hx, py = d > L1 + L2 ? sy + dy / d * (L1 + L2) : hy;
+  g.lineCap = "round"; g.lineJoin = "round";
+  g.strokeStyle = grey(0); g.lineWidth = .124 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(e[0], e[1]); g.lineTo(px, py); g.stroke();
+  g.strokeStyle = grey(.6); g.lineWidth = .102 * H; g.beginPath(); g.moveTo(sx, sy); g.lineTo(e[0], e[1]); g.lineTo(px, py); g.stroke();
+  g.strokeStyle = grey(.82); g.lineWidth = .028 * H; g.beginPath(); g.moveTo(sx - s * .016 * H, sy - .012 * H); g.lineTo(e[0] - s * .016 * H, e[1] - .014 * H); g.stroke();
+  return [px, py];
+}
+/** The mitt a wing ends in: a round of feathers with a dark rim and three notches. */
+function dueMitt(g, H, x, y) {
+  g.fillStyle = grey(0); g.beginPath(); g.arc(x, y, .062 * H, 0, TAU); g.fill();
+  g.fillStyle = grey(.9); g.beginPath(); g.arc(x, y, .052 * H, 0, TAU); g.fill();
+  g.strokeStyle = grey(.25); g.lineWidth = .009 * H; g.lineCap = "round"; [-.5, 0, .5].forEach((k) => { g.beginPath(); g.moveTo(x + k * .05 * H, y + .004 * H); g.lineTo(x + k * .056 * H, y + .046 * H); g.stroke(); });
+}
+/** A mug, tilted, steaming a little (not while it is tipped to the beak). */
+function dueMug(g, H, x, y, tilt, t) {
+  g.save(); g.translate(x, y); g.rotate(tilt);
+  g.strokeStyle = grey(0); g.lineWidth = .042 * H; g.beginPath(); g.arc(.06 * H, 0, .034 * H, -Math.PI / 2, Math.PI / 2); g.stroke();
+  g.strokeStyle = grey(.95); g.lineWidth = .02 * H; g.beginPath(); g.arc(.06 * H, 0, .034 * H, -Math.PI / 2, Math.PI / 2); g.stroke();
+  g.fillStyle = grey(0); rr(g, -.068 * H, -.07 * H, .136 * H, .14 * H, .026 * H); g.fill();
+  g.fillStyle = grey(.96); rr(g, -.058 * H, -.06 * H, .116 * H, .12 * H, .02 * H); g.fill();
+  g.fillStyle = grey(.4); g.fillRect(-.058 * H, -.004 * H, .116 * H, .02 * H);
+  g.fillStyle = grey(.14); g.beginPath(); g.ellipse(0, -.06 * H, .05 * H, .013 * H, 0, 0, TAU); g.fill();
+  if (Math.abs(tilt) < .2) { g.strokeStyle = grey(.85); g.lineWidth = .013 * H; [-1, 0, 1].forEach((i) => { g.beginPath(); for (let k = 0; k <= 6; k++) { const yy = -.082 * H - k * .013 * H, xx = i * .026 * H + Math.sin(t * 2.4 + i * 1.7 + k * .8) * .008 * H * (k / 6 + .3); k ? g.lineTo(xx, yy) : g.moveTo(xx, yy); } g.stroke(); }); }
+  g.restore();
+}
+/** The checklist she holds up: three boxes, all ticked. */
+function dueList(g, H, x, y) {
+  g.save(); g.translate(x, y); g.rotate(-.07);
+  g.fillStyle = grey(0); rr(g, -.136 * H, -.322 * H, .272 * H, .344 * H, .026 * H); g.fill();
+  g.fillStyle = grey(.96); rr(g, -.126 * H, -.312 * H, .252 * H, .324 * H, .018 * H); g.fill();
+  g.fillStyle = grey(.2); rr(g, -.045 * H, -.33 * H, .09 * H, .034 * H, .01 * H); g.fill();
+  [0, 1, 2].forEach((i) => {
+    const ry = -.235 * H + i * .08 * H;
+    g.fillStyle = grey(.12); rr(g, -.102 * H, ry - .024 * H, .048 * H, .048 * H, .009 * H); g.fill();
+    g.strokeStyle = grey(1); g.lineWidth = .011 * H; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(-.094 * H, ry); g.lineTo(-.081 * H, ry + .013 * H); g.lineTo(-.062 * H, ry - .013 * H); g.stroke();
+    g.strokeStyle = grey(.22); g.lineWidth = .016 * H; g.beginPath(); g.moveTo(-.036 * H, ry); g.lineTo(-.036 * H + [.09, .11, .075][i] * H, ry); g.stroke();
+  });
+  g.restore();
+}
+/**
+ * THE OWL: round glasses, ear tufts, a pencil behind one, a hoodie with its
+ * hood down and a pocket, short legs with talons, and a mug in one wing. The
+ * pose `p`: where each hand goes (Rx, Ry, Lx, Ly in H from the centre line, and
+ * the heights), what each holds (Ri "list"), how open the eyes are (.5 is
+ * sleepy), the brows, the tilt, a hop, the beak's opening and the mug's tilt.
+ */
+function drawFigureOwl(g, W, H, p, t) {
+  const cx = W / 2, S = (v) => v * H, bob = Math.sin(t * TAU * .55) * S(.005), hy = S(.265) + bob;
+  g.save(); g.translate(0, -S(p.hop || 0));
+  // Legs and talons.
+  [-1, 1].forEach((s) => {
+    const lx = cx + s * S(.085); g.lineCap = "round"; g.strokeStyle = grey(.8); g.lineWidth = S(.03); g.beginPath(); g.moveTo(lx, S(.78)); g.lineTo(lx, S(.945)); g.stroke();
+    g.strokeStyle = grey(.9); g.lineWidth = S(.024); [-1, 0, 1].forEach((k) => { g.beginPath(); g.moveTo(lx, S(.945)); g.lineTo(lx + k * S(.05) + s * S(.012), S(.976)); g.stroke(); });
+  });
+  // The hoodie: a barrel of a body, its hem, its pocket, the hood rolled at the neck, the strings.
+  const bt = S(.46) + bob, bb = S(.79), jg = g.createLinearGradient(cx - S(.22), 0, cx + S(.22), 0); jg.addColorStop(0, grey(.82)); jg.addColorStop(.5, grey(.7)); jg.addColorStop(1, grey(.52));
+  g.fillStyle = jg; g.beginPath(); g.moveTo(cx - S(.15), bt); g.bezierCurveTo(cx - S(.235), S(.55), cx - S(.22), S(.7), cx - S(.19), bb); g.lineTo(cx + S(.19), bb); g.bezierCurveTo(cx + S(.22), S(.7), cx + S(.235), S(.55), cx + S(.15), bt); g.closePath(); g.fill();
+  g.fillStyle = grey(.46); g.fillRect(cx - S(.19), bb - S(.032), S(.38), S(.032));
+  g.fillStyle = grey(.5); g.beginPath(); g.moveTo(cx - S(.12), S(.655)); g.lineTo(cx + S(.12), S(.655)); g.lineTo(cx + S(.145), S(.755)); g.lineTo(cx - S(.145), S(.755)); g.closePath(); g.fill();
+  g.strokeStyle = grey(0); g.lineWidth = S(.009); g.lineCap = "round"; g.beginPath(); g.moveTo(cx - S(.12), S(.655)); g.lineTo(cx + S(.12), S(.655)); g.stroke();
+  g.fillStyle = grey(0); g.beginPath(); g.ellipse(cx, S(.465) + bob, S(.2), S(.058), 0, 0, TAU); g.fill(); g.fillStyle = grey(.66); g.beginPath(); g.ellipse(cx, S(.465) + bob, S(.19), S(.048), 0, 0, TAU); g.fill();
+  g.strokeStyle = grey(.98); g.lineWidth = S(.014); [-1, 1].forEach((s) => { g.beginPath(); g.moveTo(cx + s * S(.06), S(.52) + bob); g.lineTo(cx + s * S(.065), S(.6) + bob); g.stroke(); g.fillStyle = grey(.98); g.beginPath(); g.arc(cx + s * S(.065), S(.61) + bob, S(.014), 0, TAU); g.fill(); });
+  // The wings, sleeved.
+  const Rh = dueWing(g, H, cx + S(.165), S(.53) + bob, 1, cx + S(p.Rx), S(p.Ry)), Lh = dueWing(g, H, cx - S(.165), S(.53) + bob, -1, cx + S(p.Lx), S(p.Ly));
+  // The pencil, tucked behind the right ear, then the head over its end.
+  g.save(); g.translate(cx + S(.2), hy + S(.01)); g.rotate(-1.0);
+  g.lineCap = "butt"; g.fillStyle = grey(0); g.fillRect(-S(.005), -S(.022), S(.2), S(.044));
+  g.fillStyle = grey(.95); g.fillRect(0, -S(.017), S(.17), S(.034)); g.fillStyle = grey(.5); g.fillRect(S(.06), -S(.017), S(.014), S(.034));
+  g.fillStyle = grey(.75); g.beginPath(); g.moveTo(S(.17), -S(.017)); g.lineTo(S(.215), 0); g.lineTo(S(.17), S(.017)); g.closePath(); g.fill();
+  g.fillStyle = grey(.05); g.beginPath(); g.moveTo(S(.2), -S(.005)); g.lineTo(S(.222), 0); g.lineTo(S(.2), S(.005)); g.closePath(); g.fill(); g.restore();
+  // The head, tilted a little about the neck.
+  g.save(); g.translate(cx, S(.44) + bob); g.rotate(p.tilt); g.translate(-cx, -(S(.44) + bob));
+  [-1, 1].forEach((s) => {
+    g.fillStyle = grey(0); g.beginPath(); g.moveTo(cx + s * S(.24), hy - S(.03)); g.lineTo(cx + s * S(.2), hy - S(.26)); g.lineTo(cx + s * S(.05), hy - S(.15)); g.closePath(); g.fill();
+    g.fillStyle = grey(.5); g.beginPath(); g.moveTo(cx + s * S(.225), hy - S(.04)); g.lineTo(cx + s * S(.196), hy - S(.238)); g.lineTo(cx + s * S(.07), hy - S(.148)); g.closePath(); g.fill();
+    g.fillStyle = grey(.78); g.beginPath(); g.moveTo(cx + s * S(.19), hy - S(.1)); g.lineTo(cx + s * S(.18), hy - S(.19)); g.lineTo(cx + s * S(.105), hy - S(.14)); g.closePath(); g.fill();
+  });
+  g.fillStyle = grey(0); g.beginPath(); g.ellipse(cx, hy, S(.243), S(.213), 0, 0, TAU); g.fill();
+  const hg = g.createRadialGradient(cx - S(.06), hy - S(.1), 0, cx, hy, S(.26)); hg.addColorStop(0, grey(.62)); hg.addColorStop(.7, grey(.5)); hg.addColorStop(1, grey(.4));
+  g.fillStyle = hg; g.beginPath(); g.ellipse(cx, hy, S(.23), S(.2), 0, 0, TAU); g.fill();
+  g.fillStyle = grey(.92); [-1, 1].forEach((s) => { g.beginPath(); g.arc(cx + s * S(.092), hy + S(.014), S(.126), 0, TAU); g.fill(); });
+  // Eyes in the glasses: a lid brought down by how sleepy, a pupil that follows the lid.
+  const open = clamp(p.open), re = S(.064);
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * S(.106), ey = hy + S(.003), py = ey + re * (.16 + (1 - open) * .5);
+    g.save(); g.beginPath(); g.arc(ex, ey, re, 0, TAU); g.clip(); g.fillStyle = grey(1); g.fillRect(ex - re, ey - re, 2 * re, 2 * re);
+    g.fillStyle = grey(.04); g.beginPath(); g.arc(ex + s * S(.004), py, S(.034 - .007 * (1 - open)), 0, TAU); g.fill();
+    g.fillStyle = grey(1); g.beginPath(); g.arc(ex - S(.009), py - S(.011), S(.009), 0, TAU); g.fill();
+    g.fillStyle = grey(.5); g.fillRect(ex - re, ey - re, 2 * re, (1 - open) * 2 * re); g.fillStyle = grey(.04); g.fillRect(ex - re, ey - re + (1 - open) * 2 * re - S(.007), 2 * re, S(.012)); g.restore();
+    g.strokeStyle = grey(.02); g.lineWidth = S(.022); g.beginPath(); g.arc(ex, ey, S(.079), 0, TAU); g.stroke();
+    g.strokeStyle = grey(.04); g.lineWidth = S(.016); g.beginPath(); g.arc(ex, ey - S(.112) - p.brows * S(.024), S(.07), Math.PI * 1.2, Math.PI * 1.8); g.stroke();
+    g.beginPath(); g.moveTo(ex + s * S(.079), ey - S(.004)); g.lineTo(ex + s * S(.118), ey - S(.014)); g.stroke();
+  });
+  g.strokeStyle = grey(.02); g.lineWidth = S(.02); g.beginPath(); g.moveTo(cx - S(.03), hy); g.lineTo(cx + S(.03), hy); g.stroke();
+  // The beak, outlined against the pale face; the lower one drops as it speaks, a dark mouth between.
+  const b = clamp(p.beak || 0, 0, 1.5), by = hy + S(.034), bl = S(.058);
+  g.lineJoin = "round"; g.strokeStyle = grey(.03); g.lineWidth = S(.011);
+  if (b > .06) {
+    g.fillStyle = grey(.02); g.beginPath(); g.ellipse(cx, by + bl * .9, S(.03), S(.012 + .03 * b), 0, 0, TAU); g.fill();
+    g.fillStyle = grey(.9); g.beginPath(); g.moveTo(cx - S(.019), by + bl * .86 + S(.012) * b); g.lineTo(cx + S(.019), by + bl * .86 + S(.012) * b); g.lineTo(cx, by + bl * .86 + S(.045) * b + S(.016)); g.closePath(); g.fill(); g.stroke();
+  }
+  g.fillStyle = grey(.98); g.beginPath(); g.moveTo(cx - S(.032), by); g.lineTo(cx + S(.032), by); g.lineTo(cx, by + bl); g.closePath(); g.fill(); g.stroke();
+  g.restore();
+  // What the wings hold, with the mitts over it.
+  dueMug(g, H, Lh[0] - S(.008), Lh[1] - S(.04), p.mugTilt || 0, t);
+  if (p.Ri === "list") dueList(g, H, Rh[0] + S(.02), Rh[1] - S(.02));
+  dueMitt(g, H, Lh[0], Lh[1]); dueMitt(g, H, Rh[0], Rh[1]);
+  g.restore();
+}
+/** Owl poses: the resting one and what it does. Where its wings go is by its hands (H units from the centre line). */
+const DUE_OWL = (() => {
+  const rest = { Rx: .225, Ry: .74, Lx: -.125, Ly: .64, open: .5, brows: .08, tilt: 0, hop: 0, beak: 0, mugTilt: 0, Ri: null };
+  const o = (x) => ({ ...rest, ...x });
+  return { rest, sip: o({ Lx: -.02, Ly: .5, mugTilt: -.16, open: .2, tilt: -.05, brows: 0 }), yawn: o({ Rx: .03, Ry: .385, open: .03, tilt: .05, brows: .7, beak: 1.4 }),
+    read: o({ open: .85, brows: .3, tilt: .02 }), perk: o({ open: 1, brows: 1, Rx: .31, Ry: .36, tilt: .05 }), cheer: o({ open: 1, brows: .9, Rx: .37, Ry: .28, Lx: -.32, Ly: .3, mugTilt: .14, tilt: .04 }),
+    list: o({ Rx: .365, Ry: .5, Ri: "list", open: 1, brows: .7, tilt: -.03, beak: .3 }) };
+})();
+const dueMix = (a, b, k) => { const o = { ...b }; for (const key in a) if (typeof a[key] === "number" && typeof b[key] === "number") o[key] = lerp(a[key], b[key], k); o.Ri = k > .3 ? b.Ri : a.Ri; return o; };
+/** The owl's pose at `t`: sleepy, a sip while it waits, a yawn, reading the answer, then wide awake and cheering as the tasks land. */
+function dueOwlAt(t, D) {
+  const R = DUE_OWL, keys = [[0, R.rest, 0], [6.35, R.sip, .3], [7.1, R.rest, .45], [7.9, R.yawn, .35], [8.8, R.rest, .4], [9.6, R.read, .5], [D.land[0] + .12, R.perk, .12], [D.land[2] + .2, R.cheer, .4]];
+  let p = keys[0][1]; for (const [at, st, ramp] of keys) if (at > 0) p = dueMix(p, st, E.io(seg(t, at - ramp, at)));
+  p = { ...p }; p.tilt += Math.sin(t * .9) * .02 * (1 - p.open);
+  const blink = t < D.land[0] && ((t * 1000 + 900) % 3100) < 140; if (blink) p.open = .03;
+  p.hop = .03 * Math.max(...D.land.map((l) => Math.sin(Math.PI * seg(t, l + .1, l + .38))));
+  const sp = dueBeak(t, D); p.beak = Math.max(p.beak, sp); p.open = Math.max(p.open, Math.min(.7, p.open + sp * .25)); p.tilt += sp * .012; return p;
+}
+/** How far the beak is open on the voice's own clock: a word is a beak opening, the gap between two is a beak closing. */
+function dueBeak(t, D) {
+  let m = 0; D.wordAt.forEach((w, i) => { const a = D.voice + w, nx = i + 1 < D.wordAt.length ? D.voice + D.wordAt[i + 1] : a + .4, e = Math.min(a + .3, nx - .04); if (t >= a && t < e) m = Math.max(m, Math.sin(Math.PI * (t - a) / (e - a)) ** .6 * 1.2); });
+  return m;
+}
+/** `presenter()` for the owl: the figure drawn into its own buffer, dithered to the cream dots. `pose` is a pose (or a name), reached `k` of the way from the owl's rest. */
+const DUEP = { dot: 3, buf: null, out: null };
+function duePresenter(ctx, cx, bottom, H, pose, k, t, alpha, drawFn, mouth) {
+  const W = Math.round(H), d = DUEP.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
+  if (!DUEP.buf || DUEP.buf.width !== bw || DUEP.buf.height !== bh) { DUEP.buf = document.createElement("canvas"); DUEP.buf.width = bw; DUEP.buf.height = bh; DUEP.out = document.createElement("canvas"); DUEP.out.width = bw; DUEP.out.height = bh; }
+  const g = DUEP.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
+  const p = dueMix(DUE_OWL.rest, typeof pose === "string" ? DUE_OWL[pose] : pose, clamp(E.out(clamp(k)) + Math.sin(Math.PI * clamp(k)) * .06, 0, 1.06));
+  if (mouth != null) p.beak = typeof mouth === "number" ? mouth : mouth === "o" ? .9 : 0;
+  drawFn(g, W, H, p, t);
+  const im = g.getImageData(0, 0, bw, bh), src = im.data, o = DUEP.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
+    const lum = (src[i] * .3 + src[i + 1] * .59 + src[i + 2] * .11) / 255 * (a / 255), th = (BAYER[(y & 7) * 8 + (x & 7)] + .5) / 64;
+    if (lum > th) { dd[i] = 0xF3; dd[i + 1] = 0xE2; dd[i + 2] = 0xC6; dd[i + 3] = 255; }
+  }
+  o.putImageData(od, 0, 0);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.imageSmoothingEnabled = false; ctx.drawImage(DUEP.out, Math.round(cx - W / 2), Math.round(bottom - H), bw * d, bh * d); ctx.restore();
+}
+
+// ---- the film ---------------------------------------------------------------------------
+/** The scene: the phone on black, the owl at its foot on the right, the words said at its left. */
+function dueScene(ctx, w, h, t, D) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  dueFrame(ctx, w, h, t, D, { z: 1.5, top: 100 });
+  duePresenter(ctx, 840, 1900, 480, dueOwlAt(t, D), 1, t, 1, drawFigureOwl, null);
+  captionSpoken(ctx, D, 372, 1610, 620, t, 38, D.tapStop + .4);
+}
+/** The card: Due this week? Already listed. The owl with its list, the address. */
+function dueCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · Ask me", x0, 300, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "Due this week?", x0, 420, f(104, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "Already listed.", x0, 536, f(104, SERIF, 400, true), P.pale, .7, t, { stagger: .12 });
+  arrive(ctx, "Reads Google Classroom. Puts it in your Tasks.", x0, 616, f(32, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .04 });
+  const k = seg(t, .5, 1.7);
+  duePresenter(ctx, 590, 1500, 760, "list", k, t, E.out(seg(t, .4, 1.1)), drawFigureOwl, null);
+  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1560;
+  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+}
+FILMS.due = { w: 1080, h: 1920, duration: +(DUE.end + DUE.card).toFixed(1), v2: true, draw(ctx, t, w, h) {
+  if (t < DUE.end) { dueScene(ctx, w, h, t, DUE); ctx.fillStyle = rgba("#000000", seg(t, DUE.fade, DUE.end)); ctx.fillRect(0, 0, w, h); }
+  else dueCard(ctx, w, h, t - DUE.end);
+}, cues() {
+  const D = DUE, c = [{ at: 0, kind: "sample", file: "voice/due-room.wav", gain: 1 }, { at: D.voice, kind: "sample", file: "voice/due.wav", gain: 1 }];
+  c.push({ at: D.tapSpeak, kind: "key" }, { at: D.rec, kind: "listen" }, { at: D.tapStop, kind: "key" }, { at: D.stop, kind: "stop" }, { at: D.fill, kind: "land", gain: .8 },
+    { at: D.tapDo, kind: "click" }, { at: D.tapDo + .12, kind: "send", gain: .6 }, { at: D.answer, kind: "land", gain: .7 }, { at: D.swipe, kind: "open", gain: .6 });
+  D.land.forEach((at) => c.push({ at, kind: "land", gain: .6 }));
+  c.push({ at: D.end + .1, kind: "open", gain: .8 }, { at: D.end, kind: "bed", dur: D.card, gain: .9 });
+  return c;
+} };
 
 // ==== FILM: pay =========================================================================
 // (built in its own block; a UPI payment filled in, paid only by the person)
+/**
+ * YOU PRESS PAY. Tailzu never pays: asked on the Ask page to pay someone on
+ * UPI, it opens the person's own UPI app with the payee, the amount and the
+ * note filled in, and the person checks it and types their own PIN. A
+ * restaurant is heard around it (voice/pay-room.wav); the read is at the
+ * table (voice/pay.wav). The UPI app is plain and unbranded. The one who
+ * watches is a piggy bank, in dots, who covers its eyes for the PIN.
+ */
+/** The read of the line (voice/pay.js): when each word is said, and when the last one ends. */
+const PAYV = (window.TZ_VOICE && window.TZ_VOICE.pay) || { said: "Send four fifty to Rohan for dinner. His UPI is rohan m, at ok axis.", words: [0, .2, .51, .82, 1.14, 1.38, 1.7, 2.48, 2.76, 3.3, 3.7, 4.1, 4.5, 4.76, 5.1], end: 5.48 };
+/** The film's clock, in seconds: the Ask page, then the UPI app, then the card. */
+const PAY = (() => {
+  const r = (v) => Math.round(v * 100) / 100, voice = .9, tapStop = r(voice + PAYV.end + .52), stop = r(tapStop + .1), fill = r(stop + .4), fillTo = r(fill + .5);
+  const tapGo = r(fillTo + .2), busy = r(tapGo + .06), answer = r(tapGo + 1.25), open = r(answer + 1.55), tapPay = r(open + 2.0), sheet = r(tapPay + .12);
+  const keys = [0, 1, 2, 3, 4, 5].map((i) => r(sheet + .5 + i * .25)), process = r(keys[5] + .2), ok = r(process + .2), end = r(ok + 2.1);
+  return {
+    time: "10:14", dev: { z: 1.64, top: 96 }, tapSpeak: .5, rec: .6, voice, said: PAYV.said, wordAt: PAYV.words, instr: [],
+    tapStop, stop, fill, fillTo, tapGo, busy, answer, open, tapPay, sheet, keys, process, ok, end, card: 6,
+    field: "Send ₹450 to Rohan for dinner. UPI: rohanm@okaxis", reply: "Your UPI app is open: ₹450 to Rohan. Check it, then enter your PIN.",
+    pin: [3, 8, 0, 5, 2, 7],
+  };
+})();
+const PAY_NAVY = "#0C2A63";
+
+// ---- the Ask page, exactly as the app lays it out (ask-approve.txt) -------------------
+/** A press: 0 → 1 → 0 over a moment from t0. */
+const payBump = (t, t0, d = .2) => Math.sin(Math.PI * seg(t, t0, t0 + d));
+/** Where the Ask page's parts sit at `t` (the field grows when the words land; the working row comes and goes). */
+function payAskGeo(g, t) {
+  const A = PAY, X = 24, Wd = 345, full = t >= A.fill && t < A.answer;
+  g.font = af("grotesk", 26);
+  const head = layout(g, "Tell Me What To Do, And I’ll Open The Right App With It Ready.", af("grotesk", 26), Wd, 38);
+  const fieldTop = 128 + head.lines.length * 38 + 20 + 8 + 18;
+  const lines = full ? layout(g, A.field, af("ui", 15.5), Wd - 26, 20.5).lines.length : 1, fh = Math.max(52, 31 + lines * 20.5);
+  const ctrlY = fieldTop + fh + 12; g.font = af("uiMedium", 15); const goW = g.measureText("Do It").width + 44, spW = Wd - 8 - goW;
+  return { head, X, Wd, fieldTop, fh, ctrlY, speak: { x: X, y: ctrlY, w: spW, h: 48 }, go: { x: X + spW + 8, y: ctrlY, w: goW, h: 48 } };
+}
+/** The Ask page on its dark ground: the way back, the label, the line, the field, Speak and Do it, the working row, the answer, Try saying. */
+function payAsk(g, t, W, H) {
+  const A = PAY, G = payAskGeo(g, t), ink = APPLOOK.ink, base = (top, lh, size) => top + lh / 2 + size * .36;
+  g.fillStyle = "#0B0B0D"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "rgba(255,255,255,0.08)"; g.beginPath(); g.arc(40, 72, 16, 0, TAU); g.fill();
+  g.save(); g.strokeStyle = ink; g.lineWidth = 1.6; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(33 + 14.5 * 14 / 24 + 0, 65 + 5 * 14 / 24); g.lineTo(33 + 8 * 14 / 24, 65 + 12 * 14 / 24); g.lineTo(33 + 14.5 * 14 / 24, 65 + 19 * 14 / 24); g.stroke(); g.restore();
+  text(g, "ASK ME", 24, base(106, 14, 9.5), af("label", 9.5), APPLOOK.ink3, 1, "left", 1.6);
+  G.head.lines.forEach((ln, i) => text(g, ln, 24, base(128 + i * 38, 38, 26), af("grotesk", 26), ink));
+  // The field: empty it asks for words; the dictation lands in it; the answer clears it.
+  const shown = t >= A.fill && t < A.answer ? A.field.slice(0, Math.ceil(A.field.length * E.out(seg(t, A.fill, A.fillTo)))) : "";
+  g.fillStyle = "rgba(243,226,198,0.06)"; rr(g, G.X, G.fieldTop, G.Wd, G.fh, 14); g.fill();
+  g.strokeStyle = "rgba(243,226,198,0.12)"; g.lineWidth = 1; rr(g, G.X + .5, G.fieldTop + .5, G.Wd - 1, G.fh - 1, 13.5); g.stroke();
+  if (!shown) text(g, "Type or say what you need", G.X + 13, base(G.fieldTop + 15.5, 20.5, 15.5), af("ui", 15.5), APPLOOK.ink3);
+  else layout(g, shown, af("ui", 15.5), G.Wd - 26, 20.5).lines.forEach((ln, i) => text(g, ln, G.X + 13, base(G.fieldTop + 15.5 + i * 20.5, 20.5, 15.5), af("ui", 15.5), ink));
+  // Speak, the app's VoiceButton: its label in words; while it listens it turns the danger colour and reads "■ Stop & transcribe"; then "Transcribing…" at 60%.
+  const S = G.speak, listening = t >= A.rec && t < A.stop, working = t >= A.stop && t < A.fill;
+  const press = Math.max(payBump(t, A.tapSpeak), payBump(t, A.tapStop)), ps = 1 - .045 * press;
+  g.save(); g.translate(S.x + S.w / 2, S.y + 24); g.scale(ps, ps); g.translate(-(S.x + S.w / 2), -(S.y + 24)); g.globalAlpha *= working ? .6 : 1;
+  g.fillStyle = listening ? "#e0556b" : "#141418"; rr(g, S.x, S.y, S.w, S.h, 24); g.fill();
+  text(g, listening ? "■ Stop & transcribe" : working ? "Transcribing…" : "Speak", S.x + S.w / 2, base(S.y + 13, 22, 15), af("uiMedium", 15), "#FFFFFF", 1, "center");
+  g.restore();
+  const D = G.go, gp = 1 - .045 * payBump(t, A.tapGo);
+  g.save(); g.translate(D.x + D.w / 2, D.y + 24); g.scale(gp, gp); g.translate(-(D.x + D.w / 2), -(D.y + 24));
+  g.fillStyle = "#FFFFFF"; rr(g, D.x, D.y, D.w, D.h, 24); g.fill(); text(g, "Do It", D.x + D.w / 2, base(D.y + 13, 22, 15), af("uiMedium", 15), "#0B0B0D", 1, "center"); g.restore();
+  // Below the controls, one column: the working row while it works, the answer when it comes, then Try saying and the chips.
+  let y = G.ctrlY + 48;
+  if (t >= A.busy && t < A.answer) {
+    const k = E.out(seg(t, A.busy, A.busy + .2)); g.save(); g.globalAlpha *= k;
+    blipAt(g, "think-s", t, 24 + 26.5, y + 14 + 58, 58, A.busy); text(g, "On It…", 89, base(y + 14 + 19, 20, 13.5), af("ui", 13.5), "rgba(255,255,255,0.56)"); g.restore(); y += 14 + 58;
+  }
+  if (t >= A.answer) {
+    const k = E.out(seg(t, A.answer, A.answer + .3)), lay = layout(g, A.reply, af("ui", 15.5), G.Wd - 28, 23), bh = 28 + lay.lines.length * 23;
+    g.save(); g.globalAlpha *= k; g.translate(0, (1 - k) * 8); g.fillStyle = "#141418"; rr(g, G.X, y + 16, G.Wd, bh, 16); g.fill();
+    lay.lines.forEach((ln, i) => text(g, ln, G.X + 14, base(y + 16 + 14 + i * 23, 23, 15.5), af("ui", 15.5), "#FFFFFF")); g.restore(); y += 16 + bh;
+  }
+  text(g, "TRY SAYING", 24, base(y + 28, 14, 9.5), af("label", 9.5), APPLOOK.ink3, 1, "left", 1.6);
+  let cx = 24, cy = y + 28 + 14 + 12; g.font = af("ui", 13.5);
+  ["Tell Mom I’m on my way on WhatsApp", "Kal 9 baje gym ka reminder", "Directions to the airport"].forEach((s) => {
+    const w = g.measureText(s).width + 30; if (cx + w > 369 && cx > 24) { cx = 24; cy += 48; }
+    g.strokeStyle = "rgba(255,255,255,0.22)"; g.lineWidth = 1; rr(g, cx + .5, cy + .5, w - 1, 39, 19.5); g.stroke(); text(g, s, cx + 15, base(cy + 10, 20, 13.5), af("ui", 13.5), "#FFFFFF"); cx += w + 8;
+  });
+}
+
+// ---- the UPI app: a plain bank-style screen, no one's brand ----------------------------
+/** The keypad's keys: where a digit's centre is, in points, for a sheet whose top is `top`. */
+function payKey(top, d) {
+  const idx = d === 0 ? 10 : d - 1, row = Math.floor(idx / 3), col = idx % 3;
+  return { x: 393 / 6 + col * 131, y: top + 150 + row * 70 + 35 };
+}
+const PAY_SHEET = 398;
+function payUpi(g, W, H, t) {
+  const A = PAY, ink = "#14213D", dim = "#6B7691", nav = PAY_NAVY;
+  g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H);
+  const hg = g.createLinearGradient(0, 0, W, 270); hg.addColorStop(0, nav); hg.addColorStop(1, "#16408F"); g.fillStyle = hg; g.fillRect(0, 0, W, 270);
+  g.save(); g.strokeStyle = "#FFFFFF"; g.lineWidth = 2; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(28, 64); g.lineTo(20, 73); g.lineTo(28, 82); g.stroke(); g.restore();
+  text(g, "UPI payment", W / 2, 78, sf(16, 600), "#FFFFFF", .9, "center");
+  g.fillStyle = "#E4ECFB"; g.beginPath(); g.arc(W / 2, 140, 32, 0, TAU); g.fill(); text(g, "R", W / 2, 151, sf(30, 600), nav, 1, "center");
+  text(g, "Paying Rohan M", W / 2, 199, sf(19, 600), "#FFFFFF", 1, "center"); text(g, "rohanm@okaxis", W / 2, 221, sf(14, 400), "#FFFFFF", .72, "center");
+  g.fillStyle = "#FFFFFF"; rr(g, 0, 244, W, H, 28); g.fill();
+  text(g, "₹450", W / 2, 346, sf(66, 600), nav, 1, "center");
+  g.font = sf(15, 500); const nw = g.measureText("dinner").width + 56;
+  g.fillStyle = "#EEF2FA"; rr(g, W / 2 - nw / 2, 376, nw, 36, 18); g.fill();
+  g.save(); g.strokeStyle = dim; g.lineWidth = 1.5; g.lineCap = "round"; g.lineJoin = "round"; const px = W / 2 - nw / 2 + 20; g.beginPath(); g.moveTo(px - 4, 399); g.lineTo(px - 3, 395); g.lineTo(px + 4, 388); g.lineTo(px + 6, 390); g.lineTo(px - 1, 397); g.closePath(); g.stroke(); g.restore();
+  text(g, "dinner", W / 2 - nw / 2 + 34, 400, sf(15, 500), "#2B3550");
+  g.fillStyle = "#EDF0F6"; g.fillRect(24, 452, W - 48, 1);
+  g.fillStyle = "#E8EEF9"; rr(g, 24, 472, 44, 44, 13); g.fill();
+  g.save(); g.fillStyle = nav; g.beginPath(); g.moveTo(46, 483); g.lineTo(58, 489); g.lineTo(34, 489); g.closePath(); g.fill(); [37, 43.5, 50].forEach((x) => g.fillRect(x - 1.5, 491, 3, 11)); g.fillRect(34, 504, 24, 3); g.restore();
+  text(g, "From", 80, 489, sf(12, 500), "#7A859B"); text(g, "Savings ••4821", 80, 509, sf(16.5, 600), ink);
+  g.save(); g.strokeStyle = "#A8B1C4"; g.lineWidth = 1.8; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(W - 34, 486); g.lineTo(W - 27, 494); g.lineTo(W - 34, 502); g.stroke(); g.restore();
+  const bp = 1 - .03 * payBump(t, A.tapPay, .22);
+  g.save(); g.translate(W / 2, 773); g.scale(bp, bp); g.translate(-W / 2, -773);
+  g.fillStyle = mix(nav, "#16408F", .4 + .6 * payBump(t, A.tapPay, .22)); rr(g, 20, 746, W - 40, 54, 16); g.fill(); text(g, "Pay ₹450", W / 2, 779, sf(17, 600), "#FFFFFF", 1, "center"); g.restore();
+  // The PIN: a sheet comes up over the page, six dots and a keypad.
+  const up = E.out(seg(t, A.sheet, A.sheet + .38));
+  if (up > 0) {
+    g.fillStyle = `rgba(8,14,30,${.5 * up})`; g.fillRect(0, 0, W, H);
+    const top = PAY_SHEET + (1 - up) * (H - PAY_SHEET);
+    g.save(); g.shadowColor = "rgba(0,0,0,.25)"; g.shadowBlur = 24; g.fillStyle = "#FFFFFF"; rr(g, 0, top, W, H - top + 40, 26); g.fill(); g.restore();
+    g.fillStyle = "#D5DAE5"; rr(g, W / 2 - 18, top + 8, 36, 4, 2); g.fill();
+    text(g, "Enter UPI PIN", W / 2, top + 48, sf(20, 600), ink, 1, "center"); text(g, "₹450 to Rohan M", W / 2, top + 72, sf(14, 400), dim, 1, "center");
+    const busy = t >= A.process, n = A.keys.filter((k) => t >= k).length;
+    if (!busy) for (let i = 0; i < 6; i++) {
+      const x = W / 2 + (i - 2.5) * 30, y = top + 110, k = i < n ? E.out(seg(t, A.keys[i], A.keys[i] + .12)) : 0;
+      g.strokeStyle = "#AEB7C9"; g.lineWidth = 1.8; g.beginPath(); g.arc(x, y, 7, 0, TAU); g.stroke();
+      if (k > 0) { g.fillStyle = nav; g.beginPath(); g.arc(x, y, 7.5 * (.55 + .45 * k), 0, TAU); g.fill(); }
+    } else {
+      const a = (t - A.process) * 9; g.save(); g.strokeStyle = nav; g.lineWidth = 2.6; g.lineCap = "round"; g.beginPath(); g.arc(W / 2, top + 110, 10, a, a + 4.6); g.stroke(); g.restore();
+    }
+    g.fillStyle = "#F4F6FA"; g.fillRect(0, top + 150, W, 4 * 70 + 40);
+    g.fillStyle = "#E3E8F0"; for (let r = 0; r <= 4; r++) g.fillRect(0, top + 150 + r * 70, W, 1); for (let c = 1; c < 3; c++) g.fillRect(c * 131, top + 150, 1, 280);
+    for (let d = 0; d <= 9; d++) {
+      const K = payKey(top, d), idx = A.pin.indexOf(d), hit = A.pin.map((v, i) => v === d ? payBump(t, A.keys[i], .24) : 0).reduce((a, b) => Math.max(a, b), 0);
+      if (hit > 0) { g.fillStyle = `rgba(12,42,99,${.13 * hit})`; g.beginPath(); g.arc(K.x, K.y, 31, 0, TAU); g.fill(); }
+      text(g, String(d), K.x, K.y + 10, sf(28, 400), ink, 1, "center");
+    }
+    const bk = payKey(top, 0); g.save(); g.strokeStyle = "#8A94AA"; g.lineWidth = 2; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(52, bk.y); g.lineTo(62, bk.y - 10); g.lineTo(84, bk.y - 10); g.lineTo(84, bk.y + 10); g.lineTo(62, bk.y + 10); g.closePath(); g.moveTo(68, bk.y - 4); g.lineTo(76, bk.y + 4); g.moveTo(76, bk.y - 4); g.lineTo(68, bk.y + 4); g.stroke(); g.restore();
+    g.fillStyle = nav; g.beginPath(); g.arc(W / 2 + 131, bk.y, 25, 0, TAU); g.fill();
+    g.save(); g.strokeStyle = "#FFFFFF"; g.lineWidth = 2.6; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(W / 2 + 131 - 9, bk.y + 1); g.lineTo(W / 2 + 131 - 3, bk.y + 7); g.lineTo(W / 2 + 131 + 9, bk.y - 6); g.stroke(); g.restore();
+  }
+}
+/** It went through: green, a white disc, a tick that draws itself, who was paid, the reference with its middle hidden. */
+function payDone(g, W, H, t) {
+  const A = PAY, k = E.out(seg(t, A.ok, A.ok + .4)), gg = g.createLinearGradient(0, 0, 0, H); gg.addColorStop(0, "#0A6B3B"); gg.addColorStop(1, "#18A058");
+  g.fillStyle = gg; g.fillRect(0, 0, W, H);
+  const pop = E.out(seg(t, A.ok, A.ok + .35)) + Math.sin(Math.PI * seg(t, A.ok, A.ok + .35)) * .12;
+  g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(W / 2, 310, 50 * pop, 0, TAU); g.fill();
+  const c = E.io(seg(t, A.ok + .12, A.ok + .5)), pts = [[W / 2 - 20, 311], [W / 2 - 6, 325], [W / 2 + 22, 295]], L1 = Math.hypot(14, 14), L2 = Math.hypot(28, 30), d = c * (L1 + L2);
+  g.save(); g.strokeStyle = "#12874A"; g.lineWidth = 8; g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(...pts[0]);
+  if (d <= L1) g.lineTo(pts[0][0] + 14 * d / L1, pts[0][1] + 14 * d / L1); else { g.lineTo(...pts[1]); const q = (d - L1) / L2; g.lineTo(pts[1][0] + 28 * q, pts[1][1] - 30 * q); }
+  g.stroke(); g.restore();
+  text(g, "₹450 paid to Rohan M", W / 2, 432, sf(24, 600), "#FFFFFF", E.out(seg(t, A.ok + .3, A.ok + .6)), "center");
+  text(g, "UPI Ref 6281 •••• 1043", W / 2, 462, sf(15, 500), "#FFFFFF", .82 * E.out(seg(t, A.ok + .45, A.ok + .75)), "center");
+}
+/** The phone at `t`: the Ask page, the UPI app opening over it, the PIN, the green tick. */
+function payScreen(g, W, H, t) {
+  const A = PAY, open = E.out(seg(t, A.open, A.open + .36)), done = E.out(seg(t, A.ok, A.ok + .22));
+  if (t < A.open + .3) {
+    g.save(); const s = 1 + .06 * open; g.translate(W / 2, H / 2); g.scale(s, s); g.translate(-W / 2, -H / 2); g.globalAlpha *= 1 - E.out(seg(t, A.open + .02, A.open + .3));
+    payAsk(g, t, W, H); g.restore();
+  }
+  if (open > 0) {
+    g.save(); const s = lerp(.92, 1, open); g.translate(W / 2, H / 2); g.scale(s, s); g.translate(-W / 2, -H / 2); g.globalAlpha *= E.out(seg(t, A.open, A.open + .2));
+    payUpi(g, W, H, t);
+    if (done > 0) { g.globalAlpha *= done; payDone(g, W, H, t); }
+    g.restore();
+  }
+  // The system's own, once: the status bar, white on all three; the home bar, dark only over the white page.
+  iosStatusBar(g, W, A.time, 0, "#FFFFFF");
+  const dk = E.out(seg(t, A.open, A.open + .2)) * (1 - done); g.save(); g.globalAlpha = 1 - dk; homeBar(g, W); g.globalAlpha = dk; homeBar(g, W, "#14213D"); g.restore();
+  // The finger: touch discs where the taps land.
+  const G = payAskGeo(g, A.tapSpeak), Gs = payAskGeo(g, A.tapStop), Gg = payAskGeo(g, A.tapGo);
+  touch(g, G.speak.x + G.speak.w / 2, G.speak.y + 24, A.tapSpeak, t); touch(g, Gs.speak.x + Gs.speak.w / 2, Gs.speak.y + 24, A.tapStop, t); touch(g, Gg.go.x + Gg.go.w / 2, Gg.go.y + 24, A.tapGo, t);
+  touch(g, W / 2, 773, A.tapPay, t);
+  A.pin.forEach((d, i) => { const K = payKey(PAY_SHEET, d); touch(g, K.x, K.y, A.keys[i], t); });
+}
+let payBuf = null;
+/** The phone in the frame: its screen drawn at 3 px a point, placed in its body. */
+function payFrame(ctx, w, t, dev) {
+  const K = 3, { W, H } = IPHONE;
+  if (!payBuf) { payBuf = document.createElement("canvas"); payBuf.width = W * K; payBuf.height = H * K; }
+  const g = payBuf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W * K, H * K); g.save(); g.scale(K, K); payScreen(g, W, H, t); g.restore();
+  const z = dev.z, sw = W * z, sh = H * z, sx = Math.round(w / 2 - sw / 2), sy = dev.top;
+  iphoneBody(ctx, sx, sy, sw, sh, z);
+  ctx.save(); ctx.beginPath(); ctx.roundRect(sx, sy, sw, sh, IPHONE.screenR * z); ctx.clip(); ctx.drawImage(payBuf, sx, sy, sw, sh); ctx.restore();
+  return { rx: sx, ry: sy, rw: sw, rh: sh, z };
+}
+
+// ---- the piggy bank: a coin slot on its back, a coin in one hoof, a mended crack -------
+/** The poses, as the hooves (x from the middle, y down the box, both in H), how far each elbow stands out, the face. */
+const PAYPOSES = {
+  neutral: { rx: .56, ry: .78, rex: .52, rey: .7, lx: -.54, ly: .6, lex: -.5, ley: .74, hw: .05, hh: .05, mouth: "smile", brows: .3, tilt: 0, happy: 0, jump: 0 },
+  cover: { rx: .12, ry: .36, rex: .37, rey: .66, lx: -.12, ly: .36, lex: -.37, ley: .66, hw: .098, hh: .084, mouth: "smile", brows: .5, tilt: .03, happy: 0, jump: 0 },
+  cheer: { rx: .58, ry: .18, rex: .56, rey: .42, lx: -.58, ly: .18, lex: -.56, ley: .42, hw: .06, hh: .052, mouth: "grin", brows: 1, tilt: 0, happy: 1, jump: 1 },
+  salute: { rx: .27, ry: .255, rex: .6, rey: .4, lx: -.54, ly: .56, lex: -.5, ley: .72, hw: .085, hh: .048, mouth: "smile", brows: .7, tilt: -.03, happy: 0, jump: 0 },
+};
+function payMix(a, b, k) { const o = {}; for (const key in a) o[key] = typeof a[key] === "number" ? lerp(a[key], b[key], k) : (k < .5 ? a[key] : b[key]); return o; }
+/** The coin: a rim, a face, the rupee. */
+function payCoin(g, x, y, r, spin) {
+  const sx = Math.max(.34, Math.abs(Math.cos(spin)));
+  g.save(); g.translate(x, y); g.scale(sx, 1);
+  g.strokeStyle = grey(.1); g.lineWidth = r * .3; g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
+  g.fillStyle = grey(1); g.beginPath(); g.arc(0, 0, r, 0, TAU); g.fill();
+  g.strokeStyle = grey(.5); g.lineWidth = r * .1; g.beginPath(); g.arc(0, 0, r * .74, 0, TAU); g.stroke();
+  if (sx > .45) { g.fillStyle = grey(.2); g.font = `700 ${r * 1.3}px ${SANS}`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("₹", 0, r * .06); }
+  g.restore();
+}
+/**
+ * THE PIGGY BANK: a round grey-now-pink pig on four stubby legs, one ear up
+ * and one down, a coin slot between them, a coin in its left hoof, a tape
+ * across a crack it once had, and a snout that does most of the talking.
+ * p: the hooves, the face, `look`, `coinIn` (0 in the hoof, 1 in the slot),
+ * `spin` (the coin turning).
+ */
+function drawFigurePig(g, W, H, p, t) {
+  const cx = W / 2, bob = Math.sin(t * TAU * .8) * .006 * H, by = .52 * H + bob, hop = (p.jump || 0) * Math.abs(Math.sin(t * 5.2)) * .07 * H;
+  const dark = (w) => { g.strokeStyle = grey(.1); g.lineWidth = w * H; g.lineJoin = "round"; g.lineCap = "round"; };
+  const curl = () => { for (let a = 0; a <= 9.5; a += .3) { const r = (.012 + a * .0072) * H, x = r * Math.cos(a) + a * .007 * H, y = -r * Math.sin(a) - a * .003 * H; a ? g.lineTo(x, y) : g.moveTo(x, y); } };
+  g.save(); g.translate(cx, .97 * H); g.rotate(p.tilt || 0); g.translate(-cx, -.97 * H - hop);
+  // The tail, behind: a curl that wags.
+  g.save(); g.translate(cx + .45 * H, by + .0 * H); g.scale(.8, .8); g.rotate(Math.sin(t * TAU * 1.1) * .22); g.lineCap = "round";
+  g.strokeStyle = grey(.1); g.lineWidth = .055 * H; g.beginPath(); curl(); g.stroke(); g.strokeStyle = grey(.92); g.lineWidth = .032 * H; g.beginPath(); curl(); g.stroke(); g.restore();
+  // Legs: the far pair a shade back and higher, the near pair under the middle, hooves dark.
+  [-1, 1].forEach((s) => { const lx = cx + s * .31 * H; dark(.02); g.fillStyle = grey(.55); rr(g, lx - .07 * H, .74 * H, .14 * H, .19 * H, .05 * H); g.stroke(); g.fill(); g.fillStyle = grey(.14); rr(g, lx - .07 * H, .895 * H, .14 * H, .04 * H, .02 * H); g.fill(); });
+  [-1, 1].forEach((s) => { const lx = cx + s * .17 * H, lg = g.createLinearGradient(lx - .09 * H, 0, lx + .09 * H, 0); lg.addColorStop(0, grey(.95)); lg.addColorStop(1, grey(.68)); dark(.022); g.fillStyle = lg; rr(g, lx - .09 * H, .78 * H, .18 * H, .2 * H, .06 * H); g.stroke(); g.fill(); g.fillStyle = grey(.14); rr(g, lx - .09 * H, .94 * H, .18 * H, .04 * H, .02 * H); g.fill(); });
+  // The body: one big round shape, lit from above left.
+  const bg = g.createRadialGradient(cx - .14 * H, by - .24 * H, .03 * H, cx, by, .56 * H);
+  bg.addColorStop(0, grey(1)); bg.addColorStop(.45, grey(.92)); bg.addColorStop(.8, grey(.76)); bg.addColorStop(1, grey(.58));
+  dark(.024); g.beginPath(); g.ellipse(cx, by, .47 * H, .36 * H, 0, 0, TAU); g.stroke(); g.fillStyle = bg; g.fill();
+  // The crack it was mended from, and the tape over it.
+  g.save(); g.beginPath(); g.ellipse(cx, by, .47 * H, .36 * H, 0, 0, TAU); g.clip();
+  g.strokeStyle = grey(.2); g.lineWidth = .016 * H; g.lineJoin = "round"; g.beginPath(); g.moveTo(cx - .44 * H, by + .0 * H); g.lineTo(cx - .37 * H, by + .06 * H); g.lineTo(cx - .35 * H, by + .0 * H); g.lineTo(cx - .27 * H, by + .08 * H); g.lineTo(cx - .23 * H, by + .04 * H); g.stroke();
+  g.translate(cx - .3 * H, by + .17 * H); g.rotate(-.3); dark(.014); g.fillStyle = grey(1); rr(g, -.09 * H, -.032 * H, .18 * H, .064 * H, .008 * H); g.stroke(); g.fill();
+  g.strokeStyle = grey(.3); g.lineWidth = .01 * H; [-.04, 0, .04].forEach((o) => { g.beginPath(); g.moveTo(o * H - .008 * H, -.02 * H); g.lineTo(o * H + .008 * H, .02 * H); g.stroke(); }); g.restore();
+  // Ears: the left one stands, the right one has given up.
+  const P = (x, y) => [cx + x * H, y * H];
+  const ear = (a, c1, tip, c2, b, inner) => { dark(.024); g.fillStyle = grey(.8); g.beginPath(); g.moveTo(...P(...a)); g.quadraticCurveTo(...P(...c1), ...P(...tip)); g.quadraticCurveTo(...P(...c2), ...P(...b)); g.closePath(); g.stroke(); g.fill();
+    g.fillStyle = grey(.46); g.beginPath(); g.moveTo(...P(...inner[0])); g.quadraticCurveTo(...P(...inner[1]), ...P(...inner[2])); g.quadraticCurveTo(...P(...inner[3]), ...P(...inner[4])); g.closePath(); g.fill(); };
+  ear([-.12, .2], [-.2, .0], [-.33, .03], [-.45, .12], [-.38, .3], [[-.16, .2], [-.2, .08], [-.31, .09], [-.37, .15], [-.33, .27]]);
+  ear([.12, .2], [.34, .09], [.54, .27], [.45, .37], [.3, .3], [[.17, .2], [.33, .15], [.47, .27], [.4, .31], [.29, .27]]);
+  // The coin slot on its back, between the ears.
+  g.fillStyle = grey(1); g.beginPath(); g.ellipse(cx - .02 * H, .205 * H, .12 * H, .032 * H, -.04, 0, TAU); g.fill();
+  g.fillStyle = grey(.04); g.beginPath(); g.ellipse(cx - .02 * H, .209 * H, .1 * H, .02 * H, -.04, 0, TAU); g.fill();
+  // The face: cheeks, eyes, brows, snout, mouth.
+  g.fillStyle = grey(.62); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(cx + s * .32 * H, by + .05 * H, .055 * H, .042 * H, 0, 0, TAU); g.fill(); });
+  const blink = ((t * 1000 + 900) % 3600) < 120, look = p.look || [0, 0];
+  [-1, 1].forEach((s) => {
+    const ex = cx + s * .17 * H, ey = by - .15 * H, r = (s < 0 ? .072 : .062) * H, lid = blink ? 1 : (s < 0 ? .3 : .1);
+    if (p.happy > .5) { g.strokeStyle = grey(.08); g.lineWidth = .022 * H; g.lineCap = "round"; g.beginPath(); g.arc(ex, ey + .025 * H, r * .85, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); return; }
+    dark(.018); g.fillStyle = grey(1); g.beginPath(); g.arc(ex, ey, r, 0, TAU); g.stroke(); g.fill();
+    g.save(); g.beginPath(); g.arc(ex, ey, r, 0, TAU); g.clip();
+    g.fillStyle = grey(.06); g.beginPath(); g.arc(ex + look[0] * .022 * H, ey + look[1] * .022 * H, r * .54, 0, TAU); g.fill();
+    g.fillStyle = grey(1); g.beginPath(); g.arc(ex + look[0] * .022 * H - r * .15, ey + look[1] * .022 * H - r * .18, r * .16, 0, TAU); g.fill();
+    g.fillStyle = grey(.7); g.fillRect(ex - r * 1.2, ey - r * 1.2, r * 2.4, r * 1.2 + (lid * 2 - 1) * r); g.restore();
+    g.strokeStyle = grey(.1); g.lineWidth = .014 * H; g.lineCap = "round"; g.beginPath(); g.moveTo(ex - r * .9, ey - r * 1.1 - p.brows * .02 * H + (s < 0 ? .005 : 0) * H); g.lineTo(ex + r * .9, ey - r * 1.1 - p.brows * .02 * H - s * .012 * H); g.stroke();
+  });
+  const sy = by + .03 * H, sg = g.createRadialGradient(cx - .04 * H, sy - .03 * H, .01 * H, cx, sy, .17 * H); sg.addColorStop(0, grey(1)); sg.addColorStop(1, grey(.86));
+  dark(.022); g.beginPath(); g.ellipse(cx, sy, .165 * H, .112 * H, 0, 0, TAU); g.stroke(); g.fillStyle = sg; g.fill();
+  g.fillStyle = grey(.06); [-1, 1].forEach((s) => { g.beginPath(); g.ellipse(cx + s * .06 * H, sy - .005 * H, .022 * H, .038 * H, s * .2, 0, TAU); g.fill(); });
+  const my = sy + .165 * H;
+  if (p.mouth === "o") { g.fillStyle = grey(.06); g.beginPath(); g.ellipse(cx, my, .046 * H, .05 * H, 0, 0, TAU); g.fill(); g.fillStyle = grey(.55); g.beginPath(); g.ellipse(cx, my + .02 * H, .028 * H, .016 * H, 0, 0, TAU); g.fill(); }
+  else if (p.mouth === "grin") { g.fillStyle = grey(.06); g.beginPath(); g.ellipse(cx, my - .02 * H, .1 * H, .075 * H, 0, 0, Math.PI); g.fill(); g.fillStyle = grey(.6); g.beginPath(); g.ellipse(cx, my + .03 * H, .05 * H, .022 * H, 0, 0, TAU); g.fill(); }
+  else { g.strokeStyle = grey(.08); g.lineWidth = .02 * H; g.lineCap = "round"; g.beginPath(); g.arc(cx, my - .045 * H, .07 * H, Math.PI * .2, Math.PI * .8); g.stroke(); }
+  // Arms last, in front of the face when they must be: a stubby noodle with an elbow, and a hoof along the forearm.
+  const arm = (s, hx, hy, ex, ey) => {
+    const sx = cx + s * .43 * H, sy2 = by + .1 * H, X = cx + hx * H, Y = hy * H, EX = cx + ex * H, EY = ey * H;
+    g.lineCap = "round"; g.lineJoin = "round"; g.beginPath(); g.moveTo(sx, sy2); g.lineTo(EX, EY); g.lineTo(X, Y); g.strokeStyle = grey(.1); g.lineWidth = .094 * H; g.stroke(); g.strokeStyle = grey(.66); g.lineWidth = .062 * H; g.stroke();
+    dark(.02); g.fillStyle = grey(.98); g.beginPath(); g.ellipse(X, Y, p.hw * H, p.hh * H, Math.atan2(Y - EY, X - EX), 0, TAU); g.stroke(); g.fill();
+    if (p.hw < .07) { g.strokeStyle = grey(.3); g.lineWidth = .01 * H; g.beginPath(); g.moveTo(X, Y + p.hh * H * .1); g.lineTo(X, Y + p.hh * H * .85); g.stroke(); }
+  };
+  const L = [cx + p.lx * H, p.ly * H];
+  // The coin goes from the left hoof into the slot, standing on its edge as it goes in.
+  const ci = clamp(p.coinIn || 0), cr = .072 * H;
+  arm(1, p.rx, p.ry, p.rex, p.rey); arm(-1, p.lx, p.ly, p.lex, p.ley);
+  if (ci < 1) {
+    const slot = [cx - .02 * H, .205 * H], k = E.io(ci), x = lerp(L[0], slot[0], k), y = lerp(L[1] - .075 * H, slot[1] - cr * .9, k) - Math.sin(Math.PI * k) * .12 * H;
+    g.save(); if (ci > .7) { g.beginPath(); g.rect(0, 0, W, slot[1]); g.clip(); } payCoin(g, x, y, cr, ci > 0 ? lerp(p.spin || 0, Math.PI / 2, E.io(seg(ci, .1, .8))) : (p.spin || 0)); g.restore();
+  } else {
+    g.save(); g.beginPath(); g.rect(0, 0, W, .209 * H); g.clip(); g.fillStyle = grey(1); g.fillRect(cx - .02 * H - .012 * H, .209 * H - cr * .55, .024 * H, cr * .55); g.restore();
+  }
+  g.restore();
+}
+const PAYBUF = { dot: 3, buf: null, out: null };
+/** `presenter`, for any figure drawn by `drawFn`: shaded in greys on its own buffers, put through the ordered dither to cream dots. */
+function payPresenter(ctx, cx, bottom, H, pose, k, t, alpha, drawFn, mouth, extra) {
+  const W = Math.round(H * 1.3), d = PAYBUF.dot, bw = Math.ceil(W / d), bh = Math.ceil(H / d);
+  if (!PAYBUF.buf || PAYBUF.buf.width !== bw || PAYBUF.buf.height !== bh) { PAYBUF.buf = document.createElement("canvas"); PAYBUF.buf.width = bw; PAYBUF.buf.height = bh; PAYBUF.out = document.createElement("canvas"); PAYBUF.out.width = bw; PAYBUF.out.height = bh; }
+  const g = PAYBUF.buf.getContext("2d"); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, bw, bh); g.setTransform(1 / d, 0, 0, 1 / d, 0, 0);
+  const e = E.out(k) + Math.sin(Math.PI * clamp(k)) * .07, p = payMix(PAYPOSES.neutral, PAYPOSES[pose] || PAYPOSES.neutral, clamp(e, 0, 1.07));
+  if (pose === "salute") { const w = .01 * Math.sin(t * TAU * 1.3) * clamp(k); p.ry += w; p.rey += w * 2; }
+  if (mouth) p.mouth = mouth;
+  Object.assign(p, extra || {});
+  drawFn(g, W, H, p, t);
+  const im = g.getImageData(0, 0, bw, bh), src = im.data, o = PAYBUF.out.getContext("2d"), od = o.createImageData(bw, bh), dd = od.data;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const i = (y * bw + x) * 4, a = src[i + 3]; if (a < 90) continue;
+    const lum = (src[i] * .3 + src[i + 1] * .59 + src[i + 2] * .11) / 255 * (a / 255), th = (BAYER[(y & 7) * 8 + (x & 7)] + .5) / 64;
+    if (lum > th) { dd[i] = 0xF3; dd[i + 1] = 0xE2; dd[i + 2] = 0xC6; dd[i + 3] = 255; }
+  }
+  o.putImageData(od, 0, 0);
+  ctx.save(); ctx.globalAlpha *= alpha; ctx.imageSmoothingEnabled = false; ctx.drawImage(PAYBUF.out, Math.round(cx - W / 2), Math.round(bottom - H), bw * d, bh * d); ctx.restore();
+}
+/** Its mouth while the read speaks: "o" on a word, "smile" between, from the voice's own word times. */
+function payMouth(t) {
+  const w = PAYV.words;
+  for (let i = 0; i < w.length; i++) {
+    const a = PAY.voice + w[i], b = PAY.voice + Math.min((i + 1 < w.length ? w[i + 1] : PAYV.end) - .05, w[i] + .45);
+    if (t >= a && t < b) return (b - a > .3 && Math.floor((t - a) / .15) % 2) ? "smile" : "o";
+  }
+  return "smile";
+}
+
+// ---- the film ----------------------------------------------------------------------------
+/** The piggy bank under the phone, small, at the right: it talks with the read, then covers its eyes for the PIN. */
+function payPig(ctx, t) {
+  const A = PAY, appear = E.out(seg(t, .15, .7));
+  let pose = "neutral", k = 1;
+  if (t >= A.ok) { pose = "cheer"; k = seg(t, A.ok, A.ok + .5); } else if (t >= A.tapPay) { pose = "cover"; k = seg(t, A.tapPay + .05, A.tapPay + .45); }
+  const coinIn = t >= A.tapPay ? E.io(seg(t, A.tapPay - .02, A.tapPay + .3)) : 0;
+  const speaking = t >= A.voice && t < A.voice + PAYV.end + .2;
+  payPresenter(ctx, 842, 1894 + (1 - appear) * 40, 330, pose, k, t, appear, drawFigurePig, t >= A.ok + .1 ? "grin" : speaking ? payMouth(t) : "smile", { coinIn, look: t < A.open ? [-.7, -.6] : [-.4, -.7], spin: 0 });
+}
+/** The end card: the headline, the line, the pig saluting, the address. */
+function payCard(ctx, w, h, t) {
+  ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+  const x0 = 96;
+  label(ctx, "Tailzu · Pay with UPI", x0, 300, 21, P.pale, E.out(seg(t, .15, .7)) * .55);
+  arrive(ctx, "It fills it in.", x0, 420, f(104, SERIF, 300), P.pale, .3, t, { stagger: .1 });
+  arrive(ctx, "You press pay.", x0, 536, f(104, SERIF, 400, true), P.pale, .65, t, { stagger: .12 });
+  arrive(ctx, "Tailzu never pays. Your PIN stays yours.", x0, 616, f(34, SANS, 400), rgba(P.pale, .7), 1.1, t, { stagger: .045 });
+  payPresenter(ctx, w / 2 - 10, 1500, 720, "salute", seg(t, .6, 1.6), t, E.out(seg(t, .5, 1.2)), drawFigurePig, null, { look: [0, 0], spin: t * 2.4 });
+  const kk = E.out(seg(t, 2.4, 3.0)), ls = 36, dy = (1 - kk) * 22;
+  ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
+  const tw = ctx.measureText("TAILZU.SPACE").width, bw2 = tw + 120, bh2 = 104, by2 = 1580;
+  ctx.globalAlpha *= kk; ctx.fillStyle = P.pale; rr(ctx, x0, by2 + dy, bw2, bh2, bh2 / 2); ctx.fill(); ctx.restore();
+  text(ctx, "TAILZU.SPACE", x0 + bw2 / 2 + ls * .11, by2 + bh2 * .6 + dy, f(ls, MONO), P.ink, kk, "center", ls * .22);
+  label(ctx, "Free to start · iPhone · Android", x0, by2 + bh2 + 64, 21, P.pale, kk * .6);
+}
+FILMS.pay = (() => {
+  const A = PAY, duration = +(A.end + A.card).toFixed(1);
+  return { w: 1080, h: 1920, duration, v2: true, draw(ctx, t, w, h) {
+    if (t < A.end) {
+      ctx.fillStyle = "#000000"; ctx.fillRect(0, 0, w, h);
+      payFrame(ctx, w, t, A.dev);
+      payPig(ctx, t);
+      captionSpoken(ctx, A, 330, 1672, 620, t, 38, A.tapStop + .4);
+      ctx.fillStyle = rgba("#000000", seg(t, A.end - .5, A.end)); ctx.fillRect(0, 0, w, h);
+    } else payCard(ctx, w, h, t - A.end);
+  }, cues() {
+    const c = [{ at: 0, kind: "sample", file: "voice/pay-room.wav", gain: 1 }, { at: A.voice, kind: "sample", file: "voice/pay.wav", gain: 1 },
+      { at: A.tapSpeak, kind: "click" }, { at: A.rec, kind: "listen" }, { at: A.tapStop, kind: "key" }, { at: A.stop, kind: "stop" }, { at: A.fill, kind: "land" },
+      { at: A.tapGo, kind: "click" }, { at: A.answer, kind: "write", gain: .7 }, { at: A.open, kind: "open" }, { at: A.tapPay, kind: "click" }];
+    A.keys.forEach((at) => c.push({ at, kind: "key", gain: .8 }));
+    c.push({ at: A.ok, kind: "notify" }, { at: A.ok + .1, kind: "land", gain: .6 }, { at: A.end + .1, kind: "open", gain: .8 }, { at: A.end, kind: "bed", dur: duration - A.end, gain: .9 });
+    return c;
+  } };
+})();
 
 const q = new URLSearchParams(location.search), RENDER = !!q.get("render");
 const FONTS = ["newsreader/300", "newsreader/400", "newsreader/400-italic", "caveat/600", "instrument-sans/400", "instrument-sans/500", "instrument-sans/600", "ibm-plex-mono/400",
