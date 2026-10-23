@@ -153,6 +153,8 @@ interface Travel {
   x0: number; y0: number; H0: number; x1: number; y1: number; H1: number;
   c0: number; c1: number;
   t0: number; T: number; dist: number; hop: boolean; dir: number;
+  /** How high a hop rises at its top, in points. */
+  hopLift: number;
   pose1: string; swapAt: number; swapped: boolean; ph0: number;
   onland?: () => void;
 }
@@ -191,14 +193,24 @@ export class Blip {
   }
 
   /** Go there. `now` is the clock the later tick() calls will use (ms). */
-  travel(x1: number, y1: number, H1: number, pose1: string, onland: (() => void) | undefined, now: number): void {
+  /**
+   * Go there. `now` is the clock the later tick() calls will use (ms). Near
+   * is a hop and far is a walk, unless `how` says: a hop over any distance
+   * (rising higher the further it goes: a jump), or a walk taking `ms` (slow,
+   * when he is sneaking).
+   */
+  travel(
+    x1: number, y1: number, H1: number, pose1: string, onland: (() => void) | undefined, now: number,
+    how: { hop?: boolean; ms?: number } = {},
+  ): void {
     const dx = x1 - this.x, dy = y1 - this.y;
     const dist = Math.hypot(dx, dy) + Math.abs(H1 - this.H) * .5;
-    const hop = isHop(dist);
+    const hop = how.hop ?? isHop(dist);
     this.tr = {
       x0: this.x, y0: this.y, H0: this.H, x1, y1, H1,
       c0: this.cell, c1: cellFor(H1, this.dpr),
-      t0: now + CROUCH_MS, T: travelMs(dist), dist, hop,
+      t0: now + CROUCH_MS, T: how.ms ?? (how.hop ? Math.max(HOP_MS, Math.min(760, 300 + dist * 3)) : travelMs(dist)), dist, hop,
+      hopLift: how.hop ? Math.max(HOP_LIFT, dist * .45) : HOP_LIFT,
       dir: Math.abs(dx) < 8 ? 0 : Math.sign(dx),
       pose1, swapAt: hop ? HOP_SWAP : WALK_SWAP, swapped: false,
       onland, ph0: this.ph,
@@ -230,7 +242,7 @@ export class Blip {
         this.cell = lerp(tr.c0, tr.c1, e);
         if (tr.hop) {
           this.hopK = Math.sin(Math.PI * p);
-          this.lift = this.hopK * HOP_LIFT;
+          this.lift = this.hopK * tr.hopLift;
           sqT = p < HOP_SWAP ? -.08 : 0;
         } else {
           walkT = p < .97 ? 1 : 0;
