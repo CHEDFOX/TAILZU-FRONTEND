@@ -1159,7 +1159,20 @@ const VoiceButton = ({ node, props, style, store, fire, children }: CompProps) =
       {/* `children` is an empty ARRAY for a node with none, so length is the
           only honest test (GoogleSignIn learned this the hard way). */}
       {React.Children.count(children) > 0 ? children : (
-        <Text style={[typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }), { color: recording ? String(props.recordingColor ?? K.color("ui.VoiceButton.recordingColor", "#fff")) : readableOn(String(props.background ?? theme.color.primary)) }]}>{label}</Text>
+        <Text
+          // ITS FACE, WHEN THE SCREEN SETS ONE. Beside a pill in the app's own
+          // face, the theme's bold system "mic" read as a different control,
+          // and "■ Stop & transcribe" wrapped to two lines in half a row and
+          // stood the button taller than the pill. The server can set the
+          // face, size and ink; and the label is one line, whatever it says.
+          numberOfLines={1}
+          style={[
+            typeRole(theme, "mic", { fontWeight: "700", fontSize: 15 }),
+            props.fontFamily ? { fontFamily: String(props.fontFamily), fontWeight: "normal" as const } : null,
+            props.fontSize != null ? { fontSize: Number(props.fontSize) } : null,
+            { color: recording ? String(props.recordingColor ?? K.color("ui.VoiceButton.recordingColor", "#fff")) : props.color ? String(props.color) : readableOn(String(props.background ?? theme.color.primary)) },
+          ]}
+        >{label}</Text>
       )}
     </Pressable>
   );
