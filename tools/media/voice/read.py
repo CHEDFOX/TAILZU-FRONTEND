@@ -19,7 +19,7 @@ import numpy as np, soundfile as sf, torch, torchaudio as ta
 
 REF = "मैं सोच रहा था कि हम छह बजे निकलें, रास्ते में कुछ खा लें, और ट्रैफिक बढ़ने से पहले पहुँच जाएँ। तुम्हें क्या लगता है?"
 LINES = {
-    "hands": ("hm_omega", 1, "Okay, umm... put Aarav's parent-teacher meeting on Thursday at five. And remind me to pay the electricity bill, Friday morning."),
+    "hands": ("hf_alpha+hf_beta", 4, "Okay, umm... put Riya's parent-teacher meeting on Thursday at five. And remind me to pay the electricity bill, Friday morning."),
     "downloads": ("hf_alpha", 2, "[sigh] Clean up my Downloads. Invoices in one folder, screenshots in another... and bin the duplicates."),
     "due": ("hf_beta", 1, "Okay wait... what all do I have to submit this week? Just put it all in my tasks."),
     "pay": ("hm_psi", 3, "Send four fifty to Rohan for dinner. His UPI is rohan m, at ok axis."),
@@ -29,7 +29,9 @@ voice, seed, text = LINES[name]
 torch.set_num_threads(os.cpu_count() or 4)
 from kokoro import KPipeline
 ref = os.path.join(tempfile.gettempdir(), f"ref-{voice}.wav")
-sf.write(ref, np.concatenate([x.audio.numpy() for x in KPipeline(lang_code="h")(REF, voice=voice)]), 24000)
+# A voice named "a+b" is the two Kokoro voices half and half: a woman neither of them is (the mother in hands).
+kp = KPipeline(lang_code="h"); kv = sum(kp.load_voice(v) for v in voice.split("+")) / len(voice.split("+"))
+sf.write(ref, np.concatenate([x.audio.numpy() for x in kp(REF, voice=kv, speed=.95 if "+" in voice else 1)]), 24000)
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 m = ChatterboxTurboTTS.from_pretrained(device="cpu"); m.prepare_conditionals(ref)
 torch.manual_seed(seed); w = m.generate(text, temperature=0.8)

@@ -58,6 +58,24 @@ const KINDS = {
       const j = i0 + i; if (j >= 0 && j < b.length) b[j] += (rumble * .9 + crowd * .5) * .055 * fade * g;
     }
   },
+  /**
+   * A word glitching in (social.html signOff): a digital stutter for each of
+   * its bursts (c.hits, [start, length] in seconds, the same list the picture
+   * uses), each one noise held at a low rate under a square stepping in
+   * pitch, softened; then the settle, a low soft thump and a bright tick.
+   */
+  glitch(b, at, g, dur, c) {
+    const hits = c.hits || [[0, .045], [.07, .03], [.12, .06], [.2, .025], [.24, .05], [.33, .03], [.38, .07]], settle = c.settle ?? .5;
+    hits.forEach(([dt, d], k) => {
+      const f = [420, 880, 260, 1320, 520, 990, 330][k % 7], n = Math.ceil(d * SR), o = new Float32Array(n), hold = Math.max(1, Math.round(SR / (f * 3)));
+      let v = 0, y = 0;
+      for (let i = 0; i < n; i++) { if (i % hold === 0) v = rnd(); const sq = Math.sin(TAU * f * i / SR) > 0 ? 1 : -1; y += .45 * ((v * .55 + sq * .45) - y); o[i] = y * Math.min(1, i / 60) * (1 - i / n) ** .6; }
+      mixInto(b, at + dt, o, .13 * g);
+    });
+    mixInto(b, at + settle, tone(SR, 96, .3, .002, .1, .7), .42 * g);
+    mixInto(b, at + settle, noise(SR, .012, .5, .0003, .003), .12 * g);
+    mixInto(b, at + settle + .01, tone(SR, 2900, .06, .0005, .014), .07 * g);
+  },
   resume(b, at, g) { mixInto(b, at, noise(SR, .02, .6, .0005, .005), .28 * g); mixInto(b, at, tone(SR, 900, .05, .001, .02), .14 * g); },
   bed(b, at, g, dur) {
     // Five voices of a chord, each three slightly detuned sines, breathing slowly, from `at`.
