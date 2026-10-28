@@ -48,6 +48,13 @@ export function num(key: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** A per-person switch the server turns on (e.g. "bots.app"). Not a knob: the
+ *  knob manifest never lists it, so the server never fills it with a default
+ *  for everyone; absent means off. */
+export function flagOn(key: string): boolean {
+  return flags[key] === true;
+}
+
 export function bool(key: string, fallback: boolean): boolean {
   const v = flags[key];
   return typeof v === "boolean" ? v : fallback;
