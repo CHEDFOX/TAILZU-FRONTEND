@@ -140,6 +140,13 @@ export const CORE_COMPONENTS = [
    * every other gets the waving picture by the greeting, as before.
    */
   "BlipRoam",
+  /**
+   * NOT A COMPONENT — the Bots app's kit (types.ts BOTS_KIT_CAPABILITY):
+   * SVG `shapes` with breathe / pop / draw (SvgShapes.tsx, still under Reduce
+   * Motion), SafeArea `edges` / `inset` / `barStyle`, TextField `on.onSubmit`.
+   * The server boots the Bots app only for a bundle that says this.
+   */
+  "BotsKit",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
