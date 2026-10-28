@@ -96,6 +96,11 @@ function aliasesIn(src) {
   return out;
 }
 
+// Per-person switches the server turns on for some people only. They are read
+// like knobs but are not knobs: listed here, the server would send their
+// fallback to everyone and switch the feature off for the people it is on for.
+const PER_PERSON = new Set(["bots.app"]);
+
 const manifest = { labels: {}, flags: {}, dynamic: {} };
 const where = {};
 const clashes = [];
@@ -108,6 +113,7 @@ for (const f of files.sort()) {
   const matches = [...src.matchAll(call), ...(aliasCall ? src.matchAll(aliasCall) : [])].sort((a, b) => a.index - b.index);
   for (const m of matches) {
     const [, name, , key] = m;
+    if (PER_PERSON.has(key)) continue;
     const fn = aliases[name] ?? name;
     const bucket = KIND[fn];
     const value = literalAt(src, m.index + m[0].length);

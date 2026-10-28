@@ -18,7 +18,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { addShareListener, consumeShared } from "../../modules/tulmi-share";
 import { getBaseUrl } from "../storage";
 import { commonHeaders } from "../sdui/client";
-import { bool, num, str, txt } from "../sdui/knobs";
+import { flagOn, num, str, txt } from "../sdui/knobs";
 import { runShareIn, type ShareIO, type SharedFile } from "./shareIn";
 
 export interface ShareInHost {
@@ -63,7 +63,7 @@ export function useShareIn(host: ShareInHost): void {
     busy.current = true;
     const io: ShareIO = {
       consume: () => consumeShared(num("share.maxAgeMs", 600_000)),
-      enabled: () => bool("bots.app", false),
+      enabled: () => flagOn("bots.app"),
       upload,
       discard: (f) => FileSystem.deleteAsync(f.uri, { idempotent: true }).catch(() => {}),
       open: (params) => hostRef.current.open(str("share.screenId", "bots.share-in"), params),

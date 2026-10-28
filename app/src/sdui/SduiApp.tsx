@@ -1167,7 +1167,7 @@ export default function SduiApp() {
   const firstRunOwed = useCallback((): { screenId: string } | null => {
     const b = bootRef.current;
     const first = b?.initialScreenId;
-    if (first && list<string>("boot.firstRunGateIds", ["onboarding", "onboarding_keyboard"]).includes(first)) {
+    if (first && list<string>("boot.firstRunGateIds", ["onboarding", "onboarding_keyboard", "onboard"]).includes(first)) {
       return { screenId: first };
     }
     // The server's answer where it has one; the local copy otherwise.
