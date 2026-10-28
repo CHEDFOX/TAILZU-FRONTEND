@@ -18,6 +18,8 @@ on:
       # that — the fix commit did not even trigger a run.
       - "app/modules/tulmi-bridge/android/**"
       - "app/modules/tulmi-stream/android/**"
+      - "app/modules/tulmi-share/android/**"
+      - "app/modules/tulmi-share/plugin/**"
       - "app/android/**"
       - "app/app.config.ts"
       - "app/package.json"

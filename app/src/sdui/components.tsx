@@ -1556,6 +1556,7 @@ import { BotTiles } from "./BotTiles";
 import { BotCard } from "./BotCard";
 import { BotBuddy } from "./BotBuddy";
 import { HeadBar, LiveMarkNode, WriteOn } from "./HomeHead";
+import { LiveView } from "./LiveView";
 import { pageScrolled, pageTouched } from "./pageBus";
 
 // V3 FIRST, so every name registered below wins a collision. The one that
@@ -1574,4 +1575,6 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
   OnboardStage, BlipSpot, BlipRoam, BotTiles, BotCard, BotBuddy, WriteOn, LiveMark: LiveMarkNode, HeadBar,
+  // A running page or artifact, sandboxed (LiveView.tsx).
+  LiveView,
 };

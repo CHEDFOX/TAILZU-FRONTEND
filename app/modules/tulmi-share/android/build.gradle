@@ -1,0 +1,19 @@
+// Local Expo module, never published: see tulmi-bridge's build.gradle for why
+// canBePublished false is the load-bearing line.
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'expo.modules.tulmishare'
+version = '1.0.0'
+
+expoModule {
+  canBePublished false
+}
+
+android {
+  namespace "expo.modules.tulmishare"
+  defaultConfig {
+    minSdkVersion 24
+  }
+}

@@ -278,6 +278,8 @@ export interface ScreenRequest {
 export interface ScreenResponse {
   schemaVersion: number;
   screenId: string;
+  /** Live topics (backend src/live): when the server says one changed, the screen on show reloads itself quietly (live.ts). */
+  liveTopics?: string[];
   title?: string;
   theme?: Partial<ThemeTokens>;
   template?: string;
@@ -325,7 +327,23 @@ export const BOTS_KIT_CAPABILITY = "BotsKit";
  */
 export const BOTS_MOTION_CAPABILITY = "BotsMotion";
 
-export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "make" | "custom";
+/**
+ * MEDIA (backend shared/types/sdui.ts section 3d): this bundle declares these and runs uploadFile, playAudio /
+ * stopAudio and recordVoice (media.ts).
+ */
+export const FILE_UPLOAD_CAPABILITY = "FileUpload";
+export const AUDIO_PLAY_CAPABILITY = "AudioPlay";
+export const VOICE_RECORD_CAPABILITY = "VoiceRecord";
+export type UploadPick = "photo" | "screenshot" | "video" | "file" | "camera";
+
+/**
+ * A LIVE PAGE AND THE OUTBOX (backend shared/types/sdui.ts section 3e): LiveView (LiveView.tsx) draws a running page or
+ * artifact in a sandbox of its own; the outbox (offline.tsx) keeps asks typed offline and sends them once, in order.
+ */
+export const LIVE_VIEW_COMPONENT = "LiveView";
+export const OUTBOX_CAPABILITY = "Outbox";
+
+export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "notes" | "make" | "custom";
 
 export interface BotTileSpec {
   slug: string;
@@ -493,6 +511,15 @@ export type ActionSpec =
   | { kind: "pickImage"; assignTo: string; source?: "library" | "camera"; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "pickDocument"; assignTo: string; types?: string[]; onSuccess?: ActionRef; onError?: ActionRef }
   | { kind: "scanQR"; assignTo: string; onSuccess?: ActionRef; onError?: ActionRef }
+  // send a file, play a sound, speak (media.ts; backend shared/types/sdui.ts section 3d)
+  | { kind: "uploadFile"; pick: UploadPick; assignTo: string; path?: string; progressTo?: string; maxBytes?: number;
+      onSuccess?: ActionRef; onError?: ActionRef; onCancel?: ActionRef }
+  | { kind: "playAudio"; url: string; id?: string; statePath?: string; onEnd?: ActionRef; onError?: ActionRef }
+  | { kind: "stopAudio" }
+  | { kind: "recordVoice"; assignTo: string; statePath?: string; levelTo?: string; append?: boolean; language?: string;
+      maxSeconds?: number; onDone?: ActionRef; onError?: ActionRef; onBlocked?: ActionRef }
+  // the outbox (offline.tsx; backend shared/types/sdui.ts section 3e)
+  | { kind: "outbox"; op: "add" | "remove" | "retry" | "clear"; path?: string; body?: Record<string, unknown>; label?: string; sub?: string; id?: string }
   // permissions
   | {
       kind: "requestPermission";

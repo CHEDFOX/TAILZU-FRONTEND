@@ -33,13 +33,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
 import { ThemeContext, typeRole } from "./components";
 import { Store } from "./state";
+import { keptStore, liveShowing, useLiveUpdates } from "./live";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
+import { leaveMedia } from "./media";
 import type { ActionSpec, BootstrapResponse, LanguageOption, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { setKnobs, txt, num, bool, str, color, obj, list } from "./knobs";
 import * as Notifications from "expo-notifications";
 import OfflineScreen from "./OfflineScreen";
+import { OfflineBar, outbox, startOutbox, useOfflineState, useOfflineSwitch, useOnline } from "./offline";
 import { hasSeenCard, markCardSeen } from "./launchCard";
 import {
   DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall,
@@ -68,6 +71,7 @@ import { registerForPushToken, addNotificationResponseListener, forgetPushToken 
 import { installLinkListener } from "../deeplinks/router";
 import { redeemSignInLink } from "../auth/linkSignIn";
 import { armFlow } from "../widgets/flow";
+import { useShareIn } from "../share/useShareIn";
 import { isOpenableUrl, isScreenId } from "../security";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
@@ -259,6 +263,8 @@ export default function SduiApp() {
   // more hooks than during the previous render" — a blank screen, arriving
   // exactly as the Connection screen handed over.
   const insets = useSafeAreaInsets();
+  // The connection (offline.tsx): the Offline page, the line over the rest, the outbox.
+  const online = useOnline();
   /** Bumped on every tab tap so the thread plucks again even when the tab
    *  does not change. */
   const [tabPluck, setTabPluck] = useState(0);
@@ -469,6 +475,11 @@ export default function SduiApp() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), num("app.toastMs", 2800));
   }, []);
+
+  // Shared from another app (iOS share extension, Android share intent): the
+  // files go to the backend and the share-in screen opens on top of where the
+  // person is (src/share/useShareIn.ts).
+  useShareIn({ ready: phase === "ready", open: (screenId, params) => setStack((cur) => [...cur, { screenId, params }]), toast: showToast });
 
   const loadBoot = useCallback(async (opts?: { quiet?: boolean }) => {
     // The offline card retries quietly: dropping to "loading" unmounted it on
@@ -852,6 +863,7 @@ export default function SduiApp() {
         if (!s && SUPABASE_CONFIGURED) {
           endFlowSession();
           void forgetAccountData();
+          outbox.clearAll();
           resetAnalytics();
           void logOutBilling();
           forgetPushToken();
@@ -1082,7 +1094,7 @@ export default function SduiApp() {
       setScreen(cached.screen);
       setScreenError(null);
       // Fresh enough to trust — don't refetch at all.
-      if (!cached.stale) { setScreenLoading(false); return; }
+      if (!cached.stale || online === false) { setScreenLoading(false); return; }
     }
     setScreenLoading(true);
     setScreenError(null);
@@ -1108,7 +1120,14 @@ export default function SduiApp() {
     return () => {
       alive = false;
     };
-  }, [phase, current, reload]);
+  }, [phase, current, reload, online]);
+
+  // LIVE UPDATES (live.ts): a change made on another device reloads the screen on show when it listens to that topic, quietly:
+  // no spinner, its Store (scroll, an open sheet, what is typed) kept. The socket is open only while the app is in front.
+  useLiveUpdates({
+    on: phase === "ready", screen: shown, target: current, busy: screenLoading,
+    apply: (s) => { setScreen(s); setScreenError(null); },
+  });
 
   // Latest boot in a ref so the AppState listener (deps: [phase]) can read the
   // current home screen id without re-subscribing on every foreground refetch.
@@ -1477,6 +1496,14 @@ export default function SduiApp() {
     }),
     [boot, cancelArrivalPrompt],
   );
+
+  // OFFLINE (offline.tsx): Home becomes the Offline page while the connection is down and comes back with it; the outbox
+  // sends what was kept, in order, whenever the phone is online, and says so once it has.
+  useOfflineSwitch({ ready: phase === "ready", top: current, online, replace: nav.replace });
+  useEffect(() => startOutbox(() => {
+    const said = str("offline.sentToast", "");
+    if (said) showToast(said, "success");
+  }), [showToast]);
 
   // Keep the mount-once deep-link listener reading fresh values: readiness (so a
   // hot link applies immediately while a cold one stashes) and the action
@@ -1917,7 +1944,7 @@ export default function SduiApp() {
         {/* Screen-loaded-but-refresh-failed: keep the stale render visible
             and layer a small tap-to-retry banner at the top so the user
             knows the content is stale. */}
-        {shown && screenError && (
+        {shown && screenError && online !== false && (
           <Pressable
             onPress={() => setReload((n) => n + 1)}
             style={{
@@ -2024,6 +2051,8 @@ export default function SduiApp() {
           })}
         </View>
       )}
+
+      <OfflineBar online={online} screenId={shown?.screenId} top={insets.top + 6} />
 
       {toast && (
         <View style={[styles.toast, {
@@ -2253,7 +2282,11 @@ function ScreenHost({
   labels: Record<string, string>;
   toast: (m: string, tone?: string) => void;
 }) {
-  const store = useMemo(() => new Store(screen.state ?? {}), [screen]);
+  // A quiet live reload of the same screen keeps its Store (live.ts); a screen arriving afresh gets a new one.
+  const store = useMemo(() => keptStore(screen) ?? new Store(screen.state ?? {}), [screen]);
+  useEffect(() => liveShowing(screen, store), [screen, store]);
+  // Leaving a screen stops its sound, throws away its recording and stops its upload (media.ts).
+  useEffect(() => () => leaveMedia(store), [store]);
   // Memoised, because it is the identity every RenderNode in the tree reads.
   // Rebuilt each render, it made a single parent re-render — a toast, a
   // foreground bootstrap, a loading flag — walk and re-render the WHOLE screen,
@@ -2263,6 +2296,8 @@ function ScreenHost({
     () => ({ store, actions: screen.actions ?? {}, flags, labels, nav, toast }),
     [store, screen.actions, flags, labels, nav, toast],
   );
+  // `online`, `outbox` and `outboxWaiting` in the screen's state (offline.tsx).
+  useOfflineState(store);
 
   // Inject live device signals into screen state so the BACKEND can gate on them
   // declaratively (e.g. only show the "continue" button when the keyboard has
