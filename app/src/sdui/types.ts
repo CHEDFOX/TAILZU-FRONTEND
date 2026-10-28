@@ -318,6 +318,49 @@ export interface ScreenResponse {
  */
 export const BOTS_KIT_CAPABILITY = "BotsKit";
 
+/**
+ * THE LIVING BOT TILES (backend shared/types/sdui.ts, "The living bot tiles"). This bundle declares
+ * BOTS_MOTION_CAPABILITY, promising two nodes around one physics core (src/botTiles/core.ts):
+ * BotTiles (Home's grid: BotTiles.tsx) and BotCard (a card with the tiny bot on top: BotCard.tsx).
+ */
+export const BOTS_MOTION_CAPABILITY = "BotsMotion";
+
+export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "make" | "custom";
+
+export interface BotTileSpec {
+  slug: string;
+  name: string;
+  sub: string;
+  color: string;
+  kind: BotTileKind;
+  state: "working" | "needs" | "idle";
+  action?: ActionRef;
+  label?: string;
+}
+
+export interface BotTilesProps {
+  tiles: BotTileSpec[];
+  columns: number;
+  height: number;
+  padding: number;
+  gap: number;
+  faces: { regular: string; medium: string; semibold: string };
+}
+
+export interface BotCardProps {
+  kind?: BotTileKind;
+  color: string;
+  stageHeight: number;
+  overlay?: boolean;
+  width?: number;
+  readyWhen?: Condition;
+  doneWhen?: Condition;
+  doneDelayMs?: number;
+  closeWhen?: Condition;
+  once?: string;
+  label?: string;
+}
+
 /** One shape of an `SVG` node's `shapes`. A circle or a path. */
 export interface SvgShape {
   circle?: [number, number, number];

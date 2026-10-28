@@ -147,6 +147,13 @@ export const CORE_COMPONENTS = [
    * The server boots the Bots app only for a bundle that says this.
    */
   "BotsKit",
+  /**
+   * NOT A COMPONENT — the living bot tiles (types.ts BOTS_MOTION_CAPABILITY): BotTiles, Home's grid with a
+   * tiny Blip playing in each tile on a faint fabric, and BotCard, a card with one on top (the first-arrival
+   * permission card, Keybot's). One physics core, src/botTiles/core.ts (the window's botTiles.js is generated
+   * from it). The server sends them only to a bundle that says this; others get static tiles and plain cards.
+   */
+  "BotsMotion", "BotTiles", "BotCard",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
