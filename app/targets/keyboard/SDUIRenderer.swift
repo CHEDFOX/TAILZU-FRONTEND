@@ -5535,10 +5535,33 @@ final class SDUIRenderer: NSObject {
     }
   }
 
-  /// Highlight the chip under `loc` (tray-local coords); un-highlight the rest.
+  /// Light the chip the finger points to (tray-local coords). The base stays
+  /// lit until the finger actually travels, so a hold let go where it started
+  /// types the letter that was held — as on the system keyboard and Android.
   private func updateAccentTrayHighlight(at loc: CGPoint) {
-    guard let tray = activeAccentTray else { return }
-    tray.subviews.forEach { chip in setChipLit(chip, chip.frame.contains(loc)) }
+    guard let tray = activeAccentTray as? UIStackView else { return }
+    if !accentTrayMoved {
+      guard let start = accentTrayStart else { accentTrayStart = loc; return }
+      guard hypot(loc.x - start.x, loc.y - start.y) >= 4 else { return }
+      accentTrayMoved = true
+    }
+    let hit = accentChip(at: loc)
+    tray.arrangedSubviews.forEach { setChipLit($0, $0 === hit) }
+  }
+
+  /// The chip a finger at `loc` (tray-local) points to. Sideways position picks
+  /// it, so the finger need not climb onto the tray; well below the held key,
+  /// or well past either end, points to none. Before the finger travels it is
+  /// the base.
+  private func accentChip(at loc: CGPoint) -> UIButton? {
+    guard let tray = activeAccentTray as? UIStackView else { return nil }
+    let chips = tray.arrangedSubviews.compactMap { $0 as? UIButton }
+    guard let first = chips.first, let last = chips.last else { return nil }
+    if !accentTrayMoved { return first }
+    guard loc.y < accentTrayReach,
+          loc.x > first.frame.minX - first.frame.width / 2,
+          loc.x < last.frame.maxX + last.frame.width / 2 else { return nil }
+    return chips.min { abs($0.frame.midX - loc.x) < abs($1.frame.midX - loc.x) }
   }
 
   /// A lit chip takes the active colour and ink that reads on it; the rest sit
@@ -5579,7 +5602,6 @@ final class SDUIRenderer: NSObject {
     //   kb.accentTray.radius         (default 8)
     //   kb.accentTray.padding        (default 4)
     //   kb.accentTray.gap            (default 4)
-    let chipW = flagCGFloat("kb.accentTray.chipWidth", 40)
     let chipFont = flagCGFloat("kb.accentTray.chipFontSize", 22)
     let chipRadius = flagCGFloat("kb.accentTray.chipRadius", 6)
     let trayHeight = flagCGFloat("kb.accentTray.height", 48)
@@ -5587,6 +5609,10 @@ final class SDUIRenderer: NSObject {
     let trayPad = flagCGFloat("kb.accentTray.padding", 4)
     let gap = flagCGFloat("kb.accentTray.gap", 4)
     let offsetY = flagCGFloat("kb.accentTray.offsetY", -52)
+    // Nine chips for "a" are wider than a phone at the flag's width; the last
+    // ones would be off screen and unreachable. Narrow them to fit.
+    let fit = (container.bounds.width - 8 - trayPad * 2 - CGFloat(items.count - 1) * gap) / CGFloat(items.count)
+    let chipW = min(flagCGFloat("kb.accentTray.chipWidth", 40), fit > 0 ? fit : .greatestFiniteMagnitude)
 
     let tray = UIStackView()
     tray.axis = .horizontal
@@ -5624,10 +5650,16 @@ final class SDUIRenderer: NSObject {
 
     container.addSubview(tray)
     let anchorFrame = anchor.convert(anchor.bounds, to: container)
-    let desiredX = anchorFrame.midX - width / 2
+    // The base chip sits over the held key, so the finger starts on it and
+    // slides through the alternates.
+    let desiredX = anchorFrame.midX - trayPad - chipW / 2
     let clampedX = max(4, min(container.bounds.width - width - 4, desiredX))
     let desiredY = anchorFrame.minY + offsetY
     let clampedY = max(4, desiredY)
+    // A finger more than a key below the held key points to no chip.
+    accentTrayReach = anchorFrame.maxY + anchorFrame.height - clampedY
+    accentTrayStart = nil
+    accentTrayMoved = false
     NSLayoutConstraint.activate([
       tray.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: clampedX),
       tray.topAnchor.constraint(equalTo: container.topAnchor, constant: clampedY),
@@ -5635,14 +5667,15 @@ final class SDUIRenderer: NSObject {
       tray.heightAnchor.constraint(equalToConstant: trayHeight),
     ])
     activeAccentTray = tray
+    // The base starts lit, so letting go without sliding types the held key.
+    if let baseChip = tray.arrangedSubviews.first { setChipLit(baseChip, true) }
   }
 
   private func pickAccentAndDismiss(gestureRecognizer gr: UILongPressGestureRecognizer) {
     defer { dismissAccentTray() }
     guard let tray = activeAccentTray else { return }
     let loc = gr.location(in: tray)
-    // Find the chip whose frame contains the release point.
-    guard let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+    guard let chip = accentChip(at: loc),
           let ch = chip.title(for: .normal), !ch.isEmpty else {
       // Slid off the tray — no insert (matches Apple).
       return
@@ -5674,7 +5707,14 @@ final class SDUIRenderer: NSObject {
   private func dismissAccentTray() {
     activeAccentTray?.removeFromSuperview()
     activeAccentTray = nil
+    accentTrayStart = nil
+    accentTrayMoved = false
   }
+  /// Where the finger was when the tray opened (tray-local), whether it has
+  /// travelled since, and how far down a finger may go and still pick a chip.
+  private var accentTrayStart: CGPoint?
+  private var accentTrayMoved = false
+  private var accentTrayReach: CGFloat = 0
 
   // MARK: - Accent tray via KeyPlaneView
   //
@@ -5707,10 +5747,7 @@ final class SDUIRenderer: NSObject {
           let accents = accentMap[char.lowercased()], !accents.isEmpty
     else { return false }
     showAccentTray(for: button, base: char, options: accents)
-    guard let tray = activeAccentTray else { return false }
-    // Default-highlight the base chip (iOS does this) so releasing without
-    // sliding reads as "the base letter is selected".
-    if let baseChip = tray.subviews.first { setChipLit(baseChip, true) }
+    guard activeAccentTray != nil else { return false }
     return true
   }
 
@@ -5737,7 +5774,10 @@ final class SDUIRenderer: NSObject {
     }
     defer { dismissAccentTray() }
     let loc = tray.convert(point, from: container)
-    if let chip = tray.subviews.first(where: { $0.frame.contains(loc) }) as? UIButton,
+    if !accentTrayMoved, let base = fallbackChar {
+      // Let go where it started: the held key, typed as a plain key.
+      run(.inline(.insertKey(char: base)))
+    } else if let chip = accentChip(at: loc),
        let ch = chip.title(for: .normal), !ch.isEmpty {
       insertAccent(ch)
     } else if let base = fallbackChar {
