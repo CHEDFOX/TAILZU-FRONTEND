@@ -522,6 +522,9 @@ const config: ExpoConfig = {
     // Sentry project, flip this back OFF and add the three env vars.
     ["@sentry/react-native/expo", { disableAutoUpload: true }],
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
+    // Tailzu in Android's Share menu (ACTION_SEND / SEND_MULTIPLE on MainActivity).
+    // iOS's share extension is targets/share, picked up by apple-targets below.
+    "./modules/tulmi-share/plugin/withTulmiShare",
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
     ...metaPlugin,

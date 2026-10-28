@@ -10,7 +10,7 @@ import { BotTile, BotTilesWorld, Fabric, LiveMark, STEP, gridWorld, rng, writeOn
 // @ts-expect-error a plain .mjs script, no types
 import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
 
-const KINDS: BotKind[] = ["code", "keybot", "plan", "travel", "make", "custom"];
+const KINDS: BotKind[] = ["code", "keybot", "plan", "travel", "notes", "make", "custom"];
 const MOODS: BotMood[] = ["idle", "working", "needs"];
 
 function tile(kind: BotKind, mood: BotMood = "idle", seed = 5, w = 169, h = 132, floor = 72): BotTile {
@@ -175,6 +175,31 @@ test("back to Home: a look left from a tap is let go at once, and every bot is a
   lives.forEach((t, i) => again.place(i, (i % 2) * 180, Math.floor(i / 2) * 144, 169, 132, 72));
   for (let f = 0; f < 240; f++) again.step(1 / 60);
   for (const t of lives) assert.ok(t.finite() && t.inside() && t.focusX !== t.focusX, t.kind);
+});
+
+test("the Notes bot picks up his pad, writes line after line, and tears off a full page that flutters to the floor", () => {
+  const t = tile("notes", "working", 7);
+  let held = false, wrote = 0, torn = 0, pageLow = false, penOnPad = false;
+  for (let f = 0; f < 60 * 40; f++) {
+    t.step(1 / 60);
+    if (t.held === 0) held = true;
+    wrote = Math.max(wrote, t.pa[0]!);
+    torn = Math.max(torn, t.ptime[0]!);
+    for (let i = 0; i < t.slife.length; i++) if (t.shome[i] === 2 && t.slife[i]! > 0 && t.sy[i]! >= t.floor - t.S * 0.04) pageLow = true;
+    if (t.penX === t.penX) {
+      const a = t.p0[0]!, xs = [t.x[a]!, t.x[a + 1]!, t.x[a + 2]!, t.x[a + 3]!];
+      if (t.penX >= Math.min(...xs) - 0.5 && t.penX <= Math.max(...xs) + 0.5) penOnPad = true;
+    }
+    if (f % 30 === 0) assert.ok(t.finite() && t.inside(), `frame ${f}`);
+  }
+  assert.ok(held, "he picks the pad up");
+  assert.ok(wrote >= 2, `lines written (${wrote.toFixed(2)})`);
+  assert.ok(penOnPad, "his pencil writes on the pad");
+  assert.ok(torn >= 1, "a full page is torn off");
+  assert.ok(pageLow, "and it lands on the floor");
+  const c = counter();
+  t.draw(c);
+  assert.ok(c.calls > 20, "the pad and its lines are drawn");
 });
 
 const ACTS: BuddyAct[] = ["play", "wave", "survey", "read", "settle", "think"];

@@ -39,6 +39,8 @@ import { setLanguage } from "../storage";
 import { armFlow } from "../widgets/flow";
 import { isHandoffUrl, isOpenableUrl, isWebUrl, safeFileName } from "../security";
 import { fillText, navParams, resolveValue } from "./fill";
+import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "./media";
+import { runOutboxAction } from "./offline";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -180,6 +182,16 @@ async function getCameraPermission(): Promise<{ granted: boolean }> {
   } catch {
     return { granted: false };
   }
+}
+
+/** What a media action needs of the screen that ran it; a follow-up runs with `event` as its $event. */
+function mediaIO(ctx: Ctx): MediaIO {
+  return {
+    owner: ctx.store,
+    get: (path) => ctx.store.get(path),
+    set: (path, value) => ctx.store.set(path, value),
+    run: (ref, event) => runAction(ref, event === undefined ? ctx : { ...ctx, event }),
+  };
 }
 
 export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<void> {
@@ -467,6 +479,14 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       } catch { await runAction(action.onError, ctx); }
       break;
     }
+    // Send a picked file, play a sound, speak into a field (media.ts): each
+    // belongs to this screen's store, and stops when the screen goes.
+    case "uploadFile": await uploadFile(action, mediaIO(ctx)); break;
+    case "playAudio": await playAudio(action, mediaIO(ctx)); break;
+    case "stopAudio": stopAudio(); break;
+    case "recordVoice": await recordVoice(action, mediaIO(ctx)); break;
+    // Keep an ask to send once the phone is online, take one out, try one again (offline.tsx).
+    case "outbox": await runOutboxAction(action, ctx); break;
     case "scanQR":
       // Full QR scanning requires the Camera component mounted in-screen with
       // a barcode callback. The action here requests the permission so the

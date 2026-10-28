@@ -22,6 +22,8 @@ on:
       - "app/targets/keyboard/**"
       - "app/targets/widgets/**"
       - "app/modules/tulmi-bridge/ios/**"
+      - "app/targets/share/**"
+      - "app/modules/tulmi-share/ios/**"
       - "tools/ci/**"
       - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
@@ -172,3 +174,52 @@ jobs:
             -typecheck \
             app/targets/widgets/_shared/*.swift
           echo "✅ Shared Flow intent type-checks for the app."
+
+  # Sharing into Tailzu: the share extension (Tailzu in other apps' Share
+  # menu), under the extension rules it is built with, and the app-side module
+  # that takes what it left in the App Group (stand-in ExpoModulesCore, as the
+  # bridge module above).
+  share:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+
+      - name: Type-check the share extension (swiftc, Simulator SDK)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios16.4-simulator \
+            -module-name TailzuShare \
+            -application-extension \
+            -typecheck \
+            app/targets/share/*.swift
+          echo "✅ Share extension type-checks cleanly (extension-API rules enforced)."
+
+      - name: Type-check the share module (stand-in ExpoModulesCore)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          STUB=$(mktemp -d)
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name ExpoModulesCore \
+            -parse-as-library \
+            -emit-module -emit-module-path "$STUB/ExpoModulesCore.swiftmodule" \
+            tools/ci/ExpoModulesCoreStub.swift
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TulmiShare \
+            -I "$STUB" \
+            -typecheck \
+            app/modules/tulmi-share/ios/*.swift
+          echo "✅ Share module type-checks cleanly."

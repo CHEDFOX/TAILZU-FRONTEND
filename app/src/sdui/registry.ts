@@ -158,6 +158,19 @@ export const CORE_COMPONENTS = [
   "BotBuddy",
   /** Home's header, alive (HomeHead.tsx): the line that writes itself, the living mark, the compact bar on scroll. */
   "WriteOn", "LiveMark", "HeadBar",
+  /**
+   * NOT COMPONENTS — the media actions (media.ts; types.ts FILE_UPLOAD_CAPABILITY …): uploadFile (a photo, a
+   * screenshot, a video or any file, sent with progress), playAudio / stopAudio (one sound at a time, stopped when the
+   * screen goes), recordVoice (the microphone into a field, through /v1/transcribe-clean). The server draws Ask's
+   * attach and mic, Add to chat's pickers and the voices' play buttons only for a bundle that says these.
+   */
+  "FileUpload", "AudioPlay", "VoiceRecord",
+  /**
+   * A running web page or artifact in a sandbox of its own (LiveView.tsx), and — NOT A COMPONENT — the outbox
+   * (offline.tsx): asks kept while offline and sent once, in order; `online`, `outbox`, `outboxWaiting` in every
+   * screen's state; the Offline page in place of Home while offline, and the line over the others. types.ts 3e.
+   */
+  "LiveView", "Outbox",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
@@ -180,6 +193,10 @@ export const CORE_ACTIONS = [
   "sms", "email", "phone", "download", "saveToPhotos",
   // media pickers
   "pickImage", "pickDocument", "scanQR",
+  // send a picked file, play a sound, speak into a field (media.ts)
+  "uploadFile", "playAudio", "stopAudio", "recordVoice",
+  // keep an ask to send when online, take one out, try one again, clear the sent (offline.tsx)
+  "outbox",
   // permissions
   "requestPermission", "checkPermission",
   // auth

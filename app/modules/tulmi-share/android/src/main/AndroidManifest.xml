@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Nothing of its own. The share intent filters go on the app's MainActivity
+    (plugin/withTulmiShare.js), because that is the activity other apps' Share
+    menus open; this module reads the intent it was opened with.
+  -->
+</manifest>
