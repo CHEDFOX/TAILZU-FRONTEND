@@ -7,7 +7,9 @@
  *
  * The tap: the tile presses in (a spring), the cloth is drawn in under the finger and its bot perks up; every other
  * bot stops and turns its head to the tapped tile, and the other tiles' words fade to 35 %; about 450 ms later the
- * tile's action runs. If the screen is still here a moment later (an action that stays), everything comes back.
+ * tile's action runs. If the screen is still here a moment later (an action that stays), everything comes back. The
+ * look never outlives its moment: leaving Home lets it go, and so does coming back to it (a new grid's world starts
+ * released) or the app coming back to the front, so every bot is at its own play again at once.
  * Reduce Motion: every bot rests in a pose, nothing moves, and a tap runs the action at once.
  *
  * The bots live on across a return to Home (they are kept by slug for the life of the app). A fault in the drawing
@@ -17,11 +19,11 @@
  *     gap, faces: { regular, medium, semibold } } }
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, Text, View } from "react-native";
+import { Animated, AppState, Pressable, Text, View } from "react-native";
 import type { CompProps } from "./components";
 import { runAction } from "./actions";
 import type { BotTileSpec } from "./types";
-import { BotTile, BotTilesWorld, TAP, kindOf, type BotKind, type BotMood } from "../botTiles/core";
+import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood } from "../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
@@ -71,12 +73,10 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
   const tw = W > 0 ? (W - gap * (cols - 1)) / cols : 0;
   const host = useRef<View>(null);
   const key = tiles.map((t) => `${t.slug}:${t.kind}:${t.color}`).join(",");
-  const world = useMemo(() => {
-    const w = new BotTilesWorld();
-    tiles.forEach((t, i) => w.add(lifeFor(t, i)));
-    return w;
+  // Released as it is made: a look left from a tap before Home was left goes now (gridWorld).
+  const world = useMemo(() => gridWorld(tiles.map(lifeFor)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+    [key]);
   useEffect(() => { tiles.forEach((t, i) => world.tiles[i]?.setMood(t.state as BotMood)); }, [tiles, world]);
 
   // Painting.
@@ -116,12 +116,20 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
   const scales = useMemo(() => tiles.map(() => new Animated.Value(1)), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const busy = useRef(false);
   const timers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
-  useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
-  const restore = useCallback(() => {
+  const restore = useCallback((now?: boolean) => {
     world.release();
-    fades.forEach((f) => Animated.timing(f, { toValue: 1, duration: TAP.fadeMs, useNativeDriver: true }).start());
+    fades.forEach((f) => (now ? f.setValue(1) : Animated.timing(f, { toValue: 1, duration: TAP.fadeMs, useNativeDriver: true }).start()));
     busy.current = false;
   }, [world, fades]);
+  // Home left (the tapped tile's screen opened, or anything else): the look goes with it, never kept for the return.
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current = []; world.release(); }, [world]);
+  // Back to the front: whatever look was left is let go, the words at full strength.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active" && busy.current) restore(true);
+    });
+    return () => sub.remove();
+  }, [restore]);
   const tap = (i: number, x: number, y: number) => {
     const t = tiles[i];
     if (!t?.action || busy.current) return;
@@ -135,7 +143,7 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
       Animated.spring(scales[i]!, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 10 }),
     ]).start();
     timers.current.push(setTimeout(() => { void runAction(t.action, ctx); }, TAP.holdMs));
-    timers.current.push(setTimeout(restore, TAP.holdMs + TAP.restoreMs));
+    timers.current.push(setTimeout(() => restore(), TAP.holdMs + TAP.restoreMs));
   };
 
   return (

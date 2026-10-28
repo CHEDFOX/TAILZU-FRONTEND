@@ -154,6 +154,10 @@ export const CORE_COMPONENTS = [
    * from it). The server sends them only to a bundle that says this; others get static tiles and plain cards.
    */
   "BotsMotion", "BotTiles", "BotCard",
+  /** A bot's own tiny bot on its pages (BotBuddy.tsx; types.ts BotBuddyProps), on the same core. */
+  "BotBuddy",
+  /** Home's header, alive (HomeHead.tsx): the line that writes itself, the living mark, the compact bar on scroll. */
+  "WriteOn", "LiveMark", "HeadBar",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",

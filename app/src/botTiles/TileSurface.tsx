@@ -17,10 +17,15 @@
  */
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { AppState, Dimensions, Platform, View } from "react-native";
-import type { BotTile, TileCtx } from "./core";
+import type { TileCtx } from "./core";
+
+/** Anything the core draws: a tile's bot, the living mark. */
+export interface Drawable {
+  draw(ctx: TileCtx): void;
+}
 
 export interface Painter {
-  paint(tile: BotTile): void;
+  paint(tile: Drawable): void;
 }
 
 interface SurfaceProps {
@@ -51,7 +56,7 @@ const NativeSurface = forwardRef<Painter, SurfaceProps>(function NativeSurface({
   const rec = useRef<ReturnType<typeof sk.Skia.PictureRecorder> | null>(null);
   const ctx = useRef<InstanceType<typeof sc.SkiaCtx> | null>(null);
   useImperativeHandle(ref, () => ({
-    paint(tile: BotTile) {
+    paint(tile: Drawable) {
       if (!rec.current) rec.current = sk.Skia.PictureRecorder();
       const canvas = rec.current.beginRecording(bounds);
       if (!ctx.current) ctx.current = new sc.SkiaCtx(canvas); else ctx.current.retarget(canvas);
@@ -75,7 +80,7 @@ const WebSurface = forwardRef<Painter, SurfaceProps>(function WebSurface({ w, h,
   const el = useRef<any>(null);
   const dpr = typeof window !== "undefined" ? Math.min(3, (window as { devicePixelRatio?: number }).devicePixelRatio || 1) : 1;
   useImperativeHandle(ref, () => ({
-    paint(tile: BotTile) {
+    paint(tile: Drawable) {
       const c = el.current;
       const g = c && c.getContext ? c.getContext("2d") : null;
       if (!g) return;
