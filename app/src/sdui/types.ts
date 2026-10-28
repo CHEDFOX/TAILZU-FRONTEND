@@ -361,6 +361,59 @@ export interface BotCardProps {
   label?: string;
 }
 
+/**
+ * A bot's own tiny bot on its pages (BotBuddy.tsx): the same core, his colour, his kind's play, on a small stage of
+ * his own (a page's header, the Code bot's setup steps). Kept by `life` for the life of the app, so the same key on
+ * the next screen finds him where he was. Declared by the component name "BotBuddy" (with BotsMotion).
+ */
+export const BOT_BUDDY_COMPONENT = "BotBuddy";
+
+export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think";
+
+export interface BotBuddyProps {
+  kind: BotTileKind;
+  color: string;
+  life: string;
+  /** The stage: width (none: fills its row) and height; size is the bot's own height. */
+  width?: number;
+  height: number;
+  size?: number;
+  state: "working" | "needs" | "idle";
+  act?: BuddyAct;
+  /** While this holds he thinks (an answer is on its way). */
+  thinkWhen?: Condition;
+  /** Where the page's ask field is from his stage: he glances at it. */
+  lookTo?: "down" | "left" | "right" | "up";
+  label?: string;
+}
+
+/** Home's header, alive (HomeHead.tsx; components "WriteOn", "LiveMark", "HeadBar", with BotsMotion). */
+export interface WriteOnProps {
+  content: string;
+  size: number;
+  lineHeight: number;
+  tracking?: number;
+  color?: string;
+  fontFamily: string;
+  /** Keybot's caret colour. */
+  caretColor: string;
+  /** Written once per app open for this key (it carries the part of the day). */
+  once: string;
+}
+
+export interface LiveMarkProps {
+  size: number;
+  /** The colours of the bots at work: one ring dot lights in each. */
+  lit: string[];
+  life?: string;
+  label?: string;
+}
+
+export interface HeadBarProps {
+  /** Scrolled past this (px), the bar comes in. */
+  at: number;
+}
+
 /** One shape of an `SVG` node's `shapes`. A circle or a path. */
 export interface SvgShape {
   circle?: [number, number, number];

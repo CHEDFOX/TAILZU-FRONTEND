@@ -371,6 +371,7 @@ const Screen = ({ props, children, style }: CompProps) => {
    */
   const scroll = useRef<ScrollView>(null);
   const scrolled = useRef(0);
+  useEffect(() => { pageScrolled(0); }, []);
   const [kb, setKb] = useState(0);
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -392,7 +393,11 @@ const Screen = ({ props, children, style }: CompProps) => {
     <ScrollView
       ref={scroll}
       automaticallyAdjustKeyboardInsets
-      onScroll={(e) => { scrolled.current = e.nativeEvent.contentOffset.y; }}
+      onScroll={(e) => { scrolled.current = e.nativeEvent.contentOffset.y; pageScrolled(scrolled.current); }}
+      // For the nodes that follow the page (pageBus.ts): where it is scrolled, where a finger is.
+      onTouchStart={(e) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY)}
+      onTouchMove={(e) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY)}
+      onTouchEnd={() => pageTouched(NaN, NaN)}
       scrollEventThrottle={16}
       onLayout={(e) => {
         const h = Math.round(e.nativeEvent.layout.height);
@@ -1549,6 +1554,9 @@ import { BlipSpot } from "../onboard/BlipSpot";
 import { BlipRoam } from "../onboard/BlipRoam";
 import { BotTiles } from "./BotTiles";
 import { BotCard } from "./BotCard";
+import { BotBuddy } from "./BotBuddy";
+import { HeadBar, LiveMarkNode, WriteOn } from "./HomeHead";
+import { pageScrolled, pageTouched } from "./pageBus";
 
 // V3 FIRST, so every name registered below wins a collision. The one that
 // mattered is PieChart: V3's donut (which reads `data`) used to be spread LAST
@@ -1565,5 +1573,5 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
-  OnboardStage, BlipSpot, BlipRoam, BotTiles, BotCard,
+  OnboardStage, BlipSpot, BlipRoam, BotTiles, BotCard, BotBuddy, WriteOn, LiveMark: LiveMarkNode, HeadBar,
 };

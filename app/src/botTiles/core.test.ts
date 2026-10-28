@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
-import { BotTile, BotTilesWorld, Fabric, STEP, rng, type BotKind, type BotMood, type TileCtx } from "./core.ts";
+import { BotTile, BotTilesWorld, Fabric, LiveMark, STEP, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
 // @ts-expect-error a plain .mjs script, no types
 import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
 
@@ -158,6 +158,127 @@ test("a tile keeps its bots when it is resized, and its floor moves", () => {
   for (let f = 0; f < 240; f++) t.step(1 / 60);
   assert.ok(t.finite() && t.inside());
   assert.ok(t.y[3]! > 80, "feet on the new floor");
+});
+
+test("back to Home: a look left from a tap is let go at once, and every bot is at its own play again", () => {
+  // The tiles live on across screens (kept by slug); the tap's own letting-go went with the Home that was left.
+  const lives = KINDS.slice(0, 4).map((k, i) => tile(k, "idle", 10 + i));
+  const before = gridWorld(lives);
+  lives.forEach((t, i) => before.place(i, (i % 2) * 180, Math.floor(i / 2) * 144, 169, 132, 72));
+  before.focus(0, 80, 60);
+  for (let f = 0; f < 30; f++) before.step(1 / 60);
+  assert.ok(lives.slice(1).every((t) => t.focusX === t.focusX), "the others look at the tapped tile");
+  // Home is painted again: a new grid's world over the same bots.
+  const again = gridWorld(lives);
+  assert.strictEqual(again.focused, -1);
+  for (const t of lives) assert.ok(t.focusX !== t.focusX && t.focusGoal !== t.focusGoal, `${t.kind} let go`);
+  lives.forEach((t, i) => again.place(i, (i % 2) * 180, Math.floor(i / 2) * 144, 169, 132, 72));
+  for (let f = 0; f < 240; f++) again.step(1 / 60);
+  for (const t of lives) assert.ok(t.finite() && t.inside() && t.focusX !== t.focusX, t.kind);
+});
+
+const ACTS: BuddyAct[] = ["play", "wave", "survey", "read", "settle", "think"];
+
+/** A page's buddy: a header's small stage, or a setup step's. */
+function buddy(kind: BotKind, act: BuddyAct, mood: BotMood = "idle", w = 104, h = 48, size = 30): BotTile {
+  const t = new BotTile({ kind, color: "#4F7A3A", mood, seed: 3, size });
+  t.resize(w, h, h - 2);
+  t.setAct(act);
+  return t;
+}
+
+test("a bot on his own page: every kind, every moment, every mood, on a header's stage and a setup step's: finite and inside", () => {
+  for (const [w, h, size] of [[104, 48, 30], [150, 56, 34], [350, 128, 52]] as const) {
+    for (const kind of KINDS) for (const act of ACTS) for (const mood of MOODS) {
+      const t = buddy(kind, act, mood, w, h, size);
+      t.setLookTo("down");
+      for (let f = 0; f < 1800; f++) t.step(1 / 60);
+      assert.ok(t.finite(), `${kind}/${act}/${mood} ${w}x${h}`);
+      assert.ok(t.inside(), `${kind}/${act}/${mood} ${w}x${h}`);
+    }
+  }
+});
+
+test("the moments read as themselves: reading draws lines in, thinking a hand to the chin, survey looks down, settle sits", () => {
+  const read = buddy("code", "read", "idle", 350, 128, 52);
+  let homeward = 0, lit = 0;
+  for (let f = 0; f < 600; f++) { read.step(1 / 60); homeward = Math.max(homeward, read.shome.reduce((a, v, i) => a + (v && read.slife[i]! > 0 ? 1 : 0), 0)); lit = Math.max(lit, read.glow); }
+  assert.ok(homeward >= 4, `dots flowing in (${homeward})`);
+  assert.ok(lit > 0.02, "they light his antenna as they arrive");
+
+  const think = buddy("custom", "think", "needs");
+  for (let f = 0; f < 240; f++) think.step(1 / 60);
+  const hand = Math.min(Math.hypot(think.x[6]! - think.x[0]!, think.y[6]! - think.y[0]!), Math.hypot(think.x[8]! - think.x[0]!, think.y[8]! - think.y[0]!));
+  assert.ok(hand < think.S * 0.45, "thinking wins over needs: a hand at his chin");
+  assert.ok(think.eu > 0, "eyes up");
+
+  const survey = buddy("code", "survey", "idle", 350, 128, 52);
+  for (let f = 0; f < 240; f++) survey.step(1 / 60);
+  assert.ok(survey.lookY > survey.floor, "looking down over the list");
+  assert.ok(survey.eu < 0, "eyes down");
+
+  const settle = buddy("plan", "settle");
+  for (let f = 0; f < 240; f++) settle.step(1 / 60);
+  assert.ok(settle.sit > 0.5 || settle.act === 3, "settled: sitting (or a stretch)");
+
+  // Needs, on his page: he stops and faces the person.
+  const needs = buddy("travel", "play", "needs");
+  for (let f = 0; f < 240; f++) needs.step(1 / 60);
+  assert.ok(Math.abs(needs.face) < 0.3, "facing out");
+});
+
+test("a glance at the ask field: with lookTo his eyes go to it now and then; Reduce Motion is a still pose", () => {
+  const t = buddy("keybot", "play", "idle");
+  t.setLookTo("down");
+  let seen = 0;
+  for (let f = 0; f < 3600; f++) { t.step(1 / 60); if (t.lookY > t.h) seen++; }
+  assert.ok(seen > 60, `looked down at the field (${seen} frames)`);
+  for (const act of ACTS) {
+    const s = buddy("code", act);
+    for (let f = 0; f < 60; f++) s.step(1 / 60);
+    s.settle(true);
+    const x = Array.from(s.x);
+    for (let f = 0; f < 60; f++) s.step(1 / 60);
+    assert.deepStrictEqual(Array.from(s.x), x, act);
+  }
+});
+
+test("the living mark: springs that settle home, eyes on the finger, a scroll swings it, lit dots, a squish that springs back", () => {
+  const m = new LiveMark(4);
+  m.size = 44;
+  m.setLit(["#4F7A3A", "#A9573A"]);
+  assert.strictEqual(m.lit.filter(Boolean).length, 2);
+  m.look(200, 15); // a finger far to the right
+  for (let f = 0; f < 120; f++) m.step(1 / 60);
+  assert.ok(m.x[8]! > 13.8 && m.x[9]! > 21.8, "both eyes to the right");
+  m.lookAway();
+  m.nudge(2400);
+  m.press();
+  let swung = 0, squished = 0;
+  for (let f = 0; f < 600; f++) { m.step(1 / 60); swung = Math.max(swung, Math.abs(m.y[8]! - 15)); squished = Math.max(squished, m.squish); }
+  assert.ok(swung > 0.6, `a scroll swings the eyes (${swung})`);
+  assert.ok(squished > 0.1, "a press squishes it");
+  assert.ok(m.finite() && Math.abs(m.squish) < 0.02, "and it springs back");
+  for (let i = 0; i < 8; i++) assert.ok(Math.abs(m.x[i]! - [17, 26, 30, 27, 17, 7, 4, 8][i]!) < 1, "ring dots near home");
+  const c = counter();
+  m.draw(c);
+  assert.ok(c.calls > 10 && c.calls < 80, `drawn in a few calls (${c.calls})`);
+  m.settle(true);
+  const x = Array.from(m.x);
+  for (let f = 0; f < 60; f++) m.step(1 / 60);
+  assert.deepStrictEqual(Array.from(m.x), x, "Reduce Motion: still");
+});
+
+test("a line writes itself at dictation's pace: in order, uneven, a breath after a full stop; same seed, same timing", () => {
+  const words = "Still up? I’m here, and I’ll keep it quiet.".split(" ");
+  const t = writeOnTimes(words, 9);
+  assert.strictEqual(t.length, words.length);
+  for (let i = 1; i < t.length; i++) assert.ok(t[i]! > t[i - 1]!, "in order");
+  const gaps = t.slice(1).map((v, i) => v - t[i]!);
+  assert.ok(new Set(gaps).size > 3, "uneven");
+  assert.ok(gaps[1]! > gaps[2]!, "a breath after 'up?'");
+  assert.ok(t[t.length - 1]! < 4000, "done in a few seconds");
+  assert.deepStrictEqual(writeOnTimes(words, 9), t);
 });
 
 test("the window's botTiles.js is generated from this core, unchanged", { skip: !existsSync(DEFAULT_OUT) && "TAILZU-DESKTOP is not beside this repo" }, () => {
