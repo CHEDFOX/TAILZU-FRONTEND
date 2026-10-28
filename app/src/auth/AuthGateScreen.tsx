@@ -955,7 +955,13 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         // nothing more: the system face draws instead.
         setFontsHold(true);
         const settle = () => { if (alive) { setSduiTree(usable); setFontsHold(false); } };
-        fontsReady(list<string>("onboard.fonts", ["Tailzu Grotesk", "Tailzu Hand"]), num("onboard.fontWaitMs", 600))
+        // The Bots app's sign-in (its stage is "bots.auth") is set in Geist, not
+        // in the onboarding's two faces: it waits for those instead.
+        const botsAuth = (usable.props as { id?: unknown } | undefined)?.id === "bots.auth";
+        const faces = botsAuth
+          ? list<string>("bots.auth.fonts", ["Tailzu Geist", "Tailzu Geist SemiBold", "Tailzu Geist Bold"])
+          : list<string>("onboard.fonts", ["Tailzu Grotesk", "Tailzu Hand"]);
+        fontsReady(faces, num("onboard.fontWaitMs", 600))
           .then(settle, settle);
       } else {
         setSduiTree(usable);
