@@ -851,6 +851,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // Parsed first, so applyConfig below reads THIS config's flags rather
         // than the previous one's.
         sduiConfig = parsed
+        // A Look picked in Keybot (kb.look.force) lands with the config, not
+        // only at the next show; the rebuild below draws it.
+        refreshAppearance()
         // Fallback theme/labels always parsed — used for label() lookups and
         // for the tone pill even when SDUI is driving the tree.
         try { applyConfig(Net.parseConfig(json)) } catch (_: Exception) {}
@@ -1861,9 +1864,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     /** Follow the system appearance (themeDark / themeLight, and the tree's
-     *  appearance-gated rows). True when it changed. */
+     *  appearance-gated rows) — or Keybot's Look (kb.look.force, sent only for
+     *  someone who picked one), which holds it light or dark. True when it changed. */
     private fun refreshAppearance(): Boolean {
-        val next = if (
+        val forced = (sduiConfig?.flags?.get("kb.look.force") as? String)?.takeIf { it == "light" || it == "dark" }
+        val next = forced ?: if (
             (resources.configuration.uiMode and
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
                 android.content.res.Configuration.UI_MODE_NIGHT_YES

@@ -5820,10 +5820,18 @@ final class SDUIRenderer: NSObject {
     }
 
     // Backend flags:
+    //   kb.space.holdToSpeak      (absent = off) — Keybot's "Hold space to speak": the hold
+    //                             does what a tap on the mic does, in place of the trackpad
     //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
     //   kb.trackpad.longPressMs   (default 300) — hold-to-activate threshold
     // (sensitivity / pt-per-char is exposed on the .changed handler below.)
-    if flagBool("kb.trackpad.enabled", true) {
+    if config.flags?["kb.space.holdToSpeak"]?.asBool == true {
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(spaceHoldToSpeak(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
+      lp.minimumPressDuration = flagDouble("kb.longPress.ms", 500) / 1000.0
+      btn.addGestureRecognizer(lp)
+    } else if flagBool("kb.trackpad.enabled", true) {
       let lp = UILongPressGestureRecognizer(
         target: WeakGRProxy(target: self, selector: #selector(spaceLongPress(_:))),
         action: #selector(WeakGRProxy.handle(_:)))
@@ -5895,6 +5903,16 @@ final class SDUIRenderer: NSObject {
     // a synchronous remount would deallocate that very button (and its
     // gestures) mid-callback.
     DispatchQueue.main.async { [weak self] in self?.remount() }
+  }
+
+  /// Hold space to speak (kb.space.holdToSpeak): starts what a tap on the mic
+  /// starts — the mic's own action, so flow mode and a server on.onPress behave
+  /// exactly as they do from the mic. Never stops a recording; the mic does that.
+  /// No mic on screen (a password box) means nothing to start.
+  @objc private func spaceHoldToSpeak(_ gr: UILongPressGestureRecognizer) {
+    guard gr.state == .began, !state.dictating, let mic = currentMicButton else { return }
+    fireKeyHaptic("mic")
+    mic.sendActions(for: .touchUpInside)
   }
 
   /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
@@ -7290,10 +7308,14 @@ final class SDUIRenderer: NSObject {
     // press-in — the *release* is what's animated). Combined with the animated
     // touchUp below, this gives the "soft glow fade" that reads as premium.
     btn.backgroundColor = pressed
-    // System input-click sound. Only plays when the extension conforms to
+    // System input-click sound, unless Key sounds is Off in Keybot
+    // (kb.key.sound false — sent only for someone who chose; absent = as
+    // always). It only plays when the extension conforms to
     // UIInputViewAudioFeedback (see KeyboardViewController extension) AND the
     // user has "Keyboard Feedback → Sound" on in Settings — otherwise silent.
-    UIDevice.current.playInputClick()
+    if config.flags?["kb.key.sound"]?.asBool != false {
+      UIDevice.current.playInputClick()
+    }
     // The key's id: props.hapticId / node id / role ("space", "return",
     // "mic"…) stored at render — see hapticId(for:). A letter or punctuation
     // key has none, and its title IS its id, matching what the picker writes
