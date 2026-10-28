@@ -306,6 +306,33 @@ export interface ScreenResponse {
    * should not be the only way to reach Settings.
    */
   hideHeader?: boolean;
+  /** "desk": a desktop desk page. "bots": a Bots app page, drawn edge to edge from the kit. Phones draw both as any screen. */
+  look?: "desk" | "bots";
+}
+
+/**
+ * THE BOTS APP'S KIT (backend shared/types/sdui.ts, "The Bots app's kit").
+ * This bundle declares BOTS_KIT_CAPABILITY, promising: SVG `shapes` with the
+ * three motions (SvgShapes.tsx), SafeArea `edges` / `inset` / `barStyle`, and
+ * TextField `on.onSubmit` on the return key.
+ */
+export const BOTS_KIT_CAPABILITY = "BotsKit";
+
+/** One shape of an `SVG` node's `shapes`. A circle or a path. */
+export interface SvgShape {
+  circle?: [number, number, number];
+  d?: string;
+  fill?: string;
+  stroke?: string;
+  strokeWidth?: number;
+  dash?: string;
+  linecap?: "round" | "butt" | "square";
+  linejoin?: "round" | "miter" | "bevel";
+  opacity?: number;
+  rotate?: number;
+  origin?: [number, number];
+  motion?: "breathe" | "pop" | "draw";
+  delayMs?: number;
 }
 
 export type ActionRef = string | ActionSpec;

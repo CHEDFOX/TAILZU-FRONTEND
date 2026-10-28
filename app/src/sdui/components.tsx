@@ -495,6 +495,8 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
           : null,
       ]}
       accessibilityRole="button"
+      // What a screen reader says for a box whose content is a picture (the Bots kit's icon buttons).
+      accessibilityLabel={typeof props?.accessibilityLabel === "string" ? props.accessibilityLabel : undefined}
     >
       {children}
     </Pressable>
@@ -699,6 +701,11 @@ const TextField = ({ node, props, style, store, fire }: CompProps) => {
       }}
       placeholder={props.placeholder}
       placeholderTextColor={props.placeholderColor ?? theme.color.muted}
+      // The return key runs the node's on.onSubmit (the Bots app's ask bar sends with it). A field without one
+      // keeps the keyboard's own return, as before.
+      onSubmitEditing={node.on?.onSubmit ? (e) => fire("onSubmit", e.nativeEvent.text) : undefined}
+      returnKeyType={props.returnKeyType}
+      submitBehavior={node.on?.onSubmit && !props.multiline ? "blurAndSubmit" : undefined}
       multiline={props.multiline}
       autoCapitalize={props.autoCapitalize}
       autoCorrect={props.autoCorrect}
