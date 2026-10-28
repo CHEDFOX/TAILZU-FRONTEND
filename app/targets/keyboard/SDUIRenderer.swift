@@ -4969,6 +4969,9 @@ final class SDUIRenderer: NSObject {
   // mark" pass. `micReassembling` keeps buildMicKey rendering the sim (rather
   // than the static mark) for that brief converge window after recording ends.
   private var currentMicParticles: MicParticleView?
+  /// The mic key's bot (kb.mic.bot = "peek"), kept across remounts so its
+  /// motion carries on when the key is rebuilt.
+  private var currentPeekBot: PeekBotView?
   private var micReassembling = false
   // The mark view that lives across remounts when the server's recording
   // motion is the dispersal, so record → stop → home is one unbroken motion.
@@ -6496,7 +6499,22 @@ final class SDUIRenderer: NSObject {
     // recording, as text), else the dispersal, the particles, or nothing.
     let recKind = TulmiMarkView.recordingKind(markMotion, program: markProgram)
     let plays = (recKind == "disperse" || recKind == "program") && markSpec != nil
-    if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
+    if flagString("kb.mic.bot", "") == "peek" {
+      // THE BOT: the key is its window, idle and recording alike.
+      btn.setImage(nil, for: .normal)
+      let bot = peekBot()
+      bot.removeFromSuperview()
+      bot.translatesAutoresizingMaskIntoConstraints = false
+      btn.addSubview(bot)
+      let inset = flagCGFloat("kb.mic.bot.inset", 0)
+      NSLayoutConstraint.activate([
+        bot.leadingAnchor.constraint(equalTo: btn.leadingAnchor, constant: inset),
+        bot.trailingAnchor.constraint(equalTo: btn.trailingAnchor, constant: -inset),
+        bot.topAnchor.constraint(equalTo: btn.topAnchor, constant: inset),
+        bot.bottomAnchor.constraint(equalTo: btn.bottomAnchor, constant: -inset),
+      ])
+      bot.wake()
+    } else if (state.dictating || micReassembling), particlesOn, recKind == "particles" {
       // The structure bursts apart into the dots (recording), or the dots are
       // springing back into the structure (micReassembling, after stop). Either
       // way we mount the SAME persistent sim so the motion is continuous across
@@ -6646,6 +6664,28 @@ final class SDUIRenderer: NSObject {
       btn.addAction(action, for: .touchUpInside)
     }
     return btn
+  }
+
+  /// The one bot, made on first use with the server's colours and timings.
+  /// It reads the mic's state itself every frame.
+  private func peekBot() -> PeekBotView {
+    if let b = currentPeekBot { return b }
+    let b = PeekBotView(frame: .zero)
+    b.windowColor = flagColor("kb.mic.bot.window", "#2E2B28")
+    b.shellTop = flagColor("kb.mic.bot.shell", "#FBF0DE")
+    b.shellBottom = flagColor("kb.mic.bot.shellShade", "#E9D0A8")
+    b.bodyColor = flagColor("kb.mic.bot.body", "#E2C59A")
+    b.visorColor = flagColor("kb.mic.bot.visor", "#1D1C1B")
+    b.glowColor = flagColor("kb.mic.bot.glow", "#FFF1D6")
+    b.clayColor = flagColor("kb.mic.bot.clay", "#C9683F")
+    b.peekMin = flagDouble("kb.mic.bot.peekMinSec", 4)
+    b.peekMax = flagDouble("kb.mic.bot.peekMaxSec", 9)
+    b.doneHold = flagDouble("kb.mic.bot.doneSec", 1.6)
+    b.dictating = { [weak self] in self?.state.dictating ?? false }
+    b.busy = { [weak self] in self?.state.refining ?? false }
+    b.level = { [weak self] in self?.state.micLevel ?? 0 }
+    currentPeekBot = b
+    return b
   }
 
   /// Refine key — dispatches runRefine, unless the node's on.onPress says
@@ -7398,6 +7438,7 @@ final class SDUIRenderer: NSObject {
   private static var keyPressedOverrideKey: UInt8 = 0
 
   @objc private func keyTouchDown(_ btn: UIButton) {
+    if btn !== currentMicButton { currentPeekBot?.noteTyping() }
     // A real (non-plane) key going down flushes any still-held plane letters
     // first, so letter→space / letter→shift overlaps keep press order. Plane-
     // managed letters have isUserInteractionEnabled == false and reach here

@@ -351,6 +351,9 @@ class SDUIRenderer(
     // start/stop transition inside stateChanged() (there's no reflectDictating
     // hook on Android — every mutation funnels through stateChanged()).
     private var currentMicParticles: MicParticleView? = null
+    /** The mic key's bot (kb.mic.bot = "peek"), kept across redraws so its
+     *  motion carries on when the key is rebuilt. */
+    private var currentPeekBot: TulmiPeekBot? = null
     private var micReassembling = false
     private var lastDictating = false
     // The mark view that lives across redraws when the server's recording
@@ -2436,7 +2439,18 @@ class SDUIRenderer(
         // particles, or nothing.
         val recKind = if (markProgram != null && markProgram.optDouble("version", 0.0) >= 1) "program" else TulmiMarkView.recordingKind(markMotion)
 
-        val view: View = if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
+        val view: View = if (flagString("kb.mic.bot", "") == "peek") {
+            // THE BOT: the key is its window, idle and recording alike.
+            FrameLayout(host.context()).apply {
+                background = keyBackground(node)
+                val inset = dp(flagFloat("kb.mic.bot.inset", 0f).toInt())
+                setPadding(inset, inset, inset, inset)
+                val bot = peekBot()
+                (bot.parent as? ViewGroup)?.removeView(bot)
+                addView(bot, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                bot.wake()
+            }
+        } else if (particlesOn && recKind == "particles" && (dictating || micReassembling)) {
             val frame = FrameLayout(host.context()).apply { background = keyBackground(node) }
             val inset = dp(flagFloat("kb.mic.particles.inset", 6f).toInt())
             frame.setPadding(inset, inset, inset, inset)
@@ -2508,6 +2522,25 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         addChildWithStyle(parent, view, node.style, isRow = parent.isHorizontal())
+    }
+
+    /** The one bot, made on first use with the server's colours and timings.
+     *  It reads the mic's state itself every frame. */
+    private fun peekBot(): TulmiPeekBot = currentPeekBot ?: TulmiPeekBot(host.context()).also { b ->
+        b.windowColor = flagColor("kb.mic.bot.window", "#2E2B28")
+        b.shellTop = flagColor("kb.mic.bot.shell", "#FBF0DE")
+        b.shellBottom = flagColor("kb.mic.bot.shellShade", "#E9D0A8")
+        b.bodyColor = flagColor("kb.mic.bot.body", "#E2C59A")
+        b.visorColor = flagColor("kb.mic.bot.visor", "#1D1C1B")
+        b.glowColor = flagColor("kb.mic.bot.glow", "#FFF1D6")
+        b.clayColor = flagColor("kb.mic.bot.clay", "#C9683F")
+        b.peekMin = flagFloat("kb.mic.bot.peekMinSec", 4f).toDouble()
+        b.peekMax = flagFloat("kb.mic.bot.peekMaxSec", 9f).toDouble()
+        b.doneHold = flagFloat("kb.mic.bot.doneSec", 1.6f).toDouble()
+        b.dictating = { host.state().dictating }
+        b.busy = { host.state().refining }
+        b.level = { host.state().micLevel }
+        currentPeekBot = b
     }
 
     /** The one mark view for the dispersal, reused across redraws while the spec,
@@ -3678,6 +3711,7 @@ class SDUIRenderer(
      * closest Android feedback constants.
      */
     private fun hapticTap(v: View, keyId: String? = null) {
+        if (keyId != "mic") currentPeekBot?.noteTyping()
         keySound(keyId)
         if (!flagBoolean("kb.haptics.enabled", true)) return
         if (!hapticsOn(keyId)) return
