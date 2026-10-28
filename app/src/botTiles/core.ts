@@ -61,7 +61,7 @@ export interface TileOptions {
 }
 
 /** The tap: press, the other bots look, the others' words fade to fadeTo, and after holdMs the tile's action runs. */
-export const TAP = { holdMs: 450, fadeTo: 0.35, fadeMs: 200, pressScale: 0.97, restoreMs: 1400 } as const;
+export const TAP = { holdMs: 1000, fadeTo: 0.35, fadeMs: 260, pressScale: 0.97, restoreMs: 1400 } as const;
 
 /** The fixed step, and the longest frame that is simulated (a longer pause is not caught up). */
 export const STEP = 1 / 120;
@@ -437,6 +437,8 @@ export class BotTile {
   /** A look asked from outside (the tap moment): it wins over the brain's own. */
   focusX = NaN;
   focusY = NaN;
+  /** Where he steps to when another tile is tapped: set once, on the first frame of the look. */
+  focusGoal = NaN;
   cheerT = -1;
 
   // The brain.
@@ -539,6 +541,7 @@ export class BotTile {
   lookAway(): void {
     this.focusX = NaN;
     this.focusY = NaN;
+    this.focusGoal = NaN;
   }
 
   /** A press at (x, y): the cloth is drawn in under the finger, and the bot perks up and looks out at the person. */
@@ -1404,10 +1407,12 @@ export class BotTile {
     // A look from outside (another tile was tapped): stop, turn the head to it.
     const focused = this.focusX === this.focusX && (this.kind !== "make" || this.together > 0.9);
     if (focused) {
-      this.goalX = this.x[HIP]!;
       const dx = this.focusX - this.x[HEAD]!, dy = this.focusY - this.y[HEAD]!;
-      this.tilt = clamp(Math.atan2(dx, -dy) * 0.36, -0.38, 0.38);
-      this.lean = clamp(dx / (Math.abs(dx) + S * 6), -0.12, 0.12);
+      // Readable at tile size: one step its way, the head turned hard to it, the body leaning in.
+      if (this.focusGoal !== this.focusGoal) this.focusGoal = clamp(this.x[HIP]! + (dx >= 0 ? 1 : -1) * S * 0.9, this.wallL + S, this.wallR - S);
+      this.goalX = this.focusGoal;
+      this.tilt = clamp(Math.atan2(dx, -dy) * 0.6, -0.62, 0.62);
+      this.lean = clamp(dx / (Math.abs(dx) + S * 3), -0.3, 0.3);
       this.lidTo = 0;
       this.sitTo(0, h);
       return;
