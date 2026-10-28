@@ -68,6 +68,8 @@ export class SkiaCtx implements Ctx2D {
   lineWidth = 1;
   lineCap: "butt" | "round" | "square" = "butt";
   lineJoin: "round" | "miter" | "bevel" = "miter";
+  /** Multiplies every colour's alpha (the living tiles draw their faint fabric and props with it). */
+  globalAlpha = 1;
   private canvas: SkCanvas;
   private paint: SkPaint;
   // A PathBuilder, not a mutable SkPath: Skia 2 deprecates building on the
@@ -92,6 +94,14 @@ export class SkiaCtx implements Ctx2D {
   moveTo(x: number, y: number): void { this.path.moveTo(x, y); }
   lineTo(x: number, y: number): void { this.path.lineTo(x, y); }
   quadraticCurveTo(cx: number, cy: number, x: number, y: number): void { this.path.quadTo(cx, cy, x, y); }
+  /** A circle (a whole turn) or an arc, clockwise as the canvas draws it (radians). */
+  arc(x: number, y: number, r: number, a0: number, a1: number): void {
+    const sweep = a1 - a0;
+    if (sweep >= Math.PI * 2 - 1e-6) { this.path.addCircle(x, y, r); return; }
+    this.path.arcToOval(Skia.XYWHRect(x - r, y - r, 2 * r, 2 * r), a0 * 180 / Math.PI, sweep * 180 / Math.PI, false);
+  }
+  /** Draw on another canvas (a new picture each frame) with the same paint and path. */
+  retarget(canvas: SkCanvas): void { this.canvas = canvas; }
   clip(): void { this.canvas.clipPath(this.path.build(), ClipOp.Intersect, true); }
   createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): Grad {
     return new SkGrad(x0, y0, r0, x1, y1, r1);
@@ -119,6 +129,7 @@ export class SkiaCtx implements Ctx2D {
     p.setStrokeCap(CAPS[this.lineCap]);
     p.setStrokeJoin(JOINS[this.lineJoin]);
     p.setColor(col(this.strokeStyle));
+    if (this.globalAlpha < 1) p.setAlphaf(col(this.strokeStyle)[3]! * this.globalAlpha);
     this.canvas.drawPath(this.path.build(), p);
   }
 
@@ -128,6 +139,7 @@ export class SkiaCtx implements Ctx2D {
     if (typeof f === "string") {
       p.setShader(null);
       p.setColor(col(f));
+      if (this.globalAlpha < 1) p.setAlphaf(col(f)[3]! * this.globalAlpha);
       return;
     }
     const g = f as SkGrad;
