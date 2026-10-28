@@ -1197,7 +1197,7 @@ class SDUIRenderer(
                     "ShiftKey" -> { { hapticTap(plane, "shift"); holdShift() } }
                     else -> if (c.on.containsKey("onLongPress")) {
                         { invokeEvent(c, "onLongPress") }
-                    } else if (c.type == "SpaceKey" && holdSpaceToSpeak()) {
+                    } else if (c.type == "SpaceKey" && holdSpaceToSpeak() && !trackpadOn()) {
                         { speakFromSpace(plane) }
                     } else null
                 },
@@ -1224,8 +1224,8 @@ class SDUIRenderer(
             keys += key
             registerGridKey(plane, key, c, raw.takeIf { c.bind["content"] == null })
             // Hold space to steer the caret, unless the server gave it a hold
-            // (its own onLongPress, or Keybot's hold space to speak).
-            if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress") && !holdSpaceToSpeak()) trackpadDrawn += key
+            // of its own. Keybot's hold space to speak rides the trackpad hold.
+            if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress")) trackpadDrawn += key
             if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
                 drawnLettersByChar[raw.lowercase()] = key
             }
@@ -1489,6 +1489,16 @@ class SDUIRenderer(
     private var trackpadWindow = ""
     private var trackpadCaretInWindow = 0
     private var trackpadSteps = 0
+    /** Hold space to speak: the pending speak while the hold waits to see if
+     *  the finger slides; whether it spoke; the travel when steering began. */
+    private var spaceSpeak: Runnable? = null
+    private var spaceSpoke = false
+    private var trackpadDxBase = 0f
+
+    private fun cancelSpaceSpeak() {
+        spaceSpeak?.let { handler.removeCallbacks(it) }
+        spaceSpeak = null
+    }
 
     private val scratchLoc = IntArray(2)
     private val scratchBase = IntArray(2)
@@ -1625,9 +1635,16 @@ class SDUIRenderer(
             p.chipRadius = flagFloat("kb.accentTray.chipRadius", 6f) * dm.density
             p.trayOffsetY = flagFloat("kb.accentTray.offsetY", -52f) * dm.density
             p.edgeInset = 4f * dm.density
+            val ink = parseHex(theme.keyText)
+            p.trayBorderPx = dm.density.coerceAtMost(2f) / 2f
+            p.trayBorderColor = Color.argb((flagFloat("kb.accentTray.borderAlpha", 0.16f).coerceIn(0f, 1f) * 255).toInt(),
+                Color.red(ink), Color.green(ink), Color.blue(ink))
+            p.setTrayShadow(
+                Color.argb((flagFloat("kb.accentTray.shadowOpacity", 0.35f).coerceIn(0f, 1f) * 255).toInt(), 0, 0, 0),
+                flagFloat("kb.accentTray.shadowRadius", 8f) * dm.density, 3f * dm.density)
             p.showTray(
                 toContainer(plane, rect), items,
-                bg = parseHex(theme.key),
+                bg = traySurface(),
                 ink = parseHex(theme.keyText),
                 activeBg = flagColor("kb.accentTray.chipActiveBg", "#007AFF"),
                 textPx = flagFloat("kb.accentTray.chipFontSize", 22f) * dm.scaledDensity,
@@ -1636,6 +1653,21 @@ class SDUIRenderer(
             holdHaptic(plane)
             TulmiTelemetry.bump(TulmiTelemetry.ACCENT_TRAY_OPENED)
             return true
+        }
+
+        /** The tray is always solid, so keys never show through a see-through
+         *  key colour: kb.accentTray.bg wins; else the key colour as it looks
+         *  over the keyboard (dark under light ink), made opaque. */
+        private fun traySurface(): Int {
+            val hex = flagString("kb.accentTray.bg", "")
+            if (hex.isNotEmpty()) return parseHex(hex) or (0xFF shl 24)
+            val key = parseHex(theme.key)
+            val ink = parseHex(theme.keyText)
+            val inkLight = (0.299 * Color.red(ink) + 0.587 * Color.green(ink) + 0.114 * Color.blue(ink)) / 255.0 >= 0.5
+            val under = if (inkLight) 31 else 242
+            val a = Color.alpha(key) / 255f
+            fun over(c: Int) = (c * a + under * (1 - a)).toInt().coerceIn(0, 255)
+            return Color.rgb(over(Color.red(key)), over(Color.green(key)), over(Color.blue(key)))
         }
 
         override fun trayMove(plane: TulmiKeyPlane, x: Float, y: Float) {
@@ -1675,6 +1707,26 @@ class SDUIRenderer(
         }
 
         override fun trackpadStart(plane: TulmiKeyPlane) {
+            spaceSpoke = false
+            trackpadDxBase = 0f
+            val s = host.state()
+            // Hold space to speak: wait to see if the finger slides (steer) or
+            // stays (speak). A password box or a running recording only steers.
+            if (holdSpaceToSpeak() && !s.dictating && !s.secured) {
+                val wait = flagFloat("kb.space.speakHoldMs", 550f) - flagFloat("kb.trackpad.longPressMs", 300f)
+                val r = Runnable {
+                    spaceSpeak = null
+                    spaceSpoke = true
+                    speakFromSpace(plane)
+                }
+                spaceSpeak = r
+                handler.postDelayed(r, wait.toLong().coerceAtLeast(0L))
+                return
+            }
+            beginSteer(plane)
+        }
+
+        private fun beginSteer(plane: TulmiKeyPlane) {
             val s = host.state()
             s.trackpadActive = true
             trackpadAnchor = host.caretPosition()
@@ -1695,9 +1747,17 @@ class SDUIRenderer(
         }
 
         override fun trackpadMove(plane: TulmiKeyPlane, dx: Float) {
-            val perChar = flagFloat("kb.trackpad.ptPerChar", 7f).coerceAtLeast(1f) *
-                host.context().resources.displayMetrics.density
-            val steps = (dx / perChar).toInt()
+            val density = host.context().resources.displayMetrics.density
+            if (spaceSpoke) return
+            if (spaceSpeak != null) {
+                if (Math.abs(dx) <= flagFloat("kb.trackpad.startDriftPt", 8f) * density) return
+                cancelSpaceSpeak()
+                trackpadDxBase = dx
+                beginSteer(plane)
+                return
+            }
+            val perChar = flagFloat("kb.trackpad.ptPerChar", 7f).coerceAtLeast(1f) * density
+            val steps = ((dx - trackpadDxBase) / perChar).toInt()
             if (steps == trackpadSteps) return
             val delta = steps - trackpadSteps
             trackpadSteps = steps
@@ -1705,6 +1765,8 @@ class SDUIRenderer(
         }
 
         override fun trackpadEnd(plane: TulmiKeyPlane) {
+            cancelSpaceSpeak()
+            spaceSpoke = false
             val s = host.state()
             s.trackpadActive = false
             lastSpaceAt = 0L
@@ -1998,9 +2060,9 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         // Hold to steer the caret (the row's plane runs it), unless the server
-        // gave space a hold of its own — or Keybot's hold space to speak, which
-        // runs through the plane like any server hold.
-        if (holdSpaceToSpeak()) {
+        // gave space a hold of its own. Keybot's hold space to speak rides the
+        // trackpad hold (still = speak); with the trackpad off it is the hold.
+        if (holdSpaceToSpeak() && !trackpadOn()) {
             bindHold(parent, b, flagFloat("kb.longPress.ms", 500f).toLong()) { speakFromSpace(b) }
         } else if (!node.on.containsKey("onLongPress")) trackpadViews += b
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
@@ -2008,9 +2070,11 @@ class SDUIRenderer(
     }
 
     /** Keybot's "Hold space to speak" (kb.space.holdToSpeak — sent only for
-     *  someone who turned it on; absent = off): holding space starts dictation
-     *  as a tap on the mic does, in place of the trackpad. */
+     *  someone who turned it on; absent = off): holding space still starts
+     *  dictation as a tap on the mic does; sliding steers the caret. */
     private fun holdSpaceToSpeak(): Boolean = kbConfig.flags["kb.space.holdToSpeak"] == true
+
+    private fun trackpadOn(): Boolean = flagBoolean("kb.trackpad.enabled", true)
 
     /** What the mic's tap does when it starts, never a stop: the mic stops it.
      *  A password box is refused by the host, as from the mic. */

@@ -3854,6 +3854,9 @@ final class SDUIRenderer: NSObject {
   private var _lastSpaceTapTime: TimeInterval = 0
   private var _trackpadAnchor: CGFloat = 0
   private var _trackpadOffset: Int = 0
+  /// Hold space to speak: the hold is waiting to see if the finger slides.
+  private var _spaceHoldPending = false
+  private var _spaceSpeakWork: DispatchWorkItem?
   private var deleteTimer: Timer?
   private var deleteRepeatCount: Int = 0
   // Timer + [weak self] avoids the retain cycle CADisplayLink would create
@@ -5535,15 +5538,34 @@ final class SDUIRenderer: NSObject {
   /// Highlight the chip under `loc` (tray-local coords); un-highlight the rest.
   private func updateAccentTrayHighlight(at loc: CGPoint) {
     guard let tray = activeAccentTray else { return }
-    tray.subviews.forEach { chip in
-      chip.backgroundColor = chip.frame.contains(loc)
-        ? flagColor("kb.accentTray.chipActiveBg", "#007AFF")
-        : keyBgColor()
-    }
+    tray.subviews.forEach { chip in setChipLit(chip, chip.frame.contains(loc)) }
+  }
+
+  /// A lit chip takes the active colour and ink that reads on it; the rest sit
+  /// clear on the tray's solid surface.
+  private func setChipLit(_ chip: UIView, _ lit: Bool) {
+    let active = flagColor("kb.accentTray.chipActiveBg", "#007AFF")
+    chip.backgroundColor = lit ? active : .clear
+    (chip as? UIButton)?.setTitleColor(lit ? (keyIsDark(active) ? .white : .black) : keyTextColor(), for: .normal)
+  }
+
+  /// The tray's surface is always solid, so the keys under it never show
+  /// through a see-through key colour. kb.accentTray.bg (hex) wins; else the
+  /// key colour as it looks over the keyboard (dark under light ink), opaque.
+  private func accentTraySurface() -> UIColor {
+    let hex = flagString("kb.accentTray.bg", "")
+    if !hex.isEmpty { return UIColor(tulmiHex: hex).withAlphaComponent(1) }
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    keyBgColor().getRed(&r, green: &g, blue: &b, alpha: &a)
+    let under: CGFloat = keyIsDark(keyTextColor()) ? 0.95 : 0.12
+    func over(_ c: CGFloat) -> CGFloat { c * a + under * (1 - a) }
+    return UIColor(red: over(r), green: over(g), blue: over(b), alpha: 1)
   }
 
   private func showAccentTray(for anchor: UIButton, base: String, options: [String]) {
     dismissAccentTray()
+    // The tray replaces the key-pop balloon; left up, it sits over the chips.
+    hideKeyCallout()
     guard let container = mountContainer else { return }
     let uppercased = state.shift || state.capsLock
     let items = ([base] + options).map { uppercased ? $0.uppercased() : $0 }
@@ -5572,9 +5594,17 @@ final class SDUIRenderer: NSObject {
     tray.alignment = .fill
     tray.spacing = gap
     tray.translatesAutoresizingMaskIntoConstraints = false
-    tray.backgroundColor = keyBgColor()
+    tray.backgroundColor = accentTraySurface()
     tray.layer.cornerRadius = trayRadius
-    tray.layer.masksToBounds = true
+    // Lifted off the keys: a hairline edge and a shadow (so no masking).
+    tray.layer.masksToBounds = false
+    tray.layer.borderWidth = 1 / UIScreen.main.scale
+    tray.layer.borderColor = keyTextColor()
+      .withAlphaComponent(flagCGFloat("kb.accentTray.borderAlpha", 0.16)).cgColor
+    tray.layer.shadowColor = UIColor.black.cgColor
+    tray.layer.shadowOpacity = Float(flagDouble("kb.accentTray.shadowOpacity", 0.35))
+    tray.layer.shadowRadius = flagCGFloat("kb.accentTray.shadowRadius", 8)
+    tray.layer.shadowOffset = CGSize(width: 0, height: 3)
     tray.isLayoutMarginsRelativeArrangement = true
     tray.layoutMargins = UIEdgeInsets(top: trayPad, left: trayPad, bottom: trayPad, right: trayPad)
 
@@ -5680,9 +5710,7 @@ final class SDUIRenderer: NSObject {
     guard let tray = activeAccentTray else { return false }
     // Default-highlight the base chip (iOS does this) so releasing without
     // sliding reads as "the base letter is selected".
-    if let baseChip = tray.subviews.first {
-      baseChip.backgroundColor = flagColor("kb.accentTray.chipActiveBg", "#007AFF")
-    }
+    if let baseChip = tray.subviews.first { setChipLit(baseChip, true) }
     return true
   }
 
@@ -5820,23 +5848,24 @@ final class SDUIRenderer: NSObject {
     }
 
     // Backend flags:
-    //   kb.space.holdToSpeak      (absent = off) — Keybot's "Hold space to speak": the hold
-    //                             does what a tap on the mic does, in place of the trackpad
+    //   kb.space.holdToSpeak      (absent = off) — Keybot's "Hold space to speak". With the
+    //                             trackpad on, the hold decides by moving: slide = caret,
+    //                             stay still = what a tap on the mic does.
     //   kb.trackpad.enabled       (default true) — disable to lose the feature entirely
     //   kb.trackpad.longPressMs   (default 300) — hold-to-activate threshold
     // (sensitivity / pt-per-char is exposed on the .changed handler below.)
-    if config.flags?["kb.space.holdToSpeak"]?.asBool == true {
-      let lp = UILongPressGestureRecognizer(
-        target: WeakGRProxy(target: self, selector: #selector(spaceHoldToSpeak(_:))),
-        action: #selector(WeakGRProxy.handle(_:)))
-      lp.minimumPressDuration = flagDouble("kb.longPress.ms", 500) / 1000.0
-      btn.addGestureRecognizer(lp)
-    } else if flagBool("kb.trackpad.enabled", true) {
+    if flagBool("kb.trackpad.enabled", true) {
       let lp = UILongPressGestureRecognizer(
         target: WeakGRProxy(target: self, selector: #selector(spaceLongPress(_:))),
         action: #selector(WeakGRProxy.handle(_:)))
       lp.minimumPressDuration = flagDouble("kb.trackpad.longPressMs", 300) / 1000.0
       lp.allowableMovement = 1000
+      btn.addGestureRecognizer(lp)
+    } else if config.flags?["kb.space.holdToSpeak"]?.asBool == true {
+      let lp = UILongPressGestureRecognizer(
+        target: WeakGRProxy(target: self, selector: #selector(spaceHoldToSpeak(_:))),
+        action: #selector(WeakGRProxy.handle(_:)))
+      lp.minimumPressDuration = flagDouble("kb.longPress.ms", 500) / 1000.0
       btn.addGestureRecognizer(lp)
     }
     return btn
@@ -5918,27 +5947,42 @@ final class SDUIRenderer: NSObject {
   /// Long-press on the space bar → trackpad-cursor mode. Once .began fires,
   /// we track the finger and issue adjustTextPosition calls in proportion to
   /// horizontal movement. Ends when the finger lifts.
+  ///
+  /// With hold space to speak on, the hold waits for the finger: a slide past
+  /// kb.trackpad.startDriftPt steers the caret; still at kb.space.speakHoldMs
+  /// it starts what the mic starts. No mic on screen (a password box) or a
+  /// recording already running means steering only.
   @objc private func spaceLongPress(_ gr: UILongPressGestureRecognizer) {
     guard let view = gr.view else { return }
+    let x = gr.location(in: view).x
     switch gr.state {
     case .began:
-      state.trackpadActive = true
-      _trackpadAnchor = gr.location(in: view).x
+      _trackpadAnchor = x
       _trackpadOffset = 0
-      resetTypingContext()   // cursor is about to move — the word tracker is void
-      // Subtle haptic to signal mode entry.
-      if let host = host, host.hostHasFullAccess {
-        let g = UIImpactFeedbackGenerator(style: .light)
-        g.prepare(); g.impactOccurred()
+      if config.flags?["kb.space.holdToSpeak"]?.asBool == true, !state.dictating, currentMicButton != nil {
+        _spaceHoldPending = true
+        let wait = max(0, flagDouble("kb.space.speakHoldMs", 550)
+                          - flagDouble("kb.trackpad.longPressMs", 300)) / 1000.0
+        let work = DispatchWorkItem { [weak self] in self?.speakFromSpaceHold() }
+        _spaceSpeakWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+      } else {
+        startTrackpad()
       }
-      stateChanged()
     case .changed:
-      let cur = gr.location(in: view).x
+      if _spaceHoldPending {
+        guard abs(x - _trackpadAnchor) > flagCGFloat("kb.trackpad.startDriftPt", 8) else { return }
+        cancelSpaceSpeak()
+        _trackpadAnchor = x
+        startTrackpad()
+        return
+      }
+      guard state.trackpadActive else { return }
       // 7pt per character — matches Apple's feel. Sub-character deltas
       // accumulate in _trackpadOffset so slow drags still move.
       // Backend flag: kb.trackpad.ptPerChar (default 7) — pt of finger drag per
       // one-character cursor step. Higher = less sensitive, easier fine-grained control.
-      let raw = Double(cur - _trackpadAnchor) / max(1.0, flagDouble("kb.trackpad.ptPerChar", 7))
+      let raw = Double(x - _trackpadAnchor) / max(1.0, flagDouble("kb.trackpad.ptPerChar", 7))
       let steps = Int(raw)
       if steps != _trackpadOffset {
         let delta = steps - _trackpadOffset
@@ -5946,12 +5990,42 @@ final class SDUIRenderer: NSObject {
         _trackpadOffset = steps
       }
     case .ended, .cancelled, .failed:
+      cancelSpaceSpeak()
       state.trackpadActive = false
       _lastSpaceTapTime = 0  // don't count the release as a tap
       stateChanged()
     default:
       break
     }
+  }
+
+  private func startTrackpad() {
+    state.trackpadActive = true
+    _trackpadOffset = 0
+    resetTypingContext()   // cursor is about to move — the word tracker is void
+    // Subtle haptic to signal mode entry.
+    if let host = host, host.hostHasFullAccess {
+      let g = UIImpactFeedbackGenerator(style: .light)
+      g.prepare(); g.impactOccurred()
+    }
+    stateChanged()
+  }
+
+  /// The finger stayed still on space long enough: speak, as the mic would.
+  /// If the mic went away meanwhile, the hold steers instead.
+  private func speakFromSpaceHold() {
+    guard _spaceHoldPending else { return }
+    _spaceHoldPending = false
+    _spaceSpeakWork = nil
+    guard !state.dictating, let mic = currentMicButton else { startTrackpad(); return }
+    fireKeyHaptic("mic")
+    mic.sendActions(for: .touchUpInside)
+  }
+
+  private func cancelSpaceSpeak() {
+    _spaceSpeakWork?.cancel()
+    _spaceSpeakWork = nil
+    _spaceHoldPending = false
   }
 
   /// Shift toggle — modern behavior with directional arrows + hold-to-lock:
@@ -7512,6 +7586,8 @@ final class SDUIRenderer: NSObject {
   /// (matching iOS, which only pops letters). OTA-disable via kb.callout.enabled.
   private func showKeyCallout(for btn: UIButton) {
     guard flagBool("kb.callout.enabled", true), let container = mountContainer else { return }
+    // An open tray owns the space above the keys.
+    guard activeAccentTray == nil else { hideKeyCallout(); return }
     // One shared balloon can't follow two fingers; with 2+ down on the plane
     // they'd fight over it (flicker / stale glyph), so suppress it entirely.
     guard planeActiveTouchCount <= 1 else { hideKeyCallout(); return }

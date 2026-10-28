@@ -40,15 +40,16 @@ class TulmiKeyPop : Drawable() {
     private val popFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val popInk = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
 
-    /** A soft shadow under the pop-up and the tray. Radius 0 = none. */
+    /** A soft shadow under the pop-up. Radius 0 = none. */
     fun setShadow(color: Int, radius: Float, dx: Float, dy: Float) {
-        if (radius > 0f && Color.alpha(color) > 0) {
-            popFill.setShadowLayer(radius, dx, dy, color)
-            trayFill.setShadowLayer(radius, dx, dy, color)
-        } else {
-            popFill.clearShadowLayer()
-            trayFill.clearShadowLayer()
-        }
+        if (radius > 0f && Color.alpha(color) > 0) popFill.setShadowLayer(radius, dx, dy, color)
+        else popFill.clearShadowLayer()
+    }
+
+    /** The tray's own, deeper shadow: it sits over a row of keys. */
+    fun setTrayShadow(color: Int, radius: Float, dy: Float) {
+        if (radius > 0f && Color.alpha(color) > 0) trayFill.setShadowLayer(radius, 0f, dy, color)
+        else trayFill.clearShadowLayer()
     }
 
     /**
@@ -110,12 +111,16 @@ class TulmiKeyPop : Drawable() {
     var trayRadius = 0f
     var chipRadius = 0f
     var trayOffsetY = 0f
+    /** A hairline edge around the tray. 0 = none. */
+    var trayBorderPx = 0f
+    var trayBorderColor = Color.TRANSPARENT
 
     private var trayItems: List<String> = emptyList()
     private val trayRect = RectF()
     private val trayKey = RectF()
     private val chipRect = RectF()
     private val trayFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trayEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val chipFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val chipInk = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private var chipInkColor = Color.WHITE
@@ -207,6 +212,11 @@ class TulmiKeyPop : Drawable() {
         }
         if (trayItems.isNotEmpty()) {
             canvas.drawRoundRect(trayRect, trayRadius, trayRadius, trayFill)
+            if (trayBorderPx > 0f && Color.alpha(trayBorderColor) > 0) {
+                trayEdge.strokeWidth = trayBorderPx
+                trayEdge.color = trayBorderColor
+                canvas.drawRoundRect(trayRect, trayRadius, trayRadius, trayEdge)
+            }
             val fm = chipInk.fontMetrics
             var x = trayRect.left + trayPadding
             for ((i, item) in trayItems.withIndex()) {
