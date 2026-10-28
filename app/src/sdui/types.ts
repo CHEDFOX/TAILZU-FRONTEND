@@ -363,7 +363,14 @@ export interface BotTilesProps {
   padding: number;
   gap: number;
   faces: { regular: string; medium: string; semibold: string };
+  /** One more tile, as a full-width row under the grid (Notes): its bot at the left, its words at the right. Capability BOT_TILES_STRIP. */
+  strip?: BotTileSpec;
+  /** The strip's height. */
+  stripHeight?: number;
 }
+
+/** A build that draws BotTilesProps.strip. */
+export const BOT_TILES_STRIP = "BotTilesStrip";
 
 export interface BotCardProps {
   kind?: BotTileKind;

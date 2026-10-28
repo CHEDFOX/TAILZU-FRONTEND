@@ -16,7 +16,11 @@
  * takes the bots away and leaves the tiles working.
  *
  *   { type: "BotTiles", props: { tiles: [{ slug, name, sub, color, kind, state, action }], columns, height, padding,
- *     gap, faces: { regular, medium, semibold } } }
+ *     gap, faces: { regular, medium, semibold }, strip?, stripHeight? } }
+ *
+ * `strip` (capability "BotTilesStrip"): one more tile as a full-width row under the grid (Notes), its bot on a stage of
+ * its own at the left and its name and line on the right. It is the last bot of the same world, so its tap is the
+ * tiles' moment (the others look at it, their words fade) and a tile's tap turns its head too.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, Text, View } from "react-native";
@@ -61,7 +65,11 @@ export const BotTiles = (p: CompProps): React.ReactElement => (
 );
 
 function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactElement {
-  const tiles: BotTileSpec[] = Array.isArray(props?.tiles) ? props.tiles : [];
+  const grid: BotTileSpec[] = Array.isArray(props?.tiles) ? props.tiles : [];
+  const strip: BotTileSpec | null = props?.strip && typeof props.strip === "object" ? (props.strip as BotTileSpec) : null;
+  // The strip is the world's last bot: its index is grid.length.
+  const tiles: BotTileSpec[] = useMemo(() => (strip ? [...grid, strip] : grid), [grid, strip]);
+  const SH = Number(props?.stripHeight) || 100;
   const cols = Math.max(1, Number(props?.columns) || 2);
   const H = Number(props?.height) || 132;
   const pad = Number(props?.padding) || 16;
@@ -71,6 +79,8 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
 
   const [W, setW] = useState(0);
   const tw = W > 0 ? (W - gap * (cols - 1)) / cols : 0;
+  /** The strip's stage: the part left of its words. */
+  const sw = Math.round(Math.min(220, Math.max(140, W * 0.34)));
   const host = useRef<View>(null);
   const key = tiles.map((t) => `${t.slug}:${t.kind}:${t.color}`).join(",");
   // Released as it is made: a look left from a tap before Home was left goes now (gridWorld).
@@ -91,12 +101,14 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
   const floors = useRef<number[]>([]);
   const place = useCallback(() => {
     if (!tw) return;
-    tiles.forEach((_t, i) => {
+    grid.forEach((_t, i) => {
       const x = (i % cols) * (tw + gap), y = Math.floor(i / cols) * (H + gap);
       world.place(i, x, y, tw - 2, H - 2, floors.current[i] ? floors.current[i]! - 3 : H - pad - 46);
     });
+    // The strip's bot stands near the foot of its stage.
+    if (strip) world.place(grid.length, 0, Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
     if (still.current && reduced !== null) { world.settle(true); paintAll(); }
-  }, [tw, tiles, cols, gap, H, pad, world, reduced, paintAll]);
+  }, [tw, sw, grid, strip, SH, cols, gap, H, pad, world, reduced, paintAll]);
   useEffect(place, [place]);
 
   // Reduce Motion: a pose, painted once (again when the layout moves).
@@ -135,7 +147,7 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
     if (!t?.action || busy.current) return;
     if (reduced || !bots) { void runAction(t.action, ctx); return; }
     busy.current = true;
-    world.focus(i, x, y);
+    world.focus(i, strip && i === grid.length ? Math.min(x, sw) : x, y);
     paintAll();
     fades.forEach((f, j) => { if (j !== i) Animated.timing(f, { toValue: TAP.fadeTo, duration: TAP.fadeMs, useNativeDriver: true }).start(); });
     Animated.sequence([
@@ -152,7 +164,7 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
       onLayout={(e) => { const w = Math.round(e.nativeEvent.layout.width); if (w > 0 && w !== W) setW(w); }}
       style={{ flexDirection: "row", flexWrap: "wrap", gap, alignSelf: "stretch" }}
     >
-      {tw > 0 && tiles.map((t, i) => {
+      {tw > 0 && grid.map((t, i) => {
         const make = t.kind === "make";
         const bw = make ? 1.5 : 1;
         const mark = make ? null : t.state === "working" ? t.color : t.state === "needs" ? INK : null;
@@ -192,6 +204,40 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
           </Animated.View>
         );
       })}
+      {tw > 0 && strip && (() => {
+        const i = grid.length, t = strip;
+        const mark = t.state === "working" ? t.color : t.state === "needs" ? INK : null;
+        const sub = t.state === "working" ? { color: t.color, fontFamily: faces.medium }
+          : t.state === "needs" ? { color: INK, fontFamily: faces.semibold } : { color: META, fontFamily: faces.regular };
+        return (
+          <Animated.View key={`strip-${t.slug}`} style={{ width: W, height: SH, transform: [{ scale: scales[i]! }] }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t.label || `${t.name}. ${t.sub}`}
+              onPress={(e) => tap(i, e.nativeEvent.locationX, e.nativeEvent.locationY)}
+              style={{ flex: 1, borderRadius: 20, borderWidth: 1, borderColor: LINE, backgroundColor: PAPER, overflow: "hidden" }}
+            >
+              {bots && (
+                <TileSurface
+                  ref={(r) => { painters.current[i] = r; }}
+                  w={sw} h={SH - 2}
+                  style={{ position: "absolute", left: 0, top: 0 }}
+                />
+              )}
+              {mark && (
+                <View style={{ position: "absolute", top: pad, right: pad, width: 10, height: 10, borderRadius: 5, backgroundColor: mark }} />
+              )}
+              <Animated.View
+                pointerEvents="none"
+                style={{ position: "absolute", left: sw, right: pad + (mark ? 16 : 0), top: 0, bottom: 0, justifyContent: "center", gap: 3, opacity: fades[i] }}
+              >
+                <Text style={{ fontFamily: faces.semibold, fontWeight: "normal", fontSize: 16, lineHeight: 21, color: INK }} numberOfLines={1}>{t.name}</Text>
+                <Text style={{ fontFamily: sub.fontFamily, fontWeight: "normal", fontSize: 13, lineHeight: 17, color: sub.color }} numberOfLines={1}>{t.sub}</Text>
+              </Animated.View>
+            </Pressable>
+          </Animated.View>
+        );
+      })()}
     </View>
   );
 }

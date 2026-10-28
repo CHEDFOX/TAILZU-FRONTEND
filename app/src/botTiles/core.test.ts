@@ -116,6 +116,36 @@ test("a tap in the grid: every other bot looks at the tapped tile, the tapped on
   assert.ok(w.tiles.every((t) => t.focusX !== t.focusX), "released");
 });
 
+test("a strip under the grid (Notes): a tile of its own size in the same world; its tap and a tile's tap are one moment", () => {
+  // The phone's grid, 2 x 2 at 169 x 132, and under it the strip: its stage 150 wide, the strip 100 tall.
+  const w = new BotTilesWorld();
+  const kinds: BotKind[] = ["code", "keybot", "plan", "make", "notes"];
+  kinds.forEach((k, i) => w.add(new BotTile({ kind: k, color: "#6E4A6B", mood: "idle", seed: 21 + i })));
+  kinds.slice(0, 4).forEach((_k, i) => w.place(i, (i % 2) * 181, Math.floor(i / 2) * 144, 169, 130, 72));
+  w.place(4, 0, 288, 150, 98, 98 - 16 * 0.7);
+  for (let f = 0; f < 240; f++) w.step(1 / 60);
+  const strip = w.tiles[4]!;
+  assert.ok(strip.finite() && strip.inside(), "the strip's bot stays on its stage");
+  assert.ok(strip.y[3]! > 98 - 16 * 0.7 - strip.S * 0.2, "standing near its foot");
+  // Tap the strip: every grid bot looks down at it.
+  w.focus(4, 60, 50);
+  for (let f = 0; f < 40; f++) w.step(1 / 60);
+  for (const i of [0, 1, 2]) {
+    const t = w.tiles[i]!;
+    assert.ok(t.focusY > t.y[0]! + 100, `tile ${i} looks down at the strip`);
+    assert.ok(t.eu < 0, `tile ${i}: eyes down (${t.eu.toFixed(2)})`);
+  }
+  w.release();
+  // Tap a grid tile: the strip's bot looks up at it.
+  w.focus(1, 80, 60);
+  for (let f = 0; f < 40; f++) w.step(1 / 60);
+  assert.ok(strip.focusY < 0, "the strip's bot looks up at the tile");
+  assert.ok(strip.gaze().face > 0.5, "and turns toward it (it is up and to the right)");
+  w.release();
+  for (let f = 0; f < 600; f++) w.step(1 / 60);
+  assert.ok(w.tiles.every((t) => t.finite() && t.inside()));
+});
+
 test("Reduce Motion: a resting pose, and nothing moves after it", () => {
   for (const kind of KINDS) {
     for (const mood of MOODS) {
