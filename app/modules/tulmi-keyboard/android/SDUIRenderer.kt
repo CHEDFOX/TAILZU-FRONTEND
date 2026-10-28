@@ -15,6 +15,7 @@ import android.view.animation.LinearInterpolator
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -1196,6 +1197,8 @@ class SDUIRenderer(
                     "ShiftKey" -> { { hapticTap(plane, "shift"); holdShift() } }
                     else -> if (c.on.containsKey("onLongPress")) {
                         { invokeEvent(c, "onLongPress") }
+                    } else if (c.type == "SpaceKey" && holdSpaceToSpeak()) {
+                        { speakFromSpace(plane) }
                     } else null
                 },
                 onPressStart = { pressStart?.invoke() },
@@ -1220,8 +1223,9 @@ class SDUIRenderer(
 
             keys += key
             registerGridKey(plane, key, c, raw.takeIf { c.bind["content"] == null })
-            // Hold space to steer the caret, unless the server gave it a hold.
-            if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress")) trackpadDrawn += key
+            // Hold space to steer the caret, unless the server gave it a hold
+            // (its own onLongPress, or Keybot's hold space to speak).
+            if (c.type == "SpaceKey" && !c.on.containsKey("onLongPress") && !holdSpaceToSpeak()) trackpadDrawn += key
             if (c.type == "LetterKey" && raw.length == 1 && !hasPress) {
                 drawnLettersByChar[raw.lowercase()] = key
             }
@@ -1994,10 +1998,26 @@ class SDUIRenderer(
             invokeEvent(node, "onPress")
         }
         // Hold to steer the caret (the row's plane runs it), unless the server
-        // gave space a hold of its own.
-        if (!node.on.containsKey("onLongPress")) trackpadViews += b
+        // gave space a hold of its own — or Keybot's hold space to speak, which
+        // runs through the plane like any server hold.
+        if (holdSpaceToSpeak()) {
+            bindHold(parent, b, flagFloat("kb.longPress.ms", 500f).toLong()) { speakFromSpace(b) }
+        } else if (!node.on.containsKey("onLongPress")) trackpadViews += b
         addChildWithStyle(parent, b, node.style, isRow = parent.isHorizontal())
         registerGridKey(parent, b, node, null)
+    }
+
+    /** Keybot's "Hold space to speak" (kb.space.holdToSpeak — sent only for
+     *  someone who turned it on; absent = off): holding space starts dictation
+     *  as a tap on the mic does, in place of the trackpad. */
+    private fun holdSpaceToSpeak(): Boolean = kbConfig.flags["kb.space.holdToSpeak"] == true
+
+    /** What the mic's tap does when it starts, never a stop: the mic stops it.
+     *  A password box is refused by the host, as from the mic. */
+    private fun speakFromSpace(v: View) {
+        if (host.state().dictating) return
+        hapticTap(v, "mic")
+        host.startDictation()
     }
 
     /** What space says: the input language when there is more than one
@@ -3594,6 +3614,7 @@ class SDUIRenderer(
      * closest Android feedback constants.
      */
     private fun hapticTap(v: View, keyId: String? = null) {
+        keySound(keyId)
         if (!flagBoolean("kb.haptics.enabled", true)) return
         if (!hapticsOn(keyId)) return
         val constant = when (flagString("kb.haptics.style", "selection").lowercase()) {
@@ -3603,6 +3624,25 @@ class SDUIRenderer(
             else -> HapticFeedbackConstants.KEYBOARD_TAP
         }
         v.performHapticFeedback(constant)
+    }
+
+    private val audioManager by lazy { host.context().getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+
+    /**
+     * Key sounds — Keybot's choice (kb.key.sound, sent only for someone who
+     * chose: true plays, false or absent is silent, as before). The system's own keypress sounds, with
+     * the key's feedback; quiet in silent and vibrate, as the system keyboard is.
+     */
+    private fun keySound(keyId: String?) {
+        if (kbConfig.flags["kb.key.sound"] != true) return
+        val am = audioManager ?: return
+        if (am.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        am.playSoundEffect(when (keyId) {
+            "space" -> AudioManager.FX_KEYPRESS_SPACEBAR
+            "backspace" -> AudioManager.FX_KEYPRESS_DELETE
+            "return" -> AudioManager.FX_KEYPRESS_RETURN
+            else -> AudioManager.FX_KEYPRESS_STANDARD
+        }, -1f)
     }
 
     // -----------------------------------------------------------------------

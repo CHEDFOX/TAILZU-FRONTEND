@@ -715,9 +715,25 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     }
   }
 
+  /// Keybot's Look (kb.look.force, sent only for someone who picked one):
+  /// "light" or "dark" holds the keyboard in that appearance whatever the phone
+  /// is in; absent, it follows the phone exactly as before. The override changes
+  /// this controller's trait collection, so traitCollectionDidChange re-picks
+  /// the palette and backdrop the same way a system flip does.
+  private func applyForcedLook() {
+    let style: UIUserInterfaceStyle
+    switch kbConfig?.flags["kb.look.force"] as? String {
+    case "light": style = .light
+    case "dark": style = .dark
+    default: style = .unspecified
+    }
+    if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+  }
+
   private func applyConfig(_ cfg: TulmiBackend.KbConfig) {
     kbConfig = cfg
     applyKeyboardHeight()
+    applyForcedLook()
     // Legacy path: also keep the extension view transparent so the OS-provided
     // keyboard region + backdrop show through. cfg.background is still applied
     // as the fallback color the blur/effect sits over (see SDUIRenderer),
