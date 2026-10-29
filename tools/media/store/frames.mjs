@@ -129,7 +129,7 @@ export const FRAMES = [
   },
   {
     key: "keybot", layout: "voice", title: "Say it, and\nKeybot writes it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
-    photo: { file: "keybot.jpg", x: 0.38, y: 0.54, zoom: 1.4, light: 1, warm: 0.55 },
+    photo: { file: "keybot.jpg", x: 0.38, y: 0.61, zoom: 1.4, light: 1, warm: 0.55 }, // y keeps the photo's bright strip (its top 23%) out of frame
     // The mic key under the words: the Peek-a-bot popped up and listening (ears and antenna lit), at this share of the width.
     keyArt: { mode: "listen", level: 0.6, size: 0.25 },
   },
