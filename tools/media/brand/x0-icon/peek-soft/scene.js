@@ -314,6 +314,37 @@ function buildBot(o) {
       m.position.set((S.base[0] + S.top[0]) / 2 + S.dir[0] * (k - 0.0), (S.base[1] + S.top[1]) / 2 + S.dir[1] * k, 0); m.rotation.z = -S.ANT.tilt;
     });
   }
+  // eyes as objects on the head: a satin white disc that sits on the curved surface and a glossy
+  // black pupil (its catchlight is what makes the eyes look alive); an optional brow tick
+  if (o.eyes) {
+    const whiteMat = new THREE.MeshPhysicalMaterial({ color: lin(o.eyeWhite ?? "#FFFFFF"), roughness: 0.42, clearcoat: 0.35, clearcoatRoughness: 0.25, envMapIntensity: 0.9 });
+    const pupilMat = new THREE.MeshPhysicalMaterial({ color: lin(o.pupil ?? "#0B0B0B"), roughness: 0.2, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.3 });
+    const onSurface = (x, y) => {
+      const z = S.headZ(x, y), G = sqGrad(x, y, z, S.HEAD), n = new THREE.Vector3(...G).normalize();
+      return { p: new THREE.Vector3(x, y, z), n, q: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n) };
+    };
+    for (const e of o.eyes) {
+      const { p, n, q } = onSurface(e.x, e.y);
+      const rx = e.r, ry = e.r * (e.tall ?? 1.06), rz = e.r * (e.depth ?? 0.34);
+      const g = new THREE.Group(); g.position.copy(p).addScaledVector(n, -rz * 0.42); g.quaternion.copy(q);
+      const w = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 48), whiteMat); w.scale.set(rx, ry, rz); g.add(w);
+      const pr = e.pr ?? e.r * 0.5, reach = e.reach ?? 0.62, lx = (e.look?.[0] ?? 0) * (rx - pr) * reach, ly = (e.look?.[1] ?? -1) * (ry - pr) * reach;
+      const pz = rz * Math.sqrt(Math.max(0, 1 - (lx / rx) ** 2 - (ly / ry) ** 2));
+      const pm = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), pupilMat); pm.scale.set(pr, pr, pr * 0.32); pm.position.set(lx, ly, pz - pr * 0.12); g.add(pm);
+      for (const m of [w, pm]) { m.castShadow = true; m.receiveShadow = true; }
+      group.add(g);
+    }
+    if (o.brow) {
+      const b = o.brow, pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const a = b.a0 + (b.a1 - b.a0) * (i / 24), x = b.x + b.R * Math.cos(a), y = b.y + b.R * Math.sin(a);
+        const { p, n } = onSurface(x, y); pts.push(p.addScaledVector(n, 0.004));
+      }
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 64, b.t ?? 0.013, 16, false), whiteMat);
+      group.add(tube);
+      for (const end of [pts[0], pts[pts.length - 1]]) { const cap = new THREE.Mesh(new THREE.SphereGeometry(b.t ?? 0.013, 24, 12), whiteMat); cap.position.copy(end); group.add(cap); }
+    }
+  }
   return group;
 }
 
@@ -406,7 +437,9 @@ export async function renderIcon(V, { size = 2048, samples = 40 } = {}) {
   }
   if (shade) { // a soft halo of shade around the silhouette (the head lifts off a light ground)
     const mask = new Float32Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) mask[y * W + x] = mAcc[(H - 1 - y) * W + x] * inv;
-    const blurred = boxBlur(mask, W, H, Math.round(W * shade.r));
+    let src2 = mask;
+    if (shade.dy) { const s = Math.round(shade.dy * H); src2 = new Float32Array(W * H); for (let y = s; y < H; y++) for (let x = 0; x < W; x++) src2[y * W + x] = mask[(y - s) * W + x]; }
+    const blurred = boxBlur(src2, W, H, Math.round(W * shade.r));
     for (let i = 0; i < W * H; i++) { const s = 1 - shade.k * blurred[i] * (1 - mask[i]); for (let k = 0; k < 3; k++) out[i * 3 + k] *= s; }
   }
   const half = (src, w) => {
@@ -483,7 +516,23 @@ const ON_CORAL = { background: CORAL_GROUND, groundShade: { r: 0.03, k: 0.18 }, 
   envIntensity: 0.5, env: { ...LIGHT.env, rimR: 1.5, rimL: 1.1, floor: 0.15, floorTint: [1, 1, 1] } };
 const TILT = { yaw: -0.34, roll: 0.17, pitch: -0.02, cam: [0, -0.28, 3.4], target: [0, -0.02, 0], botPos: [0.05, -0.36, 0] };
 
+// Half-peek, upside down: the black head hangs into a white tile from the top edge and looks down at you
+const WHITE_GROUND = ground("#FFFFFF", "#ECEAE6");
+const HANG = { ...PEEK, yaw: 0.0, pitch: 0.0, cam: [0, 0.0, 3.43], target: [0, 0.0, 0], botPos: [0, 0.66, 0], background: WHITE_GROUND,
+  groundShade: { r: 0.03, k: 0.22, dy: 0.03 }, rims: [[[2.4, 1.0, -2.6], 0.9, "#ffffff"], [[-2.6, 0.8, -2.4], 0.7, "#ffffff"]],
+  keyI: 3.0, keyColor: "#ffffff", keyPos: [-1.2, 1.6, 3.0], fillColor: "#ffffff", fillI: 0.12, envIntensity: 0.55,
+  env: { ...LIGHT.env, floor: 0.35, floorTint: [1, 1, 1], rimR: 1.0, rimL: 0.8 } };
+const HEAD_HANG = { a: 0.6, b: 0.62, c: 0.55, p: 3.2, q: 2.6 };
+const hangBot = (eyes, extra = {}) => ({ ...BLACK, head: HEAD_HANG, visor: false, antenna: false, eyes, ...extra });
+// the face tips down toward you (as anyone peeking over an edge does)
+const TIP = { pitch: -0.17, botPos: [0, 0.74, -0.05] };
+const EY = -0.5;
+const EYES_DOWN = [{ x: -0.195, y: EY, r: 0.115, look: [0.18, -1] }, { x: 0.195, y: EY, r: 0.135, look: [-0.14, -1] }];
+const EYES_SIDE = [{ x: -0.195, y: EY, r: 0.115, look: [-0.8, -0.6] }, { x: 0.195, y: EY, r: 0.135, look: [-0.8, -0.6] }];
+
 export const VARIANTS = {
+  "soft-drop": () => ({ ...HANG, ...TIP, bot: hangBot(EYES_DOWN) }),
+  "soft-sideways": () => ({ ...HANG, ...TIP, bot: hangBot(EYES_SIDE, { brow: { x: 0.2, y: EY - 0.01, R: 0.172, a0: Math.PI * 0.34, a1: Math.PI * 0.56, t: 0.015 } }) }),
   "black-coral-peek": () => ({ ...PEEK, ...ON_CORAL, bot: bot(BLACK, { face: FACES.curious(), faceDim: FACES.brow() }) }),
   "black-coral-tilt": () => ({ ...PEEK, ...ON_CORAL, ...TILT, bot: bot(BLACK, { face: FACES.curious(), faceDim: FACES.brow() }) }),
   "black-coral-bent": () => ({ ...PEEK, ...ON_CORAL, ...TILT,
