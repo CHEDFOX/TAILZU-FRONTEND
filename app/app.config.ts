@@ -78,9 +78,9 @@ const config: ExpoConfig = {
   //
   // HIGHER THAN THE STORE'S, not this file's last. The App Store has carried
   // 8.6 since 10 Oct 2026 (a version set outside this repo), so 1.0.2 could
-  // never be uploaded. The iOS release job checks this against the live store
-  // version before it builds (tools/ci/ios-version.mjs).
-  version: "8.7",
+  // never be uploaded; 8.7 is on the store now too. The iOS release job checks
+  // this against the live store version before it builds (tools/ci/ios-version.mjs).
+  version: "8.8",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
