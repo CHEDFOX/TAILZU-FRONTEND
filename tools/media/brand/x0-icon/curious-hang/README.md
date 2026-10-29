@@ -9,6 +9,10 @@ The hand-drawn Curious bot (`../handdrawn-v2`, version 3) hangs by its hands fro
 | `3-x0-eyes` | The refined black with a hidden x0: the left eye's glint is a little diagonal sparkle (an x), the right eye's a ring (a 0). |
 | `4-x0-ears` | The hidden x0 on the ear pods: a cross-head screw on the left, a round rivet on the right. |
 | `5-x0-both` | Both. From a distance they're just glints and screws. |
+| `6-painted` | Painted the way the Claude mark is: flat colour only (no outlines, gradients, highlights or shadows), with every edge cut in short, slightly uneven straight facets. It has our colours: a black bot on warm white, a stone-grey bar, cream gloves and eyes, and clay ears. |
+| `7-painted-ink-bar` | The bar painted black too, so the bot and the bar read as one shape. |
+| `8-painted-clay-bar` | A clay bar, the same clay as the ears. |
+| `9-painted-no-visor` | The simplest painted one: one black head, two cream eyes, cream gloves and clay ears. |
 
 ```sh
 node render.mjs [id ...]                              # <id>/icon-1024.png (uses ../handdrawn-v2)
