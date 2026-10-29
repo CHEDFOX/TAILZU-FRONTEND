@@ -92,7 +92,7 @@ Privacy policy: https://x0bot.com/privacy
 Questions: support@x0bot.com
 ```
 
-### What's New in this version · 1076 / 4000
+### What's New in this version · 1130 / 4000
 
 ```text
 A new X0 Bot.
@@ -110,6 +110,8 @@ The keyboard you know is now one player on a team of bots, each great at one thi
 • Activity: everything your bots did, and what is waiting for you.
 • Usage: a simple meter that shows how much you have used.
 • Sign in on your computer by scanning a code with your phone.
+
+A new look, too: a new icon, and the bot peeking in.
 
 Two plans, Lite and Elite, both monthly. The free plan still includes every bot.
 ```
@@ -382,9 +384,10 @@ The look, ours: a full-bleed photograph under one shared grade (deep ink shadows
 light, colour held back so the clay is the brightest colour on the frame); a heavy Geist headline (the app's own face),
 left aligned, in two lines with no full stop, one word written by hand with a clay brush underline; the app as a light
 cream card cut from a real screen, with a thin hand-drawn outline and one part lifted out, a clay arrow pointing at it; and
-the Peek-a-bot peeking over the card's top edge, paws on it, with a face for the frame (a wave on Home, curious on Ask,
-happy on Plan, starry-eyed on Travel, a wink on Make a bot). The bot and the brush marks are drawn by the brand's
-hand-drawn icon code. The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one
+the app icon's bot peeking over the card's top edge, its gloves on it: the painted black head with cream eyes and clay
+ears, cut flat like the icon, with a thin cream border so it reads on the photographs, and a face for the frame (a
+straight look on Home, curious on Ask, a happy squint on Plan, wide eyes on Travel, a wink on Make a bot). The bot and
+the brush marks are drawn by the same code as the icon (`tools/media/brand/x0-icon/handdrawn-v2`). The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one
 is in `tools/media/store/photos/CREDITS.md`.
 
 | # | Frame | Headline | What it shows (global set) |
@@ -407,7 +410,7 @@ a Diwali sale, Indian photos for Plan and Travel) into `out/india/` for Google P
 
 The App Store gets all ten (its limit). Google Play takes eight, so its set leaves out Notes (the meetings are noted on
 the computer, so it says least on a phone) and Code bot (the most specialist of the bots for a phone audience). The
-feature graphic carries the first frame's headline, its photo and Home.
+feature graphic carries the app icon and name, the first frame's headline, its photo and Home.
 
 The connect frame is the only one with other companies' marks on it (from simple-icons, CC0): each is an app X0 Bot
 really connects to in this build, shown as a plain mark with no words around it, and no store text names a brand.
@@ -440,12 +443,14 @@ Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "
 
 - **Review account.** The app signs in with a one-time code. Make an account for review whose sign-in works without a
   live inbox, and put its details in App Store Connect (App Review Information) and Play Console (App access).
-- **Account deletion on the phone.** App Review needs it reachable in the app. Today the phone's You › Your data opens
-  Privacy, which offers Delete my data; the Delete account page (`bots.delete-account`) is linked from the computer's
-  You, its Privacy page and Settings, not yet from the phone. Add a link there before submitting, or change the path in
-  the review notes to wherever it lands.
+- **Account deletion on the phone.** Done: You › Your data › Delete account on the phone, and You, Privacy and Settings
+  on the computer (`bots.delete-account`). The review notes point there.
 - **Support URL.** It is https://x0bot.com/faq, which answers today (x0bot.com/support does not). A support page with
   the address support@x0bot.com on it would be the better target once it exists.
-- **The icon.** The soft-3D icon goes on the feature graphic, beside the name, once `tools/media/brand/x0-icon/peek3d/`
-  names its pick (four variants are rendered there now, and none is named yet): set `ICON.file` in
-  `tools/media/store/frames.mjs`, or name the pick in that folder's README, and re-run `build.mjs`.
+- **The icon.** The painted bot hanging under the clay bar (`tools/media/brand/x0-icon/curious-hang/8-painted-clay-bar`).
+  The build carries it (`app/assets/icon.png`, and the Android adaptive layers), so the App Store takes it from the
+  build. Upload these by hand, from `tools/media/store/out/icons/`:
+  - Google Play › Main store listing › App icon: `play-512.png` (512 x 512).
+  - Google Cloud › OAuth consent screen › App logo: `google-oauth-120.png` (120 x 120). Changing the logo may ask for
+    the consent screen to be verified again; keep it in production while that runs.
+  - `app-store-1024.png` is the App Store's 1024 icon, if a form asks for it.

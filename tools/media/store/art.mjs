@@ -1,6 +1,8 @@
-// THE HAND-DRAWN ART on the store frames: the Peek-a-bot peeking over the card, and the clay brush marks (an underline,
-// a loose ring, an arrow). Drawn by the brand's own hand-drawn drawing code (tools/media/brand/x0-icon/handdrawn: draw.js,
-// bot.js, versions.js), the same code that draws the hand-drawn icons, so the screenshots and the icon are one hand.
+// THE ART on the store frames: the bot peeking over the card, and the clay brush marks (an underline, a loose ring, an
+// arrow). The bot is the app icon's: the painted black bot (cream eyes and gloves, clay ears, no antenna), cut flat the
+// way the icon is, by the same drawing code (tools/media/brand/x0-icon/handdrawn-v2: draw.js, bot.js, versions.js; the
+// icon is curious-hang/8-painted-clay-bar). On the cards it is the right way up, peeking over the edge; on the icon it
+// hangs under the bar. Same character, same hand.
 //
 // That code paints opaque pixels on paper. To lift a drawing off its paper, each one is drawn twice, on black and on white,
 // and the two are matted: alpha = 1 - (white - black), colour = black / alpha. What comes out is an RGBA PNG, trimmed to
@@ -16,25 +18,20 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BRAND = path.resolve(HERE, "../brand/x0-icon");
 
-/** The faces, by the hand-drawn icon version each is taken from. */
+/** The poses: how the head tilts and what the eyes do. */
 export const POSES = {
-  curious: "1-curious",   // looks up at its own antenna, one eye wider
-  happy: "2-happy",       // happy squint, a blush, the antenna bobbing
-  wink: "3-wink",         // a wink and a smirk, a sparkle
-  shy: "4-shy",           // peeks lower, one paw, a sideways glance, a blush
-  starry: "5-riso",       // sparkles for eyes, the antenna pinging
-  hello: "6-hello",       // a small smile, one paw up in a wave
+  curious: { tilt: 0.16, look: [16, -14] },                                   // head cocked, eyes up at the headline
+  happy: { tilt: -0.1, eyes: [{ arc: { w: 44, rx: 0.5, ry: 0.32 } }, { arc: { w: 44, rx: 0.5, ry: 0.32 } }] },   // a happy squint
+  wink: { tilt: 0.12, look: [8, -6], eyes: [{ arc: { w: 42, rx: 0.48, ry: 0.3, rot: 0.06 } }, { hs: 1.04, ws: 1.02 }] },
+  shy: { tilt: -0.14, rise: 116, look: [-28, -2], eyes: [{ hs: 0.94, ws: 0.94 }, { hs: 0.94, ws: 0.94 }] },  // peeks lower, glances away
+  starry: { tilt: 0.06, look: [0, -10], eyes: [{ hs: 1.14, ws: 1.08 }, { hs: 1.08, ws: 1.04 }] },             // wide eyes
+  hello: { tilt: 0.08, look: [-6, -8] },                                     // a straight, friendly look
 };
 
-/**
- * Which drawing code: `handdrawn-v2` once it is finished (it has a README, as the first set does) and speaks the same
- * spec, else `handdrawn`. Set X0_ART_DIR to force one.
- */
+/** The drawing code: handdrawn-v2 (the icon's). Set X0_ART_DIR to force another. */
 export function artDir() {
   if (process.env.X0_ART_DIR) return path.resolve(process.env.X0_ART_DIR);
-  const v2 = path.join(BRAND, "handdrawn-v2");
-  if (fs.existsSync(path.join(v2, "README.md")) && fs.readFileSync(path.join(v2, "bot.js"), "utf8").includes("ledgeDraw")) return v2;
-  return path.join(BRAND, "handdrawn");
+  return path.join(BRAND, "handdrawn-v2");
 }
 
 const CLAY = "#D2703F";
@@ -45,7 +42,7 @@ window.X0ART = (() => {
   const { G, M, Art } = HD;
   const POSES = __POSES__;
   const CLAY = __CLAY__;
-  const base = HD.VERSIONS.find((v) => v.id === "1-curious");
+  const base = HD.VERSIONS.find((v) => v.id === "3-curious");
 
   /** Draw fn(art, bg) on black and on white, matte the two, trim, and return a PNG data URL. */
   function lift(N, seed, out, draw, ledgeY, anchor) {
@@ -79,20 +76,30 @@ window.X0ART = (() => {
       anchor: anchor ? [(anchor[0] * out) / 1000 - x0, (anchor[1] * out) / 1000 - y0] : null };
   }
 
-  /** The Peek-a-bot in one pose, in the first set's inked house style, over a straight edge, with nothing below it. */
+  /** The bot in one pose, painted flat like the app icon, peeking over a straight edge with nothing below it. */
   function bot(pose, out) {
-    const v = HD.VERSIONS.find((x) => x.id === POSES[pose]);
-    if (!v) throw new Error("no pose " + pose);
-    const ly = 716;
+    const P = POSES[pose];
+    if (!P) throw new Error("no pose " + pose);
+    const ly = 716, INK = "#151311", CREAM = "#FBF2E2", EAR = "#C9683F";
+    const cut = (len, jit) => ({ len, jit });
+    const face = { ...base.bot.face, look: P.look ?? [0, -8], eyes: P.eyes ?? base.bot.face.eyes };
     const spec = {
-      ...base, seed: v.seed, bot: v.bot, ledge: { ...v.ledge, y: ly, slope: 0, wave: 0 },
-      beforeLedge: v.beforeLedge, after: v.after,
-      ground: null, ledgeDraw: null,
+      seed: 3131, edge: { y: ly, slope: 0, line: null, belowTint: null, wave: 0 },
+      bot: { ...base.bot, antenna: false, tilt: P.tilt ?? 0, rise: P.rise ?? 128, hw: 350, hh: 270, face },
+      style: () => ({
+        ear: { color: EAR, p: 1, facet: cut(22, 2.2) }, earShade: null, earLine: null,
+        shell: { color: INK, p: 1, facet: cut(46, 3.5) }, shade: null, shellShine: null, shellLine: null,
+        visor: { color: "#2C2825", p: 1, facet: cut(40, 3) }, visorSheen: null, visorGlint: null, visorLine: null,
+        eye: { color: CREAM, p: 1, facet: cut(24, 2.4) }, eyeHalo: null, catchlight: null, brow: null,
+        hand: { color: CREAM, p: 1, facet: cut(12, 1) }, handShade: null, seam: null, handShadow: null,
+        // the gloves sit on a white card: a fine ink line keeps them there. The head and ears get a cream border,
+        // so the black reads on the frames' dark photographs.
+        handLine: { color: INK, w: 7, amp: 0.4, taper: [2, 2] },
+        halo: { color: CREAM, grow: 11 },
+      }),
     };
-    return lift(2048, v.seed, out, (art, bg) => {
+    return lift(2048, 3131, out, (art, bg) => {
       spec.ground = (K) => K.art.paper({ color: bg, mottle: 0, grain: 0, warm: 0, vignette: 0 });
-      // the edge it peeks over is the card's: below it, nothing (the paws are drawn after, over it)
-      spec.ledgeDraw = (K) => K.mark(bg, { tooth: 0, soft: 0.01 }, (c) => c.fillRect(-60, K.ly, 1120, 1200));
       HD.icon(art, spec);
     }, ly);
   }
