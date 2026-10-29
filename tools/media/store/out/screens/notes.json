@@ -1,7 +1,7 @@
 {
  "schemaVersion": 1,
  "screenId": "bots.note",
- "title": "Diwali sale plan",
+ "title": "Spring launch plan",
  "hideChrome": true,
  "look": "bots",
  "theme": {
@@ -159,7 +159,7 @@
          {
           "type": "Text",
           "props": {
-           "content": "Diwali sale plan",
+           "content": "Spring launch plan",
            "variant": "bots"
           },
           "style": {
@@ -231,7 +231,7 @@
          {
           "type": "Text",
           "props": {
-           "content": "The sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.",
+           "content": "The launch moves to 12 March. Sofia finishes the landing page by Friday, Kenji runs a beta with fifty customers first, and every early sign-up gets a welcome call.",
            "variant": "bots"
           },
           "style": {
@@ -302,7 +302,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "The sale runs from 7 to 12 November",
+             "content": "The launch moves to 12 March",
              "variant": "bots"
             },
             "style": {
@@ -349,7 +349,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Free gift wrap on every order this week",
+             "content": "A beta with fifty customers comes first",
              "variant": "bots"
             },
             "style": {
@@ -396,7 +396,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "The shop window goes up on Friday",
+             "content": "The landing page goes live on Friday",
              "variant": "bots"
             },
             "style": {
@@ -583,7 +583,7 @@
                  {
                   "type": "Text",
                   "props": {
-                   "content": "Order 200 gift boxes",
+                   "content": "Invite fifty beta customers",
                    "variant": "bots"
                   },
                   "style": {
@@ -608,7 +608,7 @@
                  {
                   "type": "Text",
                   "props": {
-                   "content": "Meera Iyer · This week",
+                   "content": "Kenji Sato · This week",
                    "variant": "bots",
                    "numberOfLines": 1
                   },
@@ -661,7 +661,7 @@
                }
               },
               "props": {
-               "accessibilityLabel": "Order 200 gift boxes. Tap when it's done."
+               "accessibilityLabel": "Invite fifty beta customers. Tap when it's done."
               }
              },
              {
@@ -853,7 +853,7 @@
                  {
                   "type": "Text",
                   "props": {
-                   "content": "Write the sale message for customers",
+                   "content": "Write the launch email",
                    "variant": "bots"
                   },
                   "style": {
@@ -939,7 +939,7 @@
                }
               },
               "props": {
-               "accessibilityLabel": "Write the sale message for customers. Tap when it's done."
+               "accessibilityLabel": "Write the launch email. Tap when it's done."
               }
              },
              {
@@ -1096,7 +1096,7 @@
                  {
                   "type": "Text",
                   "props": {
-                   "content": "Set up the shop window",
+                   "content": "Finish the landing page",
                    "variant": "bots"
                   },
                   "style": {
@@ -1121,7 +1121,7 @@
                  {
                   "type": "Text",
                   "props": {
-                   "content": "Kavya Rao · By Friday",
+                   "content": "Sofia Martins · By Friday",
                    "variant": "bots",
                    "numberOfLines": 1
                   },
@@ -1174,7 +1174,7 @@
                }
               },
               "props": {
-               "accessibilityLabel": "Set up the shop window. Tap when it's done."
+               "accessibilityLabel": "Finish the landing page. Tap when it's done."
               }
              },
              {
@@ -1598,7 +1598,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Last year the window brought in half the walk-ins. Let's do it properly this time.",
+               "content": "If the page is ready by Friday, the beta can start on Monday.",
                "variant": "bots"
               },
               "style": {
@@ -1616,7 +1616,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Kavya Rao",
+               "content": "Sofia Martins",
                "variant": "bots"
               },
               "style": {
@@ -1672,7 +1672,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Free gift wrap on every order this week.",
+               "content": "Fifty customers first, then everyone on 12 March.",
                "variant": "bots"
               },
               "style": {
@@ -1761,7 +1761,7 @@
         "on": {
          "onPress": {
           "kind": "copyText",
-          "text": "Diwali sale plan\n\nThe sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.\n\nDecisions:\n- The sale runs from 7 to 12 November\n- Free gift wrap on every order this week\n- The shop window goes up on Friday\n\nTo-dos:\n- [ ] Order 200 gift boxes (Meera Iyer, this week)\n- [ ] Write the sale message for customers (You, today)\n- [ ] Set up the shop window (Kavya Rao, by Friday)\n- [x] Send the team the final plan (You)\n\nKavya Rao: Last year the window brought in half the walk-ins. Let's do it properly this time.\nYou: Free gift wrap on every order this week.",
+          "text": "Spring launch plan\n\nThe launch moves to 12 March. Sofia finishes the landing page by Friday, Kenji runs a beta with fifty customers first, and every early sign-up gets a welcome call.\n\nDecisions:\n- The launch moves to 12 March\n- A beta with fifty customers comes first\n- The landing page goes live on Friday\n\nTo-dos:\n- [ ] Invite fifty beta customers (Kenji Sato, this week)\n- [ ] Write the launch email (You, today)\n- [ ] Finish the landing page (Sofia Martins, by Friday)\n- [x] Send the team the final plan (You)\n\nSofia Martins: If the page is ready by Friday, the beta can start on Monday.\nYou: Fifty customers first, then everyone on 12 March.",
           "message": "Notes copied"
          }
         }
@@ -1825,9 +1825,9 @@
           "screenId": "bots.share",
           "params": {
            "kind": "note",
-           "title": "Diwali sale plan",
+           "title": "Spring launch plan",
            "ref": "n1",
-           "text": "Diwali sale plan\n\nThe sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.\n\nDecisions:\n- The sale runs from 7 to 12 November\n- Free gift wrap on every order this week\n- The shop window goes up on Friday\n\nTo-dos:\n- [ ] Order 200 gift boxes (Meera Iyer, this week)\n- [ ] Write the sale message for customers (You, today)\n- [ ] Set up the shop window (Kavya Rao, by Friday)\n- [x] Send the team the final plan (You)\n\nKavya Rao: Last year the window brought in half the walk-ins. Let's do it properly this time.\nYou: Free gift wrap on every order this week."
+           "text": "Spring launch plan\n\nThe launch moves to 12 March. Sofia finishes the landing page by Friday, Kenji runs a beta with fifty customers first, and every early sign-up gets a welcome call.\n\nDecisions:\n- The launch moves to 12 March\n- A beta with fifty customers comes first\n- The landing page goes live on Friday\n\nTo-dos:\n- [ ] Invite fifty beta customers (Kenji Sato, this week)\n- [ ] Write the launch email (You, today)\n- [ ] Finish the landing page (Sofia Martins, by Friday)\n- [x] Send the team the final plan (You)\n\nSofia Martins: If the page is ready by Friday, the beta can start on Monday.\nYou: Fifty customers first, then everyone on 12 March."
           }
          }
         }
@@ -1871,7 +1871,7 @@
           "kind": "navigate",
           "screenId": "bots.ask",
           "params": {
-           "message": "About my meeting “Diwali sale plan”: "
+           "message": "About my meeting “Spring launch plan”: "
           }
          }
         }
@@ -1973,7 +1973,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "KR",
+             "content": "SM",
              "variant": "bots"
             },
             "style": {
@@ -2010,7 +2010,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Kavya Rao",
+               "content": "Sofia Martins",
                "variant": "bots"
               },
               "style": {
@@ -2048,7 +2048,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Last year the window brought in half the walk-ins. Is baar properly karte hain.",
+             "content": "If the page is ready by Friday, the beta can start on Monday.",
              "variant": "bots"
             },
             "style": {
@@ -2095,7 +2095,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "AS",
+             "content": "MC",
              "variant": "bots"
             },
             "style": {
@@ -2132,7 +2132,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Aanya (you)",
+               "content": "Maya (you)",
                "variant": "bots"
               },
               "style": {
@@ -2170,7 +2170,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Sale seven se twelve November tak. Gift wrap free on every order.",
+             "content": "Let's move the launch to 12 March and do it properly.",
              "variant": "bots"
             },
             "style": {
@@ -2219,7 +2219,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "IM",
+             "content": "KS",
              "variant": "bots"
             },
             "style": {
@@ -2256,7 +2256,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Ishaan Mehta",
+               "content": "Kenji Sato",
                "variant": "bots"
               },
               "style": {
@@ -2294,7 +2294,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "I'll take the online orders. We need more boxes though.",
+             "content": "I'll pick the fifty beta customers this week.",
              "variant": "bots"
             },
             "style": {
@@ -2343,7 +2343,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "MI",
+             "content": "AO",
              "variant": "bots"
             },
             "style": {
@@ -2380,7 +2380,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Meera Iyer",
+               "content": "Amara Okafor",
                "variant": "bots"
               },
               "style": {
@@ -2418,7 +2418,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Two hundred gift boxes should be enough for the week.",
+             "content": "And every early sign-up gets a welcome call from us.",
              "variant": "bots"
             },
             "style": {
@@ -2465,7 +2465,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "AS",
+             "content": "MC",
              "variant": "bots"
             },
             "style": {
@@ -2502,7 +2502,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Aanya (you)",
+               "content": "Maya (you)",
                "variant": "bots"
               },
               "style": {
@@ -2540,7 +2540,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Done. Kavya, window by Friday?",
+             "content": "Done. Sofia, page by Friday?",
              "variant": "bots"
             },
             "style": {
@@ -2589,7 +2589,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "KR",
+             "content": "SM",
              "variant": "bots"
             },
             "style": {
@@ -2626,7 +2626,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Kavya Rao",
+               "content": "Sofia Martins",
                "variant": "bots"
               },
               "style": {
@@ -2664,7 +2664,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Haan, Friday shaam tak ready.",
+             "content": "Friday evening, yes.",
              "variant": "bots"
             },
             "style": {

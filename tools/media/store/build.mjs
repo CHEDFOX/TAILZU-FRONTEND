@@ -4,6 +4,8 @@
 //   node tools/media/store/build.mjs --no-screens    # only re-compose, from the screens already in out/screens
 //   node tools/media/store/build.mjs --only plan     # one frame (a regex on its key)
 //   node tools/media/store/build.mjs --sheet /path/sheet.png   # also write the contact sheet there
+//   node tools/media/store/build.mjs --set india     # the India set (frames.mjs SETS), for Google Play's English (India) and
+//                                                    # Hindi listings: the same, written to out/india/
 //
 // The look: a full-bleed photograph (photos/) under one grade (ink shadows with an olive-teal undertone, cream light, clay
 // only in the marks); a heavy Geist headline, left aligned, one word handwritten (Caveat) with a clay brush underline; the
@@ -32,13 +34,16 @@ import { renderArt } from "./art.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TULMI = path.resolve(process.env.X0_BACKEND ?? path.join(HERE, "../../../../TAILZU-BACKEND/tulmi"));
-const OUT = path.join(HERE, "out");
 const args = process.argv.slice(2);
 const opt = (k) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : undefined; };
 const has = (k) => args.includes(`--${k}`);
 const only = opt("only") ? new RegExp(opt("only")) : null;
 
-const { FRAMES, FEATURE, BRAND, ICON, SIZES, APPS } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
+const { framesFor, SETS, DEFAULT_SET, FEATURE, BRAND, ICON, SIZES, APPS } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
+/** Which set (frames.mjs SETS): --set global (the default, written to out/) or --set india (out/india/). */
+const SET = opt("set") ?? DEFAULT_SET;
+const FRAMES = framesFor(SET);
+const OUT = path.join(HERE, "out", SETS[SET].out);
 
 function playwright() {
   const req = createRequire(import.meta.url);
@@ -413,7 +418,7 @@ async function shoot(browser, html, W, H, file) {
 // ------------------------------------------------------------------ the command
 
 function renderScreens() {
-  const cli = ["tsx", path.join(HERE, "screens.mts"), "--out", path.join(OUT, "screens"), ...(only ? ["--only", only.source] : [])];
+  const cli = ["tsx", path.join(HERE, "screens.mts"), "--set", SET, "--out", path.join(OUT, "screens"), ...(only ? ["--only", only.source] : [])];
   console.log(`screens: npx ${cli.join(" ")}   (in ${TULMI})`);
   const r = spawnSync("npx", cli, { cwd: TULMI, stdio: "inherit" });
   if (r.status !== 0) throw new Error("screens.mts failed");
@@ -523,7 +528,7 @@ async function main() {
       const sheet = path.join(OUT, "sheet.png");
       const ios = SIZES.targets[0], play = SIZES.targets.find((t) => t.dir.startsWith("play"));
       await writeSheet(browser, [
-        { name: `App Store · ${ios.w} x ${ios.h} (also exported at 1290 x 2796)`, files: made[ios.dir], width: 312 },
+        { name: `${SETS[SET].title} set · App Store · ${ios.w} x ${ios.h} (also exported at 1290 x 2796)`, files: made[ios.dir], width: 312 },
         { name: `Google Play · phone ${play.w} x ${play.h}`, files: made[play.dir], width: 312 },
         { name: "Google Play · feature graphic 1024 x 500", files: [feature], width: 1024 },
       ], sheet);

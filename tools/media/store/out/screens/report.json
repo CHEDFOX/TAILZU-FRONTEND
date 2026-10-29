@@ -3,7 +3,7 @@
   "screen": "bots.home",
   "errors": [],
   "flags": [],
-  "text": "Your bots\nGood evening, Aanya\nAnything\nto\nwrite\nup\nbefore\nthe\nday\nends?\n4 things done this week · 2 h 20 min saved\nNeeds you · Plan bot\nOnly 15 min between the dentist and dinner. Move dinner to 7:30?\nMoves Dinner with Mom to 7:30 pm and tells Mom\nYes, do it\nNo\nPlan bot\nNeeds you · 1 question\nTravel bot\nWorking · finding stays near the wedd…\nCode bot\nFixes and ships your code\nMake a bot\nSay what it should do\nBots\nActivity\nYou\nAsk any bot…",
+  "text": "Your bots\nGood evening, Maya\nAnything\nto\nwrite\nup\nbefore\nthe\nday\nends?\n4 things done this week · 2 h 20 min saved\nNeeds you · Plan bot\nOnly 15 min between the dentist and dinner. Move dinner to 7:30?\nMoves Dinner with Mom to 7:30 pm and tells Mom\nYes, do it\nNo\nPlan bot\nNeeds you · 1 question\nTravel bot\nWorking · finding stays near the wedd…\nCode bot\nFixes and ships your code\nMake a bot\nSay what it should do\nBots\nActivity\nYou\nAsk any bot…",
   "pop": {
    "x": 20,
    "y": 507,
@@ -39,12 +39,12 @@
   "screen": "bots.plan",
   "errors": [],
   "flags": [],
-  "text": "Plan bot\n4 things tomorrow · 40 min saved\nMon\n26\nTue\n27\nWed\n28\nThu\n29\nFri\n30\nSat\n31\nSun\n1\nTomorrow · Thu 29 Oct\nAdd\n9:30 am\nStudio standup\n30 min · Video call · 3 others\nFree · 10 am to 6 pm, 8 h\nLeave home by 5:30 pm · 30 min to Indiranagar\n6:00 pm\nDentist · Dr. Mehta\n45 min · Indiranagar\nMove?\nOnly 15 min to get there · 35 min to Koramangala\n7:00 pm\nDinner with Mom\n2 h · Koramangala · 1 other\nTo do\nPick up the cake for Mom\nShare tomorrow\nNeeds you\nMove Dentist to Friday 10 am?\nDentist ends at 6:45 pm and Dinner with Mom starts at 7 pm, 15 min later. Friday 10 am is free. I'll move it only after you say yes.\nFree up Saturday\nWhat should I do first tomorrow?\nAdd dentist Fri 5 pm, or plan my week…",
+  "text": "Plan bot\n4 things tomorrow · 40 min saved\nMon\n26\nTue\n27\nWed\n28\nThu\n29\nFri\n30\nSat\n31\nSun\n1\nTomorrow · Thu 29 Oct\nAdd\n9:30 am\nStudio standup\n30 min · Video call · 3 others\nFree · 10 am to 6 pm, 8 h\nLeave home by 5:30 pm · 30 min to Midtown\n6:00 pm\nDentist · Dr. Lee\n45 min · Midtown\nMove?\nOnly 15 min to get there · 35 min to Riverside\n7:00 pm\nDinner with Mom\n2 h · Riverside · 1 other\nTo do\nPick up the cake for Mom\nShare tomorrow\nNeeds you\nMove Dentist to Friday 10 am?\nDentist ends at 6:45 pm and Dinner with Mom starts at 7 pm, 15 min later. Friday 10 am is free. I'll move it only after you say yes.\nFree up Saturday\nWhat should I do first tomorrow?\nAdd dentist Fri 5 pm, or plan my week…",
   "pop": {
    "x": 16,
    "y": 323,
    "width": 358,
-   "height": 216,
+   "height": 210,
    "radius": 0,
    "screen": {
     "w": 390,
@@ -57,12 +57,12 @@
   "screen": "bots.note",
   "errors": [],
   "flags": [],
-  "text": "Notes\nDiwali sale plan\nToday, 11:40 am · 42 min · 4 speakers · recorded on your computer\nSummary\nThe sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.\nDecisions · 3\n01\nThe sale runs from 7 to 12 November\n02\nFree gift wrap on every order this week\n03\nThe shop window goes up on Friday\nTo-dos · 4\n3 open\nOrder 200 gift boxes\nMeera Iyer · This week\nMy tasks\nWrite the sale message for customers\nYou · Today\nIn your tasks\nSet up the shop window\nKavya Rao · By Friday\nMy tasks\nSend the team the final plan\nYou · Done at 12:40 pm\nMy tasks\nWhat was said · 2\n01\nLast year the window brought in half the walk-ins. Let's do it properly this time.",
+  "text": "Notes\nSpring launch plan\nToday, 11:40 am · 42 min · 4 speakers · recorded on your computer\nSummary\nThe launch moves to 12 March. Sofia finishes the landing page by Friday, Kenji runs a beta with fifty customers first, and every early sign-up gets a welcome call.\nDecisions · 3\n01\nThe launch moves to 12 March\n02\nA beta with fifty customers comes first\n03\nThe landing page goes live on Friday\nTo-dos · 4\n3 open\nInvite fifty beta customers\nKenji Sato · This week\nMy tasks\nWrite the launch email\nYou · Today\nIn your tasks\nFinish the landing page\nSofia Martins · By Friday\nMy tasks\nSend the team the final plan\nYou · Done at 12:40 pm\nMy tasks\nWhat was said · 2\n01\nIf the page is ready by Friday, the beta can start on Monday.",
   "pop": {
    "x": 20,
    "y": 460,
    "width": 350,
-   "height": 268,
+   "height": 249,
    "radius": 18,
    "screen": {
     "w": 390,
@@ -75,7 +75,7 @@
   "screen": "bots.travel",
   "errors": [],
   "flags": [],
-  "text": "Travel bot\n4 of 5 ready\nPune · 14–16 Nov\nShare\nTrip over\nYou + Rohan\nEvening train to Pune · 2 window seats\nYou asked: Trains from Mumbai to Pune on 14 Nov\nOpen to book\nReady to book · you press pay\nStay · 2 options\nPrices and booking on their site\nTravel bot's pick\nShanti Residency\nKoregaon Park\n4.4 · 1,820 reviews\n12 min to the wedding\nPick\nFound on the web\nDeccan Courtyard\nFC Road\n4.1 · 960 reviews\n28 min to the wedding\nPick\nFind more\nAdd one\nClear days, cool nights\nSat 29° · Sun 30° · Mon 28° · lows 16°\nAsk about this trip…",
+  "text": "Travel bot\n4 of 5 ready\nLisbon · 14–16 Nov\nShare\nTrip over\nYou + Leo\nEvening train to Lisbon · 2 window seats\nYou asked: Trains from Porto to Lisbon on 14 Nov\nOpen to book\nReady to book · you press pay\nStay · 2 options\nPrices and booking on their site\nTravel bot's pick\nCasa Alfama\nAlfama\n4.4 · 1,820 reviews\n12 min to the wedding\nPick\nFound on the web\nHotel Rio Tejo\nBaixa\n4.1 · 960 reviews\n28 min to the wedding\nPick\nFind more\nAdd one\nMild days, cool nights\nSat 19° · Sun 20° · Mon 18° · lows 11°\nAsk about this trip…",
   "pop": {
    "x": 20,
    "y": 431,

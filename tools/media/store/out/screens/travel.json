@@ -230,7 +230,7 @@
          {
           "type": "Text",
           "props": {
-           "content": "Pune · 14–16 Nov",
+           "content": "Lisbon · 14–16 Nov",
            "variant": "bots"
           },
           "style": {
@@ -320,7 +320,7 @@
               "screenId": "bots.share",
               "params": {
                "kind": "trip",
-               "title": "Trip to Pune",
+               "title": "Trip to Lisbon",
                "ref": "7a1b2c3d-0000-4000-8000-0000000000aa"
               }
              }
@@ -392,7 +392,7 @@
        {
         "type": "Text",
         "props": {
-         "content": "You + Rohan",
+         "content": "You + Leo",
          "variant": "bots"
         },
         "style": {
@@ -542,7 +542,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Evening train to Pune · 2 window seats",
+             "content": "Evening train to Lisbon · 2 window seats",
              "variant": "bots",
              "numberOfLines": 2
             },
@@ -561,7 +561,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "You asked: Trains from Mumbai to Pune on 14 Nov",
+             "content": "You asked: Trains from Porto to Lisbon on 14 Nov",
              "variant": "bots",
              "numberOfLines": 2
             },
@@ -871,7 +871,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Shanti Residency",
+               "content": "Casa Alfama",
                "variant": "bots",
                "numberOfLines": 2
               },
@@ -890,7 +890,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Koregaon Park",
+               "content": "Alfama",
                "variant": "bots",
                "numberOfLines": 1
               },
@@ -1134,7 +1134,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Deccan Courtyard",
+               "content": "Hotel Rio Tejo",
                "variant": "bots",
                "numberOfLines": 2
               },
@@ -1153,7 +1153,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "FC Road",
+               "content": "Baixa",
                "variant": "bots",
                "numberOfLines": 1
               },
@@ -1833,7 +1833,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Clear days, cool nights",
+             "content": "Mild days, cool nights",
              "variant": "bots"
             },
             "style": {
@@ -1851,7 +1851,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Sat 29° · Sun 30° · Mon 28° · lows 16°",
+             "content": "Sat 19° · Sun 20° · Mon 18° · lows 11°",
              "variant": "bots"
             },
             "style": {
@@ -1983,7 +1983,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Sakshi and Arjun's wedding, Koregaon Park",
+               "content": "Ana and Tom's wedding, Alfama",
                "variant": "bots"
               },
               "style": {
@@ -2292,7 +2292,7 @@
              {
               "type": "Text",
               "props": {
-               "content": "Hotel_Shanti_Residency_booking.pdf",
+               "content": "Hotel_Casa_Alfama_booking.pdf",
                "variant": "bots"
               },
               "style": {
@@ -2475,7 +2475,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Light jacket, 16° nights",
+             "content": "Light jacket, 11° nights",
              "variant": "bots",
              "numberOfLines": 2
             },
@@ -2536,7 +2536,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Aadhaar for check-in",
+             "content": "Passport for check-in",
              "variant": "bots",
              "numberOfLines": 2
             },
@@ -2909,7 +2909,7 @@
            {
             "type": "Text",
             "props": {
-             "content": "Rohan's inhaler",
+             "content": "Leo's inhaler",
              "variant": "bots",
              "numberOfLines": 2
             },
@@ -3289,7 +3289,7 @@
          {
           "type": "Text",
           "props": {
-           "content": "Rohan needs his inhaler packed",
+           "content": "Leo needs his inhaler packed",
            "variant": "bots"
           },
           "style": {

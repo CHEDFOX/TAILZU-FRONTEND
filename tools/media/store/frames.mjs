@@ -155,7 +155,7 @@ export const FRAMES = [
   },
   {
     key: "plan", title: "Your day,\n*planned* for you", mascot: { pose: "happy", x: 0.78 }, accent: "#D2A24A", bot: { name: "Plan", line: "Your day, planned" },
-    photo: { file: "plan.jpg", x: 0.4, y: 0.35, zoom: 1, light: 0.5, warm: 0.45 },
+    photo: { file: "plan.jpg", x: 0.5, y: 0.42, zoom: 1, light: 0.55 },
     screen: { id: "bots.plan", api: (a) => ({ [PLAN_KEY]: { ...a[PLAN_KEY], travel: { ...a[PLAN_KEY].travel, credits: [] } } }) },
     pop: { has: ["Leave home by", "Dinner with Mom"], union: true, pad: 4, nudge: -0.016 },
   },
@@ -164,11 +164,11 @@ export const FRAMES = [
     key: "notes", title: "Every meeting,\n*written up*", mascot: { pose: "shy", x: 0.8 }, accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" }, play: false,
     photo: { file: "notes.jpg", x: 0.5, y: 0.45, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.note", params: { id: "n1" }, api: { "GET /v1/notes/n1": { note: NOTE, finding: false }, "GET /v1/botsapp/calendar/notes/n1": { todos: { t2: { id: "c-t2", done: false } } } } },
-    pop: { has: ["Order 200 gift boxes", "Send the team the final plan"], card: true, bare: true }, fade: true,
+    pop: { has: ["Send the team the final plan"], card: true, bare: true }, fade: true,
   },
   {
     key: "travel", title: "Your trips,\nall *sorted*", mascot: { pose: "starry", x: 0.78 }, accent: "#6FA3C7", bot: { name: "Travel", line: "Trips, sorted" },
-    photo: { file: "travel.jpg", x: 0.5, y: 0.4, zoom: 1, light: 0.55, warm: 0.4 },
+    photo: { file: "travel.jpg", x: 0.5, y: 0.38, zoom: 1, light: 0.55 },
     screen: {
       id: "bots.travel",
       api: (a) => {
@@ -229,3 +229,130 @@ export const FEATURE = {
   /** The photo's place on the wide graphic (over the frame's own): the phone in it sits behind the card. */
   photo: { x: 0.33, y: 0.5, zoom: 1.6, blur: 4 },
 };
+
+// ------------------------------------------------------------------ the sets: global (the default) and India
+
+/** A meeting written up, for the global set: a product launch. */
+const gp = { you: { label: "You", name: "Maya Collins" }, s: { label: "Speaker 1", name: "Sofia Martins" }, k: { label: "Speaker 2", name: "Kenji Sato" }, a: { label: "Speaker 3", name: "Amara Okafor" } };
+const NOTE_GLOBAL = {
+  id: "n1", status: "ready", startedAt: new Date(N - 8 * HOUR).toISOString(), durationSeconds: 2520, words: 5200, title: "Spring launch plan",
+  summary: "The launch moves to 12 March. Sofia finishes the landing page by Friday, Kenji runs a beta with fifty customers first, and every early sign-up gets a welcome call.",
+  people: [gp.you, gp.s, gp.k, gp.a], organised: true, openTodos: 3,
+  decisions: ["The launch moves to 12 March", "A beta with fifty customers comes first", "The landing page goes live on Friday"],
+  todos: [
+    { id: "t1", text: "Invite fifty beta customers", who: "Speaker 2", when: "this week", done: false },
+    { id: "t2", text: "Write the launch email", who: "You", when: "today", done: false },
+    { id: "t3", text: "Finish the landing page", who: "Speaker 1", when: "by Friday", done: false },
+    { id: "t4", text: "Send the team the final plan", who: "You", done: true, doneAt: new Date(N - 7 * HOUR).toISOString() },
+  ],
+  highlights: [
+    { speaker: "Speaker 1", text: "If the page is ready by Friday, the beta can start on Monday." },
+    { speaker: "You", text: "Fifty customers first, then everyone on 12 March." },
+  ],
+  transcript: [
+    { at: 40, speaker: "Speaker 1", text: "If the page is ready by Friday, the beta can start on Monday." },
+    { at: 72, speaker: "You", text: "Let's move the launch to 12 March and do it properly." },
+    { at: 98, speaker: "Speaker 2", text: "I'll pick the fifty beta customers this week." },
+    { at: 131, speaker: "Speaker 3", text: "And every early sign-up gets a welcome call from us." },
+    { at: 160, speaker: "You", text: "Done. Sofia, page by Friday?" },
+    { at: 171, speaker: "Speaker 1", text: "Friday evening, yes." },
+  ],
+  found: { hash: "sample", at: new Date(N - 8 * HOUR).toISOString(), ok: true },
+};
+
+/**
+ * The global set's names and places, swapped into the sample data (the server's answers, the live state, the params), never
+ * into the app's own words: the screens are still the app's. Longer phrases first; whole words only.
+ */
+const GLOBAL_SWAP = [
+  ["Aanya Sharma", "Maya Collins"], ["Aanya S.", "Maya C."], ["Aanya", "Maya"],
+  ["Rohan Mehta", "Kenji Sato"], ["Ishaan Mehta", "Kenji Sato"], ["Rohan", "Leo"], ["Ishaan", "Kenji"],
+  ["Kavya Rao", "Sofia Martins"], ["Kavya", "Sofia"], ["Meera Iyer", "Amara Okafor"], ["Meera R.", "Amara O."], ["Meera", "Amara"],
+  ["Dr. Mehta", "Dr. Lee"], ["Vikram Joshi", "Daniel Weiss"], ["Dev K", "Noah K"], ["Dev", "Noah"], ["Ishita", "Elena"], ["Kabir", "Omar"], ["Tanmay", "Lucas"],
+  ["Nani", "Grandma"],
+  ["HSR Layout", "Elm Park"], ["Indiranagar", "Midtown"], ["Koramangala", "Riverside"], ["Jayanagar", "Old Town"], ["Bandra", "the harbour"],
+  ["Koregaon Park", "Alfama"], ["FC Road", "Baixa"], ["Shanti Residency", "Casa Alfama"], ["Shanti_Residency", "Casa_Alfama"],
+  ["Deccan Courtyard", "Hotel Rio Tejo"], ["Deccan Queen 12123", "Intercity 521"], ["Sakshi and Arjun's wedding", "Ana and Tom's wedding"],
+  ["Pune", "Lisbon"], ["Mumbai", "Porto"], ["Goa", "Seville"],
+  ["Aadhaar for check-in", "Passport for check-in"], ["Aadhaar", "Passport"], ["16° nights", "11° nights"],
+  ["Diwali sale plan", "Spring launch plan"], ["Diwali party", "Launch party"], ["Diwali", "Spring"],
+  ["Theobroma", "the bakery"], ["The eggless one", "The chocolate one"],
+  ["Chakki atta · 5 kg", "Flour · 2 kg"], ["Toor dal · 1 kg", "Lentils · 1 kg"], ["Tomato, onion, palak", "Tomatoes, onions, spinach"], ["Paneer · 400 g", "Feta · 200 g"],
+  ["GST papers due", "Tax papers due"],
+];
+
+/** Whole-word replacement of `swap` pairs in one string. */
+export function swapText(t, swap) {
+  if (!swap?.length || typeof t !== "string") return t;
+  for (const [from, to] of swap) {
+    const re = new RegExp(`(?<![A-Za-z])${from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z])`, "g");
+    t = t.replace(re, to);
+  }
+  return t;
+}
+/** The same over every string in a value (object keys untouched). */
+export function swapDeep(v, swap) {
+  if (!swap?.length) return v;
+  if (typeof v === "string") return swapText(v, swap);
+  if (Array.isArray(v)) return v.map((x) => swapDeep(x, swap));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swapDeep(x, swap)]));
+  return v;
+}
+
+/**
+ * The sets. `global` is the default (the output in out/, the sheet, the listing); `india` is for Google Play's English (India)
+ * and Hindi listings (out/india/). Each set has the person signed in, the swap for its sample data, the frames it keeps as
+ * they are (`local`: the global set keeps one or two Indian moments on purpose), and per-frame overrides (photo, screen, pop).
+ */
+export const SETS = {
+  global: {
+    title: "Global", out: "",
+    user: { id: "00000000-0000-4000-8000-00000000aaaa", name: "Maya Collins", email: "maya@example.com" },
+    swap: GLOBAL_SWAP,
+    // Kept Indian on purpose: Ask in Hinglish (the "speaks your language" touch) and a family space with Nani.
+    local: ["ask", "spaces"],
+    frames: {
+      notes: { screen: { api: { "GET /v1/notes/n1": { note: NOTE_GLOBAL, finding: false } } }, pop: { has: ["Invite fifty beta customers", "Send the team the final plan"], card: true, bare: true } },
+      travel: {
+        screen: {
+          api: (a) => {
+            const x = a[EXTRAS_KEY].extras;
+            const days = [["2026-11-14", 19, 12], ["2026-11-15", 20, 12], ["2026-11-16", 18, 11]].map(([key, hiC, loC]) => ({ key, hiC, loC, sky: "clear", rainMm: 0 }));
+            return { [EXTRAS_KEY]: { extras: { ...x, weather: { ...x.weather, days, line: "Mild days, cool nights", sub: "Sat 19° · Sun 20° · Mon 18° · lows 11°" } } } };
+          },
+        },
+      },
+    },
+  },
+  india: {
+    title: "India (Google Play English (India) and Hindi)", out: "india",
+    user: { id: "00000000-0000-4000-8000-00000000aaaa", name: "Aanya Sharma", email: "aanya@example.in" },
+    swap: [], local: [],
+    frames: {
+      plan: { photo: { file: "plan-india.jpg", x: 0.4, y: 0.35, zoom: 1, light: 0.5 } },
+      notes: { pop: { has: ["Order 200 gift boxes", "Send the team the final plan"], card: true, bare: true } },
+      travel: { photo: { file: "travel-india.jpg", x: 0.5, y: 0.4, zoom: 1, light: 0.55 } },
+    },
+  },
+};
+export const DEFAULT_SET = "global";
+
+const chain = (a, b) => (answers) => {
+  const run = (x, ans) => (typeof x === "function" ? x(ans) : x ?? {});
+  const first = run(a, answers), second = run(b, { ...answers, ...first });
+  return { ...first, ...second };
+};
+
+/** The frames of a set: the frames above with the set's overrides, its swap (`swap`, empty for a `local` frame) and its person. */
+export function framesFor(name = DEFAULT_SET) {
+  const set = SETS[name];
+  if (!set) throw new Error(`no set "${name}" (sets: ${Object.keys(SETS).join(", ")})`);
+  return FRAMES.map((f) => {
+    const o = set.frames?.[f.key] ?? {};
+    const swap = set.local?.includes(f.key) ? [] : set.swap ?? [];
+    const g = { ...f, ...o, photo: { ...f.photo, ...(o.photo ?? {}) }, swap, user: set.user };
+    if (f.screen || o.screen) g.screen = { ...(f.screen ?? {}), ...(o.screen ?? {}), api: chain(f.screen?.api, o.screen?.api) };
+    if (g.pop) g.pop = { ...g.pop, has: g.pop.has.map((t) => swapText(t, swap)) };
+    return g;
+  });
+}
