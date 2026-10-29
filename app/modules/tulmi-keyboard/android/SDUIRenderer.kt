@@ -3844,7 +3844,7 @@ class SDUIRenderer(
      *  when it sends one, else the words_out_status label. */
     private fun quotaStatus(): String =
         flagString("kb.quota.status", "").ifBlank {
-            label("words_out_status", "Out of free words \u2014 open Tailzu to get more.")
+            label("words_out_status", "Out of free words \u2014 open X0 Bot to get more.")
         }
 
     // -----------------------------------------------------------------------

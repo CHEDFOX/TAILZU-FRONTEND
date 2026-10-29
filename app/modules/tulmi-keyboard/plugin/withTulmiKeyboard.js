@@ -42,7 +42,7 @@ function withManifest(config) {
       app.service.push({
         $: {
           "android:name": SERVICE,
-          "android:label": "Tailzu",
+          "android:label": "X0 Bot",
           "android:permission": "android.permission.BIND_INPUT_METHOD",
           "android:exported": "true",
         },

@@ -27,7 +27,7 @@ module.exports = {
   // setting OVERRIDES the CFBundleDisplayName in Info.plist — so without this,
   // the selector showed the internal target name "TailzuKeyboard". Setting
   // displayName makes it just "Tailzu" while keeping the distinct target name.
-  displayName: "Tailzu",
+  displayName: "X0 Bot",
   // The keyboard talks to the backend over the network; Open Access is granted
   // by the user in Settings → General → Keyboard → Keyboards → Allow Full Access.
   entitlements: {

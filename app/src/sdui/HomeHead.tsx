@@ -181,7 +181,7 @@ export function LiveMarkNode({ props, fire }: CompProps): React.ReactElement {
     setTimeout(() => fire("onPress"), ms(props?.pressDelayMs, 170));
   };
   return (
-    <Pressable ref={host} onPress={press} accessibilityRole="button" accessibilityLabel={props?.label || "Tailzu"} hitSlop={8} style={{ width: size, height: size }}>
+    <Pressable ref={host} onPress={press} accessibilityRole="button" accessibilityLabel={props?.label || "X0 Bot"} hitSlop={8} style={{ width: size, height: size }}>
       <TileSurface ref={(r) => { painter.current = r; if (r) r.paint(mark); }} w={size} h={size} />
     </Pressable>
   );

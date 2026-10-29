@@ -63,7 +63,7 @@ export function nameFor(kind: PickKind, given: unknown, uri: string, mime?: stri
 
 /** "That file is over 50 MB, the most Tailzu takes." */
 export function tooBigWords(max: number): string {
-  return `That file is over ${Math.round(max / 1024 / 1024)} MB, the most Tailzu takes.`;
+  return `That file is over ${Math.round(max / 1024 / 1024)} MB, the most X0 Bot takes.`;
 }
 
 export interface RefusalWords {

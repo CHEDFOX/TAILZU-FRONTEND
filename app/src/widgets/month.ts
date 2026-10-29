@@ -26,14 +26,14 @@ export function widgetMonthLabels(): Record<string, string> {
   return {
     thisMonth: txt("widget.month.thisMonth", "THIS MONTH"),
     wordsLeft: txt("widget.month.wordsLeft", "WORDS LEFT"),
-    brand: txt("widget.month.brand", "Tailzu"),
+    brand: txt("widget.month.brand", "X0 Bot"),
     gaugeWords: txt("widget.month.gaugeWords", "words"),
     streakShort: txt("widget.month.streakShort", "{n}d"),
     streakLong: txt("widget.month.streakLong", "{n}-day streak"),
     wordsThisMonth: txt("widget.month.wordsThisMonth", "Words this month"),
     wordsLeftTitle: txt("widget.month.wordsLeftTitle", "Words left"),
-    inlinePaid: txt("widget.month.inlinePaid", "Tailzu · {n} words"),
-    inlineFree: txt("widget.month.inlineFree", "Tailzu · {n} left"),
+    inlinePaid: txt("widget.month.inlinePaid", "X0 Bot · {n} words"),
+    inlineFree: txt("widget.month.inlineFree", "X0 Bot · {n} left"),
     inlineStreak: txt("widget.month.inlineStreak", " · {n}d"),
     // The iOS widget gallery's name and description. Android's picker shows
     // them before the app has ever run, so it keeps its own string resources.
@@ -115,7 +115,7 @@ export function publishWidgetMonth(
       path: str("widget.dictate.path", "screen/flow_arm"),
       label: txt("widget.dictate.label", "Dictate"),
       symbol: str("widget.dictate.symbol", "waveform"),
-      description: txt("widget.dictate.description", "Turn the Tailzu microphone on, ready for the keyboard."),
+      description: txt("widget.dictate.description", "Turn the X0 Bot microphone on, ready for the keyboard."),
     });
   }
 }

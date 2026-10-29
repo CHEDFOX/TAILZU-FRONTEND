@@ -990,7 +990,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     let globeBtn = makeGlyphButton(symbol: "globe")
     globeBtn.tintColor = UIColor(white: 0.85, alpha: 1)
     globeBtn.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
-    let space = makeKeyButton(title: label("legacy_space", "Tailzu"))
+    let space = makeKeyButton(title: label("legacy_space", "X0 Bot"))
     space.titleLabel?.font = .systemFont(ofSize: 14)
     space.setTitleColor(UIColor(white: 0.55, alpha: 1), for: .normal)
     space.addTarget(self, action: #selector(spaceTapped), for: .touchUpInside)
@@ -1422,11 +1422,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     guard hasFullAccess else {
       // Without Full Access the keyboard cannot open its app, so the only
       // honest thing left is to say what happened where they can read it.
-      setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
+      setStatus(label("words_out_status", "Out of free words — open X0 Bot to get more."),
                 actionable: true, blocking: true)
       return
     }
-    setStatus(label("words_out_status", "Out of free words — open Tailzu to get more."),
+    setStatus(label("words_out_status", "Out of free words — open X0 Bot to get more."),
               actionable: true, blocking: true)
     attemptOpenApp(appURL(screen: screen)) { [weak self] _, _ in
       self?.resetMicButtonAppearance()
@@ -1544,7 +1544,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       micButton.setImage(brandMarkImage(), for: .normal)
       micButton.imageView?.startAnimating()
       let hint = label("flow_start_hint", "Tap to start Flow")
-      let arming = label("flow_arming", "Turning on Flow — swipe back when you land in Tailzu.")
+      let arming = label("flow_arming", "Turning on Flow — swipe back when you land in X0 Bot.")
       if statusLabel.text == hint || statusLabel.text == arming { setStatus("") }
     } else {
       // No session — this is "Start Flow", not a dictation mic. A distinct glyph
@@ -1881,7 +1881,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         return
       }
       if !opened {
-        self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open Tailzu once, to turn on voice."),
+        self.setStatus(self.label("flow_arm_manual", "Tap the mic again, or open X0 Bot once, to turn on voice."),
                        actionable: true)
       }
     }
@@ -1975,8 +1975,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     isHandoffActive = true
     micButton.setImage(UIImage(systemName: knobString("kb.mic.stopGlyph", "stop.fill")), for: .normal)
     setStatus(handoff.isAppWarm
-              ? label("mic_handoff_warm", "Speak in Tailzu — swipe back when done")
-              : label("mic_handoff_cold", "Opening Tailzu — grant mic once, then swipe back"))
+              ? label("mic_handoff_warm", "Speak in X0 Bot — swipe back when done")
+              : label("mic_handoff_cold", "Opening X0 Bot — grant mic once, then swipe back"))
     _ = handoff.beginHandoff(hostApp: hostField) { [weak self] url in
       return self?.openURLViaResponderChain(url) ?? false
     }
@@ -2060,7 +2060,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingStream = false
         guard granted else {
-          self.setStatus(self.label("mic_denied", "Microphone denied. Allow it in Tailzu settings."), actionable: true, blocking: true)
+          self.setStatus(self.label("mic_denied", "Microphone denied. Allow it in X0 Bot settings."), actionable: true, blocking: true)
           return
         }
         self.beginStreaming()
@@ -2108,7 +2108,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       let lower = msg.lowercased()
       if lower.contains("unauthorized") || lower.contains("invalid or missing token") {
         endStreaming()
-        setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable: true, blocking: true)
+        setStatus(label("auth_expired", "Open X0 Bot once to sign in again"), actionable: true, blocking: true)
         return
       }
       // The WebSocket dropped BEFORE we committed a word. The OLD behavior fell
@@ -2119,7 +2119,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       // that text and surface the generic error below.
       if !dictatedSomething && pendingPartial.isEmpty {
         endStreaming()
-        setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable: true)
+        setStatus(label("stream_lost_open_app", "Open X0 Bot once to use voice, then try again."), actionable: true)
         return
       }
       setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
@@ -2285,7 +2285,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
         guard let self = self else { return }
         self.isStartingRecording = false
         guard granted else {
-          self.setStatus(self.label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable: true, blocking: true)
+          self.setStatus(self.label("mic_denied_settings", "Microphone denied. Open X0 Bot settings to allow it."), actionable: true, blocking: true)
           self.bailDictating()
           return
         }
@@ -2371,7 +2371,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
       // actionable message rather than a cryptic code or silent dead mic.
       NSLog("[Tailzu][kb] beginRecording: both audio routes failed (record()==false) — likely Full Access off / host blocked mic")
       setStatus(
-        label("mic_unavailable", "Couldn’t start the mic. Turn on “Allow Full Access” in Settings › General › Keyboard › Keyboards › Tailzu."),
+        label("mic_unavailable", "Couldn’t start the mic. Turn on “Allow Full Access” in Settings › General › Keyboard › Keyboards › X0 Bot."),
         actionable: true, blocking: true,
       )
       cleanupRecorder()
@@ -2478,8 +2478,8 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// had as its fallback.
   private func statusText(forLabelKey key: String) -> String {
     switch key {
-    case "auth_expired":        return label("auth_expired", "Open Tailzu once to sign in again")
-    case "words_out_status":    return label("words_out_status", "Out of free words — open Tailzu to get more.")
+    case "auth_expired":        return label("auth_expired", "Open X0 Bot once to sign in again")
+    case "words_out_status":    return label("words_out_status", "Out of free words — open X0 Bot to get more.")
     case "voice_unavailable":   return label("voice_unavailable", "Voice is unavailable right now — try again soon.")
     case "voice_not_listening": return label("voice_not_listening", "Not listening — tap the mic to try again.")
     case "dictation_failed":    return label("dictation_failed", "Couldn't hear that — try again")

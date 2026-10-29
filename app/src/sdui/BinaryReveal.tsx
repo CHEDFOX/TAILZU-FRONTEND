@@ -44,7 +44,7 @@ const mono = () => Platform.select({
 type Phase = "scramble" | "resolve" | "hold";
 
 export const BinaryReveal = ({ props, style }: CompProps): React.ReactElement => {
-  const text = String(props?.text ?? K.txt("ui.BinaryReveal.text", "Tailzu"));
+  const text = String(props?.text ?? K.txt("ui.BinaryReveal.text", "X0 Bot"));
   const color = String(props?.color ?? K.color("ui.BinaryReveal.color", "#E8A23C"));
   const background = String(props?.background ?? K.color("ui.BinaryReveal.background", "#000000"));
   const flipMs = Number(props?.flipMs) > 0 ? Number(props.flipMs) : K.num("ui.BinaryReveal.flipMs", 55);

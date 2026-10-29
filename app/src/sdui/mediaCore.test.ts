@@ -60,7 +60,7 @@ test("a refusal is said in the server's words only where they are written for a 
   assert.equal(refusalWords(400, JSON.stringify({ code: "no_file", message: "Send the file as a multipart form with one `file` part." }), WORDS), WORDS.fallback);
   assert.equal(refusalWords(502, "<html>Bad gateway</html>", WORDS), WORDS.fallback);
   assert.equal(refusalWords(503, "not json", WORDS), WORDS.fallback);
-  assert.equal(tooBigWords(50 * 1024 * 1024), "That file is over 50 MB, the most Tailzu takes.");
+  assert.equal(tooBigWords(50 * 1024 * 1024), "That file is over 50 MB, the most X0 Bot takes.");
 });
 
 test("a sound's address: the app's own path, or https; state filled in", () => {

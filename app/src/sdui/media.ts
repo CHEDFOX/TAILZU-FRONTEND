@@ -67,7 +67,7 @@ async function pick(kind: PickKind): Promise<Picked | null> {
   };
   if (kind === "camera") {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) throw new Refused(txt("media.cameraOff", "Allow the camera for Tailzu in Settings to take a photo."));
+    if (!perm.granted) throw new Refused(txt("media.cameraOff", "Allow the camera for X0 Bot in Settings to take a photo."));
   }
   const r = kind === "camera" ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
   const a = r.canceled ? null : r.assets?.[0];
@@ -118,7 +118,7 @@ export async function uploadFile(a: UploadSpec, io: MediaIO): Promise<void> {
   const cap = Math.min(num("media.maxBytes", 52428800), MAX_BYTES) || MAX_BYTES;
   const max = Math.min(Number(a.maxBytes) || cap, cap);
   if (picked.size > max) {
-    await io.run(a.onError, txt("media.tooBig", "That file is over {mb} MB, the most Tailzu takes.", { mb: Math.round(max / 1024 / 1024) }));
+    await io.run(a.onError, txt("media.tooBig", "That file is over {mb} MB, the most X0 Bot takes.", { mb: Math.round(max / 1024 / 1024) }));
     return;
   }
   const path = a.path ?? "/v1/files";
@@ -309,7 +309,7 @@ export async function recordVoice(a: RecordSpec, io: MediaIO): Promise<void> {
     return;
   }
   if (heard) cancelRecording();
-  const off = txt("media.micOff", "Tailzu needs the microphone to hear you.");
+  const off = txt("media.micOff", "X0 Bot needs the microphone to hear you.");
   try {
     const perm = await AudioModule.requestRecordingPermissionsAsync();
     if (!perm.granted) {

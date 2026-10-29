@@ -275,7 +275,7 @@ internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?)
 
   /** The face as a screen reader says it: the number and what it counts. */
   fun spoken(): String {
-    val m = month ?: return text("brand", "Tailzu")
+    val m = month ?: return text("brand", "X0 Bot")
     return "${count(m.headline)} ${label(m)}"
   }
 

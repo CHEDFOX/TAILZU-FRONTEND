@@ -14,9 +14,10 @@
  *   - the server's knob ads.meta.enabled is false;
  *   - the native module is missing (an older binary running this bundle).
  *
- * iPhone: there is no tracking prompt. Without one Meta counts iPhone installs
- * and events in aggregate (SKAdNetwork and Aggregated Event Measurement),
- * which is why each event is also given to the AEM reporter there.
+ * iPhone: off until the server says otherwise (ads.meta.ios.enabled, false by default), so the app can answer "no
+ * tracking" until then. Turned on, Apple's tracking prompt comes first; Meta gets the advertising id only from those who
+ * allow it, and counts the rest in aggregate (SKAdNetwork and Aggregated Event Measurement), which is why each event is
+ * also given to the AEM reporter there. Turning it on means updating the App Privacy answers too (no new build).
  */
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -47,17 +48,32 @@ function load(): Sdk | null {
   return sdk;
 }
 
-/** Start the SDK, which logs the install and app opens on its own. */
+/** Start the SDK, which logs the install and app opens on its own. On iPhone, only when the server says, after the prompt. */
 export function initMeta(): void {
   if (started || !APP_ID || !bool("ads.meta.enabled", true)) return;
+  if (Platform.OS === "ios" && !bool("ads.meta.ios.enabled", false)) return;
   const m = load();
   if (!m) return;
-  try {
-    m.Settings.initializeSDK();
-    started = true;
-  } catch {
-    // never blocks the app
-  }
+  started = true;
+  void (async () => {
+    try {
+      if (Platform.OS === "ios") {
+        // Apple's prompt, once; a later launch reads the answer without asking again.
+        let allowed = false;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const att = require("expo-tracking-transparency") as typeof import("expo-tracking-transparency");
+          allowed = (await att.requestTrackingPermissionsAsync()).granted;
+        } catch {
+          allowed = false;   // a binary without the module: never tracked
+        }
+        await m.Settings.setAdvertiserTrackingEnabled(allowed);
+      }
+      m.Settings.initializeSDK();
+    } catch {
+      started = false;   // never blocks the app; tried again on the next launch
+    }
+  })();
 }
 
 /** Log what the server handed over. Each comes once; nothing is retried. */

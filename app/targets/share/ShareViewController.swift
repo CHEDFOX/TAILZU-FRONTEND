@@ -101,7 +101,7 @@ final class ShareViewController: UIViewController {
     card.backgroundColor = Self.color("background", .white)
     card.layer.cornerRadius = CGFloat(Self.cardNumber("radius", 20, 0, 40))
     card.translatesAutoresizingMaskIntoConstraints = false
-    line.text = Self.word("opening", "Opening Tailzu…")
+    line.text = Self.word("opening", "Opening X0 Bot…")
     line.textColor = Self.color("ink", UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1))
     line.font = .systemFont(ofSize: 15, weight: .semibold)
     line.textAlignment = .center
@@ -321,19 +321,19 @@ final class ShareViewController: UIViewController {
       if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroup) {
         try? FileManager.default.removeItem(at: container.appendingPathComponent(Self.folder))
       }
-      close(saying: skipped > 0 ? Self.word("tooBig", "That's too big for Tailzu.") : Self.word("cantTake", "Tailzu can't take this one."))
+      close(saying: skipped > 0 ? Self.word("tooBig", "That's too big for X0 Bot.") : Self.word("cantTake", "X0 Bot can't take this one."))
       return
     }
     let payload: [String: Any] = ["v": 1, "at": Date().timeIntervalSince1970 * 1000, "skipped": skipped, "items": items]
     guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else {
-      close(saying: Self.word("cantTake", "Tailzu can't take this one."))
+      close(saying: Self.word("cantTake", "X0 Bot can't take this one."))
       return
     }
     UserDefaults(suiteName: Self.appGroup)?.set(json, forKey: Self.pendingKey)
-    guard let url = URL(string: "tulmi://share") else { close(saying: Self.word("saved", "Saved. Open Tailzu to send it.")); return }
+    guard let url = URL(string: "tulmi://share") else { close(saying: Self.word("saved", "Saved. Open X0 Bot to send it.")); return }
     openApp(url) { [weak self] ok in
       if ok { self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
-      else { self?.close(saying: Self.word("saved", "Saved. Open Tailzu to send it.")) }
+      else { self?.close(saying: Self.word("saved", "Saved. Open X0 Bot to send it.")) }
     }
   }
 

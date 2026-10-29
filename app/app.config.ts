@@ -42,7 +42,7 @@ const metaPlugin: [string, Record<string, unknown>][] =
         {
           appID: META_APP_ID,
           clientToken: META_CLIENT_TOKEN,
-          displayName: "Tailzu",
+          displayName: "X0 Bot",
           scheme: `fb${META_APP_ID}`,
           // Started from JavaScript (initMeta), so the server's knob
           // ads.meta.enabled can keep it off without a release.
@@ -52,10 +52,14 @@ const metaPlugin: [string, Record<string, unknown>][] =
           // Android's advertising id, which is what credits an install to an
           // ad there. iPhone's needs the tracking prompt, and gets none.
           advertiserIDCollectionEnabled: true,
-          // No App Tracking Transparency prompt: Meta measures iPhone in
-          // aggregate instead (SKAdNetwork ids are added by the plugin).
+          // iPhone: off until the server turns it on (ads.meta.ios.enabled); then Apple's tracking prompt comes first
+          // (expo-tracking-transparency below, src/telemetry/meta.ts), and Meta measures in aggregate for those who
+          // decline (SKAdNetwork ids are added by the plugin). The prompt's words are expo-tracking-transparency's.
           iosUserTrackingPermission: false,
         },
+      ], [
+        "expo-tracking-transparency",
+        { userTrackingPermission: "X0 Bot uses this to see which ads brought you here. Turn it off any time in Settings." },
       ]]
     : [];
 
@@ -65,7 +69,7 @@ const config: ExpoConfig = {
   // both are baked into the EAS project + App Groups + Keychain groups +
   // Supabase project — renaming those would rebuild every entitlement and
   // break the shared bearer token between app + keyboard.
-  name: "Tailzu",
+  name: "X0 Bot",
   slug: "tulmi",
   // CFBundleShortVersionString. Apple closes a version's "train" once a build
   // on it is approved, and refuses any later build that is not HIGHER — so a
@@ -132,7 +136,12 @@ const config: ExpoConfig = {
   // side — three bridge functions and two new signatures, the widget
   // extension with its Live Activity and Control, and the reworked keyboards
   // — so an update written for it must never reach a binary without them.
-  runtimeVersion: "tailzu-2026-09-k42-a3",
+  //
+  // BUMPED again (Oct 2026) for the opposite reason: this release TAKES
+  // native modules out (expo-calendar, expo-contacts). An update published
+  // for the binary before it still imports them, and on a binary without
+  // them that import throws at launch, so the two must not share a runtime.
+  runtimeVersion: "tailzu-2026-10-k42-a4",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the
@@ -173,19 +182,26 @@ const config: ExpoConfig = {
     // already sent and printed name it, and it serves the same file.
     associatedDomains: ["applinks:x0bot.com", "applinks:app.x0bot.com", "applinks:tailzu.space", "applinks:app.tailzu.space"],
     infoPlist: {
-      // PERMISSION STRINGS SAY WHAT THIS BINARY DOES — nothing it might do one
-      // day. They used to describe features that were never built (Face ID
-      // drafts, @mentions, location-tagged notes, Nearby Sync, raise-to-record),
-      // and a purpose string that promises a feature is a 5.1.1 problem the
-      // day a reviewer looks for it.
+      // PERMISSION STRINGS SAY WHAT THIS BINARY DOES — and only for what it can
+      // ask for. Apple rejects purpose strings for permissions an app never
+      // requests (5.1.1), and refuses an upload whose binary links a
+      // permission API without its key (ITMS-90683). So a key is here when
+      // the app asks for it, or will (image and video bots: a photo as input,
+      // saving what they make), or when a linked module calls its API.
       //
-      // WHY A KEY STAYS EVEN WHEN THE ANSWER IS "NOT USED": Apple refuses an
-      // upload whose binary links a permission API without its key (ITMS-90683),
-      // and the installed modules link more than the app uses — expo-speech
-      // imports Speech, expo-audio/expo-video MediaPlayer, expo-calendar and
-      // expo-notifications CoreLocation, expo-camera and Reanimated CoreMotion,
-      // expo-calendar the reminders half of EventKit. Deleting those keys is
-      // a gamble on a static check; saying "not used" truthfully is not.
+      // REMOVED (Oct 2026), each because nothing in the app or its keyboard,
+      // share and widget extensions asks for it, and no linked code calls its
+      // permission API (checked in node_modules' iOS sources and in targets/
+      // and modules/): calendars and reminders (expo-calendar is gone: the app
+      // keeps its own calendar on the server, actions.ts calendar.addEvent),
+      // contacts (expo-contacts is gone), location (no CLLocationManager
+      // anywhere; expo-notifications only names CLRegion types), motion (only
+      // CMMotionManager, which needs no key; no activity, pedometer or
+      // altimeter), Apple Music (only Now Playing and remote commands, no media
+      // library), Bluetooth (no CoreBluetooth), local network (a release build
+      // talks only to https on x0bot.com; expo-dev-launcher adds its own key to
+      // development builds and strips it from release ones). Re-add a key in
+      // the SAME release that ships a feature asking for it.
       // Every key here is read by the Expo permission plugins in preference
       // to their generic defaults (IOSConfig.Permissions.applyPermissions).
       //
@@ -193,59 +209,32 @@ const config: ExpoConfig = {
       // in the background so the keyboard can dictate without reopening the
       // app. Understating that is a 5.1.1 rejection. It idles out on its own
       // (FlowSessionManager, kb.flow.idleTimeoutMs) and the Live Activity has
-      // an End button (targets/widgets/FlowActivity.swift).
+      // an End button (targets/widgets/FlowActivity.swift). Voice notes and
+      // videos the bots take as input use it too.
       NSMicrophoneUsageDescription:
-        "Tailzu uses the microphone to turn your speech into text. If you start a Flow session, the microphone stays on in the background so you can dictate from the Tailzu keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.",
-      // pickImage (source "camera") and the camera permission action.
+        "X0 Bot uses the microphone to turn your speech into text. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.",
+      // A photo or video taken to give a bot or send in a chat (media.ts
+      // uploadFile pick "camera", pickImage source "camera").
       NSCameraUsageDescription:
-        "Tailzu uses the camera only when you choose to take a photo in the app.",
-      // pickImage (library) and the photoLibrary permission action.
+        "X0 Bot uses the camera when you choose to take a photo or video to give to a bot or send in a chat.",
+      // A photo, video or file picked to give a bot or share in a chat
+      // (media.ts uploadFile, pickImage; the photoLibrary permission action).
       NSPhotoLibraryUsageDescription:
-        "Tailzu opens your photos only when you choose a picture to use in the app.",
-      // saveToPhotos — only files the app made itself (actions.ts, inCache).
+        "X0 Bot opens your photos when you choose a photo or video to give to a bot or send in a chat.",
+      // Saving what the bots make (saveToPhotos: only files the app made
+      // itself, actions.ts inCache), and the share sheet's Save Image.
       NSPhotoLibraryAddUsageDescription:
-        "Tailzu saves an image to Photos only when you ask it to.",
-      // Dictation is transcribed by Tailzu's backend; Speech is linked only
-      // because expo-speech (read-aloud) imports it.
+        "X0 Bot saves the images and videos you make to your Photos when you choose to save them.",
+      // Kept because the binary links Speech: expo-speech (read-aloud in a
+      // voice session) imports it. Dictation itself is transcribed on X0 Bot's
+      // servers; nothing asks for Apple's speech recognition.
       NSSpeechRecognitionUsageDescription:
-        "Tailzu doesn't use Apple's speech recognition.",
-      // The biometricPrompt action (expo-local-authentication); SecureStore
-      // links LocalAuthentication too.
+        "X0 Bot turns your speech into text on its own servers. It doesn't use Apple's speech recognition.",
+      // The biometricPrompt action (expo-local-authentication): the Code
+      // bot's and connected apps' approvals ask for Face ID before a bot acts.
+      // SecureStore links LocalAuthentication too.
       NSFaceIDUsageDescription:
-        "Tailzu uses Face ID only to confirm it's you when the app asks you to.",
-      // expo-contacts is installed but nothing reads a contact — only the
-      // generic permission action can ask. A removal candidate.
-      NSContactsUsageDescription:
-        "Tailzu doesn't read or upload your contacts.",
-      // calendar.addEvent: lists calendars to pick a writable one, adds one
-      // event. It never reads events.
-      NSCalendarsUsageDescription:
-        "Tailzu adds an event to your calendar only when you ask it to. It doesn't read your events.",
-      // iOS 17 shows these, not the one above. Without them expo-calendar's
-      // generic "Allow Tailzu to access your calendars" is what people see.
-      NSCalendarsFullAccessUsageDescription:
-        "Tailzu adds an event to your calendar only when you ask it to. It doesn't read your events.",
-      NSCalendarsWriteOnlyAccessUsageDescription:
-        "Tailzu adds an event to your calendar only when you ask it to.",
-      // Nothing requests reminders; expo-calendar links the API regardless.
-      NSRemindersUsageDescription:
-        "Tailzu doesn't read or change your reminders.",
-      NSRemindersFullAccessUsageDescription:
-        "Tailzu doesn't read or change your reminders.",
-      NSAppleMusicUsageDescription:
-        "Tailzu doesn't access your music library.",
-      NSLocationWhenInUseUsageDescription:
-        "Tailzu doesn't use your location.",
-      NSMotionUsageDescription:
-        "Tailzu doesn't use motion or fitness data.",
-      // Nothing links CoreBluetooth; a paired headset's microphone reaches the
-      // app through the audio session, which needs no Bluetooth permission.
-      NSBluetoothAlwaysUsageDescription:
-        "Tailzu doesn't use Bluetooth itself. A headset paired with your iPhone works through iOS.",
-      // A release build talks only to https on x0bot.com or tailzu.space (security.ts
-      // checkBaseUrl); only a development build reaches a computer on the LAN.
-      NSLocalNetworkUsageDescription:
-        "Only development builds of Tailzu use the local network, to connect to a developer's computer.",
+        "X0 Bot uses Face ID to confirm it's you before a bot does something you approve.",
       // Background audio — REQUIRED for the "Flow Session" mic architecture:
       // the keyboard extension cannot hold the microphone (iOS blocks recording
       // in extensions), so the main app keeps a live AVAudioSession alive in the
@@ -392,9 +381,17 @@ const config: ExpoConfig = {
     // unaffected. What stops working is reading the library wholesale, which
     // nothing does. Re-add a permission in the SAME release that ships a
     // feature needing it, and expect to fill in the declaration then.
+    //
+    // expo-media-library's plugin and manifest also merge READ_MEDIA_AUDIO
+    // (nothing reads audio files) and READ_MEDIA_VISUAL_USER_SELECTED
+    // (Android 14's partial photo access, for reading the library, which
+    // nothing does): blocked too. Saving a picture to the gallery needs no
+    // permission on Android 10+, and the system photo picker none at all.
     blockedPermissions: [
       "android.permission.READ_MEDIA_IMAGES",
       "android.permission.READ_MEDIA_VIDEO",
+      "android.permission.READ_MEDIA_AUDIO",
+      "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
     ],
     // Android masks this into whatever shape the launcher wants — circle,
     // squircle, teardrop — and only the middle 66% of the canvas is ever
@@ -447,8 +444,9 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-local-authentication",
     "expo-notifications",
-    "expo-contacts",
-    "expo-calendar",
+    // No expo-contacts or expo-calendar: neither is installed any more (their
+    // plugins added the contacts, calendars and reminders strings, and
+    // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
     "expo-video",
     // Splash / launch screen — ONE asset, both platforms, the mark DEAD CENTRE.
     //

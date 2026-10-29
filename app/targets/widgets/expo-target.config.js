@@ -21,7 +21,7 @@
 module.exports = {
   type: "widget",
   name: "TailzuWidgets",
-  displayName: "Tailzu",
+  displayName: "X0 Bot",
   // Live Activity buttons and Control Center controls are iOS 17 and 18
   // features; the month widget is drawn with the iOS 17 container APIs.
   // Older phones simply do not offer the widgets, and lose nothing else.

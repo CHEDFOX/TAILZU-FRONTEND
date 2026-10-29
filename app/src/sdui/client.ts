@@ -298,7 +298,7 @@ export function userErrorMessage(err: unknown, fallback?: string): string {
   }
   // fetch rejects with a TypeError when there is no connection at all.
   if (err instanceof TypeError) {
-    return txt("error.network", "Couldn't reach Tailzu. Check your connection and try again.");
+    return txt("error.network", "Couldn't reach X0 Bot. Check your connection and try again.");
   }
   return fallback ?? txt("error.generic", "Something went wrong. Try again.");
 }
@@ -319,7 +319,7 @@ export function streamErrorMessage(
   if (code === "unauthorized") return httpErrorText(401);
   if (message) return message;
   if (code === "network") {
-    return txt("error.network", "Couldn't reach Tailzu. Check your connection and try again.");
+    return txt("error.network", "Couldn't reach X0 Bot. Check your connection and try again.");
   }
   return words.other;
 }

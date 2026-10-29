@@ -71,7 +71,7 @@ export default function OfflineScreen({ theme, onRetry, onDev }: {
       </Pressable>
       <Text style={{ color: mute, fontSize: num("app.offline.bodySize", 15), lineHeight: num("app.offline.bodyLineHeight", 22),
         textAlign: "center", maxWidth: num("app.offline.bodyMaxWidth", 320), marginBottom: num("app.offline.bodyGap", 28) }}>
-        {txt("offline.body", "Tailzu can't reach its server right now. Check your connection. It will keep trying.")}
+        {txt("offline.body", "X0 Bot can't reach its server right now. Check your connection. It will keep trying.")}
       </Text>
       <Pressable
         onPress={retry}

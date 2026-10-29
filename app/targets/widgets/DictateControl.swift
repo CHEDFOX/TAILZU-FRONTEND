@@ -42,13 +42,13 @@ struct DictateControl: ControlWidget {
     }
     // Gallery metadata — compile-time static (see DictateLook).
     .displayName("Dictate")
-    .description("Turn the Tailzu microphone on, ready for the keyboard.")
+    .description("Turn the X0 Bot microphone on, ready for the keyboard.")
   }
 }
 
 @available(iOS 18.0, *)
 struct DictateIntent: AppIntent {
-  static let title: LocalizedStringResource = "Dictate with Tailzu"
+  static let title: LocalizedStringResource = "Dictate with X0 Bot"
   static let description = IntentDescription("Turns the microphone on so the keyboard can dictate.")
   // No openAppWhenRun: that runs perform() inside the APP, and this intent is
   // compiled only into the widget extension, so the press would find nothing
