@@ -1,0 +1,12 @@
+{
+  "subtitle": "One idea per icon: few shapes, one gesture, light that carries the emotion. Ranked, strongest first. Shown under the iOS mask; the files are full-bleed 1024 squares. Dropped: C, Over the edge (at 29 px it is two dots on a line).",
+  "order": ["e-diamond-ring", "e-diamond-ring-face", "a-visor", "b-x0-eyes", "d-players"],
+  "icons": {
+    "e-diamond-ring": {"tag": "1 · E", "title": "Diamond ring", "line": "An eclipse at the instant the light peeks out. The ring of light is the 0, the burst is the X. The dark moon is the bot's visor."},
+    "e-diamond-ring-face": {"tag": "1b · E", "title": "Diamond ring, awake", "line": "The same mark with the bot showing: the moon is the visor, smiling with closed eyes. Softer, more character."},
+    "a-visor": {"tag": "2 · A", "title": "Visor", "line": "The whole icon is the dark glass visor. One gesture: a wink, one eye closed in a smile, one wide open."},
+    "b-x0-eyes": {"tag": "3 · B", "title": "X0 eyes", "line": "The name is the face: a twinkle and a ring of light. Clear, but it reads a little like text."},
+    "d-players": {"tag": "4 · D", "title": "Players", "line": "One crossing of the grid, a clay X, and a 0 that is the bot, winking. Graphic, but it says game."},
+    "c-over-the-edge": {"tag": "C", "title": "Over the edge", "line": "Dropped: two eyes and fingertips over a horizon. Lovely large; at 29 px the fingertips vanish."}
+  }
+}
