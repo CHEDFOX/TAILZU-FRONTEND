@@ -2,14 +2,16 @@
 //
 // The look: a full-bleed warm photograph behind everything, graded in build.mjs so the set reads as one shoot; a serif
 // headline, two short lines, no full stop; the app as a light card (the top of a real screen, no phone frame), often with one
-// part of that screen lifted out of it. A few frames are other shapes: the photo alone with a round icon (`voice`), a grid of
-// the apps it works with (`tiles`), and a phone held in a hand (`hand`).
+// part of that screen lifted out of it. Two other shapes: the photo with the words at its foot and the keyboard's own mic key
+// (`voice`), and a grid of the apps it works with (`tiles`).
 //
 // One entry per frame, in story order. A new bot's frame is one more entry:
 //   { key, title, layout?, photo, screen, pop?, bot?, accent?, play? }
 //   key      file name stem (lower case)
 //   title    the headline: two short lines ("\n" between them), sentence case, no full stop
-//   layout   "card" (default), "voice", "tiles" or "hand"
+//   layout   "card" (default), "voice" (the photo, the words at the foot and the mic key: `keyArt`), or "tiles"
+//   keyArt   voice frames: the Peek-a-bot key's moment { mode: "listen" | "idle" (peeking, paws on the rim) | "think" |
+//            "done", level 0..1, size: share of the width }
 //   photo    { file, x, y, zoom, blur, light, warm }: a file in photos/ (CREDITS.md says whose it is), the point of it to centre
 //            (0..1), how far to zoom in, and the grade's knobs (light 0..1, how bright; warm 0..1; blur in px at 1320 wide)
 //   screen   which app screen, with the sample day's answers (samples/ in the backend's bots-render) and this frame's own over them:
@@ -127,7 +129,9 @@ export const FRAMES = [
   },
   {
     key: "keybot", layout: "voice", title: "Say it, and\nKeybot writes it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
-    photo: { file: "keybot.jpg", x: 0.55, y: 0.45, zoom: 1, light: 0.6, warm: 0.5 },
+    photo: { file: "keybot.jpg", x: 0.38, y: 0.54, zoom: 1.4, light: 1, warm: 0.55 },
+    // The mic key under the words: the Peek-a-bot popped up and listening (ears and antenna lit), at this share of the width.
+    keyArt: { mode: "listen", level: 0.6, size: 0.25 },
   },
   {
     key: "connect", layout: "tiles", title: "Works with the apps\nyou already use",
@@ -185,17 +189,18 @@ export const FRAMES = [
     pop: { has: ["Call Nani", "Can't do it"], card: true, bare: true, side: "right" }, fade: true,
   },
   {
-    key: "make", layout: "hand", title: "Make a bot\nof your own", accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
-    // The phone in the photo, its screen's four corners in the photo's pixels (top left, top right, bottom left, bottom right).
-    photo: { file: "make.jpg", x: 0.5, y: 0.6, zoom: 1.25, light: 0.62, warm: 0.5, screen: [[2280, 1151], [2853, 1246], [1923, 2454], [2591, 2635]] },
+    key: "make", title: "Make a bot\nof your own", accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
+    photo: { file: "make.jpg", x: 0.5, y: 0.5, zoom: 1, light: 0.55, warm: 0.5 },
     screen: {
-      id: "bots.make", viewport: { w: 390, h: 844, top: 54, bottom: 30 },
+      id: "bots.make",
       api: (a) => {
         const k = `GET ${A}/draft`, d = a[k].draft;
         const def = { ...d.draft.definition, skills: { ...d.draft.definition.skills, connectors: ["calendar"] } };
         return { [k]: { draft: { ...d, draft: { ...d.draft, definition: def, connectors: [{ id: "calendar", name: "Calendar", status: "connected" }] } } } };
       },
     },
+    // The one sentence it was made from, lifted out over the bot it drafted.
+    pop: { has: ["A bot that plans my workouts"], card: true },
   },
   {
     key: "ask", off: true, title: "Just ask, and\nit gets done",
