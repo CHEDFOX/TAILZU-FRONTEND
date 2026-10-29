@@ -3,6 +3,7 @@
  * token-aware styling. The renderer (Renderer.tsx) resolves props/bind/style
  * and hands them to these.
  */
+import { useStorePrice } from "../billing/storePrice";
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
@@ -552,6 +553,8 @@ const TextC = ({ node, props, style }: CompProps) => {
           timeStyle: String(props.timeStyle ?? K.str("ui.Text.timeStyle", "short")) as "short",
         })
     : raw;
+  // A plan's price: the store's own words once it answers (billing/storePrice.ts), the server's until then.
+  const storeWords = useStorePrice(props.storePrice);
   return (
     <Text
       style={[textVariant(props.variant, theme), style]}
@@ -559,7 +562,7 @@ const TextC = ({ node, props, style }: CompProps) => {
       // dictation rendered in full and blew the card out.
       numberOfLines={Number(props.numberOfLines) > 0 ? Number(props.numberOfLines) : undefined}
     >
-      {shown}
+      {storeWords ?? shown}
     </Text>
   );
 };

@@ -67,15 +67,18 @@ function Moving({ sh, centre, reduce }: { sh: SvgShape; centre: [number, number]
   const v = useRef(new Animated.Value(reduce ? 1 : 0)).current;
   useEffect(() => {
     if (reduce) { v.setValue(sh.motion === "breathe" ? 0 : 1); return; }
+    // Each motion's time: the shape's own (breatheMs, popMs, drawMs, from the server), else today's.
+    const own = sh as SvgShape & { breatheMs?: unknown; popMs?: unknown; drawMs?: unknown };
+    const t = (v2: unknown, fallback: number) => { const n = Number(v2); return Number.isFinite(n) && n > 0 ? n : fallback; };
     if (sh.motion === "breathe") {
-      const half = (to: number) => Animated.timing(v, { toValue: to, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: false });
+      const half = (to: number) => Animated.timing(v, { toValue: to, duration: t(own.breatheMs, 900), easing: Easing.inOut(Easing.ease), useNativeDriver: false });
       const loop = Animated.loop(Animated.sequence([half(1), half(0)]));
       loop.start();
       return () => loop.stop();
     }
     const run = Animated.timing(v, {
       toValue: 1, delay: sh.delayMs ?? 0, useNativeDriver: false,
-      duration: sh.motion === "pop" ? 420 : 700,
+      duration: sh.motion === "pop" ? t(own.popMs, 420) : t(own.drawMs, 700),
       easing: sh.motion === "pop" ? Easing.bezier(0.3, 1.6, 0.5, 1) : Easing.out(Easing.ease),
     });
     run.start();

@@ -1,7 +1,7 @@
 /**
  * Local settings (AsyncStorage). The backend base URL is switchable so a
  * development build can point at your PC; a release build only ever reaches
- * https on tailzu.space (security.checkBaseUrl).
+ * https on x0bot.com, or tailzu.space from before the move (security.checkBaseUrl).
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { checkBaseUrl } from "./security";
@@ -11,7 +11,7 @@ const KEY_BASE_URL = "tulmi.baseUrl";
 // Default = the live production backend, so a fresh (TestFlight) install reaches
 // it with no setup. Override in the app's ⚙ Connection screen to point at a PC
 // (Android emulator → 10.0.2.2:8770) or LAN IP during local development.
-export const DEFAULT_BASE_URL = "https://api.tailzu.space";
+export const DEFAULT_BASE_URL = "https://api.x0bot.com";
 
 const DEV = typeof __DEV__ !== "undefined" && __DEV__;
 
@@ -29,7 +29,7 @@ export async function getBaseUrl(): Promise<string> {
 /** Throws, with the reason, for an address this build will not talk to. */
 export async function setBaseUrl(url: string): Promise<void> {
   const ok = checkBaseUrl(url, DEV);
-  if (!ok) throw new Error(DEV ? "use an http(s) URL" : "this build only talks to https://*.tailzu.space");
+  if (!ok) throw new Error(DEV ? "use an http(s) URL" : "this build only talks to https://*.x0bot.com");
   await AsyncStorage.setItem(KEY_BASE_URL, ok);
 }
 

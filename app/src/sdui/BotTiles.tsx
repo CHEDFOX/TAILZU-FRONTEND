@@ -21,14 +21,20 @@
  * `strip` (capability "BotTilesStrip"): one more tile as a full-width row under the grid (Notes), its bot on a stage of
  * its own at the left and its name and line on the right. It is the last bot of the same world, so its tap is the
  * tiles' moment (the others look at it, their words fade) and a tile's tap turns its head too.
+ *
+ * LOOKS AND MOMENTS (BotMoments; the server's catalog, botTiles/looks.ts): a tile's `avatar` is its bot's look (an id or
+ * a spec; none: its kind's), its `moment` a recipe he plays (`momentMode` "once" or "loop"). `surprises`: Home's rare idle
+ * moments ({ every, chance, moments }: every `every` seconds, with `chance`, one idle bot plays one of them; the bots
+ * near him answer, as a moment's recipe asks). Moments this build cannot play are left out.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, Text, View } from "react-native";
 import type { CompProps } from "./components";
 import { runAction } from "./actions";
 import type { BotTileSpec } from "./types";
-import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood } from "../botTiles/core";
+import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood, type Looks, type Moment } from "../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
+import { useLooks } from "../botTiles/looks";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
 
@@ -48,6 +54,21 @@ function lifeFor(t: BotTileSpec, i: number): BotTile {
   }
   b.setMood(t.state as BotMood);
   return b;
+}
+
+/** Each tile's look (its own, else its kind's), and its moment once it stands on its stage (again when it changes). */
+function dressAndPlay(world: { tiles: BotTile[] }, specs: BotTileSpec[], L: Looks, started: string[]): void {
+  specs.forEach((t, i) => {
+    const b = world.tiles[i];
+    if (!b) return;
+    b.setAvatar(L.avatar(b.kind, t.avatar));
+    const m = t.moment ? L.moment(t.moment) : null;
+    const key = m ? `${m.id}|${t.momentMode ?? ""}` : "";
+    if (!b.placed || started[i] === key) return;
+    started[i] = key;
+    if (m) b.playMoment(m, t.momentMode === "loop" ? "loop" : t.momentMode === "once" ? "once" : undefined);
+    else if (b.mo) b.stopMoment();
+  });
 }
 
 class Guard extends React.Component<{ children: React.ReactNode; fallback: React.ReactNode }, { failed: boolean }> {
@@ -88,6 +109,17 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key]);
   useEffect(() => { tiles.forEach((t, i) => world.tiles[i]?.setMood(t.state as BotMood)); }, [tiles, world]);
+  // Looks and moments: each tile's look now (a new catalog re-skins them), its moment once placed; Home's surprises.
+  const L = useLooks();
+  const started = useMemo<string[]>(() => [], [world]);
+  dressAndPlay(world, tiles, L, started);
+  const surprises = props?.surprises && typeof props.surprises === "object" ? (props.surprises as { every?: number; chance?: number; moments?: unknown }) : null;
+  const surpriseKey = surprises ? JSON.stringify(surprises) : "";
+  useEffect(() => {
+    const list = surprises && Array.isArray(surprises.moments) ? surprises.moments.map((id) => L.moment(String(id))).filter((m): m is Moment => !!m) : [];
+    world.surprise(list, Number(surprises?.every) || 30, Number(surprises?.chance) || 0, 7);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [world, L, surpriseKey]);
 
   // Painting.
   const painters = useRef<Array<Painter | null>>([]);
@@ -107,8 +139,9 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
     });
     // The strip's bot stands near the foot of its stage.
     if (strip) world.place(grid.length, 0, Math.ceil(grid.length / cols) * (H + gap), sw, SH - 2, SH - 2 - pad * 0.7);
+    dressAndPlay(world, tiles, L, started);
     if (still.current && reduced !== null) { world.settle(true); paintAll(); }
-  }, [tw, sw, grid, strip, SH, cols, gap, H, pad, world, reduced, paintAll]);
+  }, [tw, sw, grid, strip, SH, cols, gap, H, pad, world, reduced, paintAll, tiles, L, started]);
   useEffect(place, [place]);
 
   // Reduce Motion: a pose, painted once (again when the layout moves).

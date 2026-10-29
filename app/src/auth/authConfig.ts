@@ -89,7 +89,7 @@ export const AUTH_METHODS = {
  */
 export const TURNSTILE = {
   get siteKey(): string { return str("auth.turnstile.siteKey", ""); },
-  get origin(): string { return str("auth.turnstile.origin", "https://tailzu.space"); },
+  get origin(): string { return str("auth.turnstile.origin", "https://x0bot.com"); },
 };
 
 export interface Country {

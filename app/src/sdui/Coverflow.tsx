@@ -43,7 +43,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, PanResponder, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptic } from "./haptic";
 import type { CompProps } from "./components";
 import * as K from "./knobs";
 
@@ -196,13 +196,13 @@ export const Coverflow = ({ props, style, children, fire }: CompProps): React.Re
           if (feel.current.tapToCentre && i !== centred) {
             // Bringing a card in is a move, not a choice. Selection feedback,
             // and onChange will fire from the settle as it arrives.
-            Haptics.selectionAsync().catch(() => {});
+            haptic(K.str("app.haptics.coverflow.centre", "selection"));
             return;
           }
           // Committing. A firmer tick than the centring one, so the two taps
           // do not feel identical — that difference is what teaches the
           // gesture without a hint on screen.
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          haptic(K.str("app.haptics.coverflow.pick", "light"));
           fire("onSelect", i);
           return;
         }

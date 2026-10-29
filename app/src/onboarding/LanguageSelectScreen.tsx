@@ -19,10 +19,10 @@ import {
   View,
 } from "react-native";
 import * as Localization from "expo-localization";
-import * as Haptics from "expo-haptics";
+import { haptic } from "../sdui/haptic";
 import { typeRole } from "../sdui/components";
 import type { ThemeTokens } from "../sdui/types";
-import { color, list, num } from "../sdui/knobs";
+import { color, list, num, str } from "../sdui/knobs";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 
@@ -162,7 +162,7 @@ export default function LanguageSelectScreen({
   }, [langs.length, greetingFade]);
 
   const select = useCallback((code: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    haptic(str("app.haptics.language.pick", "medium"));
     onSelect(code);
   }, [onSelect]);
 

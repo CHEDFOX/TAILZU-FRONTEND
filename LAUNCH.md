@@ -133,7 +133,7 @@ Installers build on GitHub runners — no local machines needed:
    `Tailzu-Setup.exe` (win) and `Tailzu.dmg` (mac — universal: Intel + Apple
    Silicon).
 2. Publish: `scp Tailzu-Setup.exe Tailzu.dmg root@SERVER:~/tulmi/downloads/`
-3. `https://tailzu.space/download` goes live per-file automatically (OS-detected
+3. `https://x0bot.com/download` goes live per-file automatically (OS-detected
    buttons; missing platforms show "coming soon").
 
 Known gaps (acceptable for early access, fix before wide marketing):

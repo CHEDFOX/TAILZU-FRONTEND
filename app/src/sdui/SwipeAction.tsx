@@ -28,7 +28,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, PanResponder, Pressable, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptic } from "./haptic";
 import type { CompProps } from "./components";
 import * as K from "./knobs";
 
@@ -230,7 +230,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
        */
       setLanded(true);
       x.setValue(runRef.current);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      haptic(K.str("app.haptics.swipe.done", "medium"));
       fire("onComplete");
       // THE DISC STAYS WHERE IT WAS THROWN, unless the screen asks otherwise.
       //
@@ -280,7 +280,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         // A second gesture on a pill that has already fired is a touch on the
         // way out of the screen, not a new drag.
         if (done.current) return;
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        haptic(K.str("app.haptics.swipe.grab", "light"));
         crossed.current = false;
         held.current = true;
         // Take the disc off whatever was moving it and start from there. A
@@ -298,7 +298,7 @@ export const SwipeAction = ({ props, style, fire }: CompProps): React.ReactEleme
         // A tick at the point of no return, so the commit is felt before it is
         // seen and nobody lets go one pixel short wondering if it took.
         const mark = r * feel.current.threshold;
-        if (!crossed.current && v >= mark) { crossed.current = true; Haptics.selectionAsync().catch(() => {}); }
+        if (!crossed.current && v >= mark) { crossed.current = true; haptic(K.str("app.haptics.swipe.cross", "selection")); }
         else if (crossed.current && v < mark) crossed.current = false;
       },
       onPanResponderRelease: (_, g) => {

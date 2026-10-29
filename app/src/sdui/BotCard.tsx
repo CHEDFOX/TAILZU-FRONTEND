@@ -14,8 +14,11 @@
  *             card would first show: it never shows, and on.onComplete runs quietly.
  *   closeWhen when this holds the card goes. `once`: it is remembered on this device and never drawn again.
  *
- *   { type: "BotCard", props: { color, stageHeight, overlay, width, readyWhen, doneWhen, closeWhen, once },
- *     on: { onComplete }, children: [step, step, step] }
+ * LOOKS AND MOMENTS (BotMoments): `avatar` is the bot's look (an id or a spec; none: his kind's), `moment` a recipe he
+ * plays once the card is open (`momentMode` "once" or "loop").
+ *
+ *   { type: "BotCard", props: { color, stageHeight, overlay, width, readyWhen, doneWhen, closeWhen, once, avatar?, moment?,
+ *     momentMode? }, on: { onComplete }, children: [step, step, step] }
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, Modal, Platform, View } from "react-native";
@@ -24,6 +27,7 @@ import type { CompProps } from "./components";
 import { evalCondition } from "./actions";
 import { BotTile, type BotKind } from "../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
+import { useLooks } from "../botTiles/looks";
 
 const WEB = Platform.OS === "web";
 const LINE = "#e6e6e6", PAPER = "#ffffff";
@@ -95,6 +99,11 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
     return b;
   }, [once, props?.color, props?.kind]);
   useEffect(() => { if (cardW > 0) bot.resize(cardW - 2, stageH, stageH - 12); }, [bot, cardW, stageH]);
+  // His look, and a moment once the card is open and he is on his stage.
+  const L = useLooks();
+  bot.setAvatar(L.avatar(bot.kind, props?.avatar));
+  const recipe = typeof props?.moment === "string" ? L.moment(props.moment) : null;
+  const momentMode = props?.momentMode === "loop" ? "loop" : props?.momentMode === "once" ? "once" : undefined;
 
   // wait → open (or never, when already done) → closing → gone.
   useEffect(() => {
@@ -110,6 +119,12 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, known, ready, done, close]);
+
+  useEffect(() => {
+    if (phase !== "open" || !recipe || !bot.placed || bot.mo === recipe) return;
+    bot.playMoment(recipe, momentMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, recipe, momentMode, cardW]);
 
   // Done: the happy moment, then on.onComplete.
   useEffect(() => {

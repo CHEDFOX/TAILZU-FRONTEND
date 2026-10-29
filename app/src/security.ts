@@ -8,10 +8,13 @@
  * into the developer's connection screen still cannot cross.
  */
 
-/** tailzu.space itself, or any subdomain of it. */
+/** Our domains, each itself or any subdomain of it: x0bot.com, and tailzu.space from before the move. */
+const OUR_DOMAINS = ["x0bot.com", "tailzu.space"];
+
+/** x0bot.com or tailzu.space itself, or any subdomain of either. */
 export function isTailzuHost(host: string): boolean {
   const h = host.toLowerCase();
-  return h === "tailzu.space" || h.endsWith(".tailzu.space");
+  return OUR_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`));
 }
 
 function parse(url: unknown): URL | null {
@@ -23,7 +26,7 @@ function parse(url: unknown): URL | null {
  * The backend base URL, normalised, or null when this build must not use it.
  *
  * It receives the user's token on every request and is handed to the keyboard,
- * so a release build talks only to https on tailzu.space. A development build
+ * so a release build talks only to https on our domains. A development build
  * may point anywhere (a PC on the LAN, the Android emulator's 10.0.2.2).
  * Never credentials, a query or a fragment: the paths are appended to it.
  */
@@ -163,7 +166,7 @@ export function isHandoffUrl(url: unknown): url is string {
   });
 }
 
-/** A page the WebView node may show: https on tailzu.space. */
+/** A page the WebView node may show: https on our domains. */
 export function isTailzuPage(url: unknown): url is string {
   const u = parse(url);
   return !!u && u.protocol === "https:" && isTailzuHost(u.hostname);

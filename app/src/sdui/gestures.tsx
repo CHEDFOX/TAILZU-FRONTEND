@@ -21,8 +21,8 @@
  */
 import React, { useMemo, useRef } from "react";
 import { PanResponder, StyleSheet, View } from "react-native";
-import * as Haptics from "expo-haptics";
-import { bool, num } from "./knobs";
+import { haptic } from "./haptic";
+import { bool, num, str } from "./knobs";
 
 export interface EdgeSwipeConfig {
   enabled: boolean;
@@ -75,7 +75,7 @@ export function useEdgeSwipeBack(
         onPanResponderRelease: (_, g) => {
           if (!fired.current && (g.dx > cfg.distance || g.vx > velPerMs)) {
             fired.current = true;
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+            haptic(str("app.haptics.gesture.back", "medium"));
             onBack && onBack();
           }
         },

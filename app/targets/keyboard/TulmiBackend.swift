@@ -20,7 +20,7 @@ enum TulmiBackend {
 
   static var baseUrl: String {
     let v = shared?.string(forKey: "tulmi.baseUrl")
-    return (v?.isEmpty == false) ? v! : "https://api.tailzu.space"
+    return (v?.isEmpty == false) ? v! : "https://api.x0bot.com"
   }
 
   /// Bearer token, read from the shared Keychain (encrypted at rest, out of

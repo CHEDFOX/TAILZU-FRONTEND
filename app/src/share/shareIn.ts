@@ -27,13 +27,21 @@ export interface SharePlan {
   skipped: number;
 }
 
-/** The share-in screen's limits (bots.share-in in the backend). */
+/** The share-in screen's limits (bots.share-in in the backend): the most it ever takes. The server may
+ *  set lower ones (share.maxFiles, share.maxText, through ShareIO.limits), never higher. */
 export const MAX_FILES = 5;
-const MAX_TEXT = 2000;
+export const MAX_TEXT = 2000;
+export interface ShareLimits { files: number; text: number }
+const within = (v: unknown, most: number): number => {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, most) : most;
+};
 const WEB = /^https?:\/\/\S+$/i;
 
 /** What was shared, as the share-in screen takes it. */
-export function planShare(batch: SharedBatch): SharePlan {
+export function planShare(batch: SharedBatch, limits?: Partial<ShareLimits>): SharePlan {
+  const maxFiles = within(limits?.files, MAX_FILES);
+  const maxText = within(limits?.text, MAX_TEXT);
   const words: string[] = [];
   const links: string[] = [];
   const files: SharedFile[] = [];
@@ -50,14 +58,14 @@ export function planShare(batch: SharedBatch): SharePlan {
       else words.push(t);
     } else if (item.type === "file") {
       if (typeof item.uri !== "string" || !item.uri) { skipped++; continue; }
-      if (files.length >= MAX_FILES) { skipped++; continue; }
+      if (files.length >= maxFiles) { skipped++; continue; }
       files.push(item);
     }
   }
   const unique = [...new Set(links)];
   // One link is the link; any more go with the words, so nothing is lost.
-  const text = [...words, ...unique.slice(1)].filter((t, i, all) => all.indexOf(t) === i).join("\n\n").slice(0, MAX_TEXT);
-  return { text, url: (unique[0] ?? "").slice(0, MAX_TEXT), files, skipped };
+  const text = [...words, ...unique.slice(1)].filter((t, i, all) => all.indexOf(t) === i).join("\n\n").slice(0, maxText);
+  return { text, url: (unique[0] ?? "").slice(0, maxText), files, skipped };
 }
 
 /** The share-in screen's params: `file` (the first id), `files` (all of them, when more than one), `text`, `url`. */
@@ -94,6 +102,8 @@ export interface ShareIO {
   open(params: Record<string, string>): void;
   toast(message: string, tone?: "error"): void;
   words: ShareWords;
+  /** The server's limits, at most MAX_FILES and MAX_TEXT. */
+  limits?(): Partial<ShareLimits>;
 }
 
 export type ShareOutcome = "none" | "off" | "failed" | "opened";
@@ -101,7 +111,7 @@ export type ShareOutcome = "none" | "off" | "failed" | "opened";
 export async function runShareIn(io: ShareIO): Promise<ShareOutcome> {
   const batch = io.consume();
   if (!batch || !batch.items?.length) return "none";
-  const plan = planShare(batch);
+  const plan = planShare(batch, io.limits?.());
   if (!io.enabled()) {
     await Promise.all(plan.files.map((f) => io.discard(f).catch(() => {})));
     io.toast(io.words.off);

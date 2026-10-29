@@ -19,7 +19,7 @@
  */
 import React, { useCallback, useRef, useState } from "react";
 import { ScrollView, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptic as playHaptic } from "./haptic";
 import type { CompProps } from "./components";
 import * as K from "./knobs";
 
@@ -55,7 +55,7 @@ export const Reels = ({ props, style, children, fire }: CompProps): React.ReactE
     const i = Math.round(e.nativeEvent.contentOffset.y / height);
     if (i === index.current) return;
     index.current = i;
-    if (haptic) Haptics.selectionAsync().catch(() => {});
+    if (haptic) playHaptic(K.str("app.haptics.reels.snap", "selection"));
     fire("onSelect", i);
   }, [height, haptic, fire]);
 

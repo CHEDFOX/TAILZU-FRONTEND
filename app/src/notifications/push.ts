@@ -15,7 +15,16 @@ import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { APP_VERSION, callEndpoint } from "../sdui/client";
-import { bool, str, txt } from "../sdui/knobs";
+import { bool, list, str, txt } from "../sdui/knobs";
+
+/** A channel the server lists (push.android.channels): its id, the name and line Android's settings show. */
+interface AndroidChannel { id: string; name: string; description?: string; importance?: "min" | "low" | "default" | "high"; sound?: boolean }
+const IMPORTANCE: Record<string, Notifications.AndroidImportance> = {
+  min: Notifications.AndroidImportance.MIN,
+  low: Notifications.AndroidImportance.LOW,
+  default: Notifications.AndroidImportance.DEFAULT,
+  high: Notifications.AndroidImportance.HIGH,
+};
 
 const expoProjectId =
   (Constants.expoConfig?.extra as any)?.eas?.projectId ??
@@ -85,6 +94,18 @@ export async function registerForPushToken(): Promise<string | null> {
         importance: Notifications.AndroidImportance.DEFAULT,
         sound: "default",
       });
+      // And one per kind of push the server names (push.<kind>.channelId), so
+      // people can mute Plan reminders or Code bot pings on their own. None
+      // until the server lists them; the one above always stays.
+      for (const c of list<AndroidChannel>("push.android.channels", [])) {
+        if (!c || typeof c.id !== "string" || !c.id.trim() || typeof c.name !== "string" || !c.name.trim()) continue;
+        await Notifications.setNotificationChannelAsync(c.id.trim(), {
+          name: c.name.trim(),
+          ...(typeof c.description === "string" && c.description ? { description: c.description } : {}),
+          importance: IMPORTANCE[c.importance ?? "default"] ?? Notifications.AndroidImportance.DEFAULT,
+          sound: c.sound === false ? null : "default",
+        }).catch(() => { /* one channel that could not be made leaves the others */ });
+      }
     }
 
     const tokenData = expoProjectId

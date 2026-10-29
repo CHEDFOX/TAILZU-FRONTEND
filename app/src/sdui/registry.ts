@@ -164,6 +164,12 @@ export const CORE_COMPONENTS = [
    */
   "BotBuddyCarry",
   /**
+   * NOT A COMPONENT — the bots' looks and moments (types.ts BOT_MOMENTS_CAPABILITY): avatars and moments from the
+   * server's catalog (botTiles/looks.ts keeps it, core.ts plays it), on BotTiles, BotBuddy and BotCard (`avatar`,
+   * `moment`, `momentMode`, `momentEndWhen`, BotTiles `surprises`). Builds without it get a moment's plain act.
+   */
+  "BotMoments",
+  /**
    * NOT A COMPONENT — callEndpoint's `stream` (askStream.ts): an answer's words and what the bot is doing, written into state
    * as they come over the live socket (topic ask:<id>), and the id the server's stop names.
    */

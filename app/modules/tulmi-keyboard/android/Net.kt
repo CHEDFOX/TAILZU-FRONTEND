@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
  * one value on the server moves both keyboards.
  */
 object Net {
-    var baseUrl: String = "https://api.tailzu.space"
+    var baseUrl: String = "https://api.x0bot.com"
 
     /**
      * The signed-in user's token, shared by the app. EMPTY when nothing has been

@@ -62,12 +62,14 @@ export function useShareIn(host: ShareInHost): void {
     if (!hostRef.current.ready || busy.current) return;
     busy.current = true;
     const io: ShareIO = {
-      consume: () => consumeShared(num("share.maxAgeMs", 600_000)),
+      consume: () => consumeShared(num("share.maxAgeMs", 600000)),
       enabled: () => flagOn("bots.app"),
       upload,
       discard: (f) => FileSystem.deleteAsync(f.uri, { idempotent: true }).catch(() => {}),
       open: (params) => hostRef.current.open(str("share.screenId", "bots.share-in"), params),
       toast: (m, tone) => hostRef.current.toast(m, tone),
+      // How many files and how much text one share takes: the server's, never more than today's.
+      limits: () => ({ files: num("share.maxFiles", 5), text: num("share.maxText", 2000) }),
       words: {
         adding: txt("share.adding", "Adding it to Tailzu…"),
         failed: txt("share.failed", "Couldn't add that. Try again."),

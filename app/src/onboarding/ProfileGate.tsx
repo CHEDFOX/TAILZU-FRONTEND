@@ -23,7 +23,7 @@ import {
 } from "react-native";
 import { BlurView } from "expo-blur";
 import Svg, { Circle, Line, Path } from "react-native-svg";
-import * as Haptics from "expo-haptics";
+import { haptic } from "../sdui/haptic";
 import { getAuthName, setProfileDone } from "../storage";
 import { callEndpoint } from "../sdui/client";
 import { typeRole } from "../sdui/components";
@@ -98,13 +98,13 @@ export default function ProfileGate({ onDone, mediaUri, theme }: {
   const canContinue = name.trim().length >= num("profile.nameMinLength", 1) && gender !== null;
 
   const pickGender = useCallback((g: Gender) => {
-    Haptics.selectionAsync().catch(() => {});
+    haptic(str("app.haptics.profile.gender", "selection"));
     setGender(g);
   }, []);
 
   const onContinue = useCallback(async () => {
     if (!canContinue || saving) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    haptic(str("app.haptics.profile.save", "medium"));
     setSaving(true);
     try {
       await callEndpoint("PUT", str("net.profilePath", "/v1/profile"), { full_name: name.trim(), gender });
@@ -114,7 +114,7 @@ export default function ProfileGate({ onDone, mediaUri, theme }: {
     // The local copy is only the offline fallback; a failed write must not
     // leave the card up with its button spinning.
     await setProfileDone().catch(() => {});
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    haptic(str("app.haptics.profile.saved", "success"));
     onDone();
   }, [canContinue, saving, name, gender, onDone]);
 

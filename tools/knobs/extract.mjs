@@ -99,7 +99,8 @@ function aliasesIn(src) {
 // Per-person switches the server turns on for some people only. They are read
 // like knobs but are not knobs: listed here, the server would send their
 // fallback to everyone and switch the feature off for the people it is on for.
-const PER_PERSON = new Set(["bots.app"]);
+// desktop.voices is the person's own voices for the tray, sent with their bootstrap.
+const PER_PERSON = new Set(["bots.app", "desktop.voices"]);
 
 const manifest = { labels: {}, flags: {}, dynamic: {} };
 const where = {};

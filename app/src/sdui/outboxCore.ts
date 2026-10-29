@@ -47,6 +47,8 @@ export interface OutboxIO {
 
 export const OUTBOX_MAX = 20;
 export const KEEP_SENT_MS = 24 * 3600_000;
+/** How many asks it keeps (at most OUTBOX_MAX) and how long a sent one stays: numbers, or readers of the server's. */
+export interface OutboxLimits { max?: number | (() => number); keepSentMs?: number | (() => number) }
 const BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 32_000, 60_000];
 const FOR_GOOD = new Set([400, 403, 404, 405, 413, 422]);
 
@@ -71,9 +73,9 @@ export class Outbox {
   private flushing: Promise<number> | null = null;
 
   private readonly io: OutboxIO;
-  private readonly o: { max?: number; keepSentMs?: number };
+  private readonly o: OutboxLimits;
 
-  constructor(io: OutboxIO, o: { max?: number; keepSentMs?: number } = {}) {
+  constructor(io: OutboxIO, o: OutboxLimits = {}) {
     this.io = io;
     this.o = o;
   }
@@ -121,7 +123,7 @@ export class Outbox {
     const label = typeof a.label === "string" ? a.label.trim() : "";
     if (!label) return null;
     this.prune();
-    if (this.list.length >= (this.o.max ?? OUTBOX_MAX)) {
+    if (this.list.length >= this.max()) {
       const sent = this.list.findIndex((e) => e.state === "sent");
       if (sent < 0) return null;
       this.list.splice(sent, 1);
@@ -206,8 +208,16 @@ export class Outbox {
     return this.flushing;
   }
 
+  /** How many it keeps: the caller's (the server's), never more than OUTBOX_MAX. */
+  private max(): number {
+    const v = Math.floor(Number(typeof this.o.max === "function" ? this.o.max() : this.o.max ?? OUTBOX_MAX));
+    return Number.isFinite(v) && v >= 1 ? Math.min(v, OUTBOX_MAX) : OUTBOX_MAX;
+  }
+
   private prune(): void {
-    const keep = this.o.keepSentMs ?? KEEP_SENT_MS;
+    const k = Number(typeof this.o.keepSentMs === "function" ? this.o.keepSentMs() : this.o.keepSentMs ?? KEEP_SENT_MS);
+    // A sent ask stays a minute at least and a week at most, whatever it is told.
+    const keep = Number.isFinite(k) ? Math.min(Math.max(k, 60_000), 7 * 24 * 3600_000) : KEEP_SENT_MS;
     const t = this.io.now();
     this.list = this.list.filter((e) => e.state !== "sent" || t - (e.sentAt ?? 0) < keep);
   }

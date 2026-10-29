@@ -11,7 +11,8 @@
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, StyleSheet, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
-import * as Haptics from "expo-haptics";
+import { haptic } from "../sdui/haptic";
+import { num, str } from "../sdui/knobs";
 
 const ENV_W = 84;
 const ENV_H = 60;
@@ -27,7 +28,7 @@ export default function EmailSendAnimation() {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(envOpacity, { toValue: 1, duration: 420, useNativeDriver: true }),
+      Animated.timing(envOpacity, { toValue: 1, duration: num("auth.emailAnim.fadeInMs", 420), useNativeDriver: true }),
       Animated.spring(envScale, { toValue: 1, friction: 6, tension: 55, useNativeDriver: true }),
     ]).start();
 
@@ -35,15 +36,15 @@ export default function EmailSendAnimation() {
       ringScale.setValue(0.1);
       ringOpacity.setValue(0.5);
       Animated.parallel([
-        Animated.timing(ringScale, { toValue: 1, duration: 1200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(ringOpacity, { toValue: 0, duration: 1200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(ringScale, { toValue: 1, duration: num("auth.emailAnim.pulseMs", 1200), easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(ringOpacity, { toValue: 0, duration: num("auth.emailAnim.pulseMs", 1200), easing: Easing.out(Easing.quad), useNativeDriver: true }),
       ]).start();
     };
     pulse();
-    const iv = setInterval(pulse, 720);
+    const iv = setInterval(pulse, Math.max(200, num("auth.emailAnim.pulseEveryMs", 720)));
 
-    const h1 = setTimeout(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}), 300);
-    const h2 = setTimeout(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {}), 1500);
+    const h1 = setTimeout(() => haptic(str("app.haptics.auth.emailSending", "light")), num("auth.emailAnim.sendingAtMs", 300));
+    const h2 = setTimeout(() => haptic(str("app.haptics.auth.emailSent", "success")), num("auth.emailAnim.sentAtMs", 1500));
 
     return () => { clearInterval(iv); clearTimeout(h1); clearTimeout(h2); };
   }, [envScale, envOpacity, ringScale, ringOpacity]);

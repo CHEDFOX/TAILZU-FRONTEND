@@ -260,8 +260,10 @@ const FILL = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as c
 function Segment({ on, look }: { on: boolean; look: bus.StageLook["progress"] }) {
   const v = useRef(new Animated.Value(on ? 1 : 0)).current;
   useEffect(() => {
-    Animated.timing(v, { toValue: on ? 1 : 0, duration: 380, easing: ease, useNativeDriver: true }).start();
-  }, [on, v]);
+    // The look's fadeMs (the server's stage look), else today's.
+    const own = Number((look as { fadeMs?: unknown }).fadeMs);
+    Animated.timing(v, { toValue: on ? 1 : 0, duration: Number.isFinite(own) && own >= 0 ? own : 380, easing: ease, useNativeDriver: true }).start();
+  }, [on, v, look]);
   return (
     <View style={{ flex: 1, height: look.height, borderRadius: look.height / 2, backgroundColor: look.off, overflow: "hidden" }}>
       <Animated.View style={[FILL, { backgroundColor: look.on, opacity: v }]} />

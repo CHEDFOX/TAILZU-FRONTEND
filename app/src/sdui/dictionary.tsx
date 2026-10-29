@@ -12,7 +12,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptic } from "./haptic";
 import type { CompProps } from "./components";
 import { useTheme } from "./components";
 import { callEndpoint } from "./client";
@@ -69,7 +69,7 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
   const removeRow = useCallback((i: number) => setRows((rs) => rs.filter((_, idx) => idx !== i)), []);
 
   const save = useCallback(async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    haptic(K.str("app.haptics.dictionary.save", "light"));
     setSaving(true);
     const clean = complete(rows);
     try {
@@ -77,10 +77,10 @@ export const DictionaryEditor = ({ node, props, store, fire }: CompProps) => {
       setKeyboardDictionary(clean); // push to the keyboard (App Group)
       if (bindPath) store.set(bindPath, clean);
       fire("onChange", clean);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      haptic(K.str("app.haptics.dictionary.saved", "success"));
     } catch (e: any) {
       fire("onError", String(props.errorMessage ?? K.txt("ui.DictionaryEditor.errorMessage", "Couldn't save the dictionary")));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      haptic(K.str("app.haptics.dictionary.failed", "error"));
     } finally {
       setSaving(false);
     }
@@ -232,7 +232,7 @@ export const WordChips = ({ node, props, store, fire }: CompProps) => {
       {words.map((w, i) => (
         <Pressable
           key={`${w}-${i}`}
-          onPress={() => { Haptics.selectionAsync().catch(() => {}); fire("onPress", w); }}
+          onPress={() => { haptic(K.str("app.haptics.dictionary.word", "selection")); fire("onPress", w); }}
           style={chip}
         >
           <Text style={{ color: props.chipTextColor ?? theme.color.body ?? theme.color.text, fontSize: Number(props.chipFontSize ?? K.num("ui.WordChips.chipFontSize", 14)) }}>{w}</Text>

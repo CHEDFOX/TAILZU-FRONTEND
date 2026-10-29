@@ -105,3 +105,13 @@ test("the Bots app is off: nothing is sent, the copies go, and the person is tol
   assert.strictEqual(await runShareIn(r.io), "off");
   assert.deepStrictEqual(r.log, ["discard a.pdf", "toast Not on yet."]);
 });
+
+test("the server's limits: fewer files and less text when it says so, never more than the screen takes", () => {
+  const items = [1, 2, 3, 4].map((i) => file(`f${i}.pdf`));
+  const lowered = planShare({ items: [...items, { type: "text", text: "x".repeat(50) }] }, { files: 2, text: 10 });
+  assert.equal(lowered.files.length, 2);
+  assert.equal(lowered.skipped, 2);
+  assert.equal(lowered.text.length, 10);
+  const raised = planShare({ items: [...items, ...items.map((f) => ({ ...f, uri: f.uri + "2" }))] }, { files: 50 });
+  assert.equal(raised.files.length, 5, "five is the most, whatever it is told");
+});

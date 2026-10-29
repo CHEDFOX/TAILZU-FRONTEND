@@ -19,10 +19,19 @@ public class TulmiShareModule: Module {
   // Must match the App Group of the app, the keyboard and the share extension.
   private static let appGroup = "group.com.tulmi.app"
   private static let pendingKey = "tulmi.share.pending"
+  /// The share extension's words, limits and look, written by the app from the server's labels and flags
+  /// (src/share/shareConfig.ts). The extension reads it, each value over its own literal.
+  private static let configKey = "tulmi.share.config"
   private static let folder = "ShareIn"
 
   public func definition() -> ModuleDefinition {
     Name("TulmiShare")
+
+    /// The extension's card, as the server words it: JSON, or "" to forget it (the extension's literals again).
+    Function("setShareConfig") { (json: String) in
+      let d = UserDefaults(suiteName: TulmiShareModule.appGroup)
+      if json.isEmpty { d?.removeObject(forKey: TulmiShareModule.configKey) } else { d?.set(json, forKey: TulmiShareModule.configKey) }
+    }
 
     Function("consumeShared") { (maxAgeMs: Double?) -> [String: Any] in
       let d = UserDefaults(suiteName: TulmiShareModule.appGroup)

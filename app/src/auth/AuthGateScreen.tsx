@@ -38,7 +38,7 @@ import { BlurView } from "expo-blur";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
-import * as Haptics from "expo-haptics";
+import { haptic } from "../sdui/haptic";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
@@ -496,11 +496,11 @@ function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
       // own and every other tap falls through to the dismiss.
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderGrant: () => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}); crossed.current = false; },
+      onPanResponderGrant: () => { haptic(str("app.haptics.auth.pillGrab", "light")); crossed.current = false; },
       onPanResponderMove: (_, g) => {
         const x = Math.max(0, Math.min(MAX_DRAG, g.dx));
         envX.setValue(x);
-        if (!crossed.current && x >= DRAG_THRESHOLD) { crossed.current = true; Haptics.selectionAsync().catch(() => {}); }
+        if (!crossed.current && x >= DRAG_THRESHOLD) { crossed.current = true; haptic(str("app.haptics.auth.pillCross", "selection")); }
         else if (crossed.current && x < DRAG_THRESHOLD) crossed.current = false;
       },
       onPanResponderRelease: (_, g) => {
@@ -519,7 +519,7 @@ function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
         // the gesture worth offering again.
         if (x >= DRAG_THRESHOLD) {
           if (validRef.current) { commit(); return; }
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+          haptic(str("app.haptics.auth.pillRefused", "warning"));
           parked.current = true;
           Animated.timing(envX, {
             toValue: MAX_DRAG, duration: num("auth.anim.parkMs", 180), easing: Easing.out(Easing.cubic), useNativeDriver: false,
@@ -553,7 +553,7 @@ function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
           <TouchableOpacity
             style={s.pickRow}
             activeOpacity={0.7}
-            onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+            onPress={() => { Keyboard.dismiss(); haptic(str("app.haptics.auth.countryOpen", "selection")); setPickerOpen(true); }}
             accessibilityRole="button"
             accessibilityLabel={txt("auth.a11y.chooseCountry", "Choose your country")}
           >
@@ -591,7 +591,7 @@ function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
             // costs nothing: the swipe still submits, because PanResponder
             // only claims a finger that has moved, and a tap has not.
             <Pressable
-              onPress={() => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); }}
+              onPress={() => { Keyboard.dismiss(); haptic(str("app.haptics.auth.countryOpen", "selection")); setPickerOpen(true); }}
               hitSlop={8}
               accessibilityRole="button"
               accessibilityLabel={txt("auth.a11y.changeCountry", "Country {name}, change", { name: country.name })}
@@ -619,7 +619,7 @@ function SwipeMethodPill({ field, onSubmit, hintDelay, look, style, resetAt }: {
           onSelect={(c) => {
             setCountry(c);
             setCountryPicked(true);
-            Haptics.selectionAsync().catch(() => {});
+            haptic(str("app.haptics.auth.countryPick", "selection"));
             // The modal is still closing; focus once it has let go of the
             // screen, or the keyboard fights the dismissal.
             setTimeout(() => inputRef.current?.focus(), num("auth.anim.pickerFocusMs", 260));
@@ -687,11 +687,11 @@ function FieldPill({ field, onSubmit, look, style }: {
 
   const commit = () => {
     if (!validRef.current) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    haptic(str("app.haptics.auth.submit", "light"));
     onSubmit(field, valRef.current);
   };
 
-  const openPicker = () => { Keyboard.dismiss(); Haptics.selectionAsync().catch(() => {}); setPickerOpen(true); };
+  const openPicker = () => { Keyboard.dismiss(); haptic(str("app.haptics.auth.countryOpen", "selection")); setPickerOpen(true); };
 
   return (
     <View style={[{ gap: 8 }, style]}>
@@ -756,7 +756,7 @@ function FieldPill({ field, onSubmit, look, style }: {
           onSelect={(c) => {
             setCountry(c);
             typedMemory.set("phone:country", c.iso);
-            Haptics.selectionAsync().catch(() => {});
+            haptic(str("app.haptics.auth.countryPick", "selection"));
             setTimeout(() => inputRef.current?.focus(), num("auth.anim.pickerFocusMs", 260));
           }}
         />
@@ -1008,7 +1008,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   }, [phase, entryFade, verifyFade]);
 
   const flashError = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    haptic(str("app.haptics.auth.codeWrong", "warning"));
     setCodeError(true);
     const step = num("auth.anim.shakeStepMs", 60);
     Animated.sequence([
@@ -1061,7 +1061,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       return;
     } catch (e: any) {
       if (my !== seq.current) return;
-      msg = String(e?.message ?? e ?? "Network error");
+      msg = String(e?.message ?? e ?? txt("auth.error.network", "Network error"));
     }
     const next = attempt + 1;
     if (next < num("auth.send.attempts", 4)) {
@@ -1097,7 +1097,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       setPhase("verify");
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    haptic(str("app.haptics.auth.codeSent", "medium"));
     setActive({ type, value });
     setCode("");
     // THE CODE SCREEN OPENS IN THIS FRAME. Nothing is awaited first.
@@ -1173,7 +1173,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   }, [code, phase, verify]);
 
   const goBack = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    haptic(str("app.haptics.auth.back", "light"));
     Keyboard.dismiss();
     seq.current++;
     verifyFade.setValue(0); entryFade.setValue(1);
@@ -1194,7 +1194,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const onApple = useCallback(async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      haptic(str("app.haptics.auth.apple", "light"));
       // The nonce is what stops a captured Apple identity token from being
       // replayed, so it has to be unguessable: Math.random() is not.
       const raw = Crypto.randomUUID();
@@ -1238,7 +1238,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const onGoogle = useCallback(async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      haptic(str("app.haptics.auth.google", "light"));
       if (googleViaWeb && googleWeb) {
         // Supabase's page, in an auth session so the browser hands the result
         // back. The redirect carries THIS PHONE's state; the backend page
@@ -1290,7 +1290,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       authFailed(
         txt("auth.google.errorTitle", "Couldn't sign in with Google"),
         txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
-        googleResponse.error ?? "OAuth error",
+        googleResponse.error ?? txt("auth.error.oauth", "OAuth error"),
       );
       return;
     }
@@ -1302,7 +1302,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       authFailed(
         txt("auth.google.errorTitle", "Couldn't sign in with Google"),
         txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
-        "Google didn't return an identity token.",
+        txt("auth.error.noIdentityToken", "Google didn't return an identity token."),
       );
       return;
     }
@@ -1325,7 +1325,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
       authFailed(
         txt("auth.google.errorTitle", "Couldn't sign in with Google"),
         txt("auth.google.errorBody", "Google sign-in didn't go through. Try again, or use your email."),
-        e ?? "Network error",
+        e ?? txt("auth.error.network", "Network error"),
       );
     });
   }, [googleResponse, googleRequest, flashError, onAuthed]);

@@ -167,9 +167,11 @@ const config: ExpoConfig = {
     // this clears the "encryption" question that otherwise blocks every
     // TestFlight build until answered by hand in App Store Connect.
     config: { usesNonExemptEncryption: false },
-    // Universal Links: taps on tailzu.space URLs open the app directly. Backing
-    // JSON must be hosted at https://tailzu.space/.well-known/apple-app-site-association.
-    associatedDomains: ["applinks:tailzu.space", "applinks:app.tailzu.space"],
+    // Universal Links: taps on x0bot.com URLs open the app directly. Backing
+    // JSON is served at https://app.x0bot.com/.well-known/apple-app-site-association
+    // (and on x0bot.com through the site's proxy). tailzu.space stays listed: links
+    // already sent and printed name it, and it serves the same file.
+    associatedDomains: ["applinks:x0bot.com", "applinks:app.x0bot.com", "applinks:tailzu.space", "applinks:app.tailzu.space"],
     infoPlist: {
       // PERMISSION STRINGS SAY WHAT THIS BINARY DOES — nothing it might do one
       // day. They used to describe features that were never built (Face ID
@@ -240,7 +242,7 @@ const config: ExpoConfig = {
       // app through the audio session, which needs no Bluetooth permission.
       NSBluetoothAlwaysUsageDescription:
         "Tailzu doesn't use Bluetooth itself. A headset paired with your iPhone works through iOS.",
-      // A release build talks only to https on tailzu.space (security.ts
+      // A release build talks only to https on x0bot.com or tailzu.space (security.ts
       // checkBaseUrl); only a development build reaches a computer on the LAN.
       NSLocalNetworkUsageDescription:
         "Only development builds of Tailzu use the local network, to connect to a developer's computer.",
@@ -322,6 +324,8 @@ const config: ExpoConfig = {
       "com.apple.developer.applesignin": ["Default"],
       "aps-environment": "production",
       "com.apple.developer.associated-domains": [
+        "applinks:x0bot.com",
+        "applinks:app.x0bot.com",
         "applinks:tailzu.space",
         "applinks:app.tailzu.space",
       ],
@@ -408,7 +412,12 @@ const config: ExpoConfig = {
       {
         action: "VIEW",
         autoVerify: true,
+        // Both domains: x0bot.com, and tailzu.space for links already out
+        // there. Each host must serve /.well-known/assetlinks.json (the
+        // backend's, docs/domain-x0bot.md) or Android verifies none of them.
         data: [
+          { scheme: "https", host: "x0bot.com" },
+          { scheme: "https", host: "app.x0bot.com" },
           { scheme: "https", host: "tailzu.space" },
           { scheme: "https", host: "app.tailzu.space" },
         ],

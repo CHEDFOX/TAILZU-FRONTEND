@@ -17,7 +17,7 @@ import * as Crypto from "expo-crypto";
 import { callEndpoint, peekScreen, prefetchScreens } from "./client";
 import { clockText, Outbox } from "./outboxCore";
 import { fillText, resolveValue, type Scope } from "./fill";
-import { color, list, str, txt } from "./knobs";
+import { color, list, num, str, txt } from "./knobs";
 import type { Store } from "./state";
 
 const KEY = "tulmi.cache.outbox";
@@ -60,6 +60,10 @@ export const outbox = new Outbox({
   now: () => Date.now(),
   newId: () => Crypto.randomUUID(),
   timeText: (ms) => clockText(ms),
+}, {
+  // The server's (outbox.max, at most 20; outbox.keepSentMs), read each time, so a new bootstrap's hold.
+  max: () => num("outbox.max", 20),
+  keepSentMs: () => num("outbox.keepSentMs", 86400000),
 });
 
 let sentListener: ((n: number) => void) | null = null;

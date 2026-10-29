@@ -28,7 +28,7 @@ test("a state is 32 random bytes, base64url, and nothing else looks like one", (
 });
 
 test("the redirect carries the state in its query, before any fragment", () => {
-  assert.equal(withState("https://api.tailzu.space/auth/callback", S), `https://api.tailzu.space/auth/callback?state=${S}`);
+  assert.equal(withState("https://api.x0bot.com/auth/callback", S), `https://api.x0bot.com/auth/callback?state=${S}`);
   assert.equal(withState("https://x.test/cb?a=1", S), `https://x.test/cb?a=1&state=${S}`);
   assert.equal(withState("https://x.test/cb#f", S), `https://x.test/cb?state=${S}#f`);
 });
@@ -43,7 +43,7 @@ test("reads the three shapes a sign-in link comes back in, with its state", () =
   );
   // A mailed token hash, any path, with its GoTrue type.
   assert.deepEqual(
-    readAuthLink(`https://tailzu.space/auth/confirm?token_hash=H&type=magiclink&state=${S}`),
+    readAuthLink(`https://x0bot.com/auth/confirm?token_hash=H&type=magiclink&state=${S}`),
     { kind: "auth", tokenHash: "H", type: "magiclink", state: S },
   );
   assert.deepEqual(readAuthLink("tulmi://x?token=T&type=signup"), { kind: "auth", tokenHash: "T", type: "signup" });
@@ -57,7 +57,7 @@ test("does not swallow links that are not sign-in links", () => {
     "tulmi://screen/redeem?token=PROMO",            // a screen may carry its own `token`
     "tulmi://screen/redeem?code=PROMO",             // …or its own `code`
     `com.tulmi.app:/oauthredirect?state=${S}&code=g`, // Google's native redirect is expo-auth-session's, not ours
-    "https://tailzu.space/s/stats?code=x",
+    "https://x0bot.com/s/stats?code=x",
     "tulmi://auth/callback?error=access_denied&error_description=no",
     `tulmi://auth/callback?state=${S}&code=c&error=server_error`,
     "tulmi://auth/callback#access_token=only-half",

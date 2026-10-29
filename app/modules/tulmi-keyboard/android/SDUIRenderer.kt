@@ -2033,7 +2033,7 @@ class SDUIRenderer(
     private fun renderIconKey(node: KBNode, parent: ViewGroup) {
         val icon = (node.props["icon"] as? String) ?: ""
         val resId = iconRegistry[icon]
-        val view: View = if (resId != null) {
+        val view: View = drawnIcon(icon, node) ?: if (resId != null) {
             ImageButton(host.context()).apply {
                 setImageResource(resId)
                 background = keyBackground(node)
@@ -2301,7 +2301,7 @@ class SDUIRenderer(
     /** BackspaceKey — deletes on tap; held, repeats and then accelerates. */
     private fun renderBackspaceKey(node: KBNode, parent: ViewGroup) {
         val resId = iconRegistry["backspace"]
-        val view: View = if (resId != null) {
+        val view: View = drawnIcon("backspace", node) ?: if (resId != null) {
             ImageButton(host.context()).apply {
                 setImageResource(resId)
                 background = keyBackground(node)
@@ -2359,7 +2359,7 @@ class SDUIRenderer(
      */
     private fun renderGlobeKey(node: KBNode, parent: ViewGroup) {
         val resId = iconRegistry["globe"]
-        val view: View = if (resId != null) {
+        val view: View = drawnIcon("globe", node) ?: if (resId != null) {
             ImageButton(host.context()).apply {
                 setImageResource(resId)
                 background = keyBackground(node)
@@ -3890,6 +3890,92 @@ class SDUIRenderer(
         "refine" to android.R.drawable.star_on,
         "settings" to android.R.drawable.ic_menu_preferences,
     )
+
+    /**
+     * AN ICON THE SERVER DRAWS (kb.icons), before the system drawable above.
+     *
+     * The registry can only name Android's own pictures (shift is an upload
+     * arrow, refine a star), so a new icon needed a release; iOS takes any SF
+     * Symbol name. kb.icons maps an icon's name to its geometry, drawn on a
+     * Canvas in the key's text colour, as TulmiMarkView draws the mic's mark:
+     *   { "shift": { "viewBox": [24, 24], "stroke": 1.8,
+     *                "shapes": [{ "kind": "poly", "points": [12,4, 20,13, 15,13, 15,20, 9,20, 9,13, 4,13], "closed": true }] } }
+     * Kinds: poly (points, closed, fill), circle (cx, cy, r, fill), rect
+     * (x, y, w, h, r, fill). Geometry only: never a picture. A name the
+     * server does not draw keeps the registry's, or the key's text.
+     */
+    private fun drawnIcon(name: String, node: KBNode): View? {
+        val spec = (kbConfig.flags["kb.icons"] as? JSONObject)?.optJSONObject(name) ?: return null
+        val shapes = spec.optJSONArray("shapes") ?: return null
+        if (shapes.length() == 0) return null
+        val ink = (node.style["fg"] as? String)?.let { parseHex(it) } ?: parseHex(theme.keyText)
+        return FrameLayout(host.context()).apply {
+            background = keyBackground(node)
+            val pad = dp(flagFloat("kb.icons.inset", 10f).toInt())
+            setPadding(pad, pad, pad, pad)
+            addView(TulmiIconView(host.context(), spec, ink), FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+        }
+    }
+
+    /** kb.icons' geometry on a Canvas: fitted and centred in the view, stroked (or filled) in `ink`. */
+    private class TulmiIconView(ctx: Context, private val spec: JSONObject, private val ink: Int) : View(ctx) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ink
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val path = android.graphics.Path()
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val box = spec.optJSONArray("viewBox")
+            val vw = (box?.optDouble(0, 24.0) ?: 24.0).toFloat().takeIf { it > 0f } ?: 24f
+            val vh = (box?.optDouble(1, 24.0) ?: 24.0).toFloat().takeIf { it > 0f } ?: 24f
+            val w = (width - paddingLeft - paddingRight).toFloat()
+            val h = (height - paddingTop - paddingBottom).toFloat()
+            if (w <= 0f || h <= 0f) return
+            val scale = minOf(w / vw, h / vh)
+            canvas.save()
+            canvas.translate(paddingLeft + (w - vw * scale) / 2f, paddingTop + (h - vh * scale) / 2f)
+            canvas.scale(scale, scale)
+            val strokeW = spec.optDouble("stroke", 1.8).toFloat().takeIf { it.isFinite() && it > 0f } ?: 1.8f
+            val shapes = spec.optJSONArray("shapes") ?: JSONArray()
+            for (i in 0 until minOf(shapes.length(), 32)) {
+                val o = shapes.optJSONObject(i) ?: continue
+                val fill = o.optBoolean("fill", false)
+                paint.style = if (fill) Paint.Style.FILL else Paint.Style.STROKE
+                paint.strokeWidth = strokeW
+                when (o.optString("kind")) {
+                    "poly" -> {
+                        val pts = o.optJSONArray("points") ?: continue
+                        if (pts.length() < 4) continue
+                        path.reset()
+                        path.moveTo(pts.optDouble(0).toFloat(), pts.optDouble(1).toFloat())
+                        var j = 2
+                        while (j + 1 < minOf(pts.length(), 256)) {
+                            path.lineTo(pts.optDouble(j).toFloat(), pts.optDouble(j + 1).toFloat())
+                            j += 2
+                        }
+                        if (o.optBoolean("closed", false)) path.close()
+                        canvas.drawPath(path, paint)
+                    }
+                    "circle" -> canvas.drawCircle(
+                        o.optDouble("cx").toFloat(), o.optDouble("cy").toFloat(), o.optDouble("r").toFloat(), paint,
+                    )
+                    "rect" -> {
+                        val x = o.optDouble("x").toFloat()
+                        val y = o.optDouble("y").toFloat()
+                        val r = o.optDouble("r", 0.0).toFloat()
+                        canvas.drawRoundRect(RectF(x, y, x + o.optDouble("w").toFloat(), y + o.optDouble("h").toFloat()), r, r, paint)
+                    }
+                    else -> continue           // a kind this build does not know
+                }
+            }
+            canvas.restore()
+        }
+    }
 
     // -----------------------------------------------------------------------
     // MicParticleView — Android twin of iOS MicParticleView.

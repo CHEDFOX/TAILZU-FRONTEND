@@ -28,7 +28,8 @@ ssh root@91.108.104.168 'cd ~/tulmi && CHECK=1 ./deploy/ship.sh'
 
 ## Site
 
-tailzu.space is on Vercel, deployed from GitHub: a push to `main` (set as
+x0bot.com is on Vercel (tailzu.space too, which sends its pages on to
+x0bot.com), deployed from GitHub: a push to `main` (set as
 the production branch in Vercel → Settings → Git) is the deploy. Nothing is
 copied to the VPS. (`vercel.json` proxies `/v1/*`, `/download`,
 `/downloads/*`, `/privacy`, `/terms` and `/.well-known/*` to the API.)
