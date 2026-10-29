@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
-import { BotTile, BotTilesWorld, Fabric, LiveMark, STEP, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
+import { BotTile, BotTilesWorld, CARRY, Fabric, LiveMark, STEP, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
 // @ts-expect-error a plain .mjs script, no types
 import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
 
@@ -232,7 +232,7 @@ test("the Notes bot picks up his pad, writes line after line, and tears off a fu
   assert.ok(c.calls > 20, "the pad and its lines are drawn");
 });
 
-const ACTS: BuddyAct[] = ["play", "wave", "survey", "read", "settle", "think"];
+const ACTS: BuddyAct[] = ["play", "wave", "survey", "read", "settle", "think", "carry"];
 
 /** A page's buddy: a header's small stage, or a setup step's. */
 function buddy(kind: BotKind, act: BuddyAct, mood: BotMood = "idle", w = 104, h = 48, size = 30): BotTile {
@@ -296,6 +296,114 @@ test("a glance at the ask field: with lookTo his eyes go to it now and then; Red
     for (let f = 0; f < 60; f++) s.step(1 / 60);
     assert.deepStrictEqual(Array.from(s.x), x, act);
   }
+});
+
+/** A chat's lane: the width of a phone's column, a little taller than the bot. */
+function lane(kind: BotKind = "code", w = 358, h = 68, size = 44): BotTile {
+  const t = new BotTile({ kind, color: "#4F7A3A", mood: "idle", seed: 9, size });
+  t.cloth = 0;
+  t.resize(w, h, h - 2);
+  t.setAct("carry");
+  return t;
+}
+
+test("carrying: in from the right, slowly across, out at the left; again, the bag heavier each trip up to the cap", () => {
+  const t = lane();
+  const bag = t.p0[0]!;
+  const trips: Array<{ trip: number; load: number; r: number; m: number; enteredRight: boolean; leftAt: number; lean: number; vx: number }> = [];
+  let cur: (typeof trips)[number] | null = null, n = 0, vsum = 0, lsum = 0;
+  for (let f = 0; f < 60 * 110; f++) {
+    t.step(1 / 60);
+    if (f % 30 === 0) assert.ok(t.finite() && t.inside(), `frame ${f}`);
+    if (t.phase === 1 && (!cur || cur.trip !== t.trip)) {
+      if (cur) { cur.vx = vsum / Math.max(1, n); cur.lean = lsum / Math.max(1, n); }
+      cur = { trip: t.trip, load: t.load, r: t.pr[0]!, m: 1 / t.im[bag + 1]!, enteredRight: t.x[2]! > t.w, leftAt: 0, lean: 0, vx: 0 };
+      trips.push(cur); n = 0; vsum = 0; lsum = 0;
+    }
+    if (cur && t.phase === 1 && t.x[2]! > t.w * 0.2 && t.x[2]! < t.w * 0.8) {
+      n++; vsum += t.vx(2); lsum += t.x[1]! - t.x[2]!;
+      assert.strictEqual(t.held, 0, "the bag is in his hand all the way across");
+    }
+  }
+  assert.ok(trips.length >= 7, `trips: ${trips.length}`);
+  for (const tr of trips) assert.ok(tr.enteredRight, `trip ${tr.trip} comes in from the right`);
+  for (let i = 1; i < trips.length; i++) {
+    const a = trips[i - 1]!, b = trips[i]!;
+    if (i < CARRY.trips) {
+      assert.ok(b.load > a.load && b.r > a.r && b.m > a.m, `trip ${i}: heavier and bigger (${a.load} -> ${b.load})`);
+    } else {
+      assert.strictEqual(b.load, 1, "capped: the heaviest look from then on");
+      assert.strictEqual(b.r, a.r);
+    }
+  }
+  const first = trips[0]!, heavy = trips[CARRY.trips]!;
+  assert.ok(first.vx < 0 && heavy.vx < 0, "right to left");
+  assert.ok(Math.abs(heavy.vx) < Math.abs(first.vx) * 0.8, `heavy is slower (${first.vx.toFixed(1)} vs ${heavy.vx.toFixed(1)} px/s)`);
+  assert.ok(Math.abs(first.vx) < t.S * 3, "and even light, a slow walk");
+  assert.ok(heavy.lean < first.lean - t.S * 0.04, "he leans into it more, heavy");
+});
+
+test("the answer is here: on stage he sets the bag down and walks off light; off stage he is simply gone; carry again starts light", () => {
+  const t = lane();
+  // Into the second trip, half way across.
+  while (!(t.trip === 1 && t.phase === 1 && t.x[2]! < t.w * 0.5)) t.step(1 / 60);
+  t.deliver();
+  assert.strictEqual(t.phase, 2, "setting it down");
+  let let_go = -1, down = false, x0 = t.x[2]!;
+  const b = t.p0[0]! + 1;
+  for (let f = 0; f < 60 * 8 && !t.carryDone(); f++) {
+    t.step(1 / 60);
+    if (let_go < 0 && t.held < 0) { let_go = f; down = t.y[b]! + t.rad[b]! >= t.floor - 1.5; }
+    assert.ok(t.finite() && t.inside());
+  }
+  assert.ok(let_go >= 0 && down, "he lets go of it on the floor");
+  assert.ok(t.carryDone(), "and leaves");
+  assert.ok(t.x[2]! < 0 && t.x[2]! < x0, "off at the left");
+  assert.strictEqual(t.bagFade, 0, "the bag gave its place to the answer");
+
+  // Off stage when it comes: gone at once.
+  const off = lane();
+  for (let f = 0; f < 30; f++) off.step(1 / 60);
+  assert.strictEqual(off.phase, 0, "still off stage, packing");
+  off.deliver();
+  assert.ok(off.carryDone(), "gone, nothing to see");
+
+  // A new ask: carrying again, from the first light bag.
+  t.setAct("carry");
+  assert.ok(!t.carryDone() && t.trip === 0 && t.load === 0 && t.held === 0, "a new haul");
+  for (let f = 0; f < 60 * 4; f++) t.step(1 / 60);
+  assert.ok(t.x[2]! < t.w + t.S, "walking in again");
+  // deliver() means nothing to any other act.
+  const other = buddy("code", "think");
+  other.deliver();
+  assert.ok(!other.carryDone() && !other.delivered);
+});
+
+test("carrying, Reduce Motion: a still bot with the bag in his hand; the stage holds only the bag, and his toys come back after", () => {
+  const t = lane("plan");
+  assert.strictEqual(t.np, 1, "only the bag on the stage");
+  for (let f = 0; f < 200; f++) t.step(1 / 60);
+  t.settle(true);
+  const x = Array.from(t.x);
+  for (let f = 0; f < 60; f++) t.step(1 / 60);
+  assert.deepStrictEqual(Array.from(t.x), x, "still");
+  assert.strictEqual(t.held, 0, "holding it");
+  assert.ok(t.x[2]! > 0 && t.x[2]! < t.w, "on the stage");
+  const c = counter();
+  t.draw(c);
+  assert.ok(c.calls > 30 && c.calls < 720, `drawn (${c.calls})`);
+  t.settle(false);
+  t.setAct("play");
+  assert.strictEqual(t.np, 4, "his day tiles are back");
+  for (let f = 0; f < 600; f++) t.step(1 / 60);
+  assert.ok(t.finite() && t.inside());
+});
+
+test("carrying is the same everywhere: same seed, same frames; a desk-wide lane too", () => {
+  const a = lane("custom", 640, 70, 46), b = lane("custom", 640, 70, 46);
+  for (let f = 0; f < 60 * 40; f++) { a.step(1 / 60); b.step(1 / 60); }
+  assert.deepStrictEqual(Array.from(a.x), Array.from(b.x));
+  assert.ok(a.trip >= 1 && a.finite() && a.inside());
 });
 
 test("the living mark: springs that settle home, eyes on the finger, a scroll swings it, lit dots, a squish that springs back", () => {

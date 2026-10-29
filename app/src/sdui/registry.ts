@@ -158,6 +158,16 @@ export const CORE_COMPONENTS = [
   "BotTilesStrip",
   /** A bot's own tiny bot on its pages (BotBuddy.tsx; types.ts BotBuddyProps), on the same core. */
   "BotBuddy",
+  /**
+   * NOT A COMPONENT — BotBuddy's act "carry" and `doneWhen` (BotBuddy.tsx): a lane under a message on its way, where
+   * he hauls it as a bag, heavier each trip, and sets it down when the answer is here. Others get "Asking…".
+   */
+  "BotBuddyCarry",
+  /**
+   * NOT A COMPONENT — callEndpoint's `stream` (askStream.ts): an answer's words and what the bot is doing, written into state
+   * as they come over the live socket (topic ask:<id>), and the id the server's stop names.
+   */
+  "AskStream",
   /** Home's header, alive (HomeHead.tsx): the line that writes itself, the living mark, the compact bar on scroll. */
   "WriteOn", "LiveMark", "HeadBar",
   /**

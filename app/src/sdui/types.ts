@@ -393,7 +393,10 @@ export interface BotCardProps {
  */
 export const BOT_BUDDY_COMPONENT = "BotBuddy";
 
-export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think";
+export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think" | "carry";
+
+/** Declared by a build whose BotBuddy carries (act "carry", `doneWhen`). */
+export const BOT_BUDDY_CARRY = "BotBuddyCarry";
 
 export interface BotBuddyProps {
   kind: BotTileKind;
@@ -407,6 +410,8 @@ export interface BotBuddyProps {
   act?: BuddyAct;
   /** While this holds he thinks (an answer is on its way). */
   thinkWhen?: Condition;
+  /** Carrying: when this holds the answer is here; he sets the bag down and walks off, and the lane folds away. */
+  doneWhen?: Condition;
   /** Where the page's ask field is from his stage: he glances at it. */
   lookTo?: "down" | "left" | "right" | "up";
   label?: string;
@@ -484,6 +489,8 @@ export type ActionSpec =
       assignTo?: string;
       onSuccess?: ActionRef;
       onError?: ActionRef;
+      /** A state path: the answer's words written there as they come (askStream.ts; capability "AskStream"). */
+      stream?: string;
     }
   | { kind: "refresh" }
   // local state
