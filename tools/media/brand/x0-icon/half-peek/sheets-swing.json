@@ -1,0 +1,18 @@
+{
+  "title": "X0 Bot: hanging upside down, peeking at you",
+  "subtitle": "Only the little head shows. It hangs from the top edge, swung a little to one side, with its face tipped toward you and both pupils on you. No antenna. Ranked, strongest first. The dashed card is the Grok Bot icon, for comparison only.",
+  "order": ["soft-swing-little", "soft-swing-little-plain", "soft-swing-deep", "soft-swing", "soft-swing-plain"],
+  "icons": {
+    "soft-swing-little": {"tag": "1", "title": "Little head, swinging", "line": "A smaller head hangs further in and swings to the right, with one brow up. It reads the most as hanging and peeking at you."},
+    "soft-swing-little-plain": {"tag": "2", "title": "Little head, other way", "line": "The same, swung the other way, with no brow. Calmer and simpler."},
+    "soft-swing-deep": {"tag": "3", "title": "Big head, deeper", "line": "The full-size head, further in and tipped more toward you."},
+    "soft-swing": {"tag": "4", "title": "Big head, swinging", "line": "The current pick, swung, with the eyes now on you."},
+    "soft-swing-plain": {"tag": "5", "title": "Big head, other way", "line": "Swung the other way, with no brow."}
+  },
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: shown for level and distinctness."},
+  "homeRows": [
+    ["soft-swing-little", null, "ref", null],
+    [null, "soft-swing-little-plain", "soft-swing-deep", null],
+    ["soft-swing", null, "soft-swing-plain", null]
+  ]
+}

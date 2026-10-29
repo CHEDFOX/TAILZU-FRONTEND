@@ -193,4 +193,5 @@
   });
 
   HD.VERSIONS = V;
+  HD.brush = brush; HD.enso = enso;   // for sets built on these (../curious-hang)
 })();

@@ -103,13 +103,15 @@
 
     clipNow = above;
     // ---- antenna ----------------------------------------------------------------------------------
-    if (A.glow) glow(tip, ballR * (A.glowR ?? 3), A.glowColor || PAL.clay, A.glow, { clip: null });
-    line(stalk, { ...st.stalk, profile: st.stalk.profile || ((t) => 1.25 - 0.5 * t), taper: st.stalk.taper || [0, 6] });
-    const ball = G.ellipse(tip[0], tip[1], ballR, ballR);
-    fill(ball, st.ball);
-    if (st.ballShade) fill(ball, st.ballShade);
-    if (st.ballLine) line(ball, st.ballLine, true);
-    if (st.ballShine) fill(G.ellipse(tip[0] - ballR * 0.38, tip[1] - ballR * 0.4, ballR * 0.24, ballR * 0.17), st.ballShine);
+    if (B.antenna !== false) {   // antenna: false leaves it off
+      if (A.glow) glow(tip, ballR * (A.glowR ?? 3), A.glowColor || PAL.clay, A.glow, { clip: null });
+      line(stalk, { ...st.stalk, profile: st.stalk.profile || ((t) => 1.25 - 0.5 * t), taper: st.stalk.taper || [0, 6] });
+      const ball = G.ellipse(tip[0], tip[1], ballR, ballR);
+      fill(ball, st.ball);
+      if (st.ballShade) fill(ball, st.ballShade);
+      if (st.ballLine) line(ball, st.ballLine, true);
+      if (st.ballShine) fill(G.ellipse(tip[0] - ballR * 0.38, tip[1] - ballR * 0.4, ballR * 0.24, ballR * 0.17), st.ballShine);
+    }
 
     // ---- ears -------------------------------------------------------------------------------------
     for (const s of [-1, 1]) {
