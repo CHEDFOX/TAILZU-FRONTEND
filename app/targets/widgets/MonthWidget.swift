@@ -189,7 +189,7 @@ struct MonthView: View {
           }
         }
       } else {
-        Text(look.text("brand", "Tailzu")).font(.system(size: 12, weight: .medium))
+        Text(look.text("brand", "X0 Bot")).font(.system(size: 12, weight: .medium))
       }
     }
   }
@@ -199,12 +199,12 @@ struct MonthView: View {
       if let m = entry.month {
         let streak = look.showStreak && m.streak > 0 ? look.text("inlineStreak", " · {n}d", n: String(m.streak)) : ""
         if m.entitled {
-          Text(look.text("inlinePaid", "Tailzu · {n} words", n: n(m.used)) + streak)
+          Text(look.text("inlinePaid", "X0 Bot · {n} words", n: n(m.used)) + streak)
         } else {
-          Text(look.text("inlineFree", "Tailzu · {n} left", n: n(m.remaining)) + streak)
+          Text(look.text("inlineFree", "X0 Bot · {n} left", n: n(m.remaining)) + streak)
         }
       } else {
-        Text(look.text("brand", "Tailzu"))
+        Text(look.text("brand", "X0 Bot"))
       }
     }
   }

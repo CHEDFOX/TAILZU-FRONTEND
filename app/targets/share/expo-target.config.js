@@ -22,7 +22,7 @@ module.exports = {
   // Distinct from the main app target ("Tailzu"), like the keyboard's.
   name: "TailzuShare",
   // The name under the icon in the Share menu.
-  displayName: "Tailzu",
+  displayName: "X0 Bot",
   // The app's own floor, so sharing works on every phone the app runs on
   // (apple-targets would otherwise default to 18.0).
   deploymentTarget: "16.4",

@@ -71,10 +71,10 @@ export function useShareIn(host: ShareInHost): void {
       // How many files and how much text one share takes: the server's, never more than today's.
       limits: () => ({ files: num("share.maxFiles", 5), text: num("share.maxText", 2000) }),
       words: {
-        adding: txt("share.adding", "Adding it to Tailzu…"),
+        adding: txt("share.adding", "Adding it to X0 Bot…"),
         failed: txt("share.failed", "Couldn't add that. Try again."),
         partly: txt("share.partly", "Some of it couldn't be added."),
-        off: txt("share.off", "Sending things to Tailzu isn't on for you yet."),
+        off: txt("share.off", "Sending things to X0 Bot isn't on for you yet."),
       },
     };
     void runShareIn(io)

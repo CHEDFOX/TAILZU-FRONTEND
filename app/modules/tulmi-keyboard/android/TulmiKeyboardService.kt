@@ -633,7 +633,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                     if (legacyPage == PAGE_LETTERS) label("legacy_numbers", "123") else label("legacy_letters", "ABC")
                 code == CODE_SYMBOLS -> k.label =
                     if (legacyPage == PAGE_SYMBOLS) label("legacy_numbers", "123") else label("legacy_symbols", "#+=")
-                code == CODE_SPACE -> k.label = label("legacy_space", "Tailzu")
+                code == CODE_SPACE -> k.label = label("legacy_space", "X0 Bot")
                 code > 32 && k.label == null && k.icon == null -> k.label = String(Character.toChars(code))
             }
         }
@@ -1013,7 +1013,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED
         ) return true
-        setStatus(label("mic_permission", "Open the Tailzu app once to allow microphone access."), actionable = true, blocking = true)
+        setStatus(label("mic_permission", "Open the X0 Bot app once to allow microphone access."), actionable = true, blocking = true)
         // If nothing opens there is nothing else to try. The keyboard stays
         // usable for typing, which is the right failure: a keyboard that cannot
         // dictate is still a keyboard.
@@ -1054,13 +1054,13 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                 // A 401/unauthorized means the shared token expired — tell the
                 // user to reopen the app (which re-shares a fresh one).
                 if (lower.contains("unauthorized") || lower.contains("invalid or missing token"))
-                    setStatus(label("auth_expired", "Open Tailzu once to sign in again"), actionable = true, blocking = true)
+                    setStatus(label("auth_expired", "Open X0 Bot once to sign in again"), actionable = true, blocking = true)
                 else if (!dictatedSomething && pendingPartial.isEmpty())
                     // The stream was lost before a single word landed — iOS
                     // points at the app here. Opening it re-shares the backend
                     // URL and a fresh token, the usual reasons a stream will
                     // not come up at all.
-                    setStatus(label("stream_lost_open_app", "Open Tailzu once to use voice, then try again."), actionable = true)
+                    setStatus(label("stream_lost_open_app", "Open X0 Bot once to use voice, then try again."), actionable = true)
                 else
                     setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
                 endStreaming()
@@ -1299,7 +1299,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             // The system refused the microphone although the permission check
             // passed (revoked a moment ago, say). Voice stays off until it is
             // allowed again in Settings — the same words iOS uses for a denial.
-            setStatus(label("mic_denied_settings", "Microphone denied. Open Tailzu settings to allow it."), actionable = true, blocking = true)
+            setStatus(label("mic_denied_settings", "Microphone denied. Open X0 Bot settings to allow it."), actionable = true, blocking = true)
             cleanupRecorder()
         } catch (e: Exception) {
             setStatus(label("voice_not_listening", "Not listening — tap the mic to try again."))
@@ -1397,7 +1397,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * fresh token). Everything else is the generic "backend unavailable" copy.
      */
     private fun statusForError(e: Throwable): String =
-        if (isAuthError(e)) label("auth_expired", "Open Tailzu once to sign in again")
+        if (isAuthError(e)) label("auth_expired", "Open X0 Bot once to sign in again")
         else label("voice_unavailable", "Voice is unavailable right now — try again soon.")
 
     /** Signed out: voice cannot work until the app signs in again. */
@@ -2185,7 +2185,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // kb.quota.status is the server's message for this moment; the label is
         // the fallback when it sends none.
         val message = knobString("kb.quota.status", "").ifBlank {
-            label("words_out_status", "Out of free words — open Tailzu to get more.")
+            label("words_out_status", "Out of free words — open X0 Bot to get more.")
         }
         setStatus(message, actionable = true, blocking = true)
         // If nothing opens there is nothing else to try, and the status line

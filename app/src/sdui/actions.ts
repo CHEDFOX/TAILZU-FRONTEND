@@ -22,8 +22,11 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Notifications from "expo-notifications";
-import * as Calendar from "expo-calendar";
-import * as Contacts from "expo-contacts";
+// NO expo-calendar, NO expo-contacts. The app keeps its own calendar on the
+// server (calendar.addEvent below) and reads no one's contacts, so neither
+// module is in the binary: Apple rejects purpose strings for permissions an
+// app never asks for, and a linked EventKit or Contacts API without its
+// purpose string fails the upload (ITMS-90683). See app.config.ts.
 import * as Camera from "expo-camera";
 import * as Speech from "expo-speech";
 import * as StoreReview from "expo-store-review";
@@ -541,8 +544,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "camera": granted = (await requestCameraPermission()).granted; break;
           case "notifications": granted = (await Notifications.requestPermissionsAsync()).granted; break;
           case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
-          case "contacts": granted = (await Contacts.requestPermissionsAsync()).granted; break;
-          case "calendar": granted = (await Calendar.requestCalendarPermissionsAsync()).granted; break;
+          case "contacts":
+          case "calendar":
+            // NOT IN THIS BUILD: neither module is linked (see the imports).
+            // Denied, so onDenied fires instead of the screen waiting.
+            console.warn(`[sdui] requestPermission('${action.permission}'): not built in — treating as denied`);
+            granted = false;
+            break;
           case "tracking":
             // NOT IN THIS BUILD, deliberately. Shipping the ATT prompt means
             // shipping NSUserTrackingUsageDescription, and App Store Connect
@@ -600,9 +608,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "camera": granted = (await getCameraPermission()).granted; break;
           case "notifications": granted = (await Notifications.getPermissionsAsync()).granted; break;
           case "photoLibrary": granted = (await MediaLibrary.getPermissionsAsync()).granted; break;
-          case "contacts": granted = (await Contacts.getPermissionsAsync()).granted; break;
-          case "calendar": granted = (await Calendar.getCalendarPermissionsAsync()).granted; break;
-          // Neither is built in — see requestPermission for why. Not granted.
+          // None is built in — see requestPermission for why. Not granted.
+          case "contacts":
+          case "calendar":
           case "location":
           case "tracking": granted = false; break;
         }
@@ -723,21 +731,26 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "analytics.reset": resetAnalytics(); break;
 
     // ------------------------------------------------------------- calendar
+    // The app's OWN calendar (the server's, POST /v1/botsapp/calendar/events),
+    // never the phone's: no calendar permission is asked for or linked. The
+    // event's day and time are this phone's clock, with its offset as `tz`.
     case "calendar.addEvent": {
       try {
-        const perm = await Calendar.requestCalendarPermissionsAsync();
-        if (!perm.granted) break;
-        const cals = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-        const cal = cals.find((c) => c.allowsModifications) ?? cals[0];
-        if (!cal) break;
-        await Calendar.createEventAsync(cal.id, {
+        const start = new Date(action.startsAtIso);
+        if (isNaN(start.getTime())) throw new Error("no start");
+        const end = action.endsAtIso
+          ? new Date(action.endsAtIso)
+          : new Date(start.getTime() + num("calendar.defaultDurationMs", 3600000));
+        const pad = (n: number) => String(n).padStart(2, "0");
+        const minutes = Math.max(5, Math.min(24 * 60, Math.round((end.getTime() - start.getTime()) / 60000) || 60));
+        await callEndpoint("POST", "/v1/botsapp/calendar/events", {
           title: action.title,
-          startDate: new Date(action.startsAtIso),
-          endDate: action.endsAtIso
-            ? new Date(action.endsAtIso)
-            : new Date(new Date(action.startsAtIso).getTime() + num("calendar.defaultDurationMs", 3600000)),
-          notes: action.notes,
-          location: action.location,
+          day: `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`,
+          time: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+          minutes,
+          ...(action.notes ? { notes: action.notes } : {}),
+          ...(action.location ? { place: action.location } : {}),
+          tz: -start.getTimezoneOffset(),
         });
         ctx.toast(txt("toast.calendarAdded", "Added to calendar"), "success");
       } catch { ctx.toast(txt("toast.calendarFailed", "Couldn't add event"), "error"); }

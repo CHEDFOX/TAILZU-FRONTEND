@@ -1876,7 +1876,7 @@ export default function SduiApp() {
               <Text style={[typeRole(theme, "headerIcon", styles.headerIcon), { color: theme.color.text }]}>‹</Text>
             </Pressable>
           ) : (
-            <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? txt("app.name", "Tailzu")}</Text>
+            <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1 }]} numberOfLines={1}>{shown?.title ?? txt("app.name", "X0 Bot")}</Text>
           )}
           {canGoBack && <Text style={[typeRole(theme, "title", styles.brand), { color: theme.color.text, flex: 1, marginLeft: 8 }]} numberOfLines={1}>{shown?.title ?? ""}</Text>}
           {/* Settings gear — top-right on the tab roots (Home / You). Opens the

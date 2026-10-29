@@ -147,10 +147,10 @@ export async function transcribeClean(
     // The diagnosis is for the log; the person gets words they can act on.
     console.warn(
       `[api] transcribe: the server returned ${res.status} but not JSON — check the ` +
-      `backend URL is reaching Tailzu and not a proxy or parked domain. ` +
+      `backend URL is reaching X0 Bot and not a proxy or parked domain. ` +
       `First bytes: ${String(res.body ?? "").slice(0, 80)}`,
     );
-    throw new Error(txt("error.badResponse", "Tailzu's server sent something unexpected. Try again in a moment."));
+    throw new Error(txt("error.badResponse", "X0 Bot's server sent something unexpected. Try again in a moment."));
   }
 }
 

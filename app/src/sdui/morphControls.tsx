@@ -254,7 +254,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
 
   const errPermissionSettings = String(
     props.errorPermissionSettings ??
-      K.txt("ui.VoiceToggle.errorPermissionSettings", "Microphone access is off. Turn it on in Settings › Tailzu › Microphone, then try again."),
+      K.txt("ui.VoiceToggle.errorPermissionSettings", "Microphone access is off. Turn it on in Settings › X0 Bot › Microphone, then try again."),
   );
   const errMicBusy = String(props.errorMicBusy ?? K.txt("ui.VoiceToggle.errorMicBusy", "Already recording — finish that first."));
 

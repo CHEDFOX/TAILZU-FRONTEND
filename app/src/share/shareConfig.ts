@@ -17,10 +17,10 @@ export function shareConfig(): ShareConfig {
   return {
     v: 1,
     words: {
-      opening: txt("share.ext.opening", "Opening Tailzu…"),
-      tooBig: txt("share.ext.tooBig", "That's too big for Tailzu."),
-      cantTake: txt("share.ext.cantTake", "Tailzu can't take this one."),
-      saved: txt("share.ext.saved", "Saved. Open Tailzu to send it."),
+      opening: txt("share.ext.opening", "Opening X0 Bot…"),
+      tooBig: txt("share.ext.tooBig", "That's too big for X0 Bot."),
+      cantTake: txt("share.ext.cantTake", "X0 Bot can't take this one."),
+      saved: txt("share.ext.saved", "Saved. Open X0 Bot to send it."),
     },
     limits: {
       maxFiles: num("share.ext.maxFiles", 5),

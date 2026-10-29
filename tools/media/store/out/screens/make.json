@@ -1,0 +1,2280 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.make",
+ "title": "Make a bot",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 0,
+ "state": {
+  "ask": "",
+  "asking": false,
+  "sentence": "A bot that plans my workouts around my calendar and reminds me the night before.",
+  "d_web": false,
+  "d_files": false
+ },
+ "root": {
+  "type": "SafeArea",
+  "props": {
+   "edges": [
+    "top"
+   ],
+   "barStyle": "dark-content"
+  },
+  "style": {
+   "flex": 1,
+   "flexDirection": "column",
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Screen",
+    "props": {
+     "paddingBottom": 24
+    },
+    "style": {
+     "backgroundColor": "#ffffff",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "gap": 22
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "minHeight": 44,
+       "gap": 4
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 44,
+         "height": 44,
+         "marginLeft": -10,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M15 5l-7 7 7 7",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 24,
+           "height": 24,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigateBack"
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Back"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexGrow": 1,
+         "flexShrink": 1
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center"
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Make a bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist Bold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 26,
+         "lineHeight": 32,
+         "letterSpacing": -0.5,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexGrow": 1,
+         "flexShrink": 1
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "height": 44,
+         "borderRadius": 22,
+         "paddingHorizontal": 12,
+         "gap": 8,
+         "justifyContent": "center",
+         "flexShrink": 0,
+         "backgroundColor": "transparent",
+         "alignSelf": "flex-start"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Start over",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "callEndpoint",
+          "method": "DELETE",
+          "path": "/v1/botsapp/bots/draft",
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "toast",
+             "message": "Draft cleared"
+            },
+            {
+             "kind": "refresh"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "toast",
+           "message": "Couldn't do that. Try again.",
+           "tone": "error"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "borderWidth": 1,
+       "borderColor": "#0a0a0a",
+       "borderRadius": 18,
+       "paddingVertical": 14,
+       "paddingHorizontal": 16
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "A bot that plans my workouts around my calendar and reminds me the night before.",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 15,
+         "lineHeight": 21,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "padding": 16,
+       "gap": 14,
+       "borderRadius": 20,
+       "borderWidth": 1,
+       "borderColor": "#e6e6e6",
+       "backgroundColor": "#ffffff"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 12
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "backgroundColor": "#2F5D50",
+           "alignItems": "center",
+           "justifyContent": "center",
+           "flexShrink": 0
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M6.5 8v8M17.5 8v8M3.5 10v4M20.5 10v4M6.5 12h11",
+             "fill": "none",
+             "stroke": "#ffffff",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 24,
+             "height": 24,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "gap": 2,
+           "flexShrink": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Gym bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 17,
+             "lineHeight": 23,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Plans workouts that fit your week",
+             "variant": "bots",
+             "numberOfLines": 2
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "padding": 2,
+           "borderRadius": 17,
+           "borderWidth": 2,
+           "borderColor": "#0a0a0a"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 26,
+             "height": 26,
+             "borderRadius": 13,
+             "backgroundColor": "#2F5D50",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": []
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "padding": 2,
+           "borderRadius": 17,
+           "borderWidth": 2,
+           "borderColor": "transparent"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 26,
+             "height": 26,
+             "borderRadius": 13,
+             "backgroundColor": "#6E4A6B",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": []
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "PUT",
+            "path": "/v1/botsapp/bots/draft",
+            "body": {
+             "colour": "plum"
+            },
+            "onSuccess": {
+             "kind": "refresh"
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't change that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "padding": 2,
+           "borderRadius": 17,
+           "borderWidth": 2,
+           "borderColor": "transparent"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 26,
+             "height": 26,
+             "borderRadius": 13,
+             "backgroundColor": "#7A6440",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": []
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "PUT",
+            "path": "/v1/botsapp/bots/draft",
+            "body": {
+             "colour": "sand"
+            },
+            "onSuccess": {
+             "kind": "refresh"
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't change that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "padding": 2,
+           "borderRadius": 17,
+           "borderWidth": 2,
+           "borderColor": "transparent"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 26,
+             "height": 26,
+             "borderRadius": 13,
+             "backgroundColor": "#5F6B6E",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": []
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "PUT",
+            "path": "/v1/botsapp/bots/draft",
+            "body": {
+             "colour": "stone"
+            },
+            "onSuccess": {
+             "kind": "refresh"
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't change that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 20
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Its rules",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 15,
+             "letterSpacing": 0.4,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "uppercase"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "·",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#8a8a8a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Never plan on days I'm travelling",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 28,
+             "height": 28,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6 6l12 12M18 6L6 18",
+               "fill": "none",
+               "stroke": "#5c5c5c",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 16,
+               "height": 16,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "callEndpoint",
+              "method": "PUT",
+              "path": "/v1/botsapp/bots/draft",
+              "body": {
+               "dropRule": 0
+              },
+              "onSuccess": {
+               "kind": "refresh"
+              },
+              "onError": {
+               "kind": "toast",
+               "message": "Couldn't change that. Try again.",
+               "tone": "error"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Remove this rule"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "·",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#8a8a8a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Keep sessions under 45 minutes",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 28,
+             "height": 28,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6 6l12 12M18 6L6 18",
+               "fill": "none",
+               "stroke": "#5c5c5c",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 16,
+               "height": 16,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "callEndpoint",
+              "method": "PUT",
+              "path": "/v1/botsapp/bots/draft",
+              "body": {
+               "dropRule": 1
+              },
+              "onSuccess": {
+               "kind": "refresh"
+              },
+              "onError": {
+               "kind": "toast",
+               "message": "Couldn't change that. Try again.",
+               "tone": "error"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Remove this rule"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "·",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#8a8a8a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Remind me at 9 pm the night before",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 28,
+             "height": 28,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6 6l12 12M18 6L6 18",
+               "fill": "none",
+               "stroke": "#5c5c5c",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 16,
+               "height": 16,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "callEndpoint",
+              "method": "PUT",
+              "path": "/v1/botsapp/bots/draft",
+              "body": {
+               "dropRule": 2
+              },
+              "onSuccess": {
+               "kind": "refresh"
+              },
+              "onError": {
+               "kind": "toast",
+               "message": "Couldn't change that. Try again.",
+               "tone": "error"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Remove this rule"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "borderRadius": 14,
+           "paddingLeft": 14,
+           "paddingRight": 6,
+           "paddingVertical": 4,
+           "minHeight": 48,
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "TextField",
+            "id": "rule",
+            "bind": {
+             "value": "rule"
+            },
+            "props": {
+             "placeholder": "Add a rule…",
+             "placeholderColor": "#8a8a8a",
+             "background": "transparent",
+             "borderWidth": 0,
+             "radius": 0,
+             "paddingHorizontal": 0,
+             "paddingVertical": 0,
+             "minHeight": 44,
+             "color": "#0a0a0a",
+             "returnKeyType": "send"
+            },
+            "on": {
+             "onSubmit": {
+              "kind": "condition",
+              "if": {
+               "falsy": "rule"
+              },
+              "then": {
+               "kind": "toast",
+               "message": "Type something first"
+              },
+              "else": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "callEndpoint",
+                 "method": "PUT",
+                 "path": "/v1/botsapp/bots/draft",
+                 "body": {
+                  "addRule": "$state.rule"
+                 },
+                 "onSuccess": {
+                  "kind": "refresh"
+                 },
+                 "onError": {
+                  "kind": "toast",
+                  "message": "Couldn't change that. Try again.",
+                  "tone": "error"
+                 }
+                },
+                {
+                 "kind": "clearState",
+                 "path": "rule"
+                }
+               ]
+              }
+             }
+            },
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "minHeight": 44,
+             "paddingHorizontal": 0,
+             "paddingVertical": 0,
+             "fontFamily": "Tailzu Geist",
+             "fontSize": 15,
+             "lineHeight": 22,
+             "color": "#0a0a0a",
+             "borderWidth": 0,
+             "backgroundColor": "transparent",
+             "outlineStyle": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 36,
+             "height": 36,
+             "borderRadius": 18,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0,
+             "backgroundColor": "#ffffff",
+             "borderWidth": 1,
+             "borderColor": "#e6e6e6"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 5v14M5 12h14",
+               "fill": "none",
+               "stroke": "#0a0a0a",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 20,
+               "height": 20,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "condition",
+              "if": {
+               "falsy": "rule"
+              },
+              "then": {
+               "kind": "toast",
+               "message": "Type something first"
+              },
+              "else": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "callEndpoint",
+                 "method": "PUT",
+                 "path": "/v1/botsapp/bots/draft",
+                 "body": {
+                  "addRule": "$state.rule"
+                 },
+                 "onSuccess": {
+                  "kind": "refresh"
+                 },
+                 "onError": {
+                  "kind": "toast",
+                  "message": "Couldn't change that. Try again.",
+                  "tone": "error"
+                 }
+                },
+                {
+                 "kind": "clearState",
+                 "path": "rule"
+                }
+               ]
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Add rule"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 4
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 20
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "It can use",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 15,
+             "letterSpacing": 0.4,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "uppercase"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 44,
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Calendar",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexGrow": 1,
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "minHeight": 36,
+               "paddingHorizontal": 6
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "On",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ],
+              "on": {
+               "onPress": {
+                "kind": "callEndpoint",
+                "method": "PUT",
+                "path": "/v1/botsapp/bots/draft",
+                "body": {
+                 "connector": {
+                  "id": "calendar",
+                  "on": false
+                 }
+                },
+                "onSuccess": {
+                 "kind": "refresh"
+                },
+                "onError": {
+                 "kind": "toast",
+                 "message": "Couldn't change that. Try again.",
+                 "tone": "error"
+                }
+               }
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "height": 1,
+             "backgroundColor": "#ededed",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 44,
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Search the web",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexGrow": 1,
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "width": 40,
+               "height": 24,
+               "borderRadius": 12,
+               "padding": 3,
+               "flexShrink": 0,
+               "backgroundColor": {
+                "truthy": "d_web",
+                "then": "#0a0a0a",
+                "else": "#e0e0e0"
+               },
+               "justifyContent": {
+                "truthy": "d_web",
+                "then": "flex-end",
+                "else": "flex-start"
+               }
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "width": 18,
+                 "height": 18,
+                 "borderRadius": 9,
+                 "backgroundColor": "#ffffff"
+                },
+                "children": []
+               }
+              ]
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "toggleState",
+                "path": "d_web"
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "PUT",
+                "path": "/v1/botsapp/bots/draft",
+                "body": {
+                 "web": true
+                },
+                "onSuccess": {
+                 "kind": "refresh"
+                },
+                "onError": {
+                 "kind": "toast",
+                 "message": "Couldn't change that. Try again.",
+                 "tone": "error"
+                }
+               }
+              ]
+             }
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "height": 1,
+             "backgroundColor": "#ededed",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 44,
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Your files",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexGrow": 1,
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "width": 40,
+               "height": 24,
+               "borderRadius": 12,
+               "padding": 3,
+               "flexShrink": 0,
+               "backgroundColor": {
+                "truthy": "d_files",
+                "then": "#0a0a0a",
+                "else": "#e0e0e0"
+               },
+               "justifyContent": {
+                "truthy": "d_files",
+                "then": "flex-end",
+                "else": "flex-start"
+               }
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "width": 18,
+                 "height": 18,
+                 "borderRadius": 9,
+                 "backgroundColor": "#ffffff"
+                },
+                "children": []
+               }
+              ]
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "toggleState",
+                "path": "d_files"
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "PUT",
+                "path": "/v1/botsapp/bots/draft",
+                "body": {
+                 "files": true
+                },
+                "onSuccess": {
+                 "kind": "refresh"
+                },
+                "onError": {
+                 "kind": "toast",
+                 "message": "Couldn't change that. Try again.",
+                 "tone": "error"
+                }
+               }
+              ]
+             }
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "It won't: plan on days I'm travelling.",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 12.5,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Try it first",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist SemiBold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 11,
+         "lineHeight": 15,
+         "letterSpacing": 0.4,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "uppercase"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "flexWrap": "wrap"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "paddingVertical": 8,
+           "paddingHorizontal": 14,
+           "borderRadius": 18,
+           "borderWidth": 1,
+           "alignSelf": "flex-start",
+           "borderColor": "#d4d4d4",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Plan my next week",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "trying",
+              "value": true
+             },
+             {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/botsapp/bots/draft/try",
+              "body": {
+               "message": "Plan my next week"
+              },
+              "onSuccess": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "trying",
+                 "value": false
+                },
+                {
+                 "kind": "clearState",
+                 "path": "trial"
+                },
+                {
+                 "kind": "refresh"
+                }
+               ]
+              },
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "trying",
+                 "value": false
+                },
+                {
+                 "kind": "toast",
+                 "message": "The draft couldn't answer. Try again.",
+                 "tone": "error"
+                }
+               ]
+              }
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "paddingVertical": 8,
+           "paddingHorizontal": 14,
+           "borderRadius": 18,
+           "borderWidth": 1,
+           "alignSelf": "flex-start",
+           "borderColor": "#d4d4d4",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "I'm sore, go easy",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "trying",
+              "value": true
+             },
+             {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/botsapp/bots/draft/try",
+              "body": {
+               "message": "I'm sore, go easy"
+              },
+              "onSuccess": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "trying",
+                 "value": false
+                },
+                {
+                 "kind": "clearState",
+                 "path": "trial"
+                },
+                {
+                 "kind": "refresh"
+                }
+               ]
+              },
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "trying",
+                 "value": false
+                },
+                {
+                 "kind": "toast",
+                 "message": "The draft couldn't answer. Try again.",
+                 "tone": "error"
+                }
+               ]
+              }
+             }
+            ]
+           }
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "justifyContent": "flex-end"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "maxWidth": "80%",
+           "backgroundColor": "#0a0a0a",
+           "paddingVertical": 10,
+           "paddingHorizontal": 14,
+           "borderTopLeftRadius": 18,
+           "borderTopRightRadius": 18,
+           "borderBottomLeftRadius": 18,
+           "borderBottomRightRadius": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Plan my next week",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 20,
+             "letterSpacing": 0,
+             "color": "#ffffff",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 12
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Three sessions, 40 minutes each. Connect your calendar and I'll skip your travel days.",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "borderLeftWidth": 3,
+           "borderLeftColor": "#2F5D50",
+           "borderRadius": 12,
+           "overflow": "hidden"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8,
+             "paddingVertical": 9,
+             "paddingHorizontal": 12
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Mon",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist SemiBold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none",
+               "width": 64,
+               "flexShrink": 0
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Legs · 7:00 am",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "height": 1,
+             "backgroundColor": "#ededed",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8,
+             "paddingVertical": 9,
+             "paddingHorizontal": 12
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Wed",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist SemiBold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none",
+               "width": 64,
+               "flexShrink": 0
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Upper body · 7:00 am",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "height": 1,
+             "backgroundColor": "#ededed",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-start",
+             "gap": 8,
+             "paddingVertical": 9,
+             "paddingHorizontal": 12
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Sat",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist SemiBold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none",
+               "width": 64,
+               "flexShrink": 0
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Run + core · 8:30 am",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#2F5D50",
+             "motion": "breathe"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Trying it…",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "visibleIf": {
+         "truthy": "trying"
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Trial run · nothing is saved or added to your apps",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 12,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "borderWidth": 1,
+         "borderColor": "#e6e6e6",
+         "borderRadius": 24,
+         "paddingLeft": 18,
+         "paddingRight": 6,
+         "paddingVertical": 4,
+         "minHeight": 48,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "TextField",
+          "id": "trial",
+          "bind": {
+           "value": "trial"
+          },
+          "props": {
+           "placeholder": "Ask the draft…",
+           "placeholderColor": "#8a8a8a",
+           "background": "transparent",
+           "borderWidth": 0,
+           "radius": 0,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "minHeight": 44,
+           "color": "#0a0a0a",
+           "returnKeyType": "send"
+          },
+          "on": {
+           "onSubmit": {
+            "kind": "condition",
+            "if": {
+             "falsy": "trial"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Type something first"
+            },
+            "else": {
+             "kind": "condition",
+             "if": {
+              "falsy": "trial"
+             },
+             "then": {
+              "kind": "toast",
+              "message": "Type something first"
+             },
+             "else": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "trying",
+                "value": true
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "POST",
+                "path": "/v1/botsapp/bots/draft/try",
+                "body": {
+                 "message": "$state.trial"
+                },
+                "onSuccess": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "trying",
+                   "value": false
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "trial"
+                  },
+                  {
+                   "kind": "refresh"
+                  }
+                 ]
+                },
+                "onError": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "trying",
+                   "value": false
+                  },
+                  {
+                   "kind": "toast",
+                   "message": "The draft couldn't answer. Try again.",
+                   "tone": "error"
+                  }
+                 ]
+                }
+               }
+              ]
+             }
+            }
+           }
+          },
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "minHeight": 44,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "fontFamily": "Tailzu Geist",
+           "fontSize": 15,
+           "lineHeight": 22,
+           "color": "#0a0a0a",
+           "borderWidth": 0,
+           "backgroundColor": "transparent",
+           "outlineStyle": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 40,
+           "height": 40,
+           "borderRadius": 20,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#0a0a0a"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M12 19V5M6 11l6-6 6 6",
+             "fill": "none",
+             "stroke": "#ffffff",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "condition",
+            "if": {
+             "falsy": "trial"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Type something first"
+            },
+            "else": {
+             "kind": "condition",
+             "if": {
+              "falsy": "trial"
+             },
+             "then": {
+              "kind": "toast",
+              "message": "Type something first"
+             },
+             "else": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "trying",
+                "value": true
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "POST",
+                "path": "/v1/botsapp/bots/draft/try",
+                "body": {
+                 "message": "$state.trial"
+                },
+                "onSuccess": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "trying",
+                   "value": false
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "trial"
+                  },
+                  {
+                   "kind": "refresh"
+                  }
+                 ]
+                },
+                "onError": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "trying",
+                   "value": false
+                  },
+                  {
+                   "kind": "toast",
+                   "message": "The draft couldn't answer. Try again.",
+                   "tone": "error"
+                  }
+                 ]
+                }
+               }
+              ]
+             }
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Send"
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "paddingBottom": 16,
+     "gap": 12,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "height": 54,
+       "borderRadius": 27,
+       "paddingHorizontal": 26,
+       "gap": 8,
+       "justifyContent": "center",
+       "flexShrink": 0,
+       "backgroundColor": "#0a0a0a",
+       "alignSelf": "stretch"
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Make Gym bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist SemiBold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 16,
+         "lineHeight": 20,
+         "letterSpacing": 0,
+         "color": "#ffffff",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "callEndpoint",
+        "method": "POST",
+        "path": "/v1/botsapp/bots/draft/approve",
+        "body": {},
+        "assignTo": "made",
+        "onSuccess": {
+         "kind": "sequence",
+         "actions": [
+          {
+           "kind": "toast",
+           "message": "Gym bot is ready"
+          },
+          {
+           "kind": "navigate",
+           "screenId": "bots.bot",
+           "params": {
+            "slug": "$state.made.bot.slug"
+           },
+           "replace": true
+          }
+         ]
+        },
+        "onError": {
+         "kind": "toast",
+         "message": "Couldn't make it. Check the name and try again.",
+         "tone": "error"
+        }
+       }
+      }
+     }
+    ]
+   }
+  ]
+ }
+}
