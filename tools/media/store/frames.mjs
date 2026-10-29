@@ -1,24 +1,38 @@
 // THE STORE FRAMES, as data. build.mjs draws them; screens.mts renders each frame's app screen.
 //
+// The look: a full-bleed warm photograph behind everything, graded in build.mjs so the set reads as one shoot; a serif
+// headline, two short lines, no full stop; the app as a light card (the top of a real screen, no phone frame), often with one
+// part of that screen lifted out of it. A few frames are other shapes: the photo alone with a round icon (`voice`), a grid of
+// the apps it works with (`tiles`), and a phone held in a hand (`hand`).
+//
 // One entry per frame, in story order. A new bot's frame is one more entry:
-//   { key, kicker, title, sub, accent, bot: { name, line }, screen: { id, params?, api?, fake?, scroll?, state? } }
+//   { key, title, layout?, photo, screen, pop?, bot?, accent?, play? }
 //   key      file name stem (lower case)
-//   kicker   the small line over the headline: the bot's name
-//   title    the headline, 2 to 5 words; "\n" forces a break, *word* sets a word in the serif italic
-//   sub      one sentence under it: what the bot really does in this build (store rule: nothing that isn't in the build)
-//   accent   the light behind the phone and the kicker's dot (the bot's colour, lifted for a dark ground)
-//   bot      the bot's name and a few words, for the hero's roster and the feature graphic (leave out for a non-bot frame)
+//   title    the headline: two short lines ("\n" between them), sentence case, no full stop
+//   layout   "card" (default), "voice", "tiles" or "hand"
+//   photo    { file, x, y, zoom, blur, light, warm }: a file in photos/ (CREDITS.md says whose it is), the point of it to centre
+//            (0..1), how far to zoom in, and the grade's knobs (light 0..1, how bright; warm 0..1; blur in px at 1320 wide)
 //   screen   which app screen, with the sample day's answers (samples/ in the backend's bots-render) and this frame's own over them:
 //            api: { "GET /path": answer } or (answers) => ({ ... }) to change some; fake: the live state (bots, jobs, tasks);
-//            scroll: points, or { to: "text" } to bring a part near the top
-//   off      true keeps a frame defined but leaves it out of the exports (App Store takes 10, Google Play 8)
+//            scroll: points, or { to: "text" } to bring a part near the top; viewport: another phone size for this screen
+//   pop      the part of the screen to lift out of the card, drawn larger where it sits: { has: [texts it holds],
+//            card?: true (the card around them), union?: true (the full-width rows holding each text, first to last),
+//            bare?: true (without its own border), tall?: points (lift it from a taller phone, for a part below the fold),
+//            at?: 0..1 (its centre, as a share of the frame's height), nudge?: share of the height to move it,
+//            side?: "left" | "right" (lean it toward that edge) }
+//   bot      the bot's name and a few words, for the feature graphic and the roster (leave out for a non-bot frame)
+//   fade     true fades the card's foot (for a screen whose content runs on past it, rather than ending in its own bar)
+//   play     false leaves the frame out of Google Play's set (Play takes 8 phone screenshots; the App Store 10)
+//   off      true keeps a frame defined but leaves it out of every export
 //
 // Store rules the words and the screens keep (screens.mts checks the screens' visible text against RULES):
 // no prices or amounts, no other company's or app's name, no "best"/"#1", no reviews or awards, nothing that isn't in the build.
+// The one exception is the `tiles` frame: the marks of apps X0 Bot really connects to (icons/, CREDITS.md), with no brand
+// name in any text.
 
 export const BRAND = { name: "X0 Bot", accent: "#D08A5C" };
 
-/** The app icon: the soft-3D bot the brand helper renders. The first file that exists is used (hero and feature graphic). */
+/** The app icon: the soft-3D bot the brand helper renders. Used on the feature graphic once it exists. */
 export const ICON = {
   dir: "../brand/x0-icon/peek3d",
   /** Set to a path (relative to this folder) to force one. Otherwise: the README's pick, else the only icon-1024.png there. */
@@ -26,12 +40,12 @@ export const ICON = {
 };
 
 export const SIZES = {
-  /** The phone the screens are drawn on, in points (screens.mts draws at 3x). `top` is the status bar's height. */
-  phone: { w: 402, h: 874, top: 62, bottom: 34 },
+  /** The phone the card screens are drawn on, in points, and how sharp (scale). `top` is the space above the app's own header. */
+  phone: { w: 390, h: 788, top: 16, bottom: 10, scale: 4 },
   targets: [
-    { dir: "ios-6.9", w: 1320, h: 2868, name: "App Store (iPhone 6.9\")", max: 10 },
-    { dir: "ios-6.7", w: 1290, h: 2796, name: "App Store (iPhone 6.7\")", max: 10 },
-    { dir: "play-phone", w: 1080, h: 1920, name: "Google Play (phone)", max: 8 },
+    { dir: "ios-6.9", w: 1320, h: 2868, name: "App Store (iPhone 6.9\")", max: 10, store: "ios" },
+    { dir: "ios-6.7", w: 1290, h: 2796, name: "App Store (iPhone 6.7\")", max: 10, store: "ios" },
+    { dir: "play-phone", w: 1080, h: 1920, name: "Google Play (phone)", max: 8, store: "play" },
   ],
 };
 
@@ -96,39 +110,44 @@ const NOTE = {
 
 // ------------------------------------------------------------------ the frames
 
+/** The apps on the `tiles` frame: ones X0 Bot connects to in this build (src/connectors), as their own marks (icons/). */
+export const APPS = ["whatsapp", "gmail", "googlemaps", "github", "notion", "googledocs", "youtube", "googlesheets", "telegram"];
+
 export const FRAMES = [
   {
-    key: "team", hero: true, kicker: "X0 Bot", accent: "#D08A5C",
-    title: "Players that make\nyour life *easy*.",
-    sub: "A team of bots, each great at one thing.",
+    key: "team", title: "Players that make\nyour life easy", bot: null,
+    photo: { file: "team.jpg", x: 0.48, y: 0.42, zoom: 1, light: 0.5, warm: 0.5 },
     screen: {
       id: "bots.home", fake: HOME_DAY,
       // Home's own reads: no first-arrival card, no deletion date, the notifications ask already answered.
       api: { "GET /v1/bots/first-run/arrival": { due: false }, "GET /v1/account/deletion": { scheduled: null }, "GET /v1/bots/push-ask": { due: false } },
     },
+    // The team, lifted out: the bots' own tiles.
+    pop: { has: ["Needs you · 1 question", "Make a bot"], tall: 1400, at: 0.71 },
   },
   {
-    key: "keybot", kicker: "Keybot", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
-    title: "Say it.\nIt *writes*.",
-    sub: "A voice keyboard that writes for you in any app, in the tone that fits.",
-    screen: { id: "bots.keybot.tone" },
+    key: "keybot", layout: "voice", title: "Say it, and\nKeybot writes it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
+    photo: { file: "keybot.jpg", x: 0.55, y: 0.45, zoom: 1, light: 0.6, warm: 0.5 },
   },
   {
-    key: "plan", kicker: "Plan", accent: "#D2A24A", bot: { name: "Plan", line: "Your day, planned" },
-    title: "Your day,\n*planned*.",
-    sub: "Your own calendar and to-dos, with the time it takes to get there.",
+    key: "connect", layout: "tiles", title: "Works with the apps\nyou already use",
+    photo: { file: "connect.jpg", x: 0.45, y: 0.5, zoom: 1.05, blur: 22, light: 0.55, warm: 0.5 },
+  },
+  {
+    key: "plan", title: "Your day,\nplanned for you", accent: "#D2A24A", bot: { name: "Plan", line: "Your day, planned" },
+    photo: { file: "plan.jpg", x: 0.4, y: 0.35, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.plan", api: (a) => ({ [PLAN_KEY]: { ...a[PLAN_KEY], travel: { ...a[PLAN_KEY].travel, credits: [] } } }) },
+    pop: { has: ["Leave home by", "Dinner with Mom"], union: true, pad: 4, nudge: -0.016 },
   },
   {
-    key: "notes", kicker: "Notes", accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" },
-    title: "Every meeting,\n*written up*.",
-    sub: "Meetings noted on your computer, written up with decisions and to-dos.",
+    key: "notes", title: "Every meeting,\nwritten up", accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" },
+    photo: { file: "notes.jpg", x: 0.5, y: 0.45, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.note", params: { id: "n1" }, api: { "GET /v1/notes/n1": { note: NOTE, finding: false }, "GET /v1/botsapp/calendar/notes/n1": { todos: { t2: { id: "c-t2", done: false } } } } },
+    pop: { has: ["Order 200 gift boxes", "Send the team the final plan"], card: true, bare: true }, fade: true,
   },
   {
-    key: "travel", kicker: "Travel", accent: "#6FA3C7", bot: { name: "Travel", line: "Trips, sorted" },
-    title: "Trips,\n*sorted*.",
-    sub: "Travel times, weather and stays near where you'll be, in one place.",
+    key: "travel", title: "Your trips,\nall sorted", accent: "#6FA3C7", bot: { name: "Travel", line: "Trips, sorted" },
+    photo: { file: "travel.jpg", x: 0.5, y: 0.4, zoom: 1, light: 0.55, warm: 0.4 },
     screen: {
       id: "bots.travel",
       api: (a) => {
@@ -139,23 +158,22 @@ export const FRAMES = [
           [EXTRAS_KEY]: { extras: { ...x, stays, credits: [] } },
         };
       },
-      scroll: { to: "Pune · 14–16 Nov", offset: 6 },
     },
+    pop: { has: ["Shanti Residency", "Add one"], nudge: -0.013 },
   },
   {
-    key: "code", kicker: "Code bot", accent: "#7FAF62", bot: { name: "Code bot", line: "Builds and fixes your code" },
-    title: "Ship code\nby *asking*.",
-    sub: "It reads your project, works on a safe copy, and asks before anything goes live.",
+    key: "code", title: "Ship code\nby asking", accent: "#7FAF62", bot: { name: "Code bot", line: "Builds and fixes your code" }, play: false,
+    photo: { file: "code.jpg", x: 0.47, y: 0.5, zoom: 1, light: 0.55, warm: 0.4 },
     // Code bot's home: what it is on, what needs you, your projects. The projects' framework and language names are left out.
     screen: {
       id: "bots.code.start", variant: "home", params: { step: "home" },
       api: (a) => Object.fromEntries(Object.entries(a).filter(([k]) => k.endsWith("/brain")).map(([k, v]) => [k, { ...v, structure: { ...v.structure, frameworks: [], languages: [] } }])),
     },
+    pop: { has: ["Round the cart total", "Per item"], card: true, bare: true, nudge: -0.012 },
   },
   {
-    key: "spaces", kicker: "Spaces", accent: "#5E9C88", bot: { name: "Spaces", line: "Family and friends" },
-    title: "Your people,\n*in sync*.",
-    sub: "Share anything with family and friends, chat one-to-one or in groups, and give tasks.",
+    key: "spaces", title: "Your people,\nin sync", accent: "#5E9C88", bot: { name: "Spaces", line: "Family and friends" },
+    photo: { file: "spaces.jpg", x: 0.55, y: 0.42, zoom: 1, light: 0.55, warm: 0.45 },
     screen: {
       id: "bots.spaces", variant: "home", params: { id: "s1" },
       api: (a) => {
@@ -164,13 +182,14 @@ export const FRAMES = [
         return { [k]: { ...d, payments: [], tasks, space: { ...d.space, waiting: 0, activity: d.space.activity.filter((x) => x.kind !== "pay") } } };
       },
     },
+    pop: { has: ["Call Nani", "Can't do it"], card: true, bare: true, side: "right" }, fade: true,
   },
   {
-    key: "make", kicker: "Your own bots", accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
-    title: "Make your\nown *bot*.",
-    sub: "Say what it should do. It joins your team, with your rules.",
+    key: "make", layout: "hand", title: "Make a bot\nof your own", accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
+    // The phone in the photo, its screen's four corners in the photo's pixels (top left, top right, bottom left, bottom right).
+    photo: { file: "make.jpg", x: 0.5, y: 0.6, zoom: 1.25, light: 0.62, warm: 0.5, screen: [[2280, 1151], [2853, 1246], [1923, 2454], [2591, 2635]] },
     screen: {
-      id: "bots.make",
+      id: "bots.make", viewport: { w: 390, h: 844, top: 54, bottom: 30 },
       api: (a) => {
         const k = `GET ${A}/draft`, d = a[k].draft;
         const def = { ...d.draft.definition, skills: { ...d.draft.definition.skills, connectors: ["calendar"] } };
@@ -179,16 +198,16 @@ export const FRAMES = [
     },
   },
   {
-    key: "ask", off: true, kicker: "Ask", accent: "#D0B48A",
-    title: "Just ask.\nIt gets *done*.",
-    sub: "Type or speak, in any mix of languages. The right bot picks it up.",
+    key: "ask", off: true, title: "Just ask, and\nit gets done",
+    photo: { file: "team.jpg", x: 0.5, y: 0.5 },
     screen: { id: "bots.ask" },
   },
 ];
 
-/** The Play feature graphic (1024 x 500). */
+/** The Play feature graphic (1024 x 500): this frame's photo and screen, and these words. */
 export const FEATURE = {
-  title: "Players that make\nyour life *easy*.",
-  sub: "A team of bots, each great at one thing.",
-  screen: "team",
+  title: "Players that make\nyour life easy",
+  frame: "team",
+  /** The photo's place on the wide graphic (over the frame's own): the phone in it sits behind the card. */
+  photo: { x: 0.33, y: 0.5, zoom: 1.6, blur: 4 },
 };

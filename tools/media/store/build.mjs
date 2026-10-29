@@ -5,15 +5,20 @@
 //   node tools/media/store/build.mjs --only plan     # one frame (a regex on its key)
 //   node tools/media/store/build.mjs --sheet /path/sheet.png   # also write the contact sheet there
 //
+// The look: a full-bleed warm photograph (photos/, graded here so the set reads as one shoot), a serif headline in two short
+// lines, and the app as a light card cut from a real screen, with one part of it lifted out. Other shapes: `voice` (the photo
+// and a round mark), `tiles` (the marks of the apps it works with, icons/), `hand` (the screen laid onto a phone in a hand).
+//
 // What it makes, in tools/media/store/out/ (all RGB PNG, no alpha, sRGB):
 //   ios-6.9/NN-<key>.png      1320 x 2868   App Store, iPhone 6.9" (the size App Store Connect asks for first)
 //   ios-6.7/NN-<key>.png      1290 x 2796   App Store, iPhone 6.7" / 6.5"
-//   play-phone/NN-<key>.png   1080 x 1920   Google Play, phone
+//   play-phone/NN-<key>.png   1080 x 1920   Google Play, phone (its own set: frames with `play: false` are left out)
 //   play-feature.png          1024 x 500    Google Play feature graphic
 //   sheet.png                 every frame on one page, to review
 //   screens/                  the app screens, as drawn by the app's own renderer (screens.mts), and report.json
 //
-// The frames, their words and their screens are data: frames.mjs. A new bot's frame is one entry there.
+// The frames, their words, photos and screens are data: frames.mjs. A new bot's frame is one entry there.
+// Fonts: fonts/ (Newsreader for the headlines, Geist; both SIL OFL). Photos and marks: photos/CREDITS.md.
 // Needs: TAILZU-BACKEND next to TAILZU-FRONTEND (or X0_BACKEND=<path to tulmi>), its node_modules, and Playwright's Chromium.
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +35,7 @@ const opt = (k) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 
 const has = (k) => args.includes(`--${k}`);
 const only = opt("only") ? new RegExp(opt("only")) : null;
 
-const { FRAMES, FEATURE, BRAND, ICON, SIZES } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
+const { FRAMES, FEATURE, BRAND, ICON, SIZES, APPS } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
 
 function playwright() {
   const req = createRequire(import.meta.url);
@@ -139,155 +144,188 @@ function iconFile() {
 function css(W, H) {
   const F = path.join(HERE, "fonts");
   return `
+  @font-face{font-family:"Newsreader";font-weight:200 800;font-style:normal;src:url(${url(path.join(F, "Newsreader[opsz,wght].ttf"))}) format("truetype")}
   @font-face{font-family:"Geist";font-weight:400;src:url(${url(path.join(F, "Geist-Regular.ttf"))})}
   @font-face{font-family:"Geist";font-weight:500;src:url(${url(path.join(F, "Geist-Medium.ttf"))})}
   @font-face{font-family:"Geist";font-weight:600;src:url(${url(path.join(F, "Geist-SemiBold.ttf"))})}
-  @font-face{font-family:"Geist";font-weight:700;src:url(${url(path.join(F, "Geist-Bold.ttf"))})}
-  @font-face{font-family:"Instrument Serif";font-style:normal;src:url(${url(path.join(F, "InstrumentSerif-Regular.ttf"))})}
-  @font-face{font-family:"Instrument Serif";font-style:italic;src:url(${url(path.join(F, "InstrumentSerif-Italic.ttf"))})}
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{width:${W}px;height:${H}px;overflow:hidden;background:#0a0908}
-  body{font-family:Geist,sans-serif;color:#f4ece1;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+  html,body{width:${W}px;height:${H}px;overflow:hidden;background:#140b06}
+  body{position:relative;font-family:Geist,sans-serif;color:#fff8ef;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
   `;
 }
 
-/** The noise that keeps the dark gradients from banding. */
-const GRAIN = `<svg class="grain" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .55 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>`;
+/** The noise that keeps the dark gradients from banding, and makes the photos read as one shoot. */
+const GRAIN = `<svg class="grain" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .6 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>`;
 
-/** A phone, drawn here (no maker's marks): titanium band, black bezel, the screen, an island, side keys, the status bar. */
-function phone(screenFile, P, o = {}) {
-  const { w: SW, h: SH, top: TOP } = SIZES.phone;
-  const band = P * 0.0105, bezel = P * 0.0185, inner = P - 2 * (band + bezel);
-  const sh = inner * SH / SW, total = sh + 2 * (band + bezel);
-  const r = P * 0.158, pt = inner / SW; // px per point
-  const island = { w: 125 * pt, h: 36.5 * pt, top: 11.5 * pt };
-  const sb = { y: (TOP - 5) * pt / 2 + 3 * pt, size: 17 * pt };
-  const ear = (inner - island.w) / 2;
-  const t = o.time ?? "7:40";
-  const ink = o.statusInk ?? "#0a0a0a";
+const svgFile = (f) => path.join(HERE, "icons", `${f}.svg`);
+const photoFile = (p) => path.join(HERE, "photos", p.file);
+
+/**
+ * The photograph, full bleed, and the grade every frame shares: lifted blacks and a warm cast (amber, terracotta, deep
+ * brown), a vignette, and the shade the headline sits on (`head`: "top" or "bottom"). The photo's place is set by the page
+ * (window.place) from its own size: centred on (x, y), zoomed, never showing an edge.
+ */
+function photoLayer(p, u, head) {
+  const light = p.light ?? 0.55, warm = p.warm ?? 0.5, blur = (p.blur ?? 0) * u;
+  const filter = `brightness(${(0.56 + light * 0.5).toFixed(3)}) contrast(1.08) saturate(0.96) sepia(${(warm * 0.18).toFixed(3)})${blur ? ` blur(${blur}px)` : ""}`;
+  const shade = head === "none" ? "none" : head === "bottom"
+    ? "linear-gradient(0deg, rgba(18,9,4,.86) 0%, rgba(18,9,4,.62) 24%, rgba(18,9,4,.18) 46%, rgba(18,9,4,0) 60%)"
+    : "linear-gradient(180deg, rgba(18,9,4,.72) 0%, rgba(18,9,4,.42) 14%, rgba(18,9,4,.08) 28%, rgba(18,9,4,0) 38%)";
+  return `
+    <img id="photo" src="${url(photoFile(p))}" style="position:absolute;filter:${filter};${blur ? "transform:scale(1.04);" : ""}">
+    <div style="position:absolute;inset:0;background:rgb(190,92,36);mix-blend-mode:soft-light;opacity:${(0.35 + warm * 0.45).toFixed(3)}"></div>
+    <div style="position:absolute;inset:0;background:rgba(40,16,4,${(0.06 + warm * 0.1).toFixed(3)});mix-blend-mode:multiply"></div>
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse 125% 95% at 50% 46%, rgba(10,5,2,0) 55%, rgba(10,5,2,.5) 100%)"></div>
+    <div style="position:absolute;inset:0;background:${shade}"></div>
+    ${GRAIN}`;
+}
+
+/** The headline: Newsreader, white, sentence case, two lines, centred. */
+function headline(title, u, o) {
+  return `<h1 style="position:absolute;left:${70 * u}px;right:${70 * u}px;${o.top !== undefined ? `top:${o.top}px` : `bottom:${o.bottom}px`};text-align:center;
+    font-family:Newsreader,serif;font-weight:${o.weight ?? 400};font-variation-settings:'opsz' 60;font-size:${o.size}px;line-height:1.07;letter-spacing:-.012em;color:#fff8ef;
+    text-shadow:0 ${2 * u}px ${36 * u}px rgba(10,5,2,.35)">${esc(title).replace(/\n/g, "<br>")}</h1>`;
+}
+
+/** The page script: places the photo (cover, focus, zoom) and, for a `hand` frame, lays the screen onto the phone in it. */
+const PLACE = `
+function homography(src, dst) {
+  const adj = (m) => [m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4], m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5], m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3]];
+  const mm = (a, b) => { const c = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { let s = 0; for (let k = 0; k < 3; k++) s += a[3*i+k]*b[3*k+j]; c[3*i+j] = s; } return c; };
+  const mv = (m, v) => [m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
+  const basis = (p) => { const m = [p[0][0], p[1][0], p[2][0], p[0][1], p[1][1], p[2][1], 1, 1, 1]; const v = mv(adj(m), [p[3][0], p[3][1], 1]); return mm(m, [v[0],0,0, 0,v[1],0, 0,0,v[2]]); };
+  const t = mm(basis(dst), adj(basis(src)));
+  for (let i = 0; i < 9; i++) t[i] /= t[8];
+  return [t[0], t[3], 0, t[6], t[1], t[4], 0, t[7], 0, 0, 1, 0, t[2], t[5], 0, t[8]];
+}
+window.place = () => {
+  const P = window.PHOTO, img = document.getElementById("photo");
+  if (!img || !img.naturalWidth) return;
+  const W = innerWidth, H = innerHeight, iw = img.naturalWidth, ih = img.naturalHeight;
+  const s = Math.max(W / iw, H / ih) * (P.zoom || 1), dw = iw * s, dh = ih * s;
+  let left = W / 2 - (P.x ?? .5) * dw, top = H / 2 - (P.y ?? .5) * dh;
+  left = Math.min(0, Math.max(W - dw, left)); top = Math.min(0, Math.max(H - dh, top));
+  Object.assign(img.style, { left: left + "px", top: top + "px", width: dw + "px", height: dh + "px" });
+  const layer = document.getElementById("onphone");
+  if (layer && P.screen) {
+    const k = s * (P.srcScale || 1);
+    const dst = P.screen.map(([x, y]) => [left + x * k, top + y * k]);
+    const w = layer.offsetWidth, h = layer.offsetHeight;
+    layer.style.transform = "matrix3d(" + homography([[0, 0], [w, 0], [0, h], [w, h]], dst).join(",") + ")";
+  }
+};
+window.place();
+`;
+
+/** One store frame at W x H, by its layout. */
+function framePage(f, W, H) {
+  const u = W / 1320, tall = H / W > 2;
+  const layout = f.layout ?? "card";
+  const head = layout === "voice" ? "bottom" : "top";
+  const size = (tall ? 108 : 100) * u;
+  let body = "";
+  if (layout === "card") body = cardLayer(f, W, H, u, tall);
+  else if (layout === "tiles") body = tilesLayer(W, H, u, tall);
+  else if (layout === "hand") body = handLayer(f, u);
+  else if (layout === "voice") body = voiceIcon(W, H, u, tall);
+  const words = head === "top"
+    ? headline(f.title, u, { top: (tall ? 150 : 96) * u, size })
+    : headline(f.title, u, { bottom: (tall ? 520 : 400) * u, size });
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, H)}
+    .grain{position:absolute;inset:0;opacity:.09;mix-blend-mode:overlay;pointer-events:none}
+  </style></head><body>
+    ${photoLayer(f.photo, u, head)}
+    ${body}
+    ${words}
+    <script>window.PHOTO = ${JSON.stringify(f.photo)};${PLACE}</script>
+  </body></html>`;
+}
+
+/** The light card: the top of the real screen in a rounded panel, and the part of it lifted out (`pop`). */
+function cardLayer(f, W, H, u, tall) {
+  const cw = Math.round(0.775 * W), cl = Math.round((W - cw) / 2);
+  const ct = Math.round((tall ? 0.205 : 0.215) * H);
+  const cb = tall ? Math.round(0.928 * H) : H + 40;
+  const r = 0.072 * W;
+  const shot = path.join(OUT, "screens", `${f.key}.png`);
+  let pop = "";
+  const pj = path.join(OUT, "screens", `${f.key}.pop.json`);
+  if (f.pop && fs.existsSync(pj)) {
+    const p = JSON.parse(fs.readFileSync(pj, "utf8"));
+    const k = cw / p.screen.w;
+    const ex = cl + p.x * k, ey = ct + p.y * k, ew = p.width * k, eh = p.height * k;
+    const wide = ew > 0.8 * cw;
+    const pw = wide ? 0.89 * W : Math.min(0.9 * W, ew * 1.2);
+    const ps = pw / ew, ph = eh * ps;
+    const padded = !f.pop.card;
+    const pad = padded ? 0.026 * W : 0;
+    const boxW = pw + 2 * pad, boxH = ph + 2 * pad;
+    let left = wide ? (W - boxW) / 2 : ex + ew / 2 - boxW / 2;
+    if (f.pop.side === "left") left = Math.min(left, 0.03 * W) - (wide ? 0 : 0.0 * W);
+    if (f.pop.side === "right") left = Math.max(left, W - boxW - 0.03 * W);
+    left = Math.max(-0.08 * W, Math.min(W - boxW + 0.08 * W, left));
+    const top = (f.pop.at !== undefined ? f.pop.at * H - boxH / 2 : ey + eh / 2 - boxH / 2) + (f.pop.nudge ?? 0) * H;
+    const pr = padded ? 0.06 * W : Math.max(p.radius * k * ps, 0.04 * W);
+    pop = `<div style="position:absolute;left:${left}px;top:${top}px;width:${boxW}px;height:${boxH}px;padding:${pad}px;border-radius:${pr}px;background:#fff;overflow:hidden;
+      box-shadow:0 ${46 * u}px ${110 * u}px rgba(12,6,2,.5),0 ${10 * u}px ${30 * u}px rgba(12,6,2,.22)">
+      <img src="${url(shot.replace(/\.png$/, ".pop.png"))}" style="display:block;width:${pw}px;height:${ph}px">
+    </div>`;
+  }
+  return `<div style="position:absolute;left:${cl}px;top:${ct}px;width:${cw}px;height:${cb - ct}px;border-radius:${r}px;overflow:hidden;background:#fff;
+      box-shadow:0 ${60 * u}px ${150 * u}px rgba(12,6,2,.55),0 ${12 * u}px ${40 * u}px rgba(12,6,2,.25)">
+      <img src="${url(shot)}" style="display:block;width:${cw}px">
+      ${tall && f.fade ? `<div style="position:absolute;left:0;right:0;bottom:0;height:${0.075 * H}px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.92) 70%,#fff)"></div>` : ""}
+    </div>${pop}`;
+}
+
+/** The apps it works with: their marks on white tiles, a loose grid running off both sides. */
+function tilesLayer(W, H, u, tall) {
+  const T = (tall ? 0.25 : 0.235) * W, G = 0.105 * W, rad = 0.225 * T;
+  const rows = tall ? [0.395, 0.555, 0.715] : [0.375, 0.575, 0.775];
+  const starts = [0.096 * W, -0.07 * W, 0.096 * W];
+  let html = "";
+  APPS.forEach((slug, i) => {
+    const row = Math.floor(i / 3), col = i % 3;
+    if (row >= rows.length) return;
+    const x = starts[row] + col * (T + G), y = rows[row] * H - T / 2;
+    html += `<div style="position:absolute;left:${x}px;top:${y}px;width:${T}px;height:${T}px;border-radius:${rad}px;background:#fff;display:flex;align-items:center;justify-content:center;
+      box-shadow:0 ${28 * u}px ${70 * u}px rgba(10,5,2,.45),0 ${6 * u}px ${18 * u}px rgba(10,5,2,.2)">
+      <img src="${url(svgFile(slug))}" style="width:${0.5 * T}px;height:${0.5 * T}px"></div>`;
+  });
+  return html;
+}
+
+/** The round mark under a `voice` frame's words: a dark disc with Keybot's sound bars. */
+function voiceIcon(W, H, u, tall) {
+  const d = 0.158 * W, cy = (tall ? 0.905 : 0.88) * H;
+  const bars = [0.28, 0.55, 0.85, 0.55, 1, 0.62, 0.3].map((h, i) => `<rect x="${7 + i * 6}" y="${24 - h * 13}" width="2.6" height="${h * 26}" rx="1.3" fill="#fff8ef"/>`).join("");
+  return `<div style="position:absolute;left:${(W - d) / 2}px;top:${cy - d / 2}px;width:${d}px;height:${d}px;border-radius:50%;background:rgba(22,16,13,.92);
+    box-shadow:0 ${20 * u}px ${50 * u}px rgba(0,0,0,.35),0 0 0 ${1.5 * u}px rgba(255,240,220,.08) inset;display:flex;align-items:center;justify-content:center">
+    <svg viewBox="0 0 54 48" style="width:${0.5 * d}px">${bars}</svg></div>`;
+}
+
+/** The screen, laid onto the phone in the photo (its four corners, frames.mjs photo.screen): rounded, with the island and status bar. */
+function handLayer(f, u) {
+  const shot = path.join(OUT, "screens", `${f.key}.png`);
+  const vw = f.screen.viewport?.w ?? SIZES.phone.w, vh = f.screen.viewport?.h ?? SIZES.phone.h, k = 3;
+  const w = vw * k, h = vh * k, pt = k;
+  const ink = "#0a0a0a";
   const icons = `
     <svg viewBox="0 0 18 12" style="height:${11.5 * pt}px"><g fill="${ink}"><rect x="0" y="8" width="3" height="4" rx=".9"/><rect x="5" y="5.5" width="3" height="6.5" rx=".9"/><rect x="10" y="3" width="3" height="9" rx=".9"/><rect x="15" y="0" width="3" height="12" rx=".9"/></g></svg>
     <svg viewBox="0 0 16 12" style="height:${11.5 * pt}px"><g fill="${ink}"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.3-1.4A10.7 10.7 0 0 0 8 .3 10.7 10.7 0 0 0 .7 3.2L2 4.6a8.7 8.7 0 0 1 6-2.4z"/><path d="M8 5.6c1.4 0 2.6.5 3.6 1.4l1.3-1.4A7.2 7.2 0 0 0 8 3.7a7.2 7.2 0 0 0-4.9 1.9L4.4 7c1-.9 2.2-1.4 3.6-1.4z"/><path d="M8 9.1c.5 0 1 .2 1.3.5L8 11.9 6.7 9.6c.3-.3.8-.5 1.3-.5z"/></g></svg>
     <svg viewBox="0 0 27 13" style="height:${12.5 * pt}px"><rect x=".5" y=".5" width="23" height="12" rx="3.6" fill="none" stroke="${ink}" stroke-opacity=".38"/><rect x="2" y="2" width="20" height="9" rx="2.3" fill="${ink}"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="${ink}" fill-opacity=".45"/></svg>`;
-  const keys = [
-    { side: "l", y: 0.165, h: 0.034 }, { side: "l", y: 0.235, h: 0.062 }, { side: "l", y: 0.315, h: 0.062 }, { side: "r", y: 0.265, h: 0.098 },
-  ].map((k) => `<i class="key ${k.side}" style="top:${k.y * total}px;height:${k.h * total}px"></i>`).join("");
-  return {
-    height: total,
-    html: `<div class="phone" style="width:${P}px;height:${total}px;border-radius:${r}px;padding:${band}px">
-      ${keys}
-      <div class="bezel" style="border-radius:${r - band}px;padding:${bezel}px">
-        <div class="screen" style="width:${inner}px;height:${sh}px;border-radius:${r - band - bezel}px">
-          <img src="${url(screenFile)}" style="width:${inner}px;height:${sh}px">
-          <div class="status" style="height:${TOP * pt}px">
-            <div class="ear" style="width:${ear}px;font-size:${sb.size}px;padding-top:${sb.y - sb.size / 2}px;color:${ink}"><b>${t}</b></div>
-            <div style="width:${island.w}px"></div>
-            <div class="ear icons" style="width:${ear}px;padding-top:${sb.y - 6 * pt}px;gap:${5.5 * pt}px">${icons}</div>
-          </div>
-          <div class="island" style="width:${island.w}px;height:${island.h}px;top:${island.top}px;left:${(inner - island.w) / 2}px"></div>
-          <div class="glass"></div>
-        </div>
+  const island = { w: 125 * pt, h: 36.5 * pt, top: 11.5 * pt };
+  const ear = (w - island.w) / 2;
+  return `<div id="onphone" style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;transform-origin:0 0;border-radius:${0.14 * w}px;overflow:hidden;background:#fff">
+      <img src="${url(shot)}" style="display:block;width:${w}px;height:${h}px">
+      <div style="position:absolute;left:0;right:0;top:0;height:${54 * pt}px;display:flex;align-items:flex-start">
+        <div style="width:${ear}px;padding-top:${19 * pt}px;display:flex;justify-content:center;font:600 ${17 * pt}px Geist;color:${ink};letter-spacing:-.01em">7:40</div>
+        <div style="width:${island.w}px"></div>
+        <div style="width:${ear}px;padding-top:${20 * pt}px;display:flex;justify-content:center;align-items:center;gap:${5.5 * pt}px">${icons}</div>
       </div>
-    </div>`,
-  };
-}
-
-const PHONE_CSS = (u) => `
-  .phone{position:relative;background:linear-gradient(140deg,#5b5751 0%,#2a2826 18%,#1a1918 45%,#34312e 72%,#141312 100%);
-    box-shadow:0 0 0 ${1.5 * u}px rgba(255,240,220,.10) inset, 0 ${2 * u}px ${1 * u}px rgba(255,255,255,.08) inset,
-      0 ${90 * u}px ${160 * u}px rgba(0,0,0,.65), 0 ${30 * u}px ${60 * u}px rgba(0,0,0,.45)}
-  .bezel{background:#050505;box-shadow:0 0 0 ${1 * u}px rgba(0,0,0,.9) inset;height:100%}
-  .screen{position:relative;overflow:hidden;background:#fff}
-  .screen img{display:block}
-  .status{position:absolute;left:0;right:0;top:0;display:flex;align-items:flex-start}
-  .ear{display:flex;justify-content:center;font-weight:600;letter-spacing:-.01em;line-height:1}
-  .ear b{font-weight:600}
-  .icons{align-items:center}
-  .island{position:absolute;background:#000;border-radius:999px;box-shadow:0 0 0 ${0.6 * u}px rgba(255,255,255,.04) inset}
-  .island::after{content:"";position:absolute;right:22%;top:30%;width:${11 * u}px;height:${11 * u}px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#2b3550,#0a0c12 60%)}
-  .glass{position:absolute;inset:0;background:linear-gradient(118deg,rgba(255,255,255,.07) 0%,rgba(255,255,255,0) 32%);pointer-events:none}
-  .key{position:absolute;width:${7 * u}px;background:linear-gradient(90deg,#2b2926,#56524c 50%,#2b2926);border-radius:${3 * u}px}
-  .key.l{left:${-5 * u}px}.key.r{right:${-5 * u}px}
-`;
-
-const glow = (hex, a) => {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
-};
-
-/** The hero's roster of bots (every frame with a `bot`), in rows of at most 4, the rows as even as they can be. */
-function rosterRows(list) {
-  const rows = Math.ceil(list.length / 4), per = Math.ceil(list.length / Math.max(1, rows)), out = [];
-  for (let i = 0; i < list.length; i += per) out.push(list.slice(i, i + per));
-  return out;
-}
-
-/**
- * One store frame at W x H: the words on top (kicker, headline, one sentence), the phone under them. On the tall App Store
- * canvases the whole phone fits under the words; on Play's 9:16 it is larger and runs off the bottom edge on purpose.
- * The page places the phone once the words are laid out (window.layout), so a longer headline simply moves it down.
- */
-function framePage(f, W, H, i, all) {
-  const u = W / 1320;
-  const tall = H / W > 2;
-  const screen = path.join(OUT, "screens", `${f.key}.png`);
-  const accent = f.accent ?? BRAND.accent;
-  const pad = 90 * u;
-  const titleSize = (f.titleSize ?? (tall ? 126 : 112)) * u;
-  const P = Math.round((tall ? 1000 : 900) * u);
-  const ph = phone(screen, P, { time: f.time });
-  const iconPath = f.hero ? iconFile() : null;
-  const roster = f.hero ? all.filter((x) => x.bot && !x.hero) : [];
-  const layout = { tall, gap: (tall ? 92 : 64) * u, bottom: (tall ? 110 : 0) * u, bleed: tall ? 0 : 0.2, height: ph.height, width: P };
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, H)}${PHONE_CSS(u)}
-    .bg{position:absolute;inset:0;background:
-      radial-gradient(ellipse ${1500 * u}px ${900 * u}px at 50% ${-160 * u}px, rgba(255,226,192,.17), rgba(255,226,192,.05) 45%, rgba(255,226,192,0) 72%),
-      radial-gradient(ellipse ${1500 * u}px ${1500 * u}px at 50% var(--gy), ${glow(accent, 0.30)}, ${glow(accent, 0.10)} 38%, ${glow(accent, 0)} 70%),
-      linear-gradient(180deg,#0e0d0c 0%,#0a0908 50%,#060505 100%)}
-    .grain{position:absolute;inset:0;opacity:.08;mix-blend-mode:overlay}
-    .words{position:absolute;left:${pad}px;right:${pad}px;top:${(tall ? 176 : 118) * u}px;text-align:center}
-    .kicker{display:inline-flex;align-items:center;gap:${16 * u}px;font-weight:500;font-size:${30 * u}px;letter-spacing:.18em;text-transform:uppercase;color:rgba(244,236,225,.72)}
-    .kicker i{width:${14 * u}px;height:${14 * u}px;border-radius:50%;background:${accent};box-shadow:0 0 ${20 * u}px ${glow(accent, 0.95)}}
-    h1{margin-top:${30 * u}px;min-height:${2.06 * titleSize}px;font-weight:600;font-size:${titleSize}px;line-height:1.03;letter-spacing:-.037em;color:#f7f0e7;text-wrap:balance}
-    h1 em{font-family:"Instrument Serif";font-style:italic;font-weight:400;letter-spacing:-.012em;font-size:1.13em;line-height:.9;padding-right:.04em}
-    p.sub{margin:${30 * u}px auto 0;max-width:${1040 * u}px;min-height:${f.hero ? 0 : 2.68 * (tall ? 44 : 41) * u}px;font-size:${(tall ? 44 : 41) * u}px;line-height:1.34;color:rgba(244,236,225,.64);text-wrap:balance}
-    .roster{display:flex;justify-content:center;gap:${14 * u}px;margin:${16 * u}px auto 0}
-    .rosters{margin-top:${44 * u}px}
-    .roster span{display:inline-flex;align-items:center;gap:${12 * u}px;padding:${14 * u}px ${26 * u}px ${15 * u}px ${22 * u}px;border-radius:999px;
-      font-size:${30 * u}px;font-weight:500;letter-spacing:-.005em;color:rgba(247,240,231,.88);
-      background:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.035));box-shadow:0 0 0 ${1.2 * u}px rgba(255,240,220,.13) inset,0 ${10 * u}px ${30 * u}px rgba(0,0,0,.35)}
-    .roster span i{width:${12 * u}px;height:${12 * u}px;border-radius:50%;box-shadow:0 0 ${12 * u}px currentColor}
-    .roster span.own{background:none;box-shadow:0 0 0 ${1.2 * u}px rgba(255,240,220,.28) inset;color:rgba(247,240,231,.7)}
-    .stage{position:absolute;left:50%;top:0;width:${P}px;margin-left:${-P / 2}px;transform-origin:50% 0}
-    .halo{position:absolute;left:${-0.08 * P}px;right:${-0.08 * P}px;top:${0.06 * ph.height}px;bottom:${0.04 * ph.height}px;border-radius:${0.3 * P}px;
-      background:${glow(accent, 0.55)};filter:blur(${110 * u}px);opacity:.55}
-    .floor{position:absolute;left:${0.08 * P}px;right:${0.08 * P}px;bottom:${-50 * u}px;height:${110 * u}px;border-radius:50%;background:rgba(0,0,0,.85);filter:blur(${40 * u}px)}
-    .kicker:has(.icon){font-size:${34 * u}px;gap:${20 * u}px}
-    .kicker .icon{width:${96 * u}px;height:${96 * u}px;border-radius:${22 * u}px;margin-right:${6 * u}px;box-shadow:0 ${16 * u}px ${40 * u}px rgba(0,0,0,.6),0 0 0 ${1 * u}px rgba(255,255,255,.08)}
-  </style></head><body>
-    <div class="bg"></div>${GRAIN}
-    <div class="words">
-      <div class="kicker">${iconPath ? `<img class="icon" src="${url(iconPath)}">` : "<i></i>"}${esc(f.kicker)}</div>
-      <h1>${rich(f.title)}</h1>
-      ${f.sub ? `<p class="sub">${rich(f.sub)}</p>` : ""}
-      ${roster.length ? '<div class="rosters">' : ""}${rosterRows(roster).map((row) => `<div class="roster">${row.map((b) => b.bot.own
-        ? `<span class="own">+ ${esc(b.bot.name)}</span>`
-        : `<span style="color:${b.accent}"><i style="background:${b.accent}"></i><b style="font-weight:500;color:rgba(247,240,231,.9)">${esc(b.bot.name)}</b></span>`).join("")}</div>`).join("")}${roster.length ? "</div>" : ""}
-    </div>
-    <div class="stage"><div class="halo"></div><div class="floor"></div>${ph.html}</div>
-    <script>window.layout = ${JSON.stringify(layout)};
-      window.place = () => {
-        const L = window.layout, words = document.querySelector(".words").getBoundingClientRect(), stage = document.querySelector(".stage");
-        const top = words.bottom + L.gap;
-        const fit = L.tall ? Math.min(1, (innerHeight - L.bottom - top) / L.height) : 1;
-        stage.style.top = top + "px";
-        stage.style.transform = "scale(" + fit + ")";
-        document.querySelector(".bg").style.setProperty("--gy", (top + L.height * fit * 0.45) + "px");
-        window.placed = { top, fit, bottom: top + L.height * fit };
-      };
-      window.place();
-    </script>
-  </body></html>`;
+      <div style="position:absolute;left:${(w - island.w) / 2}px;top:${island.top}px;width:${island.w}px;height:${island.h}px;border-radius:999px;background:#000"></div>
+      <div style="position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,250,240,.18) 0%,rgba(255,250,240,0) 38%),linear-gradient(0deg,rgba(60,30,10,.10),rgba(60,30,10,0) 40%)"></div>
+    </div>`;
 }
 
 async function shoot(browser, html, W, H, file) {
@@ -325,43 +363,32 @@ function renderScreens() {
   if (r.status !== 0) throw new Error("screens.mts failed");
 }
 
-/** The Play feature graphic: the hero's words on the left, the hero's phone on the right running off the bottom. */
+/** The Play feature graphic: the first frame's photo, its words on the left, its screen as a card on the right. */
 function featurePage(W, H) {
+  const f = FRAMES.find((x) => x.key === FEATURE.frame) ?? FRAMES[0];
   const u = W / 1024;
-  const f = FRAMES.find((x) => x.key === FEATURE.screen) ?? FRAMES[0];
-  const accent = f.accent ?? BRAND.accent;
-  const P = Math.round(330 * u);
-  const ph = phone(path.join(OUT, "screens", `${f.key}.png`), P, { time: f.time });
+  const shot = path.join(OUT, "screens", `${f.key}.png`);
   const iconPath = iconFile();
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, H)}${PHONE_CSS(u * 0.42)}
-    .bg{position:absolute;inset:0;background:
-      radial-gradient(ellipse ${700 * u}px ${420 * u}px at 72% 105%, ${glow(accent, 0.38)}, ${glow(accent, 0.08)} 45%, ${glow(accent, 0)} 72%),
-      radial-gradient(ellipse ${760 * u}px ${380 * u}px at 22% -20%, rgba(255,226,192,.16), rgba(255,226,192,0) 70%),
-      linear-gradient(180deg,#0e0d0c,#080707)}
-    .grain{position:absolute;inset:0;opacity:.08;mix-blend-mode:overlay}
-    .words{position:absolute;left:${70 * u}px;top:0;bottom:0;width:${560 * u}px;display:flex;flex-direction:column;justify-content:center}
-    .brand{display:flex;align-items:center;gap:${14 * u}px;font-weight:500;font-size:${17 * u}px;letter-spacing:.2em;text-transform:uppercase;color:rgba(244,236,225,.72)}
-    .brand i{width:${9 * u}px;height:${9 * u}px;border-radius:50%;background:${accent};box-shadow:0 0 ${12 * u}px ${glow(accent, 0.95)}}
-    .brand img{width:${54 * u}px;height:${54 * u}px;border-radius:${12 * u}px;box-shadow:0 ${8 * u}px ${20 * u}px rgba(0,0,0,.5)}
-    h1{margin-top:${20 * u}px;font-weight:600;font-size:${60 * u}px;line-height:1.03;letter-spacing:-.035em;color:#f7f0e7}
-    h1 em{font-family:"Instrument Serif";font-style:italic;font-weight:400;letter-spacing:-.01em;font-size:1.13em;line-height:.9}
-    p{margin-top:${18 * u}px;font-size:${22 * u}px;line-height:1.35;color:rgba(244,236,225,.64)}
-    .stage{position:absolute;right:${80 * u}px;top:${58 * u}px;width:${P}px}
-    .halo{position:absolute;inset:${20 * u}px ${-30 * u}px 0;border-radius:${100 * u}px;background:${glow(accent, 0.6)};filter:blur(${60 * u}px);opacity:.5}
+  const cw = 300 * u, cl = W - cw - 92 * u, ct = 62 * u;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, H)}
+    .grain{position:absolute;inset:0;opacity:.09;mix-blend-mode:overlay;pointer-events:none}
   </style></head><body>
-    <div class="bg"></div>${GRAIN}
-    <div class="words">
-      <div class="brand">${iconPath ? `<img src="${url(iconPath)}">` : "<i></i>"}${esc(BRAND.name)}</div>
-      <h1>${rich(FEATURE.title)}</h1>
-      <p>${rich(FEATURE.sub)}</p>
+    ${photoLayer({ ...f.photo, ...(FEATURE.photo ?? {}) }, u, "none")}
+    <div style="position:absolute;inset:0;background:linear-gradient(90deg, rgba(18,9,4,.82) 0%, rgba(18,9,4,.55) 38%, rgba(18,9,4,0) 70%)"></div>
+    <div style="position:absolute;left:${74 * u}px;top:0;bottom:0;width:${560 * u}px;display:flex;flex-direction:column;justify-content:center;gap:${22 * u}px">
+      <div style="display:flex;align-items:center;gap:${12 * u}px;font:500 ${16 * u}px Geist;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,248,239,.75)">
+        ${iconPath ? `<img src="${url(iconPath)}" style="width:${44 * u}px;height:${44 * u}px;border-radius:${10 * u}px">` : ""}${esc(BRAND.name)}</div>
+      <h1 style="font-family:Newsreader,serif;font-weight:400;font-variation-settings:'opsz' 60;font-size:${62 * u}px;line-height:1.06;letter-spacing:-.012em;color:#fff8ef">${esc(FEATURE.title).replace(/\n/g, "<br>")}</h1>
     </div>
-    <div class="stage"><div class="halo"></div>${ph.html}</div>
+    <div style="position:absolute;left:${cl}px;top:${ct}px;width:${cw}px;height:${H - ct + 30}px;border-radius:${28 * u}px;overflow:hidden;background:#fff;
+      box-shadow:0 ${30 * u}px ${70 * u}px rgba(12,6,2,.55)"><img src="${url(shot)}" style="display:block;width:${cw}px"></div>
+    <script>window.PHOTO = ${JSON.stringify({ ...f.photo, ...(FEATURE.photo ?? {}) })};${PLACE}</script>
   </body></html>`;
 }
 
 /** Every frame on one page, to review (and to judge at the size a store shows them). */
 async function writeSheet(browser, groups, file) {
-  const W = 2780;
+  const W = 3150;
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, 100)}
     html,body{height:auto;overflow:visible;background:#1b1a19}
     body{padding:56px 60px 70px}
@@ -407,8 +434,7 @@ function summarise(frames) {
 
 async function main() {
   if (!has("no-screens")) renderScreens();
-  const frames = FRAMES.filter((f) => !f.off);
-  const pick = frames.filter((f) => !only || only.test(f.key));
+  const all = FRAMES.filter((f) => !f.off);
   if (!only) for (const t of SIZES.targets) fs.rmSync(path.join(OUT, t.dir), { recursive: true, force: true });
   const { chromium } = playwright();
   const browser = await chromium.launch();
@@ -416,10 +442,12 @@ async function main() {
   try {
     for (const t of SIZES.targets) {
       made[t.dir] = [];
-      for (const f of pick) {
+      // Each store's own set: Google Play takes 8, so a frame may say `play: false`.
+      const frames = all.filter((f) => f[t.store] !== false);
+      for (const f of frames.filter((x) => !only || only.test(x.key))) {
         const n = frames.indexOf(f) + 1;
         const file = path.join(OUT, t.dir, `${String(n).padStart(2, "0")}-${f.key}.png`);
-        const r = await shoot(browser, framePage(f, t.w, t.h, n, frames), t.w, t.h, file);
+        const r = await shoot(browser, framePage(f, t.w, t.h), t.w, t.h, file);
         made[t.dir].push(file);
         const bad = r.clipped.length || r.lines !== 2;
         console.log(`${bad ? "CHECK  " : "ok     "} ${t.dir}/${path.basename(file)}  ${t.w}x${t.h}  headline ${r.lines} line(s)${r.clipped.length ? "  clipped: " + r.clipped.join(" | ") : ""}`);
@@ -443,7 +471,7 @@ async function main() {
   } finally {
     await browser.close();
   }
-  summarise(frames);
+  summarise(all);
 }
 
 await main();

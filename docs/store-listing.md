@@ -377,18 +377,29 @@ builders and the phone's own renderer, then composes every frame). Files are in 
 all RGB PNG without alpha, sRGB. Upload them in this order. The frames are data (`tools/media/store/frames.mjs`): a
 new bot's frame is one entry there.
 
-| # | Frame | Headline | Line under it | The app screen |
-| --- | --- | --- | --- | --- |
-| 1 | team | Players that make your life easy. | A team of bots, each great at one thing. | Home |
-| 2 | keybot | Say it. It writes. | A voice keyboard that writes for you in any app, in the tone that fits. | Keybot › Tone per app |
-| 3 | plan | Your day, planned. | Your own calendar and to-dos, with the time it takes to get there. | Plan bot |
-| 4 | notes | Every meeting, written up. | Meetings noted on your computer, written up with decisions and to-dos. | Notes › a meeting |
-| 5 | travel | Trips, sorted. | Travel times, weather and stays near where you'll be, in one place. | Travel bot |
-| 6 | code | Ship code by asking. | It reads your project, works on a safe copy, and asks before anything goes live. | Code bot |
-| 7 | spaces | Your people, in sync. | Share anything with family and friends, chat one-to-one or in groups, and give tasks. | Spaces › Home |
-| 8 | make | Make your own bot. | Say what it should do. It joins your team, with your rules. | Make a bot |
+The look: a warm, full-bleed photograph behind each frame, graded so the set reads as one shoot; a serif headline
+(Newsreader) in two short lines with no full stop; the app as a light card cut from a real screen, with one part of it
+lifted out. The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one is in
+`tools/media/store/photos/CREDITS.md`.
 
-The feature graphic carries the first frame's headline and Home.
+| # | Frame | Headline | What it shows |
+| --- | --- | --- | --- |
+| 1 | team | Players that make your life easy | Home, with the bots' tiles lifted out (the team) |
+| 2 | keybot | Say it, and Keybot writes it | The photo alone, and a round sound mark |
+| 3 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
+| 4 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, the dentist, dinner |
+| 5 | notes | Every meeting, written up | A meeting's write-up, with its to-dos lifted out |
+| 6 | travel | Your trips, all sorted | Travel bot, with the two stays lifted out |
+| 7 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
+| 8 | spaces | Your people, in sync | A family space, with a task from Mom lifted out |
+| 9 | make | Make a bot of your own | Make a bot, on a phone held in a hand |
+
+The App Store gets all nine (it takes up to ten). Google Play takes eight, so its set leaves out Code bot (frame 7): the
+most specialist of the bots for a phone audience. The
+feature graphic carries the first frame's headline, its photo and Home.
+
+The connect frame is the only one with other companies' marks on it (from simple-icons, CC0): each is an app X0 Bot
+really connects to in this build, shown as a plain mark with no words around it, and no store text names a brand.
 
 ## Before you submit
 
@@ -400,5 +411,6 @@ The feature graphic carries the first frame's headline and Home.
   the review notes to wherever it lands.
 - **Support URL.** It is https://x0bot.com/faq, which answers today (x0bot.com/support does not). A support page with
   the address support@x0bot.com on it would be the better target once it exists.
-- **The icon.** The soft-3D icon goes in the frames on its own once `tools/media/brand/x0-icon/peek3d/` has a rendered
-  `icon-1024.png` (the README's pick); re-run `build.mjs`.
+- **The icon.** The soft-3D icon goes on the feature graphic, beside the name, once `tools/media/brand/x0-icon/peek3d/`
+  names its pick (four variants are rendered there now, and none is named yet): set `ICON.file` in
+  `tools/media/store/frames.mjs`, or name the pick in that folder's README, and re-run `build.mjs`.
