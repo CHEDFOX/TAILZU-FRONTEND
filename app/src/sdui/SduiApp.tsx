@@ -78,6 +78,8 @@ import { armFlow } from "../widgets/flow";
 import { useShareIn } from "../share/useShareIn";
 import { publishShareConfig } from "../share/shareConfig";
 import { isOpenableUrl, isScreenId } from "../security";
+import { liftLaunch } from "../launch/launchCore";
+import { LaunchStill } from "../launch/LaunchCurtain";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
 interface Toast { message: string; tone?: string }
@@ -1671,10 +1673,7 @@ export default function SduiApp() {
     const t = setTimeout(() => {
       if (splashHidden.current) return;
       splashHidden.current = true;
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
-      } catch { /* nothing was holding it */ }
+      liftLaunch();
     }, num("app.splash.maxHoldMs", 7000));
     return () => clearTimeout(t);
   }, []);
@@ -1705,10 +1704,7 @@ export default function SduiApp() {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("expo-splash-screen").hideAsync?.()?.catch?.(() => {});
-      } catch { /* nothing was holding it */ }
+      liftLaunch();
     };
     // The media wait belongs to the SCREEN path only. On every other path
     // there is no opening picture to wait for, and waiting for one that will
@@ -1857,14 +1853,12 @@ export default function SduiApp() {
   // through that gap so it blends straight into the intro. A screenError still
   // falls through below to the retry card.
   if (phase === "loading" || !theme || (!shown && !screenError)) {
-    // Splash colors + label route through boot.theme + boot.labels when they
-    // land. Before that, the knob — whose fallback is the NATIVE splash's own
-    // ground (app.config.ts), so the hand-over from the launch image is
-    // seamless; it was #000000, a visible step from #0B0A0D.
-    const splashBg = boot?.theme?.color?.bg ?? color("app.splash.bg", "#0B0A0D");
-    // No spinner on app start — just the splash background, which blends with
-    // the native splash screen for a clean, quiet boot.
-    return <View style={[styles.center, { backgroundColor: splashBg }]} />;
+    // THE BOOT VIEW IS THE SPLASH, STANDING STILL: the bot on its bar, on the
+    // cream, exactly where the native splash and the launch curtain put it
+    // (src/launch). At a cold start the curtain is over this and fades onto
+    // it or onto the screen; after signing in it is the whole wait. No
+    // spinner, and no theme colour: the boot theme is the old app's black.
+    return <LaunchStill />;
   }
 
 

@@ -17,4 +17,5 @@ The hand-drawn Curious bot (`../handdrawn-v2`, version 3) hangs by its hands fro
 ```sh
 node render.mjs [id ...]                              # <id>/icon-1024.png (uses ../handdrawn-v2)
 node ../handdrawn-v2/sheet.mjs /tmp/x0-curious-hang.png .
+node launch.mjs --blip <backend>/tulmi/blip/bots      # 8-painted-clay-bar, small, on a piece of its bar: app/assets/launch (splash + the launch's layers)
 ```
