@@ -1,0 +1,20 @@
+{
+  "title": "X0 Bot: Peek-a-bot, soft matte",
+  "subtitle": "One big matte head peeking up into the tile from the bottom edge. Our identity is the dark glass visor band with two warm eyes, plus a short antenna with a warm tip (no ball). Ranked, strongest first. The dashed card is the Grok Bot icon, for comparison only.",
+  "order": ["cream-black", "curious", "coral-black", "wink", "cream-clay", "ink-cream"],
+  "icons": {
+    "cream-black": {"tag": "1", "title": "Cream on black", "line": "The purest version: a cream head rising into black, its visor lit by two warm eyes. It reads from across a room."},
+    "curious": {"tag": "2", "title": "Curious", "line": "The same head entering on a tilt from the bottom left, eyes glancing up. It has the most life and diagonal energy."},
+    "coral-black": {"tag": "3", "title": "Coral on black", "line": "One bold colour. It holds its own among colourful apps, and coral rather than orange keeps it away from a pumpkin."},
+    "wink": {"tag": "4", "title": "Wink", "line": "Number 1 with a wink: one eye closed in a smile. More personality, a little less calm."},
+    "cream-clay": {"tag": "5", "title": "Cream on clay", "line": "The warmest and most on-brand ground. Clay is a quieter ground than black, so the head pops less."},
+    "ink-cream": {"tag": "6", "title": "Ink on cream", "line": "A charcoal matte head with a gloss-black visor on cream. Premium up close; the visor and head merge when small."}
+  },
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the icon the owner pointed to, shown for level and distinctness."},
+  "homeRows": [
+    ["cream-black", null, "ref", null],
+    [null, "curious", null, "coral-black"],
+    ["wink", null, "cream-clay", null],
+    [null, "ink-cream", null, null]
+  ]
+}
