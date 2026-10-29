@@ -21,7 +21,8 @@
     "kb.touch.releaseSystemGestures": "UIKit's system gesture gates on the keyboard's window, which delay touches near the screen edges. Android's input view has no such gates.",
     "kb.touch.releaseSystemGestures.ended": "The lift half of the same UIKit gates (space and return type on the lift).",
     "kb.touch.deferSystemEdges": "UIViewController.preferredScreenEdgesDeferringSystemGestures, a UIKit request with no Android counterpart.",
-    "kb.touch.disableEdgePans": "UIScreenEdgePanGestureRecognizer in the keyboard window's chain; Android has no edge-pan recognizers over an input view."
+    "kb.touch.disableEdgePans": "UIScreenEdgePanGestureRecognizer in the keyboard window's chain; Android has no edge-pan recognizers over an input view.",
+    "kb.field.prose": "The iOS keyboard cannot learn its host app, so it described the field in English as targetApp. Android sends the app's package and name, never such words."
   },
   "labelPrefixes": {
     "flow_": "The Flow Session (see kb.flow.).",

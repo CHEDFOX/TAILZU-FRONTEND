@@ -17,7 +17,7 @@
  */
 import React, { useCallback, useRef } from "react";
 import { Animated, Pressable, StyleProp, StyleSheet, ViewStyle, PressableProps } from "react-native";
-import * as Haptics from "expo-haptics";
+import { haptic as playHaptic } from "./haptic";
 import * as K from "./knobs";
 
 // Tuned to feel snappy but never abrupt. Spring, not linear — a linear
@@ -85,7 +85,7 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
 
   const pressIn = useCallback(() => {
     if (disabled) return;
-    if (haptic) Haptics.selectionAsync().catch(() => {});
+    if (haptic) playHaptic(K.str("app.haptics.press.in", "selection"));
     Animated.spring(scale, { toValue: pressScale ?? K.num("motion.pressScale", 0.94), ...springDown() }).start();
     if (flashColor) {
       Animated.timing(flash, { toValue: 1, duration: K.num("motion.flashInMs", 60), useNativeDriver: true }).start();
@@ -99,7 +99,7 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
       Animated.timing(flash, { toValue: 0, duration: K.num("motion.flashOutMs", 280), useNativeDriver: true }).start();
     }
     if (impactOnRelease) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      playHaptic(K.str("app.haptics.press.release", "medium"));
     }
   }, [disabled, impactOnRelease, scale, flashColor, flash]);
 

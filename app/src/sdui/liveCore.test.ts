@@ -49,9 +49,9 @@ test("hears its own topics, a wildcard's family, and nothing else", () => {
 });
 
 test("the socket's address is the API's host with ws or wss, and no token in it", () => {
-  assert.equal(wsUrlOf("https://api.tailzu.space"), "wss://api.tailzu.space/v1/live");
+  assert.equal(wsUrlOf("https://api.x0bot.com"), "wss://api.x0bot.com/v1/live");
   assert.equal(wsUrlOf("http://192.168.1.4:8787/"), "ws://192.168.1.4:8787/v1/live");
-  assert.equal(wsUrlOf("https://x.tailzu.space", "v1/live"), "wss://x.tailzu.space/v1/live");
+  assert.equal(wsUrlOf("https://x.x0bot.com", "v1/live"), "wss://x.x0bot.com/v1/live");
 });
 
 test("reads only the server's own messages", () => {
@@ -191,7 +191,7 @@ function client(o: { token?: string | null } = {}) {
   let resumed = 0;
   const lc = new LiveClient({
     open: (url) => { const s = new FakeSocket(url); sockets.push(s); return s; },
-    url: () => "wss://api.tailzu.space/v1/live",
+    url: () => "wss://api.x0bot.com/v1/live",
     token: () => (o.token === undefined ? "jwt-1" : o.token),
     onEvent: (t) => topics.push(t),
     onResume: () => { resumed++; },

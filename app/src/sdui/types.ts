@@ -345,6 +345,17 @@ export const OUTBOX_CAPABILITY = "Outbox";
 
 export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "notes" | "make" | "custom";
 
+/**
+ * THE BOTS' LOOKS AND MOMENTS (backend shared/types/sdui.ts, "Looks and moments"; the catalog is the server's
+ * shared/bots/looks.json, kept here by botTiles/looks.ts). A build that declares this plays a catalog's avatars and
+ * moments (core.ts compileLooks) through `avatar`, `moment`, `momentMode` on BotTiles' tiles, BotBuddy and BotCard,
+ * BotTiles' `surprises`, and fetches the catalog the bootstrap's flag "bots.looks" ({ v, url }) names.
+ */
+export const BOT_MOMENTS_CAPABILITY = "BotMoments";
+/** A look: an avatar's id in the catalog, or a spec of its own (core.ts AvatarSpec; `extends` an id). */
+export type BotAvatarRef = string | Record<string, unknown>;
+export type BotMomentMode = "once" | "loop";
+
 export interface BotTileSpec {
   slug: string;
   name: string;
@@ -354,6 +365,11 @@ export interface BotTileSpec {
   state: "working" | "needs" | "idle";
   action?: ActionRef;
   label?: string;
+  /** His look (BotMoments); none: his kind's. */
+  avatar?: BotAvatarRef;
+  /** A moment he plays (BotMoments): once, then his own play again, or as a loop. */
+  moment?: string;
+  momentMode?: BotMomentMode;
 }
 
 export interface BotTilesProps {
@@ -367,6 +383,8 @@ export interface BotTilesProps {
   strip?: BotTileSpec;
   /** The strip's height. */
   stripHeight?: number;
+  /** Home's rare idle surprises (BotMoments): every `every` seconds, with `chance`, one idle bot plays one of `moments`. */
+  surprises?: { every: number; chance: number; moments: string[] };
 }
 
 /** A build that draws BotTilesProps.strip. */
@@ -384,6 +402,10 @@ export interface BotCardProps {
   closeWhen?: Condition;
   once?: string;
   label?: string;
+  /** The card's bot's look and a moment for him (BotMoments). */
+  avatar?: BotAvatarRef;
+  moment?: string;
+  momentMode?: BotMomentMode;
 }
 
 /**
@@ -415,6 +437,13 @@ export interface BotBuddyProps {
   /** Where the page's ask field is from his stage: he glances at it. */
   lookTo?: "down" | "left" | "right" | "up";
   label?: string;
+  /** His look (BotMoments): an avatar's id, or a spec of its own; none: his kind's. */
+  avatar?: BotAvatarRef;
+  /** A moment from the catalog (BotMoments): once (then his act again) or as a loop; a build without it gets the recipe's plain act from the server. */
+  moment?: string;
+  momentMode?: BotMomentMode;
+  /** When this holds, the moment's end plays (deliver: a loop's `end`), then it is over. */
+  momentEndWhen?: Condition;
 }
 
 /** Home's header, alive (HomeHead.tsx; components "WriteOn", "LiveMark", "HeadBar", with BotsMotion). */

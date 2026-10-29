@@ -72,6 +72,7 @@ import { installLinkListener } from "../deeplinks/router";
 import { redeemSignInLink } from "../auth/linkSignIn";
 import { armFlow } from "../widgets/flow";
 import { useShareIn } from "../share/useShareIn";
+import { publishShareConfig } from "../share/shareConfig";
 import { isOpenableUrl, isScreenId } from "../security";
 
 interface NavItem { screenId: string; params?: Record<string, any> }
@@ -528,6 +529,8 @@ export default function SduiApp() {
       // handed them here, from the same flags the stats screen draws.
       // The NEW bootstrap's words too, not whatever the knobs last pointed at.
       publishWidgetMonth(b.flags as Record<string, unknown> | undefined, b.labels);
+      // The iOS share extension's words and limits, from the same knobs (share/shareConfig.ts).
+      publishShareConfig();
       setBoot(b);
       // WHICH TAB THE APP OPENS ON is the server's call, because it turns on
       // something only the server knows: whether this person has ever reached

@@ -68,7 +68,7 @@ test("a sound's address: the app's own path, or https; state filled in", () => {
   assert.equal(fillPath("/v1/keybot/voices/sage/sample?speed=$state.read.speed", (p) => state[p]), "/v1/keybot/voices/sage/sample?speed=1.25");
   assert.equal(fillPath("/x/$state.who/$state.none", (p) => state[p]), "/x/a%20b/");
   assert.deepEqual(soundSource("/v1/keybot/voices/sage/sample"), { path: "/v1/keybot/voices/sage/sample" });
-  assert.deepEqual(soundSource("https://cdn.tailzu.space/a.mp3"), { web: "https://cdn.tailzu.space/a.mp3" });
+  assert.deepEqual(soundSource("https://cdn.x0bot.com/a.mp3"), { web: "https://cdn.x0bot.com/a.mp3" });
   assert.equal(soundSource("//evil.com/x"), null);
   assert.equal(soundSource("http://evil.com/x"), null);
   assert.equal(soundSource("/v1/../../x"), null);

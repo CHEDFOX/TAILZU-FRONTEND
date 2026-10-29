@@ -264,7 +264,7 @@ function endCard(ctx, w, h, t, o = {}) {
   const u = Math.min(w, h), color = o.color ?? P.pale, cy = h * (o.y ?? .47);
   mark(ctx, w / 2, cy - u * .16, u * .2, E.out(seg(t, 0, 1.1)));
   arrive(ctx, o.line ?? "Talk. It writes.", w / 2, cy + u * .07, f(u * .085, SERIF, 300), color, .55, t, { align: "center", stagger: .1 });
-  label(ctx, "tailzu.space", w / 2, cy + u * .17, u * .024, color, E.out(seg(t, 1.1, 1.7)) * .7, "center");
+  label(ctx, "x0bot.com", w / 2, cy + u * .17, u * .024, color, E.out(seg(t, 1.1, 1.7)) * .7, "center");
   label(ctx, "iPhone · Android · Windows · Mac", w / 2, h - u * .07, u * .018, color, E.out(seg(t, 1.3, 1.9)) * .45, "center");
 }
 
@@ -655,7 +655,7 @@ const POSTERS = {};
 function brandFoot(ctx, w, h, color, line = "22 Indian languages · every app") {
   ctx.fillStyle = rgba(color === P.pale ? P.pale : P.ink2, .16); ctx.fillRect(w * .08, h * .9, w * .84, 1.5);
   label(ctx, line, w * .08, h * .94, w * .02, color, .62, "left");
-  label(ctx, "tailzu.space", w * .92, h * .94, w * .02, color, .62, "right");
+  label(ctx, "x0bot.com", w * .92, h * .94, w * .02, color, .62, "right");
 }
 function saidWritten(ctx, said, wrote, x, y, w, color, dim) {
   label(ctx, "Said", x, y, w * .02, color, .55);
@@ -1019,9 +1019,9 @@ function endCard2(ctx, w, h, t, o = {}) {
   if (o.sub) arrive(ctx, o.sub, w / 2, cy + u * .15, f(u * .042, SANS, 400), rgba(P.pale, .78), 1.2, t, { align: "center", stagger: .035 });
   const k = E.out(seg(t, 1.6, 2.2)), ls = u * .034;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + u * .13, bh = u * .1, bx = w / 2 - bw / 2, by = cy + u * .22;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + u * .13, bh = u * .1, bx = w / 2 - bw / 2, by = cy + u * .22;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, bx, by + (1 - k) * u * .02, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", w / 2 + ls * .11, by + bh * .6 + (1 - k) * u * .02, f(ls, MONO), P.violet, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", w / 2 + ls * .11, by + bh * .6 + (1 - k) * u * .02, f(ls, MONO), P.violet, k, "center", ls * .22);
   label(ctx, o.foot ?? "Free to start · iPhone · Android · Windows · Mac", w / 2, by + bh + u * .075, u * .02, P.pale, k * .6, "center");
   ctx.restore();
 }
@@ -1042,7 +1042,7 @@ function wordmark() {
   const one = (color) => { const c = canvasOf(w, h), g = c.getContext("2d"); g.font = font; g.fillStyle = color; g.fillText("Tailzu", 12, base); return c; };
   return Object.assign(WORDMARK, { c: one(P.pale), red: one("#FF3D6E"), cyan: one("#36E3FF"), base, w, h });
 }
-function signOff(ctx, x, y, t, t0, sub = "tailzu.space") {
+function signOff(ctx, x, y, t, t0, sub = "x0bot.com") {
   const s = t - t0; if (s < 0) return;
   const M = wordmark(), live = GLITCH.some(([a, d]) => s >= a && s < a + d), settled = s >= GLITCH_SETTLE;
   const shown = settled ? 1 : GLITCH.filter(([a]) => s >= a).length / GLITCH.length; if (!shown) return;
@@ -1391,7 +1391,7 @@ function foot2(ctx, w, h, color, line, sq) {
   if (line) label(ctx, line, w * .08, h * .86, w * .021, color, .7);
   mark(ctx, w * .08 + w * .04, h * .935, w * .08, 1, 1, sq ?? (dark ? P.ink2 : P.key));
   text(ctx, "Tailzu", w * .08 + w * .1, h * .945, f(w * .045, SERIF, 400), color);
-  label(ctx, "tailzu.space", w * .92, h * .942, w * .022, color, .75, "right");
+  label(ctx, "x0bot.com", w * .92, h * .942, w * .022, color, .75, "right");
 }
 /** A message on its own, off the phone: the bubble and its words. */
 function bubble(ctx, x, y, str, o) {
@@ -3369,9 +3369,9 @@ function understandsCard(ctx, w, h, t) {
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 300, 580, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "hoodie"); ctx.restore();
   const k = E.out(seg(t, 1.7, 2.3)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 120, bh = 104, by = 1410;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "Free to start · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
 }
 function toHimFilm(spoken) {
@@ -3459,9 +3459,9 @@ function threeCard(ctx, w, h, t) {
   arrive(ctx, "Why type like one?", x0, 1396, f(88, SERIF, 400, true), P.pale, 3.05, t, { stagger: .12 });
   const k = E.out(seg(t, 3.6, 4.2)), ls = 34, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 110, bh = 96, by = 1500;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 110, bh = 96, by = 1500;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "One tap on the voice pill · 16 voices · free", x0, by + bh + 60, 20, P.pale, k * .6);
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, 150, 1730, 300, "thumbs", seg(t, 3.7, 4.7), t, E.out(seg(t, 3.6, 4.2)), "hoodie"); ctx.restore();
 }
@@ -3937,9 +3937,9 @@ function macZCard(ctx, w, h, t) {
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 560, 620, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "blip"); ctx.restore();
   const k = E.out(seg(t, 1.7, 2.3)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 120, bh = 104, by = 1410;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
 }
 /**
@@ -4188,9 +4188,9 @@ function timeBackCard(ctx, w, h, t) {
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 800, h - 560, 620, "tada", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "blip"); ctx.restore();
   const k = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 120, bh = 104, by = 1410;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
 }
 function timeBackCues(D) {
@@ -4306,9 +4306,9 @@ function voicesCard(ctx, w, h, t) {
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 840, h - 470, 560, "present", seg(t, .5, 1.7), t, E.out(seg(t, .4, 1.1)), "suit"); ctx.restore();
   const k = E.out(seg(t, 1.9, 2.5)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1410;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 120, bh = 104, by = 1410;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "Free · Mac · Windows · iPhone · Android", x0, by + bh + 64, 21, P.pale, k * .6);
 }
 FILMS.voicesMac = { w: 1080, h: 1920, duration: VX.end, v2: true, draw(ctx, t, w, h) { voicesScene(ctx, w, h, t, VX); }, cues() {
@@ -4836,9 +4836,9 @@ function bleepCard(ctx, w, h, t) {
   ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); presenter(ctx, w - 822, 1610, 560, "thumbs", seg(t, .6, 1.8), t, E.out(seg(t, .5, 1.2)), "hoodie"); ctx.restore();
   const k = E.out(seg(t, 2.1, 2.7)), ls = 36, dy = (1 - k) * 22;
   ctx.save(); ctx.font = f(ls, MONO); ctx.letterSpacing = `${ls * .22}px`;
-  const tw = ctx.measureText("TAILZU.SPACE").width, bw = tw + 120, bh = 104, by = 1290;
+  const tw = ctx.measureText("X0BOT.COM").width, bw = tw + 120, bh = 104, by = 1290;
   ctx.globalAlpha *= k; ctx.fillStyle = P.pale; rr(ctx, x0, by + dy, bw, bh, bh / 2); ctx.fill(); ctx.restore();
-  text(ctx, "TAILZU.SPACE", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
+  text(ctx, "X0BOT.COM", x0 + bw / 2 + ls * .11, by + bh * .6 + dy, f(ls, MONO), P.ink, k, "center", ls * .22);
   label(ctx, "Free · Mac · Windows", x0, by + bh + 62, 21, P.pale, k * .6);
   text(ctx, "Audio: AMI Meeting Corpus (CC BY 4.0), a real meeting, edited and bleeped.", x0, 1668, f(19, SANS, 400), rgba(P.pale, .4), E.out(seg(t, 2.4, 3)));
 }

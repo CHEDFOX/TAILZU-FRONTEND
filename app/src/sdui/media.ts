@@ -27,7 +27,7 @@ import { num, txt } from "./knobs";
 import * as api from "../api";
 import {
   MAX_BYTES, cleanName, every, fillPath, isApiPath, joinWords, levelOf, nameFor, playStateOf, progressOf, refusalWords, soundSource,
-  tooBigWords, type PickKind,
+  type PickKind,
 } from "./mediaCore";
 
 /** What a media action needs from the screen that ran it (actions.ts builds one from its Ctx). */
@@ -114,8 +114,13 @@ export async function uploadFile(a: UploadSpec, io: MediaIO): Promise<void> {
     return;
   }
   if (!picked) { await io.run(a.onCancel); return; }
-  const max = Math.min(Number(a.maxBytes) || MAX_BYTES, MAX_BYTES);
-  if (picked.size > max) { await io.run(a.onError, tooBigWords(max)); return; }
+  // The cap: the action's, else the server's (media.maxBytes), and never over the upload route's own.
+  const cap = Math.min(num("media.maxBytes", 52428800), MAX_BYTES) || MAX_BYTES;
+  const max = Math.min(Number(a.maxBytes) || cap, cap);
+  if (picked.size > max) {
+    await io.run(a.onError, txt("media.tooBig", "That file is over {mb} MB, the most Tailzu takes.", { mb: Math.round(max / 1024 / 1024) }));
+    return;
+  }
   const path = a.path ?? "/v1/files";
   if (!isApiPath(path)) { await io.run(a.onError, failed); return; }
 

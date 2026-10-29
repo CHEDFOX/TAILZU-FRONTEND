@@ -1419,7 +1419,7 @@ const LottieAnimation = ({ props, style }: CompProps) => {
 // ---------------------------------------------------------------------------
 
 /**
- * A page of OURS, and only ours: https on tailzu.space. Anything else draws
+ * A page of OURS, and only ours: https on x0bot.com (or tailzu.space). Anything else draws
  * nothing, and a link on the page that leaves the domain opens in the system
  * browser instead of inside the app, where it would look like Tailzu.
  */

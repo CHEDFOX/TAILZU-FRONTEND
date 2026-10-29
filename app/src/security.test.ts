@@ -10,17 +10,21 @@ import {
   checkBaseUrl, isBackendPath, isHandoffUrl, isOpenableUrl, isScreenId, isTailzuPage, isWebUrl, safeFileName,
 } from "./security.ts";
 
-test("a release build talks only to https on tailzu.space", () => {
+test("a release build talks only to https on x0bot.com, or tailzu.space from before the move", () => {
+  assert.equal(checkBaseUrl("https://api.x0bot.com", false), "https://api.x0bot.com");
+  assert.equal(checkBaseUrl(" https://api.x0bot.com/ ", false), "https://api.x0bot.com");
+  assert.equal(checkBaseUrl("https://staging.x0bot.com", false), "https://staging.x0bot.com");
+  // A build that stored the old address keeps reaching it: the server answers there too.
   assert.equal(checkBaseUrl("https://api.tailzu.space", false), "https://api.tailzu.space");
-  assert.equal(checkBaseUrl(" https://api.tailzu.space/ ", false), "https://api.tailzu.space");
-  assert.equal(checkBaseUrl("https://staging.tailzu.space", false), "https://staging.tailzu.space");
   for (const bad of [
-    "http://api.tailzu.space",            // the token in clear text
+    "http://api.x0bot.com",               // the token in clear text
     "https://evil.example",               // someone else's server
-    "https://tailzu.space.evil.example",  // a lookalike suffix
-    "https://eviltailzu.space",           // a lookalike prefix
-    "https://user:pw@api.tailzu.space",   // credentials
-    "https://api.tailzu.space?x=1",       // paths are appended to it
+    "https://x0bot.com.evil.example",     // a lookalike suffix
+    "https://evilx0bot.com",              // a lookalike prefix
+    "https://tailzu.space.evil.example",
+    "https://eviltailzu.space",
+    "https://user:pw@api.x0bot.com",      // credentials
+    "https://api.x0bot.com?x=1",          // paths are appended to it
     "javascript:alert(1)",
     "",
     null,
@@ -47,7 +51,7 @@ test("callEndpoint stays under /v1/ on the backend", () => {
 });
 
 test("openUrl hands the OS pages, mail and settings — not code or intents", () => {
-  for (const ok of ["https://tailzu.space/privacy", "mailto:support@tailzu.space", "app-settings:", "tel:+15550001234", "tulmi://screen/stats"]) {
+  for (const ok of ["https://x0bot.com/privacy", "mailto:support@x0bot.com", "app-settings:", "tel:+15550001234", "tulmi://screen/stats"]) {
     assert.equal(isOpenableUrl(ok), true, ok);
   }
   for (const bad of [
@@ -116,7 +120,7 @@ test("an assistant's answer opens only a hand-off, in the form the backend write
   assert.equal(isHandoffUrl(`https://wa.me/?text=${"%E0%A4%A8".repeat(800)}`), true);   // a long Hindi message
   for (const bad of [
     "https://example.com/",                                   // any other site
-    "https://tailzu.space/",
+    "https://x0bot.com/",
     "http://wa.me/?text=hi",
     "https://wa.me.evil.com/?text=hi",
     "https://wa.me/?text=hi&app_absent=1",                     // a parameter it never writes
@@ -158,18 +162,22 @@ test("an assistant's answer opens only a hand-off, in the form the backend write
 });
 
 test("the in-app browser and downloads are web pages only", () => {
-  assert.equal(isWebUrl("https://tailzu.space"), true);
+  assert.equal(isWebUrl("https://x0bot.com"), true);
   assert.equal(isWebUrl("http://example.com/a.pdf"), true);
   assert.equal(isWebUrl("file:///etc/hosts"), false);
   assert.equal(isWebUrl("javascript:alert(1)"), false);
 });
 
-test("the WebView node shows tailzu.space and nothing else", () => {
+test("the WebView node shows our pages and nothing else", () => {
+  assert.equal(isTailzuPage("https://x0bot.com/help"), true);
+  assert.equal(isTailzuPage("https://app.x0bot.com/x"), true);
   assert.equal(isTailzuPage("https://tailzu.space/help"), true);
   assert.equal(isTailzuPage("https://app.tailzu.space/x"), true);
-  assert.equal(isTailzuPage("http://tailzu.space/help"), false);
+  assert.equal(isTailzuPage("http://x0bot.com/help"), false);
+  assert.equal(isTailzuPage("https://x0bot.com.evil.example/"), false);
+  assert.equal(isTailzuPage("https://evilx0bot.com/"), false);
+  assert.equal(isTailzuPage("https://evil.example/?x0bot.com"), false);
   assert.equal(isTailzuPage("https://tailzu.space.evil.example/"), false);
-  assert.equal(isTailzuPage("https://evil.example/?tailzu.space"), false);
 });
 
 test("a link names a screen, never a path", () => {

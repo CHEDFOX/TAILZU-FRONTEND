@@ -1692,19 +1692,29 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     private fun targetAppName(): String {
         val pkg = currentInputEditorInfo?.packageName ?: return "Generic"
-        return when {
-            pkg.contains("whatsapp") -> "WhatsApp"
-            pkg.contains("telegram") -> "Telegram"
-            pkg.contains("slack") -> "Slack"
-            // Gmail's own package only. Matching "email" named every other
-            // mail app (Samsung Email, AOSP Email…) Gmail; those take their
-            // launcher names below like any other app.
-            pkg == "com.google.android.gm" -> "Gmail"
-            pkg.contains("instagram") -> "Instagram"
-            pkg.contains("twitter") || pkg.contains("x.android") -> "Twitter"
-            pkg.contains("mms") || pkg.contains("messaging") -> "Messages"
-            else -> appLabel(pkg)
+        // The names a saved per-app style can use, by package: the server's
+        // list (kb.apps.names), these as the fallback, in order, first match
+        // wins. "*part*=Name" is any package with that part in it;
+        // "package=Name" is that package only. Gmail is its own package
+        // only: matching "email" named every other mail app (Samsung Email,
+        // AOSP Email…) Gmail; those take their launcher names like any other.
+        val rules = knobStrings("kb.apps.names", listOf(
+            "*whatsapp*=WhatsApp", "*telegram*=Telegram", "*slack*=Slack", "com.google.android.gm=Gmail",
+            "*instagram*=Instagram", "*twitter*=Twitter", "*x.android*=Twitter", "*mms*=Messages", "*messaging*=Messages"))
+        for (rule in rules) {
+            val eq = rule.lastIndexOf('=')
+            if (eq <= 0 || eq >= rule.length - 1) continue
+            val match = rule.substring(0, eq).trim()
+            val name = rule.substring(eq + 1).replace(Regex("[\\r\\n<>]+"), " ").trim()
+            if (name.isEmpty()) continue
+            val hit = if (match.length > 2 && match.startsWith("*") && match.endsWith("*")) {
+                pkg.contains(match.substring(1, match.length - 1))
+            } else {
+                pkg == match
+            }
+            if (hit) return name.take(40)
         }
+        return appLabel(pkg)
     }
 
     /** An app's own name. A keyboard can see the app it types into (Android's

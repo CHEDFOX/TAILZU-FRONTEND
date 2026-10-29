@@ -7,7 +7,8 @@ import UniformTypeIdentifiers
 /// THE EXTENSION DOES NO WORK OF ITS OWN. It copies what was shared into the
 /// App Group the app and the keyboard already share, and opens the app:
 ///
-///   files    → <group>/ShareIn/<batch>/<name>   (at most five, 50 MB each;
+///   files    → <group>/ShareIn/<batch>/<name>   (at most five, 50 MB each, or
+///              the app's lower limits from the server, tulmi.share.config;
 ///              a picture iOS keeps as HEIC is made a JPEG, which the backend
 ///              reads)
 ///   the list → UserDefaults(group) "tulmi.share.pending", JSON:
@@ -29,12 +30,64 @@ import UniformTypeIdentifiers
 final class ShareViewController: UIViewController {
   static let appGroup = "group.com.tulmi.app"
   static let pendingKey = "tulmi.share.pending"
+  /// What the app last wrote for this card (src/share/shareConfig.ts, from the server's labels and flags):
+  /// { v, words: { opening, tooBig, cantTake, saved }, limits: { maxFiles, maxBytes, maxText, maxPixels, closeMs },
+  ///   card: { background, ink, dim, radius } }. Each falls back to the literal below.
+  static let configKey = "tulmi.share.config"
   static let folder = "ShareIn"
-  static let maxFiles = 5
-  static let maxBytes: Int64 = 50 * 1024 * 1024
-  static let maxText = 6000
+
+  /// The app's block, read once per share. Empty until the app has written one.
+  private static let config: [String: Any] = {
+    guard let json = UserDefaults(suiteName: ShareViewController.appGroup)?.string(forKey: ShareViewController.configKey),
+          let data = json.data(using: .utf8),
+          let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
+    return o
+  }()
+
+  /// One of the card's words: the server's, else the literal.
+  private static func word(_ key: String, _ fallback: String) -> String {
+    guard let words = config["words"] as? [String: Any], let v = words[key] as? String else { return fallback }
+    let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? fallback : String(t.prefix(160))
+  }
+
+  /// A limit the server may LOWER, never raise: `most` is what this extension can hold in its memory.
+  private static func limit(_ key: String, _ most: Int) -> Int {
+    guard let v = (config["limits"] as? [String: Any])?[key] as? NSNumber else { return most }
+    let n = v.doubleValue
+    guard n.isFinite, n >= 1 else { return most }
+    // Compared as a Double first: Int() of a number past Int's range would stop the extension.
+    return Int(min(n, Double(most)))
+  }
+
+  /// A colour from "#RRGGBB" or "#RRGGBBAA", else the fallback.
+  private static func color(_ key: String, _ fallback: UIColor) -> UIColor {
+    guard let hex = (config["card"] as? [String: Any])?[key] as? String else { return fallback }
+    var h = hex.trimmingCharacters(in: .whitespaces)
+    if h.hasPrefix("#") { h.removeFirst() }
+    guard h.count == 6 || h.count == 8, let n = UInt64(h, radix: 16) else { return fallback }
+    let rgba = h.count == 6 ? (n << 8) | 0xFF : n
+    return UIColor(red: CGFloat((rgba >> 24) & 0xFF) / 255, green: CGFloat((rgba >> 16) & 0xFF) / 255,
+                   blue: CGFloat((rgba >> 8) & 0xFF) / 255, alpha: CGFloat(rgba & 0xFF) / 255)
+  }
+
+  /// A number for the card's look, within [low, high], else the fallback.
+  private static func cardNumber(_ key: String, _ fallback: Double, _ low: Double, _ high: Double) -> Double {
+    guard let v = (config["card"] as? [String: Any])?[key] as? NSNumber else { return fallback }
+    let n = v.doubleValue
+    return n.isFinite ? min(max(n, low), high) : fallback
+  }
+
+  static var maxFiles: Int { limit("maxFiles", 5) }
+  static var maxBytes: Int64 { Int64(limit("maxBytes", 50 * 1024 * 1024)) }
+  static var maxText: Int { limit("maxText", 6000) }
   /// A picture bigger than this on its long side is made smaller when it has to become a JPEG anyway.
-  static let maxPixels = 4096
+  static var maxPixels: Int { limit("maxPixels", 4096) }
+  /// How long the card's last line stays before it closes.
+  static var closeSeconds: Double {
+    guard let v = (config["limits"] as? [String: Any])?["closeMs"] as? NSNumber, v.doubleValue.isFinite else { return 1.6 }
+    return min(max(v.doubleValue, 300), 5000) / 1000
+  }
 
   private let line = UILabel()
   private var started = false
@@ -43,13 +96,13 @@ final class ShareViewController: UIViewController {
 
   override func viewDidLoad() {
     super.viewDidLoad()
-    view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+    view.backgroundColor = UIColor.black.withAlphaComponent(CGFloat(Self.cardNumber("dim", 0.2, 0, 0.8)))
     let card = UIView()
-    card.backgroundColor = .white
-    card.layer.cornerRadius = 20
+    card.backgroundColor = Self.color("background", .white)
+    card.layer.cornerRadius = CGFloat(Self.cardNumber("radius", 20, 0, 40))
     card.translatesAutoresizingMaskIntoConstraints = false
-    line.text = "Opening Tailzu…"
-    line.textColor = UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1)
+    line.text = Self.word("opening", "Opening Tailzu…")
+    line.textColor = Self.color("ink", UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1))
     line.font = .systemFont(ofSize: 15, weight: .semibold)
     line.textAlignment = .center
     line.numberOfLines = 2
@@ -268,25 +321,25 @@ final class ShareViewController: UIViewController {
       if let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroup) {
         try? FileManager.default.removeItem(at: container.appendingPathComponent(Self.folder))
       }
-      close(saying: skipped > 0 ? "That's too big for Tailzu." : "Tailzu can't take this one.")
+      close(saying: skipped > 0 ? Self.word("tooBig", "That's too big for Tailzu.") : Self.word("cantTake", "Tailzu can't take this one."))
       return
     }
     let payload: [String: Any] = ["v": 1, "at": Date().timeIntervalSince1970 * 1000, "skipped": skipped, "items": items]
     guard let data = try? JSONSerialization.data(withJSONObject: payload), let json = String(data: data, encoding: .utf8) else {
-      close(saying: "Tailzu can't take this one.")
+      close(saying: Self.word("cantTake", "Tailzu can't take this one."))
       return
     }
     UserDefaults(suiteName: Self.appGroup)?.set(json, forKey: Self.pendingKey)
-    guard let url = URL(string: "tulmi://share") else { close(saying: "Saved. Open Tailzu to send it."); return }
+    guard let url = URL(string: "tulmi://share") else { close(saying: Self.word("saved", "Saved. Open Tailzu to send it.")); return }
     openApp(url) { [weak self] ok in
       if ok { self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil) }
-      else { self?.close(saying: "Saved. Open Tailzu to send it.") }
+      else { self?.close(saying: Self.word("saved", "Saved. Open Tailzu to send it.")) }
     }
   }
 
   private func close(saying words: String) {
     line.text = words
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.closeSeconds) { [weak self] in
       self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
   }

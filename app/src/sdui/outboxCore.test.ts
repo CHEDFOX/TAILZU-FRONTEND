@@ -130,15 +130,15 @@ test("a live page comes only from http(s), data: or about:, or the html the serv
   for (const url of ["javascript:alert(1)", "file:///etc/passwd", "tulmi://x", "https://user:pass@x.example/", "intent://x", "", 42]) {
     assert.equal(liveSourceOf({ url }), null, String(url));
   }
-  assert.deepEqual(liveSourceOf({ html: "<p>x</p>", origin: "https://tailzu.space/path" }), { kind: "html", html: "<p>x</p>", baseUrl: "https://tailzu.space/" });
-  assert.deepEqual(liveSourceOf({ html: "<p>x</p>", origin: "http://tailzu.space" }), { kind: "html", html: "<p>x</p>", baseUrl: "about:blank" });
+  assert.deepEqual(liveSourceOf({ html: "<p>x</p>", origin: "https://x0bot.com/path" }), { kind: "html", html: "<p>x</p>", baseUrl: "https://x0bot.com/" });
+  assert.deepEqual(liveSourceOf({ html: "<p>x</p>", origin: "http://x0bot.com" }), { kind: "html", html: "<p>x</p>", baseUrl: "about:blank" });
   assert.deepEqual(liveSourceOf({ html: "<p>x</p>" }), { kind: "html", html: "<p>x</p>", baseUrl: "about:blank" });
 });
 
 test("the page stays where it was put: its frames load, the top moves only within its own site, an address that leaves is offered", () => {
-  const page = liveSourceOf({ html: "<p>x</p>", origin: "https://tailzu.space" })!;
-  assert.equal(decideNav({ source: page, url: "https://tailzu.space/", topFrame: true, settled: false }), "allow");
-  assert.equal(decideNav({ source: page, url: "https://tailzu.space/other", topFrame: true, settled: true }), "offer");
+  const page = liveSourceOf({ html: "<p>x</p>", origin: "https://x0bot.com" })!;
+  assert.equal(decideNav({ source: page, url: "https://x0bot.com/", topFrame: true, settled: false }), "allow");
+  assert.equal(decideNav({ source: page, url: "https://x0bot.com/other", topFrame: true, settled: true }), "offer");
   assert.equal(decideNav({ source: page, url: "https://viewer.example/?type=react", topFrame: false, settled: true }), "allow");
   assert.equal(decideNav({ source: page, url: "https://evil.example/", topFrame: true, settled: false }), "offer");
   assert.equal(decideNav({ source: page, url: "javascript:alert(1)", topFrame: false, settled: true }), "block");
@@ -161,4 +161,16 @@ test("what the page says: small objects with a t, nothing else; what the app say
   assert.equal(sendScript(null), null);
   assert.equal(sendScript([1]), null);
   assert.ok(!sendScript({ s: "a\u2028b" })!.includes("\u2028"));
+});
+
+test("the server's limits: how many it keeps, never more than its own; how long a sent one stays", async () => {
+  let max = 2;
+  const d = io();
+  const box = new Outbox(d, { max: () => max, keepSentMs: () => 60_000 });
+  await box.ready();
+  assert.ok(box.add(ask("one")) && box.add(ask("two")));
+  assert.equal(box.add(ask("three")), null, "two is the most it was told to keep");
+  max = 500;   // more than OUTBOX_MAX: held to it
+  for (let i = 0; i < 30; i++) box.add(ask(`more ${i}`));
+  assert.equal(box.view().outbox.length, 20);
 });

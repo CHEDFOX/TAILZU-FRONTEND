@@ -2825,6 +2825,12 @@ extension KeyboardViewController: KBHostControllerProtocol {
   /// button means a message to a person. That is most of what the app name was
   /// being used to infer, available without guessing and without a private API.
   func hostFieldKind() -> String {
+    // THE WORDS FOR THE FIELD ARE THE SERVER'S to write, from the fieldKind
+    // enum sent beside them (serverFieldKind; the backend's describeField).
+    // With kb.field.prose off this says only "Generic", as targetApp did
+    // before the field was read, and the keyboard sends no English of its own
+    // to the writer. On, as today, these words go too, for servers that read them.
+    if !knobBool("kb.field.prose", true) { return "Generic" }
     let traits = textDocumentProxy as UITextInputTraits
     switch traits.keyboardType ?? .default {
     case .emailAddress: return "an email address field"

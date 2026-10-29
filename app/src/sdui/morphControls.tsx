@@ -16,7 +16,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, Easing } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import * as Haptics from "expo-haptics";
+import { haptic } from "./haptic";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
 import * as api from "../api";
 import { errorDetail, userErrorMessage } from "./client";
@@ -288,7 +288,7 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       recorder.record();
       setRecording(true);
       store.set("recording", true);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      haptic(K.str("app.haptics.mic.start", "medium"));
       morphTo(1);
     } catch (e) {
       // Say the mic did not start (not a generic "check your connection":
@@ -326,14 +326,14 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
     store.set("recording", false);
     micRecordingActive = false;
     setBusy(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    haptic(K.str("app.haptics.mic.stop", "medium"));
     morphTo(0);
     try {
       await recorder.stop();
       const uri = recorder.uri;
       if (!uri) {
         fire("onError", errNoAudio);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+        haptic(K.str("app.haptics.mic.noAudio", "error"));
         return;
       }
       const { cleanedText } = await api.transcribeClean(uri, { targetApp: props.targetApp, language: props.language });
@@ -342,14 +342,14 @@ export const VoiceToggle = ({ node, props, store, fire }: CompProps) => {
       // primary voice flows behave symmetrically.
       if (bindPath && cleanedText) store.set(bindPath, cleanedText);
       fire("onChange", cleanedText);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      haptic(K.str("app.haptics.mic.done", "success"));
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn("[Tailzu][mic] stop/transcribe failed:", errorDetail(e));
       // A refused request has the server's sentence (HttpError); anything
       // else gets ours.
       fire("onError", userErrorMessage(e, errTranscribe));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      haptic(K.str("app.haptics.mic.failed", "error"));
     } finally {
       setBusy(false);
     }
@@ -619,7 +619,7 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
     if (recording || working) return;
     const text = (bindPath ? store.get(bindPath) : "") || "";
     if (!String(text).trim()) { fire("onError", errEmpty); return; }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    haptic(K.str("app.haptics.refine.start", "light"));
     setWorking(true);
     suckIn();
     try {
@@ -630,14 +630,14 @@ export const RefineButton = ({ node, props, store, fire }: CompProps) => {
       });
       if (bindPath && refinedText) store.set(bindPath, refinedText);
       fire("onChange", refinedText);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      haptic(K.str("app.haptics.refine.done", "success"));
     } catch (e) {
       // The server's sentence for a refused request, else ours; never the
       // error's own message.
       // eslint-disable-next-line no-console
       console.warn("[Tailzu][refine] failed:", errorDetail(e));
       fire("onError", userErrorMessage(e, errFail));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      haptic(K.str("app.haptics.refine.failed", "error"));
     } finally {
       setWorking(false);
       springBack();
@@ -695,18 +695,18 @@ export const DraftButton = ({ node, props, store, fire }: CompProps) => {
     const message = String(store.get(msgKey) || "");
     const intent = String(store.get(intentKey) || "");
     if (!message.trim() || !intent.trim()) { fire("onError", errEmpty); return; }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    haptic(K.str("app.haptics.draft.start", "light"));
     setWorking(true);
     try {
       const { draftText } = await api.draft(message, intent, { targetApp: props.targetApp, language: props.language });
       store.set(resultKey, draftText);
       fire("onChange", draftText);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      haptic(K.str("app.haptics.draft.done", "success"));
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn("[Tailzu][draft] failed:", errorDetail(e));
       fire("onError", userErrorMessage(e, errFail));
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      haptic(K.str("app.haptics.draft.failed", "error"));
     } finally {
       setWorking(false);
     }

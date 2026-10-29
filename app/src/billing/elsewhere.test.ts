@@ -54,10 +54,10 @@ test("bought on the web — neither phone may sell a second one", () => {
   const f = {
     "billing.entitled": true,
     "billing.manage.web": true,
-    "billing.manage.url": "mailto:support@tailzu.space",
+    "billing.manage.url": "mailto:support@x0bot.com",
   };
   assert.match(ios(f)!.message, /the web/);
-  assert.equal(android(f)!.action!.url, "mailto:support@tailzu.space");
+  assert.equal(android(f)!.action!.url, "mailto:support@x0bot.com");
 });
 
 test("no address means no button, and never a dead one", () => {

@@ -28,8 +28,10 @@ const seedOf = (s: string): number => { let h = 7; for (let i = 0; i < s.length;
 
 /** When each line began to write itself (by `once`), for the life of the app. */
 const STARTED = new Map<string, number>();
-/** How long the caret stays after the last word, before it fades. */
+/** How long the caret stays after the last word, before it fades (the node's caretStayMs, else this). */
 const CARET_STAYS_MS = 2600;
+/** A finite, non-negative number from a node prop, else the fallback. */
+const ms = (v: unknown, fallback: number): number => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : fallback; };
 
 export function WriteOn({ props }: CompProps): React.ReactElement {
   const content = String(props?.content ?? "");
@@ -44,6 +46,8 @@ export function WriteOn({ props }: CompProps): React.ReactElement {
     letterSpacing: Number(props?.tracking) || 0, color: String(props?.color || "#0a0a0a"),
   };
   const reduced = useReducedMotion();
+  // The write-on's own timings: node props (wordFadeMs, caretStayMs, caretFadeMs), today's as the fallback.
+  const wordFadeMs = ms(props?.wordFadeMs, 170), caretStayMs = ms(props?.caretStayMs, CARET_STAYS_MS), caretFadeMs = ms(props?.caretFadeMs, 420);
   const ops = useMemo(() => words.map(() => new Animated.Value(0)), [words]);
   const caretOp = useRef(new Animated.Value(0)).current;
   const caretXY = useRef(new Animated.ValueXY({ x: 0, y: (lh - caretH) / 2 })).current;
@@ -71,12 +75,12 @@ export function WriteOn({ props }: CompProps): React.ReactElement {
       if (times[i]! <= el) { ops[i]!.setValue(1); shown.current = i; return; }
       timers.push(setTimeout(() => {
         shown.current = i;
-        Animated.timing(ops[i]!, { toValue: 1, duration: 170, useNativeDriver: true }).start();
+        Animated.timing(ops[i]!, { toValue: 1, duration: wordFadeMs, useNativeDriver: true }).start();
         moveCaret(i);
       }, times[i]! - el));
     });
     if (shown.current >= 0) moveCaret(shown.current, true);
-    if (el >= end + CARET_STAYS_MS) { caretOp.setValue(0); return () => timers.forEach(clearTimeout); }
+    if (el >= end + caretStayMs) { caretOp.setValue(0); return () => timers.forEach(clearTimeout); }
     // Keybot's caret: blinking while he writes and a moment after, then it fades.
     caretOp.setValue(1);
     const blink = Animated.loop(Animated.sequence([
@@ -84,7 +88,7 @@ export function WriteOn({ props }: CompProps): React.ReactElement {
       Animated.timing(caretOp, { toValue: 1, duration: 90, delay: 330, useNativeDriver: true }),
     ]));
     blink.start();
-    timers.push(setTimeout(() => { blink.stop(); Animated.timing(caretOp, { toValue: 0, duration: 420, useNativeDriver: true }).start(); }, end + CARET_STAYS_MS - el));
+    timers.push(setTimeout(() => { blink.stop(); Animated.timing(caretOp, { toValue: 0, duration: caretFadeMs, useNativeDriver: true }).start(); }, end + caretStayMs - el));
     return () => { timers.forEach(clearTimeout); blink.stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reduced, words, times, once, ops, laid]);
@@ -173,7 +177,8 @@ export function LiveMarkNode({ props, fire }: CompProps): React.ReactElement {
   const press = () => {
     if (reduced) { fire("onPress"); return; }
     mark.press();
-    setTimeout(() => fire("onPress"), 170);
+    // The mark's press plays before Ask opens: the node's pressDelayMs, else today's.
+    setTimeout(() => fire("onPress"), ms(props?.pressDelayMs, 170));
   };
   return (
     <Pressable ref={host} onPress={press} accessibilityRole="button" accessibilityLabel={props?.label || "Tailzu"} hitSlop={8} style={{ width: size, height: size }}>

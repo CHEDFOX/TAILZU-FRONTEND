@@ -174,6 +174,22 @@ async function pickOffering(offeringId?: string): Promise<PurchasesOffering | nu
 }
 
 /**
+ * Each package's price in the person's own currency, as the store words it (storePrice.ts, a plan row's `storePrice`).
+ * null when billing is off or the store does not answer: the server's words stay.
+ */
+export async function packagePrices(offeringId?: string): Promise<Record<string, { price: string; perMonth: string | null }> | null> {
+  if (!KEY) return null;
+  if (initPromise) await initPromise;
+  const offering = await pickOffering(offeringId);
+  if (!offering) return null;
+  const out: Record<string, { price: string; perMonth: string | null }> = {};
+  for (const pkg of offering.availablePackages) {
+    out[pkg.identifier] = { price: pkg.product.priceString, perMonth: pkg.product.pricePerMonthString ?? null };
+  }
+  return out;
+}
+
+/**
  * Why a purchase did not happen.
  *
  * Every failure here used to return a bare `false`, and the screen turned all
