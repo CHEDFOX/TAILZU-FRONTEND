@@ -1,7 +1,8 @@
 {
   "platforms": ["apple", "android"],
   "apple": {
-    "modules": ["TulmiBridgeModule"]
+    "modules": ["TulmiBridgeModule"],
+    "appDelegateSubscribers": ["TulmiShortcutsAppDelegate"]
   },
   "android": {
     "modules": ["expo.modules.tulmibridge.TulmiBridgeModule"]

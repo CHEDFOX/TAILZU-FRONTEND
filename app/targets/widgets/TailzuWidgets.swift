@@ -1,8 +1,9 @@
 import SwiftUI
 import WidgetKit
 
-// THE WIDGETS. One extension, three things: the month on the Home and Lock
-// Screen, the Flow session as a Live Activity, and Dictate as a Control.
+// THE WIDGETS. One extension: the month on the Home and Lock Screen, the
+// quick-access widgets (From your people, Needs you: QuickAccess.swift), the
+// Flow session as a Live Activity, and Dictate as a Control.
 // Everything they show comes from the App Group the app writes; nothing here
 // talks to the server, and no dictated text is ever drawn — a widget sits on
 // a Lock Screen.
@@ -16,6 +17,8 @@ import WidgetKit
 struct TailzuWidgetBundle: WidgetBundle {
   var body: some Widget {
     MonthWidget()
+    PeopleWidget()
+    NeedsWidget()
     FlowActivityWidget()
     SetupActivityWidget()
     if #available(iOS 18.0, *) {

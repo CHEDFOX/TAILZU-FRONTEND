@@ -8,6 +8,9 @@
 // type-checks against the real pod. Argument types are limited to the ones
 // the real AnyArgument covers that the bridge actually uses.
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public protocol AnyArgument {}
 extension String: AnyArgument {}
@@ -43,6 +46,8 @@ public protocol AnyModule: AnyObject {
 open class BaseModule {
   public let appContext: AppContext
   public required init(appContext: AppContext) { self.appContext = appContext }
+  /// Sends an event to JavaScript listeners (Module.swift).
+  public func sendEvent(_ eventName: String, _ body: [String: Any?] = [:]) {}
 }
 
 public typealias Module = AnyModule & BaseModule
@@ -65,3 +70,27 @@ public func Function<R, A0: AnyArgument, each A: AnyArgument>(
   _ name: String,
   @_implicitSelfCapture _ closure: @escaping (A0, repeat each A) throws -> R
 ) -> AnyDefinition { FunctionDefinition() }
+
+struct EventsDefinition: AnyDefinition {}
+struct EventObservingDefinition: AnyDefinition {}
+
+/// The events the module may send (ObjectFactories.swift).
+public func Events(_ names: String...) -> AnyDefinition { EventsDefinition() }
+
+/// Called when JavaScript starts / stops listening (ObjectFactories.swift).
+public func OnStartObserving(_ event: String? = nil, @_implicitSelfCapture _ closure: @escaping () -> Void) -> AnyDefinition { EventObservingDefinition() }
+public func OnStopObserving(_ event: String? = nil, @_implicitSelfCapture _ closure: @escaping () -> Void) -> AnyDefinition { EventObservingDefinition() }
+
+#if canImport(UIKit)
+/// An app delegate subscriber (AppDelegates/ExpoAppDelegateSubscriber.swift): a UIResponder that is a UIApplicationDelegate,
+/// registered by name in expo-module.config.json's appDelegateSubscribers.
+@objc(EXBaseAppDelegateSubscriber)
+open class BaseExpoAppDelegateSubscriber: UIResponder {
+  public override required init() { super.init() }
+}
+
+@objc(EXAppDelegateSubscriberProtocol)
+public protocol ExpoAppDelegateSubscriberProtocol: UIApplicationDelegate {}
+
+public typealias ExpoAppDelegateSubscriber = BaseExpoAppDelegateSubscriber & ExpoAppDelegateSubscriberProtocol
+#endif

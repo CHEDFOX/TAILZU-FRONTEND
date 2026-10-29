@@ -18,5 +18,41 @@
           android:name="android.appwidget.provider"
           android:resource="@xml/tailzu_widget_month_info" />
     </receiver>
+
+    <!--
+      The quick-access widgets (TailzuQuickWidgets.kt): From your people and
+      Needs you. Same rules as the Month: in the app's process, reading what
+      setWidgetNow wrote, not exported.
+    -->
+    <receiver
+        android:name="expo.modules.tulmibridge.TailzuPeopleWidget"
+        android:exported="false"
+        android:label="@string/tailzu_widget_people_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/tailzu_widget_people_info" />
+    </receiver>
+    <receiver
+        android:name="expo.modules.tulmibridge.TailzuNeedsWidget"
+        android:exported="false"
+        android:label="@string/tailzu_widget_needs_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/tailzu_widget_needs_info" />
+    </receiver>
+    <!--
+      A Needs you button that answers on the spot: only the widgets' own
+      PendingIntents reach it (not exported, no intent filter). It posts with
+      the widgets' narrow token, never the session's.
+    -->
+    <receiver
+        android:name="expo.modules.tulmibridge.TailzuWidgetActReceiver"
+        android:exported="false" />
   </application>
 </manifest>

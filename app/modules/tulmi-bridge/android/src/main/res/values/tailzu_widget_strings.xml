@@ -12,4 +12,27 @@
     <!-- The picker preview's sample: the iOS gallery's 318 words left. -->
     <string name="tailzu_widget_month_preview_number" translatable="false">318</string>
     <string name="tailzu_widget_month_preview_label">WORDS LEFT</string>
+
+    <!--
+      The quick-access widgets (TailzuQuickWidgets.kt): their picker names and
+      descriptions, and what they show before the app has written any rows
+      (never opened, or signed out). Everything else they draw is the
+      server's (GET /v1/widgets/now: widgets.* in the backend).
+    -->
+    <string name="tailzu_widget_people_label">From your people</string>
+    <string name="tailzu_widget_people_description">The latest from family and friends.</string>
+    <string name="tailzu_widget_people_empty_title">Your people, here</string>
+    <string name="tailzu_widget_people_empty_body">Make a space for family and friends.</string>
+    <string name="tailzu_widget_people_empty_cta">Make a space</string>
+    <string name="tailzu_widget_needs_label">Needs you</string>
+    <string name="tailzu_widget_needs_description">Answer your bots and tick off tasks without opening the app.</string>
+    <string name="tailzu_widget_needs_empty_title">All clear</string>
+    <string name="tailzu_widget_needs_empty_body">Nothing needs you right now.</string>
+    <!-- The pickers' previews: a sample row. -->
+    <string name="tailzu_widget_people_preview_who" translatable="false">Riya</string>
+    <string name="tailzu_widget_people_preview_text">shared Weekend plan</string>
+    <string name="tailzu_widget_needs_preview_who" translatable="false">Plan bot</string>
+    <string name="tailzu_widget_needs_preview_text">Move dinner to 7:30?</string>
+    <string name="tailzu_widget_needs_preview_yes">Yes</string>
+    <string name="tailzu_widget_needs_preview_no">No</string>
 </resources>

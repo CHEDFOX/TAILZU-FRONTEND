@@ -291,6 +291,89 @@ public class TulmiBridgeModule: Module {
       }
     }
 
+    // MARK: - Quick access: the two widgets' rows, their token, the icon's long-press list
+
+    // THE QUICK-ACCESS WIDGETS' ROWS. GET /v1/widgets/now's document, as the
+    // app checked and wrote it (src/widgets/now.ts): both widgets' rows
+    // already worded, each tap's link, each button, the look. Kept in the App
+    // Group for the widget extension (QuickAccess.swift), with the moment it
+    // was written (a button's outcome is drawn over its row until the next
+    // write). An empty string clears it (sign-out). Both widgets redraw.
+    Function("setWidgetNow") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      if json.isEmpty {
+        defaults?.removeObject(forKey: "tulmi.widget.now")
+        defaults?.removeObject(forKey: "tulmi.widget.now.state")
+      } else {
+        defaults?.set(json, forKey: "tulmi.widget.now")
+      }
+      defaults?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.widget.now.writtenAt")
+      if #available(iOS 14.0, *) {
+        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.people")
+        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.needs")
+      }
+    }
+
+    // THE WIDGETS' OWN TOKEN (POST /v1/widgets/token): it can only answer this
+    // person's needs-you and tick their own tasks, and runs out in a day. The
+    // token goes to the shared Keychain, beside the session's but never the
+    // session's (its own account, "tulmi.widget.token"); where a button posts
+    // and when it runs out go to the App Group. An empty string deletes both
+    // (sign-out, or answering in place switched off).
+    Function("setWidgetToken") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      guard !json.isEmpty, let data = json.data(using: .utf8),
+            let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+            let token = o["token"] as? String, !token.isEmpty else {
+        TulmiKeychain.set(nil, forKey: "tulmi.widget.token")
+        defaults?.removeObject(forKey: "tulmi.widget.token.meta")
+        return
+      }
+      TulmiKeychain.set(token, forKey: "tulmi.widget.token")
+      var meta: [String: Any] = [:]
+      for k in ["expiresAt", "baseUrl", "path"] { if let v = o[k] { meta[k] = v } }
+      if let m = try? JSONSerialization.data(withJSONObject: meta), let s = String(data: m, encoding: .utf8) {
+        defaults?.set(s, forKey: "tulmi.widget.token.meta")
+      }
+    }
+
+    // THE APP ICON'S LONG-PRESS LIST (Home Screen quick actions), as the
+    // server lists it (src/quickActions): a JSON array of { id, title,
+    // subtitle?, icon? (an SF Symbol), url, arm? }. Applied on the main
+    // thread; an empty array clears it. A press is handled by
+    // TulmiShortcuts (the app delegate side) and taken by consumeQuickAction.
+    Function("setQuickActions") { (json: String) in
+      TulmiShortcuts.apply(json)
+    }
+
+    // The link a quick action left (once), or "" when there is none.
+    Function("consumeQuickAction") { () -> String in
+      TulmiShortcuts.consume() ?? ""
+    }
+
+    // A little time in the background while an answer from a notification's
+    // button goes out (the app may have been woken just for it). Returns a
+    // handle for endBackgroundWork; the system ends it on its own after about
+    // half a minute.
+    Function("beginBackgroundWork") { () -> Int in
+      TulmiShortcuts.beginWork()
+    }
+
+    Function("endBackgroundWork") { (id: Int) in
+      TulmiShortcuts.endWork(id)
+    }
+
+    // A quick action pressed while the app runs: JS is told, and consumes it.
+    Events("onQuickAction")
+
+    OnStartObserving {
+      TulmiShortcuts.onQueued = { [weak self] in self?.sendEvent("onQuickAction", [:]) }
+    }
+
+    OnStopObserving {
+      TulmiShortcuts.onQueued = nil
+    }
+
     // Whether a Flow Session is currently armed in this process.
     Function("isFlowActive") { () -> Bool in
       FlowSessionManager.shared.isArmed
