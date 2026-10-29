@@ -310,6 +310,42 @@ export interface ScreenResponse {
   hideHeader?: boolean;
   /** "desk": a desktop desk page. "bots": a Bots app page, drawn edge to edge from the kit. Phones draw both as any screen. */
   look?: "desk" | "bots";
+  /** Pull to refresh with a bot in it, on this screen's scroll (PULL_BOT_CAPABILITY; PullBot.tsx). */
+  pullBot?: PullBotSpec;
+}
+
+/**
+ * PULL-A-BOT (backend shared/types/sdui.ts 3g). This bundle declares PULL_BOT_CAPABILITY: a screen's Screen pulls a bot
+ * at the edges `pullBot` turns on, and refreshes the screen when one is let go past the line (PullBot.tsx,
+ * pullBotCore.ts). How many are new is counted here: the ids in `items` after the refresh that were not there before.
+ */
+export const PULL_BOT_CAPABILITY = "PullBot";
+
+/** A look for the pull bot: his colours (pullBotCore PullLook); any left out are the prototype's. */
+export interface PullBotLook {
+  shellTop?: string;
+  shellBottom?: string;
+  body?: string;
+  limb?: string;
+  visor?: string;
+  glow?: string;
+  shine?: string;
+  accent?: string;
+}
+
+export interface PullBotSpec {
+  /** Pull down at the top of the list. */
+  top?: boolean;
+  /** Pull up at the end of the list. */
+  bottom?: boolean;
+  /** The ids of the list's items, in any order: those not here before a refresh are its new ones. */
+  items?: string[];
+  /** Where new items land ("top" by default): a pull at the other end says where they are, and a tap goes there. */
+  newAt?: "top" | "bottom";
+  /** Which bot: a look's id (knob pullBot.looks, or the build's: "x0", "ink"), or colours over the default. None: knob pullBot.avatar. */
+  avatar?: string | PullBotLook;
+  /** The face the pill's words are set in (the page's own); none: the system's, semibold. */
+  font?: string;
 }
 
 /**

@@ -30,7 +30,7 @@ import * as Notifications from "expo-notifications";
 import * as Camera from "expo-camera";
 import * as Speech from "expo-speech";
 import * as StoreReview from "expo-store-review";
-import type { ActionRef, ActionSpec, Condition } from "./types";
+import type { ActionRef, ActionSpec, Condition, ScreenResponse } from "./types";
 import { Store } from "./state";
 import { callEndpoint, invalidateScreens, QuotaExceededError, expireBootstrap } from "./client";
 import { supabase } from "../auth/supabaseClient";
@@ -54,6 +54,12 @@ export interface NavApi {
   switchTab: (tabId: string) => void;
   reloadCurrent: () => void;
   refreshLocale: () => void;
+  /**
+   * Fetch the screen on show again and swap it in quietly, as a live update does (live.ts): no spinner, its Store
+   * kept. Applied once `until` settles too (so a pill can say "Checking" for a moment). The new screen, or null when
+   * another came up meanwhile; rejects when the fetch fails. Pull-a-bot's refresh (PullBot.tsx).
+   */
+  refreshQuietly?: (until?: Promise<unknown>) => Promise<ScreenResponse | null>;
 }
 
 export interface Ctx {

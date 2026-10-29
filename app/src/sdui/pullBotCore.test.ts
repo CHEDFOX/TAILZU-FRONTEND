@@ -17,6 +17,7 @@ import {
   lookOf, newPullState, pillFor, PULL_DEFAULTS, PULL_LOOKS, PUFF_LEN, PUFFS, release, rubber, S_B, S_EV, S_PO, S_PUFF, S_PV, S_P,
   S_PH, S_VX, S_VY, S_X, S_Y, STEP, step, unrubber,
 } from "./pullBotCore.ts";
+import { drawScene, makeKit } from "./pullBotDraw.ts";
 
 /** mulberry32, so the throw's random spin and the dust are the same every run. */
 function seeded(seed: number): () => number {
@@ -326,6 +327,37 @@ test("the knobs: the prototype's values by default, anything odd held to a range
   assert.equal(odd[C_THRESH], 80, "inside the band's reach");
   assert.equal(odd[C_RATE], 17);
   assert.equal(odd[C_SCALE], 0.2);
+});
+
+test("the drawing: nothing when idle; in the gap (clipped) while pulled; free, with speed lines, once thrown", () => {
+  const calls: string[] = [];
+  const paint = () => ({ setAntiAlias() {}, setStyle() {}, setColor() {}, setStrokeWidth() {}, setStrokeCap() {}, setStrokeJoin() {}, setMaskFilter() {}, setShader() {}, setAlphaf() {} });
+  const sk = {
+    Skia: {
+      Paint: paint, Color: (c: string) => c, XYWHRect: (x: number, y: number, width: number, height: number) => ({ x, y, width, height }),
+      RRectXY: (rect: unknown, rx: number, ry: number) => ({ rect, rx, ry }), MaskFilter: { MakeBlur: () => ({}) },
+      Shader: { MakeLinearGradient: () => ({}) }, PictureRecorder: () => ({}),
+    },
+    PaintStyle: { Fill: 0, Stroke: 1 }, StrokeCap: { Round: 1 }, StrokeJoin: { Round: 1 }, BlurStyle: { Normal: 0 }, TileMode: { Clamp: 0 },
+    ClipOp: { Intersect: 1 }, vec: (x: number, y: number) => ({ x, y }),
+  };
+  const cv = new Proxy({}, { get: (_t, name) => (...a: unknown[]) => { calls.push(String(name)); void a; } });
+  const kit = makeKit(sk as never, PULL_LOOKS.x0!, 0.5);
+  const s = newPullState(), c = both();
+  drawScene(cv as never, s, c, GEO, kit);
+  assert.deepEqual(calls, [], "idle: nothing");
+  pull(s, c, "top", 300);
+  drawScene(cv as never, s, c, GEO, kit);
+  assert.ok(calls.indexOf("clipRect") >= 0 && calls.indexOf("clipRect") < calls.indexOf("drawRRect"), "the bot inside the gap");
+  assert.ok(calls.includes("drawArc"), "excited at the top: the happy eyes");
+  release(s, c, false);
+  for (let i = 0; i < 400 && s[S_B] !== BOT_FLY; i++) step(s, c, GEO, STEP);
+  run(s, c, 0.05);
+  calls.length = 0;
+  drawScene(cv as never, s, c, GEO, kit);
+  assert.ok(!calls.includes("clipRect"), "thrown: free of the gap");
+  assert.equal(calls.slice(0, 3).join(), "drawLine,drawLine,drawLine", "speed lines first, behind him");
+  assert.ok(calls.filter((x) => x === "drawCircle").length > 10, "his parts and the dust");
 });
 
 test("the app's knob fallbacks are the prototype's values (PullBot.tsx reads them)", () => {

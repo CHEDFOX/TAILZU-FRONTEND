@@ -27,7 +27,7 @@ import {
   RecordingPresets,
   setAudioModeAsync,
 } from "expo-audio";
-import type { TextStyle } from "react-native";
+import type { GestureResponderEvent, LayoutChangeEvent, TextStyle } from "react-native";
 import type { Node, NodeEvent, ThemeTokens } from "./types";
 import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
@@ -326,8 +326,10 @@ export interface CompProps {
  */
 const ScreenViewport = createContext<number>(0);
 
-const Screen = ({ props, children, style }: CompProps) => {
+const Screen = ({ props, children, style, ctx }: CompProps) => {
   const [vh, setVh] = useState(0);
+  // Pull-a-bot, when the screen on show asks for it (ScreenResponse.pullBot): the same scroll, with a bot in its pull.
+  const pull = usePullBot();
   const theme = useTheme();
   // A SCREEN CAN BE TRANSPARENT.
   //
@@ -389,37 +391,48 @@ const Screen = ({ props, children, style }: CompProps) => {
     const hide = Keyboard.addListener("keyboardDidHide", () => setKb(0));
     return () => { show.remove(); hide.remove(); };
   }, []);
+  const contentStyle = [
+    {
+      paddingHorizontal: theme.space.content ?? theme.space.lg,
+      paddingTop: theme.space.contentTop ?? theme.space.lg,
+      // Airy scroll buffer (clears the tab bar).
+      paddingBottom: Number(props?.paddingBottom ?? K.num("ui.Screen.paddingBottom", 120)) + kb,
+    },
+    content,
+  ];
+  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); };
+  const scrollProps = {
+    automaticallyAdjustKeyboardInsets: true,
+    // For the nodes that follow the page (pageBus.ts): where it is scrolled, where a finger is.
+    onTouchStart: (e: GestureResponderEvent) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY),
+    onTouchMove: (e: GestureResponderEvent) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY),
+    onTouchEnd: () => pageTouched(NaN, NaN),
+    scrollEventThrottle: 16,
+    onLayout: (e: LayoutChangeEvent) => {
+      const h = Math.round(e.nativeEvent.layout.height);
+      if (h > 0 && h !== vh) setVh(h);
+    },
+    style: { flex: 1, backgroundColor: backgroundColor ?? theme.color.bg },
+    canCancelContentTouches: !hold,
+    directionalLockEnabled: hold,
+    keyboardShouldPersistTaps: "handled" as const,
+  };
   return (
     <ScreenViewport.Provider value={vh}>
-    <ScrollView
-      ref={scroll}
-      automaticallyAdjustKeyboardInsets
-      onScroll={(e) => { scrolled.current = e.nativeEvent.contentOffset.y; pageScrolled(scrolled.current); }}
-      // For the nodes that follow the page (pageBus.ts): where it is scrolled, where a finger is.
-      onTouchStart={(e) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY)}
-      onTouchMove={(e) => pageTouched(e.nativeEvent.pageX, e.nativeEvent.pageY)}
-      onTouchEnd={() => pageTouched(NaN, NaN)}
-      scrollEventThrottle={16}
-      onLayout={(e) => {
-        const h = Math.round(e.nativeEvent.layout.height);
-        if (h > 0 && h !== vh) setVh(h);
-      }}
-      style={{ flex: 1, backgroundColor: backgroundColor ?? theme.color.bg }}
-      canCancelContentTouches={!hold}
-      directionalLockEnabled={hold}
-      contentContainerStyle={[
-        {
-          paddingHorizontal: theme.space.content ?? theme.space.lg,
-          paddingTop: theme.space.contentTop ?? theme.space.lg,
-          // Airy scroll buffer (clears the tab bar).
-          paddingBottom: Number(props?.paddingBottom ?? K.num("ui.Screen.paddingBottom", 120)) + kb,
-        },
-        content,
-      ]}
-      keyboardShouldPersistTaps="handled"
-    >
-      {children}
-    </ScrollView>
+    {pull ? (
+      <PullBotScroll spec={pull} scroll={scrollProps} contentStyle={contentStyle} onScrollY={onScrollY} scrollRef={scroll} ctx={ctx}>
+        {children}
+      </PullBotScroll>
+    ) : (
+      <ScrollView
+        ref={scroll}
+        {...scrollProps}
+        onScroll={(e) => onScrollY(e.nativeEvent.contentOffset.y)}
+        contentContainerStyle={contentStyle}
+      >
+        {children}
+      </ScrollView>
+    )}
     </ScreenViewport.Provider>
   );
 };
@@ -1561,6 +1574,7 @@ import { BotBuddy } from "./BotBuddy";
 import { HeadBar, LiveMarkNode, WriteOn } from "./HomeHead";
 import { LiveView } from "./LiveView";
 import { pageScrolled, pageTouched } from "./pageBus";
+import { PullBotScroll, usePullBot } from "./PullBot";
 
 // V3 FIRST, so every name registered below wins a collision. The one that
 // mattered is PieChart: V3's donut (which reads `data`) used to be spread LAST
