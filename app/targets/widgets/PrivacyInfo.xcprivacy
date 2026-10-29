@@ -3,16 +3,32 @@
 <plist version="1.0">
 <dict>
   <!-- The widget extension draws what the app already fetched and left in the
-       App Group (the month's numbers, the Flow session's words, the Dictate
-       control's screen). It collects nothing and sends nothing. Every bundle
-       Apple uploads is checked for its own manifest, so the widget needs one
-       even though it only reads the shared defaults. -->
+       App Group (the month's numbers, the quick-access rows, the Flow
+       session's words, the Dictate control's screen). It sends one thing: a
+       Needs you button's answer (which row, which button), to X0 Bot's own
+       server, with the widgets' narrow token, so it is linked to the account
+       (Other User Content, for the app's function, as the app and the
+       keyboard declare it). Every bundle Apple uploads is checked for its own
+       manifest. -->
   <key>NSPrivacyTracking</key>
   <false/>
   <key>NSPrivacyTrackingDomains</key>
   <array/>
   <key>NSPrivacyCollectedDataTypes</key>
-  <array/>
+  <array>
+    <dict>
+      <key>NSPrivacyCollectedDataType</key>
+      <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+      <key>NSPrivacyCollectedDataTypeLinked</key>
+      <true/>
+      <key>NSPrivacyCollectedDataTypeTracking</key>
+      <false/>
+      <key>NSPrivacyCollectedDataTypePurposes</key>
+      <array>
+        <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+      </array>
+    </dict>
+  </array>
   <key>NSPrivacyAccessedAPITypes</key>
   <array>
     <dict>

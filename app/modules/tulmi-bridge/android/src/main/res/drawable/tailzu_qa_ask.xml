@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The app icon's long-press shortcut "Ask" (TailzuShortcuts.kt): the white
+  mark on the widgets' dark ground, so it reads in a light or a dark launcher.
+  The server picks the drawable per shortcut (app.quickActions.android).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#0F0D0B" />
+            <size android:width="48dp" android:height="48dp" />
+        </shape>
+    </item>
+    <item
+        android:bottom="12dp"
+        android:drawable="@drawable/tailzu_wi_ask"
+        android:left="12dp"
+        android:right="12dp"
+        android:top="12dp" />
+</layer-list>

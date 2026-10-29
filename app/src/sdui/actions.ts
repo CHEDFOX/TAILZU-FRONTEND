@@ -37,6 +37,7 @@ import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { buyPackage, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
 import { registerForPushToken, unregisterPushToken } from "../notifications/push";
+import { signingOut } from "../widgets/quickAccess";
 import { completeKeyboardHandoff, cancelKeyboardHandoff, endFlowSession } from "../../modules/tulmi-bridge";
 import { setLanguage } from "../storage";
 import { armFlow } from "../widgets/flow";
@@ -655,8 +656,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     }
     case "signOut":
       // The phone stops receiving this account's pushes BEFORE the session
-      // goes: afterwards nothing is left to prove whose row to drop.
-      await unregisterPushToken();
+      // goes: afterwards nothing is left to prove whose row to drop. The
+      // widgets' own token is revoked on the server the same way (both
+      // bounded: signing out never waits on the network).
+      await Promise.all([unregisterPushToken(), signingOut()]);
       await supabase.auth.signOut();
       break;
 

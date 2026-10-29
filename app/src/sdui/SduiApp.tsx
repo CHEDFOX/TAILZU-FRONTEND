@@ -69,8 +69,10 @@ import { initAnalytics, resetAnalytics } from "../telemetry/analytics";
 import { initMeta } from "../telemetry/meta";
 import { initSentry } from "../telemetry/sentry";
 import { initBilling, identifyBilling, logOutBilling, restorePurchases, isBillingEnabled, hasEntitlement, setBillingKey } from "../billing/purchases";
-import { registerForPushToken, addNotificationResponseListener, forgetPushToken } from "../notifications/push";
-import { installLinkListener } from "../deeplinks/router";
+import { registerForPushToken, addNotificationResponseListener, addNotificationArrivalListener, forgetPushToken } from "../notifications/push";
+import { installLinkListener, parseLink } from "../deeplinks/router";
+import { forgetQuickAccess, publishQuickAccess, refreshQuickAccess } from "../widgets/quickAccess";
+import { onQuickAction, takeQuickAction } from "../quickActions/quickActions";
 import { redeemSignInLink } from "../auth/linkSignIn";
 import { armFlow } from "../widgets/flow";
 import { useShareIn } from "../share/useShareIn";
@@ -403,6 +405,8 @@ export default function SduiApp() {
   // Likewise the keyboard-entry consumer, for a mic-screen link that arrives
   // while the app is already in front.
   const consumeKbRef = useRef<() => void>(() => {});
+  // And the long-press quick action's, for the foreground that follows one.
+  const openQuickActionRef = useRef<() => void>(() => {});
 
   // One-time boot: crash reporting, analytics, IAP, push token, deep links.
   // Each init is a silent no-op when its env key is unset, so the same binary
@@ -467,7 +471,24 @@ export default function SduiApp() {
       if (readyRef.current) setStack([item]);
       else pendingLinkRef.current = item;
     });
-    return () => { linkSub(); notifSub.remove(); };
+    // LONG-PRESS THE APP ICON (iOS; src/quickActions): the chosen item's link, taken once and routed like any link. Never a
+    // microphone screen: an item that arms one left the keyboard's tombstone instead, which consumeKeyboardEntry routes. Taken now
+    // (a cold launch from one), when one arrives while the app runs, and on coming to the front (below).
+    const openQuickAction = () => {
+      const url = takeQuickAction();
+      if (!url) return;
+      const t = parseLink(url);
+      if (t.kind !== "screen" || transientScreenIds().includes(t.screenId)) return;
+      const item: NavItem = { screenId: t.screenId, params: t.params };
+      if (readyRef.current) setStack([item]);
+      else pendingLinkRef.current = item;
+    };
+    openQuickActionRef.current = openQuickAction;
+    openQuickAction();
+    const quickSub = onQuickAction(openQuickAction);
+    // A push while the app runs may be news for the widgets (src/widgets/now.ts).
+    const arrivalSub = addNotificationArrivalListener(() => refreshQuickAccess({ force: true }));
+    return () => { linkSub(); notifSub.remove(); quickSub(); arrivalSub.remove(); };
   }, []);
 
   // One timer for the one toast: a second toast used to be cleared early by
@@ -533,6 +554,8 @@ export default function SduiApp() {
       publishWidgetMonth(b.flags as Record<string, unknown> | undefined, b.labels);
       // The iOS share extension's words and limits, from the same knobs (share/shareConfig.ts).
       publishShareConfig();
+      // The app icon's long-press list and a notification's buttons, from this bootstrap (src/widgets/quickAccess.ts).
+      publishQuickAccess();
       setBoot(b);
       // WHICH TAB THE APP OPENS ON is the server's call, because it turns on
       // something only the server knows: whether this person has ever reached
@@ -872,6 +895,8 @@ export default function SduiApp() {
           resetAnalytics();
           void logOutBilling();
           forgetPushToken();
+          // Nothing of the account in a widget, the Keychain's widget token or an owed notification answer.
+          forgetQuickAccess();
           // The name card belongs to the account: whoever signs in next is
           // asked by their own server answer, not by the last one's.
           profileJustDone.current = false;
@@ -1294,6 +1319,13 @@ export default function SduiApp() {
     pendingLinkRef.current = null;
   }, [phase, consumeKeyboardEntry]);
 
+  // THE QUICK-ACCESS WIDGETS' ROWS (and their narrow token), and any answer from a notification still owed: once ready and on
+  // each fresh bootstrap (src/widgets/quickAccess.ts; never more often than the server's interval). Coming to the front does the
+  // same, below.
+  useEffect(() => {
+    if (phase === "ready") refreshQuickAccess();
+  }, [phase, boot]);
+
   // Arm the Flow Session as soon as we have the flags, NOT only on a
   // background→foreground transition.
   //
@@ -1381,6 +1413,9 @@ export default function SduiApp() {
       // path the cold-start effect above uses.
       const entry = consumeKeyboardEntry();
       if (entry === "record") return;   // mic handoff owns the foreground; skip the reset + refetch
+      // A long-press quick action that brought the app forward (iOS), unless the keyboard's entry already placed a screen.
+      if (entry === "none") openQuickActionRef.current();
+      refreshQuickAccess();
       const navigatedThisForeground = entry === "navigated";
       // Safety net: if we're lingering on a transient mic screen from a PREVIOUS
       // session (recorded/armed, swiped back to the keyboard, now opening the app

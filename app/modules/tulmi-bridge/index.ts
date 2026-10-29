@@ -100,6 +100,15 @@ interface TulmiBridgeNative {
   setSetupActivity?(json: string): void;
   setWidgetDictatePath?(path: string): void;
   setWidgetDictate?(json: string): void;
+  // Quick access (src/widgets/now.ts, src/quickActions): the two widgets'
+  // rows, their narrow token, and the app icon's long-press list.
+  setWidgetNow?(json: string): void;
+  setWidgetToken?(json: string): void;
+  setQuickActions?(json: string): void;
+  consumeQuickAction?(): string;
+  addListener?(event: string, listener: (e: unknown) => void): { remove(): void };
+  beginBackgroundWork?(): number;
+  endBackgroundWork?(id: number): void;
 }
 
 export interface KeyboardRecordRequest {
@@ -488,5 +497,125 @@ export function setWidgetDictate(dictate: WidgetDictate): void {
     }
   } catch {
     // never let a widget stop the app
+  }
+}
+
+/**
+ * THE QUICK-ACCESS WIDGETS' ROWS: "From your people" and "Needs you", exactly
+ * as GET /v1/widgets/now answered them (worded, linked, with their buttons
+ * and the look). Written as JSON to the App Group key `tulmi.widget.now`
+ * (iOS) or the app's `tulmi.widget` SharedPreferences (Android), and both
+ * widgets are redrawn. `null` clears it (sign-out): the widgets then show
+ * their empty state. No-op without the native function (Expo Go, an older
+ * binary).
+ */
+export function setWidgetNow(json: string | null): void {
+  try {
+    native?.setWidgetNow?.(json ?? "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * The widgets' own narrow token (POST /v1/widgets/token): it can only answer
+ * this person's needs-you questions and tick their own tasks, and runs out in
+ * a day. iOS keeps it in the shared Keychain (never UserDefaults) next to
+ * where the session's is; Android in the app's private SharedPreferences.
+ * `baseUrl` and `path` are where a widget's button posts. `null` deletes it
+ * (sign-out, or the server switched answering in place off).
+ */
+export interface WidgetTokenInfo {
+  token: string;
+  expiresAt: number;
+  baseUrl: string;
+  path: string;
+}
+
+export function setWidgetToken(info: WidgetTokenInfo | null): void {
+  try {
+    native?.setWidgetToken?.(info ? JSON.stringify(info) : "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * One entry of the app icon's long-press list (iOS Home Screen quick actions,
+ * Android app shortcuts), as the server lists it (app.quickActions.*).
+ * `icon` is an SF Symbol on iOS and a drawable's name on Android. `url` opens
+ * a screen (tulmi://screen/<id>); `arm`, iOS only, names the screen the
+ * keyboard's App Group tombstone opens instead (the microphone's arming
+ * screen, which a link may never open).
+ */
+export interface QuickActionItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  icon?: string;
+  url: string;
+  arm?: string;
+}
+
+/** Replace the long-press list. An empty list clears it. No-op without the native function. */
+export function setQuickActions(items: QuickActionItem[]): void {
+  try {
+    native?.setQuickActions?.(JSON.stringify(items ?? []));
+  } catch {
+    // never let a shortcut stop the app
+  }
+}
+
+/**
+ * Read (and clear) the link a long-press quick action left for the app, or
+ * null. iOS only: the system hands the chosen item to the app delegate, which
+ * keeps its link until the app asks. (Android's shortcuts open their link
+ * straight through the app's own deep-link intent filter.)
+ */
+export function consumeQuickAction(): string | null {
+  try {
+    const s = native?.consumeQuickAction?.();
+    return s && s.length > 0 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Be told when a quick action arrives while the app is already running (iOS).
+ * The listener should consumeQuickAction(). Returns an unsubscribe.
+ */
+export function addQuickActionListener(listener: () => void): () => void {
+  try {
+    const sub = native?.addListener?.("onQuickAction", () => listener());
+    return () => { try { sub?.remove(); } catch { /* gone */ } };
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * A little time in the background while an answer goes out (iOS: the
+ * system's background task, about half a minute). A notification's button
+ * can run with the app away; without this the phone may put it to sleep
+ * before the request is out. Returns a handle for endBackgroundWork, or -1
+ * (Android, Expo Go, an older binary: nothing to ask for).
+ */
+export function beginBackgroundWork(): number {
+  try {
+    const id = native?.beginBackgroundWork?.();
+    return typeof id === "number" ? id : -1;
+  } catch {
+    return -1;
+  }
+}
+
+/** The time asked for is not needed any more. */
+export function endBackgroundWork(id: number): void {
+  if (id < 0) return;
+  try {
+    native?.endBackgroundWork?.(id);
+  } catch {
+    /* the system ends it on its own */
   }
 }

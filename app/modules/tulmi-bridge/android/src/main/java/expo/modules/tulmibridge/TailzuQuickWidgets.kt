@@ -1,0 +1,471 @@
+package expo.modules.tulmibridge
+
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
+import android.net.Uri
+import android.os.Bundle
+import android.text.format.DateFormat
+import android.text.format.DateUtils
+import android.view.View
+import android.widget.RemoteViews
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.Date
+import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
+
+/**
+ * THE QUICK-ACCESS WIDGETS ON AN ANDROID HOME SCREEN: "From your people" (TailzuPeopleWidget) and "Needs you" (TailzuNeedsWidget),
+ * the iOS PeopleWidget.swift / NeedsWidget.swift with plain framework APIs.
+ *
+ * Everything they draw is the server's: GET /v1/widgets/now's document, which the app checked and wrote with setWidgetNow
+ * (src/widgets/now.ts) to this app's `tulmi.widget` SharedPreferences: the rows already worded, each tap's link, each button and
+ * whether it answers here or opens the app, how many rows each size shows, the colours, each kind's drawable, the empty state
+ * and its button. Every field read here keeps a literal fallback, so a missing one never stops the rest; a new kind of row or
+ * button is the server's data, not code. Nothing here asks the server for rows.
+ *
+ * A button that answers here is a broadcast to TailzuWidgetActReceiver (not exported: only these PendingIntents reach it), which
+ * posts it with the widgets' OWN narrow token (POST /v1/widgets/token; it can only answer this person's needs-you and tick their
+ * own tasks, runs out in a day, is revoked at sign-out), kept in the same private SharedPreferences. Never the session's token.
+ * The row says how it went ("Done", "Already answered", "Open X0 Bot to finish") until the app writes the rows again.
+ *
+ * Rows are nested RemoteViews added to a column at draw time, one per row the widget's height has room for (at most the server's
+ * `limits.android`). No timer: the app asks for a redraw whenever it writes rows, and after a button.
+ */
+object TailzuQuick {
+  const val PREFS = TailzuMonthWidget.PREFS
+  const val NOW = "tulmi.widget.now"
+  const val WRITTEN_AT = "tulmi.widget.now.writtenAt"
+  const val STATE = "tulmi.widget.now.state"
+  const val TOKEN = "tulmi.widget.token"
+  const val TOKEN_META = "tulmi.widget.token.meta"
+  const val ACT = "expo.modules.tulmibridge.WIDGET_ACT"
+
+  private val GROUND = Color.rgb(0x0F, 0x0D, 0x0B)
+  private val PALE = Color.rgb(0xF3, 0xE2, 0xC6)
+
+  /** Ask both quick-access widgets to draw again (a broadcast, so the caller never waits on a draw). Never throws. */
+  fun requestUpdate(context: Context) {
+    for (cls in listOf(TailzuPeopleWidget::class.java, TailzuNeedsWidget::class.java)) {
+      try {
+        val manager = AppWidgetManager.getInstance(context) ?: continue
+        val ids = manager.getAppWidgetIds(ComponentName(context, cls))
+        if (ids == null || ids.isEmpty()) continue
+        context.sendBroadcast(
+          Intent(context, cls).setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE).putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+        )
+      } catch (_: Exception) {
+        // A widget never stops the app.
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ reading what the app wrote
+
+  internal fun obj(raw: String?): JSONObject? = raw?.let {
+    try {
+      JSONObject(it)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  internal fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  /** The document and what buttons did since it was written. */
+  internal fun load(context: Context): Pair<JSONObject?, Map<String, String>> = try {
+    val p = prefs(context)
+    val doc = obj(p.getString(NOW, null))?.takeIf { it.opt("v") is Number }
+    val written = p.getLong(WRITTEN_AT, 0L)
+    val states = mutableMapOf<String, String>()
+    obj(p.getString(STATE, null))?.let { o ->
+      for (k in o.keys()) {
+        val e = o.optJSONObject(k) ?: continue
+        if (e.optLong("at", 0L) > written) states[k] = e.optString("s", "")
+      }
+    }
+    Pair(doc, states)
+  } catch (_: Exception) {
+    Pair(null, emptyMap())
+  }
+
+  /** What a button did to a row: working, done, gone, failed. */
+  internal fun setState(context: Context, item: String, state: String) {
+    try {
+      val p = prefs(context)
+      val o = obj(p.getString(STATE, null)) ?: JSONObject()
+      val now = System.currentTimeMillis()
+      val old = o.keys().asSequence().toList().filter { (o.optJSONObject(it)?.optLong("at", 0L) ?: 0L) < now - DateUtils.DAY_IN_MILLIS }
+      for (k in old) o.remove(k)
+      o.put(item, JSONObject().put("s", state).put("at", now))
+      p.edit().putString(STATE, o.toString()).apply()
+    } catch (_: Exception) {
+    }
+  }
+
+  // ------------------------------------------------------------------ the look
+
+  internal class Look(doc: JSONObject?, context: Context) {
+    private val look = doc?.optJSONObject("look")
+    private val colors = look?.optJSONObject("colors")
+    private val light = look?.optJSONObject("light")
+    private val alphas = look?.optJSONObject("alpha")
+    private val styles = look?.optJSONObject("styles")
+    private val theme = obj(prefs(context).getString(TailzuMonthWidget.THEME_KEY, null))
+    private val isLight =
+      (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_NO
+
+    /** The server's colour for a role (its light palette in light mode, when it sent one), then the month's theme, then the literal. */
+    fun color(key: String, fallback: Int): Int {
+      if (isLight) MonthLook.hex(light?.opt(key) as? String)?.let { return it }
+      return MonthLook.hex(colors?.opt(key) as? String)
+        ?: MonthLook.hex(theme?.optJSONObject("colors")?.opt(key) as? String)
+        ?: fallback
+    }
+
+    fun alpha(key: String, fallback: Float): Float {
+      val v = alphas?.opt(key)
+      return if (v is Number && v.toDouble() in 0.0..1.0) v.toFloat() else fallback
+    }
+
+    val ground get() = color("ground", GROUND)
+    val pale get() = color("pale", PALE)
+    val accent get() = color("accent", color("mark", pale))
+    val dim get() = MonthLook.fade(pale, alpha("dim", 0.52f))
+    val rule get() = MonthLook.fade(pale, alpha("rule", 0.13f))
+
+    fun fg(style: String): Int = MonthLook.hex(styles?.optJSONObject(style)?.opt("fg") as? String) ?: if (style == "primary") ground else pale
+    fun bg(style: String): Int = MonthLook.hex(styles?.optJSONObject(style)?.opt("bg") as? String) ?: if (style == "primary") pale else rule
+  }
+
+  // ------------------------------------------------------------------ links and buttons
+
+  /** A link this app opens (its schemes, its own https hosts), as an Intent for this app only. Null for anything else. */
+  internal fun openIntent(context: Context, url: String?): Intent? {
+    val s = url?.trim()
+    if (s.isNullOrEmpty()) return null
+    val uri = Uri.parse(s)
+    val scheme = uri.scheme?.lowercase() ?: return null
+    val hosts = setOf("x0bot.com", "app.x0bot.com", "tailzu.space", "app.tailzu.space")
+    val ok = scheme == "tulmi" || scheme == "com.tulmi.app" || (scheme == "https" && (uri.host?.lowercase() ?: "") in hosts)
+    if (!ok) return null
+    return Intent(Intent.ACTION_VIEW, uri).setPackage(context.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+  }
+
+  internal fun open(context: Context, url: String?, code: Int): PendingIntent? {
+    val intent = openIntent(context, url)
+      ?: context.packageManager.getLaunchIntentForPackage(context.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      ?: return null
+    return try {
+      PendingIntent.getActivity(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  internal fun answer(context: Context, item: String, action: String, code: Int): PendingIntent? = try {
+    val intent = Intent(context, TailzuWidgetActReceiver::class.java)
+      .setAction(ACT)
+      // Each button its own intent (the data), so one PendingIntent never stands in for another.
+      .setData(Uri.parse("x0act://answer/${Uri.encode(item)}/${Uri.encode(action)}"))
+      .putExtra("item", item)
+      .putExtra("action", action)
+    PendingIntent.getBroadcast(context, code, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+  } catch (_: Exception) {
+    null
+  }
+
+  /** A drawable by the server's name (tailzu_wi_*), or the fallback. */
+  internal fun drawable(context: Context, name: String?, fallback: Int): Int {
+    if (name.isNullOrEmpty() || !name.matches(Regex("^[a-z0-9_]{1,64}$"))) return fallback
+    @Suppress("DiscouragedApi")
+    val id = context.resources.getIdentifier(name, "drawable", context.packageName)
+    return if (id != 0) id else fallback
+  }
+
+  // ------------------------------------------------------------------ drawing
+
+  /** How tall the widget is, in dp, as the launcher shows it now. */
+  internal fun heightDp(context: Context, options: Bundle?): Float {
+    val landscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val h = options?.getInt(
+      if (landscape) AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0
+    ) ?: 0
+    return if (h > 0) h.toFloat() else 180f
+  }
+
+  /** When, the way the server said: counting ("5 min. ago"), the clock ("6:30 pm"), or its own words. */
+  internal fun whenText(context: Context, row: JSONObject, style: String): String {
+    val at = row.optLong("at", 0L)
+    if (at > 0L && style == "relative") {
+      return DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
+    }
+    if (at > 0L && style == "clock") return DateFormat.getTimeFormat(context).format(Date(at))
+    return row.optString("when", "")
+  }
+
+  /** One section of the document (people or needs) drawn into a widget, its rows as many as fit. */
+  internal fun draw(
+    context: Context, which: String, appWidgetId: Int, options: Bundle?,
+    fallbackTitle: String, fallbackEmptyTitle: String, fallbackEmptyBody: String, fallbackEmptyCta: String, fallbackUrl: String,
+    rowDp: Float, sectionIcon: Int,
+  ): RemoteViews {
+    val (doc, states) = load(context)
+    val look = Look(doc, context)
+    val section = doc?.optJSONObject(which)
+    val on = section?.optBoolean("on", false) == true
+    val rows = section?.optJSONArray("rows") ?: JSONArray()
+    val words = section?.optJSONObject("words")
+    val time = doc?.optString("time", "relative") ?: "relative"
+    val rv = RemoteViews(context.packageName, R.layout.tailzu_widget_quick)
+
+    rv.setInt(R.id.tailzu_quick_ground, "setColorFilter", look.ground or 0xFF000000.toInt())
+    rv.setInt(R.id.tailzu_quick_ground, "setImageAlpha", Color.alpha(look.ground))
+    rv.setImageViewResource(R.id.tailzu_quick_icon, drawable(context, section?.optString("androidIcon"), sectionIcon))
+    rv.setInt(R.id.tailzu_quick_icon, "setColorFilter", look.accent)
+    rv.setTextViewText(R.id.tailzu_quick_title, section?.optString("title")?.takeIf { it.isNotEmpty() } ?: fallbackTitle)
+    rv.setTextColor(R.id.tailzu_quick_title, look.dim)
+    val base = appWidgetId * 64
+    open(context, section?.optString("url")?.takeIf { it.isNotEmpty() } ?: fallbackUrl, base)?.let {
+      rv.setOnClickPendingIntent(android.R.id.background, it)
+    }
+
+    rv.removeAllViews(R.id.tailzu_quick_rows)
+    val room = max(1, ((heightDp(context, options) - 44f) / rowDp).toInt())
+    val limit = section?.optJSONObject("limits")?.optInt("android", if (which == "needs") 3 else 4) ?: 4
+    val count = min(min(room, max(1, limit)), rows.length())
+    if (doc == null || !on || count == 0) {
+      rv.setViewVisibility(R.id.tailzu_quick_rows, View.GONE)
+      rv.setViewVisibility(R.id.tailzu_quick_empty, View.VISIBLE)
+      val empty = section?.optJSONObject("empty")
+      val written = empty?.optString("title")?.isNotEmpty() == true
+      rv.setTextViewText(R.id.tailzu_quick_empty_title, if (written) empty!!.optString("title") else fallbackEmptyTitle)
+      rv.setTextColor(R.id.tailzu_quick_empty_title, look.pale)
+      val body = if (written) empty!!.optString("body", "") else fallbackEmptyBody
+      rv.setTextViewText(R.id.tailzu_quick_empty_body, body)
+      rv.setTextColor(R.id.tailzu_quick_empty_body, look.dim)
+      rv.setViewVisibility(R.id.tailzu_quick_empty_body, if (body.isEmpty()) View.GONE else View.VISIBLE)
+      val cta = if (written) empty!!.optString("cta", "") else fallbackEmptyCta
+      rv.setTextViewText(R.id.tailzu_quick_empty_cta_text, cta)
+      rv.setViewVisibility(R.id.tailzu_quick_empty_cta, if (cta.isEmpty()) View.GONE else View.VISIBLE)
+      pill(rv, R.id.tailzu_quick_empty_cta_bg, R.id.tailzu_quick_empty_cta_text, "primary", look)
+      open(context, empty?.optString("url")?.takeIf { it.isNotEmpty() } ?: fallbackUrl, base + 1)?.let {
+        rv.setOnClickPendingIntent(R.id.tailzu_quick_empty, it)
+        rv.setOnClickPendingIntent(android.R.id.background, it)
+      }
+      rv.setContentDescription(android.R.id.background, fallbackTitle)
+      return rv
+    }
+    rv.setViewVisibility(R.id.tailzu_quick_rows, View.VISIBLE)
+    rv.setViewVisibility(R.id.tailzu_quick_empty, View.GONE)
+    for (i in 0 until count) {
+      val row = rows.optJSONObject(i) ?: continue
+      rv.addView(R.id.tailzu_quick_rows, rowViews(context, row, look, time, states[row.optString("id")], words, base + 2 + i * 6))
+    }
+    return rv
+  }
+
+  /**
+   * A button's look, the server's style: a rounded pill image tinted to its colour (the way the Month tints its ground, so every
+   * Android version takes it) under its words.
+   */
+  private fun pill(rv: RemoteViews, bg: Int, text: Int, style: String, look: Look) {
+    val fill = look.bg(style)
+    rv.setInt(bg, "setColorFilter", fill or 0xFF000000.toInt())
+    rv.setInt(bg, "setImageAlpha", Color.alpha(fill))
+    rv.setTextColor(text, look.fg(style))
+  }
+
+  /** The three button slots of a row: the pressable frame, its pill, its words. */
+  private val BUTTONS = arrayOf(
+    intArrayOf(R.id.tailzu_row_b0, R.id.tailzu_row_b0_bg, R.id.tailzu_row_b0_text),
+    intArrayOf(R.id.tailzu_row_b1, R.id.tailzu_row_b1_bg, R.id.tailzu_row_b1_text),
+    intArrayOf(R.id.tailzu_row_b2, R.id.tailzu_row_b2_bg, R.id.tailzu_row_b2_text),
+  )
+
+  private fun rowViews(
+    context: Context, row: JSONObject, look: Look, time: String, state: String?, words: JSONObject?, code: Int,
+  ): RemoteViews {
+    val v = RemoteViews(context.packageName, R.layout.tailzu_widget_quick_row)
+    val item = row.optString("id")
+    v.setImageViewResource(R.id.tailzu_row_icon, drawable(context, row.optString("androidIcon"), R.drawable.tailzu_wi_bot))
+    v.setInt(R.id.tailzu_row_icon, "setColorFilter", MonthLook.hex(row.optString("color")) ?: look.accent)
+    v.setTextViewText(R.id.tailzu_row_who, row.optString("who"))
+    v.setTextColor(R.id.tailzu_row_who, look.pale)
+    val tag = row.optString("tag", "")
+    v.setTextViewText(R.id.tailzu_row_tag, tag)
+    v.setTextColor(R.id.tailzu_row_tag, look.dim)
+    v.setViewVisibility(R.id.tailzu_row_tag, if (tag.isEmpty()) View.GONE else View.VISIBLE)
+    v.setTextViewText(R.id.tailzu_row_when, whenText(context, row, time))
+    v.setTextColor(R.id.tailzu_row_when, look.dim)
+    val text = row.optString("text").ifEmpty { row.optString("line") }
+    v.setTextViewText(R.id.tailzu_row_text, text)
+    v.setTextColor(R.id.tailzu_row_text, MonthLook.fade(look.pale, 0.86f))
+    open(context, row.optString("url"), code)?.let { v.setOnClickPendingIntent(R.id.tailzu_row_words, it) }
+
+    // How a pressed button went, until the rows are written again; else the buttons.
+    if (!state.isNullOrEmpty()) {
+      val line = when (state) {
+        "working" -> words?.optString("working")?.ifEmpty { null } ?: "Sending…"
+        "done" -> words?.optString("done")?.ifEmpty { null } ?: "Done"
+        "gone" -> words?.optString("gone")?.ifEmpty { null } ?: "Already answered"
+        else -> words?.optString("failed")?.ifEmpty { null } ?: "Open X0 Bot to finish"
+      }
+      v.setTextViewText(R.id.tailzu_row_state, line)
+      v.setTextColor(R.id.tailzu_row_state, if (state == "done") look.accent else look.dim)
+      v.setViewVisibility(R.id.tailzu_row_state, View.VISIBLE)
+      v.setViewVisibility(R.id.tailzu_row_buttons, View.GONE)
+      return v
+    }
+    v.setViewVisibility(R.id.tailzu_row_state, View.GONE)
+    val actions = row.optJSONArray("actions") ?: JSONArray()
+    var shown = 0
+    for (i in 0 until actions.length()) {
+      if (shown >= BUTTONS.size) break
+      val a = actions.optJSONObject(i) ?: continue
+      val id = a.optString("id")
+      val label = a.optString("label")
+      if (id.isEmpty() || label.isEmpty()) continue
+      val tap = when (a.optString("mode")) {
+        "inPlace" -> answer(context, item, id, code + 1 + shown)
+        "open" -> if (openIntent(context, a.optString("url")) != null) open(context, a.optString("url"), code + 1 + shown) else null
+        else -> null
+      } ?: continue
+      val (frame, bg, words2) = BUTTONS[shown].let { Triple(it[0], it[1], it[2]) }
+      v.setTextViewText(words2, label)
+      pill(v, bg, words2, a.optString("style", "secondary"), look)
+      v.setOnClickPendingIntent(frame, tap)
+      v.setViewVisibility(frame, View.VISIBLE)
+      shown++
+    }
+    for (j in shown until BUTTONS.size) v.setViewVisibility(BUTTONS[j][0], View.GONE)
+    v.setViewVisibility(R.id.tailzu_row_buttons, if (shown > 0) View.VISIBLE else View.GONE)
+    return v
+  }
+
+  // ------------------------------------------------------------------ answering
+
+  /** One answer, posted with the widgets' own token: done, gone (already answered) or failed. Run off the main thread. */
+  internal fun post(context: Context, item: String, action: String): String {
+    return try {
+      val p = prefs(context)
+      val token = p.getString(TOKEN, null)?.takeIf { it.startsWith("xwt_") } ?: return "failed"
+      val meta = obj(p.getString(TOKEN_META, null)) ?: return "failed"
+      if (meta.optLong("expiresAt", 0L) <= System.currentTimeMillis()) return "failed"
+      val base = meta.optString("baseUrl", "").ifEmpty {
+        context.getSharedPreferences("tulmi", Context.MODE_PRIVATE).getString("tulmi.baseUrl", null) ?: "https://api.x0bot.com"
+      }.trimEnd('/')
+      val path = meta.optString("path", "").takeIf { it.startsWith("/v1/") } ?: "/v1/widgets/act"
+      val url = URI(base + path).toURL()
+      if (url.protocol != "https" && url.host != "localhost" && url.host != "10.0.2.2") return "failed"
+      val body = JSONObject().put("item", item).put("action", action).put("key", "w" + UUID.randomUUID().toString().replace("-", ""))
+      val conn = url.openConnection() as HttpURLConnection
+      try {
+        conn.requestMethod = "POST"
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("X-Widget-Token", token)
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        when (conn.responseCode) {
+          in 200..299 -> "done"
+          404, 409, 410 -> "gone"
+          else -> "failed"
+        }
+      } finally {
+        conn.disconnect()
+      }
+    } catch (_: Exception) {
+      "failed"
+    }
+  }
+}
+
+/** FROM YOUR PEOPLE: the latest from family and friends; a tap on a row opens exactly that thing in the app. */
+class TailzuPeopleWidget : AppWidgetProvider() {
+  override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+    for (id in appWidgetIds) redraw(context, appWidgetManager, id)
+  }
+
+  override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle?) {
+    redraw(context, appWidgetManager, appWidgetId)
+  }
+
+  private fun redraw(context: Context, manager: AppWidgetManager, id: Int) {
+    try {
+      manager.updateAppWidget(id, TailzuQuick.draw(
+        context, "people", id, manager.getAppWidgetOptions(id),
+        fallbackTitle = context.getString(R.string.tailzu_widget_people_label),
+        fallbackEmptyTitle = context.getString(R.string.tailzu_widget_people_empty_title),
+        fallbackEmptyBody = context.getString(R.string.tailzu_widget_people_empty_body),
+        fallbackEmptyCta = context.getString(R.string.tailzu_widget_people_empty_cta),
+        fallbackUrl = "tulmi://screen/bots.spaces",
+        rowDp = 46f, sectionIcon = R.drawable.tailzu_wi_spaces,
+      ))
+    } catch (_: Throwable) {
+      // A launcher that refused it keeps what it had.
+    }
+  }
+}
+
+/** NEEDS YOU: a bot's question with its answers, a yes, a task with Done; answered right here when the server says so. */
+class TailzuNeedsWidget : AppWidgetProvider() {
+  override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+    for (id in appWidgetIds) redraw(context, appWidgetManager, id)
+  }
+
+  override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle?) {
+    redraw(context, appWidgetManager, appWidgetId)
+  }
+
+  private fun redraw(context: Context, manager: AppWidgetManager, id: Int) {
+    try {
+      manager.updateAppWidget(id, TailzuQuick.draw(
+        context, "needs", id, manager.getAppWidgetOptions(id),
+        fallbackTitle = context.getString(R.string.tailzu_widget_needs_label),
+        fallbackEmptyTitle = context.getString(R.string.tailzu_widget_needs_empty_title),
+        fallbackEmptyBody = context.getString(R.string.tailzu_widget_needs_empty_body),
+        fallbackEmptyCta = "",
+        fallbackUrl = "tulmi://screen/bots.home",
+        rowDp = 82f, sectionIcon = R.drawable.tailzu_wi_bot,
+      ))
+    } catch (_: Throwable) {
+    }
+  }
+}
+
+/**
+ * A Needs you button that answers here: posted off the main thread (goAsync keeps the receiver alive for it), the row marked as it
+ * goes and as it went, both widgets redrawn. Not exported: only the widgets' own PendingIntents reach it.
+ */
+class TailzuWidgetActReceiver : BroadcastReceiver() {
+  override fun onReceive(context: Context, intent: Intent) {
+    if (intent.action != TailzuQuick.ACT) return
+    val item = intent.getStringExtra("item") ?: return
+    val action = intent.getStringExtra("action") ?: return
+    if (!item.matches(Regex("^[A-Za-z0-9_.:-]{1,200}$")) || !action.matches(Regex("^[a-z0-9_]{1,24}$"))) return
+    val app = context.applicationContext
+    TailzuQuick.setState(app, item, "working")
+    TailzuQuick.requestUpdate(app)
+    val pending = goAsync()
+    Thread {
+      try {
+        TailzuQuick.setState(app, item, TailzuQuick.post(app, item, action))
+        TailzuQuick.requestUpdate(app)
+      } finally {
+        pending.finish()
+      }
+    }.start()
+  }
+}

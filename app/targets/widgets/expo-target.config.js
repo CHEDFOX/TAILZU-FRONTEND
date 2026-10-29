@@ -11,6 +11,10 @@
  *                        someone left off at, until it is done.
  *   • Dictate          — an iOS 18 Control for Control Center, the Lock
  *                        Screen and the Action Button: arms the microphone.
+ *   • From your people — Home Screen small / medium / large and a Lock Screen
+ *                        rectangle: the latest from family and friends.
+ *   • Needs you        — the same sizes, with buttons (iOS 17 App Intents):
+ *                        answer a bot, tick a task, without opening the app.
  *
  * The App Group is how the widgets read what the app writes (the month's
  * numbers, the keyboard's arming tombstone) — the same group the keyboard
@@ -29,5 +33,10 @@ module.exports = {
   frameworks: ["SwiftUI", "WidgetKit", "ActivityKit", "AppIntents"],
   entitlements: {
     "com.apple.security.application-groups": ["group.com.tulmi.app"],
+    // The Needs you widget's buttons read the widgets' OWN narrow token
+    // (never the session's) from the shared Keychain the app writes it to
+    // (QuickAccess.swift WidgetKeychain; the bridge's TulmiKeychain). Same
+    // group as the app and the keyboard (app.config.ts, targets/keyboard).
+    "keychain-access-groups": ["$(AppIdentifierPrefix)com.tulmi.app.shared"],
   },
 };

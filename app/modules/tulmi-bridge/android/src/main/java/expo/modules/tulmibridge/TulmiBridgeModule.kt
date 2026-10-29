@@ -97,6 +97,49 @@ class TulmiBridgeModule : Module() {
       TailzuMonthWidget.requestUpdate(ctx)
     }
 
+    // THE QUICK-ACCESS WIDGETS' ROWS (TailzuQuickWidgets.kt): GET
+    // /v1/widgets/now's document as the app checked it (src/widgets/now.ts),
+    // with the moment it was written (a pressed button's outcome is drawn over
+    // its row until the next write). An empty string clears it (sign-out).
+    // Both widgets redraw.
+    Function("setWidgetNow") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      val e = ctx.getSharedPreferences(TailzuQuick.PREFS, Context.MODE_PRIVATE).edit()
+      if (json.isEmpty()) e.remove(TailzuQuick.NOW).remove(TailzuQuick.STATE) else e.putString(TailzuQuick.NOW, json)
+      e.putLong(TailzuQuick.WRITTEN_AT, System.currentTimeMillis()).apply()
+      TailzuQuick.requestUpdate(ctx)
+    }
+
+    // THE WIDGETS' OWN TOKEN (POST /v1/widgets/token): it can only answer this
+    // person's needs-you and tick their own tasks, and runs out in a day. Kept
+    // in this app's private SharedPreferences, beside where a button posts.
+    // Never the session's token. An empty string deletes it.
+    Function("setWidgetToken") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      val e = ctx.getSharedPreferences(TailzuQuick.PREFS, Context.MODE_PRIVATE).edit()
+      val o = TailzuQuick.obj(json)
+      val token = o?.optString("token")?.takeIf { it.startsWith("xwt_") }
+      if (o == null || token == null) {
+        e.remove(TailzuQuick.TOKEN).remove(TailzuQuick.TOKEN_META).apply()
+        return@Function
+      }
+      val meta = org.json.JSONObject()
+        .put("expiresAt", o.optLong("expiresAt", 0L))
+        .put("baseUrl", o.optString("baseUrl", ""))
+        .put("path", o.optString("path", "/v1/widgets/act"))
+      e.putString(TailzuQuick.TOKEN, token).putString(TailzuQuick.TOKEN_META, meta.toString()).apply()
+    }
+
+    // THE APP ICON'S LONG-PRESS LIST (TailzuShortcuts.kt), as the server
+    // lists it: dynamic shortcuts that open their link like any link.
+    Function("setQuickActions") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      TailzuShortcuts.apply(ctx, json)
+    }
+
+    // Android's shortcuts arrive as links: nothing is ever left to consume.
+    Function("consumeQuickAction") { "" }
+
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being
     // enabled is the permission the onboarding gate waits for.

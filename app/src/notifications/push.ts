@@ -16,6 +16,7 @@ import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { APP_VERSION, callEndpoint } from "../sdui/client";
 import { bool, list, str, txt } from "../sdui/knobs";
+import { handleNotificationAction } from "./actions";
 
 /** A channel the server lists (push.android.channels): its id, the name and line Android's settings show. */
 interface AndroidChannel { id: string; name: string; description?: string; importance?: "min" | "low" | "default" | "high"; sound?: boolean }
@@ -140,11 +141,28 @@ const handledTaps = new Set<string>();
 
 function onTap(res: Notifications.NotificationResponse, handler: (data: any) => void) {
   const id = res?.notification?.request?.identifier;
-  if (id) {
-    if (handledTaps.has(id)) return;
-    handledTaps.add(id);
+  // Once per notification AND button: a tap and a press on its Reply are two things.
+  const seen = id ? `${id}:${res?.actionIdentifier ?? ""}` : "";
+  if (seen) {
+    if (handledTaps.has(seen)) return;
+    handledTaps.add(seen);
   }
-  handler(res?.notification?.request?.content?.data ?? {});
+  const data = res?.notification?.request?.content?.data ?? {};
+  // A button (Reply, Done, Yes, No…; the server's categories, categories.ts) answers without opening anything, unless the server
+  // made it one that opens; a plain tap opens the push's screen, as ever.
+  void handleNotificationAction(res)
+    .then((r) => { if (r === "open") handler(data); })
+    .catch(() => handler(data));
+}
+
+/**
+ * A push arrived while the app is in front (or, on Android, running): the quick-access widgets may have something new to show
+ * (src/widgets/now.ts). The push's data is handed over; never throws.
+ */
+export function addNotificationArrivalListener(fn: (data: Record<string, unknown>) => void) {
+  return Notifications.addNotificationReceivedListener((n) => {
+    try { fn((n?.request?.content?.data ?? {}) as Record<string, unknown>); } catch { /* no-op */ }
+  });
 }
 
 /**

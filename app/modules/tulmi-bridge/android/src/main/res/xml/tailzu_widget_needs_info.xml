@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Needs you in the widget picker (TailzuQuickWidgets.kt). 4 by 2 cells by
+  default, resizable; the rows shown follow the height the launcher gives it
+  (at most the server's limits.android). No timer (updatePeriodMillis 0): the
+  app asks for a redraw each time it writes rows, and after a button.
+  The name and description are string resources: the picker reads them
+  before the app has run.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/tailzu_widget_needs_description"
+    android:initialLayout="@layout/tailzu_widget_quick"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:previewImage="@drawable/tailzu_widget_month_preview_image"
+    android:previewLayout="@layout/tailzu_widget_needs_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

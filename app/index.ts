@@ -19,5 +19,14 @@ try {
   SplashScreen.preventAutoHideAsync?.()?.catch?.(() => {});
 } catch { /* absent in a runtime without the module — nothing to hold */ }
 
+// A NOTIFICATION'S BUTTON WITH THE APP CLOSED (Android): the task that runs a
+// press without a window has to be defined before anything else, because a
+// background run starts here (src/notifications/backgroundTask.ts). Guarded
+// like the splash: a runtime without expo-task-manager loses only that.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require("./src/notifications/backgroundTask");
+} catch { /* the buttons still work while the app runs */ }
+
 // Registers App as the root component for both Expo Go and native builds.
 registerRootComponent(App);
