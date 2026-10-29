@@ -386,6 +386,19 @@ test("Reduce Motion in a moment: its still pose (asleep: sitting, eyes shut), an
   assert.ok(t.finite() && t.momentId() === "sleep", "and lives on in it after");
 });
 
+test("a recipe can call on today's acts: thinking inside a moment puts a hand to his chin, as the act does", () => {
+  const C = compileLooks({ v: 1, moments: { ponder: { dur: 3, tracks: [{ do: "act", act: "think" }, { do: "eyes", at: 2, state: "happy" }] } } });
+  assert.deepStrictEqual(C.errors, []);
+  const t = staged("blip", 104, 48, 30);
+  t.playMoment(C.moment("ponder"), "once");
+  for (let f = 0; f < 120; f++) t.step(1 / 60);
+  const hand = Math.min(Math.hypot(t.x[6]! - t.x[0]!, t.y[6]! - t.y[0]!), Math.hypot(t.x[8]! - t.x[0]!, t.y[8]! - t.y[0]!));
+  assert.ok(hand < t.S * 0.45, "a hand at his chin");
+  assert.ok(t.eu > 0, "eyes up");
+  for (let f = 0; f < 120; f++) t.step(1 / 60);
+  assert.ok(t.momentDone(), "and the moment ends");
+});
+
 test("what a build cannot play is left out, never a crash: a newer format, an unknown track, a bad expression, a missing part", () => {
   const base = JSON.parse(JSON.stringify(STARTER)) as { v: number; moments: Record<string, unknown>; avatars: Record<string, unknown> };
   base.moments["future"] = { format: LOOKS_FORMAT + 1, dur: 1, tracks: [{ do: "teleport" }], fallback: "wave" };
