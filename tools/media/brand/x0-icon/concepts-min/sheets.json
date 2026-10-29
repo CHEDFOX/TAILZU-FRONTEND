@@ -1,0 +1,22 @@
+{
+  "title": "X0 Bot: eight minimal concepts",
+  "subtitle": "Concepts first, finish later. Each is one silhouette plus two eyes with attitude (and at most one signature detail) on a loud colour field, kept flat on purpose. Ranked, strongest first. Pick a direction and it gets the full render. The dashed card is the Grok Bot icon, for comparison only.",
+  "order": ["4-half-peek", "8-corner-eye", "1-kilroy", "3-visor", "7-two-tone", "6-bolt-antenna", "5-x0-attitude", "2-sly-square"],
+  "icons": {
+    "4-half-peek": {"tag": "1", "title": "Half-peek", "line": "Only the top of the box head clears the bottom edge; the eyes slide sideways. Maximum tension, pure Peek, readable at 29 px. Owns the idea."},
+    "8-corner-eye": {"tag": "2", "title": "One eye round the corner", "line": "A huge head slides in from the edge and only one eye has made it round. One shape, one mark, total curiosity. The boldest, but less obviously a bot."},
+    "1-kilroy": {"tag": "3", "title": "Kilroy peek", "line": "Head, fingers and wall as ONE black shape; sly slits of yellow for eyes. Understood instantly, but Kilroy is a 1940s doodle everyone already owns."},
+    "3-visor": {"tag": "4", "title": "The visor alone", "line": "One black glass band tilted across acid lime, two determined eyes. Loud and graphic, but it reads as a masked bandit, not a friendly helper."},
+    "7-two-tone": {"tag": "5", "title": "Two-tone", "line": "A black box head off the bottom left, one eye narrower: mischief. Strong, but the closest in spirit to Grok Bot."},
+    "6-bolt-antenna": {"tag": "6", "title": "Bolt antenna", "line": "A plain head whose one signature is a lightning-zag antenna, eyes rolled up at it. Fun, but the bolt says 'electric', not 'helper'."},
+    "5-x0-attitude": {"tag": "7", "title": "X0 attitude", "line": "The name in the face: one eye squeezed into an X, the other a 0. Clever, but an X eye still whispers 'knocked out'."},
+    "2-sly-square": {"tag": "8", "title": "Sly square", "line": "A huge white box head with narrowed eyes. Reads 'unimpressed', not powerful. Dropped."}
+  },
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: one shape, two marks, attitude, cropped. The lesson, not the look."},
+  "homeRows": [
+    ["4-half-peek", null, "8-corner-eye", "ref"],
+    [null, "1-kilroy", "3-visor", null],
+    ["7-two-tone", null, "6-bolt-antenna", null],
+    [null, "5-x0-attitude", null, "2-sly-square"]
+  ]
+}
