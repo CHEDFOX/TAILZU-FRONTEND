@@ -227,7 +227,8 @@ function framePage(f, W, H) {
 /** The light card: the top of the real screen in a rounded panel, and the part of it lifted out (`pop`). */
 function cardLayer(f, W, H, u, tall) {
   const cw = Math.round(0.775 * W), cl = Math.round((W - cw) / 2);
-  const ct = Math.round((tall ? 0.205 : 0.215) * H);
+  // The card's top: a share of the height (frames.mjs `cardTop` lowers it to give the photo more room).
+  const ct = Math.round((f.cardTop ? (tall ? f.cardTop : f.cardTop + 0.02) : tall ? 0.205 : 0.215) * H);
   const cb = tall ? Math.round(0.928 * H) : H + 40;
   const r = 0.072 * W;
   const shot = path.join(OUT, "screens", `${f.key}.png`);
@@ -358,7 +359,7 @@ function featurePage(W, H) {
 
 /** Every frame on one page, to review (and to judge at the size a store shows them). */
 async function writeSheet(browser, groups, file) {
-  const W = 3150;
+  const W = Math.max(...groups.map((g) => 120 + g.files.length * (g.width + 22)));
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, 100)}
     html,body{height:auto;overflow:visible;background:#1b1a19}
     body{padding:56px 60px 70px}

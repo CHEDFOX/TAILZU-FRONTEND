@@ -1,0 +1,5832 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.ask",
+ "title": "Ask any bot",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 0,
+ "state": {
+  "ask": "14 Nov ko Pune ki shaam wali train dekh lo, 2 seats",
+  "asking": false,
+  "picking": false,
+  "route": {
+   "slug": "travel",
+   "name": "Travel bot",
+   "color": "#3E6E8E",
+   "say": "Travel bot will take this",
+   "hint": "Tap to send · Travel bot shows the plan before it books",
+   "by": "rules",
+   "confidence": 0.9
+  },
+  "up": null,
+  "sent": null,
+  "voice": "idle",
+  "level": 0,
+  "micBlocked": false
+ },
+ "root": {
+  "type": "SafeArea",
+  "props": {
+   "edges": [
+    "top"
+   ],
+   "barStyle": "dark-content"
+  },
+  "style": {
+   "flex": 1,
+   "flexDirection": "column",
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Screen",
+    "props": {
+     "paddingBottom": 24
+    },
+    "style": {
+     "backgroundColor": "#ffffff",
+     "paddingHorizontal": 20,
+     "paddingTop": 16,
+     "gap": 16
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "alignItems": "center"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 36,
+         "height": 5,
+         "borderRadius": 3,
+         "backgroundColor": "#d4d4d4"
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center"
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Ask any bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist Bold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 24,
+         "lineHeight": 30,
+         "letterSpacing": -0.5,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexGrow": 1,
+         "flexShrink": 1
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 44,
+         "height": 44,
+         "alignItems": "center",
+         "justifyContent": "center",
+         "marginRight": -10
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M6 6l12 12M18 6L6 18",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 22,
+           "height": 22,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigateBack"
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Close"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 8
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 2,
+             "height": 16
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 6,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 12,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 16,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 9,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 13,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "height": 5,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Speak or type · Hinglish works",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "visibleIf": {
+           "all": [
+            {
+             "neq": [
+              "voice",
+              "listening"
+             ]
+            },
+            {
+             "neq": [
+              "voice",
+              "busy"
+             ]
+            }
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 16
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 2,
+             "height": 16
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.5
+                ],
+                "then": 6,
+                "else": 4
+               }
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.3
+                ],
+                "then": 12,
+                "else": 4
+               }
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.2
+                ],
+                "then": 16,
+                "else": 4
+               }
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.2
+                ],
+                "then": 9,
+                "else": 4
+               }
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.3
+                ],
+                "then": 13,
+                "else": 4
+               }
+              },
+              "children": []
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 3,
+               "borderRadius": 2,
+               "backgroundColor": "#0a0a0a",
+               "height": {
+                "gte": [
+                 "level",
+                 0.5
+                ],
+                "then": 5,
+                "else": 4
+               }
+              },
+              "children": []
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Listening · Hinglish works",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "visibleIf": {
+           "eq": [
+            "voice",
+            "listening"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 16
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 8 8",
+             "shapes": [
+              {
+               "circle": [
+                4,
+                4,
+                4
+               ],
+               "fill": "#0a0a0a",
+               "motion": "breathe"
+              }
+             ],
+             "accessibilityLabel": "working"
+            },
+            "style": {
+             "width": 8,
+             "height": 8,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Writing down what you said…",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "visibleIf": {
+           "eq": [
+            "voice",
+            "busy"
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "type": "TextField",
+        "id": "ask",
+        "bind": {
+         "value": "ask"
+        },
+        "props": {
+         "placeholder": "Say what you need",
+         "placeholderColor": "#8a8a8a",
+         "background": "transparent",
+         "borderWidth": 0,
+         "radius": 0,
+         "paddingHorizontal": 0,
+         "paddingVertical": 0,
+         "minHeight": 44,
+         "color": "#0a0a0a",
+         "returnKeyType": "default",
+         "multiline": true,
+         "minHeightMultiline": 64
+        },
+        "style": {
+         "flexGrow": 1,
+         "flexShrink": 1,
+         "minWidth": 0,
+         "minHeight": 44,
+         "paddingHorizontal": 0,
+         "paddingVertical": 0,
+         "fontFamily": "Tailzu Geist Medium",
+         "fontSize": 22,
+         "color": "#0a0a0a",
+         "borderWidth": 0,
+         "backgroundColor": "transparent",
+         "outlineStyle": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "paddingVertical": 8,
+         "paddingHorizontal": 12,
+         "borderRadius": 12,
+         "backgroundColor": "#f5f5f5",
+         "alignSelf": "flex-start"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M12 3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3v-5a3 3 0 0 1 3 -3zM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 16,
+           "height": 16,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "The microphone is off for X0 Bot.",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#3d3d3d",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Open Settings",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "setState",
+            "path": "micBlocked",
+            "value": false
+           },
+           {
+            "kind": "openSettings"
+           }
+          ]
+         }
+        },
+        "visibleIf": {
+         "truthy": "micBlocked"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "gap": 6,
+           "paddingVertical": 7,
+           "paddingLeft": 12,
+           "paddingRight": 12,
+           "borderRadius": 16,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff",
+           "alignSelf": "flex-start",
+           "maxWidth": "100%",
+           "minWidth": 220
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 8,
+             "minHeight": 30
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 8 8",
+               "shapes": [
+                {
+                 "circle": [
+                  4,
+                  4,
+                  4
+                 ],
+                 "fill": "#0a0a0a",
+                 "motion": "breathe"
+                }
+               ],
+               "accessibilityLabel": "working"
+              },
+              "style": {
+               "width": 8,
+               "height": 8,
+               "flexShrink": 0
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "",
+               "variant": "bots",
+               "numberOfLines": 1
+              },
+              "bind": {
+               "content": "up.name"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "",
+               "variant": "bots"
+              },
+              "bind": {
+               "content": "up.percent"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "paddingRight": 6
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 0,
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   5
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 },
+                 "borderTopLeftRadius": 2,
+                 "borderBottomLeftRadius": 2
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   10
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   15
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   20
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   25
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   30
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   35
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   40
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   45
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   50
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   55
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   60
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   65
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   70
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   75
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   80
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   85
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   90
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   95
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   100
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 },
+                 "borderTopRightRadius": 2,
+                 "borderBottomRightRadius": 2
+                },
+                "children": []
+               }
+              ]
+             }
+            ]
+           }
+          ],
+          "visibleIf": {
+           "truthy": "up.name"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "paddingVertical": 7,
+           "paddingLeft": 12,
+           "paddingRight": 6,
+           "borderRadius": 16,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff",
+           "alignSelf": "flex-start",
+           "maxWidth": "100%"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "",
+             "variant": "bots",
+             "numberOfLines": 1
+            },
+            "bind": {
+             "content": "sent.name"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "",
+             "variant": "bots"
+            },
+            "bind": {
+             "content": "sent.size"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "borderRadius": 15,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6 6l12 12M18 6L6 18",
+               "fill": "none",
+               "stroke": "#5c5c5c",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 14,
+               "height": 14,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "clearState",
+                "path": "sent"
+               },
+               {
+                "kind": "clearState",
+                "path": "attach"
+               }
+              ]
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Take the file off"
+            }
+           }
+          ],
+          "visibleIf": {
+           "all": [
+            {
+             "truthy": "sent.name"
+            },
+            {
+             "falsy": "up.name"
+            }
+           ]
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 6
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-tailzu.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "X0 Bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "picks who answers",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Check",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "condition",
+            "if": {
+             "falsy": "ask"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Say or type what you need first"
+            },
+            "else": {
+             "kind": "condition",
+             "if": {
+              "truthy": "route.slug"
+             },
+             "then": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "sent",
+                "value": "$state.ask"
+               },
+               {
+                "kind": "setState",
+                "path": "stopped",
+                "value": false
+               },
+               {
+                "kind": "setState",
+                "path": "reply",
+                "value": null
+               },
+               {
+                "kind": "clearState",
+                "path": "ask"
+               },
+               {
+                "kind": "setState",
+                "path": "asking",
+                "value": true
+               },
+               {
+                "kind": "condition",
+                "if": {
+                 "truthy": "route.slug"
+                },
+                "then": {
+                 "kind": "callEndpoint",
+                 "method": "POST",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.sent",
+                  "bot": "$state.route.slug",
+                  "device": "phone",
+                  "mode": "text",
+                  "attachments": "$state.attach"
+                 },
+                 "assignTo": "asked",
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   {
+                    "kind": "navigate",
+                    "screenId": "bots.ask",
+                    "replace": true,
+                    "params": {
+                     "message": "$state.sent",
+                     "answer": "$state.asked.shell.text",
+                     "bot": "$state.asked.shell.bot.slug",
+                     "upi": "$state.asked.shell.upi",
+                     "needs": "$state.asked.shell.needs",
+                     "job": "$state.asked.shell.job"
+                    }
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "condition",
+                  "if": {
+                   "truthy": "stopped"
+                  },
+                  "then": {
+                   "kind": "setState",
+                   "path": "asking",
+                   "value": false
+                  },
+                  "else": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "setState",
+                     "path": "ask",
+                     "value": "$state.sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "reply"
+                    },
+                    {
+                     "kind": "toast",
+                     "message": "Couldn't reach your bots. Try again.",
+                     "tone": "error"
+                    }
+                   ]
+                  }
+                 }
+                },
+                "else": {
+                 "kind": "callEndpoint",
+                 "method": "POST",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.sent",
+                  "bot": "any",
+                  "device": "phone",
+                  "mode": "text",
+                  "attachments": "$state.attach"
+                 },
+                 "assignTo": "asked",
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   {
+                    "kind": "navigate",
+                    "screenId": "bots.ask",
+                    "replace": true,
+                    "params": {
+                     "message": "$state.sent",
+                     "answer": "$state.asked.shell.text",
+                     "bot": "$state.asked.shell.bot.slug",
+                     "upi": "$state.asked.shell.upi",
+                     "needs": "$state.asked.shell.needs",
+                     "job": "$state.asked.shell.job"
+                    }
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "condition",
+                  "if": {
+                   "truthy": "stopped"
+                  },
+                  "then": {
+                   "kind": "setState",
+                   "path": "asking",
+                   "value": false
+                  },
+                  "else": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "setState",
+                     "path": "ask",
+                     "value": "$state.sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "reply"
+                    },
+                    {
+                     "kind": "toast",
+                     "message": "Couldn't reach your bots. Try again.",
+                     "tone": "error"
+                    }
+                   ]
+                  }
+                 }
+                }
+               }
+              ]
+             },
+             "else": {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/shell/route",
+              "body": {
+               "message": "$state.ask"
+              },
+              "assignTo": "route",
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "route",
+                 "value": {
+                  "slug": "any",
+                  "name": "X0 Bot",
+                  "say": "X0 Bot picks who answers",
+                  "hint": "Tap to send"
+                 }
+                },
+                {
+                 "kind": "toast",
+                 "message": "Couldn't check who answers. Tap to send anyway."
+                }
+               ]
+              }
+             }
+            }
+           }
+          },
+          "visibleIf": {
+           "falsy": "route.slug"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#0a0a0a",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-tailzu.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "X0",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "X0 will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "tailzu"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#4F7A3A",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-code.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Code bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Code bot will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "code"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#A9573A",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-keybot.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Keybot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Keybot will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "keybot"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#8F6A1F",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-plan.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Plan bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Plan bot will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "plan"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#3E6E8E",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-travel.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Travel bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Travel bot will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "travel"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1.5,
+           "borderColor": "#2F5D50",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "borderRadius": 15,
+             "backgroundColor": "#2F5D50",
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6.5 8v8M17.5 8v8M3.5 10v4M20.5 10v4M6.5 12h11",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 17,
+               "height": 17,
+               "flexShrink": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Gym bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "will take this",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "toggleState",
+            "path": "picking"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Gym bot will take this. Change who answers"
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "gym-bot"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "height": 44,
+           "paddingLeft": 6,
+           "paddingRight": 14,
+           "borderRadius": 23,
+           "alignSelf": "flex-start",
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-tailzu.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "X0 Bot",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "picks who answers",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1,
+             "height": 18,
+             "backgroundColor": "#e6e6e6"
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Check",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "condition",
+            "if": {
+             "falsy": "ask"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Say or type what you need first"
+            },
+            "else": {
+             "kind": "condition",
+             "if": {
+              "truthy": "route.slug"
+             },
+             "then": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "sent",
+                "value": "$state.ask"
+               },
+               {
+                "kind": "setState",
+                "path": "stopped",
+                "value": false
+               },
+               {
+                "kind": "setState",
+                "path": "reply",
+                "value": null
+               },
+               {
+                "kind": "clearState",
+                "path": "ask"
+               },
+               {
+                "kind": "setState",
+                "path": "asking",
+                "value": true
+               },
+               {
+                "kind": "condition",
+                "if": {
+                 "truthy": "route.slug"
+                },
+                "then": {
+                 "kind": "callEndpoint",
+                 "method": "POST",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.sent",
+                  "bot": "$state.route.slug",
+                  "device": "phone",
+                  "mode": "text",
+                  "attachments": "$state.attach"
+                 },
+                 "assignTo": "asked",
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   {
+                    "kind": "navigate",
+                    "screenId": "bots.ask",
+                    "replace": true,
+                    "params": {
+                     "message": "$state.sent",
+                     "answer": "$state.asked.shell.text",
+                     "bot": "$state.asked.shell.bot.slug",
+                     "upi": "$state.asked.shell.upi",
+                     "needs": "$state.asked.shell.needs",
+                     "job": "$state.asked.shell.job"
+                    }
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "condition",
+                  "if": {
+                   "truthy": "stopped"
+                  },
+                  "then": {
+                   "kind": "setState",
+                   "path": "asking",
+                   "value": false
+                  },
+                  "else": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "setState",
+                     "path": "ask",
+                     "value": "$state.sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "reply"
+                    },
+                    {
+                     "kind": "toast",
+                     "message": "Couldn't reach your bots. Try again.",
+                     "tone": "error"
+                    }
+                   ]
+                  }
+                 }
+                },
+                "else": {
+                 "kind": "callEndpoint",
+                 "method": "POST",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.sent",
+                  "bot": "any",
+                  "device": "phone",
+                  "mode": "text",
+                  "attachments": "$state.attach"
+                 },
+                 "assignTo": "asked",
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   {
+                    "kind": "navigate",
+                    "screenId": "bots.ask",
+                    "replace": true,
+                    "params": {
+                     "message": "$state.sent",
+                     "answer": "$state.asked.shell.text",
+                     "bot": "$state.asked.shell.bot.slug",
+                     "upi": "$state.asked.shell.upi",
+                     "needs": "$state.asked.shell.needs",
+                     "job": "$state.asked.shell.job"
+                    }
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "condition",
+                  "if": {
+                   "truthy": "stopped"
+                  },
+                  "then": {
+                   "kind": "setState",
+                   "path": "asking",
+                   "value": false
+                  },
+                  "else": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "setState",
+                     "path": "ask",
+                     "value": "$state.sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "reply"
+                    },
+                    {
+                     "kind": "toast",
+                     "message": "Couldn't reach your bots. Try again.",
+                     "tone": "error"
+                    }
+                   ]
+                  }
+                 }
+                }
+               }
+              ]
+             },
+             "else": {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/shell/route",
+              "body": {
+               "message": "$state.ask"
+              },
+              "assignTo": "route",
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "route",
+                 "value": {
+                  "slug": "any",
+                  "name": "X0 Bot",
+                  "say": "X0 Bot picks who answers",
+                  "hint": "Tap to send"
+                 }
+                },
+                {
+                 "kind": "toast",
+                 "message": "Couldn't check who answers. Tap to send anyway."
+                }
+               ]
+              }
+             }
+            }
+           }
+          },
+          "visibleIf": {
+           "eq": [
+            "route.slug",
+            "any"
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 2,
+         "flexWrap": "wrap"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Or hand it to",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-tailzu.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "tailzu",
+             "name": "X0",
+             "color": "#0a0a0a",
+             "say": "X0 will take this",
+             "hint": "Tap to send · X0 answers, or hands it to the right bot",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "X0"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-code.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "code",
+             "name": "Code bot",
+             "color": "#4F7A3A",
+             "say": "Code bot will take this",
+             "hint": "Tap to send · Code bot shows the plan before it changes code",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Code bot"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-keybot.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "keybot",
+             "name": "Keybot",
+             "color": "#A9573A",
+             "say": "Keybot will take this",
+             "hint": "Tap to send · Keybot writes it, you send it",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Keybot"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-plan.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "plan",
+             "name": "Plan bot",
+             "color": "#8F6A1F",
+             "say": "Plan bot will take this",
+             "hint": "Tap to send · Plan bot asks before it changes your calendar",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Plan bot"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-travel.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "travel",
+             "name": "Travel bot",
+             "color": "#3E6E8E",
+             "say": "Travel bot will take this",
+             "hint": "Tap to send · Travel bot shows the plan before it books",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Travel bot"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "borderRadius": 15,
+             "backgroundColor": "#2F5D50",
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6.5 8v8M17.5 8v8M3.5 10v4M20.5 10v4M6.5 12h11",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 17,
+               "height": 17,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "gym-bot",
+             "name": "Gym bot",
+             "color": "#2F5D50",
+             "say": "Gym bot will take this",
+             "hint": "Tap to send · Gym bot asks before it does anything",
+             "by": "chosen"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Gym bot"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "borderRadius": 18,
+         "borderWidth": 1,
+         "borderColor": "#e6e6e6",
+         "overflow": "hidden",
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-tailzu.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "X0",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Answers, or hands it to the right bot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "tailzu",
+               "name": "X0",
+               "color": "#0a0a0a",
+               "say": "X0 will take this",
+               "hint": "Tap to send · X0 answers, or hands it to the right bot",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "height": 1,
+           "backgroundColor": "#ededed",
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-code.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Code bot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Fixes and ships your code",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "code",
+               "name": "Code bot",
+               "color": "#4F7A3A",
+               "say": "Code bot will take this",
+               "hint": "Tap to send · Code bot shows the plan before it changes code",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "height": 1,
+           "backgroundColor": "#ededed",
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-keybot.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Keybot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Your keyboard, everywhere",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "keybot",
+               "name": "Keybot",
+               "color": "#A9573A",
+               "say": "Keybot will take this",
+               "hint": "Tap to send · Keybot writes it, you send it",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "height": 1,
+           "backgroundColor": "#ededed",
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-plan.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Plan bot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Plans your day",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "plan",
+               "name": "Plan bot",
+               "color": "#8F6A1F",
+               "say": "Plan bot will take this",
+               "hint": "Tap to send · Plan bot asks before it changes your calendar",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "height": 1,
+           "backgroundColor": "#ededed",
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "flexShrink": 0,
+             "overflow": "hidden",
+             "borderRadius": 15,
+             "backgroundColor": "#f5f5f5"
+            },
+            "children": [
+             {
+              "type": "Image",
+              "props": {
+               "source": {
+                "url": "https://api.local/blip/bots/head-travel.png?v=1"
+               },
+               "contentFit": "contain",
+               "radius": 0
+              },
+              "style": {
+               "width": "100%",
+               "height": "100%",
+               "borderRadius": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Travel bot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Plans your trips",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "travel",
+               "name": "Travel bot",
+               "color": "#3E6E8E",
+               "say": "Travel bot will take this",
+               "hint": "Tap to send · Travel bot shows the plan before it books",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "height": 1,
+           "backgroundColor": "#ededed",
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 12,
+           "paddingVertical": 14,
+           "paddingHorizontal": 16,
+           "minHeight": 48
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "borderRadius": 15,
+             "backgroundColor": "#2F5D50",
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6.5 8v8M17.5 8v8M3.5 10v4M20.5 10v4M6.5 12h11",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 17,
+               "height": 17,
+               "flexShrink": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 2
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Gym bot",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 20,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "Plans your workouts around your week.",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M9 5l7 7-7 7",
+             "fill": "none",
+             "stroke": "#5c5c5c",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "route",
+              "value": {
+               "slug": "gym-bot",
+               "name": "Gym bot",
+               "color": "#2F5D50",
+               "say": "Gym bot will take this",
+               "hint": "Tap to send · Gym bot asks before it does anything",
+               "by": "chosen"
+              }
+             },
+             {
+              "kind": "setState",
+              "path": "picking",
+              "value": false
+             }
+            ]
+           }
+          }
+         }
+        ],
+        "visibleIf": {
+         "truthy": "picking"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 0
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Or try",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist SemiBold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 11,
+         "lineHeight": 15,
+         "letterSpacing": 0.4,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "uppercase"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 12,
+         "minHeight": 44,
+         "paddingHorizontal": 0,
+         "borderRadius": 12
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 26,
+           "height": 26,
+           "flexShrink": 0,
+           "overflow": "hidden",
+           "borderRadius": 13,
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Image",
+            "props": {
+             "source": {
+              "url": "https://api.local/blip/bots/head-plan.png?v=1"
+             },
+             "contentFit": "contain",
+             "radius": 0
+            },
+            "style": {
+             "width": "100%",
+             "height": "100%",
+             "borderRadius": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "What's on tomorrow?",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 19,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none",
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Plan bot",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "setState",
+            "path": "ask",
+            "value": "What's on tomorrow?"
+           },
+           {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "plan",
+             "name": "Plan bot",
+             "color": "#8F6A1F",
+             "say": "Plan bot will take this",
+             "hint": "Tap to send · Plan bot asks before it changes your calendar",
+             "by": "chosen"
+            }
+           }
+          ]
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 12,
+         "minHeight": 44,
+         "paddingHorizontal": 0,
+         "borderRadius": 12
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 26,
+           "height": 26,
+           "flexShrink": 0,
+           "overflow": "hidden",
+           "borderRadius": 13,
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Image",
+            "props": {
+             "source": {
+              "url": "https://api.local/blip/bots/head-code.png?v=1"
+             },
+             "contentFit": "contain",
+             "radius": 0
+            },
+            "style": {
+             "width": "100%",
+             "height": "100%",
+             "borderRadius": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "What changed in my project this week?",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 19,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none",
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Code bot",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "setState",
+            "path": "ask",
+            "value": "What changed in my project this week?"
+           },
+           {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "code",
+             "name": "Code bot",
+             "color": "#4F7A3A",
+             "say": "Code bot will take this",
+             "hint": "Tap to send · Code bot shows the plan before it changes code",
+             "by": "chosen"
+            }
+           }
+          ]
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 12,
+         "minHeight": 44,
+         "paddingHorizontal": 0,
+         "borderRadius": 12
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 26,
+           "height": 26,
+           "flexShrink": 0,
+           "overflow": "hidden",
+           "borderRadius": 13,
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Image",
+            "props": {
+             "source": {
+              "url": "https://api.local/blip/bots/head-keybot.png?v=1"
+             },
+             "contentFit": "contain",
+             "radius": 0
+            },
+            "style": {
+             "width": "100%",
+             "height": "100%",
+             "borderRadius": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Mummy ko Hindi mein reply likho",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 19,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none",
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Keybot",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "setState",
+            "path": "ask",
+            "value": "Mummy ko Hindi mein reply likho"
+           },
+           {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "keybot",
+             "name": "Keybot",
+             "color": "#A9573A",
+             "say": "Keybot will take this",
+             "hint": "Tap to send · Keybot writes it, you send it",
+             "by": "chosen"
+            }
+           }
+          ]
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 12,
+         "minHeight": 44,
+         "paddingHorizontal": 0,
+         "borderRadius": 12
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 26,
+           "height": 26,
+           "flexShrink": 0,
+           "overflow": "hidden",
+           "borderRadius": 13,
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Image",
+            "props": {
+             "source": {
+              "url": "https://api.local/blip/bots/head-travel.png?v=1"
+             },
+             "contentFit": "contain",
+             "radius": 0
+            },
+            "style": {
+             "width": "100%",
+             "height": "100%",
+             "borderRadius": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "A weekend in Goa next month?",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 19,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none",
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Travel bot",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "setState",
+            "path": "ask",
+            "value": "A weekend in Goa next month?"
+           },
+           {
+            "kind": "setState",
+            "path": "route",
+            "value": {
+             "slug": "travel",
+             "name": "Travel bot",
+             "color": "#3E6E8E",
+             "say": "Travel bot will take this",
+             "hint": "Tap to send · Travel bot shows the plan before it books",
+             "by": "chosen"
+            }
+           }
+          ]
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "paddingBottom": 16,
+     "gap": 12,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "justifyContent": "flex-end"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "backgroundColor": "#f5f5f5",
+           "borderRadius": 20,
+           "borderBottomRightRadius": 6,
+           "paddingVertical": 10,
+           "paddingHorizontal": 15,
+           "maxWidth": "86%"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "",
+             "variant": "bots",
+             "numberOfLines": 4
+            },
+            "bind": {
+             "content": "sent"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 15,
+             "lineHeight": 21,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ],
+        "visibleIf": {
+         "truthy": "sent"
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "",
+         "variant": "bots",
+         "numberOfLines": 9
+        },
+        "bind": {
+         "content": "reply.text"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 15,
+         "lineHeight": 22,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        },
+        "visibleIf": {
+         "truthy": "reply.text"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "paddingLeft": 4
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#0a0a0a",
+             "motion": "breathe"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Asking…",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "visibleIf": {
+         "truthy": "asking"
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Stopped",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 12,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none"
+        },
+        "visibleIf": {
+         "all": [
+          {
+           "truthy": "stopped"
+          },
+          {
+           "falsy": "asking"
+          }
+         ]
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 6,
+         "alignItems": "center",
+         "flexGrow": 1,
+         "flexBasis": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 48,
+           "height": 48,
+           "borderRadius": 24,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Photo",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#3d3d3d",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "uploadFile",
+          "pick": "photo",
+          "path": "/v1/files",
+          "assignTo": "sent",
+          "progressTo": "up",
+          "maxBytes": 52428800,
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "attach"
+            },
+            {
+             "kind": "appendState",
+             "path": "attach",
+             "value": "$state.sent.attachment"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "up"
+            },
+            {
+             "kind": "toast",
+             "message": "$event",
+             "tone": "error"
+            }
+           ]
+          }
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 6,
+         "alignItems": "center",
+         "flexGrow": 1,
+         "flexBasis": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 48,
+           "height": 48,
+           "borderRadius": 24,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "File",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#3d3d3d",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "uploadFile",
+          "pick": "file",
+          "path": "/v1/files",
+          "assignTo": "sent",
+          "progressTo": "up",
+          "maxBytes": 52428800,
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "attach"
+            },
+            {
+             "kind": "appendState",
+             "path": "attach",
+             "value": "$state.sent.attachment"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "up"
+            },
+            {
+             "kind": "toast",
+             "message": "$event",
+             "tone": "error"
+            }
+           ]
+          }
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 108,
+         "alignItems": "center",
+         "flexShrink": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 104,
+           "height": 104,
+           "borderRadius": 52,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 88,
+             "height": 88,
+             "borderRadius": 44,
+             "backgroundColor": "#0a0a0a",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3v-5a3 3 0 0 1 3 -3zM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 34,
+               "height": 34,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "recordVoice",
+            "assignTo": "ask",
+            "statePath": "voice",
+            "levelTo": "level",
+            "append": true,
+            "maxSeconds": 120,
+            "onDone": {
+             "kind": "condition",
+             "if": {
+              "falsy": "route.slug"
+             },
+             "then": {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/shell/route",
+              "body": {
+               "message": "$state.ask"
+              },
+              "assignTo": "route",
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "route",
+                 "value": {
+                  "slug": "any",
+                  "name": "X0 Bot",
+                  "say": "X0 Bot picks who answers",
+                  "hint": "Tap to send"
+                 }
+                },
+                {
+                 "kind": "toast",
+                 "message": "Couldn't check who answers. Tap to send anyway."
+                }
+               ]
+              }
+             }
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "$event",
+             "tone": "error"
+            },
+            "onBlocked": {
+             "kind": "setState",
+             "path": "micBlocked",
+             "value": true
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Speak"
+          },
+          "visibleIf": {
+           "all": [
+            {
+             "all": [
+              {
+               "neq": [
+                "voice",
+                "listening"
+               ]
+              },
+              {
+               "neq": [
+                "voice",
+                "busy"
+               ]
+              }
+             ]
+            },
+            {
+             "falsy": "ask"
+            }
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 104,
+           "height": 104,
+           "borderRadius": 52,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 88,
+             "height": 88,
+             "borderRadius": 44,
+             "backgroundColor": "#0a0a0a",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3v-5a3 3 0 0 1 3 -3zM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 34,
+               "height": 34,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "recordVoice",
+            "assignTo": "ask",
+            "statePath": "voice",
+            "levelTo": "level",
+            "append": true,
+            "maxSeconds": 120,
+            "onDone": {
+             "kind": "condition",
+             "if": {
+              "falsy": "route.slug"
+             },
+             "then": {
+              "kind": "callEndpoint",
+              "method": "POST",
+              "path": "/v1/shell/route",
+              "body": {
+               "message": "$state.ask"
+              },
+              "assignTo": "route",
+              "onError": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "route",
+                 "value": {
+                  "slug": "any",
+                  "name": "X0 Bot",
+                  "say": "X0 Bot picks who answers",
+                  "hint": "Tap to send"
+                 }
+                },
+                {
+                 "kind": "toast",
+                 "message": "Couldn't check who answers. Tap to send anyway."
+                }
+               ]
+              }
+             }
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "$event",
+             "tone": "error"
+            },
+            "onBlocked": {
+             "kind": "setState",
+             "path": "micBlocked",
+             "value": true
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Listening. Tap when you're done"
+          },
+          "visibleIf": {
+           "eq": [
+            "voice",
+            "listening"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 104,
+           "height": 104,
+           "borderRadius": 52,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 88,
+             "height": 88,
+             "borderRadius": 44,
+             "backgroundColor": "#0a0a0a",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 8 8",
+               "shapes": [
+                {
+                 "circle": [
+                  4,
+                  4,
+                  4
+                 ],
+                 "fill": "#ffffff",
+                 "motion": "breathe"
+                }
+               ],
+               "accessibilityLabel": "working"
+              },
+              "style": {
+               "width": 14,
+               "height": 14,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ],
+          "props": {
+           "accessibilityLabel": "Writing down what you said"
+          },
+          "visibleIf": {
+           "eq": [
+            "voice",
+            "busy"
+           ]
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 104,
+           "height": 104,
+           "borderRadius": 52,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "backgroundColor": "#ffffff"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 88,
+             "height": 88,
+             "borderRadius": 44,
+             "backgroundColor": "#0a0a0a",
+             "alignItems": "center",
+             "justifyContent": "center"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 19V5M6 11l6-6 6 6",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 30,
+               "height": 30,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "condition",
+            "if": {
+             "falsy": "ask"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Say or type what you need first"
+            },
+            "else": {
+             "kind": "condition",
+             "if": {
+              "truthy": "route.slug"
+             },
+             "then": {
+              "kind": "condition",
+              "if": {
+               "eq": [
+                "online",
+                false
+               ]
+              },
+              "then": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "outbox",
+                 "op": "add",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.ask",
+                  "bot": "$state.route.slug",
+                  "device": "phone",
+                  "mode": "text"
+                 },
+                 "label": "$state.ask",
+                 "sub": "$state.route.name · asked {time}"
+                },
+                {
+                 "kind": "clearState",
+                 "path": "ask"
+                },
+                {
+                 "kind": "toast",
+                 "message": "Kept. It will send when you're back."
+                }
+               ]
+              },
+              "else": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "sent",
+                 "value": "$state.ask"
+                },
+                {
+                 "kind": "setState",
+                 "path": "stopped",
+                 "value": false
+                },
+                {
+                 "kind": "setState",
+                 "path": "reply",
+                 "value": null
+                },
+                {
+                 "kind": "clearState",
+                 "path": "ask"
+                },
+                {
+                 "kind": "setState",
+                 "path": "asking",
+                 "value": true
+                },
+                {
+                 "kind": "condition",
+                 "if": {
+                  "truthy": "route.slug"
+                 },
+                 "then": {
+                  "kind": "callEndpoint",
+                  "method": "POST",
+                  "path": "/v1/shell/ask",
+                  "body": {
+                   "message": "$state.sent",
+                   "bot": "$state.route.slug",
+                   "device": "phone",
+                   "mode": "text",
+                   "attachments": "$state.attach"
+                  },
+                  "assignTo": "asked",
+                  "onSuccess": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "navigate",
+                     "screenId": "bots.ask",
+                     "replace": true,
+                     "params": {
+                      "message": "$state.sent",
+                      "answer": "$state.asked.shell.text",
+                      "bot": "$state.asked.shell.bot.slug",
+                      "upi": "$state.asked.shell.upi",
+                      "needs": "$state.asked.shell.needs",
+                      "job": "$state.asked.shell.job"
+                     }
+                    }
+                   ]
+                  },
+                  "onError": {
+                   "kind": "condition",
+                   "if": {
+                    "truthy": "stopped"
+                   },
+                   "then": {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   "else": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "asking",
+                      "value": false
+                     },
+                     {
+                      "kind": "setState",
+                      "path": "ask",
+                      "value": "$state.sent"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "sent"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "reply"
+                     },
+                     {
+                      "kind": "toast",
+                      "message": "Couldn't reach your bots. Try again.",
+                      "tone": "error"
+                     }
+                    ]
+                   }
+                  }
+                 },
+                 "else": {
+                  "kind": "callEndpoint",
+                  "method": "POST",
+                  "path": "/v1/shell/ask",
+                  "body": {
+                   "message": "$state.sent",
+                   "bot": "any",
+                   "device": "phone",
+                   "mode": "text",
+                   "attachments": "$state.attach"
+                  },
+                  "assignTo": "asked",
+                  "onSuccess": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "asking",
+                     "value": false
+                    },
+                    {
+                     "kind": "navigate",
+                     "screenId": "bots.ask",
+                     "replace": true,
+                     "params": {
+                      "message": "$state.sent",
+                      "answer": "$state.asked.shell.text",
+                      "bot": "$state.asked.shell.bot.slug",
+                      "upi": "$state.asked.shell.upi",
+                      "needs": "$state.asked.shell.needs",
+                      "job": "$state.asked.shell.job"
+                     }
+                    }
+                   ]
+                  },
+                  "onError": {
+                   "kind": "condition",
+                   "if": {
+                    "truthy": "stopped"
+                   },
+                   "then": {
+                    "kind": "setState",
+                    "path": "asking",
+                    "value": false
+                   },
+                   "else": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "asking",
+                      "value": false
+                     },
+                     {
+                      "kind": "setState",
+                      "path": "ask",
+                      "value": "$state.sent"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "sent"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "reply"
+                     },
+                     {
+                      "kind": "toast",
+                      "message": "Couldn't reach your bots. Try again.",
+                      "tone": "error"
+                     }
+                    ]
+                   }
+                  }
+                 }
+                }
+               ]
+              }
+             },
+             "else": {
+              "kind": "condition",
+              "if": {
+               "eq": [
+                "online",
+                false
+               ]
+              },
+              "then": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "outbox",
+                 "op": "add",
+                 "path": "/v1/shell/ask",
+                 "body": {
+                  "message": "$state.ask",
+                  "bot": "any",
+                  "device": "phone",
+                  "mode": "text"
+                 },
+                 "label": "$state.ask",
+                 "sub": "Any bot · asked {time}"
+                },
+                {
+                 "kind": "clearState",
+                 "path": "ask"
+                },
+                {
+                 "kind": "toast",
+                 "message": "Kept. It will send when you're back."
+                }
+               ]
+              },
+              "else": {
+               "kind": "callEndpoint",
+               "method": "POST",
+               "path": "/v1/shell/route",
+               "body": {
+                "message": "$state.ask"
+               },
+               "assignTo": "route",
+               "onError": {
+                "kind": "sequence",
+                "actions": [
+                 {
+                  "kind": "setState",
+                  "path": "route",
+                  "value": {
+                   "slug": "any",
+                   "name": "X0 Bot",
+                   "say": "X0 Bot picks who answers",
+                   "hint": "Tap to send"
+                  }
+                 },
+                 {
+                  "kind": "toast",
+                  "message": "Couldn't check who answers. Tap to send anyway."
+                 }
+                ]
+               }
+              }
+             }
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Send"
+          },
+          "visibleIf": {
+           "all": [
+            {
+             "all": [
+              {
+               "neq": [
+                "voice",
+                "listening"
+               ]
+              },
+              {
+               "neq": [
+                "voice",
+                "busy"
+               ]
+              }
+             ]
+            },
+            {
+             "truthy": "ask"
+            }
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 6,
+         "alignItems": "center",
+         "flexGrow": 1,
+         "flexBasis": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 48,
+           "height": 48,
+           "borderRadius": 24,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M5.8 5h12.4a1.8 1.8 0 0 1 1.8 1.8v7.4a1.8 1.8 0 0 1 -1.8 1.8h-12.4a1.8 1.8 0 0 1 -1.8 -1.8v-7.4a1.8 1.8 0 0 1 1.8 -1.8zM2.5 19h19",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Screen",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#3d3d3d",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "uploadFile",
+          "pick": "screenshot",
+          "path": "/v1/files",
+          "assignTo": "sent",
+          "progressTo": "up",
+          "maxBytes": 52428800,
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "attach"
+            },
+            {
+             "kind": "appendState",
+             "path": "attach",
+             "value": "$state.sent.attachment"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "clearState",
+             "path": "up"
+            },
+            {
+             "kind": "toast",
+             "message": "$event",
+             "tone": "error"
+            }
+           ]
+          }
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 6,
+         "alignItems": "center",
+         "flexGrow": 1,
+         "flexBasis": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 48,
+           "height": 48,
+           "borderRadius": 24,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "alignItems": "center",
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M5 6h14a2.5 2.5 0 0 1 2.5 2.5v7a2.5 2.5 0 0 1 -2.5 2.5h-14a2.5 2.5 0 0 1 -2.5 -2.5v-7a2.5 2.5 0 0 1 2.5 -2.5zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Paste",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#3d3d3d",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "readClipboard",
+          "assignTo": "ask"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column"
+      },
+      "children": [
+       {
+        "type": "Text",
+        "props": {
+         "content": "Tap the mic when you're done",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 13,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none",
+         "textAlign": "center"
+        },
+        "visibleIf": {
+         "eq": [
+          "voice",
+          "listening"
+         ]
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Tap the mic and speak, or type",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 13,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none",
+         "textAlign": "center"
+        },
+        "visibleIf": {
+         "all": [
+          {
+           "all": [
+            {
+             "neq": [
+              "voice",
+              "listening"
+             ]
+            },
+            {
+             "neq": [
+              "voice",
+              "busy"
+             ]
+            }
+           ]
+          },
+          {
+           "falsy": "ask"
+          }
+         ]
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Tap once to see who answers, again to send",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 13,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none",
+         "textAlign": "center"
+        },
+        "visibleIf": {
+         "all": [
+          {
+           "all": [
+            {
+             "neq": [
+              "voice",
+              "listening"
+             ]
+            },
+            {
+             "neq": [
+              "voice",
+              "busy"
+             ]
+            }
+           ]
+          },
+          {
+           "truthy": "ask"
+          },
+          {
+           "falsy": "route.slug"
+          }
+         ]
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "",
+         "variant": "bots"
+        },
+        "bind": {
+         "content": "route.hint"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 13,
+         "lineHeight": 17,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none",
+         "textAlign": "center"
+        },
+        "visibleIf": {
+         "all": [
+          {
+           "all": [
+            {
+             "neq": [
+              "voice",
+              "listening"
+             ]
+            },
+            {
+             "neq": [
+              "voice",
+              "busy"
+             ]
+            }
+           ]
+          },
+          {
+           "truthy": "ask"
+          },
+          {
+           "truthy": "route.slug"
+          }
+         ]
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
