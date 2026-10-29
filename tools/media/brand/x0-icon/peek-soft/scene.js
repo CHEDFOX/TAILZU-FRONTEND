@@ -68,7 +68,15 @@ function makeShapes(o) {
   // antenna: a rod from inside the head's top, tilted in the x-y plane
   const t = ANT.tilt, base = [ANT.x, HEAD.b - 0.05, 0], dir = [Math.sin(t), Math.cos(t), 0];
   const top = [base[0] + dir[0] * (ANT.len + 0.05), base[1] + dir[1] * (ANT.len + 0.05), 0];
-  return { HEAD, VIS, ANT, headZ, sdRR, visorZ, lift, bulge, base, dir, top };
+  // a bent antenna: a quadratic curve that leaves the head along dir and turns by ANT.bend (radians, + = to the right)
+  let curve = null;
+  if (ANT.bend) {
+    const L = ANT.len + 0.05, b = t + ANT.bend, d2 = [Math.sin(b), Math.cos(b), 0];
+    const p1 = [base[0] + dir[0] * L * 0.6, base[1] + dir[1] * L * 0.6, 0];
+    const p2 = [p1[0] + d2[0] * L * 0.55, p1[1] + d2[1] * L * 0.55, 0];
+    curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(...base), new THREE.Vector3(...p1), new THREE.Vector3(...p2));
+  }
+  return { HEAD, VIS, ANT, headZ, sdRR, visorZ, lift, bulge, base, dir, top, curve };
 }
 
 function visorGeometry(S) {
@@ -109,11 +117,16 @@ function visorGeometry(S) {
 
 // ---------------------------------------------------------------- ambient occlusion (per vertex)
 function makeSDF(S, withVisor) {
-  const { HEAD, ANT, sdRR, visorZ, base, top } = S;
+  const { HEAD, ANT, sdRR, visorZ, base, top, curve } = S;
+  const pts = curve ? curve.getPoints(32).map((p) => [p.x, p.y]) : [base, top];
   const seg = (x, y, z) => {
-    const bx = top[0] - base[0], by = top[1] - base[1], px = x - base[0], py = y - base[1];
-    const t = Math.max(0, Math.min(1, (px * bx + py * by) / (bx * bx + by * by)));
-    return Math.hypot(px - bx * t, py - by * t, z) - ANT.r;
+    let best = 1e9;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], bx = b[0] - a[0], by = b[1] - a[1], px = x - a[0], py = y - a[1];
+      const t = Math.max(0, Math.min(1, (px * bx + py * by) / (bx * bx + by * by)));
+      best = Math.min(best, Math.hypot(px - bx * t, py - by * t, z));
+    }
+    return best - ANT.r;
   };
   return (x, y, z) => {
     let d = sqDist(x, y, z, HEAD);
@@ -164,7 +177,7 @@ function matte(mat, { directToo = 0.4, wrap = 0.35 } = {}) {
 }
 
 // ---------------------------------------------------------------- the face (visor emissive map)
-function faceTexture(S, sd, o = {}) {
+function faceTexture(S, sd, o = {}, dim = null) {
   const { VIS } = S;
   const W = 2048, H = Math.round((W * VIS.B) / VIS.A), px = (2 * VIS.A) / W;
   const core = lin(o.core ?? "#FFF1D6"), halo = lin(o.halo ?? "#ffb36e");
@@ -176,8 +189,13 @@ function faceTexture(S, sd, o = {}) {
       const x = -VIS.A + (i + 0.5) * px, d = sd(x, y);
       const c = Math.max(0, Math.min(1, 0.5 - d / px)), e = Math.max(0, d);
       const inner = Math.max(0, Math.min(1, -d / 0.03));      // a hotter middle
-      const h = (near * Math.exp(-((e / 0.018) ** 2)) + far * Math.exp(-e / 0.05)) * (1 - c);
-      const k = (j * W + i) * 4, m = c * (0.8 + 0.35 * inner);
+      let h = (near * Math.exp(-((e / 0.018) ** 2)) + far * Math.exp(-e / 0.05)) * (1 - c);
+      const k = (j * W + i) * 4;
+      let m = c * (0.8 + 0.35 * inner);
+      if (dim) {
+        const d2 = dim.sd(x, y), c2 = Math.max(0, Math.min(1, 0.5 - d2 / px)) * (1 - c);
+        m += c2 * dim.k; h += near * 0.6 * dim.k * Math.exp(-((Math.max(0, d2) / 0.014) ** 2)) * (1 - c) * (1 - c2);
+      }
       data[k] = toH(core.r * m + halo.r * h); data[k + 1] = toH(core.g * m + halo.g * h); data[k + 2] = toH(core.b * m + halo.b * h); data[k + 3] = toH(1);
     }
   }
@@ -196,7 +214,18 @@ const sdArc = (x, y, cx, cy, R, a0, a1) => { // arc from a0 to a1 (radians, coun
   if (t <= a1 - a0) return Math.abs(Math.hypot(x - cx, y - cy) - R);
   return Math.min(Math.hypot(x - cx - R * Math.cos(a0), y - cy - R * Math.sin(a0)), Math.hypot(x - cx - R * Math.cos(a1), y - cy - R * Math.sin(a1)));
 };
+// small eye, bigger rounder eye, both glancing up and to the right (toward the antenna)
+const curiousEyes = ({ gap = 0.165, look = 0.055, up = 0.02, small = [0.098, 0.15], big = [0.128, 0.182] } = {}) => (S) => (x, y) =>
+  Math.min(sdPill(x, y, -gap + look, S.VIS.cy + up - 0.004, small[0], small[1]), sdPill(x, y, gap + look, S.VIS.cy + up + 0.006, big[0], big[1]));
 export const FACES = {
+  curious: curiousEyes,
+  // two bright rounds of different sizes, glancing up and right
+  rounds: ({ gap = 0.165, look = 0.06, up = 0.02, r1 = 0.058, r2 = 0.08 } = {}) => (S) => (x, y) =>
+    Math.min(Math.hypot(x - (-gap + look), y - (S.VIS.cy + up)) - r1, Math.hypot(x - (gap + look), y - (S.VIS.cy + up + 0.012)) - r2),
+  // a lid / brow line of light lifted above the bigger eye (drawn dimmer than the eyes)
+  brow: ({ gap = 0.165, look = 0.055, up = 0.02, R = 0.118, t = 0.022, a0 = 0.32, a1 = 0.74, dx = 0.004, dy = 0.0, k = 0.55 } = {}) => (S) => ({
+    k, sd: (x, y) => sdArc(x, y, gap + look + dx, S.VIS.cy + up + 0.006 + dy, R, Math.PI * a0, Math.PI * a1) - t / 2,
+  }),
   // two open eyes (tall pills); dy lifts them, look shifts them sideways
   pills: ({ w = 0.105, h = 0.17, gap = 0.17, dy = 0, look = 0 } = {}) => (S) => (x, y) =>
     Math.min(sdPill(x, y, -gap + look, S.VIS.cy + dy, w, h), sdPill(x, y, gap + look, S.VIS.cy + dy, w, h)),
@@ -251,11 +280,24 @@ function buildBot(o) {
     const visorMat = matte(new THREE.MeshPhysicalMaterial({
       color: lin(o.visorColor ?? "#121110"), roughness: o.visorRough ?? 0.3, metalness: 0, clearcoat: o.visorCoat ?? 0.55, clearcoatRoughness: o.visorCoatRough ?? 0.16,
       specularIntensity: 0.8, envMapIntensity: o.visorEnv ?? 1.0,
-      emissive: new THREE.Color(1, 1, 1), emissiveMap: faceTexture(S, (o.face ?? FACES.pills())(S), o.faceOpt), emissiveIntensity: o.eyeGlow ?? 4.5,
+      emissive: new THREE.Color(1, 1, 1), emissiveMap: faceTexture(S, (o.face ?? FACES.pills())(S), o.faceOpt, o.faceDim ? o.faceDim(S) : null), emissiveIntensity: o.eyeGlow ?? 4.5,
     }), { wrap: 0.0, directToo: 0.2 });
     add(visorGeometry(S), visorMat);
   }
-  if (o.antenna !== false) {
+  if (o.antenna !== false && S.curve) {
+    const tube = new THREE.TubeGeometry(S.curve, 96, S.ANT.r, 40, false);
+    vcol(tube, () => bot.clone().lerp(top, 0.55));
+    add(tube, shellMat);
+    const tipMat = matte(new THREE.MeshPhysicalMaterial({
+      color: lin(o.tipColor ?? "#C9683F"), roughness: 0.5, sheen: 0.4, sheenColor: lin("#ffc79a"),
+      emissive: lin(o.tipGlowColor ?? "#ff7a3d"), emissiveIntensity: o.tipGlow ?? 0.6,
+    }), { wrap: 0.3 });
+    const tipLen = S.ANT.tipLen, tr = S.ANT.r * 1.08, end = S.curve.getPoint(1), tan = S.curve.getTangent(1).normalize();
+    add(new THREE.CapsuleGeometry(tr, tipLen, 16, 48), tipMat, (m) => {
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tan);
+      m.position.copy(end).addScaledVector(tan, tipLen / 2 + tr - S.ANT.r * 0.9);
+    });
+  } else if (o.antenna !== false) {
     const len = Math.hypot(S.top[0] - S.base[0], S.top[1] - S.base[1]);
     const rod = new THREE.CapsuleGeometry(S.ANT.r, len, 16, 48);
     vcol(rod, () => bot.clone().lerp(top, 0.55));
@@ -430,7 +472,23 @@ const ANT = { len: 0.12, r: 0.042, tipLen: 0.03 };
 const PEEK = { ...LIGHT, yaw: -0.16, pitch: 0.06, cam: [0, -0.05, 3.43], target: [0, 0.0, 0], fov: 22, botPos: [0, -0.32, 0] };
 const bot = (m, extra = {}) => ({ ...m, head: HEAD, visor: VISOR, antenna: ANT, face: FACES.pills(), ...extra });
 
+// Black on coral, with a curious face
+const BLACK = { colorTop: "#131313", colorBottom: "#0B0B0B", sheen: 0.3, sheenColor: "#e9e6e3", rough: 0.56, spec: 0.3, env: 0.5, sssI: 0.0,
+  visorColor: "#040404", visorRough: 0.07, visorCoat: 1.0, visorCoatRough: 0.03, visorEnv: 1.25, eyeGlow: 5.2,
+  tipColor: "#FFE6C4", tipGlowColor: "#FFBF85", tipGlow: 1.1 };
+const CORAL_GROUND = ground("#FF8567", "#E1553B", { glow: "#FFA88C", at: [0.5, 0.16], r: 0.62, k: 0.45 });
+const EDGE_RIMS = [[[2.4, 1.8, -2.6], 1.8, "#ffffff"], [[-2.6, 1.4, -2.4], 1.2, "#ffffff"]];
+// neutral light on the black head (warm light turns a dark matte brown); the warmth lives in the eyes, the tip and the ground
+const ON_CORAL = { background: CORAL_GROUND, groundShade: { r: 0.03, k: 0.18 }, rims: EDGE_RIMS, keyI: 3.0, keyColor: "#ffffff", fillColor: "#ffffff", fillI: 0.04,
+  envIntensity: 0.5, env: { ...LIGHT.env, rimR: 1.5, rimL: 1.1, floor: 0.15, floorTint: [1, 1, 1] } };
+const TILT = { yaw: -0.34, roll: 0.17, pitch: -0.02, cam: [0, -0.28, 3.4], target: [0, -0.02, 0], botPos: [0.05, -0.36, 0] };
+
 export const VARIANTS = {
+  "black-coral-peek": () => ({ ...PEEK, ...ON_CORAL, bot: bot(BLACK, { face: FACES.curious(), faceDim: FACES.brow() }) }),
+  "black-coral-tilt": () => ({ ...PEEK, ...ON_CORAL, ...TILT, bot: bot(BLACK, { face: FACES.curious(), faceDim: FACES.brow() }) }),
+  "black-coral-bent": () => ({ ...PEEK, ...ON_CORAL, ...TILT,
+    bot: bot(BLACK, { antenna: { ...ANT, len: 0.15, bend: 0.75 }, face: FACES.curious({ look: 0.075, up: 0.03 }), faceDim: FACES.brow({ look: 0.075, up: 0.03, a0: 0.3, a1: 0.72, dy: 0.008 }) }) }),
+  "black-coral-rounds": () => ({ ...PEEK, ...ON_CORAL, ...TILT, bot: bot(BLACK, { face: FACES.rounds() }) }),
   "cream-black": () => ({ ...PEEK, background: ground("#161413", "#0B0A0A"), bot: bot(CREAM) }),
   "cream-clay": () => ({ ...PEEK, background: ground("#D0714A", "#B9532F"), groundShade: { r: 0.03, k: 0.35 }, envIntensity: 0.4,
     bot: bot(CREAM, { tipColor: "#211E1C", tipGlowColor: "#000000", tipGlow: 0.0 }) }),
