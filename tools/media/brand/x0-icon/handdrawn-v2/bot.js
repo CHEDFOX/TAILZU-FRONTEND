@@ -121,6 +121,11 @@
     for (const s of [-1, 1]) {
       const ear = W(G.squircle(s * (hw + 2), 6, 40, 68, 2.4));
       fill(ear, st.ear); if (st.earShade) fill(ear, st.earShade); line(ear, st.earLine, true);
+      const mk = B.earMarks?.[s < 0 ? 0 : 1], pen = st.earMark || { color: PAL.ink, w: 7, amp: 0.3, taper: [3, 3] };
+      if (mk === "x") for (const a of [Math.PI / 4, -Math.PI / 4]) {
+        const d = 14, ex = s * (hw + 20); line(W(G.line([ex - Math.cos(a) * d, 6 - Math.sin(a) * d], [ex + Math.cos(a) * d, 6 + Math.sin(a) * d])), pen);
+      }
+      if (mk === "o") line(W(G.ellipse(s * (hw + 20), 6, 10, 13)), { ...pen, taper: undefined }, true);
     }
 
     // ---- shell ------------------------------------------------------------------------------------
@@ -203,7 +208,7 @@
   HD.eyePts = eyePts;
 
   function face(K, F, st, visor) {
-    const { G, W, Wp, fill, line, glow, PAL } = K, { vy, vw, vh } = K.geo;
+    const { G, M, W, Wp, fill, line, glow, PAL } = K, { vy, vw, vh } = K.geo;
     const look = F.look || [0, 0];
     const ex = (F.spread ?? 0.48) * vw, ew = F.w ?? 124, eh = F.h ?? 176, ey = vy + (F.y ?? 0.12) * vh + look[1];
     const ink = !visor; // eyes drawn straight on the face plate, in ink
@@ -220,8 +225,12 @@
       if (shape) fill(shape, { ...st.eye, color: eyeCol, within: visor || undefined });
       if (e.catch !== false && open && st.catchlight) {
         const c1 = Wp(x - w * 0.2 * fl + (e.cx || 0), y - h * 0.22 * fl), c2 = Wp(x + w * 0.16 * fl + (e.cx || 0), y + h * 0.16 * fl);
-        fill(G.xf(G.ellipse(c1[0], c1[1], w * 0.17, h * 0.12), -0.5, c1[0], c1[1]), st.catchlight);
-        fill(G.ellipse(c2[0], c2[1], w * 0.065, w * 0.065), { ...st.catchlight, opacity: (st.catchlight.opacity ?? 1) * 0.8 });
+        if (e.glint === "x") fill(M.sparkle(c1[0], c1[1], w * 0.2, Math.PI / 4, 0.13), st.catchlight);   // a diagonal sparkle: an x
+        else if (e.glint === "o") line(G.ellipse(c1[0], c1[1], w * 0.095, w * 0.125), { color: st.catchlight.color, w: w * 0.05, amp: 0.2, taper: [2, 2], within: visor || undefined }, true);
+        else {
+          fill(G.xf(G.ellipse(c1[0], c1[1], w * 0.17, h * 0.12), -0.5, c1[0], c1[1]), st.catchlight);
+          fill(G.ellipse(c2[0], c2[1], w * 0.065, w * 0.065), { ...st.catchlight, opacity: (st.catchlight.opacity ?? 1) * 0.8 });
+        }
       }
       if (e.brow && st.brow) { // a brow line on the visor (or the face), above this eye
         const b = e.brow, bx = x + (b.dx || 0), by = y - h / 2 - (b.gap ?? 28), Lb = (b.len ?? 0.5) * w, rot = (b.rot ?? 0) * s;
