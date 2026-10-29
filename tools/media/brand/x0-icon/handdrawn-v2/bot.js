@@ -138,6 +138,7 @@
       if (mk === "o") line(W(G.ellipse(s * (hw + 20), 6, 10, 13)), { ...pen, taper: undefined }, true);
     }
 
+    if (S.beforeShell) S.beforeShell(K);   // things behind the head (after the ears)
     // ---- shell ------------------------------------------------------------------------------------
     fill(shell, st.shell);
     if (st.shade) fill(shell, st.shade);

@@ -143,6 +143,73 @@
   for (const [k, label, c] of PALETTES)
     paintedVersion("pal-" + k, label, { ground: "#F7F3EC", ground2: "#EFE9DF", head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ...c }, "A colour study of the painted clay-bar version.");
 
+  // Monkey and bot in one. The bot's black box head, its eyes now dark camera lenses with a glowing dot; the
+  // monkey's light face plate (round round the eyes, with a muzzle), big round ears with a light inner ear,
+  // and a curly tail hooked over the bar. Painted flat. The features are placed in final coordinates (as seen,
+  // after the turn): u right, v down from the head's centre; U maps them back to the upright drawing.
+  function monkey(id, name, c, note, o = {}) {
+    const U = (K) => (u, v) => K.Wp(-u, -v);
+    const oval = (K, cu, cv, ru, rv, n = 120) => { const P = []; for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; P.push(U(K)(cu + ru * Math.cos(a), cv + rv * Math.sin(a))); } return P; };
+    const cut = (len, jit) => ({ len, jit });
+    /** A thick painted stroke along a polyline (final coordinates in the tile), tapering to tip. */
+    const strokePoly = (pts, w0, w1) => {
+      const L = [], R = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)], dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
+        const w = w0 + (w1 - w0) * (i / (pts.length - 1)), nx = -dy / d, ny = dx / d;
+        L.push([pts[i][0] + nx * w, pts[i][1] + ny * w]); R.push([pts[i][0] - nx * w, pts[i][1] - ny * w]);
+      }
+      const end = pts[pts.length - 1], cap = [];
+      for (let k = 1; k < 12; k++) { const t = Math.PI * (k / 12), a0 = Math.atan2(L[L.length - 1][1] - end[1], L[L.length - 1][0] - end[0]); cap.push([end[0] + Math.cos(a0 - t) * w1, end[1] + Math.sin(a0 - t) * w1]); }
+      return L.concat(cap, R.reverse());
+    };
+    const F = ([x, y]) => [1000 - x, 1000 - y];   // a point as seen (after the turn) -> the upright drawing
+    V.push({ id, name, seed: 3131, note,
+      ground(K) {
+        K.art.paper({ color: c.ground, mottle: 0, grain: 0, vignette: 0 });
+        K.fill([[-20, -20], [1020, -20], [1020, 1020], [-20, 1020]], { color: vgrad(c.ground, c.ground2 || c.ground, 0, 1000), p: 1, clip: null });
+        K.fill(K.below, { color: c.bar, p: 1, clip: null, facet: { len: 46, jit: 3.5 } });
+      },
+      edge: bar({ line: null, belowTint: null, wave: 0.8 }),
+      bot: bot({ ...o }),
+      style: (K) => ({ ...painted(K, { head: c.fur, visor: null, eye: c.fur, hand: c.hand, ear: c.ear }), ear: { color: c.ear, p: 0 }, eye: { color: c.fur, p: 0 } }),
+      beforeShell(K) { // big round monkey ears, behind the head, with a light inner ear and a little bolt (the bot)
+        const { hw } = K;
+        for (const s of [-1, 1]) {
+          K.fill(oval(K, s * (hw + 6), 8, 96, 100), { color: c.ear, p: 1, facet: cut(22, 2.5) });
+          K.fill(oval(K, s * (hw + 22), 10, 52, 58), { color: c.inner, p: 1, facet: cut(16, 2) });
+          K.fill(oval(K, s * (hw + 30), 12, 11, 11, 40), { color: c.fur, p: 1, facet: cut(8, 1) });
+        }
+      },
+      afterShell(K) { // the monkey's face plate, its muzzle, and the bot's lens eyes
+        const fp = { color: c.face, p: 1, facet: cut(30, 3) };
+        K.fill(oval(K, -118, -6, 112, 118), fp); K.fill(oval(K, 118, -6, 118, 124), fp);
+        K.fill(oval(K, 0, 150, 168, 104), fp);
+        K.fill(oval(K, 0, 160, 128, 78), { color: c.muzzle, p: 1, facet: cut(26, 2.5) });
+        for (const s of [-1, 1]) K.fill(oval(K, s * 26, 132, 12, 15, 40), { color: c.fur, p: 1, facet: cut(8, 1) });
+        // a small smile: a crescent (the bottom of one oval less the top of a higher one)
+        const smile = [];
+        for (let i = 0; i <= 30; i++) { const t = Math.PI * (0.12 + 0.76 * (i / 30)); smile.push(U(K)(Math.cos(t) * 54, 168 + Math.sin(t) * 34)); }
+        for (let i = 30; i >= 0; i--) { const t = Math.PI * (0.12 + 0.76 * (i / 30)); smile.push(U(K)(Math.cos(t) * 54 * 0.92, 168 + Math.sin(t) * 34 - 13)); }
+        K.fill(smile, { color: c.fur, p: 1, facet: cut(9, 1) });
+        for (const [s, r] of [[-1, 58], [1, 64]]) {
+          K.fill(oval(K, s * 118, 2, r, r * 1.12), { color: c.lens, p: 1, facet: cut(22, 2.5) });
+          K.fill(oval(K, s * 118 - r * 0.25, 2 - r * 0.32, r * 0.3, r * 0.3, 60), { color: c.glow, p: 1, facet: cut(12, 1.5) });
+        }
+      },
+      after(K) { // a curly tail from behind the head, hooked over the bar
+        const pts = [], base = [842, 372], top = [880, 186];
+        for (let i = 0; i <= 40; i++) { const t = i / 40; pts.push([base[0] + (top[0] - base[0]) * t + 34 * Math.sin(t * Math.PI), base[1] + (top[1] - base[1]) * t]); }
+        for (let i = 1; i <= 50; i++) { const t = (i / 50) * Math.PI * 1.55, R = 64 * (1 - 0.42 * (i / 50)); pts.push([top[0] - R + Math.cos(t) * R + 0, top[1] - Math.sin(t) * R * 0.95]); }
+        K.fill(strokePoly(pts, 24, 15).map(F), { color: c.fur, p: 1, clip: null, facet: cut(18, 2) });
+      },
+    });
+  }
+  monkey("m1-monkey", "Monkey-bot", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: CLAY, fur: INK, face: "#E3C9A2", muzzle: "#F1DFC2", lens: "#151311", glow: "#FFF1D6", ear: CLAY, inner: "#E3C9A2", hand: CREAM },
+    "The bot and a monkey in one: black box head, lens eyes with a glow, a monkey's face plate and muzzle, big round ears, and a curly tail hooked over the bar.");
+  monkey("m2-monkey-brown", "Monkey-bot, brown", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: "#2F4CF0", fur: "#4A2E22", face: "#E8C9A0", muzzle: "#F4E2C4", lens: "#1A1210", glow: "#FFF1D6", ear: "#4A2E22", inner: "#E8C9A0", hand: "#E8C9A0" },
+    "The same in warm monkey brown, on a cobalt bar.");
+
   function G_clip(c, pts) { HD.G.path(c, pts); c.clip(); }
 
   HD.HANG = V;
