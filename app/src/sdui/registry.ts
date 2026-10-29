@@ -195,6 +195,12 @@ export const CORE_COMPONENTS = [
    * that says this.
    */
   "PullBot",
+  /**
+   * NOT A COMPONENT — the bots' sounds (types.ts BOT_SOUNDS_CAPABILITY; sounds.ts): the pack the bootstrap's "bots.sounds"
+   * names, played by pull-a-bot and the bots' moments; the phone's `soundsOn` in a screen that names it, and the action devicePref
+   * "sounds" for the switch. The server shows the Sounds switch only to a bundle that says this.
+   */
+  "BotSounds",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
@@ -221,6 +227,8 @@ export const CORE_ACTIONS = [
   "uploadFile", "playAudio", "stopAudio", "recordVoice",
   // keep an ask to send when online, take one out, try one again, clear the sent (offline.tsx)
   "outbox",
+  // a setting kept on this phone: the Sounds switch (sounds.ts)
+  "devicePref",
   // permissions
   "requestPermission", "checkPermission",
   // auth

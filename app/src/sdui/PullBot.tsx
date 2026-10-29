@@ -17,8 +17,10 @@
  *
  * ALL ON THE UI THREAD. The finger (the pan's worklets), the scroll (an animated scroll handler), the frame (a frame
  * callback, running only while something moves) and the drawing (one Skia picture recorded per frame from the state
- * array: paints, shapes and the recorder made once) never wait on JavaScript. JavaScript hears three things: the tick
- * (a haptic), the release past the line (the refresh) and that nothing moves any more (the frame callback stops).
+ * array: paints, shapes and the recorder made once) never wait on JavaScript. JavaScript hears four things: the tick
+ * (a haptic and its sound), the release past the line (the refresh), the throw (its sound) and that nothing moves any
+ * more (the frame callback stops). The sounds (sounds.ts) are readied when a finger comes down and never hold up a frame:
+ * the chime or the "hmm" comes with the pill's answer.
  *
  * THE BOT is drawn over the list in a canvas from the top of the window to the bottom of the list's viewport: in the gap
  * while it is pulled (feet first from the top, head first from the bottom), over everything above the list as he flies
@@ -51,13 +53,14 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurStyle, Canvas, ClipOp, PaintStyle, Picture, Skia, StrokeCap, StrokeJoin, TileMode, vec } from "@shopify/react-native-skia";
 import {
-  advance, busy, C_SCALE, configFrom, countNew, drag, EV_TICK, grab, listOffset, lookOf, newPullState, pillFor, release,
+  advance, busy, C_SCALE, configFrom, countNew, drag, EV_THROW, EV_TICK, grab, listOffset, lookOf, newPullState, pillFor, release,
   S_EV, S_IDLE, S_P, S_PE, S_TOUCH, type Edge, type Pill, type PillWords,
 } from "./pullBotCore";
 import { drawScene, makeKit, type SkiaLike } from "./pullBotDraw";
 import { runAction, type Ctx } from "./actions";
 import { color, num, obj, str, txt } from "./knobs";
 import { haptic } from "./haptic";
+import { playPull, warmPull } from "./sounds";
 import type { PullBotSpec, ScreenResponse } from "./types";
 
 // ===================================================================== the screen's spec
@@ -244,9 +247,11 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
   stillRef.current = still;
   const loopRef = useRef<{ setActive: (on: boolean) => void } | null>(null);
   const refreshRef = useRef<(edge: Edge) => void>(() => {});
-  const startLoop = useCallback(() => { loopRef.current?.setActive(true); }, []);
+  // A finger on the list: the frame runs, and the sounds a pull may need are readied (sounds.ts).
+  const startLoop = useCallback(() => { loopRef.current?.setActive(true); warmPull(); }, []);
   const stopLoop = useCallback(() => { loopRef.current?.setActive(false); }, []);
-  const onTick = useCallback(() => { haptic(str("app.haptics.pullBot", "light")); }, []);
+  const onTick = useCallback(() => { haptic(str("app.haptics.pullBot", "light")); playPull("tick"); }, []);
+  const onThrow = useCallback(() => { playPull("throw"); }, []);
   const onRefresh = useCallback((code: number) => { refreshRef.current(code === 0 ? "top" : "bottom"); }, []);
   const scrolledTo = useRef(0);
   const onY = useCallback((y: number) => { scrolledTo.current = y; latest.current.onScrollY?.(y); }, []);
@@ -262,6 +267,7 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
       const ev = s[S_EV];
       s[S_EV] = 0;
       if (ev & EV_TICK) runOnJS(onTick)();
+      if (ev & EV_THROW) runOnJS(onThrow)();
     }
     if (busy(s)) { s[S_IDLE] = 0; tick.value = tick.value + 1; }
     else if (s[S_IDLE] === 0) { s[S_IDLE] = 1; tick.value = tick.value + 1; }   // the empty frame, once
@@ -386,11 +392,12 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
     show(pillFor("checking", edge, newAt, words()), edge);
     const until = new Promise<void>((r) => later(Math.max(0, num("pullBot.checkMinMs", 900)), () => r()));
     // Once: the answer, or giving up on a fetch that never settles (so the next pull can refresh again).
-    const done = (result: Pill) => {
+    const done = (result: Pill, sound?: "new" | "uptodate") => {
       if (!alive.current || run !== runs.current) return;
       runs.current++;
       refreshing.value = 0;
       show(result, edge);
+      if (sound) playPull(sound);
       if (Platform.OS === "ios") AccessibilityInfo.announceForAccessibility(result.text);
       const at = Date.now();
       hideAt.current = at;
@@ -401,7 +408,7 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
     if (!reload) {
       // A host without the quiet reload: the screen's plain refresh (it shows its own spinner), and nothing to count.
       void runAction({ kind: "refresh" }, ctx);
-      void until.then(() => done(pillFor(0, edge, newAt, words())));
+      void until.then(() => done(pillFor(0, edge, newAt, words()), "uptodate"));
       return;
     }
     reload(until).then(
@@ -416,7 +423,7 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
           if (contentH.current > h0 + 0.5) follow(k, contentH.current);
           else keep.current = k;
         }
-        done(pillFor(n, edge, newAt, words()));
+        done(pillFor(n, edge, newAt, words()), n > 0 ? "new" : "uptodate");
       },
       () => { void until.then(() => done(pillFor("failed", edge, newAt, words()))); },
     );

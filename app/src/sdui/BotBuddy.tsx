@@ -30,6 +30,7 @@ import { LayoutAnimation, Text, View } from "react-native";
 import type { CompProps } from "./components";
 import { evalCondition } from "./actions";
 import { BotTile, kindOf, type BotKind, type BotMood, type BuddyAct } from "../botTiles/core";
+import { playMoment } from "./sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
 import { useLooks } from "../botTiles/looks";
 
@@ -43,6 +44,8 @@ function lifeOf(life: string, kind: BotKind, color: string, size: number): BotTi
     let seed = 17;
     for (let k = 0; k < life.length; k++) seed = (seed * 31 + life.charCodeAt(k)) >>> 0;
     b = new BotTile({ kind, color, mood: "idle", seed, size });
+    // A moment's sound plays from the bots' pack (sounds.ts).
+    b.onSound = playMoment;
     // No cloth under him: on a page he stands among the words, not on a patch of fabric.
     b.cloth = 0;
     if (LIVES.size > 24) LIVES.clear();

@@ -33,6 +33,7 @@ import type { CompProps } from "./components";
 import { runAction } from "./actions";
 import type { BotTileSpec } from "./types";
 import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood, type Looks, type Moment } from "../botTiles/core";
+import { playMoment } from "./sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
 import { useLooks } from "../botTiles/looks";
 
@@ -49,6 +50,8 @@ function lifeFor(t: BotTileSpec, i: number): BotTile {
     let seed = 7 + i * 131;
     for (let k = 0; k < t.slug.length; k++) seed = (seed * 31 + t.slug.charCodeAt(k)) >>> 0;
     b = new BotTile({ kind, color: t.color, mood: t.state as BotMood, seed });
+    // A moment's sound (a sneeze, a clap) plays from the bots' pack (sounds.ts).
+    b.onSound = playMoment;
     if (LIVES.size > 24) LIVES.clear();
     LIVES.set(key, b);
   }

@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   advance, ANT, BOT_FLY, BOT_NONE, BOT_PULL, BOT_RIDE, busy, C_DAMP, C_RATE, C_RUB, C_SCALE, C_STILL, C_THRESH, C_THROW, configFrom,
-  countNew, drag, EV_TICK, FACE_EFFORT, FACE_EYES, FACE_HAPPY, FACE_WHEE, FACE_WOW, faceOf, FEET, G_BOT, G_TOP, G_W, grab, listOffset,
+  countNew, drag, EV_THROW, EV_TICK, FACE_EFFORT, FACE_EYES, FACE_HAPPY, FACE_WHEE, FACE_WOW, faceOf, FEET, G_BOT, G_TOP, G_W, grab, listOffset,
   lookOf, newPullState, pillFor, PULL_DEFAULTS, PULL_LOOKS, PUFF_LEN, PUFFS, release, rubber, S_B, S_EV, S_PO, S_PUFF, S_PV, S_P,
   S_PH, S_VX, S_VY, S_X, S_Y, STEP, step, unrubber,
 } from "./pullBotCore.ts";
@@ -138,6 +138,29 @@ test("let go past the line: a refresh, the list springs back, he rides it and is
   assert.equal(s[S_P], 0);
   assert.equal(listOffset(s), 0);
   assert.equal(busy(s), false);
+});
+
+test("the throw's sound is asked for once: at the launch, at the release under Reduce Motion, never when let go early", () => {
+  const throws = (still: boolean, px: number) => {
+    const s = newPullState(), c = configFrom({}, { top: true, still });
+    pull(s, c, "top", px);
+    s[S_EV] = 0;
+    release(s, c, false);
+    let n = 0, at = -1, t = 0;
+    for (let i = 0; i < 400; i++) {
+      if (s[S_EV]! & EV_THROW) { n++; if (at < 0) at = t; }
+      s[S_EV] = 0;
+      step(s, c, GEO, STEP); t += STEP;
+    }
+    return { n, at, flew: s[S_B] };
+  };
+  const thrown = throws(false, 300);
+  assert.equal(thrown.n, 1);
+  assert.ok(thrown.at > 0.03, "when he leaves the list, not when the finger lets go");
+  const still = throws(true, 300);
+  assert.equal(still.n, 1);
+  assert.equal(still.at, 0, "at once: there is no flight");
+  assert.equal(throws(false, 80).n, 0);
 });
 
 test("the list's spring back: quick, one small bounce (rate 17, damping 0.58)", () => {
