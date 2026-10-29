@@ -377,10 +377,14 @@ builders and the phone's own renderer, then composes every frame). Files are in 
 all RGB PNG without alpha, sRGB. Upload them in this order. The frames are data (`tools/media/store/frames.mjs`): a
 new bot's frame is one entry there.
 
-The look: a warm, full-bleed photograph behind each frame, graded so the set reads as one shoot; a serif headline
-(Newsreader) in two short lines with no full stop; the app as a light card cut from a real screen, with one part of it
-lifted out. The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one is in
-`tools/media/store/photos/CREDITS.md`.
+The look, ours: a full-bleed photograph under one shared grade (deep ink shadows with an olive-teal undertone, warm cream
+light, colour held back so the clay is the brightest colour on the frame); a heavy Geist headline (the app's own face),
+left aligned, in two lines with no full stop, one word written by hand with a clay brush underline; the app as a light
+cream card cut from a real screen, with a thin hand-drawn outline and one part lifted out, a clay arrow pointing at it; and
+the Peek-a-bot peeking over the card's top edge, paws on it, with a face for the frame (a wave on Home, curious on Ask,
+happy on Plan, starry-eyed on Travel, a wink on Make a bot). The bot and the brush marks are drawn by the brand's
+hand-drawn icon code. The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one
+is in `tools/media/store/photos/CREDITS.md`.
 
 | # | Frame | Headline | What it shows |
 | --- | --- | --- | --- |
