@@ -4,7 +4,7 @@
  * and hands them to these.
  */
 import { useStorePrice } from "../billing/storePrice";
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
   Easing,
   Image,
   Keyboard,
+  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
@@ -326,6 +327,68 @@ export interface CompProps {
  */
 const ScreenViewport = createContext<number>(0);
 
+/**
+ * A FOOTER THE KEYBOARD DOES NOT COVER (a Stack with `keyboard: "above"`).
+ *
+ * A Bots page's footer (Home's "Ask any bot…", the Code bot's "Tell Code bot what to do") sits under the scroll, outside it,
+ * so neither iOS's own inset nor the Screen's room on Android reached it: the keyboard came up over the very field being typed
+ * in, and over that field's own Paste menu. While one of ITS fields has the keyboard, the footer takes a bottom margin as tall
+ * as the part of it the keyboard would cover, so it sits just above the keyboard and the scroll above gives up the room; what is
+ * under it (the tab bar) stays under the keyboard. A field in the scrolling body is the Screen's, as before: the footer stays put.
+ */
+const FooterField = createContext<((focused: boolean) => void) | null>(null);
+/** A footer's field has the keyboard: the Screen leaves the keyboard to the footer (no room of its own on Android, no scroll). */
+let footerFocused = false;
+
+function KeyboardAbove({ style, children }: { style: any; children: React.ReactNode }) {
+  const ref = useRef<View>(null);
+  const [lift, setLift] = useState(0);
+  const lifted = useRef(0);
+  const focused = useRef(false);
+  const kbTop = useRef<number | null>(null);
+  const place = useCallback((ms?: number) => {
+    const go = (next: number) => {
+      if (Math.abs(next - lifted.current) < 1) return;
+      if (Platform.OS === "ios") {
+        const duration = ms && ms > 0 ? ms : 250;
+        LayoutAnimation.configureNext({ duration, update: { duration, type: LayoutAnimation.Types.keyboard } });
+      }
+      lifted.current = next;
+      setLift(next);
+    };
+    const top = kbTop.current;
+    if (!focused.current || top == null || !ref.current) { go(0); return; }
+    // Where its foot would be with no lift (the margin moves it up by what it is lifted now), against the keyboard's top.
+    ref.current.measureInWindow((_x, y, _w, h) => go(Math.max(0, Math.round(y + h + lifted.current - top))));
+  }, []);
+  useEffect(() => {
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      kbTop.current = e?.endCoordinates?.screenY ?? null;
+      place(e?.duration);
+    });
+    const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      kbTop.current = null;
+      place(e?.duration);
+    });
+    return () => { show.remove(); hide.remove(); if (focused.current) footerFocused = false; };
+  }, [place]);
+  const onField = useCallback((on: boolean) => {
+    focused.current = on;
+    footerFocused = on;
+    // Already up (a field above had it): lift now, the keyboard sends nothing new.
+    const m = on && Keyboard.isVisible?.() ? Keyboard.metrics?.() : undefined;
+    if (m) kbTop.current = m.screenY;
+    place();
+  }, [place]);
+  const own = Number((StyleSheet.flatten(style) as Record<string, any> | undefined)?.marginBottom ?? 0) || 0;
+  return (
+    <FooterField.Provider value={onField}>
+      <View ref={ref} style={[style, lift ? { marginBottom: own + lift } : null]}>{children}</View>
+    </FooterField.Provider>
+  );
+}
+
 const Screen = ({ props, children, style, ctx }: CompProps) => {
   const [vh, setVh] = useState(0);
   // Pull-a-bot, when the screen on show asks for it (ScreenResponse.pullBot): the same scroll, with a bot in its pull.
@@ -379,6 +442,7 @@ const Screen = ({ props, children, style, ctx }: CompProps) => {
   useEffect(() => {
     if (Platform.OS !== "android") return;
     const show = Keyboard.addListener("keyboardDidShow", (e) => {
+      if (footerFocused) return; // the footer's own field: the footer moves (KeyboardAbove), the page does not
       const top = e?.endCoordinates?.screenY ?? 0;
       setKb(e?.endCoordinates?.height ?? 0);
       const input = TextInput.State.currentlyFocusedInput?.() as unknown as { measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
@@ -468,6 +532,7 @@ const Stack = ({ node, props, children, style, fire }: CompProps) => {
   // difference is a control pushed under the fold.
   const screenH = useContext(ScreenViewport);
   const sized = fill ? [style, { minHeight: screenH || win.height }] : style;
+  if (props?.keyboard === "above" && !node.on?.onPress && !node.on?.onLongPress) return <KeyboardAbove style={sized}>{children}</KeyboardAbove>;
   if (!node.on?.onPress && !node.on?.onLongPress) return <View style={sized}>{children}</View>;
   // How far it dims under a finger. A Stack is the app's general-purpose
   // pressable — the allow pill, the plan rows, the deck cards are all one —
@@ -713,9 +778,13 @@ const Button = ({ props, style, fire }: CompProps) => {
 const TextField = ({ node, props, style, store, fire }: CompProps) => {
   const theme = useTheme();
   const bindPath = node.bind?.value;
+  // In a footer that stays above the keyboard: it moves while this field has it.
+  const footer = useContext(FooterField);
   return (
     <TextInput
       value={String(props.value ?? "")}
+      onFocus={footer ? () => footer(true) : undefined}
+      onBlur={footer ? () => footer(false) : undefined}
       onChangeText={(t) => {
         if (bindPath) store.set(bindPath, t);
         fire("onChange", t);

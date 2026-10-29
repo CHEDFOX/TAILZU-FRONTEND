@@ -441,8 +441,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       break;
     case "readClipboard":
       try {
+        // Nothing on it (or the paste not allowed) leaves what was typed, as the window does.
         const s = await Clipboard.getStringAsync();
-        ctx.store.set(action.assignTo, s);
+        if (s) ctx.store.set(action.assignTo, s);
       } catch { /* no clipboard access */ }
       break;
     case "sms":
