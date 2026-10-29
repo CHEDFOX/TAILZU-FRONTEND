@@ -128,6 +128,46 @@
   paintedVersion("9-painted-no-visor", "9 · Painted, no visor", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: "#D8D0C3", head: INK, visor: null, eye: CREAM, hand: CREAM, ear: CLAY },
     "The simplest: one black head, two cream eyes, cream gloves, clay ears.");
 
+  // Refined painted clay-bar (r-*). Composition: the bar is slimmer and the head bigger and lower, so the bot fills
+  // the tile and still hangs over open space. Eyes: a touch bigger, lower and closer (the proportions read as young
+  // and friendly), with pupils turned to the viewer for eye contact. Cut: longer, steadier facets, so the shapes
+  // look deliberate rather than dented. Options: rod (a bar with space above it), pupils, visor.
+  function refined(id, name, note, o = {}) {
+    const c = { ground: "#F7F3EC", ground2: "#EFE9DF", bar: CLAY, head: INK, visor: "#2E2A27", eye: "#FFF8EC", hand: CREAM, ear: CLAY, ...(o.colors || {}) };
+    const E = 785, ROD = 92;
+    const F = { y: -0.25, spread: 0.46, w: 140, h: 190, look: [0, 0], eyes: [{ hs: 1.06, ws: 1.02 }, { hs: 0.95, ws: 0.95 }] };
+    V.push({ id, name, seed: 3131, note,
+      ground(K) {
+        K.art.paper({ color: c.ground, mottle: 0, grain: 0, vignette: 0 });
+        K.fill([[-20, -20], [1020, -20], [1020, 1020], [-20, 1020]], { color: vgrad(c.ground, c.ground2, 0, 1000), p: 1, clip: null });
+        const band = o.rod ? K.edgePts.concat(K.edgePts.slice().reverse().map(([x, y]) => [x, y + ROD])) : K.below;
+        K.fill(band, { color: c.bar, p: 1, clip: null, facet: { len: 64, jit: 2.5 } });
+      },
+      edge: { y: E, slope: -0.005, line: null, belowTint: null, wave: 0.6 },
+      bot: bot({ x: 446, tilt: o.tilt ?? 0.18, rise: 190, hw: 400, hh: 310, face: F }),
+      style: (K) => ({
+        ear: { color: c.ear, p: 1, facet: { len: 24, jit: 2 } }, earShade: null, earLine: null,
+        shell: { color: c.head, p: 1, facet: { len: 50, jit: 3 } }, shade: null, shellShine: null, shellLine: null,
+        visor: o.visor === false ? { color: c.head, p: 0 } : { color: c.visor, p: 1, facet: { len: 44, jit: 2.5 } }, visorSheen: null, visorGlint: null, visorLine: null,
+        eye: { color: c.eye, p: 1, facet: { len: 26, jit: 2.2 } }, eyeHalo: null, catchlight: null, brow: null,
+        hand: { color: c.hand, p: 1, facet: { len: 11, jit: 0.9 } }, handShade: null, handLine: null, seam: null, handShadow: null, dropShadow: null,
+      }),
+      beforeEdge(K) { // pupils turned to the viewer (a little toward the middle and, once turned, a little down), each with a glint
+        if (o.pupils === false) return;
+        const { vy, vw, vh } = K.geo, ex = F.spread * vw, ey = vy + F.y * vh;
+        F.eyes.forEach((e, i) => {
+          const s = i === 0 ? -1 : 1, w = F.w * e.ws, h = F.h * e.hs, x = s * ex, y = ey;
+          const pr = w * (o.pupil ?? 0.32), px = x - s * w * 0.1, py = y - h * 0.1, P = K.Wp(px, py), G2 = K.Wp(px + pr * 0.38, py + pr * 0.38);
+          K.fill(K.G.ellipse(P[0], P[1], pr, pr * 1.06), { color: c.head, p: 1, facet: { len: 16, jit: 1.5 } });
+          K.fill(K.G.ellipse(G2[0], G2[1], pr * 0.32, pr * 0.32), { color: c.eye, p: 1, facet: { len: 9, jit: 1 } });
+        });
+      },
+    });
+  }
+  refined("r1-refined", "Refined", "Slimmer bar, bigger and lower head, bigger closer eyes with pupils on you, steadier cut.");
+  refined("r2-refined-rod", "Refined, on a bar", "The same, hanging from a clay rod with space above it, so it reads at once as hanging from a bar.", { rod: true });
+  refined("r3-refined-glow", "Refined, glow eyes", "The same without pupils or visor: two warm blank eyes, the purest painted form.", { pupils: false, visor: false });
+
   // Colour studies of the painted clay-bar version (same shapes, same cut): pal-<name>. Not part of the ranked set.
   const PALETTES = [
     ["clay", "Clay (now)", { bar: CLAY, ear: CLAY }],
