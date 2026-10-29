@@ -8,7 +8,9 @@
  * kick, where to look); the body gets there through forces, and the props, the fabric and the bot's own noodle arms
  * and antennae answer through the same integrator.
  *
- *   BotTile        one tile: a bot (13 particles), its props (<= 8 bodies), its fabric (14 x 9 points).
+ *   BotTile        one tile: a bot (13 particles), its props (<= 8 bodies), its fabric (14 x 9 points). On his own pages
+ *                  (BotBuddy) the same bot has moments (BuddyAct); carrying, his stage is a chat's lane and his only prop
+ *                  is a bag he hauls across, heavier each trip (CARRY, carrying()), until deliver() says the answer is here.
  *   BotTilesWorld  the tiles of one grid, laid out in one space, so every other bot can look at a tapped one.
  *   LiveMark       the Tailzu dot mark, alive (Home's header): its ring dots on springs, its eyes on the finger.
  *   TileCtx        what drawing needs: a strict subset of CanvasRenderingContext2D. The window and the phone on the
@@ -36,8 +38,30 @@ export type BotMood = "working" | "needs" | "idle";
  * lasts. wave: says hello and plays (Code bot's setup, meet) · survey: walks along and looks down over a list (pick)
  * · read: dots and short lines flow into his head (read) · settle: sits, content (home) · think: a hand to his chin,
  * eyes up, small dots rising (an answer is on its way). think wins over needs; needs wins over the rest.
+ * carry: an answer is on its way, as a load he hauls across a lane: in from the right, slowly across, out at the left,
+ * and in again with a heavier bag (CARRY); deliver() says the answer is here. carry wins over everything.
  */
-export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think";
+export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think" | "carry";
+
+/**
+ * The carry act's knobs. A trip is a wait off stage, then the walk across; the load grows a step a trip and stops
+ * growing at `trips` (the heaviest look is kept from then on). Times are on the act's own clock (BotTile.carryPace
+ * runs it faster or slower); paces are in the bot's own heights a second.
+ */
+export const CARRY = {
+  trips: 6,
+  firstWait: 1.2,
+  wait: 0.9,
+  paceLight: 3.4,
+  paceHeavy: 1.9,
+  /** The bag: radius and mass, light to heaviest (radius in the bot's heights). */
+  bagLight: 0.115,
+  bagHeavy: 0.19,
+  massLight: 0.3,
+  massHeavy: 1.3,
+  /** From this load on, a sweat drop now and then. */
+  sweatFrom: 0.6,
+} as const;
 
 /** The drawing vocabulary: a strict subset of CanvasRenderingContext2D. */
 export interface TileCtx {
@@ -296,10 +320,13 @@ const DUST = 128;
 const SPARKS = 16;
 
 // Prop kinds.
-const P_ZERO = 1, P_ONE = 2, P_KEY = 3, P_DAY = 4, P_PLANE = 5, P_BALL = 6, P_PAD = 7;
+const P_ZERO = 1, P_ONE = 2, P_KEY = 3, P_DAY = 4, P_PLANE = 5, P_BALL = 6, P_PAD = 7, P_BAG = 8;
 
-/** A spark's kind (shome): 0 rises or falls, 1 flows into his head (reading), 2 a torn-off page that flutters down. */
-const S_PAGE = 2;
+/** A spark's kind (shome): 0 rises or falls, 1 flows into his head (reading), 2 a torn-off page that flutters down, 3 a sweat drop. */
+const S_PAGE = 2, S_SWEAT = 3;
+
+/** The carry act's phases: off stage (the next bag packed), across, setting the bag down, walking off, gone. */
+const C_WAIT = 0, C_WALK = 1, C_DOWN = 2, C_OFF = 3, C_GONE = 4;
 
 /** The Notes bot's pad: lines to a page. */
 const PAD_LINES = 4;
@@ -315,7 +342,7 @@ const C_FLOOR = 1, C_WALL = 2, C_CEIL = 4, C_SUPPORT = 8;
 
 // Acts.
 const A_STAND = 0, A_WANDER = 1, A_SIT = 2, A_STRETCH = 3, A_PEEK = 4, A_LOOK = 5, A_PLAY = 6, A_NEEDS = 7;
-const A_WAVE = 8, A_SURVEY = 9, A_READ = 10, A_THINK = 11;
+const A_WAVE = 8, A_SURVEY = 9, A_READ = 10, A_THINK = 11, A_CARRY = 12;
 
 /** Where on the skeleton each dot of the halftone body sits: between particles a and b, at t, offset (u along, w across). */
 interface Skin {
@@ -510,6 +537,31 @@ export class BotTile {
   moment: BuddyAct = "play";
   hintDir = 0;
 
+  /**
+   * Carrying (act "carry"): the trip he is on (0 the first), its load (0 light to 1 the heaviest), how fast the act's
+   * clock runs (1: as CARRY says), whether the answer is here (deliver), the bag fading once it is down, his bob after a
+   * step, and when the next sweat drop comes.
+   */
+  trip = 0;
+  load = 0;
+  carryPace = 1;
+  delivered = false;
+  bagFade = 1;
+  bagDownAt = -1;
+  dip = 0;
+  sweatAt = 0;
+  /** Heavy: now and then he stops a moment and hitches the bag up higher (when, and how long it has left). */
+  hitchAt = 0;
+  hitchT = 0;
+  /** The stage holds his bag instead of his kind's toys, and it may go off stage with him. */
+  stageCarry = false;
+  /** Constraints of the bot alone (his toys' come after them). */
+  nBotC = 0;
+  /** The gait, set each step by the brain: how far a foot falls behind before it steps (bot heights), the rest after a step (s), how high a foot lifts. */
+  gaitGap = 0.1;
+  gaitRest = 0.075;
+  gaitLift = 1;
+
   constructor(o: TileOptions) {
     this.kind = o.kind;
     this.color = o.color || INK;
@@ -585,11 +637,41 @@ export class BotTile {
     this.cheer();
   }
 
-  /** On his own page (BotBuddy): what he does now (see BuddyAct). A change starts at once. */
+  /**
+   * On his own page (BotBuddy): what he does now (see BuddyAct). A change starts at once. "carry" again after a
+   * delivery starts a new haul, from the first, light bag.
+   */
   setAct(a: BuddyAct): void {
-    if (a === this.moment) return;
+    const again = a === "carry" && this.delivered;
+    if (a === this.moment && !again) return;
     this.moment = a;
-    if (this.placed) this.next(true);
+    this.delivered = false;
+    this.trip = 0;
+    if (!this.placed) return;
+    // Into carrying or out of it, the stage changes (his bag, or his toys); between other moments the toys stay where they are.
+    if ((a === "carry") !== this.stageCarry || again) this.restage();
+    this.next(true);
+  }
+
+  /**
+   * Carrying: the answer is here. On stage he sets the bag down where he stands and walks off; off stage (or all but
+   * gone) he is simply gone. Nothing for any other act.
+   */
+  deliver(): void {
+    if (this.moment !== "carry" || this.delivered) return;
+    this.delivered = true;
+    if (!this.placed || this.act !== A_CARRY) return;
+    const x = this.x[HIP]!, S = this.S;
+    if (this.still || this.phase === C_WAIT || this.phase === C_GONE) { this.carryTo(C_GONE); return; }
+    // Leaving at the left, or barely in at the right: on his way, the bag with him.
+    if (x < S * 0.4) { this.side = -1; this.carryTo(C_OFF); return; }
+    if (x > this.w + S * 0.1) { this.side = 1; this.carryTo(C_OFF); return; }
+    this.carryTo(C_DOWN);
+  }
+
+  /** Carrying: the answer was delivered and he has left the stage (it may fold away). */
+  carryDone(): boolean {
+    return this.moment === "carry" && this.delivered && (this.act !== A_CARRY || this.phase === C_GONE);
   }
 
   /** Where the page's ask field is from his stage ("down", "left", "right", "up"; anything else: none). He glances at it. */
@@ -599,6 +681,8 @@ export class BotTile {
 
   /** A small happy moment: a hop with both arms up, and the antenna lights. */
   cheer(): void {
+    // Carrying, his hands are full.
+    if (this.act === A_CARRY) return;
     this.cheerT = 0;
     this.glowV += 9;
   }
@@ -687,8 +771,9 @@ export class BotTile {
     this.addC(ANT_B1, ANT_B2, this.lAnt2, 0.8, 1);
     this.holdL = this.addC(HAND_L, HAND_L, 0, 0, 0);
     this.holdR = this.addC(HAND_R, HAND_R, 0, 0, 0);
+    this.nBotC = this.nc;
     this.buildSkin();
-    this.props();
+    this.restage();
     if (this.kind === "make") this.scatterDust(true);
     this.blinkAt = 1 + this.rand() * 3;
     this.next(true);
@@ -811,6 +896,74 @@ export class BotTile {
     }
   }
 
+  /** What is on the stage with him, made afresh: his kind's toys, or (carrying) his bag alone. */
+  restage(): void {
+    this.release();
+    this.n = NBOT;
+    this.nc = this.nBotC;
+    this.np = 0;
+    this.ghost = -1;
+    this.stageCarry = this.moment === "carry" && this.kind !== "make";
+    if (this.stageCarry) this.addBag(); else this.props();
+  }
+
+  /**
+   * The bag: a sack on a short tie, two bodies. The knot (light) is what a hand holds; the sack (its weight) hangs from
+   * it on a rigid tie, so it swings as he walks. Its size and weight are set per trip (packBag).
+   */
+  addBag(): void {
+    const p = this.np++;
+    this.pk[p] = P_BAG; this.pn[p] = 2;
+    const S = this.S, r = S * CARRY.bagLight, x = this.w + S * 0.95, y = this.floor - S * 0.5;
+    const a = this.addP(x, y, 0.08, S * 0.02, 0.99, 0, 0.8);
+    this.addP(x, y + S * 0.03 + r, CARRY.massLight, r, 0.993, 0.05, 0.9);
+    this.p0[p] = a;
+    this.pr[p] = r;
+    this.addC(a, a + 1, S * 0.03 + r, 1, 1);
+  }
+
+  /** The tie's length for a sack of radius r: from the knot to the sack's middle. */
+  tieOf(r: number): number { return this.S * 0.035 + r * 0.92; }
+
+  /** This trip's bag: its size and weight from the load (0 light, 1 the heaviest). */
+  packBag(load: number): void {
+    if (!this.stageCarry || this.np < 1) return;
+    const S = this.S, a = this.p0[0]!, b = a + 1;
+    const r = S * (CARRY.bagLight + (CARRY.bagHeavy - CARRY.bagLight) * load);
+    this.pr[0] = r;
+    this.rad[b] = r;
+    this.im[b] = 1 / (CARRY.massLight + (CARRY.massHeavy - CARRY.massLight) * load);
+    this.cr[this.nBotC] = this.tieOf(r);
+    this.bagFade = 1;
+    this.bagDownAt = -1;
+  }
+
+  /** Where the hand that carries the bag holds it: over the shoulder at his back (`back`: +1, his back is to the right). */
+  carryGrip(back: number): void {
+    const S = this.S;
+    this.armR = true;
+    this.armRx = this.x[NECK]! + back * S * (0.24 + 0.03 * this.load);
+    this.armRy = this.y[NECK]! - S * (0.04 + 0.13 * this.load);
+    // Heavy: both hands on it.
+    if (this.load >= 0.5) {
+      this.armL = true;
+      this.armLx = this.x[NECK]! + back * S * 0.19;
+      this.armLy = this.y[NECK]! - S * (0.02 + 0.08 * this.load);
+    }
+    this.armK = 900 + 500 * this.load;
+  }
+
+  /** The bag in his hand where it hangs, at rest (a trip's start, Reduce Motion's pose). */
+  hangBag(): void {
+    if (!this.stageCarry || this.np < 1) return;
+    const a = this.p0[0]!, b = a + 1, hx = this.x[HAND_R]!, hy = this.y[HAND_R]!;
+    this.x[a] = hx; this.y[a] = hy;
+    this.x[b] = hx; this.y[b] = hy + this.tieOf(this.pr[0]!);
+    this.px[a] = this.x[a]!; this.py[a] = this.y[a]!;
+    this.px[b] = this.x[b]!; this.py[b] = this.y[b]!;
+    this.hold(0, this.load >= 0.5 ? a : -1, a);
+  }
+
   addProp(kind: number, rr: number, x0: number, y0: number, x1: number, y1: number, m: number, bnc: number): number {
     const p = this.np++;
     this.pk[p] = kind; this.pr[p] = rr; this.pn[p] = 2;
@@ -931,6 +1084,17 @@ export class BotTile {
     if (this.kind === "travel") this.aero();
     if (this.kind === "keybot") this.keySprings();
     if (this.kind === "notes") this.padSprings();
+    if (this.stageCarry) this.bagSprings();
+  }
+
+  /** The bag put down: it sits, its tie standing up a little slumped (a spring on the knot), not lying flat. */
+  bagSprings(): void {
+    if (this.held === 0 || this.np < 1) return;
+    const a = this.p0[0]!, b = a + 1;
+    if (this.y[b]! < this.floor - this.rad[b]! - this.S * 0.03) return;
+    const tx = this.x[b]! + this.S * 0.03, ty = this.y[b]! - this.tieOf(this.pr[0]!);
+    this.ax[a] += (tx - this.x[a]!) * 300 - this.vx(a) * 12;
+    this.ay[a] += (ty - this.y[a]!) * 300 - this.vy(a) * 12 - this.g;
   }
 
   supportY(): number {
@@ -988,15 +1152,16 @@ export class BotTile {
         const side = f === FOOT_L ? -1 : 1;
         const want = x[HIP]! + side * stance + this.sit * this.face * 0.1 * S + clamp(hipVx * 0.09, -0.25 * S, 0.25 * S);
         const off = Math.abs(x[f]! - want);
-        if (this.hit[f]! & (C_FLOOR | C_SUPPORT) && off > 0.1 * S && off > wd) { worst = f; wd = off; }
+        if (this.hit[f]! & (C_FLOOR | C_SUPPORT) && off > this.gaitGap * S && off > wd) { worst = f; wd = off; }
         if (this.sit > 0.5) this.ax[f] += (want - x[f]!) * 120;
       }
       if (worst >= 0 && this.stepCool <= 0 && this.sit < 0.5) {
         const side = worst === FOOT_L ? -1 : 1;
         const want = x[HIP]! + side * stance + clamp(hipVx * 0.2, -0.35 * S, 0.35 * S);
         const tAir = 0.11;
-        this.setV(worst, clamp((want - x[worst]!) / tAir, -14 * S, 14 * S), -this.g * tAir * 0.5);
-        this.stepCool = 0.075;
+        this.setV(worst, clamp((want - x[worst]!) / tAir, -14 * S, 14 * S), -this.g * tAir * 0.5 * this.gaitLift);
+        this.stepCool = this.gaitRest;
+        this.dip = 1;
       }
     } else if (live > 0.5) {
       // Airborne: tuck under the hips.
@@ -1176,18 +1341,18 @@ export class BotTile {
       } else if (kind === P_DAY) {
         for (let q = p + 1; q < this.np; q++) if (this.pk[q] === P_DAY) { this.boxBox(p, q); this.boxBox(q, p); }
       }
-      if (this.limp > 0.5 || p === this.ghost) continue;
+      if (this.limp > 0.5 || p === this.ghost || kind === P_BAG) continue;
       for (let i = 0; i < NBOT; i++) {
         if (i === ELB_L || i === ELB_R || i >= ANT_A1) continue;
         this.partProp(i, p);
       }
     }
-    // The tile's bounds.
-    const bl = this.wallL, br = this.wallR;
+    // The tile's bounds (his bag goes where he goes, off stage too).
+    const bl = this.wallL, br = this.wallR, own = this.stageCarry;
     for (let i = 0; i < n; i++) {
       if (this.im[i] === 0) continue;
       const r = this.rad[i]!;
-      const L = i < NBOT ? bl : 3, R = i < NBOT ? br : this.w - 3;
+      const L = i < NBOT || own ? bl : 3, R = i < NBOT || own ? br : this.w - 3;
       if (y[i]! > fl - r) { y[i] = fl - r; this.hit[i] |= C_FLOOR; this.on[i] = -1; }
       if (y[i]! < r + 1 && i >= NBOT) { y[i] = r + 1; this.hit[i] |= C_CEIL; }
       if (x[i]! < L + r) { x[i] = L + r; this.hit[i] |= C_WALL; }
@@ -1431,7 +1596,7 @@ export class BotTile {
         this.sy[i] = Math.min(rest, this.sy[i]! + this.svy[i]! * h);
         continue;
       }
-      if (this.shome[i]) {
+      if (this.shome[i] === 1) {
         // Into his head: a damped pull to it; it is gone when it arrives, and the antenna lights a little.
         const dx = this.x[HEAD]! - this.sx[i]!, dy = this.y[HEAD]! - this.sy[i]!;
         if (dx * dx + dy * dy < this.rH * this.rH) { this.slife[i] = 0; this.glowV += 2.5; continue; }
@@ -1481,6 +1646,7 @@ export class BotTile {
     this.target = -1;
     if (reset) this.release();
     const m = this.moment;
+    if (m === "carry" && this.stageCarry) { this.act = A_CARRY; this.actDur = 1e9; this.carryTo(this.delivered ? C_GONE : C_WAIT); return; }
     if (m === "think" && this.kind !== "make") { this.act = A_THINK; this.actDur = 99; return; }
     if (this.mood === "needs" && this.kind !== "make") { this.act = A_NEEDS; this.actDur = 3; return; }
     if (this.kind === "make") { this.act = A_PLAY; this.actDur = 99; return; }
@@ -1533,10 +1699,15 @@ export class BotTile {
     this.armK = 0;
     this.penX = NaN;
     this.speed = this.mood === "working" ? 1.3 : 0.85;
+    this.gaitGap = 0.1;
+    this.gaitRest = 0.075;
+    this.gaitLift = 1;
     this.lookOut = 0;
     this.lidTo = this.mood === "idle" ? 0.22 : 0.1;
     this.wallL = 3;
     this.wallR = this.w - 3;
+    // Carrying, he comes in and goes out past the stage's edges.
+    if (this.act === A_CARRY) { this.wallL = -S * 1.4; this.wallR = this.w + S * 1.4; }
     if (this.limp > 0 && this.kind !== "make") this.limp = Math.max(0, this.limp - h * 2);
 
     // A look from outside (another tile was tapped): stop, turn the head to it.
@@ -1566,6 +1737,7 @@ export class BotTile {
       case A_SURVEY: this.survey(); break;
       case A_READ: this.reading(); break;
       case A_THINK: this.thinking(); break;
+      case A_CARRY: this.carrying(h); break;
       default: this.goalX = NaN;
     }
     if (this.actT >= this.actDur && this.act !== A_PLAY) this.next(false);
@@ -1697,6 +1869,142 @@ export class BotTile {
       this.phaseT = 0;
       this.glowV += 7;
       this.spark(this.x[HEAD]! + f * this.rH * 0.8, this.y[HEAD]! - this.rH * 1.4, f * S * 0.3, -S * 0.9, 1.25);
+    }
+  }
+
+  /** Carrying: into a phase, and what starting it takes. */
+  carryTo(ph: number): void {
+    this.phase = ph;
+    this.phaseT = 0;
+    const S = this.S;
+    if (ph === C_WAIT) {
+      // Off stage at the right, out of sight: this trip's bag, a step heavier each trip, the heaviest from CARRY.trips on.
+      this.load = clamp(this.trip / Math.max(1, CARRY.trips - 1), 0, 1);
+      this.release();
+      this.face = -1; this.faceV = 0; this.faceTo = -1;
+      this.lookX = NaN;
+      this.standAt(this.w + S * 0.95);
+      this.packBag(this.load);
+      // His hands already where they hold it, and the bag hanging from them.
+      this.carryGrip(1);
+      this.x[HAND_R] = this.armRx; this.y[HAND_R] = this.armRy; this.px[HAND_R] = this.armRx; this.py[HAND_R] = this.armRy;
+      if (this.armL) { this.x[HAND_L] = this.armLx; this.y[HAND_L] = this.armLy; this.px[HAND_L] = this.armLx; this.py[HAND_L] = this.armLy; }
+      this.hangBag();
+      this.side = -1;
+      this.dip = 0;
+    } else if (ph === C_WALK) {
+      this.sweatAt = this.t + 0.8 / (this.carryPace > 0 ? this.carryPace : 1);
+      this.hitchAt = 0;
+      this.hitchT = 0;
+    } else if (ph === C_GONE) {
+      this.release();
+      this.bagFade = 0;
+    }
+  }
+
+  /**
+   * Carrying (act "carry"): trip after trip, in from the right with the bag over his shoulder, slowly across, out at the
+   * left; off stage a moment, and in again with a heavier bag. The answer is here (deliver): he lowers the bag to the
+   * floor, lets go, and walks off light; the bag gives its place to the answer. All of it on the act's own clock.
+   */
+  carrying(h: number): void {
+    const S = this.S, pace = this.carryPace > 0 ? this.carryPace : 1, x = this.x[HIP]!, L = this.load, held = this.held === 0;
+    this.dip = Math.max(0, this.dip - h * 5);
+    if (this.phase === C_WAIT) {
+      this.goalX = NaN;
+      if (held) this.carryGrip(1);
+      this.lookX = this.x[HEAD]! - S * 3; this.lookY = this.y[HEAD]!;
+      if (this.phaseT >= (this.trip === 0 ? CARRY.firstWait : CARRY.wait) / pace) this.carryTo(C_WALK);
+    } else if (this.phase === C_WALK) {
+      this.goalX = -S * 1.2;
+      this.speed = ((CARRY.paceLight + (CARRY.paceHeavy - CARRY.paceLight) * L) * pace) / 7.5;
+      this.haul(L, -1, pace);
+      if (x < -S * 0.85) { this.trip++; this.carryTo(C_WAIT); }
+    } else if (this.phase === C_DOWN) {
+      // Down with it: the bag lowered to the floor at his back, and let go once it sits there.
+      this.goalX = NaN;
+      const r = this.pr[0]!, b = this.p0[0]! + 1;
+      const tx = x + S * 0.24, ty = this.floor - this.tieOf(r) - r - S * 0.01;
+      if (held) {
+        this.crouch = 0.75;
+        this.armR = true; this.armRx = tx; this.armRy = ty;
+        if (L >= 0.5) { this.armL = true; this.armLx = tx - S * 0.03; this.armLy = ty; }
+        this.armK = 700;
+        this.lean = 0.14;
+        this.tilt = 0.2;
+        this.lookX = tx; this.lookY = this.floor;
+        if ((this.phaseT > 0.35 / pace && this.y[b]! + this.rad[b]! >= this.floor - 0.6) || this.phaseT > 1 / pace) {
+          this.release();
+          this.bagDownAt = this.t;
+          this.glowV += 7;
+          this.phaseT = 0;
+        }
+      } else {
+        // Down: a stretch, arms up, light again; then off.
+        this.lookOut = 1;
+        this.lookX = NaN;
+        if (this.phaseT > 0.1 / pace && this.phaseT < 0.55 / pace) {
+          this.armL = this.armR = true;
+          this.armK = 300;
+          this.armLx = this.x[NECK]! - S * 0.12; this.armLy = this.y[NECK]! - S * 0.26;
+          this.armRx = this.x[NECK]! + S * 0.12; this.armRy = this.y[NECK]! - S * 0.26;
+          this.crouch = -0.1;
+          this.lidTo = 0.85;
+        }
+        if (this.phaseT > 0.7 / pace) { this.side = -1; this.carryTo(C_OFF); }
+      }
+    } else if (this.phase === C_OFF) {
+      // Light again (or, caught at an edge, still with it): off the way he faces.
+      const d = this.side < 0 ? -1 : 1;
+      this.goalX = d < 0 ? -S * 1.3 : this.w + S * 1.3;
+      if (held) {
+        this.speed = ((CARRY.paceLight + (CARRY.paceHeavy - CARRY.paceLight) * L) * pace) / 7.5;
+        this.haul(L, d, pace);
+      } else {
+        this.speed = (CARRY.paceLight * 1.3 * pace) / 7.5;
+        this.lookX = this.x[HEAD]! + d * S * 3; this.lookY = this.y[HEAD]!;
+      }
+      if ((d < 0 && x < -S * 0.85) || (d > 0 && x > this.w + S * 0.95)) this.carryTo(C_GONE);
+    } else {
+      this.goalX = NaN;
+    }
+    // Once down, the bag gives its place to the answer.
+    if (this.bagDownAt >= 0) this.bagFade = clamp(1 - (this.t - this.bagDownAt - 0.45 / pace) / 0.6, 0, 1);
+  }
+
+  /**
+   * Hauling the bag (load 0 to 1) toward `dir`: his grip over the shoulder, the lean into it, the slow, low, heavy gait
+   * and the dip after each step (the legs' own spring does the bob), tired eyes on the floor ahead, and, heavy, sweat.
+   */
+  haul(L: number, dir: number, pace: number): void {
+    const S = this.S;
+    this.carryGrip(-dir);
+    this.lean = dir * (0.05 + 0.3 * L);
+    this.tilt = dir * 0.08 * L;
+    this.crouch = 0.04 + 0.2 * L + (0.06 + 0.26 * L) * this.dip;
+    // A hitch (from a middling load on): he slows, dips, and heaves the bag up over his shoulder; it swings.
+    if (L >= 0.4) {
+      if (this.hitchAt <= 0) this.hitchAt = this.t + (1.2 + this.rand() * 0.8) / pace;
+      if (this.t >= this.hitchAt) { this.hitchT = 0.42 / pace; this.hitchAt = this.t + (3.4 - 0.8 * L + this.rand()) / pace; }
+    }
+    if (this.hitchT > 0) {
+      this.hitchT -= STEP;
+      const k = this.hitchT * pace;
+      this.speed *= 0.35;
+      if (k > 0.22) this.crouch += 0.25 * L;
+      else { this.armRy -= S * 0.08; if (this.armL) this.armLy -= S * 0.07; }
+    }
+    this.gaitGap = 0.1 + 0.04 * L;
+    this.gaitRest = 0.055 + 0.09 * L;
+    this.gaitLift = 1 - 0.35 * L;
+    this.lookX = this.x[HEAD]! + dir * S * 2.5;
+    this.lookY = this.y[HEAD]! + S * (0.15 + 0.9 * L);
+    this.lidTo = 0.12 + 0.36 * L;
+    if (L >= CARRY.sweatFrom && this.t >= this.sweatAt) {
+      this.sweatAt = this.t + (1.5 - 0.6 * L) / pace;
+      const i = this.sNext;
+      this.spark(this.x[HEAD]! + dir * this.rH * 0.55, this.y[HEAD]! - this.rH * 0.5, -dir * S * 0.6, -S * 0.8, 0);
+      this.shome[i] = S_SWEAT;
     }
   }
 
@@ -2405,11 +2713,21 @@ export class BotTile {
       this.solid = 1;
     }
     const m = this.moment;
-    this.act = m === "settle" && this.kind !== "make" ? A_SIT : m !== "play" && m !== "think" && this.mood !== "needs" ? A_STAND
+    const carry = this.stageCarry && m === "carry";
+    this.act = carry ? A_CARRY : m === "settle" && this.kind !== "make" ? A_SIT : m !== "play" && m !== "think" && this.mood !== "needs" ? A_STAND
       : this.mood === "needs" ? A_NEEDS : this.mood === "idle" && this.kind !== "make" ? A_SIT : A_STAND;
     this.actT = 0;
     this.actDur = 1e9;
     this.cheerT = -1;
+    if (carry) {
+      // Carrying: standing with the bag over his shoulder, looking out.
+      this.phase = this.delivered ? C_GONE : C_WALK;
+      this.load = Math.max(this.load, 0.3);
+      this.packBag(this.load);
+      this.carryGrip(1);
+      this.x[HAND_R] = this.armRx; this.y[HAND_R] = this.armRy;
+      this.hangBag();
+    }
     for (let i = 0; i < 160; i++) {
       this.t += STEP;
       this.goalX = NaN;
@@ -2417,6 +2735,7 @@ export class BotTile {
       this.sitTo(this.act === A_SIT ? 1 : 0, STEP);
       this.lookOut = 1;
       this.lean = 0; this.tilt = 0; this.armL = this.armR = false;
+      if (carry) this.carryGrip(1);
       this.blinkAt = 9;
       this.lidTo = this.act === A_SIT ? 0.35 : 0.08;
       this.forces(STEP);
@@ -2475,8 +2794,37 @@ export class BotTile {
     if (this.kind === "make") this.drawDust(ctx, alpha);
     else this.drawBot(ctx, alpha, this.color);
     this.drawProps(ctx, alpha, 1);
+    if (this.stageCarry && this.held === 0) this.drawCarryArms(ctx, alpha);
     this.drawSparks(ctx, alpha);
     ctx.globalAlpha = 1;
+  }
+
+  /** Carrying: the arm (heavy, both) that holds the bag, drawn over him and the bag, so the hold reads. */
+  drawCarryArms(ctx: TileCtx, alpha: number): void {
+    const x = this.x, y = this.y, S = this.S;
+    let ux = x[NECK]! - x[HIP]!, uy = y[NECK]! - y[HIP]!;
+    const ul = Math.sqrt(ux * ux + uy * uy) + 1e-6;
+    ux /= ul; uy /= ul;
+    const wx = -uy, wy = ux, two = this.load >= 0.5;
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = this.color;
+    ctx.fillStyle = this.color;
+    ctx.lineCap = "round";
+    ctx.lineWidth = S * 0.065;
+    ctx.beginPath();
+    for (let s = two ? 0 : 1; s < 2; s++) {
+      const side = s ? 1 : -1, elb = s ? ELB_R : ELB_L, hand = s ? HAND_R : HAND_L;
+      ctx.moveTo(x[NECK]! + wx * side * 0.11 * S - ux * 0.05 * S, y[NECK]! + wy * side * 0.11 * S - uy * 0.05 * S);
+      ctx.quadraticCurveTo(x[elb]!, y[elb]!, x[hand]!, y[hand]!);
+    }
+    ctx.stroke();
+    ctx.beginPath();
+    for (let s = two ? 0 : 1; s < 2; s++) {
+      const hand = s ? HAND_R : HAND_L;
+      ctx.moveTo(x[hand]! + S * 0.045, y[hand]!);
+      ctx.arc(x[hand]!, y[hand]!, S * 0.045, 0, TAU);
+    }
+    ctx.fill();
   }
 
   /**
@@ -2755,10 +3103,66 @@ export class BotTile {
         ctx.stroke();
       } else if (kind === P_PAD) {
         this.drawPad(ctx, alpha * low, p);
+      } else if (kind === P_BAG) {
+        this.drawBag(ctx, alpha * this.bagFade, p);
       }
     }
     // His pencil, and the hands on the pad, over it.
     if (layer === 1 && this.kind === "notes" && this.held >= 0) this.drawPencil(ctx, alpha);
+  }
+
+  /**
+   * The bag: a sack in his colour hanging from its tie (narrow at the knot, round below, a flatter, wider bottom the
+   * fuller it is), the tie's two ears over the knot, and a row of light stitches across it, more as it fills.
+   */
+  drawBag(ctx: TileCtx, alpha: number, p: number): void {
+    if (alpha <= 0.01) return;
+    const S = this.S, a = this.p0[p]!, r = this.pr[p]!, x = this.x, y = this.y;
+    const kx = x[a]!, ky = y[a]!, bx = x[a + 1]!, by = y[a + 1]!;
+    let ux = bx - kx, uy = by - ky;
+    const ul = Math.sqrt(ux * ux + uy * uy) + 1e-6;
+    ux /= ul; uy /= ul;
+    const vx = -uy, vy = ux;
+    const full = clamp((r / S - CARRY.bagLight) / (CARRY.bagHeavy - CARRY.bagLight), 0, 1);
+    const nw = S * 0.028, wide = r * (1 + 0.1 * full), low = r * (0.92 - 0.1 * full);
+    const nx = kx + ux * S * 0.02, ny = ky + uy * S * 0.02;
+    const mx = bx + ux * r * 0.18, my = by + uy * r * 0.18;
+    const ex = bx + ux * low, ey = by + uy * low;
+    const sx = bx - ux * r * 0.75, sy = by - uy * r * 0.75;
+    ctx.fillStyle = this.color;
+    ctx.strokeStyle = this.color;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = S * 0.035;
+    // Fainter than he is (his things are), and the fuller, the deeper.
+    ctx.beginPath();
+    ctx.moveTo(nx - vx * nw, ny - vy * nw);
+    ctx.quadraticCurveTo(sx - vx * wide * 1.1, sy - vy * wide * 1.1, mx - vx * wide, my - vy * wide);
+    ctx.quadraticCurveTo(ex - vx * wide * (0.95 + 0.1 * full), ey - vy * wide * (0.95 + 0.1 * full), ex, ey);
+    ctx.quadraticCurveTo(ex + vx * wide * (0.95 + 0.1 * full), ey + vy * wide * (0.95 + 0.1 * full), mx + vx * wide, my + vy * wide);
+    ctx.quadraticCurveTo(sx + vx * wide * 1.1, sy + vy * wide * 1.1, nx + vx * nw, ny + vy * nw);
+    ctx.closePath();
+    ctx.globalAlpha = alpha * (0.34 + 0.3 * full);
+    ctx.fill();
+    ctx.globalAlpha = alpha * 0.9;
+    ctx.stroke();
+    // The tie's ears.
+    ctx.beginPath();
+    ctx.moveTo(kx + ux * S * 0.02, ky + uy * S * 0.02);
+    ctx.lineTo(kx - ux * S * 0.045 - vx * S * 0.045, ky - uy * S * 0.045 - vy * S * 0.045);
+    ctx.moveTo(kx + ux * S * 0.02, ky + uy * S * 0.02);
+    ctx.lineTo(kx - ux * S * 0.035 + vx * S * 0.05, ky - uy * S * 0.035 + vy * S * 0.05);
+    ctx.stroke();
+    // The seam: a row of stitches across its middle, more as it fills.
+    const k = 3 + Math.round(full * 2), rd = S * 0.017;
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.beginPath();
+    for (let j = 0; j < k; j++) {
+      const t = (j / (k - 1) - 0.5) * 1.25 * wide, cx = bx + vx * t + ux * r * 0.05, cy = by + vy * t + uy * r * 0.05;
+      ctx.moveTo(cx + rd, cy);
+      ctx.arc(cx, cy, rd, 0, TAU);
+    }
+    ctx.fill();
   }
 
   /** A point on pad p's face, (u, v) of the way across and down it, into this.tmp. */
@@ -2893,6 +3297,17 @@ export class BotTile {
           }
           ctx.stroke();
         }
+        continue;
+      }
+      if (this.shome[i] === S_SWEAT) {
+        // A sweat drop: a small tear, its point the way it came from.
+        const px = this.sx[i]!, py = this.sy[i]!, rd = S * 0.03;
+        ctx.globalAlpha = alpha * clamp(l * 1.4, 0, 1) * 0.75;
+        ctx.beginPath();
+        ctx.moveTo(px, py - rd * 2.3);
+        ctx.quadraticCurveTo(px + rd * 1.1, py - rd * 0.4, px, py + rd);
+        ctx.quadraticCurveTo(px - rd * 1.1, py - rd * 0.4, px, py - rd * 2.3);
+        ctx.fill();
         continue;
       }
       if (this.shome[i] === 1 && i % 2) {

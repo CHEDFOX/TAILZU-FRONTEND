@@ -41,6 +41,7 @@ import { isHandoffUrl, isOpenableUrl, isWebUrl, safeFileName } from "../security
 import { fillText, navParams, resolveValue } from "./fill";
 import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "./media";
 import { runOutboxAction } from "./offline";
+import { listenStream, makeStreamId, StreamTap } from "./askStream";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -247,8 +248,18 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       ctx.nav.reloadCurrent();
       break;
     case "callEndpoint": {
+      // `stream`: the answer's words, written into state as they come over the live socket (askStream.ts).
+      let unlisten: (() => void) | null = null;
       try {
-        const body = action.body != null ? resolveValue(action.body, ctx) : undefined;
+        let body = action.body != null ? resolveValue(action.body, ctx) : undefined;
+        const streamPath = typeof action.stream === "string" && action.stream ? action.stream : "";
+        if (streamPath && body && typeof body === "object" && !Array.isArray(body)) {
+          const id = makeStreamId();
+          ctx.store.set(streamPath, { id, text: "", step: "" });
+          const tap = new StreamTap((patch) => { for (const k of Object.keys(patch)) ctx.store.set(`${streamPath}.${k}`, (patch as Record<string, unknown>)[k]); });
+          unlisten = listenStream(id, (d) => tap.take(d));
+          body = { ...(body as Record<string, unknown>), streamId: id };
+        }
         // Paths can carry state too: "/v1/history/$state.item.id".
         //
         // resolveValue only rewrites a string that IS a reference; a path is a
@@ -297,6 +308,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           break;
         }
         await runAction(action.onError, ctx);
+      } finally {
+        // A moment more: the last words can come over the socket just after the answer.
+        if (unlisten) setTimeout(unlisten, 600);
       }
       break;
     }
