@@ -6,8 +6,8 @@
 //   node tools/media/store/build.mjs --sheet /path/sheet.png   # also write the contact sheet there
 //
 // The look: a full-bleed warm photograph (photos/, graded here so the set reads as one shoot), a serif headline in two short
-// lines, and the app as a light card cut from a real screen, with one part of it lifted out. Other shapes: `voice` (the photo
-// and a round mark), `tiles` (the marks of the apps it works with, icons/), `hand` (the screen laid onto a phone in a hand).
+// lines, and the app as a light card cut from a real screen, with one part of it lifted out. Other shapes: `voice` (the photo,
+// the words at the foot and the keyboard's Peek-a-bot mic key, peekbot.js) and `tiles` (the marks of the apps it works with, icons/).
 //
 // What it makes, in tools/media/store/out/ (all RGB PNG, no alpha, sRGB):
 //   ios-6.9/NN-<key>.png      1320 x 2868   App Store, iPhone 6.9" (the size App Store Connect asks for first)
@@ -104,7 +104,7 @@ async function serve(page) {
   await page.route("https://store.local/**", (r) => {
     const f = decodeURIComponent(new URL(r.request().url()).pathname);
     if (!ROOTS.some((root) => f.startsWith(root + path.sep)) || !fs.existsSync(f)) return r.fulfill({ status: 404, body: "" });
-    const type = f.endsWith(".png") ? "image/png" : f.endsWith(".ttf") ? "font/ttf" : f.endsWith(".svg") ? "image/svg+xml" : "application/octet-stream";
+    const type = f.endsWith(".png") ? "image/png" : f.endsWith(".ttf") ? "font/ttf" : f.endsWith(".svg") ? "image/svg+xml" : f.endsWith(".js") ? "text/javascript" : f.endsWith(".jpg") ? "image/jpeg" : "application/octet-stream";
     return r.fulfill({ body: fs.readFileSync(f), contentType: type });
   });
 }
@@ -187,17 +187,8 @@ function headline(title, u, o) {
     text-shadow:0 ${2 * u}px ${36 * u}px rgba(10,5,2,.35)">${esc(title).replace(/\n/g, "<br>")}</h1>`;
 }
 
-/** The page script: places the photo (cover, focus, zoom) and, for a `hand` frame, lays the screen onto the phone in it. */
+/** The page script: places the photo (cover, focus, zoom), never showing an edge. */
 const PLACE = `
-function homography(src, dst) {
-  const adj = (m) => [m[4]*m[8]-m[5]*m[7], m[2]*m[7]-m[1]*m[8], m[1]*m[5]-m[2]*m[4], m[5]*m[6]-m[3]*m[8], m[0]*m[8]-m[2]*m[6], m[2]*m[3]-m[0]*m[5], m[3]*m[7]-m[4]*m[6], m[1]*m[6]-m[0]*m[7], m[0]*m[4]-m[1]*m[3]];
-  const mm = (a, b) => { const c = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { let s = 0; for (let k = 0; k < 3; k++) s += a[3*i+k]*b[3*k+j]; c[3*i+j] = s; } return c; };
-  const mv = (m, v) => [m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2]];
-  const basis = (p) => { const m = [p[0][0], p[1][0], p[2][0], p[0][1], p[1][1], p[2][1], 1, 1, 1]; const v = mv(adj(m), [p[3][0], p[3][1], 1]); return mm(m, [v[0],0,0, 0,v[1],0, 0,0,v[2]]); };
-  const t = mm(basis(dst), adj(basis(src)));
-  for (let i = 0; i < 9; i++) t[i] /= t[8];
-  return [t[0], t[3], 0, t[6], t[1], t[4], 0, t[7], 0, 0, 1, 0, t[2], t[5], 0, t[8]];
-}
 window.place = () => {
   const P = window.PHOTO, img = document.getElementById("photo");
   if (!img || !img.naturalWidth) return;
@@ -206,13 +197,6 @@ window.place = () => {
   let left = W / 2 - (P.x ?? .5) * dw, top = H / 2 - (P.y ?? .5) * dh;
   left = Math.min(0, Math.max(W - dw, left)); top = Math.min(0, Math.max(H - dh, top));
   Object.assign(img.style, { left: left + "px", top: top + "px", width: dw + "px", height: dh + "px" });
-  const layer = document.getElementById("onphone");
-  if (layer && P.screen) {
-    const k = s * (P.srcScale || 1);
-    const dst = P.screen.map(([x, y]) => [left + x * k, top + y * k]);
-    const w = layer.offsetWidth, h = layer.offsetHeight;
-    layer.style.transform = "matrix3d(" + homography([[0, 0], [w, 0], [0, h], [w, h]], dst).join(",") + ")";
-  }
 };
 window.place();
 `;
@@ -226,11 +210,10 @@ function framePage(f, W, H) {
   let body = "";
   if (layout === "card") body = cardLayer(f, W, H, u, tall);
   else if (layout === "tiles") body = tilesLayer(W, H, u, tall);
-  else if (layout === "hand") body = handLayer(f, u);
-  else if (layout === "voice") body = voiceIcon(W, H, u, tall);
+  else if (layout === "voice") body = voiceIcon(f, W, H, u, tall);
   const words = head === "top"
     ? headline(f.title, u, { top: (tall ? 150 : 96) * u, size })
-    : headline(f.title, u, { bottom: (tall ? 520 : 400) * u, size });
+    : headline(f.title, u, { bottom: H - voiceKey(f, W, H, tall).top + (tall ? 90 : 56) * u, size });
   return `<!doctype html><html><head><meta charset="utf-8"><style>${css(W, H)}
     .grain{position:absolute;inset:0;opacity:.09;mix-blend-mode:overlay;pointer-events:none}
   </style></head><body>
@@ -295,37 +278,24 @@ function tilesLayer(W, H, u, tall) {
   return html;
 }
 
-/** The round mark under a `voice` frame's words: a dark disc with Keybot's sound bars. */
-function voiceIcon(W, H, u, tall) {
-  const d = 0.158 * W, cy = (tall ? 0.905 : 0.88) * H;
-  const bars = [0.28, 0.55, 0.85, 0.55, 1, 0.62, 0.3].map((h, i) => `<rect x="${7 + i * 6}" y="${24 - h * 13}" width="2.6" height="${h * 26}" rx="1.3" fill="#fff8ef"/>`).join("");
-  return `<div style="position:absolute;left:${(W - d) / 2}px;top:${cy - d / 2}px;width:${d}px;height:${d}px;border-radius:50%;background:rgba(22,16,13,.92);
-    box-shadow:0 ${20 * u}px ${50 * u}px rgba(0,0,0,.35),0 0 0 ${1.5 * u}px rgba(255,240,220,.08) inset;display:flex;align-items:center;justify-content:center">
-    <svg viewBox="0 0 54 48" style="width:${0.5 * d}px">${bars}</svg></div>`;
+/**
+ * The mark under a `voice` frame's words: the keyboard's own mic key, the Peek-a-bot (peekbot.js, the reference drawing code
+ * the native keys follow), held in one moment (frames.mjs `keyArt`: mode "listen" popped up with ears and antenna lit, or "idle"
+ * peeking over the rim), drawn at 600 px on a canvas, with a soft shadow.
+ */
+/** Where the mic key sits: centred, its foot a fixed share above the frame's foot; the words go above it. */
+function voiceKey(f, W, H, tall) {
+  const k = { mode: "listen", level: 0.6, size: 0.22, ...(f.keyArt ?? {}) };
+  const d = (tall ? k.size : k.size * 0.9) * W, bottom = (tall ? 0.94 : 0.925) * H;
+  return { ...k, d, top: bottom - d };
 }
 
-/** The screen, laid onto the phone in the photo (its four corners, frames.mjs photo.screen): rounded, with the island and status bar. */
-function handLayer(f, u) {
-  const shot = path.join(OUT, "screens", `${f.key}.png`);
-  const vw = f.screen.viewport?.w ?? SIZES.phone.w, vh = f.screen.viewport?.h ?? SIZES.phone.h, k = 3;
-  const w = vw * k, h = vh * k, pt = k;
-  const ink = "#0a0a0a";
-  const icons = `
-    <svg viewBox="0 0 18 12" style="height:${11.5 * pt}px"><g fill="${ink}"><rect x="0" y="8" width="3" height="4" rx=".9"/><rect x="5" y="5.5" width="3" height="6.5" rx=".9"/><rect x="10" y="3" width="3" height="9" rx=".9"/><rect x="15" y="0" width="3" height="12" rx=".9"/></g></svg>
-    <svg viewBox="0 0 16 12" style="height:${11.5 * pt}px"><g fill="${ink}"><path d="M8 2.2c2.3 0 4.4.9 6 2.4l1.3-1.4A10.7 10.7 0 0 0 8 .3 10.7 10.7 0 0 0 .7 3.2L2 4.6a8.7 8.7 0 0 1 6-2.4z"/><path d="M8 5.6c1.4 0 2.6.5 3.6 1.4l1.3-1.4A7.2 7.2 0 0 0 8 3.7a7.2 7.2 0 0 0-4.9 1.9L4.4 7c1-.9 2.2-1.4 3.6-1.4z"/><path d="M8 9.1c.5 0 1 .2 1.3.5L8 11.9 6.7 9.6c.3-.3.8-.5 1.3-.5z"/></g></svg>
-    <svg viewBox="0 0 27 13" style="height:${12.5 * pt}px"><rect x=".5" y=".5" width="23" height="12" rx="3.6" fill="none" stroke="${ink}" stroke-opacity=".38"/><rect x="2" y="2" width="20" height="9" rx="2.3" fill="${ink}"/><path d="M25 4.5v4c.8-.3 1.4-1.1 1.4-2s-.6-1.7-1.4-2z" fill="${ink}" fill-opacity=".45"/></svg>`;
-  const island = { w: 125 * pt, h: 36.5 * pt, top: 11.5 * pt };
-  const ear = (w - island.w) / 2;
-  return `<div id="onphone" style="position:absolute;left:0;top:0;width:${w}px;height:${h}px;transform-origin:0 0;border-radius:${0.14 * w}px;overflow:hidden;background:#fff">
-      <img src="${url(shot)}" style="display:block;width:${w}px;height:${h}px">
-      <div style="position:absolute;left:0;right:0;top:0;height:${54 * pt}px;display:flex;align-items:flex-start">
-        <div style="width:${ear}px;padding-top:${19 * pt}px;display:flex;justify-content:center;font:600 ${17 * pt}px Geist;color:${ink};letter-spacing:-.01em">7:40</div>
-        <div style="width:${island.w}px"></div>
-        <div style="width:${ear}px;padding-top:${20 * pt}px;display:flex;justify-content:center;align-items:center;gap:${5.5 * pt}px">${icons}</div>
-      </div>
-      <div style="position:absolute;left:${(w - island.w) / 2}px;top:${island.top}px;width:${island.w}px;height:${island.h}px;border-radius:999px;background:#000"></div>
-      <div style="position:absolute;inset:0;background:linear-gradient(120deg,rgba(255,250,240,.18) 0%,rgba(255,250,240,0) 38%),linear-gradient(0deg,rgba(60,30,10,.10),rgba(60,30,10,0) 40%)"></div>
-    </div>`;
+function voiceIcon(f, W, H, u, tall) {
+  const k = voiceKey(f, W, H, tall), d = k.d;
+  return `<canvas id="peekkey" width="600" height="600" style="position:absolute;left:${(W - d) / 2}px;top:${k.top}px;width:${d}px;height:${d}px;border-radius:50%;
+      box-shadow:0 ${24 * u}px ${60 * u}px rgba(8,4,2,.55),0 ${6 * u}px ${16 * u}px rgba(8,4,2,.35),0 0 0 ${2 * u}px rgba(255,240,220,.07)"></canvas>
+    <script src="${url(path.join(HERE, "peekbot.js"))}"></script>
+    <script>PeekBot.still(document.getElementById("peekkey"), ${JSON.stringify({ mode: k.mode, level: k.level, seconds: k.seconds })});</script>`;
 }
 
 async function shoot(browser, html, W, H, file) {

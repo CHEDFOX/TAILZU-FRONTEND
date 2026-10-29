@@ -385,14 +385,14 @@ lifted out. The photos are from Unsplash, free for commercial use, with no ident
 | # | Frame | Headline | What it shows |
 | --- | --- | --- | --- |
 | 1 | team | Players that make your life easy | Home, with the bots' tiles lifted out (the team) |
-| 2 | keybot | Say it, and Keybot writes it | The photo alone, and a round sound mark |
+| 2 | keybot | Say it, and Keybot writes it | Hands on a phone, and the keyboard's own Peek-a-bot mic key, listening |
 | 3 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
 | 4 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, the dentist, dinner |
 | 5 | notes | Every meeting, written up | A meeting's write-up, with its to-dos lifted out |
 | 6 | travel | Your trips, all sorted | Travel bot, with the two stays lifted out |
 | 7 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
 | 8 | spaces | Your people, in sync | A family space, with a task from Mom lifted out |
-| 9 | make | Make a bot of your own | Make a bot, on a phone held in a hand |
+| 9 | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
 
 The App Store gets all nine (it takes up to ten). Google Play takes eight, so its set leaves out Code bot (frame 7): the
 most specialist of the bots for a phone audience. The

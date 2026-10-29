@@ -111,8 +111,18 @@
   "screen": "bots.make",
   "errors": [],
   "flags": [],
-  "text": "Make a bot\nStart over\nA bot that plans my workouts around my calendar and reminds me the night before.\nGym bot\nPlans workouts that fit your week\nIts rules\n·\nNever plan on days I'm travelling\n·\nKeep sessions under 45 minutes\n·\nRemind me at 9 pm the night before\nIt can use\nCalendar\nOn\nSearch the web\nYour files\nIt won't: plan on days I'm travelling.\nTry it first\nMake Gym bot\nAdd a rule…",
-  "pop": null,
+  "text": "Make a bot\nStart over\nA bot that plans my workouts around my calendar and reminds me the night before.\nGym bot\nPlans workouts that fit your week\nIts rules\n·\nNever plan on days I'm travelling\n·\nKeep sessions under 45 minutes\n·\nRemind me at 9 pm the night before\nIt can use\nCalendar\nOn\nSearch the web\nYour files\nIt won't: plan on days I'm travelling.\nMake Gym bot\nAdd a rule…",
+  "pop": {
+   "x": 20,
+   "y": 156,
+   "width": 350,
+   "height": 72,
+   "radius": 18,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
   "misses": []
  }
 }
