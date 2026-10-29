@@ -1,0 +1,21 @@
+{
+  "title": "X0 Bot: Half-peek, upside down",
+  "subtitle": "The black box head hangs into a white tile from the top edge and looks down at you, with wide curious eyes (one a touch bigger). There are five flat takes, plus soft-matte renders of the best two. Ranked, strongest first. The dashed card is the Grok Bot icon, for comparison only.",
+  "order": ["soft-sideways", "soft-drop", "flat-3-sideways", "flat-1-drop", "flat-4-tilt", "flat-2-upright", "flat-5-antenna"],
+  "icons": {
+    "soft-sideways": {"tag": "1", "title": "Side glance, soft", "line": "Rendered: a matte black head, satin white eyes, glossy pupils with a catchlight, and one brow tick up. The most curious and the most alive."},
+    "soft-drop": {"tag": "2", "title": "Looking down, soft", "line": "Rendered: both eyes look straight down at you. Calmer and the most direct: 'I see you'."},
+    "flat-3-sideways": {"tag": "3", "title": "Side glance, flat", "line": "Pupils down and to the side, the bigger eye's brow raised. The best flat take."},
+    "flat-1-drop": {"tag": "4", "title": "Looking down, flat", "line": "Flipped: the eyes sit right by the rim, so the head clearly peeks over the edge."},
+    "flat-4-tilt": {"tag": "5", "title": "Tilted", "line": "The head cocked as it hangs. Livelier, but the crop goes lopsided and reads less clean."},
+    "flat-2-upright": {"tag": "6", "title": "Upright, hanging", "line": "Right way up with chin below the eyes. Same silhouette (a box head is symmetric), but the eyes sit high, so it hangs rather than peeks."},
+    "flat-5-antenna": {"tag": "7", "title": "Antenna down", "line": "A stub of antenna points down from the crown to say 'upside down'. It reads as a drip or lollipop stick. Dropped."}
+  },
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: shown for level and distinctness."},
+  "homeRows": [
+    ["soft-sideways", null, "ref", null],
+    [null, "soft-drop", "flat-3-sideways", null],
+    ["flat-1-drop", null, "flat-4-tilt", null],
+    [null, "flat-2-upright", null, "flat-5-antenna"]
+  ]
+}
