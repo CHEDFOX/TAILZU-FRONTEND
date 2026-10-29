@@ -17,6 +17,24 @@
   },
   "misses": []
  },
+ "ask": {
+  "screen": "bots.ask",
+  "errors": [],
+  "flags": [],
+  "text": "Ask any bot\nSpeak or type · Hinglish works\n14 Nov ko Pune ki shaam wali train dekh lo, 2 seats\nTravel bot\nwill take this\nChange\nOr hand it to\nOr try\nWhat's on tomorrow?\nPlan bot\nWhat changed in my project this week?\nCode bot\nMummy ko Hindi mein reply likho\nKeybot\nA weekend in Goa next month?\nTravel bot\nPhoto\nFile\nScreen\nPaste\nTap to send · Travel bot shows the plan before it books\n14 Nov ko Pune ki shaam wali train dekh lo, 2 seats",
+  "pop": {
+   "x": 14,
+   "y": 211,
+   "width": 362,
+   "height": 106,
+   "radius": 0,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
  "plan": {
   "screen": "bots.plan",
   "errors": [],

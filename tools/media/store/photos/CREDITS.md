@@ -20,7 +20,8 @@ build.mjs (cropping, light, a warm cast, vignette, grain), never retouched.
 | notes.jpg | Every meeting, written up | [A person's hands typing on a laptop](https://unsplash.com/photos/dSJwwAQZzDs) | Mohit Sharma | photo-1782462238918-a8926180df95 |
 | travel.jpg | Your trips, all sorted | [Sunset view from a train window](https://unsplash.com/photos/g5xOdiDkbns) | Dev Jain | photo-1672728910757-4806a041baee |
 | code.jpg | Ship code by asking | [Nighttime desk setup with laptop, lamp and city view](https://unsplash.com/photos/odyglVvZv18) | Avtar Singh | photo-1779444480590-9bf6f021d5d4 |
-| spaces.jpg | Your people, in sync | [Two people holding cups of tea](https://unsplash.com/photos/2QiB2kwIIAU) (Mumbai) | Harsh Kondekar | photo-1680413002471-965cca788f5b |
+| spaces.jpg | Your people, in sync | [An older woman holding a baby's hand](https://unsplash.com/photos/y0OAmd_COUM) | Rod Long | photo-1534768654272-e97681c3a2c7 |
+| ask.jpg | Ask once, and the right bot takes it (heavily blurred: no sign can be read) | [A city street at night, Chandigarh](https://unsplash.com/photos/kUHflAjwPRY) | Raj Dhiman | photo-1724825439681-f2f30eea3369 |
 | make.jpg | Make a bot of your own | [A person writing in a notebook next to a lit candle](https://unsplash.com/photos/SgsYqDtAzPI) | Daria Glakteeva | photo-1701634441311-e624c7fdfedf |
 
 ## App marks (the `tiles` frame only)

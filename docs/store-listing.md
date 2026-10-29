@@ -385,17 +385,18 @@ lifted out. The photos are from Unsplash, free for commercial use, with no ident
 | # | Frame | Headline | What it shows |
 | --- | --- | --- | --- |
 | 1 | team | Players that make your life easy | Home, with the bots' tiles lifted out (the team) |
-| 2 | keybot | Say it, and Keybot writes it | Hands on a phone, and the keyboard's own Peek-a-bot mic key, listening |
-| 3 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
-| 4 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, the dentist, dinner |
-| 5 | notes | Every meeting, written up | A meeting's write-up, with its to-dos lifted out |
-| 6 | travel | Your trips, all sorted | Travel bot, with the two stays lifted out |
-| 7 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
-| 8 | spaces | Your people, in sync | A family space, with a task from Mom lifted out |
-| 9 | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
+| 2 | ask | Ask once, and the right bot takes it | Ask, in Hinglish: "Travel bot will take this", and every other bot a tap away, lifted out |
+| 3 | keybot | Say it, and Keybot writes it | Hands on a phone, and the keyboard's own Peek-a-bot mic key, listening |
+| 4 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
+| 5 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, the dentist, dinner |
+| 6 | notes | Every meeting, written up | A meeting's write-up, with its to-dos lifted out (App Store only) |
+| 7 | travel | Your trips, all sorted | Travel bot, with the two stays lifted out |
+| 8 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
+| 9 | spaces | Your people, in sync | A grandmother's and a baby's hands; a family space, with a task from Mom lifted out |
+| 10 | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
 
-The App Store gets all nine (it takes up to ten). Google Play takes eight, so its set leaves out Code bot (frame 7): the
-most specialist of the bots for a phone audience. The
+The App Store gets all ten (its limit). Google Play takes eight, so its set leaves out Notes (the meetings are noted on
+the computer, so it says least on a phone) and Code bot (the most specialist of the bots for a phone audience). The
 feature graphic carries the first frame's headline, its photo and Home.
 
 The connect frame is the only one with other companies' marks on it (from simple-icons, CC0): each is an app X0 Bot

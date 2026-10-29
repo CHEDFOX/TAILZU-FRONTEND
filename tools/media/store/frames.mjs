@@ -23,6 +23,8 @@
 //            at?: 0..1 (its centre, as a share of the frame's height), nudge?: share of the height to move it,
 //            side?: "left" | "right" (lean it toward that edge) }
 //   bot      the bot's name and a few words, for the feature graphic and the roster (leave out for a non-bot frame)
+//   cardTop  card frames: where the card starts, as a share of the height (default about 0.21; lower it for a photo that
+//            must be seen, its subject placed above the card with photo.y and photo.zoom)
 //   fade     true fades the card's foot (for a screen whose content runs on past it, rather than ending in its own bar)
 //   play     false leaves the frame out of Google Play's set (Play takes 8 phone screenshots; the App Store 10)
 //   off      true keeps a frame defined but leaves it out of every export
@@ -128,6 +130,13 @@ export const FRAMES = [
     pop: { has: ["Needs you · 1 question", "Make a bot"], tall: 1400, at: 0.71 },
   },
   {
+    // One ask, by voice or by typing, in Hinglish; X0 Bot picks the bot for it, and any other is a tap away. The team, at work.
+    key: "ask", title: "Ask once, and the\nright bot takes it", accent: "#D0B48A",
+    photo: { file: "ask.jpg", x: 0.55, y: 0.5, zoom: 1.25, blur: 34, light: 0.7, warm: 0.5 },
+    screen: { id: "bots.ask" },
+    pop: { has: ["will take this", "Or hand it to"], union: true, pad: 6, nudge: 0.022 },
+  },
+  {
     key: "keybot", layout: "voice", title: "Say it, and\nKeybot writes it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
     photo: { file: "keybot.jpg", x: 0.38, y: 0.61, zoom: 1.4, light: 1, warm: 0.55 }, // y keeps the photo's bright strip (its top 23%) out of frame
     // The mic key under the words: the Peek-a-bot popped up and listening (ears and antenna lit), at this share of the width.
@@ -144,7 +153,8 @@ export const FRAMES = [
     pop: { has: ["Leave home by", "Dinner with Mom"], union: true, pad: 4, nudge: -0.016 },
   },
   {
-    key: "notes", title: "Every meeting,\nwritten up", accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" },
+    // Google Play's set leaves this one out: the meetings are noted on the computer, so it says least on a phone.
+    key: "notes", title: "Every meeting,\nwritten up", accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" }, play: false,
     photo: { file: "notes.jpg", x: 0.5, y: 0.45, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.note", params: { id: "n1" }, api: { "GET /v1/notes/n1": { note: NOTE, finding: false }, "GET /v1/botsapp/calendar/notes/n1": { todos: { t2: { id: "c-t2", done: false } } } } },
     pop: { has: ["Order 200 gift boxes", "Send the team the final plan"], card: true, bare: true }, fade: true,
@@ -177,7 +187,8 @@ export const FRAMES = [
   },
   {
     key: "spaces", title: "Your people,\nin sync", accent: "#5E9C88", bot: { name: "Spaces", line: "Family and friends" },
-    photo: { file: "spaces.jpg", x: 0.55, y: 0.42, zoom: 1, light: 0.55, warm: 0.45 },
+    // A grandmother's hand and a baby's, above the card: the card starts lower to give the photo room.
+    photo: { file: "spaces.jpg", x: 0.53, y: 0.5, zoom: 1.2, light: 0.75, warm: 0.6 }, cardTop: 0.47,
     screen: {
       id: "bots.spaces", variant: "home", params: { id: "s1" },
       api: (a) => {
@@ -201,11 +212,6 @@ export const FRAMES = [
     },
     // The one sentence it was made from, lifted out over the bot it drafted.
     pop: { has: ["A bot that plans my workouts"], card: true },
-  },
-  {
-    key: "ask", off: true, title: "Just ask, and\nit gets done",
-    photo: { file: "team.jpg", x: 0.5, y: 0.5 },
-    screen: { id: "bots.ask" },
   },
 ];
 
