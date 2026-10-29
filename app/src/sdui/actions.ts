@@ -44,6 +44,7 @@ import { isHandoffUrl, isOpenableUrl, isWebUrl, safeFileName } from "../security
 import { fillText, navParams, resolveValue } from "./fill";
 import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "./media";
 import { runOutboxAction } from "./offline";
+import { setSoundsOn } from "./sounds";
 import { listenStream, makeStreamId, StreamTap } from "./askStream";
 
 export interface NavApi {
@@ -510,6 +511,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "recordVoice": await recordVoice(action, mediaIO(ctx)); break;
     // Keep an ask to send once the phone is online, take one out, try one again (offline.tsx).
     case "outbox": await runOutboxAction(action, ctx); break;
+    // A setting kept on this phone (sounds.ts): the Sounds switch, honoured at once.
+    case "devicePref":
+      if (action.key === "sounds") setSoundsOn(resolveValue(action.value, ctx) !== false);
+      break;
     case "scanQR":
       // Full QR scanning requires the Camera component mounted in-screen with
       // a barcode callback. The action here requests the permission so the

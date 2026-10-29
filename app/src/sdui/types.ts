@@ -321,6 +321,13 @@ export interface ScreenResponse {
  */
 export const PULL_BOT_CAPABILITY = "PullBot";
 
+/**
+ * THE BOTS' SOUNDS (backend shared/types/sdui.ts 3h; sounds.ts, soundsCore.ts). This bundle declares BOT_SOUNDS_CAPABILITY:
+ * it fetches the catalog the bootstrap's flag "bots.sounds" names, keeps the files, plays pull-a-bot's and the moments'
+ * sounds, writes the phone's `soundsOn` into a screen whose state names it, and runs the action devicePref "sounds".
+ */
+export const BOT_SOUNDS_CAPABILITY = "BotSounds";
+
 /** A look for the pull bot: his colours (pullBotCore PullLook); any left out are the prototype's. */
 export interface PullBotLook {
   shellTop?: string;
@@ -599,6 +606,8 @@ export type ActionSpec =
       maxSeconds?: number; onDone?: ActionRef; onError?: ActionRef; onBlocked?: ActionRef }
   // the outbox (offline.tsx; backend shared/types/sdui.ts section 3e)
   | { kind: "outbox"; op: "add" | "remove" | "retry" | "clear"; path?: string; body?: Record<string, unknown>; label?: string; sub?: string; id?: string }
+  /** A setting kept on this device (sounds.ts): "sounds" on or off; `value` may be "$state.x". BOT_SOUNDS_CAPABILITY. */
+  | { kind: "devicePref"; key: "sounds"; value: unknown }
   // permissions
   | {
       kind: "requestPermission";

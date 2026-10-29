@@ -26,6 +26,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CompProps } from "./components";
 import { evalCondition } from "./actions";
 import { BotTile, type BotKind } from "../botTiles/core";
+import { playMoment } from "./sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
 import { useLooks } from "../botTiles/looks";
 
@@ -94,6 +95,8 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
     if (!b) {
       // Sized to the stage: the card has room for a bigger bot than a tile.
       b = new BotTile({ kind: (props?.kind ?? "custom") as BotKind, color: String(props?.color || "#3d3d3d"), mood: "idle", seed: 29, size: Math.round(stageH * 0.4) });
+      // A moment's sound plays from the bots' pack (sounds.ts).
+      b.onSound = playMoment;
       LIVES.set(key, b);
     }
     return b;

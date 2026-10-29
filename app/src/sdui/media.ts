@@ -24,6 +24,7 @@ import type { ActionRef, ActionSpec } from "./types";
 import { getBaseUrl } from "../storage";
 import { commonHeaders, errorDetail, userErrorMessage } from "./client";
 import { num, txt } from "./knobs";
+import { yieldSoundsTo } from "./sounds";
 import * as api from "../api";
 import {
   MAX_BYTES, cleanName, every, fillPath, isApiPath, joinWords, levelOf, nameFor, playStateOf, progressOf, refusalWords, soundSource,
@@ -280,6 +281,9 @@ interface Listening {
   recorder: InstanceType<typeof AudioModule.AudioRecorder>; meter?: ReturnType<typeof setInterval>; limit?: ReturnType<typeof setTimeout>;
 }
 let heard: Listening | null = null;
+
+// The bots' little sounds (sounds.ts) never cut into a sound of ours or the microphone, nor touch the session meanwhile.
+yieldSoundsTo(() => !!playing || !!pending || !!heard);
 
 /** The app's recording format (the one VoiceButton sends), with the level metered for the bars. */
 function recordingOptions(): Record<string, unknown> {

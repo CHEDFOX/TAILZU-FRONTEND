@@ -7,6 +7,7 @@ import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react
 import * as Localization from "expo-localization";
 import { DEFAULT_BASE_URL, bumpLaunchCount, getBaseUrl, getLanguage, saveKnobSnapshot } from "../storage";
 import { syncLooks } from "../botTiles/looks";
+import { syncSounds } from "./sounds";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type {
   BootstrapResponse,
@@ -560,6 +561,8 @@ export async function bootstrap(): Promise<BootstrapResponse> {
   getBaseUrl().then((base) => persistBootstrap(base, b)).catch(() => {});
   // The bots' looks and moments: the server's catalog, fetched and kept when its version moved (botTiles/looks.ts).
   syncLooks((b.flags as Record<string, unknown> | undefined)?.["bots.looks"]);
+  // The bots' sounds (sounds.ts): fetched and kept when the catalog's version moves.
+  syncSounds((b.flags as Record<string, unknown> | undefined)?.["bots.sounds"]);
   knobsPrimed = true;
   lastBootstrapAt = Date.now();
   return b;

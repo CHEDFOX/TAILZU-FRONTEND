@@ -103,6 +103,8 @@ export const BOT_RIDE = 2;
 export const BOT_FLY = 3;
 
 export const EV_TICK = 1;
+/** He is thrown (Reduce Motion: let go past the line, where there is no flight): the throw's sound. */
+export const EV_THROW = 2;
 
 /** His faces: eyes (rest), happy (excited at the top), effort (excited at the bottom), whee (flying), wow (riding). */
 export const FACE_EYES = 0;
@@ -180,6 +182,7 @@ export function launch(s: number[], c: number[], g: number[], v: number): void {
   const top = s[S_BE] === 0;
   const speed = Math.max(c[C_THROW], Math.abs(v) * c[C_BOOST]);
   s[S_B] = BOT_FLY;
+  s[S_EV] = s[S_EV] | EV_THROW;
   s[S_VY] = (top ? -1 : 1) * speed;
   s[S_VX] = (Math.random() < 0.5 ? -1 : 1) * (140 + Math.random() * 170);
   s[S_W] = (s[S_VX] < 0 ? -1 : 1) * (8 + Math.random() * 7);
@@ -322,6 +325,7 @@ export function release(s: number[], c: number[], refreshing: boolean): number {
   s[S_PH] = 0; s[S_PV] = 0;
   if (s[S_B] === BOT_PULL && s[S_PO] >= c[C_THRESH] && !refreshing) {
     if (c[C_STILL] !== 1) s[S_B] = BOT_RIDE;
+    else s[S_EV] = s[S_EV] | EV_THROW;
     return s[S_PE] === 0 ? 1 : 2;
   }
   return 0;

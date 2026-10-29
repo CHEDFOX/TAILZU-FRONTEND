@@ -35,6 +35,7 @@ import { ThemeContext, typeRole } from "./components";
 import { Store } from "./state";
 import { keptStore, liveShowing, reloadQuietly, useLiveUpdates } from "./live";
 import { PullBotContext } from "./PullBot";
+import { useSoundsState } from "./sounds";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
@@ -2311,6 +2312,8 @@ function ScreenHost({
   );
   // `online`, `outbox` and `outboxWaiting` in the screen's state (offline.tsx).
   useOfflineState(store);
+  // `soundsOn` in the screen's state: the Sounds switch shows what this phone has (sounds.ts).
+  useSoundsState(store);
 
   // Inject live device signals into screen state so the BACKEND can gate on them
   // declaratively (e.g. only show the "continue" button when the keyboard has
