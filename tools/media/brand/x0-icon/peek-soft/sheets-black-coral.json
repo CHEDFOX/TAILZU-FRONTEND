@@ -1,0 +1,17 @@
+{
+  "title": "X0 Bot: black on coral, curious",
+  "subtitle": "The soft-matte Peek-a-bot as a deep-black matte head on coral. The gloss-black visor reads against the matte, and the warm eyes glance up toward the antenna tip: the bigger eye has a lifted lid-light. Ranked, strongest first. The dashed card is the Grok Bot icon, for comparison only.",
+  "order": ["black-coral-bent", "black-coral-tilt", "black-coral-rounds", "black-coral-peek"],
+  "icons": {
+    "black-coral-bent": {"tag": "1", "title": "Bent antenna", "line": "Tilted in from the bottom, eyes up and right, and the antenna bends toward where it is looking. One gesture that tells the whole story: it's curious."},
+    "black-coral-tilt": {"tag": "2", "title": "Tilted", "line": "The same tilt and glance with a straight antenna. Calmer and cleaner, a little less character."},
+    "black-coral-rounds": {"tag": "3", "title": "Round eyes", "line": "Two bright rounds of different sizes: the clearest at 29 px, but more cartoon and wide-eyed than curious."},
+    "black-coral-peek": {"tag": "4", "title": "Straight peek", "line": "Straight up with the curious glance and lid-light. Most iconic, but without the tilt the curiosity is subtle."}
+  },
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the icon the owner pointed to, shown for level and distinctness."},
+  "homeRows": [
+    ["black-coral-bent", null, "ref", null],
+    [null, "black-coral-tilt", null, "black-coral-rounds"],
+    ["black-coral-peek", null, null, null]
+  ]
+}

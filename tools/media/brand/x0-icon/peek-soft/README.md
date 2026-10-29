@@ -18,6 +18,19 @@ Tried and dropped:
 - Bloom, which spilled grey haze off the silhouette.
 - Two eyes on the head itself (no visor). This was not rendered: it is the Grok Bot face.
 
+## Black on coral, curious (`black-coral-*`)
+
+A deep-black matte head on a coral ground. The head is lit with neutral light, because warm light turns a dark matte brown; the warmth lives in the eyes, the antenna tip and the ground. Strong rims separate the silhouette. The gloss-black visor reads against the matte up close. The eyes glance up and right toward the antenna; the bigger, rounder eye has a dimmer lifted lid-light (`FACES.curious` + `FACES.brow`).
+
+| Rank | Folder | What it is |
+| --- | --- | --- |
+| 1 | `black-coral-bent/` | Tilted in from the bottom, and the antenna bends toward where it's looking. The whole story in one gesture. |
+| 2 | `black-coral-tilt/` | The same with a straight antenna: calmer and cleaner. |
+| 3 | `black-coral-rounds/` | Two bright rounds of different sizes. The clearest at 29 px, but more wide-eyed than curious. |
+| 4 | `black-coral-peek/` | Straight up. Most iconic, but the curiosity is subtle without the tilt. |
+
+At icon size the visor merges into the black head, so the read is "black head, two bright curious eyes, on coral". The bent antenna is a detail you only see at large sizes. Build this set's review images with `META=sheets-black-coral.json` in front of the `sheets.mjs` commands below.
+
 ## How it is made
 
 - `scene.js` (runs in the browser): the head is a superquadric (a soft rounded box) in a matte material. The material has high roughness, low specular, a little warm sheen, wrapped diffuse light (the light soaks past the terminator the way it does in clay or soft rubber) and a faint warm emissive term in place of subsurface scattering. The visor is a satin dark-glass pillow on the face, with the eyes drawn into its emissive map in floating point (crisp cores and a soft halo in the glass). The antenna is a capsule with a short glowing cap. The light is one large soft key from the upper left (jittered every frame for soft shadows) inside a dim studio environment, with faint rims to keep the silhouette. Ambient occlusion is baked per vertex from the same analytic shapes. Frames are sub-pixel jittered and averaged, composited over a flat 2D ground (with an optional soft shade halo on light grounds) and box-downsampled. `VARIANTS` at the bottom holds the six looks; the shared `HEAD`, `VISOR`, `ANT`, `LIGHT` and `PEEK` (framing) constants are just above it.

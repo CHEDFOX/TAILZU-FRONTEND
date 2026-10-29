@@ -2,6 +2,7 @@
 //
 //   REF=/path/to/reference-1024.png node sheets.mjs sheet <out.png> [id ...]
 //   REF=/path/to/reference-1024.png node sheets.mjs home  <out.png>
+//   META=sheets-black-coral.json ...   the same for another set
 //
 // sheet: large icons, then 60/40/29 pt on dark and light walls, 29 px at 1x.
 // home:  the icons on a mock iPhone home screen among plain neutral apps and among colourful apps,
@@ -18,7 +19,7 @@ let chromium;
 try { ({ chromium } = require("playwright")); } catch { ({ chromium } = createRequire("/opt/node-tools/node_modules/")("playwright")); }
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [mode, out, ...idArgs] = process.argv.slice(2);
-const meta = JSON.parse(fs.readFileSync(path.join(here, "sheets.json"), "utf8"));
+const meta = JSON.parse(fs.readFileSync(process.env.META || path.join(here, "sheets.json"), "utf8")); // META picks another set
 const root = process.env.ICON_DIR || here;
 const ids = idArgs.length ? idArgs : meta.order;
 const icons = ids.map((id) => ({
