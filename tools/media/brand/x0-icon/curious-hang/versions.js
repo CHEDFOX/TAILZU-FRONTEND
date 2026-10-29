@@ -128,6 +128,21 @@
   paintedVersion("9-painted-no-visor", "9 · Painted, no visor", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: "#D8D0C3", head: INK, visor: null, eye: CREAM, hand: CREAM, ear: CLAY },
     "The simplest: one black head, two cream eyes, cream gloves, clay ears.");
 
+  // Colour studies of the painted clay-bar version (same shapes, same cut): pal-<name>. Not part of the ranked set.
+  const PALETTES = [
+    ["clay", "Clay (now)", { bar: CLAY, ear: CLAY }],
+    ["tomato", "Tomato", { bar: "#FF5A3C", ear: "#FF5A3C" }],
+    ["butter", "Butter", { bar: "#F4C445", ear: "#F4C445", ground: "#F8F5EE" }],
+    ["lime", "Acid lime", { bar: "#CDEB4E", ear: "#CDEB4E", ground: "#F6F5EF", ground2: "#EEEDE4" }],
+    ["forest", "Forest", { bar: "#1F4A38", ear: "#E9785A", ground: "#F3F0E8" }],
+    ["cobalt", "Cobalt", { bar: "#2F4CF0", ear: "#FF8A5C", ground: "#F4F2EE" }],
+    ["sky", "Sky", { bar: "#8DC3EC", ear: "#F28A6B", ground: "#F5F4F0" }],
+    ["lilac", "Lilac", { bar: "#B7A3EE", ear: "#F2B53D", ground: "#F6F3F6", ground2: "#EEE9EF" }],
+    ["night", "Night", { ground: "#1D1B18", ground2: "#141210", bar: CLAY, head: "#F1E8D8", visor: "#DCCFBC", eye: "#151311", hand: "#F1E8D8", ear: CLAY }],
+  ];
+  for (const [k, label, c] of PALETTES)
+    paintedVersion("pal-" + k, label, { ground: "#F7F3EC", ground2: "#EFE9DF", head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ...c }, "A colour study of the painted clay-bar version.");
+
   function G_clip(c, pts) { HD.G.path(c, pts); c.clip(); }
 
   HD.HANG = V;
