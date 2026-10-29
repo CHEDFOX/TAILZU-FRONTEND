@@ -1,0 +1,64 @@
+{
+ "dir": "/home/user/TAILZU-FRONTEND/tools/media/brand/x0-icon/handdrawn",
+ "art": {
+  "bot-hello": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-hello.png",
+   "w": 810,
+   "h": 550,
+   "ledge": 483.18399999999997,
+   "anchor": null
+  },
+  "bot-curious": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-curious.png",
+   "w": 714,
+   "h": 556,
+   "ledge": 487.18399999999997,
+   "anchor": null
+  },
+  "bot-happy": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-happy.png",
+   "w": 717,
+   "h": 633,
+   "ledge": 564.184,
+   "anchor": null
+  },
+  "bot-shy": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-shy.png",
+   "w": 712,
+   "h": 514,
+   "ledge": 445.18399999999997,
+   "anchor": null
+  },
+  "bot-starry": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-starry.png",
+   "w": 716,
+   "h": 627,
+   "ledge": 558.184,
+   "anchor": null
+  },
+  "bot-wink": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-wink.png",
+   "w": 715,
+   "h": 639,
+   "ledge": 570.184,
+   "anchor": null
+  },
+  "underline": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  }
+ }
+}

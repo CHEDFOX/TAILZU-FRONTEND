@@ -16,6 +16,7 @@ written so the team can grow: nothing promises a fixed number of bots, and nothi
 - [Subscriptions](#subscriptions)
 - [Alternatives](#alternatives)
 - [Screenshots](#screenshots)
+- [India](#india)
 - [Before you submit](#before-you-submit)
 
 ---
@@ -40,22 +41,22 @@ Players that make life easy
 A team of bots, each great at one thing. Speak and Keybot writes. Plan keeps your day, Travel sorts the trip, and a bot of your own takes one sentence to make.
 ```
 
-### Keywords · 99 / 100
+### Keywords · 94 / 100
 
 ```text
-keyboard,voice,dictation,hinglish,hindi,typing,planner,calendar,todo,trip,meeting,notes,family,chat
+keyboard,voice,dictation,typing,languages,planner,calendar,todo,trip,meeting,notes,family,chat
 ```
 
-### Description · 3400 / 4000
+### Description · 3442 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
 
 KEYBOT · WRITES FOR YOU, IN ANY APP
-A voice keyboard that turns what you say into clean, ready-to-send text, wherever you type. Speak in Hindi, English, Hinglish or the language you think in. Filler goes, punctuation comes in, and names stay the way you said them. Keybot writes a little differently for each app: easy in chats, clear and polite in mail, short at work. Teach it your words and your style, and it keeps them.
+A voice keyboard that turns what you say into clean, ready-to-send text, wherever you type. Speak in English, Spanish, French, Hindi, Arabic or any of more than 50 languages, even two in one sentence. Filler goes, punctuation comes in, and names stay the way you said them. Keybot writes a little differently for each app: easy in chats, clear and polite in mail, short at work. Teach it your words and your style, and it keeps them.
 
 PLAN · YOUR DAY, PLANNED
-Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "kal subah 7 baje gym" and it is on your day. Plan shows how long it takes to get from one place to the next, tells you when to leave, and reminds you before it matters.
+Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "gym tomorrow at 7" and it is on your day. Plan shows how long it takes to get from one place to the next, tells you when to leave, and reminds you before it matters.
 
 TRAVEL · TRIPS, SORTED
 One place for a trip: the dates, the tickets, the weather on your days, stays compared by how far they are from where you will be, and a packing list. Travel finds the options and opens them for you to book. You always press pay.
@@ -179,16 +180,16 @@ X0 Bot: Your AI Team
 Players that make your life easy: a team of bots, each great at one thing.
 ```
 
-### Full description · 3182 / 4000
+### Full description · 3224 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
 
 KEYBOT · WRITES FOR YOU, IN ANY APP
-A voice keyboard that turns what you say into clean, ready-to-send text, wherever you type. Speak in Hindi, English, Hinglish or the language you think in. Filler goes, punctuation comes in, and names stay the way you said them. Keybot writes a little differently for each app: easy in chats, clear and polite in mail, short at work. Teach it your words and your style, and it keeps them.
+A voice keyboard that turns what you say into clean, ready-to-send text, wherever you type. Speak in English, Spanish, French, Hindi, Arabic or any of more than 50 languages, even two in one sentence. Filler goes, punctuation comes in, and names stay the way you said them. Keybot writes a little differently for each app: easy in chats, clear and polite in mail, short at work. Teach it your words and your style, and it keeps them.
 
 PLAN · YOUR DAY, PLANNED
-Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "kal subah 7 baje gym" and it is on your day. Plan shows how long it takes to get from one place to the next, tells you when to leave, and reminds you before it matters.
+Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "gym tomorrow at 7" and it is on your day. Plan shows how long it takes to get from one place to the next, tells you when to leave, and reminds you before it matters.
 
 TRAVEL · TRIPS, SORTED
 One place for a trip: the dates, the tickets, the weather on your days, stays compared by how far they are from where you will be, and a packing list. Travel finds the options and opens them for you to book. You always press pay.
@@ -386,18 +387,23 @@ happy on Plan, starry-eyed on Travel, a wink on Make a bot). The bot and the bru
 hand-drawn icon code. The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one
 is in `tools/media/store/photos/CREDITS.md`.
 
-| # | Frame | Headline | What it shows |
+| # | Frame | Headline | What it shows (global set) |
 | --- | --- | --- | --- |
-| 1 | team | Players that make your life easy | Home, with the bots' tiles lifted out (the team) |
-| 2 | ask | Ask once, and the right bot takes it | Ask, in Hinglish: "Travel bot will take this", and every other bot a tap away, lifted out |
+| 1 | team | Players that make your life easy | Home ("Good evening, Maya"), with the bots' tiles lifted out (the team) |
+| 2 | ask | Ask once, and the right bot takes it | Ask, in Hinglish: "Travel bot will take this", every other bot a tap away (kept Indian) |
 | 3 | keybot | Say it, and Keybot writes it | Hands on a phone, and the keyboard's own Peek-a-bot mic key, listening |
 | 4 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
-| 5 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, the dentist, dinner |
-| 6 | notes | Every meeting, written up | A meeting's write-up, with its to-dos lifted out (App Store only) |
-| 7 | travel | Your trips, all sorted | Travel bot, with the two stays lifted out |
+| 5 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, Dr. Lee, dinner with Mom |
+| 6 | notes | Every meeting, written up | "Spring launch plan", with its to-dos lifted out (App Store only) |
+| 7 | travel | Your trips, all sorted | Lisbon, 14–16 Nov: the train, and two stays lifted out |
 | 8 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
-| 9 | spaces | Your people, in sync | A grandmother's and a baby's hands; a family space, with a task from Mom lifted out |
+| 9 | spaces | Your people, in sync | A grandmother's and a baby's hands; "Call Nani, from Mom" lifted out (kept Indian) |
 | 10 | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
+
+The default set is global: international names and places (Maya, Sofia, Kenji, Amara; Lisbon, Porto) and photos that do
+not read as one country. Two frames keep an Indian moment on purpose: Ask (a Hinglish request, the "speaks your language"
+touch) and Spaces (a family with Nani). `node tools/media/store/build.mjs --set india` builds the India set (Aanya, Pune,
+a Diwali sale, Indian photos for Plan and Travel) into `out/india/` for Google Play's English (India) and Hindi listings.
 
 The App Store gets all ten (its limit). Google Play takes eight, so its set leaves out Notes (the meetings are noted on
 the computer, so it says least on a phone) and Code bot (the most specialist of the bots for a phone audience). The
@@ -405,6 +411,30 @@ feature graphic carries the first frame's headline, its photo and Home.
 
 The connect frame is the only one with other companies' marks on it (from simple-icons, CC0): each is an app X0 Bot
 really connects to in this build, shown as a plain mark with no words around it, and no store text names a brand.
+
+## India
+
+For Google Play's English (India) and Hindi listings (and the App Store in India, if it gets its own localisation). These
+lines replace their global versions there; everything else is as above. The India screenshots are built with
+`node tools/media/store/build.mjs --set india` (out/india/).
+
+### Keywords (India) · 99 / 100
+
+```text
+keyboard,voice,dictation,hinglish,hindi,typing,planner,calendar,todo,trip,meeting,notes,family,chat
+```
+
+### Keybot line (India, in both descriptions) · 388 / 4000
+
+```text
+A voice keyboard that turns what you say into clean, ready-to-send text, wherever you type. Speak in Hindi, English, Hinglish or the language you think in. Filler goes, punctuation comes in, and names stay the way you said them. Keybot writes a little differently for each app: easy in chats, clear and polite in mail, short at work. Teach it your words and your style, and it keeps them.
+```
+
+### Plan line (India, in both descriptions) · 248 / 4000
+
+```text
+Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "kal subah 7 baje gym" and it is on your day. Plan shows how long it takes to get from one place to the next, tells you when to leave, and reminds you before it matters.
+```
 
 ## Before you submit
 

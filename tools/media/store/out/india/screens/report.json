@@ -1,0 +1,146 @@
+{
+ "team": {
+  "screen": "bots.home",
+  "errors": [],
+  "flags": [],
+  "text": "Your bots\nGood evening, Aanya\nAnything\nto\nwrite\nup\nbefore\nthe\nday\nends?\n4 things done this week · 2 h 20 min saved\nNeeds you · Plan bot\nOnly 15 min between the dentist and dinner. Move dinner to 7:30?\nMoves Dinner with Mom to 7:30 pm and tells Mom\nYes, do it\nNo\nPlan bot\nNeeds you · 1 question\nTravel bot\nWorking · finding stays near the wedd…\nCode bot\nFixes and ships your code\nMake a bot\nSay what it should do\nBots\nActivity\nYou\nAsk any bot…",
+  "pop": {
+   "x": 20,
+   "y": 507,
+   "width": 350,
+   "height": 388,
+   "radius": 0,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "ask": {
+  "screen": "bots.ask",
+  "errors": [],
+  "flags": [],
+  "text": "Ask any bot\nSpeak or type · Hinglish works\n14 Nov ko Pune ki shaam wali train dekh lo, 2 seats\nTravel bot\nwill take this\nChange\nOr hand it to\nOr try\nWhat's on tomorrow?\nPlan bot\nWhat changed in my project this week?\nCode bot\nMummy ko Hindi mein reply likho\nKeybot\nA weekend in Goa next month?\nTravel bot\nPhoto\nFile\nScreen\nPaste\nTap to send · Travel bot shows the plan before it books\n14 Nov ko Pune ki shaam wali train dekh lo, 2 seats",
+  "pop": {
+   "x": 14,
+   "y": 211,
+   "width": 362,
+   "height": 106,
+   "radius": 0,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "plan": {
+  "screen": "bots.plan",
+  "errors": [],
+  "flags": [],
+  "text": "Plan bot\n4 things tomorrow · 40 min saved\nMon\n26\nTue\n27\nWed\n28\nThu\n29\nFri\n30\nSat\n31\nSun\n1\nTomorrow · Thu 29 Oct\nAdd\n9:30 am\nStudio standup\n30 min · Video call · 3 others\nFree · 10 am to 6 pm, 8 h\nLeave home by 5:30 pm · 30 min to Indiranagar\n6:00 pm\nDentist · Dr. Mehta\n45 min · Indiranagar\nMove?\nOnly 15 min to get there · 35 min to Koramangala\n7:00 pm\nDinner with Mom\n2 h · Koramangala · 1 other\nTo do\nPick up the cake for Mom\nShare tomorrow\nNeeds you\nMove Dentist to Friday 10 am?\nDentist ends at 6:45 pm and Dinner with Mom starts at 7 pm, 15 min later. Friday 10 am is free. I'll move it only after you say yes.\nFree up Saturday\nWhat should I do first tomorrow?\nAdd dentist Fri 5 pm, or plan my week…",
+  "pop": {
+   "x": 16,
+   "y": 323,
+   "width": 358,
+   "height": 216,
+   "radius": 0,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "notes": {
+  "screen": "bots.note",
+  "errors": [],
+  "flags": [],
+  "text": "Notes\nDiwali sale plan\nToday, 11:40 am · 42 min · 4 speakers · recorded on your computer\nSummary\nThe sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.\nDecisions · 3\n01\nThe sale runs from 7 to 12 November\n02\nFree gift wrap on every order this week\n03\nThe shop window goes up on Friday\nTo-dos · 4\n3 open\nOrder 200 gift boxes\nMeera Iyer · This week\nMy tasks\nWrite the sale message for customers\nYou · Today\nIn your tasks\nSet up the shop window\nKavya Rao · By Friday\nMy tasks\nSend the team the final plan\nYou · Done at 12:40 pm\nMy tasks\nWhat was said · 2\n01\nLast year the window brought in half the walk-ins. Let's do it properly this time.",
+  "pop": {
+   "x": 20,
+   "y": 460,
+   "width": 350,
+   "height": 268,
+   "radius": 18,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "travel": {
+  "screen": "bots.travel",
+  "errors": [],
+  "flags": [],
+  "text": "Travel bot\n4 of 5 ready\nPune · 14–16 Nov\nShare\nTrip over\nYou + Rohan\nEvening train to Pune · 2 window seats\nYou asked: Trains from Mumbai to Pune on 14 Nov\nOpen to book\nReady to book · you press pay\nStay · 2 options\nPrices and booking on their site\nTravel bot's pick\nShanti Residency\nKoregaon Park\n4.4 · 1,820 reviews\n12 min to the wedding\nPick\nFound on the web\nDeccan Courtyard\nFC Road\n4.1 · 960 reviews\n28 min to the wedding\nPick\nFind more\nAdd one\nClear days, cool nights\nSat 29° · Sun 30° · Mon 28° · lows 16°\nAsk about this trip…",
+  "pop": {
+   "x": 20,
+   "y": 431,
+   "width": 350,
+   "height": 271,
+   "radius": 0,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "code": {
+  "screen": "bots.code.start",
+  "errors": [],
+  "flags": [],
+  "text": "Code bot\nWorking on 1 · 2 need you · 4 done this week\nNeeds you · Code bot\nRound the cart total per item, or once at the end?\nPer item\nAt the end\nYou decide\nProjects\nstorefront\nNeeds you\n212 of 215 tests pass\nmobile-app\nDone 5 days ago\nAll 88 tests pass\ndocs-site\nDone yesterday\nno tests yet · I can add some\nAdd a project · or start one from scratch\nFix the 3 failing tests in storefront\nWhat changed this week?\nTell Code bot what to do…",
+  "pop": {
+   "x": 20,
+   "y": 236,
+   "width": 350,
+   "height": 162,
+   "radius": 20,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "spaces": {
+  "screen": "bots.spaces",
+  "errors": [],
+  "flags": [],
+  "text": "Home\n3 people · 2 bots · You're the admin\nChat\nInvite\nNeeds you\nCall Nani\nFor you · Tomorrow, 11 am · from Mom\nDone\nCan't do it\nShared · 3\nGroceries\n2 of 5 done · Mom · 40 min\nCan edit\nTrip to Pune\n5 of 8 done · You · Yesterday\nCan edit\nHotel_Shanti_Residency_booking.pdf\nHotel_Shanti_Residency_booking.pdf · You · 26 Oct\nMake\nTasks and plans\nAll\nPick up the cake for Mom\nTo Rohan · Tomorrow, 6:30 pm · Koramangala · from You\nNew list: Groceries, Packing…",
+  "pop": {
+   "x": 20,
+   "y": 246,
+   "width": 350,
+   "height": 118,
+   "radius": 18,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ },
+ "make": {
+  "screen": "bots.make",
+  "errors": [],
+  "flags": [],
+  "text": "Make a bot\nStart over\nA bot that plans my workouts around my calendar and reminds me the night before.\nGym bot\nPlans workouts that fit your week\nIts rules\n·\nNever plan on days I'm travelling\n·\nKeep sessions under 45 minutes\n·\nRemind me at 9 pm the night before\nIt can use\nCalendar\nOn\nSearch the web\nYour files\nIt won't: plan on days I'm travelling.\nMake Gym bot\nAdd a rule…",
+  "pop": {
+   "x": 20,
+   "y": 156,
+   "width": 350,
+   "height": 72,
+   "radius": 18,
+   "screen": {
+    "w": 390,
+    "h": 788
+   }
+  },
+  "misses": []
+ }
+}

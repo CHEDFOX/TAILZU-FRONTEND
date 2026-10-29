@@ -5,7 +5,7 @@
  * screen JSON is what the server would send, and the pixels are what the app's renderer draws for it.
  *
  * Run by build.mjs (one command for everything). On its own, from TAILZU-BACKEND/tulmi:
- *   npx tsx ../../TAILZU-FRONTEND/tools/media/store/screens.mts [--out <dir>] [--only <frame key regex>] [--all]
+ *   npx tsx ../../TAILZU-FRONTEND/tools/media/store/screens.mts [--set global|india] [--out <dir>] [--only <frame key regex>] [--all]
  * (--all also renders the frames marked off. --probe "text|text" prints where those words sit and the boxes around them,
  * for writing a frame's `pop`.)
  *
@@ -39,12 +39,14 @@ const { sample, apiFor } = await imp("scripts/bots-render/samples/index.ts");
 const { buildBotsScreen } = await imp("src/experience/bots/index.ts");
 const { fakeDeps, IST } = await imp("src/experience/bots/fixtures.ts");
 const { FACE, botsFonts } = await imp("src/experience/bots/kit.ts");
-const { FRAMES, RULES, SIZES } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
+const { framesFor, swapDeep, DEFAULT_SET, RULES, SIZES } = await import(pathToFileURL(path.join(HERE, "frames.mjs")).href);
+/** Which set's frames (frames.mjs SETS): --set global (default) | india. */
+const SET = flag("set") ?? DEFAULT_SET;
+const FRAMES = framesFor(SET);
 /** The phone the screens are drawn on (frames.mjs SIZES.phone; a screen may name its own `viewport`). */
 type Viewport = { w: number; h: number; top: number; bottom: number; scale: number };
 const PHONE = { scale: 4, ...SIZES.phone } as Viewport;
 
-const USER = { id: "00000000-0000-4000-8000-00000000aaaa", name: "Aanya Sharma", email: "aanya@example.in" };
 
 interface ScreenSpec {
   id: string;
@@ -67,20 +69,26 @@ interface ScreenSpec {
 /** The part of a screen a frame lifts out: the smallest element holding every text in `has`; `card` widens it to the card around it. */
 interface PopSpec { has: string[]; card?: boolean; up?: number; bare?: boolean; pad?: number; tall?: number; union?: boolean }
 
-async function build(spec: ScreenSpec, misses: string[]): Promise<unknown> {
+/** The person signed in (the set's), and the swap of names and places for the set's sample data (frames.mjs). */
+interface FrameData { user: { id: string; name: string; email: string }; swap: Array<[string, string]> }
+
+async function build(spec: ScreenSpec, misses: string[], fr: FrameData): Promise<unknown> {
   let s: { params?: Record<string, unknown>; fake?: Record<string, unknown>; area: string } & Record<string, unknown>;
   try { s = sample(spec.id, spec.variant); } catch { s = { id: spec.id, area: "shell" }; }
   const api: Record<string, unknown> = { ...(await apiFor(s)) };
   const extra = typeof spec.api === "function" ? spec.api(structuredClone(api)) : spec.api ?? {};
   for (const [k, v] of Object.entries(extra)) { if (v === null) delete api[k]; else api[k] = v; }
-  const deps = fakeDeps({ ...(spec.quiet ? { jobs: [], tasks: [] } : {}), ...(s.fake ?? {}), ...(spec.fake ?? {}), api });
+  // The set's names and places, in the data only (the app's own words are left as they are).
+  const answers = swapDeep(api, fr.swap) as Record<string, unknown>;
+  const fake = swapDeep({ ...(spec.quiet ? { jobs: [], tasks: [] } : {}), ...(s.fake ?? {}), ...(spec.fake ?? {}) }, fr.swap);
+  const deps = fakeDeps({ ...fake, api: answers });
   const inner = deps.api;
   deps.api = (async (method: string, route: string, body?: unknown) => {
     try { return await inner(method as "GET", route, body); } catch (e) { misses.push(`${method} ${route}`); throw e; }
   }) as typeof deps.api;
   const screen = await buildBotsScreen({
-    screenId: spec.id, client: "phone", params: { ...(s.params ?? {}), ...(spec.params ?? {}) } as Record<string, string>,
-    tzOffsetMinutes: IST, user: USER, can: new Set(["BotsKit", ...R.PHONE_COMPONENTS]), desk: { pages: false, notes: false },
+    screenId: spec.id, client: "phone", params: swapDeep({ ...(s.params ?? {}), ...(spec.params ?? {}) }, fr.swap) as Record<string, string>,
+    tzOffsetMinutes: IST, user: fr.user, can: new Set(["BotsKit", ...R.PHONE_COMPONENTS]), desk: { pages: false, notes: false },
   }, deps) as { state?: Record<string, unknown> };
   if (spec.state) screen.state = { ...(screen.state ?? {}), ...spec.state };
   return screen;
@@ -221,14 +229,14 @@ async function draw(browser: any, bundle: string, screen: unknown, spec: ScreenS
 
 async function main(): Promise<void> {
   fs.mkdirSync(OUT, { recursive: true });
-  const frames = (FRAMES as Array<{ key: string; screen?: ScreenSpec; pop?: PopSpec; off?: boolean }>).filter((f) => f.screen && (!only || only.test(f.key)) && (!f.off || has("all")));
+  const frames = (FRAMES as Array<{ key: string; screen?: ScreenSpec; pop?: PopSpec; off?: boolean } & FrameData>).filter((f) => f.screen && (!only || only.test(f.key)) && (!f.off || has("all")));
   const browser = await R.launchBrowser();
   const bundle = await R.buildPhoneBundle();
   const report: Record<string, unknown> = {};
   try {
     for (const f of frames) {
       const misses: string[] = [];
-      const screen = await build(f.screen!, misses);
+      const screen = await build(f.screen!, misses, f);
       fs.writeFileSync(path.join(OUT, `${f.key}.json`), JSON.stringify(screen, null, 1));
       for (const old of [".pop.png", ".pop.json"]) fs.rmSync(path.join(OUT, `${f.key}${old}`), { force: true });
       const r = await draw(browser, bundle, screen, f.screen!, path.join(OUT, `${f.key}.png`), f.pop);

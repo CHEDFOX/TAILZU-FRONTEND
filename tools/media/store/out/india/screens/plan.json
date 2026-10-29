@@ -1,0 +1,2999 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.plan",
+ "title": "Plan bot",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 0,
+ "state": {
+  "ask": "",
+  "asking": false,
+  "home_edit": false,
+  "home": ""
+ },
+ "root": {
+  "type": "SafeArea",
+  "props": {
+   "edges": [
+    "top"
+   ],
+   "barStyle": "dark-content"
+  },
+  "style": {
+   "flex": 1,
+   "flexDirection": "column",
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Screen",
+    "props": {
+     "paddingBottom": 24
+    },
+    "style": {
+     "backgroundColor": "#ffffff",
+     "paddingHorizontal": 20,
+     "paddingTop": 16,
+     "gap": 22
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 44,
+         "height": 44,
+         "marginLeft": -10,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M15 5l-7 7 7 7",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 24,
+           "height": 24,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigateBack"
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Back"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 40,
+         "height": 40,
+         "flexShrink": 0,
+         "overflow": "hidden",
+         "borderRadius": 20,
+         "backgroundColor": "#f5f5f5"
+        },
+        "children": [
+         {
+          "type": "Image",
+          "props": {
+           "source": {
+            "url": "https://api.local/blip/bots/head-plan.png?v=1"
+           },
+           "contentFit": "contain",
+           "radius": 0
+          },
+          "style": {
+           "width": "100%",
+           "height": "100%",
+           "borderRadius": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 2,
+         "flexShrink": 1
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Plan bot",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 19,
+           "lineHeight": 24,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "4 things tomorrow · 40 min saved",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#8F6A1F",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexGrow": 1,
+         "flexShrink": 1
+        }
+       },
+       {
+        "type": "BotBuddy",
+        "props": {
+         "kind": "plan",
+         "color": "#8F6A1F",
+         "life": "page.plan",
+         "width": 76,
+         "height": 44,
+         "size": 28,
+         "state": "idle",
+         "lookTo": "down",
+         "thinkWhen": {
+          "truthy": "sending"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "stretch",
+       "gap": 2
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 26,
+         "alignSelf": "stretch",
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M15 5l-7 7 7 7",
+           "fill": "none",
+           "stroke": "#3d3d3d",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 16,
+           "height": 16,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": -1
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "The week before"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Mon",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "26",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-26"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Monday 26 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Tue",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "27",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-27"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Tuesday 27 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff",
+         "borderWidth": 1,
+         "borderColor": "#e6e6e6"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Wed",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "28",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-28"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Wednesday 28 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#0a0a0a"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Thu",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#ffffff",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "29",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#ffffff",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#ffffff"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-29"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Thursday 29 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Fri",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "30",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-30"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Friday 30 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Sat",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "31",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-10-31"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Saturday 31 Oct"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "alignItems": "center",
+         "gap": 2,
+         "paddingVertical": 7,
+         "borderRadius": 14,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Sun",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "1",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 4,
+           "height": 4,
+           "borderRadius": 2,
+           "backgroundColor": "#8F6A1F"
+          },
+          "children": []
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 0,
+           "day": "2026-11-01"
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Sunday 1 Nov"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 26,
+         "alignSelf": "stretch",
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M9 5l7 7-7 7",
+           "fill": "none",
+           "stroke": "#3d3d3d",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 16,
+           "height": 16,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.plan",
+          "params": {
+           "week": 1
+          },
+          "replace": true
+         }
+        },
+        "props": {
+         "accessibilityLabel": "The week after"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 12
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Tomorrow · Thu 29 Oct",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 15,
+           "letterSpacing": 0.4,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "uppercase"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 32,
+           "paddingHorizontal": 4
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Add",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.plan.item",
+            "params": {
+             "kind": "event",
+             "day": "2026-10-29"
+            }
+           }
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "stretch",
+           "gap": 10
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "9:30 am",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "width": 54,
+             "paddingTop": 12
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0"
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 8,
+             "padding": 12,
+             "borderRadius": 14,
+             "borderWidth": 1,
+             "borderColor": "#e6e6e6",
+             "backgroundColor": "#ffffff"
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "gap": 2,
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Studio standup",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Medium",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 14,
+                 "lineHeight": 19,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "30 min · Video call · 3 others",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 12,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.plan.item",
+              "params": {
+               "kind": "event",
+               "id": "e10"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 10,
+           "minHeight": 26
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 54
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0",
+             "height": 26
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Free · 10 am to 6 pm, 8 h",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 10,
+           "minHeight": 26
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 54
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0",
+             "height": 26
+            },
+            "children": []
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Leave home by 5:30 pm · 30 min to Indiranagar",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#8F6A1F",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 1
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "stretch",
+           "gap": 10
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "6:00 pm",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "width": 54,
+             "paddingTop": 12
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0"
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 8,
+             "padding": 12,
+             "borderRadius": 14,
+             "borderWidth": 1.5,
+             "borderColor": "#0a0a0a",
+             "borderStyle": "dashed",
+             "backgroundColor": "#ffffff"
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "gap": 2,
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Dentist · Dr. Mehta",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Medium",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 14,
+                 "lineHeight": 19,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "45 min · Indiranagar",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 12,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 6
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Move?",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist SemiBold",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 12,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 8 8",
+                 "shapes": [
+                  {
+                   "circle": [
+                    4,
+                    4,
+                    4
+                   ],
+                   "fill": "#0a0a0a"
+                  }
+                 ],
+                 "accessibilityLabel": "needs you"
+                },
+                "style": {
+                 "width": 8,
+                 "height": 8,
+                 "flexShrink": 0
+                }
+               }
+              ]
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.plan.item",
+              "params": {
+               "kind": "event",
+               "id": "e11"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 10,
+           "minHeight": 26
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 54
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0",
+             "height": 26
+            },
+            "children": []
+           },
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 8 8",
+             "shapes": [
+              {
+               "circle": [
+                4,
+                4,
+                4
+               ],
+               "fill": "#0a0a0a"
+              }
+             ],
+             "accessibilityLabel": "needs you"
+            },
+            "style": {
+             "width": 8,
+             "height": 8,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Only 15 min to get there · 35 min to Koramangala",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 1
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "stretch",
+           "gap": 10
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "7:00 pm",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "width": 54,
+             "paddingTop": 12
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0"
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0,
+             "gap": 8,
+             "padding": 12,
+             "borderRadius": 14,
+             "borderWidth": 1,
+             "borderColor": "#e6e6e6",
+             "backgroundColor": "#ffffff"
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "gap": 2,
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Dinner with Mom",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Medium",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 14,
+                 "lineHeight": 19,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "2 h · Koramangala · 1 other",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 12,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.plan.item",
+              "params": {
+               "kind": "event",
+               "id": "e12"
+              }
+             }
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "stretch",
+           "gap": 10
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "To do",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "width": 54,
+             "paddingTop": 12
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 1.5,
+             "alignSelf": "stretch",
+             "backgroundColor": "#e0e0e0"
+            },
+            "children": []
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "flexGrow": 1,
+             "flexShrink": 1,
+             "minWidth": 0
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 10
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "width": 40,
+                 "height": 40,
+                 "marginLeft": -9,
+                 "marginVertical": -9,
+                 "justifyContent": "center",
+                 "flexShrink": 0
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "width": 22,
+                   "height": 22,
+                   "borderRadius": 11,
+                   "justifyContent": "center",
+                   "borderWidth": 1.5,
+                   "borderColor": "#d4d4d4"
+                  },
+                  "children": [
+                   {
+                    "type": "Stack",
+                    "style": {
+                     "flexDirection": "row",
+                     "alignItems": "center"
+                    },
+                    "children": []
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "callEndpoint",
+                  "method": "PUT",
+                  "path": "/v1/botsapp/calendar/tasks/t1",
+                  "body": {
+                   "done": true
+                  },
+                  "onSuccess": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "toast",
+                     "message": "Done"
+                    },
+                    {
+                     "kind": "refresh"
+                    }
+                   ]
+                  },
+                  "onError": {
+                   "kind": "toast",
+                   "message": "Couldn't tick it. Try again.",
+                   "tone": "error"
+                  }
+                 }
+                },
+                "props": {
+                 "accessibilityLabel": "Pick up the cake for Mom. Tap when it's done."
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "gap": 1,
+                 "flexGrow": 1,
+                 "flexShrink": 1,
+                 "minWidth": 0,
+                 "paddingVertical": 8
+                },
+                "children": [
+                 {
+                  "type": "Text",
+                  "props": {
+                   "content": "Pick up the cake for Mom",
+                   "variant": "bots",
+                   "numberOfLines": 2
+                  },
+                  "style": {
+                   "fontFamily": "Tailzu Geist",
+                   "fontWeight": "normal",
+                   "fontStyle": "normal",
+                   "fontSize": 14,
+                   "lineHeight": 19,
+                   "letterSpacing": 0,
+                   "color": "#0a0a0a",
+                   "margin": 0,
+                   "textTransform": "none"
+                  }
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.plan.item",
+                  "params": {
+                   "kind": "task",
+                   "id": "t1"
+                  }
+                 }
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "height": 44,
+         "borderRadius": 22,
+         "paddingHorizontal": 16,
+         "gap": 8,
+         "justifyContent": "center",
+         "flexShrink": 0,
+         "backgroundColor": "#ffffff",
+         "borderWidth": 1,
+         "borderColor": "#d4d4d4",
+         "alignSelf": "flex-start"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M12 15V4M8 8l4-4 4 4M5 12.5v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 18,
+           "height": 18,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Share tomorrow",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 14,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.share",
+          "params": {
+           "kind": "plan",
+           "title": "Tomorrow · Thu 29 Oct",
+           "text": "9:30 am · Studio standup · Video call\n6:00 pm · Dentist · Dr. Mehta · Indiranagar\n7:00 pm · Dinner with Mom · Koramangala\nTo do · Pick up the cake for Mom"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 10,
+       "padding": 18,
+       "borderRadius": 20,
+       "borderWidth": 1,
+       "borderColor": "#e6e6e6"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#0a0a0a"
+            }
+           ],
+           "accessibilityLabel": "needs you"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Needs you",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0.4,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "uppercase"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Move Dentist to Friday 10 am?",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist SemiBold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 17,
+         "lineHeight": 23,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Dentist ends at 6:45 pm and Dinner with Mom starts at 7 pm, 15 min later. Friday 10 am is free. I'll move it only after you say yes.",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 13,
+         "lineHeight": 19,
+         "letterSpacing": 0,
+         "color": "#3d3d3d",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "flexWrap": "wrap"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "height": 44,
+           "borderRadius": 22,
+           "paddingHorizontal": 16,
+           "gap": 8,
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#0a0a0a",
+           "alignSelf": "flex-start"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Move it",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#ffffff",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/botsapp/bots/plan/move",
+            "body": {
+             "eventId": "e11",
+             "start": "2026-10-30T10:00:00+05:30",
+             "said": "Move Dentist to Friday 10 am?"
+            },
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "toast",
+               "message": "Moved to Fri 10 am"
+              },
+              {
+               "kind": "refresh"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't move it. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "height": 44,
+           "borderRadius": 22,
+           "paddingHorizontal": 16,
+           "gap": 8,
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#ffffff",
+           "borderWidth": 1,
+           "borderColor": "#d4d4d4",
+           "alignSelf": "flex-start"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Keep Thursday",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/botsapp/bots/plan/skip",
+            "body": {
+             "key": "move:e11:1793277000000"
+            },
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "toast",
+               "message": "Kept as it is"
+              },
+              {
+               "kind": "refresh"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't do that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 6
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11zM9.6 10a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 16,
+           "height": 16,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Your day starts from HSR Layout",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none",
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 32,
+           "paddingHorizontal": 4
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Change",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "sequence",
+            "actions": [
+             {
+              "kind": "setState",
+              "path": "home",
+              "value": "HSR Layout"
+             },
+             {
+              "kind": "setState",
+              "path": "home_edit",
+              "value": true
+             }
+            ]
+           }
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 8,
+             "borderWidth": 1,
+             "borderColor": "#e6e6e6",
+             "borderRadius": 14,
+             "paddingLeft": 14,
+             "paddingRight": 6,
+             "paddingVertical": 4,
+             "minHeight": 48,
+             "backgroundColor": "#ffffff"
+            },
+            "children": [
+             {
+              "type": "TextField",
+              "id": "plan-home-edit",
+              "bind": {
+               "value": "home"
+              },
+              "props": {
+               "placeholder": "Your area, like HSR Layout",
+               "placeholderColor": "#8a8a8a",
+               "background": "transparent",
+               "borderWidth": 0,
+               "radius": 0,
+               "paddingHorizontal": 0,
+               "paddingVertical": 0,
+               "minHeight": 44,
+               "color": "#0a0a0a",
+               "returnKeyType": "send"
+              },
+              "on": {
+               "onSubmit": {
+                "kind": "condition",
+                "if": {
+                 "falsy": "home"
+                },
+                "then": {
+                 "kind": "toast",
+                 "message": "Write where your day starts"
+                },
+                "else": {
+                 "kind": "callEndpoint",
+                 "method": "PUT",
+                 "path": "/v1/botsapp/bots/plan/home",
+                 "body": {
+                  "home": "$state.home"
+                 },
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "toast",
+                    "message": "Saved"
+                   },
+                   {
+                    "kind": "setState",
+                    "path": "home_edit",
+                    "value": false
+                   },
+                   {
+                    "kind": "refresh"
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "toast",
+                  "message": "Couldn't do that. Try again.",
+                  "tone": "error"
+                 }
+                }
+               }
+              },
+              "style": {
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0,
+               "minHeight": 44,
+               "paddingHorizontal": 0,
+               "paddingVertical": 0,
+               "fontFamily": "Tailzu Geist",
+               "fontSize": 15,
+               "lineHeight": 22,
+               "color": "#0a0a0a",
+               "borderWidth": 0,
+               "backgroundColor": "transparent",
+               "outlineStyle": "none"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 36,
+               "height": 36,
+               "borderRadius": 18,
+               "alignItems": "center",
+               "justifyContent": "center",
+               "flexShrink": 0,
+               "backgroundColor": "#ffffff",
+               "borderWidth": 1,
+               "borderColor": "#e6e6e6"
+              },
+              "children": [
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 24 24",
+                 "d": "M5 12.5l4.5 4.5L19 7.5",
+                 "fill": "none",
+                 "stroke": "#0a0a0a",
+                 "strokeWidth": 1.9,
+                 "strokeLinecap": "round",
+                 "strokeLinejoin": "round"
+                },
+                "style": {
+                 "width": 20,
+                 "height": 20,
+                 "flexShrink": 0
+                }
+               }
+              ],
+              "on": {
+               "onPress": {
+                "kind": "condition",
+                "if": {
+                 "falsy": "home"
+                },
+                "then": {
+                 "kind": "toast",
+                 "message": "Write where your day starts"
+                },
+                "else": {
+                 "kind": "callEndpoint",
+                 "method": "PUT",
+                 "path": "/v1/botsapp/bots/plan/home",
+                 "body": {
+                  "home": "$state.home"
+                 },
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "toast",
+                    "message": "Saved"
+                   },
+                   {
+                    "kind": "setState",
+                    "path": "home_edit",
+                    "value": false
+                   },
+                   {
+                    "kind": "refresh"
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "toast",
+                  "message": "Couldn't do that. Try again.",
+                  "tone": "error"
+                 }
+                }
+               }
+              },
+              "props": {
+               "accessibilityLabel": "Save"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 44,
+           "paddingHorizontal": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Forget",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "PUT",
+            "path": "/v1/botsapp/bots/plan/home",
+            "body": {
+             "home": ""
+            },
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "toast",
+               "message": "Forgotten"
+              },
+              {
+               "kind": "setState",
+               "path": "home_edit",
+               "value": false
+              },
+              {
+               "kind": "refresh"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't do that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         }
+        ],
+        "visibleIf": {
+         "truthy": "home_edit"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "paddingBottom": 16,
+     "gap": 12,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 8,
+       "flexWrap": "wrap"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "paddingVertical": 8,
+         "paddingHorizontal": 14,
+         "borderRadius": 18,
+         "borderWidth": 1,
+         "alignSelf": "flex-start",
+         "borderColor": "#d4d4d4",
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Free up Saturday",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 17,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "toast",
+            "message": "Asking…"
+           },
+           {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/botsapp/bots/chat/plan",
+            "body": {
+             "message": "Free up Saturday"
+            },
+            "onSuccess": {
+             "kind": "navigate",
+             "screenId": "bots.chat",
+             "params": {
+              "slug": "plan"
+             }
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't send that. Try again.",
+             "tone": "error"
+            }
+           }
+          ]
+         }
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "paddingVertical": 8,
+         "paddingHorizontal": 14,
+         "borderRadius": 18,
+         "borderWidth": 1,
+         "alignSelf": "flex-start",
+         "borderColor": "#d4d4d4",
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "What should I do first tomorrow?",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 17,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "sequence",
+          "actions": [
+           {
+            "kind": "toast",
+            "message": "Asking…"
+           },
+           {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/botsapp/bots/chat/plan",
+            "body": {
+             "message": "What should I do first tomorrow?"
+            },
+            "onSuccess": {
+             "kind": "navigate",
+             "screenId": "bots.chat",
+             "params": {
+              "slug": "plan"
+             }
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't send that. Try again.",
+             "tone": "error"
+            }
+           }
+          ]
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 8
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "justifyContent": "flex-end"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "backgroundColor": "#0a0a0a",
+             "borderRadius": 20,
+             "borderBottomRightRadius": 6,
+             "paddingVertical": 10,
+             "paddingHorizontal": 15,
+             "maxWidth": "86%"
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "",
+               "variant": "bots",
+               "numberOfLines": 4
+              },
+              "bind": {
+               "content": "sent"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 15,
+               "lineHeight": 21,
+               "letterSpacing": 0,
+               "color": "#ffffff",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           }
+          ],
+          "visibleIf": {
+           "truthy": "sent"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "",
+           "variant": "bots",
+           "numberOfLines": 9
+          },
+          "bind": {
+           "content": "reply.text"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 22,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          },
+          "visibleIf": {
+           "truthy": "reply.text"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "paddingLeft": 4
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 8 8",
+             "shapes": [
+              {
+               "circle": [
+                4,
+                4,
+                4
+               ],
+               "fill": "#8F6A1F",
+               "motion": "breathe"
+              }
+             ],
+             "accessibilityLabel": "working"
+            },
+            "style": {
+             "width": 8,
+             "height": 8,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Plan bot is on it…",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "visibleIf": {
+           "truthy": "sending"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Stopped",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          },
+          "visibleIf": {
+           "all": [
+            {
+             "truthy": "stopped"
+            },
+            {
+             "falsy": "sending"
+            }
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "borderWidth": 1,
+         "borderColor": "#e6e6e6",
+         "borderRadius": 28,
+         "paddingLeft": 18,
+         "paddingRight": 6,
+         "paddingVertical": 4,
+         "minHeight": 48,
+         "backgroundColor": "#ffffff"
+        },
+        "children": [
+         {
+          "type": "TextField",
+          "id": "say",
+          "bind": {
+           "value": "say"
+          },
+          "props": {
+           "placeholder": "Add dentist Fri 5 pm, or plan my week…",
+           "placeholderColor": "#8a8a8a",
+           "background": "transparent",
+           "borderWidth": 0,
+           "radius": 0,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "minHeight": 44,
+           "color": "#0a0a0a",
+           "returnKeyType": "send"
+          },
+          "on": {
+           "onSubmit": {
+            "kind": "condition",
+            "if": {
+             "falsy": "say"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Type something first"
+            },
+            "else": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "setState",
+               "path": "sent",
+               "value": "$state.say"
+              },
+              {
+               "kind": "setState",
+               "path": "stopped",
+               "value": false
+              },
+              {
+               "kind": "setState",
+               "path": "reply",
+               "value": null
+              },
+              {
+               "kind": "clearState",
+               "path": "say"
+              },
+              {
+               "kind": "setState",
+               "path": "sending",
+               "value": true
+              },
+              {
+               "kind": "callEndpoint",
+               "method": "POST",
+               "path": "/v1/botsapp/bots/chat/plan",
+               "body": {
+                "message": "$state.sent"
+               },
+               "onSuccess": {
+                "kind": "sequence",
+                "actions": [
+                 {
+                  "kind": "setState",
+                  "path": "sending",
+                  "value": false
+                 },
+                 {
+                  "kind": "navigate",
+                  "screenId": "bots.chat",
+                  "params": {
+                   "slug": "plan"
+                  }
+                 },
+                 {
+                  "kind": "clearState",
+                  "path": "sent"
+                 },
+                 {
+                  "kind": "clearState",
+                  "path": "reply"
+                 }
+                ]
+               },
+               "onError": {
+                "kind": "condition",
+                "if": {
+                 "truthy": "stopped"
+                },
+                "then": {
+                 "kind": "setState",
+                 "path": "sending",
+                 "value": false
+                },
+                "else": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "sending",
+                   "value": false
+                  },
+                  {
+                   "kind": "setState",
+                   "path": "say",
+                   "value": "$state.sent"
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "sent"
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "reply"
+                  },
+                  {
+                   "kind": "toast",
+                   "message": "Couldn't send that. Try again.",
+                   "tone": "error"
+                  }
+                 ]
+                }
+               }
+              }
+             ]
+            }
+           }
+          },
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "minHeight": 44,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "fontFamily": "Tailzu Geist",
+           "fontSize": 15,
+           "lineHeight": 22,
+           "color": "#0a0a0a",
+           "borderWidth": 0,
+           "backgroundColor": "transparent",
+           "outlineStyle": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 40,
+           "height": 40,
+           "borderRadius": 20,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#0a0a0a"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M12 19V5M6 11l6-6 6 6",
+             "fill": "none",
+             "stroke": "#ffffff",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 20,
+             "height": 20,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "condition",
+            "if": {
+             "falsy": "say"
+            },
+            "then": {
+             "kind": "toast",
+             "message": "Type something first"
+            },
+            "else": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "setState",
+               "path": "sent",
+               "value": "$state.say"
+              },
+              {
+               "kind": "setState",
+               "path": "stopped",
+               "value": false
+              },
+              {
+               "kind": "setState",
+               "path": "reply",
+               "value": null
+              },
+              {
+               "kind": "clearState",
+               "path": "say"
+              },
+              {
+               "kind": "setState",
+               "path": "sending",
+               "value": true
+              },
+              {
+               "kind": "callEndpoint",
+               "method": "POST",
+               "path": "/v1/botsapp/bots/chat/plan",
+               "body": {
+                "message": "$state.sent"
+               },
+               "onSuccess": {
+                "kind": "sequence",
+                "actions": [
+                 {
+                  "kind": "setState",
+                  "path": "sending",
+                  "value": false
+                 },
+                 {
+                  "kind": "navigate",
+                  "screenId": "bots.chat",
+                  "params": {
+                   "slug": "plan"
+                  }
+                 },
+                 {
+                  "kind": "clearState",
+                  "path": "sent"
+                 },
+                 {
+                  "kind": "clearState",
+                  "path": "reply"
+                 }
+                ]
+               },
+               "onError": {
+                "kind": "condition",
+                "if": {
+                 "truthy": "stopped"
+                },
+                "then": {
+                 "kind": "setState",
+                 "path": "sending",
+                 "value": false
+                },
+                "else": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "sending",
+                   "value": false
+                  },
+                  {
+                   "kind": "setState",
+                   "path": "say",
+                   "value": "$state.sent"
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "sent"
+                  },
+                  {
+                   "kind": "clearState",
+                   "path": "reply"
+                  },
+                  {
+                   "kind": "toast",
+                   "message": "Couldn't send that. Try again.",
+                   "tone": "error"
+                  }
+                 ]
+                }
+               }
+              }
+             ]
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Send"
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "liveTopics": [
+  "bot:plan",
+  "calendar",
+  "tasks"
+ ]
+}
