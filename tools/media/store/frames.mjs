@@ -1,19 +1,26 @@
 // THE STORE FRAMES, as data. build.mjs draws them; screens.mts renders each frame's app screen.
 //
-// The look: a full-bleed warm photograph behind everything, graded in build.mjs so the set reads as one shoot; a serif
-// headline, two short lines, no full stop; the app as a light card (the top of a real screen, no phone frame), often with one
-// part of that screen lifted out of it. Two other shapes: the photo with the words at its foot and the keyboard's own mic key
-// (`voice`), and a grid of the apps it works with (`tiles`).
+// The look: a full-bleed photograph behind everything, under one grade in build.mjs (ink shadows, cream light); a heavy
+// Geist headline at the top left, two short lines, no full stop, one word handwritten with a clay underline; the app as a
+// cream card (the top of a real screen, no phone frame) with one part lifted out and a clay arrow at it; the Peek-a-bot
+// peeking over the card. Two other shapes: the photo with the keyboard's own mic key (`voice`), and a grid of the apps it
+// works with (`tiles`).
 //
 // One entry per frame, in story order. A new bot's frame is one more entry:
 //   { key, title, layout?, photo, screen, pop?, bot?, accent?, play? }
 //   key      file name stem (lower case)
-//   title    the headline: two short lines ("\n" between them), sentence case, no full stop
+//   title    the headline: two short lines ("\n" between them), sentence case, no full stop; the *word* between stars is
+//            written by hand, with a clay brush underline
+//   mascot   the Peek-a-bot over the card's top edge: { pose: "curious" | "happy" | "wink" | "shy" | "starry" | "hello"
+//            (art.mjs POSES), x: where along the card (0..1), size: share of the frame's width; tiles frames: tile: which one }
+//   arrow    the clay arrow onto the lifted-out part comes from the left (default; the right for a pop on the right),
+//            "right", or false for none
 //   layout   "card" (default), "voice" (the photo, the words at the foot and the mic key: `keyArt`), or "tiles"
 //   keyArt   voice frames: the Peek-a-bot key's moment { mode: "listen" | "idle" (peeking, paws on the rim) | "think" |
 //            "done", level 0..1, size: share of the width }
-//   photo    { file, x, y, zoom, blur, light, warm }: a file in photos/ (CREDITS.md says whose it is), the point of it to centre
-//            (0..1), how far to zoom in, and the grade's knobs (light 0..1, how bright; warm 0..1; blur in px at 1320 wide)
+//   photo    { file, x, y, zoom, blur, light }: a file in photos/ (CREDITS.md says whose it is), the point of it to centre
+//            (0..1), how far to zoom in, and how bright under the shared grade (light, about 0.5; above 1 for a dark photo;
+//            blur in px at 1320 wide)
 //   screen   which app screen, with the sample day's answers (samples/ in the backend's bots-render) and this frame's own over them:
 //            api: { "GET /path": answer } or (answers) => ({ ... }) to change some; fake: the live state (bots, jobs, tasks);
 //            scroll: points, or { to: "text" } to bring a part near the top; viewport: another phone size for this screen
@@ -119,7 +126,7 @@ export const APPS = ["whatsapp", "gmail", "googlemaps", "github", "notion", "goo
 
 export const FRAMES = [
   {
-    key: "team", title: "Players that make\nyour life easy", bot: null,
+    key: "team", title: "Players that make\nyour life *easy*", mascot: { pose: "hello", x: 0.78 }, bot: null,
     photo: { file: "team.jpg", x: 0.48, y: 0.42, zoom: 1, light: 0.5, warm: 0.5 },
     screen: {
       id: "bots.home", fake: HOME_DAY,
@@ -131,36 +138,36 @@ export const FRAMES = [
   },
   {
     // One ask, by voice or by typing, in Hinglish; X0 Bot picks the bot for it, and any other is a tap away. The team, at work.
-    key: "ask", title: "Ask once, and the\nright bot takes it", accent: "#D0B48A",
+    key: "ask", title: "Ask once, and the\n*right* bot takes it", accent: "#D0B48A", mascot: { pose: "curious", x: 0.8 },
     photo: { file: "ask.jpg", x: 0.55, y: 0.5, zoom: 1.25, blur: 34, light: 0.7, warm: 0.5 },
     screen: { id: "bots.ask" },
     pop: { has: ["will take this", "Or hand it to"], union: true, pad: 6, nudge: 0.022 },
   },
   {
-    key: "keybot", layout: "voice", title: "Say it, and\nKeybot writes it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
-    photo: { file: "keybot.jpg", x: 0.38, y: 0.61, zoom: 1.4, light: 1, warm: 0.55 }, // y keeps the photo's bright strip (its top 23%) out of frame
+    key: "keybot", layout: "voice", title: "Say it, and\nKeybot *writes* it", accent: "#D9825E", bot: { name: "Keybot", line: "Writes for you, in any app" },
+    photo: { file: "keybot.jpg", x: 0.38, y: 0.61, zoom: 1.4, light: 1.5, warm: 0.55 }, // y keeps the photo's bright strip (its top 23%) out of frame
     // The mic key under the words: the Peek-a-bot popped up and listening (ears and antenna lit), at this share of the width.
     keyArt: { mode: "listen", level: 0.6, size: 0.25 },
   },
   {
-    key: "connect", layout: "tiles", title: "Works with the apps\nyou already use",
+    key: "connect", layout: "tiles", title: "Works with the apps\nyou *already* use", mascot: { pose: "happy", tile: 1 },
     photo: { file: "connect.jpg", x: 0.45, y: 0.5, zoom: 1.05, blur: 22, light: 0.55, warm: 0.5 },
   },
   {
-    key: "plan", title: "Your day,\nplanned for you", accent: "#D2A24A", bot: { name: "Plan", line: "Your day, planned" },
+    key: "plan", title: "Your day,\n*planned* for you", mascot: { pose: "happy", x: 0.78 }, accent: "#D2A24A", bot: { name: "Plan", line: "Your day, planned" },
     photo: { file: "plan.jpg", x: 0.4, y: 0.35, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.plan", api: (a) => ({ [PLAN_KEY]: { ...a[PLAN_KEY], travel: { ...a[PLAN_KEY].travel, credits: [] } } }) },
     pop: { has: ["Leave home by", "Dinner with Mom"], union: true, pad: 4, nudge: -0.016 },
   },
   {
     // Google Play's set leaves this one out: the meetings are noted on the computer, so it says least on a phone.
-    key: "notes", title: "Every meeting,\nwritten up", accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" }, play: false,
+    key: "notes", title: "Every meeting,\n*written up*", mascot: { pose: "shy", x: 0.8 }, accent: "#B48AB0", bot: { name: "Notes", line: "Meetings, written up" }, play: false,
     photo: { file: "notes.jpg", x: 0.5, y: 0.45, zoom: 1, light: 0.5, warm: 0.45 },
     screen: { id: "bots.note", params: { id: "n1" }, api: { "GET /v1/notes/n1": { note: NOTE, finding: false }, "GET /v1/botsapp/calendar/notes/n1": { todos: { t2: { id: "c-t2", done: false } } } } },
     pop: { has: ["Order 200 gift boxes", "Send the team the final plan"], card: true, bare: true }, fade: true,
   },
   {
-    key: "travel", title: "Your trips,\nall sorted", accent: "#6FA3C7", bot: { name: "Travel", line: "Trips, sorted" },
+    key: "travel", title: "Your trips,\nall *sorted*", mascot: { pose: "starry", x: 0.78 }, accent: "#6FA3C7", bot: { name: "Travel", line: "Trips, sorted" },
     photo: { file: "travel.jpg", x: 0.5, y: 0.4, zoom: 1, light: 0.55, warm: 0.4 },
     screen: {
       id: "bots.travel",
@@ -176,7 +183,7 @@ export const FRAMES = [
     pop: { has: ["Shanti Residency", "Add one"], nudge: -0.013 },
   },
   {
-    key: "code", title: "Ship code\nby asking", accent: "#7FAF62", bot: { name: "Code bot", line: "Builds and fixes your code" }, play: false,
+    key: "code", title: "Ship code\nby *asking*", mascot: { pose: "curious", x: 0.78 }, accent: "#7FAF62", bot: { name: "Code bot", line: "Builds and fixes your code" }, play: false,
     photo: { file: "code.jpg", x: 0.47, y: 0.5, zoom: 1, light: 0.55, warm: 0.4 },
     // Code bot's home: what it is on, what needs you, your projects. The projects' framework and language names are left out.
     screen: {
@@ -186,7 +193,7 @@ export const FRAMES = [
     pop: { has: ["Round the cart total", "Per item"], card: true, bare: true, nudge: -0.012 },
   },
   {
-    key: "spaces", title: "Your people,\nin sync", accent: "#5E9C88", bot: { name: "Spaces", line: "Family and friends" },
+    key: "spaces", title: "Your people,\nin *sync*", mascot: { pose: "happy", x: 0.78 }, accent: "#5E9C88", bot: { name: "Spaces", line: "Family and friends" },
     // A grandmother's hand and a baby's, above the card: the card starts lower to give the photo room.
     photo: { file: "spaces.jpg", x: 0.53, y: 0.5, zoom: 1.2, light: 0.75, warm: 0.6 }, cardTop: 0.47,
     screen: {
@@ -200,7 +207,7 @@ export const FRAMES = [
     pop: { has: ["Call Nani", "Can't do it"], card: true, bare: true, side: "right" }, fade: true,
   },
   {
-    key: "make", title: "Make a bot\nof your own", accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
+    key: "make", title: "Make a bot\nof your *own*", mascot: { pose: "wink", x: 0.78 }, accent: "#C8B48E", bot: { name: "Your own", line: "Made by you, in a sentence", own: true },
     photo: { file: "make.jpg", x: 0.5, y: 0.5, zoom: 1, light: 0.55, warm: 0.5 },
     screen: {
       id: "bots.make",
@@ -217,7 +224,7 @@ export const FRAMES = [
 
 /** The Play feature graphic (1024 x 500): this frame's photo and screen, and these words. */
 export const FEATURE = {
-  title: "Players that make\nyour life easy",
+  title: "Players that make\nyour life *easy*",
   frame: "team",
   /** The photo's place on the wide graphic (over the frame's own): the phone in it sits behind the card. */
   photo: { x: 0.33, y: 0.5, zoom: 1.6, blur: 4 },

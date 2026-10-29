@@ -50,9 +50,15 @@ and to-dos).
 X0 Bot's own art: the keyboard's Peek-a-bot mic key, drawn by `../peekbot.js`, a verbatim copy of the reference drawing
 code the iOS and Android keys are ported from, held in one moment (listening) and rendered at 600 px.
 
+## The Peek-a-bot and the brush marks
+
+X0 Bot's own art. The bot peeking over each card, and the clay underline and arrows, are drawn by the brand's hand-drawn
+drawing code (`../brand/x0-icon/handdrawn`, or `handdrawn-v2` once it is finished; see `../art.mjs`), the same code that
+draws the hand-drawn app icons.
+
 ## Typefaces (fonts/)
 
-- Newsreader (Production Type), variable, SIL Open Font License 1.1: `OFL-Newsreader.txt`. The headlines.
-- Geist (Vercel), SIL Open Font License 1.1: `OFL-Geist.txt`. The status bar and the feature graphic's name line.
+- Geist (Vercel), variable, SIL Open Font License 1.1: `OFL-Geist.txt`. The headlines (the app's own face).
+- Caveat (Impallari Type), SIL Open Font License 1.1: `OFL-Caveat.txt`. The one handwritten word in each headline.
 
 The app's own screens use the fonts the app ships (drawn by its renderer from the backend's tulmi/fonts).
