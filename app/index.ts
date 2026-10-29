@@ -11,8 +11,8 @@ import App from "./App";
 //
 // preventAutoHideAsync is a promise this file cannot await, and a rejection
 // here would take the app down before it starts, so it is fire-and-forget with
-// a catch: the worst case is the old behaviour. SduiApp calls hideAsync once
-// the first screen has painted.
+// a catch: the worst case is the old behaviour. The launch curtain lifts it
+// once its own copy of the splash is on screen (src/launch/LaunchCurtain).
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const SplashScreen = require("expo-splash-screen");

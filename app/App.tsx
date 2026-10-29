@@ -23,6 +23,9 @@
  */
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
+// No imports of its own and nothing at module scope but constants: it cannot
+// fail to load, so the failure card below may use it.
+import { GROUND, liftLaunch } from "./src/launch/launchCore";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let Updates: any = null;
@@ -152,6 +155,8 @@ function useFirstLaunchUpdate(): boolean {
 function BootFailure({ error }: { error: unknown }) {
   const e = error as { message?: string; stack?: string };
   const { txt, num, bool, color } = knobFns();
+  // Nothing else will lift the splash: the app that would have is what failed.
+  React.useEffect(() => { liftLaunch(); }, []);
   return (
     <View style={{ flex: 1, backgroundColor: color("boot.failure.bg", "#0e0e12"), paddingTop: num("boot.failure.paddingTop", 90), paddingHorizontal: 24 }}>
       <Text style={{ color: color("boot.failure.titleColor", "#F3E2C6"), fontSize: num("boot.failure.titleSize", 19), fontWeight: "700", marginBottom: 10 }}>
@@ -176,7 +181,8 @@ function BootFailure({ error }: { error: unknown }) {
 
 export default function App() {
   const ready = useFirstLaunchUpdate();
-  if (!ready) return <View style={{ flex: 1, backgroundColor: knobFns().color("boot.waitBg", "#0B0B0D") }} />;
+  // Under the native splash, which stays up through this wait: its ground.
+  if (!ready) return <View style={{ flex: 1, backgroundColor: GROUND }} />;
   try {
     // Before the app's own modules: their module-scope values read knobs too.
     primeKnobs();
@@ -184,6 +190,7 @@ export default function App() {
     const { SafeAreaProvider } = require("react-native-safe-area-context");
     const SduiApp = require("./src/sdui/SduiApp").default;
     const { ErrorBoundary } = require("./src/sdui/ErrorBoundary");
+    const LaunchCurtain = require("./src/launch/LaunchCurtain").default;
     /* eslint-enable @typescript-eslint/no-require-imports */
     const BlipHost = loadBlipHost();
     return (
@@ -195,7 +202,8 @@ export default function App() {
         <ErrorBoundary
           onReset={() => { Updates?.reloadAsync?.().catch(() => {}); }}
           // The error card must never sit under Blip's paper.
-          onError={() => { try { require("./src/onboard/stageBus").abandon(); } catch { /* no overlay, nothing to let go */ } }}
+          // Nor under the launch curtain.
+          onError={() => { liftLaunch(); try { require("./src/onboard/stageBus").abandon(); } catch { /* no overlay, nothing to let go */ } }}
         >
           <SduiApp />
         </ErrorBoundary>
@@ -204,6 +212,10 @@ export default function App() {
             rebuilt when a screen or the sign-in gate is. It draws nothing at
             all outside onboarding, and takes no touches. */}
         {BlipHost ? <BlipHost /> : null}
+        {/* The launch: the splash's own picture over everything, one swing,
+            then it fades onto the app the moment the app has a screen
+            (src/launch). Gone for the rest of the app's life after that. */}
+        <LaunchCurtain />
       </SafeAreaProvider>
     );
   } catch (err) {

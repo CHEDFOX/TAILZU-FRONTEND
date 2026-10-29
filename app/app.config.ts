@@ -446,73 +446,32 @@ const config: ExpoConfig = {
     // plugins added the contacts, calendars and reminders strings, and
     // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
     "expo-video",
-    // Splash / launch screen — ONE asset, both platforms, the mark DEAD CENTRE.
+    // Splash / launch screen: the app icon's bot, small, hanging from a piece of
+    // its clay bar, dead centre on the icon's cream. ONE asset, both platforms.
     //
-    // It cannot be the full 810×1440 frame. From API 31 Android's splash is the
-    // SYSTEM one: a background colour and an icon the platform masks into a
-    // circle. There is no full-bleed option and no flag that adds one, so a 9:16
-    // composition arrives there as an unreadable crop of its own middle. iOS
-    // alone could show the frame, and then the two platforms would not match.
+    // From API 31 Android's splash is the SYSTEM one: a colour and a centred
+    // icon, masked to a circle 192 dp across. There is no full-bleed option, so
+    // the art is a square 136 pt wide whose drawing stays inside its own
+    // inscribed circle: it reads whole inside Android's mask, and iOS shows the
+    // same picture at the same size.
     //
-    // So the splash is the MARK: splash-mark.png, on the film's own ground,
-    // centred, at a fixed size both platforms honour.
+    // THE LAUNCH ANIMATION STARTS FROM THIS FRAME. src/launch/LaunchCurtain draws
+    // the same art (assets/launch: drawn with the icon's own code by
+    // tools/media/brand/x0-icon/curious-hang/launch.mjs) at the same size on the
+    // same ground, lifts this splash from under it, and swings the bot once.
+    // imageWidth and backgroundColor here are SPLASH_PT and GROUND in
+    // src/launch/launchCore.ts (launchCore.test.ts holds them together): change
+    // one, change both — and a change here needs a new native build.
     //
-    // THE MARK IS CUT FROM THE FILM'S FIRST FRAME, not drawn separately. It was
-    // drawn separately, and the two drifted apart: the launch screen showed a
-    // single rounded square while the film opened on three of them and a line,
-    // so the handoff was one picture replacing a different picture. Cutting it
-    // from frame 0 makes them the same picture by construction, and re-cutting
-    // it is the only correct way to change it.
-    //
-    // MEASURED OFF FRAME 0, not read off the storyboard:
-    //
-    //   mark in the film    344×258px centred at (648.5,1222.0) of 1290×2796
-    //   mark on this canvas 288×216 of 576, its centre ON the canvas centre
-    //
-    // Both figures here were wrong before, in the two ways this arrangement
-    // exists to prevent. The mark was recorded as 338×250, so the film's box
-    // was tuned to a mark 2% narrower than the one that actually plays. And
-    // the canvas was 288 square, shown at 188pt — 564 device pixels on a 3x
-    // screen, drawn from 288 — so the launch mark was upscaled 1.96× while the
-    // film's is not. A soft mark replaced by a sharp one is a visible handoff
-    // even when both are exactly the right size.
-    //
-    // HALF THE CANVAS, because Android masks this into a circle and only the
-    // inner two thirds is guaranteed. What has to fit is the bounding DIAGONAL,
-    // not the width: 360px against a 384px circle. At 0.55 the corners fall
-    // outside it.
-    //
-    // #0B0A0D is the film's own ground, sampled from it. It used to be #000000
-    // against art graded to #080809 — near enough to hide, but this art is
-    // (11,10,13), and on an OLED eleven values is the pixel faintly on against
-    // the pixel off. That edge is visible where the film meets the screen.
-    //
-    // BOTH SIDES ARE MEASURED, NEVER REASONED ABOUT:
-    //
-    //   imageWidth 188   × 0.5000 mark fraction = 94.00pt on the launch screen
-    //   boxWidth   352.5 × 0.2667 mark fraction = 94.00pt when the film plays
-    //
-    // And the film's mark is not at the centre of its own frame — it sits
-    // 0.0271 of the width right of it and 0.0629 of the height above it — so
-    // the box carries nudgeX -0.2713 and nudgeY 6.2947 to put it back. Those
-    // are the mark's own offsets, measured, not a number tuned by eye on one
-    // phone: as percentages of a box fixed in points they hold on every screen.
-    //
-    // The film's box is a media-entry value (boxWidth/boxHeight, with the
-    // aspect and the focal point beside them), so the film side retunes over
-    // the air and only this side needs a build. Change one and you must
-    // re-measure the other — a mark that changes size across the handoff is
-    // the one thing this whole arrangement exists to prevent.
-    //
-    // Both platforms open on that frame, then play the film from it.
+    // Dark mode gets the same: the cream is the brand's ground, not a theme.
     [
       "expo-splash-screen",
       {
-        backgroundColor: "#0B0A0D",
-        image: "./assets/splash-mark.png",
-        imageWidth: 188,
+        backgroundColor: "#F7F3EC",
+        image: "./assets/launch/splash.png",
+        imageWidth: 136,
         resizeMode: "contain",
-        dark: { backgroundColor: "#0B0A0D", image: "./assets/splash-mark.png" },
+        dark: { backgroundColor: "#F7F3EC", image: "./assets/launch/splash.png" },
       },
     ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
