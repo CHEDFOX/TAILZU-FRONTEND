@@ -393,18 +393,16 @@ const config: ExpoConfig = {
       "android.permission.READ_MEDIA_AUDIO",
       "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
     ],
-    // Android masks this into whatever shape the launcher wants — circle,
-    // squircle, teardrop — and only the middle 66% of the canvas is ever
-    // shown. icon.png does not survive that: its mark reaches 427px from a
-    // 1000px centre and the guaranteed circle stops at 333, so the amber dot
-    // that ends the line is the first thing a Pixel cuts off.
+    // Android masks the icon into whatever shape the launcher wants (circle,
+    // squircle, teardrop) and shows only the middle 72/108 of the canvas.
     //
-    // adaptive-icon.png is the same artwork inset to 749px, which puts every
-    // corner of the mark inside that circle while the black ground still
-    // covers the whole mask — no transparent sliver, no ring of the
-    // background colour showing through. backgroundColor matches the art's
-    // own ground so a mask that ever grew would meet the same black.
-    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundColor: "#0A0A0B" },
+    // adaptive-icon.png is the whole painted icon (icon.png) at 70% of the
+    // canvas, a touch larger than the 66.7% that shows, so every mask lands on
+    // the art. Its corners are masked away, as on iOS. adaptive-icon-background.png
+    // carries the icon's clay bar and cream ground on past the art's edge, so the
+    // launcher's parallax and press animations never show a seam or a strip of
+    // flat colour. Both come from tools/media/brand/x0-icon/curious-hang.
+    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#F7F3EC" },
     intentFilters: [
       {
         action: "VIEW",
