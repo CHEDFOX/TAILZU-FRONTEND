@@ -37,6 +37,7 @@
     const above = edgePts.concat([[1040, -60], [-40, -60]]);
     const below = edgePts.concat([[1040, 1060], [-40, 1060]]);
     const ph = () => r() * 100;
+    const fl = B.flipLight ? -1 : 1, fa = B.flipLight ? Math.PI : 0;   // flipLight: the picture is turned 180 degrees after, so light from below
     let clipNow = null;
 
     // ---- media helpers ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@
         c.fillStyle = g; c.fillRect(p[0] - R, p[1] - R, 2 * R, 2 * R);
       });
     };
-    const K = { art, S, r, n, G, M, PAL, line, fill, glow, cx, hw, hh, headCY, tilt, W, Wp, edgeAt, edgePts, above, below, rgb, mix, vgrad, smooth };
+    const K = { fl, art, S, r, n, G, M, PAL, line, fill, glow, cx, hw, hh, headCY, tilt, W, Wp, edgeAt, edgePts, above, below, rgb, mix, vgrad, smooth };
 
     // ---- ground -----------------------------------------------------------------------------------
     S.ground(K);
@@ -113,6 +114,9 @@
       if (st.ballShine) fill(G.ellipse(tip[0] - ballR * 0.38, tip[1] - ballR * 0.4, ballR * 0.24, ballR * 0.17), st.ballShine);
     }
 
+    // ---- a soft shadow of the head on the wall -----------------------------------------------------
+    if (st.dropShadow) { const [dx, dy] = st.dropShadow.offset || [10, 14]; fill(G.xf(shell, 0, 0, 0, dx * fl, dy * fl), st.dropShadow); }
+
     // ---- ears -------------------------------------------------------------------------------------
     for (const s of [-1, 1]) {
       const ear = W(G.squircle(s * (hw + 2), 6, 40, 68, 2.4));
@@ -122,17 +126,18 @@
     // ---- shell ------------------------------------------------------------------------------------
     fill(shell, st.shell);
     if (st.shade) fill(shell, st.shade);
-    if (st.shellShine) line(W(G.arc(0, 0, hw - 42, hh - 36, Math.PI * 1.13, Math.PI * 1.33, 60)), st.shellShine);
+    if (S.afterShell) S.afterShell(K);
+    if (st.shellShine) line(W(G.arc(0, 0, hw - 42, hh - 36, Math.PI * (B.shine?.[0] ?? 1.13) + fa, Math.PI * (B.shine?.[1] ?? 1.33) + fa, 60)), st.shellShine);
     line(shell, st.shellLine, true);
 
     // ---- face -------------------------------------------------------------------------------------
     if (B.visor !== false) {
       fill(visor, st.visor);
-      if (st.visorSheen) glow(Wp(-vw * 0.45, vy - vh * 0.55), vw * 0.9, st.visorSheen.color, st.visorSheen.opacity, { within: visor });
+      if (st.visorSheen) glow(Wp(-vw * 0.45 * fl, vy - vh * 0.55 * fl), vw * 0.9, st.visorSheen.color, st.visorSheen.opacity, { within: visor });
       if (st.visorLine) line(visor, st.visorLine, true);
     }
     face(K, F, st, B.visor !== false ? visor : null);
-    if (B.visor !== false && st.visorGlint) line(W(G.arc(0, vy, vw - 24, vh - 22, Math.PI * 1.08, Math.PI * 1.2, 40)), { ...st.visorGlint, within: visor });
+    if (B.visor !== false && st.visorGlint) line(W(G.arc(0, vy, vw - 24, vh - 22, Math.PI * 1.08 + fa, Math.PI * 1.2 + fa, 40)), { ...st.visorGlint, within: visor });
 
     clipNow = null;
     // ---- the edge and the hands -------------------------------------------------------------------
@@ -143,7 +148,7 @@
     }
     const hs = B.handScale ?? 1;
     const handGeo = hands.map(({ s, hx, hy }) => handShape(hx, hy, 142 * hs, 56 * hs, 46 * hs, s * (B.handRot ?? 0.05)));
-    if (st.handShadow) for (const h of handGeo) fill(G.xf(h.tips, 0, 0, 0, 7, 9), { ...st.handShadow, clip: below });
+    if (st.handShadow) for (const h of handGeo) fill(G.xf(h.tips, 0, 0, 0, 7 * fl, 9 * fl), { ...st.handShadow, clip: below });
     if (S.beforeEdge) S.beforeEdge(K);
     if (E.line) {
       const L1 = edgePts.filter(([x]) => x <= (E.split ?? 560)), L2 = edgePts.filter(([x]) => x >= (E.split ?? 560) - 40).map(([x, y]) => [x, y + (E.splitDy ?? 1.5)]);
@@ -205,7 +210,7 @@
     const eyes = F.eyes || [{}, {}];
     eyes.forEach((e, i) => {
       const s = i === 0 ? -1 : 1, x = s * ex + look[0] + (e.dx || 0), y = ey + (e.dy || 0), w = ew * (e.ws ?? 1), h = eh * (e.hs ?? 1);
-      const eyeCol = st.eye.color || vgrad(PAL.eyeTop, PAL.eyeBot, Wp(x, y - h / 2)[1], Wp(x, y + h / 2)[1]);
+      const fl = K.fl, eyeCol = st.eye.color || (fl > 0 ? vgrad(PAL.eyeTop, PAL.eyeBot, Wp(x, y - h / 2)[1], Wp(x, y + h / 2)[1]) : vgrad(PAL.eyeBot, PAL.eyeTop, Wp(x, y - h / 2)[1], Wp(x, y + h / 2)[1]));
       if (e.arc) { // a closed, smiling eye: one thick arch stroke (the cheek pushes it up)
         const a = e.arc, rx = (a.rx ?? 0.44) * w, ry = (a.ry ?? 0.3) * h, yc = y + (a.dy ?? 0.08) * h, o = a.open ?? 0.06, rt = (a.rot || 0) * s;
         line(W(G.arc(x, yc, rx, ry, Math.PI * (1 + o) + rt, Math.PI * (2 - o) + rt, 70)), { color: eyeCol, w: a.w ?? 40, taper: [14, 14], amp: 0.3, jit: 0.04, within: visor || undefined, profile: (t) => 0.72 + 0.4 * Math.sin(Math.PI * t) });
@@ -214,7 +219,7 @@
       if (!ink && st.eyeHalo && open) glow(Wp(x, y), Math.max(w, h) * 0.85, st.eyeHalo.color || PAL.glow, st.eyeHalo.opacity ?? 0.2, { within: visor, mid: 0.45, midA: 0.35 });
       if (shape) fill(shape, { ...st.eye, color: eyeCol, within: visor || undefined });
       if (e.catch !== false && open && st.catchlight) {
-        const c1 = Wp(x - w * 0.2 + (e.cx || 0), y - h * 0.22), c2 = Wp(x + w * 0.16 + (e.cx || 0), y + h * 0.16);
+        const c1 = Wp(x - w * 0.2 * fl + (e.cx || 0), y - h * 0.22 * fl), c2 = Wp(x + w * 0.16 * fl + (e.cx || 0), y + h * 0.16 * fl);
         fill(G.xf(G.ellipse(c1[0], c1[1], w * 0.17, h * 0.12), -0.5, c1[0], c1[1]), st.catchlight);
         fill(G.ellipse(c2[0], c2[1], w * 0.065, w * 0.065), { ...st.catchlight, opacity: (st.catchlight.opacity ?? 1) * 0.8 });
       }
