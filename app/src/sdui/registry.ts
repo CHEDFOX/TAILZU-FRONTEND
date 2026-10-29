@@ -189,6 +189,12 @@ export const CORE_COMPONENTS = [
    * screen's state; the Offline page in place of Home while offline, and the line over the others. types.ts 3e.
    */
   "LiveView", "Outbox",
+  /**
+   * NOT A COMPONENT — pull to refresh with a bot in it (types.ts PULL_BOT_CAPABILITY): a screen's `pullBot` turns it on
+   * for the top, the bottom or both of its Screen (PullBot.tsx, pullBotCore.ts). The server sends it only to a bundle
+   * that says this.
+   */
+  "PullBot",
 
   // v3 meta / helpers
   "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",

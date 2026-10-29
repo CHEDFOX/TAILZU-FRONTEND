@@ -68,18 +68,21 @@ export function liveShowing(screen: ScreenResponse, store: Store): () => void {
 
 /**
  * Fetch the screen on show again and swap it in without losing what is on it. Nothing happens when another screen came up in the
- * meantime.
+ * meantime. `until`: swap it in no sooner than that settles (pull-a-bot's "Checking" has its moment). Returns the screen swapped in,
+ * or null when none was.
  */
-export async function reloadQuietly(target: Target, apply: (s: ScreenResponse) => void): Promise<void> {
+export async function reloadQuietly(target: Target, apply: (s: ScreenResponse) => void, until?: Promise<unknown>): Promise<ScreenResponse | null> {
   const before = showing;
-  if (!before || before.screen.screenId !== target.screenId) return;
+  if (!before || before.screen.screenId !== target.screenId) return null;
   const next = await fetchScreen(target.screenId, target.params);
+  if (until) await until.catch(() => undefined);
   const now = showing;
-  if (!now || now.store !== before.store || now.screen.screenId !== next.screenId) return;
+  if (!now || now.store !== before.store || now.screen.screenId !== next.screenId) return null;
   // One tick, so React draws the writes and the new tree together.
   for (const [path, value] of mergeLiveState(now.screen.state, now.store.snapshot(), next.state)) now.store.set(path, value);
   kept.set(next, now.store);
   apply(next);
+  return next;
 }
 
 /** Live updates for the app: on while `on` (signed in and drawing screens), the socket only while the app is in front. */

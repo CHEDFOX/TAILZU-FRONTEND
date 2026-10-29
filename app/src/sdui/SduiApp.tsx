@@ -33,7 +33,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
 import { ThemeContext, typeRole } from "./components";
 import { Store } from "./state";
-import { keptStore, liveShowing, useLiveUpdates } from "./live";
+import { keptStore, liveShowing, reloadQuietly, useLiveUpdates } from "./live";
+import { PullBotContext } from "./PullBot";
 import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
@@ -894,6 +895,9 @@ export default function SduiApp() {
   }, [loadBoot]);
 
   const current = stack[stack.length - 1];
+  // The screen on show, for nav.refreshQuietly (pull-a-bot), which is made once.
+  const currentRef = useRef(current);
+  currentRef.current = current;
 
   // WHEN TO ASK FOR NOTIFICATIONS is the server's call: flag push.ask names a
   // screen and a delay ({ screen: "stats", afterMs: 1500, key: "v1" }). The
@@ -1476,6 +1480,12 @@ export default function SduiApp() {
         setStack([{ screenId: tab.screenId }]);
       },
       reloadCurrent: () => setReload((n) => n + 1),
+      // Pull-a-bot's refresh: the live updates' quiet reload (no spinner, the Store kept), swapped in once `until` settles.
+      refreshQuietly: (until) => {
+        const target = currentRef.current;
+        if (!target) return Promise.resolve(null);
+        return reloadQuietly(target, (s) => { setScreen(s); setScreenError(null); }, until);
+      },
       refreshLocale: () => {
         // Re-pull bootstrap so labels + direction reflect the new language,
         // then re-fetch the current screen in place (stack is preserved).
@@ -2347,7 +2357,12 @@ function ScreenHost({
 
   // A screen is either a full `root` tree, or a named `template` + `blocks`.
   const root = screen.root ?? composeTemplate(screen);
-  return <RenderNode node={root} ctx={ctx} />;
+  // Pull-a-bot, when the screen asks for it: its Screen pulls a bot (PullBot.tsx).
+  return (
+    <PullBotContext.Provider value={screen.pullBot ?? null}>
+      <RenderNode node={root} ctx={ctx} />
+    </PullBotContext.Provider>
+  );
 }
 
 // --- Connection (client-local; needed to reach the server) ------------------
