@@ -52,10 +52,20 @@
         else M.ink(c, pen.amp === 0 ? pts : G.wobble(pts, false, pen.amp ?? 1, pen.wl ?? 80, n, ph()), { w: pen.w, noise: n, phase: ph(), taper: pen.taper || [10, 24], jit: pen.jit ?? 0.07, profile: pen.profile });
       });
     };
+    /** Cut a closed outline into short, slightly uneven straight facets (a flat brush, or cut paper):
+     * corners every len (+-40%), each nudged off the line by up to jit. */
+    const facet = (pts, o) => {
+      const P = G.resample(pts, 1, true), out = [];
+      for (let i = 0; i < P.length; i += Math.max(2, Math.round((o.len ?? 30) * (0.6 + 0.8 * r())))) {
+        const [x, y] = P[i], q = P[(i + 1) % P.length], tx = q[0] - x, ty = q[1] - y, tl = Math.hypot(tx, ty) || 1, d = r.pm(o.jit ?? 3);
+        out.push([x - (ty / tl) * d, y + (tx / tl) * d]);
+      }
+      return out;
+    };
     const fill = (pts, f) => {
       if (!f) return;
       const clip = f.clip === undefined ? clipNow : f.clip;
-      const shape = f.amp ? G.wobble(pts, true, f.amp, f.wl ?? 90, n, ph()) : pts;
+      const shape = f.facet ? facet(pts, f.facet) : f.amp ? G.wobble(pts, true, f.amp, f.wl ?? 90, n, ph()) : pts;
       art.mark(f.color, { tooth: f.tooth ?? 0.05, soft: f.soft ?? 0.2, paper: f.paper || "fine", opacity: f.opacity ?? 1, blend: f.blend, gain: f.gain }, (c) => {
         if (clip) { G.path(c, clip); c.clip(); }
         if (f.within) { G.path(c, f.within); c.clip(); }
