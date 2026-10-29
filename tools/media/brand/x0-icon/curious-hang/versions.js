@@ -81,6 +81,23 @@
     },
   });
 
+  // A hidden x0. Drawn upright, so the eye and ear on the drawing's right end up on the left once turned:
+  // the left eye's glint is a little x-shaped sparkle and the right one's a ring (x 0); on the ears, a
+  // cross-head screw and a round rivet. From a distance they're just a glint and a screw.
+  const eyesX0 = cur.bot.face.eyes.map((e, i) => ({ ...e, glint: i === 0 ? "o" : "x" }));
+  V.push({ id: "3-x0-eyes", name: "3 · x0 in the eyes", seed: 1101,
+    ground: (K) => K.art.paper({ color: "#FCFBF8", mottle: 0.012, grain: 0.03, vignette: 0.02 }),
+    edge: bar(), bot: bot({ face: { eyes: eyesX0 } }), style: (K) => black(K),
+    note: "The refined black, with a hidden x0: the left eye's glint is a little x-shaped sparkle, the right eye's a ring." });
+  V.push({ id: "4-x0-ears", name: "4 · x0 on the ears", seed: 1101,
+    ground: (K) => K.art.paper({ color: "#FCFBF8", mottle: 0.012, grain: 0.03, vignette: 0.02 }),
+    edge: bar(), bot: bot({ earMarks: ["o", "x"] }), style: (K) => black(K, { earMark: { color: "#5E2A16", w: 7, amp: 0.3, taper: [3, 3] } }),
+    note: "The refined black, with a hidden x0 on the ear pods: a cross-head screw on the left, a round rivet on the right." });
+  V.push({ id: "5-x0-both", name: "5 · x0, eyes and ears", seed: 1101,
+    ground: (K) => K.art.paper({ color: "#FCFBF8", mottle: 0.012, grain: 0.03, vignette: 0.02 }),
+    edge: bar(), bot: bot({ earMarks: ["o", "x"], face: { eyes: eyesX0 } }), style: (K) => black(K, { earMark: { color: "#5E2A16", w: 7, amp: 0.3, taper: [3, 3] } }),
+    note: "Both: x0 in the glints and on the ears. Still quiet, but it rewards a second look." });
+
   function G_clip(c, pts) { HD.G.path(c, pts); c.clip(); }
 
   HD.HANG = V;
