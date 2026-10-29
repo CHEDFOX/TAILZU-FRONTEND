@@ -168,6 +168,38 @@
   refined("r2-refined-rod", "Refined, on a bar", "The same, hanging from a clay rod with space above it, so it reads at once as hanging from a bar.", { rod: true });
   refined("r3-refined-glow", "Refined, glow eyes", "The same without pupils or visor: two warm blank eyes, the purest painted form.", { pupils: false, visor: false });
 
+  // The clay bar, shaded or sketched (bar-*): the same icon, with texture laid into the bar only. Drawn upright, so the
+  // bar's lower edge (the one the bot hangs from, once turned) is the edge at y = 748 here.
+  const BAR_DEEP = "#9E4A28", BAR_LIGHT = "#E48A5E";
+  function barStudy(id, name, note, texture) {
+    paintedVersion(id, name, { ground: "#F7F3EC", ground2: "#EFE9DF", bar: CLAY, head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ear: CLAY }, note);
+    const v = V[V.length - 1], g0 = v.ground;
+    v.ground = (K) => { g0(K); texture(K); };
+  }
+  const inBar = (K, c) => { HD.G.path(c, K.below); c.clip(); };
+  const hatch = (K, color, o, opacity = 1, clipExtra) => K.art.mark(color, { tooth: o.tooth ?? 0.45, paper: "coarse", opacity }, (c) => {
+    inBar(K, c); if (clipExtra) { c.beginPath(); c.rect(...clipExtra); c.clip(); }
+    M.hatch(c, K.below, { r: K.r, noise: K.n, angle: o.angle, gap: o.gap, w: o.w, p: o.p ?? 0.8, wave: o.wave ?? 3, pjit: o.pjit ?? 0.35, ragged: 30 });
+  });
+  barStudy("bar-1-hatched", "Bar · hatched", "Pencil hatching in a deeper clay across the bar.",
+    (K) => hatch(K, BAR_DEEP, { angle: -0.85, gap: 13, w: 3.2 }, 0.75));
+  barStudy("bar-2-shaded", "Bar · shaded", "Hatching that gets denser toward the edge the bot hangs from: a shadow under the bar.",
+    (K) => {
+      hatch(K, BAR_DEEP, { angle: -0.85, gap: 16, w: 3 }, 0.55);
+      hatch(K, BAR_DEEP, { angle: -0.85, gap: 9, w: 3.2 }, 0.8, [-20, 740, 1060, 150]);
+      hatch(K, BAR_DEEP, { angle: 0.75, gap: 10, w: 2.8 }, 0.75, [-20, 740, 1060, 80]);
+    });
+  barStudy("bar-3-crosshatch", "Bar · cross-hatched", "Two directions of hatching, like an etching.",
+    (K) => { hatch(K, BAR_DEEP, { angle: -0.85, gap: 14, w: 2.8 }, 0.7); hatch(K, BAR_DEEP, { angle: 0.8, gap: 18, w: 2.4 }, 0.55); });
+  barStudy("bar-4-drybrush", "Bar · dry brush", "Horizontal dry-brush streaks, lighter and deeper clay, the paper catching through.",
+    (K) => { hatch(K, BAR_LIGHT, { angle: 0.0, gap: 15, w: 7, wave: 6, tooth: 0.6 }, 0.7); hatch(K, BAR_DEEP, { angle: 0.02, gap: 24, w: 4, wave: 7, tooth: 0.65 }, 0.6); });
+  barStudy("bar-5-sketched", "Bar · sketched", "Loose coloured-pencil scribble instead of flat paint, the cream paper showing between strokes.",
+    (K) => {
+      K.fill(K.below, { color: "#F3E7D9", p: 1, clip: null, facet: { len: 64, jit: 2.5 } });   // paper back over the flat clay
+      hatch(K, CLAY, { angle: -0.9, gap: 7, w: 5.5, p: 0.95, wave: 4, tooth: 0.55, pjit: 0.5 }, 1);
+      hatch(K, BAR_DEEP, { angle: 0.7, gap: 14, w: 3, p: 0.7, tooth: 0.6 }, 0.6, [-20, 740, 1060, 110]);
+    });
+
   // Colour studies of the painted clay-bar version (same shapes, same cut): pal-<name>. Not part of the ranked set.
   const PALETTES = [
     ["clay", "Clay (now)", { bar: CLAY, ear: CLAY }],

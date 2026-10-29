@@ -353,18 +353,49 @@ function tilesLayer(f, W, H, u, tall, art) {
   const rows = tall ? [0.415, 0.575, 0.735] : [0.4, 0.6, 0.8];
   const starts = [0.096 * W, -0.07 * W, 0.096 * W];
   let html = "", over = null;
-  const m = f.mascot ?? {}, at = m.tile ?? 1;
+  const m = f.mascot ?? {}, at = m.tile ?? 1, centres = [];
   APPS.forEach((slug, i) => {
     const row = Math.floor(i / 3), col = i % 3;
     if (row >= rows.length) return;
     const x = starts[row] + col * (T + G), y = rows[row] * H - T / 2;
+    centres.push({ x: x + T / 2, y: y + T / 2, row });
     if (i === at) over = { x: x + T / 2, y };
     html += `<div style="position:absolute;left:${x}px;top:${y}px;width:${T}px;height:${T}px;border-radius:${rad}px;background:#FFFDF8;display:flex;align-items:center;justify-content:center;
       box-shadow:0 ${28 * u}px ${70 * u}px rgba(6,9,8,.5),0 ${6 * u}px ${18 * u}px rgba(6,9,8,.22)">
       <img src="${url(svgFile(slug))}" style="width:${0.5 * T}px;height:${0.5 * T}px">${paperEdge(u, rad)}</div>`;
   });
   const bw = (m.size ?? 0.24) * W;
-  return html + (over ? mascotAt(art, m.pose ?? "starry", over.x, over.y + 2 * u, bw, over.x) : "");
+  return strings(centres, T + G, u) + html + (over ? mascotAt(art, m.pose ?? "starry", over.x, over.y + 2 * u, bw, over.x) : "");
+}
+
+/**
+ * Hand-drawn strings tying every app to its neighbours (across a row, and down to the nearest tiles in the next): clay
+ * twine, sagging under its own weight and wobbling like a line drawn by hand, behind the tiles, like a pin board.
+ */
+function strings(centres, step, u) {
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const pairs = [];
+  centres.forEach((a, i) => centres.forEach((b, j) => {
+    if (j <= i) return;
+    const dx = Math.abs(a.x - b.x), same = a.row === b.row, next = b.row === a.row + 1;
+    if ((same && dx < step * 1.2) || (next && dx < step * 0.8)) pairs.push([a, b]);
+  }));
+  const paths = pairs.map(([a, b]) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y), sag = len * (0.16 + 0.1 * rnd()), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2 + sag;
+    const ph = rnd() * 9, pts = [];
+    for (let k = 0; k <= 64; k++) {
+      const t = k / 64, x = (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * cx + t * t * b.x, y = (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * cy + t * t * b.y;
+      const tx = 2 * (1 - t) * (cx - a.x) + 2 * t * (b.x - cx), ty = 2 * (1 - t) * (cy - a.y) + 2 * t * (b.y - cy), tl = Math.hypot(tx, ty) || 1;
+      const wob = (2.6 * Math.sin(t * 9.3 + ph) + 1.4 * Math.sin(t * 23.1 + ph * 2)) * u;
+      pts.push([x - (ty / tl) * wob, y + (tx / tl) * wob]);
+    }
+    const d = "M" + pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join("L");
+    // the twine: a clay strand (the brand's brush colour), with a cream strand twisted along it
+    return `<path d="${d}" stroke="#D2703F" stroke-width="${6 * u}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${d}" stroke="#F6E9D6" stroke-width="${1.8 * u}" fill="none" stroke-linecap="round" stroke-dasharray="${10 * u} ${9 * u}" opacity=".85"/>`;
+  });
+  return `<svg style="position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 ${3 * u}px ${4 * u}px rgba(6,9,8,.45))">${paths.join("")}</svg>`;
 }
 
 /** Where the mic key sits: centred, its foot a fixed share above the frame's foot. */
