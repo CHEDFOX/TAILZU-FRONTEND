@@ -79,7 +79,8 @@ await page.setContent("<!doctype html><body></body>");
 await page.addScriptTag({ path: path.join(here, "draw.js") });
 await page.addScriptTag({ path: path.join(here, "bot.js") });
 await page.addScriptTag({ path: path.join(here, "versions.js") });
-const meta = await page.evaluate(() => Object.fromEntries(HD.VERSIONS.map((v) => [v.id, { name: v.name, note: v.note }])));
+if (fs.existsSync(path.join(dir, "versions.js")) && path.resolve(dir) !== here) await page.addScriptTag({ path: path.join(dir, "versions.js") });   // a set built on this one
+const meta = await page.evaluate(() => Object.fromEntries(HD.VERSIONS.concat(HD.HANG || []).map((v) => [v.id, { name: v.name, note: v.note }])));
 await page.setContent(html.replace("<script>", `<script>window.HDV = ${JSON.stringify(meta)};`));
 await page.waitForFunction(() => window.ready === true, null, { timeout: 30000 });
 await page.screenshot({ path: out, fullPage: true });

@@ -314,6 +314,14 @@ function buildBot(o) {
       m.position.set((S.base[0] + S.top[0]) / 2 + S.dir[0] * (k - 0.0), (S.base[1] + S.top[1]) / 2 + S.dir[1] * k, 0); m.rotation.z = -S.ANT.tilt;
     });
   }
+  // ear pods: a soft clay disc on each side of the head, level with the visor
+  if (o.ears) {
+    const earMat = matte(new THREE.MeshPhysicalMaterial({ color: lin(o.earColor ?? "#D9774A"), roughness: 0.6, sheen: 0.35, sheenColor: lin("#ffc9a3"), envMapIntensity: 0.8 }), { wrap: 0.3 });
+    for (const side of [-1, 1]) {
+      const g = new THREE.SphereGeometry(1, 64, 32);
+      add(g, earMat, (m) => { m.scale.set(0.05, 0.12, 0.1); m.position.set(side * (S.HEAD.a - 0.004), S.VIS.cy, 0); });
+    }
+  }
   // eyes as objects on the head: a satin white disc that sits on the curved surface and a glossy
   // black pupil (its catchlight is what makes the eyes look alive); an optional brow tick
   if (o.eyes) {
@@ -334,8 +342,8 @@ function buildBot(o) {
       for (const m of [w, pm]) { m.castShadow = true; m.receiveShadow = true; }
       group.add(g);
     }
-    if (o.brow) {
-      const b = o.brow, pts = [];
+    for (const b of [].concat(o.brow ?? [])) {
+      const pts = [];
       for (let i = 0; i <= 24; i++) {
         const a = b.a0 + (b.a1 - b.a0) * (i / 24), x = b.x + b.R * Math.cos(a), y = b.y + b.R * Math.sin(a);
         const { p, n } = onSurface(x, y); pts.push(p.addScaledVector(n, 0.004));
@@ -530,7 +538,27 @@ const EY = -0.5;
 const EYES_DOWN = [{ x: -0.195, y: EY, r: 0.115, look: [0.18, -1] }, { x: 0.195, y: EY, r: 0.135, look: [-0.14, -1] }];
 const EYES_SIDE = [{ x: -0.195, y: EY, r: 0.115, look: [-0.8, -0.6] }, { x: 0.195, y: EY, r: 0.135, look: [-0.8, -0.6] }];
 
+// Hanging upside down and peeking at you: the same head swung in from the top edge, its pupils on you
+const AT_YOU = [{ x: -0.195, y: EY, r: 0.115, look: [0.14, -0.32] }, { x: 0.195, y: EY, r: 0.135, look: [-0.14, -0.32] }];
+const BROW_UP = { x: 0.2, y: EY - 0.01, R: 0.172, a0: Math.PI * 0.34, a1: Math.PI * 0.56, t: 0.015 };
+const SWING = (roll, extra = {}) => ({ ...HANG, ...TIP, roll, ...extra });
+
+// The Curious Peek-bot (cream head, dark visor, two warm eyes of different sizes, clay ear pods), hanging upside
+// down from the top edge and peeking at you. No antenna, no brow (flipped, it reads as a smile under the eye).
+const CURIOUS_FACE = { face: FACES.curious({ look: 0, up: 0 }) };
+const curiousBot = (shell, extra = {}) => ({ ...shell, head: HEAD, visor: VISOR, antenna: false, ears: true, ...CURIOUS_FACE, ...extra });
+const UPSIDE = (swing, extra = {}) => ({ ...HANG, roll: Math.PI + swing, pitch: -0.2, botPos: [0, 0.4, -0.75], ...extra });
+
 export const VARIANTS = {
+  "curious-hang-cream": () => ({ ...UPSIDE(-0.2), bot: curiousBot(CREAM) }),
+  "curious-hang-black": () => ({ ...UPSIDE(-0.2), bot: curiousBot(BLACK) }),
+  "curious-hang-cream-big": () => ({ ...UPSIDE(-0.16, { botPos: [0, 0.56, -0.1] }), bot: curiousBot(CREAM) }),
+  "curious-hang-cream-other": () => ({ ...UPSIDE(0.2), bot: curiousBot(CREAM) }),
+  "soft-swing": () => ({ ...SWING(-0.2), bot: hangBot(AT_YOU, { brow: BROW_UP }) }),
+  "soft-swing-plain": () => ({ ...SWING(0.2), bot: hangBot(AT_YOU) }),
+  "soft-swing-little": () => ({ ...SWING(-0.22, { botPos: [0, 0.5, -0.75], pitch: -0.26 }), bot: hangBot(AT_YOU, { brow: BROW_UP }) }),
+  "soft-swing-little-plain": () => ({ ...SWING(0.22, { botPos: [0, 0.5, -0.75], pitch: -0.26 }), bot: hangBot(AT_YOU) }),
+  "soft-swing-deep": () => ({ ...SWING(-0.14, { botPos: [0, 0.62, -0.05], pitch: -0.24 }), bot: hangBot(AT_YOU.map((e, i) => ({ ...e, r: e.r * 1.08 })), { brow: BROW_UP }) }),
   "soft-drop": () => ({ ...HANG, ...TIP, bot: hangBot(EYES_DOWN) }),
   "soft-sideways": () => ({ ...HANG, ...TIP, bot: hangBot(EYES_SIDE, { brow: { x: 0.2, y: EY - 0.01, R: 0.172, a0: Math.PI * 0.34, a1: Math.PI * 0.56, t: 0.015 } }) }),
   "black-coral-peek": () => ({ ...PEEK, ...ON_CORAL, bot: bot(BLACK, { face: FACES.curious(), faceDim: FACES.brow() }) }),
