@@ -43,11 +43,11 @@
 
 export const BRAND = { name: "X0 Bot", accent: "#D08A5C" };
 
-/** The app icon: the soft-3D bot the brand helper renders. Used on the feature graphic once it exists. */
+/** The app icon (the painted bot hanging under the clay bar; app/assets/icon.png is the same picture). On the feature graphic. */
 export const ICON = {
-  dir: "../brand/x0-icon/peek3d",
+  dir: "../brand/x0-icon/curious-hang",
   /** Set to a path (relative to this folder) to force one. Otherwise: the README's pick, else the only icon-1024.png there. */
-  file: null, // e.g. "../brand/x0-icon/peek3d/<variant>/icon-1024.png"
+  file: "../brand/x0-icon/curious-hang/8-painted-clay-bar/icon-1024.png",
 };
 
 export const SIZES = {

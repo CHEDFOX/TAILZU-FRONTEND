@@ -127,6 +127,16 @@
     // ---- a soft shadow of the head on the wall -----------------------------------------------------
     if (st.dropShadow) { const [dx, dy] = st.dropShadow.offset || [10, 14]; fill(G.xf(shell, 0, 0, 0, dx * fl, dy * fl), st.dropShadow); }
 
+    // ---- a halo: the head and ears grown by a few units in one colour, like a cut-out sticker's border ----------
+    if (st.halo) {
+      const grow = st.halo.grow ?? 10, shapes = [shell, ...[-1, 1].map((s) => W(G.squircle(s * (hw + 2), 6, 40, 68, 2.4)))];
+      art.mark(st.halo.color, { tooth: 0, soft: 0.05, paper: "fine" }, (c) => {
+        if (clipNow) { G.path(c, clipNow); c.clip(); }
+        c.lineJoin = "round"; c.lineWidth = grow * 2;
+        for (const sh of shapes) { G.path(c, sh); c.fill(); c.stroke(); }
+      });
+    }
+
     // ---- ears -------------------------------------------------------------------------------------
     for (const s of [-1, 1]) {
       const ear = W(G.squircle(s * (hw + 2), 6, 40, 68, 2.4));
