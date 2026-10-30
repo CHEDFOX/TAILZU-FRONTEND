@@ -47,7 +47,7 @@ A team of bots, each great at one thing. Speak and Keybot writes. Plan keeps you
 keyboard,voice,dictation,typing,languages,planner,calendar,todo,trip,meeting,notes,family,chat
 ```
 
-### Description · 3442 / 4000
+### Description · 3386 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
@@ -83,7 +83,7 @@ ON YOUR COMPUTER TOO
 X0 Bot also runs on your computer. Sign in there by scanning a code with your phone, and your bots, notes and chats are on both.
 
 PLANS
-X0 Bot is free to start: every bot, with a smaller allowance each month, and Keybot with a monthly word allowance. Lite and Elite are monthly subscriptions that give you more to use every month and Keybot without a word limit. Elite gives the most. The app shows each plan with its price before you buy.
+X0 Bot is free to start, with a monthly allowance for all your bots. Lite and Elite are monthly subscriptions that give you more every month: Lite 11 times the free allowance, Elite 150 times. The app shows each plan with its price before you buy.
 
 Payment is charged to your App Store account when you confirm the purchase. A subscription renews automatically unless it is cancelled at least 24 hours before the end of the current period, and the renewal is charged within the 24 hours before that period ends. You can manage or cancel it in your App Store account settings.
 
@@ -182,7 +182,7 @@ X0 Bot: Your AI Team
 Players that make your life easy: a team of bots, each great at one thing.
 ```
 
-### Full description · 3224 / 4000
+### Full description · 3168 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
@@ -218,7 +218,7 @@ ON YOUR COMPUTER TOO
 X0 Bot also runs on your computer. Sign in there by scanning a code with your phone, and your bots, notes and chats are on both.
 
 PLANS
-X0 Bot is free to start: every bot, with a smaller allowance each month, and Keybot with a monthly word allowance. Lite and Elite are monthly subscriptions that give you more to use every month and Keybot without a word limit. Elite gives the most. The app shows each plan with its price before you buy. Subscriptions renew every month until you cancel, which you can do at any time in your store's subscriptions.
+X0 Bot is free to start, with a monthly allowance for all your bots. Lite and Elite are monthly subscriptions that give you more every month: Lite 11 times the free allowance, Elite 150 times. The app shows each plan with its price before you buy. Subscriptions renew every month until you cancel, which you can do at any time in your store's subscriptions.
 
 Terms of use: https://x0bot.com/terms
 Privacy policy: https://x0bot.com/privacy
@@ -268,10 +268,10 @@ X0 Bot
 X0 Bot Lite
 ```
 
-### App Store · Lite · description · 40 / 45
+### App Store · Lite · description · 39 / 45
 
 ```text
-More to use, plus unlimited Keybot words
+11× more every month, for all your bots
 ```
 
 ### App Store · Elite · display name · 12 / 30
@@ -280,10 +280,10 @@ More to use, plus unlimited Keybot words
 X0 Bot Elite
 ```
 
-### App Store · Elite · description · 44 / 45
+### App Store · Elite · description · 40 / 45
 
 ```text
-The most to use, plus unlimited Keybot words
+150× more every month, for all your bots
 ```
 
 ### Google Play · Lite · name · 11 / 55
@@ -292,22 +292,22 @@ The most to use, plus unlimited Keybot words
 X0 Bot Lite
 ```
 
-### Google Play · Lite · description · 73 / 80
+### Google Play · Lite · description · 40 / 80
 
 ```text
-More to use with every bot, every month, and Keybot without a word limit.
+11× more every month, for all your bots.
 ```
 
-#### Google Play · Lite · benefit 1 · 23 / 40
+#### Google Play · Lite · benefit 1 · 20 / 40
 
 ```text
-More to use every month
+11× more every month
 ```
 
-#### Google Play · Lite · benefit 2 · 27 / 40
+#### Google Play · Lite · benefit 2 · 17 / 40
 
 ```text
-Keybot without a word limit
+For all your bots
 ```
 
 ### Google Play · Elite · name · 12 / 55
@@ -316,22 +316,22 @@ Keybot without a word limit
 X0 Bot Elite
 ```
 
-### Google Play · Elite · description · 77 / 80
+### Google Play · Elite · description · 41 / 80
 
 ```text
-The most to use with every bot, every month, and Keybot without a word limit.
+150× more every month, for all your bots.
 ```
 
-#### Google Play · Elite · benefit 1 · 27 / 40
+#### Google Play · Elite · benefit 1 · 21 / 40
 
 ```text
-The most to use every month
+150× more every month
 ```
 
-#### Google Play · Elite · benefit 2 · 27 / 40
+#### Google Play · Elite · benefit 2 · 17 / 40
 
 ```text
-Keybot without a word limit
+For all your bots
 ```
 
 ---
@@ -445,8 +445,8 @@ Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "
   live inbox, and put its details in App Store Connect (App Review Information) and Play Console (App access).
 - **Account deletion on the phone.** Done: You › Your data › Delete account on the phone, and You, Privacy and Settings
   on the computer (`bots.delete-account`). The review notes point there.
-- **Support URL.** It is https://x0bot.com/faq, which answers today (x0bot.com/support does not). A support page with
-  the address support@x0bot.com on it would be the better target once it exists.
+- **Support URL.** It is https://x0bot.com/faq, which answers today (x0bot.com/support does not). Once the server is deployed, use
+  https://x0bot.com/support instead (it has support@x0bot.com on it).
 - **The icon.** The painted bot hanging under the clay bar (`tools/media/brand/x0-icon/curious-hang/8-painted-clay-bar`).
   The build carries it (`app/assets/icon.png`, and the Android adaptive layers), so the App Store takes it from the
   build. Upload these by hand, from `tools/media/store/out/icons/`:
