@@ -1,0 +1,2013 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.thread",
+ "title": "Home",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 1,
+ "state": {
+  "ask": "",
+  "asking": false,
+  "say": "Running late, start without me.",
+  "files": [],
+  "sending": false
+ },
+ "root": {
+  "type": "SafeArea",
+  "props": {
+   "edges": [
+    "top"
+   ],
+   "barStyle": "dark-content"
+  },
+  "style": {
+   "flex": 1,
+   "flexDirection": "column",
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Screen",
+    "props": {
+     "paddingBottom": 24
+    },
+    "style": {
+     "backgroundColor": "#ffffff",
+     "paddingHorizontal": 20,
+     "paddingTop": 16,
+     "gap": 14
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 8
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 44,
+         "height": 44,
+         "marginLeft": -10,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M15 5l-7 7 7 7",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 24,
+           "height": 24,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigateBack"
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Back"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 36,
+         "height": 36,
+         "borderRadius": 18,
+         "backgroundColor": "#f5f5f5",
+         "alignItems": "center",
+         "justifyContent": "center",
+         "flexShrink": 0
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z",
+           "fill": "none",
+           "stroke": "#3d3d3d",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 16,
+           "height": 16,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 1,
+         "flexGrow": 1,
+         "flexShrink": 1,
+         "minWidth": 0
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Home",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 17,
+           "lineHeight": 22,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "you, Mom and Leo · Home",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "minHeight": 32,
+         "paddingHorizontal": 4
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Mute",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "callEndpoint",
+          "method": "PUT",
+          "path": "/v1/botsapp/bots/threads/th-home",
+          "body": {
+           "muted": true
+          },
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "toast",
+             "message": "Muted"
+            },
+            {
+             "kind": "refresh"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "toast",
+           "message": "Couldn't do that. Try again.",
+           "tone": "error"
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "justifyContent": "center"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "minHeight": 32,
+         "paddingHorizontal": 4
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Older messages",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 18,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigate",
+          "screenId": "bots.thread",
+          "params": {
+           "id": "th-home",
+           "before": 1793185800000
+          }
+         }
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "height": 1,
+         "flexGrow": 1,
+         "backgroundColor": "#ededed"
+        },
+        "children": []
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Today",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 12,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "height": 1,
+         "flexGrow": 1,
+         "backgroundColor": "#ededed"
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "justifyContent": "flex-start"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 4,
+         "maxWidth": "82%",
+         "alignItems": "flex-start"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 20
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Mom",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.person",
+            "params": {
+             "id": "m"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 10,
+           "padding": 10,
+           "borderRadius": 14,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff",
+           "maxWidth": 300
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 32,
+             "height": 32,
+             "borderRadius": 10,
+             "backgroundColor": "#f5f5f5",
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M5 12.5l4.5 4.5L19 7.5",
+               "fill": "none",
+               "stroke": "#3d3d3d",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 18,
+               "height": 18,
+               "flexShrink": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "gap": 2,
+             "flexShrink": 1
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Groceries",
+               "variant": "bots",
+               "numberOfLines": 2
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Medium",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "List · open",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.space.item",
+            "params": {
+             "item": "i-groceries"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "backgroundColor": "#f5f5f5",
+           "paddingVertical": 10,
+           "paddingHorizontal": 14,
+           "borderTopLeftRadius": 18,
+           "borderTopRightRadius": 18,
+           "borderBottomLeftRadius": 6,
+           "borderBottomRightRadius": 18
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Shared the grocery list. Add what you need.",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 15,
+             "lineHeight": 21,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "4:40 pm",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 20,
+             "paddingHorizontal": 4
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Report",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 11,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.report",
+              "params": {
+               "kind": "message",
+               "id": "msg1",
+               "thread": "th-home"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Report this message from Mom"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "justifyContent": "flex-start"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 4,
+         "maxWidth": "82%",
+         "alignItems": "flex-start"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 20
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Leo",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.person",
+            "params": {
+             "id": "r"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "backgroundColor": "#f5f5f5",
+           "paddingVertical": 10,
+           "paddingHorizontal": 14,
+           "borderTopLeftRadius": 18,
+           "borderTopRightRadius": 18,
+           "borderBottomLeftRadius": 6,
+           "borderBottomRightRadius": 18
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Picked up the cake for tonight.",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 15,
+             "lineHeight": 21,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "6:50 pm",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 20,
+             "paddingHorizontal": 4
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Report",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 11,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.report",
+              "params": {
+               "kind": "message",
+               "id": "msg2",
+               "thread": "th-home"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Report this message from Leo"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "justifyContent": "flex-end"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 4,
+         "maxWidth": "82%",
+         "alignItems": "flex-end"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "backgroundColor": "#0a0a0a",
+           "paddingVertical": 10,
+           "paddingHorizontal": 14,
+           "borderTopLeftRadius": 18,
+           "borderTopRightRadius": 18,
+           "borderBottomLeftRadius": 18,
+           "borderBottomRightRadius": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Perfect, thank you!",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 15,
+             "lineHeight": 21,
+             "letterSpacing": 0,
+             "color": "#ffffff",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "6:55 pm",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "justifyContent": "flex-start"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 4,
+         "maxWidth": "82%",
+         "alignItems": "flex-start"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "minHeight": 20
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Mom",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.person",
+            "params": {
+             "id": "m"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "backgroundColor": "#f5f5f5",
+           "paddingVertical": 10,
+           "paddingHorizontal": 14,
+           "borderTopLeftRadius": 18,
+           "borderTopRightRadius": 18,
+           "borderBottomLeftRadius": 6,
+           "borderBottomRightRadius": 18
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Dinner at 8, everyone home?",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 15,
+             "lineHeight": 21,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "7:28 pm",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "minHeight": 20,
+             "paddingHorizontal": 4
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Report",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 11,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.report",
+              "params": {
+               "kind": "message",
+               "id": "msg4",
+               "thread": "th-home"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Report this message from Mom"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "paddingBottom": 16,
+     "gap": 12,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 8
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "gap": 0
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "gap": 6,
+           "paddingVertical": 7,
+           "paddingLeft": 12,
+           "paddingRight": 12,
+           "borderRadius": 16,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff",
+           "alignSelf": "flex-start",
+           "maxWidth": "100%",
+           "minWidth": 220
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 8,
+             "minHeight": 30
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 8 8",
+               "shapes": [
+                {
+                 "circle": [
+                  4,
+                  4,
+                  4
+                 ],
+                 "fill": "#0a0a0a",
+                 "motion": "breathe"
+                }
+               ],
+               "accessibilityLabel": "working"
+              },
+              "style": {
+               "width": 8,
+               "height": 8,
+               "flexShrink": 0
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "",
+               "variant": "bots",
+               "numberOfLines": 1
+              },
+              "bind": {
+               "content": "up.name"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 1
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "",
+               "variant": "bots"
+              },
+              "bind": {
+               "content": "up.percent"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "none",
+               "flexShrink": 0
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "paddingRight": 6
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 0,
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   5
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 },
+                 "borderTopLeftRadius": 2,
+                 "borderBottomLeftRadius": 2
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   10
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   15
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   20
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   25
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   30
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   35
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   40
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   45
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   50
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   55
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   60
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   65
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   70
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   75
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   80
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   85
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   90
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   95
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 }
+                },
+                "children": []
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "column",
+                 "flexGrow": 1,
+                 "flexBasis": 0,
+                 "height": 4,
+                 "backgroundColor": {
+                  "gte": [
+                   "up.pct",
+                   100
+                  ],
+                  "then": "#0a0a0a",
+                  "else": "#e0e0e0"
+                 },
+                 "borderTopRightRadius": 2,
+                 "borderBottomRightRadius": 2
+                },
+                "children": []
+               }
+              ]
+             }
+            ]
+           }
+          ],
+          "visibleIf": {
+           "truthy": "up.name"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "paddingVertical": 7,
+           "paddingLeft": 12,
+           "paddingRight": 6,
+           "borderRadius": 16,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "backgroundColor": "#ffffff",
+           "alignSelf": "flex-start",
+           "maxWidth": "100%"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "",
+             "variant": "bots",
+             "numberOfLines": 1
+            },
+            "bind": {
+             "content": "sent.name"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "",
+             "variant": "bots"
+            },
+            "bind": {
+             "content": "sent.size"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 30,
+             "height": 30,
+             "borderRadius": 15,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M6 6l12 12M18 6L6 18",
+               "fill": "none",
+               "stroke": "#5c5c5c",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 14,
+               "height": 14,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "clearState",
+                "path": "sent"
+               },
+               {
+                "kind": "clearState",
+                "path": "files"
+               }
+              ]
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Take the file off"
+            }
+           }
+          ],
+          "visibleIf": {
+           "all": [
+            {
+             "truthy": "sent.name"
+            },
+            {
+             "falsy": "up.name"
+            }
+           ]
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 44,
+           "height": 44,
+           "borderRadius": 22,
+           "alignItems": "center",
+           "justifyContent": "center",
+           "flexShrink": 0
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4",
+             "fill": "none",
+             "stroke": "#3d3d3d",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 18,
+             "height": 18,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "uploadFile",
+            "pick": "photo",
+            "path": "/v1/files",
+            "assignTo": "sent",
+            "progressTo": "up",
+            "maxBytes": 52428800,
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "clearState",
+               "path": "files"
+              },
+              {
+               "kind": "appendState",
+               "path": "files",
+               "value": "$state.sent.attachment"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "clearState",
+               "path": "up"
+              },
+              {
+               "kind": "toast",
+               "message": "$event",
+               "tone": "error"
+              }
+             ]
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Send a photo or file"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "center",
+             "gap": 8,
+             "borderWidth": 1,
+             "borderColor": "#e6e6e6",
+             "borderRadius": 28,
+             "paddingLeft": 18,
+             "paddingRight": 6,
+             "paddingVertical": 4,
+             "minHeight": 48,
+             "backgroundColor": "#ffffff"
+            },
+            "children": [
+             {
+              "type": "TextField",
+              "id": "say",
+              "bind": {
+               "value": "say"
+              },
+              "props": {
+               "placeholder": "Message Home",
+               "placeholderColor": "#8a8a8a",
+               "background": "transparent",
+               "borderWidth": 0,
+               "radius": 0,
+               "paddingHorizontal": 0,
+               "paddingVertical": 0,
+               "minHeight": 44,
+               "color": "#0a0a0a",
+               "returnKeyType": "send"
+              },
+              "on": {
+               "onSubmit": {
+                "kind": "condition",
+                "if": {
+                 "all": [
+                  {
+                   "falsy": "say"
+                  },
+                  {
+                   "falsy": "sent.name"
+                  }
+                 ]
+                },
+                "then": {
+                 "kind": "toast",
+                 "message": "Type something first"
+                },
+                "else": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "sending",
+                   "value": true
+                  },
+                  {
+                   "kind": "callEndpoint",
+                   "method": "POST",
+                   "path": "/v1/botsapp/bots/threads/th-home/messages",
+                   "body": {
+                    "text": "$state.say",
+                    "files": "$state.files"
+                   },
+                   "onSuccess": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "sending",
+                      "value": false
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "say"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "files"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "sent"
+                     },
+                     {
+                      "kind": "refresh"
+                     }
+                    ]
+                   },
+                   "onError": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "sending",
+                      "value": false
+                     },
+                     {
+                      "kind": "toast",
+                      "message": "Couldn't send that. Try again.",
+                      "tone": "error"
+                     }
+                    ]
+                   }
+                  }
+                 ]
+                }
+               }
+              },
+              "style": {
+               "flexGrow": 1,
+               "flexShrink": 1,
+               "minWidth": 0,
+               "minHeight": 44,
+               "paddingHorizontal": 0,
+               "paddingVertical": 0,
+               "fontFamily": "Tailzu Geist",
+               "fontSize": 15,
+               "lineHeight": 22,
+               "color": "#0a0a0a",
+               "borderWidth": 0,
+               "backgroundColor": "transparent",
+               "outlineStyle": "none"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": 40,
+               "height": 40,
+               "borderRadius": 20,
+               "alignItems": "center",
+               "justifyContent": "center",
+               "flexShrink": 0,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": [
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 24 24",
+                 "d": "M12 19V5M6 11l6-6 6 6",
+                 "fill": "none",
+                 "stroke": "#ffffff",
+                 "strokeWidth": 1.9,
+                 "strokeLinecap": "round",
+                 "strokeLinejoin": "round"
+                },
+                "style": {
+                 "width": 20,
+                 "height": 20,
+                 "flexShrink": 0
+                }
+               }
+              ],
+              "on": {
+               "onPress": {
+                "kind": "condition",
+                "if": {
+                 "all": [
+                  {
+                   "falsy": "say"
+                  },
+                  {
+                   "falsy": "sent.name"
+                  }
+                 ]
+                },
+                "then": {
+                 "kind": "toast",
+                 "message": "Type something first"
+                },
+                "else": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "sending",
+                   "value": true
+                  },
+                  {
+                   "kind": "callEndpoint",
+                   "method": "POST",
+                   "path": "/v1/botsapp/bots/threads/th-home/messages",
+                   "body": {
+                    "text": "$state.say",
+                    "files": "$state.files"
+                   },
+                   "onSuccess": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "sending",
+                      "value": false
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "say"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "files"
+                     },
+                     {
+                      "kind": "clearState",
+                      "path": "sent"
+                     },
+                     {
+                      "kind": "refresh"
+                     }
+                    ]
+                   },
+                   "onError": {
+                    "kind": "sequence",
+                    "actions": [
+                     {
+                      "kind": "setState",
+                      "path": "sending",
+                      "value": false
+                     },
+                     {
+                      "kind": "toast",
+                      "message": "Couldn't send that. Try again.",
+                      "tone": "error"
+                     }
+                    ]
+                   }
+                  }
+                 ]
+                }
+               }
+              },
+              "props": {
+               "accessibilityLabel": "Send"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ],
+    "props": {
+     "keyboard": "above"
+    }
+   }
+  ]
+ },
+ "liveTopics": [
+  "thread:th-home"
+ ]
+}

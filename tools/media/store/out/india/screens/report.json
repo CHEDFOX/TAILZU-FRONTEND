@@ -1,9 +1,17 @@
 {
+ "live": {
+  "screen": "bots.code.job",
+  "errors": [],
+  "flags": [],
+  "text": "Fix cart total rounding\nNeeds you\nUnderstand\nPlan\nBuild\nCheck\nShip\nRead cart/total.ts\nEdited cart/total.ts\nRounds each line before adding\nRan 18 tests · 17 pass\nWaiting for your answer\nQuick question\nRound each item's price, or round once at the end? Your invoices round each item.\nEach item\nAt the end\nOf what it was given\n14% used\nStop",
+  "pop": null,
+  "misses": []
+ },
  "team": {
   "screen": "bots.home",
   "errors": [],
   "flags": [],
-  "text": "Your bots\nGood evening, Aanya\nAnything\nto\nwrite\nup\nbefore\nthe\nday\nends?\n4 things done this week · 2 h 20 min saved\nNeeds you · Plan bot\nOnly 15 min between the dentist and dinner. Move dinner to 7:30?\nMoves Dinner with Mom to 7:30 pm and tells Mom\nYes, do it\nNo\nPlan bot\nNeeds you · 1 question\nTravel bot\nWorking · finding stays near the wedd…\nCode bot\nFixes and ships your code\nMake a bot\nSay what it should do\nBots\nActivity\nYou\nAsk any bot…",
+  "text": "Your bots\nGood evening, Aanya\nAnything\nto\nwrite\nup\nbefore\nthe\nday\nends?\n4 things done this week · 2 h 20 min saved\nNeeds you · Plan bot\nOnly 15 min between the dentist and dinner. Move dinner to 7:30?\nMoves Dinner with Mom to 7:30 pm and tells Mom\nYes, do it\nNo\nPlan bot\nNeeds you · 1 question\nTravel bot\nWorking · finding stays near the…\nCode bot\nFixes and ships your code\nMake a bot\nSay what it should do\nBots\nActivity\nYou\nAsk any bot…",
   "pop": {
    "x": 20,
    "y": 507,
@@ -35,6 +43,14 @@
   },
   "misses": []
  },
+ "keybot": {
+  "screen": "bots.thread",
+  "errors": [],
+  "flags": [],
+  "text": "Groceries\nList · open\nShared the grocery list. Add what you need.\n4:40 pm\nReport\nRohan\nPicked up the cake for tonight.\n6:50 pm\nReport\nPerfect, thank you!\n6:55 pm\nMom\nDinner at 8, everyone home?\n7:28 pm\nReport\nRunning late, start without me.",
+  "pop": null,
+  "misses": []
+ },
  "plan": {
   "screen": "bots.plan",
   "errors": [],
@@ -53,24 +69,6 @@
   },
   "misses": []
  },
- "notes": {
-  "screen": "bots.note",
-  "errors": [],
-  "flags": [],
-  "text": "Notes\nDiwali sale plan\nToday, 11:40 am · 42 min · 4 speakers · recorded on your computer\nSummary\nThe sale runs from 7 to 12 November. Kavya sets up the shop window on Friday, Ishaan takes the online orders, and every order this week gets free gift wrap.\nDecisions · 3\n01\nThe sale runs from 7 to 12 November\n02\nFree gift wrap on every order this week\n03\nThe shop window goes up on Friday\nTo-dos · 4\n3 open\nOrder 200 gift boxes\nMeera Iyer · This week\nMy tasks\nWrite the sale message for customers\nYou · Today\nIn your tasks\nSet up the shop window\nKavya Rao · By Friday\nMy tasks\nSend the team the final plan\nYou · Done at 12:40 pm\nMy tasks\nWhat was said · 2\n01\nLast year the window brought in half the walk-ins. Let's do it properly this time.",
-  "pop": {
-   "x": 20,
-   "y": 460,
-   "width": 350,
-   "height": 268,
-   "radius": 18,
-   "screen": {
-    "w": 390,
-    "h": 788
-   }
-  },
-  "misses": []
- },
  "travel": {
   "screen": "bots.travel",
   "errors": [],
@@ -82,24 +80,6 @@
    "width": 350,
    "height": 271,
    "radius": 0,
-   "screen": {
-    "w": 390,
-    "h": 788
-   }
-  },
-  "misses": []
- },
- "code": {
-  "screen": "bots.code.start",
-  "errors": [],
-  "flags": [],
-  "text": "Code bot\nWorking on 1 · 2 need you · 4 done this week\nNeeds you · Code bot\nRound the cart total per item, or once at the end?\nPer item\nAt the end\nYou decide\nProjects\nstorefront\nNeeds you\n212 of 215 tests pass\nmobile-app\nDone 5 days ago\nAll 88 tests pass\ndocs-site\nDone yesterday\nno tests yet · I can add some\nAdd a project · or start one from scratch\nFix the 3 failing tests in storefront\nWhat changed this week?\nTell Code bot what to do…",
-  "pop": {
-   "x": 20,
-   "y": 236,
-   "width": 350,
-   "height": 162,
-   "radius": 20,
    "screen": {
     "w": 390,
     "h": 788

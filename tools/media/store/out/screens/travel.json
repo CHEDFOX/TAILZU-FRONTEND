@@ -26,7 +26,7 @@
    "toastText": "#ffffff"
   }
  },
- "cacheTtlSeconds": 0,
+ "cacheTtlSeconds": 1,
  "state": {
   "ask": "",
   "asking": false,
@@ -3810,7 +3810,10 @@
        }
       ]
      }
-    ]
+    ],
+    "props": {
+     "keyboard": "above"
+    }
    }
   ]
  },

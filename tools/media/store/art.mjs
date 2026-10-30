@@ -9,8 +9,13 @@
 // the drawing, with the line it peeks over (`ledge`) given in its own pixels.
 //
 //   renderArt(browser, jobs, outDir) -> { <name>: { file, w, h, ledge } }
-//   jobs: [{ name, kind: "bot", pose }, { name, kind: "underline" | "ring" | "arrow", seed }]
+//   jobs: [{ name, kind: "bot", pose }, { name, kind: "underline" | "ring" | "arrow", seed, color? }]
 //   pose: one of POSES below, a version of the hand-drawn icons (its pose and face), drawn in one house style
+//   color: a mark's colour (default the clay); on the white frames a mark takes its frame's bot's colour, or ink
+//
+//   renderHang(browser, outDir, size) -> { head, bar, hands, splash, blink: file, size, barBox: { x0, y0, x1, y1 } }
+//   the launch's own layers (the icon's bot hanging under a piece of its clay bar: app/assets/launch), drawn bigger by
+//   the brand's launch.mjs page code itself, for the frames where the bot is the picture and for the App Preview.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -92,10 +97,10 @@ window.X0ART = (() => {
         visor: { color: "#2C2825", p: 1, facet: cut(40, 3) }, visorSheen: null, visorGlint: null, visorLine: null,
         eye: { color: CREAM, p: 1, facet: cut(24, 2.4) }, eyeHalo: null, catchlight: null, brow: null,
         hand: { color: CREAM, p: 1, facet: cut(12, 1) }, handShade: null, seam: null, handShadow: null,
-        // the gloves sit on a white card: a fine ink line keeps them there. The head and ears get a cream border,
-        // so the black reads on the frames' dark photographs.
+        // the gloves sit on a white card: a fine ink line keeps them there. The head and ears get a border in the
+        // paper's white, so where the bot crosses the card's outline it reads as cut out and laid on top.
         handLine: { color: INK, w: 7, amp: 0.4, taper: [2, 2] },
-        halo: { color: CREAM, grow: 11 },
+        halo: { color: "#FFFFFF", grow: 11 },
       }),
     };
     return lift(2048, 3131, out, (art, bg) => {
@@ -104,13 +109,14 @@ window.X0ART = (() => {
     }, ly);
   }
 
-  /** Clay brush marks: an underline, a loose ring, a little arrow (its tip is the anchor). */
-  function mark(kind, seed, out) {
+  /** Brush marks: an underline, a loose ring, a little arrow (its tip is the anchor), in clay or the colour given. */
+  function mark(kind, seed, out, color) {
+    const INKC = color || CLAY;
     const TIP = [770, 900];
     return lift(1024, seed, out, (art, bg) => {
       art.paper({ color: bg, mottle: 0, grain: 0, warm: 0, vignette: 0 });
       const n = art.noise, r = art.r;
-      const ink = (pts, w, taper) => art.mark(CLAY, { tooth: 0.14, soft: 0.25, paper: "fine" }, (c) =>
+      const ink = (pts, w, taper) => art.mark(INKC, { tooth: 0.14, soft: 0.25, paper: "fine" }, (c) =>
         M.ink(c, G.wobble(pts, false, 2.2, 90, n, r() * 50), { w, noise: n, phase: r() * 50, taper, jit: 0.22 }));
       if (kind === "underline") {
         ink(G.cubic([40, 520], [300, 470], [640, 545], [962, 480], 300), 46, [60, 220]);
@@ -142,7 +148,7 @@ export async function renderArt(browser, jobs, outDir) {
     for (const f of ["draw.js", "bot.js", "versions.js"]) await page.addScriptTag({ path: path.join(dir, f) });
     await page.addScriptTag({ content: PAGE.replace("__POSES__", JSON.stringify(POSES)).replace("__CLAY__", JSON.stringify(CLAY)) });
     for (const j of jobs) {
-      const r = await page.evaluate(`(${j.kind === "bot" ? `X0ART.bot(${JSON.stringify(j.pose)}, 1024)` : `X0ART.mark(${JSON.stringify(j.kind)}, ${j.seed ?? 7}, 768)`})`);
+      const r = await page.evaluate(`(${j.kind === "bot" ? `X0ART.bot(${JSON.stringify(j.pose)}, 1024)` : `X0ART.mark(${JSON.stringify(j.kind)}, ${j.seed ?? 7}, 768, ${JSON.stringify(j.color ?? null)})`})`);
       const file = path.join(outDir, `${j.name}.png`);
       fs.writeFileSync(file, Buffer.from(r.png.split(",")[1], "base64"));
       done[j.name] = { file, w: r.w, h: r.h, ledge: r.ledge, anchor: r.anchor };
@@ -152,4 +158,37 @@ export async function renderArt(browser, jobs, outDir) {
   }
   fs.writeFileSync(path.join(outDir, "art.json"), JSON.stringify({ dir, art: done }, null, 1));
   return done;
+}
+
+/** The launch art's frame and bar at its own size (app/src/launch/launchCore.ts: 544 px, BAR in those pixels). */
+export const LAUNCH = { size: 544, bar: { x0: 48, y0: 138, x1: 495, y1: 195 } };
+
+/**
+ * The launch's layers (head, bar, gloves, and all three stacked: the splash), `size` px square instead of 544: the brand's
+ * own launch.mjs page code (tools/media/brand/x0-icon/curious-hang/launch.mjs), read from that file and run with a bigger
+ * frame, so the bot is the icon's bot facet for facet and the layers stack exactly as the app's do. Cached in outDir.
+ */
+export async function renderHang(browser, outDir, size = 1632) {
+  fs.mkdirSync(outDir, { recursive: true });
+  const k = size / LAUNCH.size, B = LAUNCH.bar;
+  const res = { size, barBox: { x0: B.x0 * k, y0: B.y0 * k, x1: B.x1 * k, y1: B.y1 * k } };
+  for (const n of ["head", "bar", "hands", "splash", "blink"]) res[n] = path.join(outDir, `hang-${n}-${size}.png`);
+  if (["head", "bar", "hands", "splash", "blink"].every((n) => fs.existsSync(res[n]))) return res;
+  const hang = path.resolve(BRAND, "curious-hang"), src = fs.readFileSync(path.join(hang, "launch.mjs"), "utf8");
+  const m = src.match(/const PAGE = String\.raw`([\s\S]*?)`;\n/);
+  if (!m || !/const OUT = 544, SS = 3/.test(m[1])) throw new Error("art: launch.mjs's page code has changed shape; update renderHang");
+  const code = m[1].replace("const OUT = 544, SS = 3", `const OUT = ${size}, SS = 2`);
+  const page = await browser.newPage();
+  try {
+    page.on("pageerror", (e) => { throw e; });
+    await page.setContent("<!doctype html><meta charset=utf-8><body></body>");
+    for (const f of ["draw.js", "bot.js", "versions.js"]) await page.addScriptTag({ path: path.join(artDir(), f) });
+    await page.addScriptTag({ path: path.join(hang, "versions.js") });
+    await page.addScriptTag({ content: code });
+    const r = await page.evaluate(() => window.LAUNCH.run());
+    for (const [n, u] of Object.entries(r.files)) fs.writeFileSync(res[n], Buffer.from(u.split(",")[1], "base64"));
+  } finally {
+    await page.close();
+  }
+  return res;
 }

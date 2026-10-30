@@ -1,0 +1,1145 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.code.job",
+ "title": "Fix cart total rounding",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 0,
+ "state": {
+  "ask": "",
+  "asking": false
+ },
+ "root": {
+  "type": "SafeArea",
+  "props": {
+   "edges": [
+    "top"
+   ],
+   "barStyle": "dark-content"
+  },
+  "style": {
+   "flex": 1,
+   "flexDirection": "column",
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Screen",
+    "props": {
+     "paddingBottom": 24
+    },
+    "style": {
+     "backgroundColor": "#ffffff",
+     "paddingHorizontal": 20,
+     "paddingTop": 16,
+     "gap": 22
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 44,
+         "height": 44,
+         "marginLeft": -10,
+         "alignItems": "center",
+         "justifyContent": "center",
+         "flexShrink": 0
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M15 5l-7 7 7 7",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 24,
+           "height": 24,
+           "flexShrink": 0
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "navigateBack"
+         }
+        },
+        "props": {
+         "accessibilityLabel": "Back"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexShrink": 1,
+         "minWidth": 0,
+         "gap": 2
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Fix cart total rounding",
+           "variant": "bots",
+           "numberOfLines": 2
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 18,
+           "lineHeight": 23,
+           "letterSpacing": -0.2,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 7
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 8 8",
+             "shapes": [
+              {
+               "circle": [
+                4,
+                4,
+                4
+               ],
+               "fill": "#0a0a0a"
+              }
+             ],
+             "accessibilityLabel": "needs you"
+            },
+            "style": {
+             "width": 8,
+             "height": 8,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Needs you",
+             "variant": "bots",
+             "numberOfLines": 1
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none",
+             "flexShrink": 1
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "refresh"
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Needs you. Tap to refresh."
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "flex-start",
+       "gap": 6
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 3,
+           "borderRadius": 2,
+           "backgroundColor": "#0a0a0a"
+          },
+          "children": []
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Understand",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 3,
+           "borderRadius": 2,
+           "backgroundColor": "#0a0a0a"
+          },
+          "children": []
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Plan",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 3,
+           "borderRadius": 2,
+           "backgroundColor": "#4F7A3A"
+          },
+          "children": []
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Build",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#4F7A3A",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 3,
+           "borderRadius": 2,
+           "backgroundColor": "#e0e0e0"
+          },
+          "children": []
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Check",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#8a8a8a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "gap": 6
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 3,
+           "borderRadius": 2,
+           "backgroundColor": "#e0e0e0"
+          },
+          "children": []
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Ship",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 11,
+           "lineHeight": 14,
+           "letterSpacing": 0,
+           "color": "#8a8a8a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       }
+      ],
+      "props": {
+       "accessibilityLabel": "Step 3 of 5: Build"
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "flex-start",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 18,
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M5 12.5l4.5 4.5L19 7.5",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 2,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "gap": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Read cart/total.ts",
+             "variant": "bots",
+             "numberOfLines": 2
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Mono",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12.5,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "flex-start",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 18,
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M5 12.5l4.5 4.5L19 7.5",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 2,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "gap": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Edited cart/total.ts",
+             "variant": "bots",
+             "numberOfLines": 2
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Mono",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12.5,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "Rounds each line before adding",
+             "variant": "bots",
+             "numberOfLines": 1
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "flex-start",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 18,
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M5 12.5l4.5 4.5L19 7.5",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 2,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 16,
+             "height": 16,
+             "flexShrink": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "gap": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Ran 18 tests · 17 pass",
+             "variant": "bots",
+             "numberOfLines": 2
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Mono",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12.5,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "flex-start",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "height": 18,
+           "justifyContent": "center"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 16,
+             "height": 16,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 8 8",
+               "shapes": [
+                {
+                 "circle": [
+                  4,
+                  4,
+                  3.25
+                 ],
+                 "stroke": "#0a0a0a",
+                 "strokeWidth": 1.5,
+                 "dash": "1.7 1.7"
+                }
+               ],
+               "accessibilityLabel": "waiting"
+              },
+              "style": {
+               "width": 8,
+               "height": 8,
+               "flexShrink": 0
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "gap": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Waiting for your answer",
+             "variant": "bots",
+             "numberOfLines": 2
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Mono",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12.5,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "padding": 18,
+       "gap": 14,
+       "borderRadius": 20,
+       "borderWidth": 1,
+       "borderColor": "#e6e6e6",
+       "backgroundColor": "#ffffff"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#0a0a0a"
+            }
+           ],
+           "accessibilityLabel": "needs you"
+          },
+          "style": {
+           "width": 10,
+           "height": 10,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Quick question",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0.4,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "uppercase"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Round each item's price, or round once at the end? Your invoices round each item.",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist Medium",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 16,
+         "lineHeight": 22,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8,
+         "flexWrap": "wrap"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "height": 44,
+           "borderRadius": 22,
+           "paddingHorizontal": 16,
+           "gap": 8,
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#0a0a0a",
+           "alignSelf": "flex-start"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Each item",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#ffffff",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/code/jobs/7c1d2e3f-0000-4000-8000-000000000001/answer",
+            "body": {
+             "answer": "Each item"
+            },
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "toast",
+               "message": "Sent to Code bot"
+              },
+              {
+               "kind": "refresh"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't send that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "height": 44,
+           "borderRadius": 22,
+           "paddingHorizontal": 16,
+           "gap": 8,
+           "justifyContent": "center",
+           "flexShrink": 0,
+           "backgroundColor": "#ffffff",
+           "borderWidth": 1,
+           "borderColor": "#d4d4d4",
+           "alignSelf": "flex-start"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "At the end",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 14,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "callEndpoint",
+            "method": "POST",
+            "path": "/v1/code/jobs/7c1d2e3f-0000-4000-8000-000000000001/answer",
+            "body": {
+             "answer": "At the end"
+            },
+            "onSuccess": {
+             "kind": "sequence",
+             "actions": [
+              {
+               "kind": "toast",
+               "message": "Sent to Code bot"
+              },
+              {
+               "kind": "refresh"
+              }
+             ]
+            },
+            "onError": {
+             "kind": "toast",
+             "message": "Couldn't send that. Try again.",
+             "tone": "error"
+            }
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "paddingHorizontal": 20,
+     "paddingTop": 8,
+     "paddingBottom": 16,
+     "gap": 12,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "gap": 8
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center"
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "Of what it was given",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 17,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "14% used",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist SemiBold",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 17,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "stretch",
+         "height": 6,
+         "borderRadius": 3,
+         "backgroundColor": "#e0e0e0",
+         "overflow": "hidden"
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": "14.0%",
+           "height": 6,
+           "backgroundColor": "#0a0a0a"
+          },
+          "children": []
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "flexGrow": 1,
+         "flexBasis": 0,
+         "minWidth": 0,
+         "height": 48,
+         "borderRadius": 24,
+         "gap": 8,
+         "justifyContent": "center",
+         "paddingHorizontal": 14,
+         "backgroundColor": "#ffffff",
+         "borderWidth": 1,
+         "borderColor": "#d4d4d4"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M9 7h6a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-6a2 2 0 0 1 -2 -2v-6a2 2 0 0 1 2 -2z",
+           "fill": "none",
+           "stroke": "#0a0a0a",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 18,
+           "height": 18,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Stop",
+           "variant": "bots",
+           "numberOfLines": 1
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist Medium",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 15,
+           "lineHeight": 20,
+           "letterSpacing": 0,
+           "color": "#0a0a0a",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "on": {
+         "onPress": {
+          "kind": "callEndpoint",
+          "method": "POST",
+          "path": "/v1/code/jobs/7c1d2e3f-0000-4000-8000-000000000001/stop",
+          "body": {},
+          "onSuccess": {
+           "kind": "sequence",
+           "actions": [
+            {
+             "kind": "toast",
+             "message": "Stopped. Nothing more is used."
+            },
+            {
+             "kind": "refresh"
+            }
+           ]
+          },
+          "onError": {
+           "kind": "toast",
+           "message": "Couldn't stop it. Try again.",
+           "tone": "error"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "props": {
+     "keyboard": "above"
+    }
+   }
+  ]
+ },
+ "liveTopics": [
+  "job:7c1d2e3f-0000-4000-8000-000000000001"
+ ]
+}

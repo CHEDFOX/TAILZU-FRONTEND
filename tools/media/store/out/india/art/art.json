@@ -1,6 +1,13 @@
 {
  "dir": "/home/user/TAILZU-FRONTEND/tools/media/brand/x0-icon/handdrawn-v2",
  "art": {
+  "bot-happy": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-happy.png",
+   "w": 832,
+   "h": 487,
+   "ledge": 426.18399999999997,
+   "anchor": null
+  },
   "bot-hello": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-hello.png",
    "w": 833,
@@ -13,20 +20,6 @@
    "w": 829,
    "h": 486,
    "ledge": 428.18399999999997,
-   "anchor": null
-  },
-  "bot-happy": {
-   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-happy.png",
-   "w": 832,
-   "h": 487,
-   "ledge": 426.18399999999997,
-   "anchor": null
-  },
-  "bot-shy": {
-   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/bot-shy.png",
-   "w": 830,
-   "h": 473,
-   "ledge": 415.18399999999997,
    "anchor": null
   },
   "bot-starry": {
@@ -43,15 +36,100 @@
    "ledge": 427.18399999999997,
    "anchor": null
   },
-  "underline": {
-   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline.png",
+  "underline-c9683f": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-c9683f.png",
    "w": 724,
    "h": 55,
    "ledge": null,
    "anchor": null
   },
-  "arrow": {
-   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow.png",
+  "arrow-c9683f": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-c9683f.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  },
+  "underline-0a0a0a": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-0a0a0a.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow-0a0a0a": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-0a0a0a.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  },
+  "underline-a9573a": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-a9573a.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow-a9573a": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-a9573a.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  },
+  "underline-8f6a1f": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-8f6a1f.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow-8f6a1f": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-8f6a1f.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  },
+  "underline-3e6e8e": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-3e6e8e.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow-3e6e8e": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-3e6e8e.png",
+   "w": 263,
+   "h": 728,
+   "ledge": null,
+   "anchor": [
+    249.36,
+    668.2
+   ]
+  },
+  "underline-2f5d50": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/underline-2f5d50.png",
+   "w": 724,
+   "h": 55,
+   "ledge": null,
+   "anchor": null
+  },
+  "arrow-2f5d50": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/india/art/arrow-2f5d50.png",
    "w": 263,
    "h": 728,
    "ledge": null,
