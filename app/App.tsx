@@ -212,9 +212,10 @@ export default function App() {
             rebuilt when a screen or the sign-in gate is. It draws nothing at
             all outside onboarding, and takes no touches. */}
         {BlipHost ? <BlipHost /> : null}
-        {/* The launch: the splash's own picture over everything, one swing,
-            then it fades onto the app the moment the app has a screen
-            (src/launch). Gone for the rest of the app's life after that. */}
+        {/* The launch: the splash's own picture over everything, the bot's
+            pull-up and the bar pulled in, then it fades onto the app once the
+            motion is over and the app has a screen (src/launch). Gone for the
+            rest of the app's life after that. */}
         <LaunchCurtain />
       </SafeAreaProvider>
     );
