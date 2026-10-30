@@ -359,7 +359,7 @@ struct NowProvider: TimelineProvider {
     let states = NowStates.all(since: doc?.writtenAt ?? 0)
     let start = Date()
     let span = doc?.refreshSec ?? 900
-    let steps = (doc?.time ?? "relative") == "relative" ? max(1, min(60, Int(span / 60))) : 1
+    let steps = countsFromNow(doc?.time ?? "relative") ? max(1, min(60, Int(span / 60))) : 1
     let entries = (0..<steps).map { i in
       NowEntry(date: start.addingTimeInterval(Double(i) * 60), doc: doc, states: states)
     }
@@ -395,16 +395,19 @@ enum When {
   }
 }
 
+/// Whether the server asked for the time counted from now ("relative", or "minutes": whole minutes or larger).
+func countsFromNow(_ style: String) -> Bool { style == "relative" || style == "minutes" }
+
 /// When, the way the server said: in words as of `now` ("4 min ago"), the clock ("6:30 PM"), or its own words.
 func whenText(_ row: NowRow, style: String, now: Date) -> Text {
-  if let at = row.at, style == "relative" { return Text(When.words(at, now: now)) }
+  if let at = row.at, countsFromNow(style) { return Text(When.words(at, now: now)) }
   if let at = row.at, style == "clock" { return Text(at, style: .time) }
   return Text(row.when)
 }
 
 /// Whether a row has a time to show at all.
 func hasWhen(_ row: NowRow, style: String) -> Bool {
-  (row.at != nil && (style == "relative" || style == "clock")) || !row.when.isEmpty
+  (row.at != nil && (countsFromNow(style) || style == "clock")) || !row.when.isEmpty
 }
 
 /// A section's header: its title (and, when given, how many), and the mark.
