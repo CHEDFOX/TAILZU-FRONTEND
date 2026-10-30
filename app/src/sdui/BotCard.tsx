@@ -129,12 +129,13 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, recipe, momentMode, cardW]);
 
-  // Done: the happy moment, then on.onComplete.
+  // Done: the happy moment (he keeps cheering, a hop each time the last one lands), then on.onComplete.
   useEffect(() => {
     if (phase !== "open" || !done) return;
     bot.cheer();
+    const again = setInterval(() => bot.cheer(), 950);
     const t = setTimeout(complete, Number(props?.doneDelayMs) || 1300);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); clearInterval(again); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, done]);
 
