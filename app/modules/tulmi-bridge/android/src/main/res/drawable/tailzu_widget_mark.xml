@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE MARK: the app icon's painted black bot (its head, cut from
+  app/assets/launch/head.png into tailzu_widget_mark_art). On the light ground
+  it stands on nothing; drawable-night/ puts it on a small white disc so the
+  black bot shows on the dark one. Both are the same size, 60dp square at
+  rest (an ImageView scales them), so the head never jumps between themes.
+
+  Never tinted: a widget leaves the colour filter off any drawable whose name
+  starts with tailzu_widget_mark. The server names it per section and per bot
+  row (widgets.look: androidIcon "tailzu_widget_mark").
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@android:color/transparent" />
+            <size
+                android:width="60dp"
+                android:height="60dp" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/tailzu_widget_mark_art" />
+</layer-list>

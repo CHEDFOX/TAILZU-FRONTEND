@@ -10,13 +10,17 @@ import android.os.Build
 import org.json.JSONArray
 
 /**
- * LONG-PRESS THE APP ICON (Android app shortcuts): Ask, Dictate, New note, Spaces, as the server lists them
+ * LONG-PRESS THE APP ICON (Android app shortcuts): Ask, Dictate, New to-do, Spaces, as the server lists them
  * (app.quickActions.android; src/quickActions in the app), set on every launch the list changed. Each opens its link through the
  * app's own deep-link intent filter, so it arrives like any link (the app's router decides what it may open). The icon is a
- * drawable by the server's name (tailzu_qa_* ship with the bridge), else the app's own icon. Android 7.1 and later.
+ * drawable by the server's name (tailzu_qa_* ship with the bridge: the glyph in the theme's ink on its surface grey, an adaptive
+ * icon from Android 8), else the app's own icon. Android 7.1 and later.
+ *
+ * The label is the item's title, short and long alike: a launcher shows the long one where it has the room, and Android has no
+ * line under it, so an iOS-style subtitle ("Family and friends") would stand in for the name ("Spaces") rather than under it.
  */
 object TailzuShortcuts {
-  /** Replace the dynamic shortcuts with the server's list ([{ id, title, subtitle?, icon?, url }]); an empty list clears them. */
+  /** Replace the dynamic shortcuts with the server's list ([{ id, title, icon?, url }]; a subtitle is iOS's); an empty list clears them. */
   fun apply(context: Context, json: String) {
     if (Build.VERSION.SDK_INT < 25) return
     try {
@@ -36,12 +40,11 @@ object TailzuShortcuts {
         val url = o.optString("url")
         if (id.isEmpty() || title.isEmpty()) continue
         val intent = TailzuQuick.openIntent(context, url) ?: continue
-        val subtitle = o.optString("subtitle").ifEmpty { title }
         val iconRes = TailzuQuick.drawable(context, o.optString("icon"), context.applicationInfo.icon)
         out.add(
           ShortcutInfo.Builder(context, "x0_$id")
             .setShortLabel(title.take(25))
-            .setLongLabel(subtitle.take(40))
+            .setLongLabel(title.take(40))
             .setIcon(Icon.createWithResource(context, iconRes))
             .setIntent(Intent(Intent.ACTION_VIEW, intent.data ?: Uri.parse(url)).setPackage(context.packageName))
             .setRank(out.size)

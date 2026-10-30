@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The long-press shortcut for Spaces from Android 8: masked to the launcher's shape, on the theme's surface grey. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/tailzu_widget_surface" />
+    <foreground android:drawable="@drawable/tailzu_qa_spaces_fg" />
+</adaptive-icon>

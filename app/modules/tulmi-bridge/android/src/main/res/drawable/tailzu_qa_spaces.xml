@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The app icon's long-press shortcut "Spaces" (TailzuShortcuts.kt): the white
-  mark on the widgets' dark ground, so it reads in a light or a dark launcher.
-  The server picks the drawable per shortcut (app.quickActions.android).
+  The app icon's long-press shortcut for Spaces (TailzuShortcuts.kt; the server picks
+  the drawable per shortcut, app.quickActions.android): tailzu_wi_spaces's glyph in the theme's
+  ink on a disc of its surface grey. Android 8 and later take the adaptive icon in
+  drawable-anydpi-v26 instead. Generated with its siblings; edit them together.
 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape android:shape="oval">
-            <solid android:color="#0F0D0B" />
-            <size android:width="48dp" android:height="48dp" />
-        </shape>
-    </item>
-    <item
-        android:bottom="12dp"
-        android:drawable="@drawable/tailzu_wi_spaces"
-        android:left="12dp"
-        android:right="12dp"
-        android:top="12dp" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/tailzu_widget_surface"
+        android:pathData="M24,0A24,24 0 1,1 24,48A24,24 0 1,1 24,0Z" />
+    <group
+        android:translateX="12"
+        android:translateY="12">
+        <path
+            android:fillColor="@color/tailzu_widget_ink"
+            android:pathData="M16,11c1.66,0 2.99,-1.34 2.99,-3S17.66,5 16,5c-1.66,0 -3,1.34 -3,3s1.34,3 3,3zM8,11c1.66,0 2.99,-1.34 2.99,-3S9.66,5 8,5C6.34,5 5,6.34 5,8s1.34,3 3,3zM8,13c-2.33,0 -7,1.17 -7,3.5V19h14v-2.5c0,-2.33 -4.67,-3.5 -7,-3.5zM16,13c-0.29,0 -0.62,0.02 -0.97,0.05 1.16,0.84 1.97,1.97 1.97,3.45V19h6v-2.5c0,-2.33 -4.67,-3.5 -7,-3.5z" />
+    </group>
+</vector>

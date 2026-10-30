@@ -8,7 +8,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.text.format.DateFormat
@@ -34,10 +33,16 @@ import kotlin.math.min
  * and its button. Every field read here keeps a literal fallback, so a missing one never stops the rest; a new kind of row or
  * button is the server's data, not code. Nothing here asks the server for rows.
  *
+ * In the app's own look and the phone's theme (WidgetInk): white and ink with greys, the dark ink at night; the mark (the app
+ * icon's bot) in the header; rows parted by hairlines, each with an avatar (the person's initial, or the row's mark ringed in
+ * its bot's own colour, by the row's `bot`, the one place colour shows); buttons as capsules, a primary one ink-filled, a secondary one
+ * a line-grey ring. The server's colours go over the palette's: the look's `colors` and `styles` for dark, `light` and
+ * `lightStyles` for light.
+ *
  * A button that answers here is a broadcast to TailzuWidgetActReceiver (not exported: only these PendingIntents reach it), which
  * posts it with the widgets' OWN narrow token (POST /v1/widgets/token; it can only answer this person's needs-you and tick their
  * own tasks, runs out in a day, is revoked at sign-out), kept in the same private SharedPreferences. Never the session's token.
- * The row says how it went ("Done", "Already answered", "Open X0 Bot to finish") until the app writes the rows again.
+ * The row says how it went ("Done", "Already answered", "Open X0 to finish") until the app writes the rows again.
  *
  * Rows are nested RemoteViews added to a column at draw time, one per row the widget's height has room for (at most the server's
  * `limits.android`). No timer: the app asks for a redraw whenever it writes rows, and after a button.
@@ -51,8 +56,8 @@ object TailzuQuick {
   const val TOKEN_META = "tulmi.widget.token.meta"
   const val ACT = "expo.modules.tulmibridge.WIDGET_ACT"
 
-  private val GROUND = Color.rgb(0x0F, 0x0D, 0x0B)
-  private val PALE = Color.rgb(0xF3, 0xE2, 0xC6)
+  /** The header's height in dp (its padding, the mark, the gap under it): what is left is the rows'. */
+  private const val HEADER_DP = 56f
 
   /** Ask both quick-access widgets to draw again (a broadcast, so the caller never waits on a draw). Never throws. */
   fun requestUpdate(context: Context) {
@@ -117,36 +122,40 @@ object TailzuQuick {
 
   internal class Look(doc: JSONObject?, context: Context) {
     private val look = doc?.optJSONObject("look")
-    private val colors = look?.optJSONObject("colors")
-    private val light = look?.optJSONObject("light")
-    private val alphas = look?.optJSONObject("alpha")
-    private val styles = look?.optJSONObject("styles")
     private val theme = obj(prefs(context).getString(TailzuMonthWidget.THEME_KEY, null))
-    private val isLight =
-      (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_NO
+    // The server's colours for each theme: the rows' look first, then the month's theme key.
+    private val darks = listOf(look?.optJSONObject("colors"), theme?.optJSONObject("colors"))
+    private val lights = listOf(look?.optJSONObject("light"), theme?.optJSONObject("light"))
+    private val darkStyles = look?.optJSONObject("styles")
+    private val lightStyles = look?.optJSONObject("lightStyles")
+    private val palette = WidgetInk.Palette(context)
 
-    /** The server's colour for a role (its light palette in light mode, when it sent one), then the month's theme, then the literal. */
-    fun color(key: String, fallback: Int): Int {
-      if (isLight) MonthLook.hex(light?.opt(key) as? String)?.let { return it }
-      return MonthLook.hex(colors?.opt(key) as? String)
-        ?: MonthLook.hex(theme?.optJSONObject("colors")?.opt(key) as? String)
-        ?: fallback
-    }
+    /** The theme showing now (Android 12+ is handed both and the launcher picks). */
+    val night = WidgetInk.isNight(context)
 
-    fun alpha(key: String, fallback: Float): Float {
-      val v = alphas?.opt(key)
-      return if (v is Number && v.toDouble() in 0.0..1.0) v.toFloat() else fallback
-    }
+    /** The server's colour for a role, each theme, else the palette's. */
+    fun color(key: String, role: String = key): Ink = WidgetInk.resolve(key, palette.role(role), lights, darks)
 
-    val ground get() = color("ground", GROUND)
-    val pale get() = color("pale", PALE)
-    val accent get() = color("accent", color("mark", pale))
-    val dim get() = MonthLook.fade(pale, alpha("dim", 0.52f))
-    val rule get() = MonthLook.fade(pale, alpha("rule", 0.13f))
+    val ground = color("ground")
+    val ink = color("pale", "ink")
+    val accent = WidgetInk.resolve("accent", WidgetInk.resolve("mark", ink, lights, darks), lights, darks)
+    val meta = color("meta")
+    val line = color("line")
+    val surface = color("surface")
 
-    fun fg(style: String): Int = MonthLook.hex(styles?.optJSONObject(style)?.opt("fg") as? String) ?: if (style == "primary") ground else pale
-    fun bg(style: String): Int = MonthLook.hex(styles?.optJSONObject(style)?.opt("bg") as? String) ?: if (style == "primary") pale else rule
+    /** One part (fg, bg, border) of a button's style, each theme: the server's, else the app's own. */
+    private fun style(name: String, part: String, fallback: Ink): Ink = Ink(
+      MonthLook.hex(lightStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.light,
+      MonthLook.hex(darkStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.dark,
+    )
+
+    // A primary button is ink with the ground's words; any other is the ink's words in a line-grey ring.
+    fun fg(name: String): Ink = style(name, "fg", if (name == "primary") ground else ink)
+    fun bg(name: String): Ink = style(name, "bg", if (name == "primary") ink else CLEAR)
+    fun border(name: String): Ink = style(name, "border", if (name == "primary") CLEAR else line)
   }
+
+  private val CLEAR = Ink(0, 0)
 
   // ------------------------------------------------------------------ links and buttons
 
@@ -204,14 +213,34 @@ object TailzuQuick {
     return if (h > 0) h.toFloat() else 180f
   }
 
-  /** When, the way the server said: counting ("5 min. ago"), the clock ("6:30 pm"), or its own words. */
-  internal fun whenText(context: Context, row: JSONObject, style: String): String {
+  /**
+   * When, the way the server said, never to the second: in whole minutes, hours, days in its words ("minutes": "now", "4m",
+   * "3h", "2d", from the document's `timeWords`), counting in the phone's words ("relative": "5 min. ago"), the clock
+   * ("clock": "6:30 pm"), or its own words as of the fetch (anything else).
+   */
+  internal fun whenText(context: Context, row: JSONObject, style: String, words: JSONObject?): String {
     val at = row.optLong("at", 0L)
-    if (at > 0L && style == "relative") {
-      return DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
+    if (at > 0L && (style == "minutes" || style == "relative")) {
+      val ago = max(0L, System.currentTimeMillis() - at)
+      fun word(key: String, fallback: String, n: Long) = (words?.optString(key)?.ifEmpty { null } ?: fallback).replace("{n}", n.toString())
+      if (ago < DateUtils.MINUTE_IN_MILLIS) return word("now", "now", 0)
+      if (style == "relative") {
+        return DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString()
+      }
+      if (ago < DateUtils.HOUR_IN_MILLIS) return word("min", "{n}m", ago / DateUtils.MINUTE_IN_MILLIS)
+      if (ago < DateUtils.DAY_IN_MILLIS) return word("hour", "{n}h", ago / DateUtils.HOUR_IN_MILLIS)
+      return word("day", "{n}d", ago / DateUtils.DAY_IN_MILLIS)
     }
     if (at > 0L && style == "clock") return DateFormat.getTimeFormat(context).format(Date(at))
     return row.optString("when", "")
+  }
+
+  /** A drawable on an image view: the mark as it is painted, anything else in `ink` (both themes). */
+  private fun glyph(rv: RemoteViews, id: Int, context: Context, name: String?, fallback: Int, ink: Ink, night: Boolean) {
+    val res = drawable(context, name, fallback)
+    rv.setImageViewResource(id, res)
+    val mark = if (res == fallback) fallback == R.drawable.tailzu_widget_mark else WidgetInk.isMark(name)
+    if (!mark) WidgetInk.image(rv, id, ink, night)
   }
 
   /** One section of the document (people or needs) drawn into a widget, its rows as many as fit. */
@@ -226,22 +255,22 @@ object TailzuQuick {
     val on = section?.optBoolean("on", false) == true
     val rows = section?.optJSONArray("rows") ?: JSONArray()
     val words = section?.optJSONObject("words")
-    val time = doc?.optString("time", "relative") ?: "relative"
+    val time = doc?.optString("time", "minutes") ?: "minutes"
+    val timeWords = doc?.optJSONObject("timeWords")
     val rv = RemoteViews(context.packageName, R.layout.tailzu_widget_quick)
+    val night = look.night
 
-    rv.setInt(R.id.tailzu_quick_ground, "setColorFilter", look.ground or 0xFF000000.toInt())
-    rv.setInt(R.id.tailzu_quick_ground, "setImageAlpha", Color.alpha(look.ground))
-    rv.setImageViewResource(R.id.tailzu_quick_icon, drawable(context, section?.optString("androidIcon"), sectionIcon))
-    rv.setInt(R.id.tailzu_quick_icon, "setColorFilter", look.accent)
+    WidgetInk.image(rv, R.id.tailzu_quick_ground, look.ground, night)
+    glyph(rv, R.id.tailzu_quick_icon, context, section?.optString("androidIcon"), sectionIcon, look.ink, night)
     rv.setTextViewText(R.id.tailzu_quick_title, section?.optString("title")?.takeIf { it.isNotEmpty() } ?: fallbackTitle)
-    rv.setTextColor(R.id.tailzu_quick_title, look.dim)
+    WidgetInk.text(rv, R.id.tailzu_quick_title, look.ink, night)
     val base = appWidgetId * 64
     open(context, section?.optString("url")?.takeIf { it.isNotEmpty() } ?: fallbackUrl, base)?.let {
       rv.setOnClickPendingIntent(android.R.id.background, it)
     }
 
     rv.removeAllViews(R.id.tailzu_quick_rows)
-    val room = max(1, ((heightDp(context, options) - 44f) / rowDp).toInt())
+    val room = max(1, ((heightDp(context, options) - HEADER_DP) / rowDp).toInt())
     val limit = section?.optJSONObject("limits")?.optInt("android", if (which == "needs") 3 else 4) ?: 4
     val count = min(min(room, max(1, limit)), rows.length())
     if (doc == null || !on || count == 0) {
@@ -250,15 +279,15 @@ object TailzuQuick {
       val empty = section?.optJSONObject("empty")
       val written = empty?.optString("title")?.isNotEmpty() == true
       rv.setTextViewText(R.id.tailzu_quick_empty_title, if (written) empty!!.optString("title") else fallbackEmptyTitle)
-      rv.setTextColor(R.id.tailzu_quick_empty_title, look.pale)
+      WidgetInk.text(rv, R.id.tailzu_quick_empty_title, look.ink, night)
       val body = if (written) empty!!.optString("body", "") else fallbackEmptyBody
       rv.setTextViewText(R.id.tailzu_quick_empty_body, body)
-      rv.setTextColor(R.id.tailzu_quick_empty_body, look.dim)
+      WidgetInk.text(rv, R.id.tailzu_quick_empty_body, look.meta, night)
       rv.setViewVisibility(R.id.tailzu_quick_empty_body, if (body.isEmpty()) View.GONE else View.VISIBLE)
       val cta = if (written) empty!!.optString("cta", "") else fallbackEmptyCta
       rv.setTextViewText(R.id.tailzu_quick_empty_cta_text, cta)
       rv.setViewVisibility(R.id.tailzu_quick_empty_cta, if (cta.isEmpty()) View.GONE else View.VISIBLE)
-      pill(rv, R.id.tailzu_quick_empty_cta_bg, R.id.tailzu_quick_empty_cta_text, "primary", look)
+      pill(rv, R.id.tailzu_quick_empty_cta_bg, R.id.tailzu_quick_empty_cta_ring, R.id.tailzu_quick_empty_cta_text, "primary", look)
       open(context, empty?.optString("url")?.takeIf { it.isNotEmpty() } ?: fallbackUrl, base + 1)?.let {
         rv.setOnClickPendingIntent(R.id.tailzu_quick_empty, it)
         rv.setOnClickPendingIntent(android.R.id.background, it)
@@ -270,47 +299,93 @@ object TailzuQuick {
     rv.setViewVisibility(R.id.tailzu_quick_empty, View.GONE)
     for (i in 0 until count) {
       val row = rows.optJSONObject(i) ?: continue
-      rv.addView(R.id.tailzu_quick_rows, rowViews(context, row, look, time, states[row.optString("id")], words, base + 2 + i * 6))
+      rv.addView(R.id.tailzu_quick_rows, rowViews(context, row, look, time, timeWords, states[row.optString("id")], words, base + 2 + i * 6, i == 0))
     }
     return rv
   }
 
   /**
-   * A button's look, the server's style: a rounded pill image tinted to its colour (the way the Month tints its ground, so every
-   * Android version takes it) under its words.
+   * A button's look, the server's style: a capsule tinted to its fill, a 1dp capsule ring tinted to its border, and its words
+   * (images tinted the way the Month tints its ground, so every Android version takes them).
    */
-  private fun pill(rv: RemoteViews, bg: Int, text: Int, style: String, look: Look) {
-    val fill = look.bg(style)
-    rv.setInt(bg, "setColorFilter", fill or 0xFF000000.toInt())
-    rv.setInt(bg, "setImageAlpha", Color.alpha(fill))
-    rv.setTextColor(text, look.fg(style))
+  private fun pill(rv: RemoteViews, bg: Int, ring: Int, text: Int, style: String, look: Look) {
+    WidgetInk.image(rv, bg, look.bg(style), look.night)
+    WidgetInk.image(rv, ring, look.border(style), look.night)
+    WidgetInk.text(rv, text, look.fg(style), look.night)
   }
 
-  /** The three button slots of a row: the pressable frame, its pill, its words. */
+  /** The three button slots of a row: the pressable frame, its fill, its ring, its words. */
   private val BUTTONS = arrayOf(
-    intArrayOf(R.id.tailzu_row_b0, R.id.tailzu_row_b0_bg, R.id.tailzu_row_b0_text),
-    intArrayOf(R.id.tailzu_row_b1, R.id.tailzu_row_b1_bg, R.id.tailzu_row_b1_text),
-    intArrayOf(R.id.tailzu_row_b2, R.id.tailzu_row_b2_bg, R.id.tailzu_row_b2_text),
+    intArrayOf(R.id.tailzu_row_b0, R.id.tailzu_row_b0_bg, R.id.tailzu_row_b0_ring, R.id.tailzu_row_b0_text),
+    intArrayOf(R.id.tailzu_row_b1, R.id.tailzu_row_b1_bg, R.id.tailzu_row_b1_ring, R.id.tailzu_row_b1_text),
+    intArrayOf(R.id.tailzu_row_b2, R.id.tailzu_row_b2_bg, R.id.tailzu_row_b2_ring, R.id.tailzu_row_b2_text),
   )
 
+  /**
+   * Each bot's own colour, by the row's `bot`: the built-ins' (backend bots/art.ts BOT_INK) and a person's own bot's palette
+   * name (bots/palette.ts PALETTE_HEX). X0 itself ("tailzu") is the ink, light or dark.
+   */
+  private val BOT_INK = mapOf(
+    "keybot" to 0xA9573A, "code" to 0x4F7A3A, "plan" to 0x8F6A1F, "travel" to 0x3E6E8E,
+    "moss" to 0x4F7A3A, "clay" to 0xA9573A, "ochre" to 0x8F6A1F, "sea" to 0x3E6E8E,
+    "pine" to 0x2F5D50, "plum" to 0x6E4A6B, "sand" to 0x7A6440, "stone" to 0x5F6B6E,
+  )
+
+  /** A row's bot's ring colour, or null for a row that is not a bot's. */
+  private fun botInk(bot: String, look: Look): Ink? {
+    if (bot.isEmpty()) return null
+    if (bot == "tailzu") return look.ink
+    val rgb = BOT_INK[bot] ?: return look.ink
+    return WidgetInk.onDark(rgb or 0xFF000000.toInt(), look.ink)
+  }
+
+  /**
+   * The avatar: a bot's row (it names its `bot`) is its mark ringed in that bot's colour; a person's is their initial; a row
+   * with neither its kind's drawable.
+   */
+  private fun avatar(v: RemoteViews, context: Context, row: JSONObject, look: Look) {
+    val night = look.night
+    WidgetInk.image(v, R.id.tailzu_row_avatar, look.surface, night)
+    val bot = botInk(row.optString("bot").trim(), look)
+    val initial = row.optString("initial").trim()
+    v.setViewVisibility(R.id.tailzu_row_ring, if (bot != null) View.VISIBLE else View.GONE)
+    if (bot != null) WidgetInk.image(v, R.id.tailzu_row_ring, bot, night)
+    if (bot == null && initial.isNotEmpty()) {
+      v.setViewVisibility(R.id.tailzu_row_icon, View.GONE)
+      v.setViewVisibility(R.id.tailzu_row_initial, View.VISIBLE)
+      v.setTextViewText(R.id.tailzu_row_initial, initial.take(2))
+      WidgetInk.text(v, R.id.tailzu_row_initial, look.ink, night)
+      return
+    }
+    v.setViewVisibility(R.id.tailzu_row_initial, View.GONE)
+    v.setViewVisibility(R.id.tailzu_row_icon, View.VISIBLE)
+    // A kind's own colour (the look's kinds.*.color), when the server gives one; else the ink.
+    val tint = MonthLook.hex(row.optString("color"))?.let { Ink(it, it) } ?: look.ink
+    glyph(v, R.id.tailzu_row_icon, context, row.optString("androidIcon"), R.drawable.tailzu_widget_mark, tint, night)
+  }
+
   private fun rowViews(
-    context: Context, row: JSONObject, look: Look, time: String, state: String?, words: JSONObject?, code: Int,
+    context: Context, row: JSONObject, look: Look, time: String, timeWords: JSONObject?, state: String?, words: JSONObject?,
+    code: Int, first: Boolean,
   ): RemoteViews {
     val v = RemoteViews(context.packageName, R.layout.tailzu_widget_quick_row)
+    val night = look.night
     val item = row.optString("id")
-    v.setImageViewResource(R.id.tailzu_row_icon, drawable(context, row.optString("androidIcon"), R.drawable.tailzu_wi_bot))
-    v.setInt(R.id.tailzu_row_icon, "setColorFilter", MonthLook.hex(row.optString("color")) ?: look.accent)
+    v.setViewVisibility(R.id.tailzu_row_rule, if (first) View.GONE else View.VISIBLE)
+    if (!first) WidgetInk.set(v, R.id.tailzu_row_rule, "setBackgroundColor", look.line, night)
+    avatar(v, context, row, look)
     v.setTextViewText(R.id.tailzu_row_who, row.optString("who"))
-    v.setTextColor(R.id.tailzu_row_who, look.pale)
+    WidgetInk.text(v, R.id.tailzu_row_who, look.ink, night)
     val tag = row.optString("tag", "")
     v.setTextViewText(R.id.tailzu_row_tag, tag)
-    v.setTextColor(R.id.tailzu_row_tag, look.dim)
+    WidgetInk.text(v, R.id.tailzu_row_tag, look.meta, night)
     v.setViewVisibility(R.id.tailzu_row_tag, if (tag.isEmpty()) View.GONE else View.VISIBLE)
-    v.setTextViewText(R.id.tailzu_row_when, whenText(context, row, time))
-    v.setTextColor(R.id.tailzu_row_when, look.dim)
+    v.setTextViewText(R.id.tailzu_row_when, whenText(context, row, time, timeWords))
+    WidgetInk.text(v, R.id.tailzu_row_when, look.meta, night)
     val text = row.optString("text").ifEmpty { row.optString("line") }
     v.setTextViewText(R.id.tailzu_row_text, text)
-    v.setTextColor(R.id.tailzu_row_text, MonthLook.fade(look.pale, 0.86f))
+    v.setViewVisibility(R.id.tailzu_row_text, if (text.isEmpty()) View.GONE else View.VISIBLE)
+    WidgetInk.text(v, R.id.tailzu_row_text, look.ink, night)
     open(context, row.optString("url"), code)?.let { v.setOnClickPendingIntent(R.id.tailzu_row_words, it) }
 
     // How a pressed button went, until the rows are written again; else the buttons.
@@ -319,10 +394,10 @@ object TailzuQuick {
         "working" -> words?.optString("working")?.ifEmpty { null } ?: "Sending…"
         "done" -> words?.optString("done")?.ifEmpty { null } ?: "Done"
         "gone" -> words?.optString("gone")?.ifEmpty { null } ?: "Already answered"
-        else -> words?.optString("failed")?.ifEmpty { null } ?: "Open X0 Bot to finish"
+        else -> words?.optString("failed")?.ifEmpty { null } ?: "Open X0 to finish"
       }
       v.setTextViewText(R.id.tailzu_row_state, line)
-      v.setTextColor(R.id.tailzu_row_state, if (state == "done") look.accent else look.dim)
+      WidgetInk.text(v, R.id.tailzu_row_state, if (state == "done") look.accent else look.meta, night)
       v.setViewVisibility(R.id.tailzu_row_state, View.VISIBLE)
       v.setViewVisibility(R.id.tailzu_row_buttons, View.GONE)
       return v
@@ -341,9 +416,10 @@ object TailzuQuick {
         "open" -> if (openIntent(context, a.optString("url")) != null) open(context, a.optString("url"), code + 1 + shown) else null
         else -> null
       } ?: continue
-      val (frame, bg, words2) = BUTTONS[shown].let { Triple(it[0], it[1], it[2]) }
+      val (frame, bg, ring) = BUTTONS[shown].let { Triple(it[0], it[1], it[2]) }
+      val words2 = BUTTONS[shown][3]
       v.setTextViewText(words2, label)
-      pill(v, bg, words2, a.optString("style", "secondary"), look)
+      pill(v, bg, ring, words2, a.optString("style", "secondary"), look)
       v.setOnClickPendingIntent(frame, tap)
       v.setViewVisibility(frame, View.VISIBLE)
       shown++
@@ -411,7 +487,7 @@ class TailzuPeopleWidget : AppWidgetProvider() {
         fallbackEmptyBody = context.getString(R.string.tailzu_widget_people_empty_body),
         fallbackEmptyCta = context.getString(R.string.tailzu_widget_people_empty_cta),
         fallbackUrl = "tulmi://screen/bots.spaces",
-        rowDp = 46f, sectionIcon = R.drawable.tailzu_wi_spaces,
+        rowDp = 54f, sectionIcon = R.drawable.tailzu_widget_mark,
       ))
     } catch (_: Throwable) {
       // A launcher that refused it keeps what it had.
@@ -438,7 +514,7 @@ class TailzuNeedsWidget : AppWidgetProvider() {
         fallbackEmptyBody = context.getString(R.string.tailzu_widget_needs_empty_body),
         fallbackEmptyCta = "",
         fallbackUrl = "tulmi://screen/bots.home",
-        rowDp = 82f, sectionIcon = R.drawable.tailzu_wi_bot,
+        rowDp = 96f, sectionIcon = R.drawable.tailzu_widget_mark,
       ))
     } catch (_: Throwable) {
     }

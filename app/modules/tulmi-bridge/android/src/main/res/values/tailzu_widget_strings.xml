@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The Month widget's words that the picker shows before the app has run, so
-  they cannot come from the server. Everything drawn on the widget itself comes
-  from the labels the app writes with the month (src/widgets/month.ts). The
-  name and description are the iOS widget's (widget.month.displayName and
-  widget.month.description).
+  The widgets' words that the picker shows before the app has run, so they
+  cannot come from the server. Everything drawn on the Month itself comes from
+  the labels the app writes with the month (src/widgets/month.ts). Its name and
+  description are the iOS widget's (widget.month.displayName and
+  widget.month.description): short, sentence case, the app's own voice.
 -->
 <resources>
-    <string name="tailzu_widget_month_label">The Month</string>
-    <string name="tailzu_widget_month_description">Words this month.</string>
+    <string name="tailzu_widget_month_label">This month</string>
+    <string name="tailzu_widget_month_description">Your words this month.</string>
     <!-- The picker preview's sample: the iOS gallery's 318 words left. -->
     <string name="tailzu_widget_month_preview_number" translatable="false">318</string>
     <string name="tailzu_widget_month_preview_label">WORDS LEFT</string>
@@ -25,13 +25,21 @@
     <string name="tailzu_widget_people_empty_body">Make a space for family and friends.</string>
     <string name="tailzu_widget_people_empty_cta">Make a space</string>
     <string name="tailzu_widget_needs_label">Needs you</string>
-    <string name="tailzu_widget_needs_description">Answer your bots and tick off tasks without opening the app.</string>
+    <string name="tailzu_widget_needs_description">Answer your bots and tick off tasks.</string>
     <string name="tailzu_widget_needs_empty_title">All clear</string>
     <string name="tailzu_widget_needs_empty_body">Nothing needs you right now.</string>
-    <!-- The pickers' previews: a sample row. -->
+    <!-- The pickers' previews: sample rows, worded as the server words them. -->
+    <string name="tailzu_widget_people_preview_initial" translatable="false">R</string>
     <string name="tailzu_widget_people_preview_who" translatable="false">Riya</string>
-    <string name="tailzu_widget_people_preview_text">shared Weekend plan</string>
-    <string name="tailzu_widget_needs_preview_who" translatable="false">Plan bot</string>
+    <string name="tailzu_widget_people_preview_tag">shared</string>
+    <string name="tailzu_widget_people_preview_when" translatable="false">2m</string>
+    <string name="tailzu_widget_people_preview_text">Weekend plan</string>
+    <string name="tailzu_widget_people_preview2_initial" translatable="false">S</string>
+    <string name="tailzu_widget_people_preview2_who" translatable="false">Sam</string>
+    <string name="tailzu_widget_people_preview2_when" translatable="false">1h</string>
+    <string name="tailzu_widget_people_preview2_text">Running late, start without me</string>
+    <string name="tailzu_widget_needs_preview_who">Plan bot</string>
+    <string name="tailzu_widget_needs_preview_when">now</string>
     <string name="tailzu_widget_needs_preview_text">Move dinner to 7:30?</string>
     <string name="tailzu_widget_needs_preview_yes">Yes</string>
     <string name="tailzu_widget_needs_preview_no">No</string>

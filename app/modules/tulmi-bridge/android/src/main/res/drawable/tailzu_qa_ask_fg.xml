@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The adaptive shortcut icon's foreground for Ask: tailzu_wi_ask's glyph in the theme's ink,
+  36dp in the middle of the 108dp canvas (half of the 72dp a launcher shows).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:translateX="36"
+        android:translateY="36">
+        <path
+            android:fillColor="@color/tailzu_widget_ink"
+            android:pathData="M19,9l1.25,-2.75L23,5l-2.75,-1.25L19,1l-1.25,2.75L15,5l2.75,1.25L19,9zM11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5,-5.5L17,12L11.5,9.5zM19,15l-1.25,2.75L15,19l2.75,1.25L19,23l1.25,-2.75L23,19l-2.75,-1.25L19,15z" />
+    </group>
+</vector>
