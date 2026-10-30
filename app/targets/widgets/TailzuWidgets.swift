@@ -1,25 +1,27 @@
 import SwiftUI
 import WidgetKit
 
-// THE WIDGETS. One extension: the month on the Home and Lock Screen, the
-// quick-access widgets (From your people, Needs you: QuickAccess.swift), the
-// microphone session as a Live Activity, setup as a Live Activity, and
-// Dictate as a Control.
+// THE WIDGETS. One extension: X0, the universal widget (the whole app at a
+// glance: what needs you, what the bots are doing, and Ask — X0Widget.swift),
+// From your people (PeopleWidget.swift), the running job as a Live Activity
+// ("Bots at work": BotsActivity.swift), the microphone session and setup as
+// Live Activities, and Dictate as a Control. (The Month and Needs you were
+// retired: X0 shows both.)
 // Everything they show comes from the App Group the app writes; nothing here
-// talks to the server, and no dictated text is ever drawn — a widget sits on
-// a Lock Screen.
+// fetches anything (the one thing sent is an answer, with the widgets' own
+// token), and no dictated text is ever drawn — a widget sits on a Lock Screen.
 //
-// The words are the server's: the app writes them from the server's labels
-// and flags (src/widgets/month.ts, now.ts, flow.ts), and every one read here
-// keeps a literal as its fallback, for a phone whose app has not written them
-// yet. The look is the app's own and lives here: X0Palette, X0Mark, X0Pill.
+// The words are the server's: the app writes them from the server's labels,
+// flags and glance (src/widgets), and every one read here keeps a literal as
+// its fallback, for a phone whose app has not written them yet. The look is
+// the app's own and lives here: X0Palette, X0Mark, X0Pill.
 
 @main
 struct TailzuWidgetBundle: WidgetBundle {
   var body: some Widget {
-    MonthWidget()
+    X0GlanceWidget()
     PeopleWidget()
-    NeedsWidget()
+    BotsActivityWidget()
     FlowActivityWidget()
     SetupActivityWidget()
     if #available(iOS 18.0, *) {
@@ -48,18 +50,30 @@ struct X0Palette {
   let dim: Color
   /// Hairlines between rows, a secondary button's border, an empty track.
   let line: Color
-  /// An avatar's ground.
+  /// An avatar's ground, the Ask bar's.
   let surface: Color
-  /// A dark ground: the mark sits on its white tile.
+  /// A secondary button's border.
+  let outline: Color
+  /// The week's open bead.
+  let hollow: Color
+  /// A dark ground: the mark sits on its white tile, a bot's colour is lifted.
   let onDark: Bool
 
   static let light = X0Palette(
     ground: Color(rgb: 0xFFFFFF), ink: Color(rgb: 0x0A0A0A), meta: Color(rgb: 0x5C5C5C),
-    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5), onDark: false)
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5),
+    outline: Color(rgb: 0xD4D4D4), hollow: Color(rgb: 0xC9C9C9), onDark: false)
 
   static let dark = X0Palette(
     ground: Color(rgb: 0x0A0A0A), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
-    dim: Color(rgb: 0x737373), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717), onDark: true)
+    dim: Color(rgb: 0x737373), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717),
+    outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
+
+  /// The Dynamic Island: always black.
+  static let island = X0Palette(
+    ground: Color(rgb: 0x000000), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
+    dim: Color(rgb: 0x737373), line: Color(rgb: 0x2C2C2C), surface: Color(rgb: 0x171717),
+    outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
 
   static func of(_ scheme: ColorScheme) -> X0Palette { scheme == .dark ? dark : light }
 }
@@ -76,7 +90,32 @@ enum BotInk {
   ]
 
   static func color(_ key: String) -> Color? {
-    inks[key.lowercased()].map { Color(rgb: $0) }
+    rgb(key).map { Color(rgb: $0) }
+  }
+
+  /// The ink as 0xRRGGBB, by the bot's key or its palette name.
+  static func rgb(_ key: String) -> UInt32? {
+    inks[key.lowercased()]
+  }
+
+  /// A bot's colour as drawn: the server's (`color`), else its own ink by key, else nil (draw it in ink). On a dark ground it is
+  /// lifted 28% towards white, so it carries.
+  static func tint(_ key: String, hex: String? = nil, dark: Bool) -> Color? {
+    guard let v = hex.flatMap(rgbOf) ?? rgb(key) else { return nil }
+    let t = dark ? 0.28 : 0
+    func c(_ shift: UInt32) -> Double {
+      let x = Double((v >> shift) & 0xFF) / 255
+      return x + (1 - x) * t
+    }
+    return Color(.sRGB, red: c(16), green: c(8), blue: c(0), opacity: 1)
+  }
+
+  /// "#RRGGBB" (the # optional) as 0xRRGGBB.
+  private static func rgbOf(_ hex: String) -> UInt32? {
+    var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("#") { s.removeFirst() }
+    guard s.count == 6, s.allSatisfy({ $0.isHexDigit }) else { return nil }
+    return UInt32(s, radix: 16)
   }
 }
 
@@ -128,9 +167,10 @@ struct X0Brand: View {
 }
 
 /// A button, as the app draws one: fully rounded; the primary filled with ink
-/// and worded in the ground, a secondary one a 1pt line-coloured border with
-/// ink words. Never truncated: a pill keeps its words' width (`fill` stretches
-/// it to the row and shrinks its words a little before cutting any).
+/// and worded in the ground, a secondary one a 1pt outline-grey border with
+/// ink words, a quiet one only its words in the meta grey ("You decide").
+/// Never truncated: a pill keeps its words' width (`fill` stretches it to the
+/// row and shrinks its words a little before cutting any).
 struct X0Pill: View {
   let label: String
   var icon: String? = nil
@@ -138,6 +178,9 @@ struct X0Pill: View {
   let p: X0Palette
   var fill = false
   var height: CGFloat = 30
+  var size: CGFloat = 13
+  var padding: CGFloat = 14
+  var quiet = false
 
   var body: some View {
     HStack(spacing: 5) {
@@ -148,16 +191,17 @@ struct X0Pill: View {
         .lineLimit(1)
         .minimumScaleFactor(fill ? 0.75 : 1)
     }
-    .font(.system(size: 13, weight: .semibold))
-    .foregroundStyle(primary ? p.ground : p.ink)
-    .padding(.horizontal, 14)
+    .font(.system(size: size, weight: quiet ? .medium : .semibold))
+    .tracking(-0.1)
+    .foregroundStyle(primary ? p.ground : quiet ? p.meta : p.ink)
+    .padding(.horizontal, padding)
     .frame(maxWidth: fill ? .infinity : nil)
     .frame(height: height)
     .background {
       if primary {
         Capsule().fill(p.ink)
-      } else {
-        Capsule().strokeBorder(p.line, lineWidth: 1)
+      } else if !quiet {
+        Capsule().strokeBorder(p.outline, lineWidth: 1)
       }
     }
     .fixedSize(horizontal: !fill, vertical: false)
@@ -176,80 +220,6 @@ struct Hairline: View {
 enum Shared {
   static let appGroup = "group.com.tulmi.app"
   static var store: UserDefaults? { UserDefaults(suiteName: appGroup) }
-}
-
-/// Everything the app wrote next to the month's numbers that is not a number:
-/// the words (labels), where a tap goes, how often to ask again, the
-/// subscriber's span, whether the streak shows. Read leniently — a missing or
-/// mistyped field is simply absent, and its caller falls back to its literal —
-/// so nothing here can stop the numbers drawing. (The colours and alphas the
-/// app still writes beside them are not read: X0Palette.)
-struct WidgetLook {
-  var labels: [String: String] = [:]
-  var url: String?
-  var refreshSec: Double?
-  var span: Double?
-  /// Whether the month shows the streak (widget.month.streak). Off: minimal.
-  var showStreak = false
-  /// Whether the month shows the progress line (widget.month.show.progress).
-  /// On unless the server turns it off.
-  var showProgress = true
-
-  init() {}
-
-  init(json data: Data) {
-    guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-    labels = (o["labels"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
-    url = o["url"] as? String
-    refreshSec = WidgetLook.number(o["refreshSec"])
-    span = WidgetLook.number(o["span"])
-    showStreak = (o["showStreak"] as? Bool) ?? false
-    showProgress = (o["showProgress"] as? Bool) ?? true
-  }
-
-  /// A finite JSON number, or nil. Shared by every lenient read here.
-  static func number(_ v: Any?) -> Double? {
-    guard let n = v as? NSNumber else { return nil }
-    let d = n.doubleValue
-    return d.isFinite ? d : nil
-  }
-
-  /// A label, or the literal it replaced.
-  func text(_ key: String, _ fallback: String) -> String { labels[key] ?? fallback }
-
-  /// A label with its `{n}` filled in.
-  func text(_ key: String, _ fallback: String, n value: String) -> String {
-    text(key, fallback).replacingOccurrences(of: "{n}", with: value)
-  }
-
-  /// Where a tap on the month goes: the server's link (widget.month.url), or
-  /// the Bots app's usage screen.
-  var tapURL: URL? {
-    let fallback = "tulmi://screen/bots.usage"
-    return URL(string: url ?? fallback) ?? URL(string: fallback)
-  }
-
-  /// Seconds until the timeline asks again (the app also reloads it whenever
-  /// it writes fresh numbers).
-  var refreshInterval: TimeInterval {
-    guard let s = refreshSec, s > 0 else { return 3600 }
-    return s
-  }
-
-  // What the App Group holds right now, parsed once per change: every word
-  // reads through here, several times a render.
-  private static let lock = NSLock()
-  private static var cachedRaw: String?
-  private static var cached = WidgetLook()
-
-  static var current: WidgetLook {
-    let raw = Shared.store?.string(forKey: "tulmi.widget.month")
-    lock.lock(); defer { lock.unlock() }
-    if raw == cachedRaw { return cached }
-    cachedRaw = raw
-    cached = raw.flatMap { $0.data(using: .utf8) }.map { WidgetLook(json: $0) } ?? WidgetLook()
-    return cached
-  }
 }
 
 extension Color {
