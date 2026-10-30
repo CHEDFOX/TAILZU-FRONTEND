@@ -141,7 +141,11 @@ const config: ExpoConfig = {
   // native modules out (expo-calendar, expo-contacts). An update published
   // for the binary before it still imports them, and on a binary without
   // them that import throws at launch, so the two must not share a runtime.
-  runtimeVersion: "tailzu-2026-10-k42-a4",
+  //
+  // BUMPED for 8.8: its splash is white (the Bots app's paper) where 8.7's is
+  // cream, and its launch curtain is drawn on white. An update for 8.8 on an
+  // 8.7 binary would lay a white curtain over a cream splash, a visible flash.
+  runtimeVersion: "tailzu-2026-10-x0-88",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the
