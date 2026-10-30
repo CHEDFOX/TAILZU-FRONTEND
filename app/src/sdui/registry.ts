@@ -2,84 +2,27 @@
  * What this renderer build can draw + do. Sent to the server in the capability
  * handshake so it never emits a node/action we can't handle.
  *
- * This list is the KITCHEN-SINK build — every component/action we might want
- * to server-drive within 12 months. The renderer implementations live in
- * components.tsx (nodes) and actions.ts (actions).
+ * This build draws the Bots app and nothing else: its kit, its sign-in and the
+ * keyboard's handoff screens. The renderer implementations live in
+ * components.tsx / componentsV3.tsx (nodes) and actions.ts (actions).
  *
  * THE LIST IS A PROMISE, SO IT ONLY NAMES WHAT ACTUALLY WORKS. The server
  * withholds anything this bundle does not advertise and draws a fallback
- * instead — which is exactly right for a placeholder, and exactly wrong for a
- * real component that was simply never added here. So:
- *
- *   - registered components are listed (FlipText, ChatThread, … were drawn
- *     all along but never advertised, so the server could not rely on them);
- *   - stand-ins are NOT listed (LottieAnimation, SwipeableRow and Tabs render
- *     a stand-in, not the thing) — they stay in the registry so an old screen
- *     still draws something, and come back here the day they are real. Audio,
- *     Camera and QRScanner drew nothing at all and are gone: an unknown type
- *     draws its `fallback`, which is better than nothing;
- *   - actions that do nothing (playMedia, keyboard.reload, keyboard.setLayout)
- *     are neither listed nor handled, and the implemented ones that were
- *     missing are listed.
+ * instead. So every registered component is listed, and so is each
+ * NOT-A-COMPONENT declaration below: a behaviour of this bundle the server
+ * relies on before it sends something that needs it.
  */
 export const CORE_COMPONENTS = [
-  // v1 primitives
-  "Screen", "Stack", "Spacer", "Text", "Image", "Icon", "Button",
-  "TextField", "Chip", "Card", "List", "Divider", "ProgressBar", "VoiceButton",
+  // The Bots kit's primitives (Button: the bootstrap's launch card).
+  "Screen", "Stack", "Text", "Image", "Button", "TextField", "Grid", "SafeArea", "SVG",
+  // The keyboard handoff screens' mic and dictation (keyboard_record, keyboard_primer, flow_arm).
+  "VoiceButton", "VoiceToggle",
 
-  // v2 content blocks
-  "Overline", "Heading", "Paragraph", "Quote", "Badge", "KeyValue", "Hero",
-
-  // v2 playground controls
-  "VoiceToggle", "RefineButton", "DraftButton", "Pager",
-
-  // v2 settings row + dictionary
-  "Row",
-  "DictionaryEditor", "WordChips", "LanguageGreetingGrid", "FlipText",
-
-  // v3 layout / navigation
-  "Grid", "MasonryGrid", "Modal", "BottomSheet", "ActionSheet",
-  "Popover", "Tooltip", "Collapsible", "StickyHeader",
-  "PullToRefresh", "SafeArea",
-
-  // v3 inputs
-  "Switch", "Slider", "Stepper", "SegmentedControl", "SearchField",
-  "Picker", "DatePicker",
-
-  // v3 data viz
-  "LineChart", "BarChart", "Sparkline", "ProgressRing", "Gauge",
-  "StatCard", "Waveform", "PieChart", "DonutChart",
-
-  // v3 media
-  "Video", "ImagePickerButton",
-  "Avatar", "AvatarStack",
-  // Slideshow — cycles through a MediaSpec[] at a backend-defined speed.
-  // Powers intro sequences, paywall carousels, onboarding walkthroughs.
-  "Slideshow",
-  // ParticleMark — the brand mark bursting into particles and re-forming, on a
-  // loop. The keyboard's recording visual, ported off Swift so the app can use
-  // it too (see ParticleMark.tsx).
-  "ParticleMark",
-  // KeyboardPreview — a real keyboard, drawn as one component. Powers the
-  // haptics picker, where the user chooses keys by pointing at where their
-  // thumbs go, so a reflowed list of chips would not do.
-  "KeyboardPreview",
-  // BinaryReveal — a wordmark decoding itself out of 0s and 1s, on a loop.
-  "BinaryReveal",
-  // MorphOut — the opening scene drawn into the mic it becomes, so the intro
-  // hands over to home as one object rather than two.
-  "MorphOut",
-  // WordMeter — the free plan's words, and the ones the user has earned. The
-  // track grows as they are earned, so the reward is the bar itself.
-  "WordMeter",
-
-  // v3 feedback
-  "Toast", "Snackbar", "LoadingSkeleton", "Confetti", "Rating",
-  "EmptyState", "Countdown",
-
-  // SwipeAction — a pill whose disc is dragged to the far end to commit. The
-  // sign-in pills' gesture, made general.
-  "SwipeAction",
+  /**
+   * NOT A COMPONENT — this build draws only the Bots app: it has no old screens left to fall back on, so the
+   * server always serves it the Bots app, whatever its switch says, and opens Home for any other screen id.
+   */
+  "BotsOnly",
   /**
    * NOT A COMPONENT — a declaration that this bundle's Screen honours
    * `holdTouches`, i.e. that it can carry a draggable control without the
@@ -111,18 +54,12 @@ export const CORE_COMPONENTS = [
    * that says this.
    */
   "ActionParams",
-  // Coverflow — a deck of cards turned in depth, dragged and thrown.
-  // Reels — one child per screenful, snapped vertically.
-  "Coverflow", "Reels",
-  // AuroraOrb — the spoken screen's sphere, drawn as one Skia fragment shader.
-  // Supersedes VoiceBubble, which stays registered as its fallback.
-  "AuroraOrb",
-  // The spoken screen and the thread it writes into.
-  "ChatThread", "VoiceBubble", "VoiceSession",
   // The sign-in screen's pieces, drawn from the server's auth tree.
   "SwipePill", "AppleSignIn", "GoogleSignIn", "CodeEntry", "AuthPhase",
-  // Entrance motion, and the neural field backdrop.
-  "Rise", "NeuralField",
+  // Entrance motion.
+  "Rise",
+  // MorphOut — the opening scene drawn into what it becomes, so it hands over as one object rather than two.
+  "MorphOut",
   /**
    * The onboarding run, and the one character that walks through it.
    * OnboardStage holds a run of steps and glides between them; BlipSpot marks
@@ -130,16 +67,9 @@ export const CORE_COMPONENTS = [
    * same bundle for them: SwipePill variant "field", CodeEntry variant
    * "boxes", the labelled Google/Apple buttons, VoiceButton's `hold` and
    * `bind.state`. The server draws the new onboarding only for a bundle that
-   * says both names, and serves today's to every other.
+   * says both names.
    */
   "OnboardStage", "BlipSpot",
-  /**
-   * Blip on the top edge of a card, doing his round there: walking, sneaking,
-   * ducking behind it, peeking, jumping into it and back (onboard/BlipRoam).
-   * The You tab's task card asks for him only from a bundle that says this;
-   * every other gets the waving picture by the greeting, as before.
-   */
-  "BlipRoam",
   /** Home's welcome: Blip waving, who turns and walks off the side when `goWhen` turns true (onboard/BlipWalkOut.tsx). */
   "BlipWalkOut",
   /**
@@ -203,10 +133,6 @@ export const CORE_COMPONENTS = [
    * "sounds" for the switch. The server shows the Sounds switch only to a bundle that says this.
    */
   "BotSounds",
-
-  // v3 meta / helpers
-  "WebView", "SVG", "Gradient", "BlurBackground", "QRCode",
-  "IfElse", "ForEach", "Portal",
 ] as const;
 
 export const CORE_ACTIONS = [
@@ -254,7 +180,8 @@ export const CORE_ACTIONS = [
   "sequence", "parallel", "condition", "delay", "log",
 ] as const;
 
-/** Named layouts the app can compose from `template` + `blocks`. */
-export const CORE_TEMPLATES = [
-  "scroll", "feature", "list", "centered", "detail", "grid", "hero",
-] as const;
+/**
+ * Named layouts the app can compose from `template` + `blocks`: none. Every
+ * screen the Bots app sends is a full `root` tree.
+ */
+export const CORE_TEMPLATES = [] as const;

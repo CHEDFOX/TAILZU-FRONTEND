@@ -55,7 +55,6 @@ import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/clie
 import { fontsReady } from "../sdui/remoteFonts";
 import { ErrorBoundary } from "../sdui/ErrorBoundary";
 import { abandon as abandonOnboard } from "../onboard/stageBus";
-import { setAuthName } from "../storage";
 import { AUTH_METHODS, countries, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";
 import { beginLinkSignIn, emailLinkRedirect, redeemSignInLink } from "./linkSignIn";
@@ -781,8 +780,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
   // No "sending" any more. It was a phase the USER was put into while a
   // network call ran, and a screen that exists only because something is slow
   // is the definition of a wait. The send now happens behind the code screen,
-  // so there is no third place to be. (EmailSendAnimation is kept — it is a
-  // drawn asset, not dead weight, and nothing else about it was wrong.)
+  // so there is no third place to be.
   const [phase, setPhase] = useState<"entry" | "verify" | "verifying">("entry");
   /**
    * Whether a code is on its way, and whether it gave up.
@@ -1217,12 +1215,6 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         );
         return;
       }
-      // Apple gives the name only on first consent — stash it to pre-fill the
-      // post-onboarding name card.
-      const given = cred.fullName?.givenName ?? "";
-      const family = cred.fullName?.familyName ?? "";
-      const full = [given, family].filter(Boolean).join(" ").trim();
-      if (full) setAuthName(full).catch(() => {});
       onAuthed();
     } catch (e: any) {
       if (e?.code !== "ERR_REQUEST_CANCELED") {

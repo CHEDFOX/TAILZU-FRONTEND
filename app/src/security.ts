@@ -166,12 +166,6 @@ export function isHandoffUrl(url: unknown): url is string {
   });
 }
 
-/** A page the WebView node may show: https on our domains. */
-export function isTailzuPage(url: unknown): url is string {
-  const u = parse(url);
-  return !!u && u.protocol === "https:" && isTailzuHost(u.hostname);
-}
-
 /** A screen id as the server writes them — never a path, a URL or markup. */
 export function isScreenId(id: unknown): id is string {
   return typeof id === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(id);

@@ -282,8 +282,6 @@ export interface ScreenResponse {
   liveTopics?: string[];
   title?: string;
   theme?: Partial<ThemeTokens>;
-  template?: string;
-  blocks?: Node[];
   root?: Node;
   state?: Record<string, any>;
   actions?: Record<string, ActionSpec>;

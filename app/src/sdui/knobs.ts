@@ -91,12 +91,6 @@ export function list<T>(key: string, fallback: T[]): T[] {
   return v.every(ok) ? (v as T[]) : fallback;
 }
 
-/** A numeric tuple of exactly `len` finite numbers (a curve, a ramp), else the fallback. */
-export function tuple(key: string, fallback: number[], len: number): number[] {
-  const v = list<number>(key, fallback);
-  return v.length === len ? v : fallback;
-}
-
 export function obj<T extends object>(key: string, fallback: T): T {
   const v = flags[key];
   return v && typeof v === "object" && !Array.isArray(v) ? ({ ...fallback, ...(v as object) } as T) : fallback;

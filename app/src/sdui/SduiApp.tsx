@@ -36,7 +36,6 @@ import { Store } from "./state";
 import { keptStore, liveShowing, reloadQuietly, useLiveUpdates } from "./live";
 import { PullBotContext } from "./PullBot";
 import { useSoundsState } from "./sounds";
-import { composeTemplate } from "./templates";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
 import { leaveMedia } from "./media";
@@ -47,15 +46,13 @@ import OfflineScreen from "./OfflineScreen";
 import { OfflineBar, outbox, startOutbox, useOfflineState, useOfflineSwitch, useOnline } from "./offline";
 import { hasSeenCard, markCardSeen } from "./launchCard";
 import {
-  DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, getProfileDone, isFreshInstall,
+  DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, isFreshInstall,
   getPushAsked, setPushAsked, getOnboarded, setOnboarded, getLastBoot, setLastBoot,
 } from "../storage";
 import { setMediaRegistry, pickMediaRegistry } from "../media/resolveMedia";
 import { refreshDeviceSignals, refreshDeviceSignalsBounded } from "../device/signals";
 import * as api from "../api";
 import AuthGateScreen from "../auth/AuthGateScreen";
-import LanguageSelectScreen from "../onboarding/LanguageSelectScreen";
-import ProfileGate from "../onboarding/ProfileGate";
 import {
   consumeKeyboardDeepLink,
   writeAppWarmHeartbeat,
@@ -242,8 +239,8 @@ function allRemoteMedia(node: unknown, out: string[] = []): string[] {
 function firstRemoteImage(node: unknown): string | null {
   if (!node || typeof node !== "object") return null;
   const n = node as { type?: string; props?: Record<string, unknown>; children?: unknown[]; fallback?: unknown };
-  if (n.type === "Image" || n.type === "Slideshow") {
-    const src = n.props?.source ?? (n.props?.frames as unknown[] | undefined)?.[0];
+  if (n.type === "Image") {
+    const src = n.props?.source;
     const url =
       typeof src === "string" ? src
       : typeof src === "object" && src !== null ? (src as { url?: string }).url
@@ -279,7 +276,7 @@ export default function SduiApp() {
    *  device is wide minus its insets. 0 until the first layout, which is the
    *  one frame the rail declines to draw. */
   const [tabsWidth, setTabsWidth] = useState(0);
-  const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth" | "language">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "connect" | "auth">("loading");
   const [tabId, setTabId] = useState("");
   const [stack, setStack] = useState<NavItem[]>([]);
   const [screen, setScreen] = useState<ScreenResponse | null>(null);
@@ -293,51 +290,12 @@ export default function SduiApp() {
   // Null until then, so a card never flashes and then vanishes on someone who
   // dismissed it yesterday.
   const [launchCard, setLaunchCard] = useState<LaunchCard | null>(null);
-  // Whether the post-onboarding name + gender card is done. Default true so it
-  // never flashes before we know.
-  //
-  // The SERVER is the authority (bootstrap flag profile.complete): the card's
-  // answers live on the account, so a reinstall or a second device doesn't ask
-  // again. Device storage is only the offline fallback, and only ever to
-  // SUPPRESS the card — a local "not done" must not override a server that says
-  // this user already answered.
-  const [profileDone, setProfileDoneState] = useState(true);
-
-  // Set the moment the user finishes the card, so a bootstrap refresh that
-  // still carries the pre-save answer can't put it back in front of them.
-  const profileJustDone = useRef(false);
-  const profileDoneRef = useRef(true);
-
-  useEffect(() => {
-    if (profileJustDone.current) return;
-    const serverSaysComplete = boot?.flags?.["profile.complete"];
-    if (typeof serverSaysComplete === "boolean") {
-      profileDoneRef.current = serverSaysComplete;
-      setProfileDoneState(serverSaysComplete);
-      return;
-    }
-    getProfileDone().then((done) => {
-      if (done) { profileDoneRef.current = true; setProfileDoneState(true); }
-    }).catch(() => {});
-  }, [boot]);
-
   // A deep-link / push-notification screen target that arrived DURING cold boot,
   // before loadBoot committed the first stack. Stashed here and applied once we
   // reach "ready" (cold-entry effect below) so the default [home] stack can't
   // clobber it. Mirrors how consumeKeyboardEntry defers keyboard cold-starts.
   const pendingLinkRef = useRef<NavItem | null>(null);
 
-  /**
-   * What the keyboard asked for, held back because first run is not finished.
-   *
-   * A mic tap can arrive at any moment, including in the gap between adding the
-   * keyboard and answering the name card — the keyboard works from the instant
-   * it is enabled, and nothing about first run makes it wait. Opening the
-   * recording screen then put the user somewhere they could not act, with the
-   * profile card landing on top of it a beat later. The request is not wrong,
-   * it is only early: parked here and replayed the moment the card is done.
-   */
-  const pendingKbRef = useRef<{ screenId: string; params?: Record<string, any>; arm?: boolean } | null>(null);
   /**
    * What the keyboard left for us, read at BOOT rather than in a later effect.
    *
@@ -579,19 +537,11 @@ export default function SduiApp() {
       // Hand the keyboard the live backend URL + user token.
       void syncKeyboardCredentials();
 
-      // First screen after auth. Every routing decision goes through
-      // backend flags — the client no longer hardcodes screen ids or
-      // branches on their string values.
-      //
-      // Backend controls:
-      //   flags["needsLanguagePick"]     bool — should the native language
-      //                                    step run before initialScreenId?
-      //   flags["postLanguageScreenId"]  str  — screen to render after the
-      //                                    language step commits.
+      // First screen after auth: the server's initialScreenId. Every routing
+      // decision goes through backend flags — the client no longer hardcodes
+      // screen ids or branches on their string values.
       setKnobs(b);
-      const needsLanguagePick = bool("needsLanguagePick", false);
-      let langPicked = !!(await getLanguage());
-      // Nothing stored: take the answer from the phone rather than asking.
+      // No language stored: take the answer from the phone rather than asking.
       //
       // The language does real work — it is the script exemplar the recognizer
       // is primed with, the default output language, and what the app's copy is
@@ -602,14 +552,13 @@ export default function SduiApp() {
       //
       // Only for languages we actually support; anything else stays "auto",
       // which is a real answer (detect per utterance), not a missing one.
-      if (!langPicked) {
+      if (!(await getLanguage())) {
         const sys = inferSystemLanguage(b.languages);
         if (sys) {
           try {
             // LOCAL first, and awaited: it is a disk write, it cannot hang, and
             // everything below reads it.
             await setLanguage(sys);
-            langPicked = true;
             // The server copy is NOT awaited. This line used to be, and the
             // comment under it said a default was not worth failing the boot
             // for — but awaiting it is precisely how it failed the boot. A
@@ -629,14 +578,8 @@ export default function SduiApp() {
           } catch { /* a default is not worth failing the boot for */ }
         }
       }
-      if (needsLanguagePick && !langPicked) {
-        setPhase("language");
-        return false;
-      }
       setKnobs(b);
-      // No literal fallback on purpose: absent means "the initial screen".
-      const postLangScreenId = str("postLanguageScreenId", b.initialScreenId) || b.initialScreenId;
-      const firstScreenId = needsLanguagePick ? postLangScreenId : b.initialScreenId;
+      const firstScreenId = b.initialScreenId;
 
       // Paywall gate — backend requests it via flags. Two triggers:
       //   paywall.blockUntilEntitled  hard-gate every launch until unlocked
@@ -832,26 +775,6 @@ export default function SduiApp() {
     }
   }, []);
 
-  // Language chosen on the post-auth screen → persist it to the profile, THEN
-  // re-bootstrap so everything (bootstrap labels + every screen the app fetches)
-  // comes back from the backend translated into the selected language — exactly
-  // like Plutto. We await the profile write first so the next bootstrap/screen
-  // is localized, not raced. loadBoot then routes on to the keyboard step.
-  const onLanguageSelect = useCallback(async (code: string) => {
-    await setLanguage(code);
-    setPhase("loading");
-    try {
-      await callEndpoint("PUT", str("net.profilePath", "/v1/profile"), { language: code });
-    } catch (e) {
-      // The local pick is committed, so the picker won't return — but the
-      // server never localized anything. Say so instead of silently leaving
-      // the whole app in English with no visible reason.
-      console.warn("[boot] language save failed:", errorDetail(e));
-      showToast(txt("toast.languageSaveFailed", "Couldn't save your language — you can change it anytime in Settings."), "error");
-    }
-    await loadBoot();
-  }, [loadBoot]);
-
   useEffect(() => {
     let unsub = () => {};
     (async () => {
@@ -899,9 +822,6 @@ export default function SduiApp() {
           forgetPushToken();
           // Nothing of the account in a widget, the Keychain's widget token or an owed notification answer.
           forgetQuickAccess();
-          // The name card belongs to the account: whoever signs in next is
-          // asked by their own server answer, not by the last one's.
-          profileJustDone.current = false;
           // Nor may their last screen be what the next account sees first.
           setStack([]);
           setScreen(null);
@@ -1194,10 +1114,8 @@ export default function SduiApp() {
    *
    * Two gates, and both must be past. The setup steps are read from the screen
    * the SERVER picked — it already decides that from the profile and the
-   * device, so asking it is asking the one thing that knows. The name card is
-   * read from the server's own flag where it has one, because a keyboard tap
-   * can arrive before the local copy has been loaded and the local default is
-   * "done", which is the answer that lets this through wrongly.
+   * device, so asking it is asking the one thing that knows. The name is read
+   * from the server's own flag (profile.complete); absent, nothing is owed.
    */
   const firstRunOwed = useCallback((): { screenId: string } | null => {
     const b = bootRef.current;
@@ -1205,10 +1123,8 @@ export default function SduiApp() {
     if (first && list<string>("boot.firstRunGateIds", ["onboarding", "onboarding_keyboard", "onboard"]).includes(first)) {
       return { screenId: first };
     }
-    // The server's answer where it has one; the local copy otherwise.
-    const done = bool("profile.complete", profileDoneRef.current);
-    // The card renders over the You tab, so that is where the user has to be
-    // standing for it to appear at all.
+    const done = bool("profile.complete", true);
+    // Where the name is asked (the Bots app's About you, on its You tab).
     return done ? null : { screenId: str("profile.hostScreenId", "personality") };
   }, []);
 
@@ -1234,14 +1150,9 @@ export default function SduiApp() {
         return "navigated";
       }
       // FIRST RUN COMES FIRST. Same shape as the free-limit check above: the
-      // request is not refused, it is parked — and replayed the moment the
-      // thing that was owed is done.
+      // app opens on what is still owed, not on the recording screen.
       const owed = firstRunOwed();
       if (owed) {
-        pendingKbRef.current = {
-          screenId: handoffScreenId,
-          params: { session: rec.sessionId, host: rec.hostApp, source: "keyboard" },
-        };
         kbRoutedRef.current = true;
         setStack([{ screenId: owed.screenId }]);
         return "navigated";
@@ -1274,7 +1185,6 @@ export default function SduiApp() {
         // a screen that says nothing about it.
         const owedFlow = firstRunOwed();
         if (owedFlow) {
-          pendingKbRef.current = { screenId: flowArmScreenId, arm: true };
           kbRoutedRef.current = true;
           setStack([{ screenId: owedFlow.screenId }]);
           return "navigated";
@@ -1694,7 +1604,7 @@ export default function SduiApp() {
     //
     // Every one of those symptoms was this one line.
     const somethingToSee =
-      phase === "auth" || phase === "language" || phase === "connect" ||
+      phase === "auth" || phase === "connect" ||
       !!screen || !!screenError;
     if (splashHidden.current || !somethingToSee) return;
     splashHidden.current = true;
@@ -1808,19 +1718,6 @@ export default function SduiApp() {
     return <AuthGateScreen onAuthed={loadBoot} />;
   }
 
-  if (phase === "language") {
-    return (
-      <LanguageSelectScreen
-        onSelect={onLanguageSelect}
-        languages={boot?.languages}
-        bg={boot?.theme?.color?.bg}
-        text={boot?.theme?.color?.text}
-        borderColor={boot?.theme?.color?.border}
-        theme={boot?.theme}
-      />
-    );
-  }
-
   if (showConnection) {
     return (
       <ConnectionScreen
@@ -1881,7 +1778,6 @@ export default function SduiApp() {
   // Header only. A tab root that wants its art at the top of the window still
   // needs its tabs — see hideHeader in types.
   const hideHeader = hideChrome || shown?.hideHeader === true;
-  const profileGateUp = !profileDone && shouldShowProfileGate(current?.screenId);
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
@@ -2124,36 +2020,11 @@ export default function SduiApp() {
           sits above the screen content; null when there's no back / disabled. */}
       {edgeZone}
 
-      {/* Post-onboarding name + gender card — blurs the screen behind it
-          until name + gender are set. Backend decides which screens the
-          gate can appear on via flags["profileGate.screenIds"]; falls
-          back to "home" only for backward-compat with old bootstrap. */}
-      {profileGateUp && (
-        <ProfileGate
-          onDone={() => {
-            profileJustDone.current = true;
-            profileDoneRef.current = true;
-            setProfileDoneState(true);
-            // THE REPLAY. Whatever the keyboard asked for while the card was
-            // still owed happens now, in the order it should have happened in:
-            // arm first, then show the screen that reports it.
-            const next = pendingKbRef.current;
-            pendingKbRef.current = null;
-            if (next) {
-              if (next.arm) void armFlow();
-              setStack([{ screenId: next.screenId, params: next.params }]);
-            }
-          }}
-          mediaUri={str("profileCard.media", "") || undefined}
-          theme={theme}
-        />
-      )}
-
       {/* The card the app opens with, LAST in the list and last in the queue.
           Everything above it is something the user must deal with — signing
-          in, an update, the name they still owe us — and an announcement that
+          in, an update — and an announcement that
           talks over any of those is an announcement nobody reads. */}
-      {launchCard && !updateForced && !updateOptional && !profileGateUp && (
+      {launchCard && !updateForced && !updateOptional && (
         <LaunchCardOverlay
           card={launchCard}
           theme={theme}
@@ -2242,16 +2113,6 @@ function LaunchCardOverlay({
       </View>
     </ThemeContext.Provider>
   );
-}
-
-/**
- * Whether the ProfileGate overlay should render given the current screen.
- * Backend controls via `flags["profileGate.screenIds"]` (array of screen
- * ids). When unset, falls back to only "home" so old backends still work.
- */
-function shouldShowProfileGate(currentScreenId: string | undefined): boolean {
-  if (!currentScreenId) return false;
-  return list<string>("profileGate.screenIds", ["home"]).includes(currentScreenId);
 }
 
 /** Compare dotted versions: returns <0, 0, >0. */
@@ -2387,12 +2248,12 @@ function ScreenHost({
     return () => { disposed = true; if (iv) clearInterval(iv); subAS.remove(); };
   }, [store]);
 
-  // A screen is either a full `root` tree, or a named `template` + `blocks`.
-  const root = screen.root ?? composeTemplate(screen);
+  // A screen is a full `root` tree; one without draws nothing.
+  if (!screen.root) return null;
   // Pull-a-bot, when the screen asks for it: its Screen pulls a bot (PullBot.tsx).
   return (
     <PullBotContext.Provider value={screen.pullBot ?? null}>
-      <RenderNode node={root} ctx={ctx} />
+      <RenderNode node={screen.root} ctx={ctx} />
     </PullBotContext.Provider>
   );
 }
