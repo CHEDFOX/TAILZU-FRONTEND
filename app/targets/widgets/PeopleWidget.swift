@@ -140,7 +140,9 @@ struct PersonRow: View {
 
   /// "task · Family · 4 min ago", or as much of it as the row has.
   private var meta: Text? {
-    var parts = [row.tag, row.detail].filter { !$0.isEmpty }.map { Text($0) }
+    // A tag the line already says ("Riya shared Weekend plan" · shared) would only say it again.
+    let tag = !row.tag.isEmpty && row.line.localizedCaseInsensitiveContains(row.tag) ? "" : row.tag
+    var parts = [tag, row.detail].filter { !$0.isEmpty }.map { Text($0) }
     if hasWhen(row, style: time) { parts.append(whenText(row, style: time, now: now)) }
     guard var out = parts.first else { return nil }
     for part in parts.dropFirst() { out = out + Text("  ·  ") + part }
