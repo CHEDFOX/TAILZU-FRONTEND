@@ -3,7 +3,7 @@ import SwiftUI
 import WidgetKit
 
 // DICTATE. A Control for Control Center, the Lock Screen and the Action Button
-// (iOS 18). One press turns the Tailzu microphone on — the Flow session the
+// (iOS 18). One press turns the X0 mic on — the microphone session the
 // keyboard dictates through — so the keyboard's mic key is ready the moment the
 // keyboard comes up, without finding the app first.
 //
@@ -41,15 +41,15 @@ struct DictateControl: ControlWidget {
       }
     }
     // Gallery metadata — compile-time static (see DictateLook).
-    .displayName("Dictate")
-    .description("Turn the X0 Bot microphone on, ready for the keyboard.")
+    .displayName("Dictate with X0")
+    .description("Turn the X0 mic on, ready for the keyboard.")
   }
 }
 
 @available(iOS 18.0, *)
 struct DictateIntent: AppIntent {
-  static let title: LocalizedStringResource = "Dictate with X0 Bot"
-  static let description = IntentDescription("Turns the microphone on so the keyboard can dictate.")
+  static let title: LocalizedStringResource = "Dictate with X0"
+  static let description = IntentDescription("Turns the X0 mic on so the keyboard can dictate.")
   // No openAppWhenRun: that runs perform() inside the APP, and this intent is
   // compiled only into the widget extension, so the press would find nothing
   // to run. It runs here instead and opens the app by returning the URL.

@@ -1,8 +1,9 @@
 import ExpoModulesCore
 import UIKit
 
-/// LONG-PRESS THE APP ICON: the Home Screen quick actions (Ask, Dictate, New note, Spaces), as the server lists them
-/// (app.quickActions.ios; src/quickActions in the app). The list is set from JavaScript on every launch (setQuickActions); a press
+/// LONG-PRESS THE APP ICON: the Home Screen quick actions, every title, subtitle, SF Symbol and link exactly as the server lists
+/// them (app.quickActions.ios; src/quickActions in the app) — nothing here has words of its own, so a renamed or replaced item is
+/// the server's change alone. The list is set from JavaScript on every launch (setQuickActions); a press
 /// reaches the app delegate (TulmiShortcutsAppDelegate below, registered in expo-module.config.json), which keeps the item's link
 /// for the app to take (consumeQuickAction) and tells a running app (the module's onQuickAction event).
 ///

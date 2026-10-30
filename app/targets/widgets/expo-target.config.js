@@ -1,10 +1,10 @@
 /**
- * Tailzu's widgets, declared for @bacons/apple-targets: one WidgetKit
- * extension carrying
+ * X0's widgets, declared for @bacons/apple-targets: one WidgetKit extension
+ * carrying
  *
  *   • The Month        — a Home and Lock Screen widget: words this month and
  *                        the streak, from the numbers the app last fetched.
- *   • The Flow session — a Live Activity while the background microphone is
+ *   • The mic session  — a Live Activity while the background microphone is
  *                        armed: ready, listening (with the words so far),
  *                        writing; Stop and End buttons.
  *   • Setup            — a Live Activity while setup is unfinished: the step
@@ -20,12 +20,16 @@
  * numbers, the keyboard's arming tombstone) — the same group the keyboard
  * uses, so it MUST match app.config.ts and targets/keyboard.
  *
+ * Assets.xcassets (the X0Mark image: the app icon's bot head, drawn by every
+ * surface) is in this folder, which the plugin syncs into the target whole —
+ * as targets/keyboard's own catalog is.
+ *
  * @type {import('@bacons/apple-targets').Config}
  */
 module.exports = {
   type: "widget",
   name: "TailzuWidgets",
-  displayName: "X0 Bot",
+  displayName: "X0",
   // Live Activity buttons and Control Center controls are iOS 17 and 18
   // features; the month widget is drawn with the iOS 17 container APIs.
   // Older phones simply do not offer the widgets, and lose nothing else.

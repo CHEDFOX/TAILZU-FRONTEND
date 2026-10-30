@@ -10,17 +10,21 @@ import WidgetKit
 //   From your people (PeopleWidget.swift)   the latest few things from family and friends
 //   Needs you (NeedsWidget.swift)           a bot's question with its answers, a yes, a task given to you, each with its buttons
 //
-// Everything they draw is the server's: GET /v1/widgets/now answers both widgets' rows already worded, each with where its tap
-// goes and its buttons, and the look (colours, each kind's SF Symbol, the buttons' styles, how a time is written, the Lock
-// Screen's line, the empty state and its button). The app writes that document as it is to the App Group key "tulmi.widget.now"
-// (src/widgets/now.ts, setWidgetNow); nothing here asks the server for rows. Every read is lenient and keeps a literal fallback,
-// so a missing or mistyped field never stops the rest from drawing, and a new kind of row or button is the server's data, not code.
+// What they say is the server's: GET /v1/widgets/now answers both widgets' rows already worded, each with where its tap goes and
+// its buttons (their words, order and which one is primary), how a time is written, the Lock Screen's line, the empty state and
+// its button. The app writes that document as it is to the App Group key "tulmi.widget.now" (src/widgets/now.ts, setWidgetNow);
+// nothing here asks the server for rows. Every read is lenient and keeps a literal fallback, so a missing or mistyped field never
+// stops the rest from drawing, and a new kind of row or button is the server's data, not code.
+//
+// How they look is the app's own (X0Palette, X0Mark, X0Pill in TailzuWidgets.swift): white and ink with greys in Light, the same
+// inverted in Dark, rows on hairlines, a person's initial on a grey disc, a bot's in its own colour's ring. The document's `look`
+// (its old colours and button colours) is no longer read.
 //
 // ANSWERING IN PLACE. A button the server marks "inPlace" runs AnswerNeedIntent here, in the extension: it posts to the server
 // with the widgets' OWN token, never the session's. That token (POST /v1/widgets/token; backend src/widgets/token.ts) can only
 // answer this person's needs-you and tick their own tasks, runs out in a day, is revoked at sign-out, and is kept in the shared
 // Keychain (WidgetKeychain below; the app writes it through the bridge). The intent asks for the phone to be unlocked
-// (authenticationPolicy). An answer that cannot be sent (no token, offline, refused) leaves the row saying "Open X0 Bot to finish",
+// (authenticationPolicy). An answer that cannot be sent (no token, offline, refused) leaves the row saying "Open X0 to finish",
 // and a tap opens it there. A button marked "open" is a Link to the row in the app.
 
 enum QuickKeys {
@@ -100,6 +104,8 @@ struct NowRow: Identifiable {
   let isNew: Bool
   let icon: String
   let color: Color?
+  /// Whose bot a row is ("code", "keybot", "plan", "travel", "tailzu", or a person's own bot's palette name), when the server says.
+  let bot: String
   let actions: [NowAction]
 
   init?(_ o: [String: Any]) {
@@ -120,8 +126,30 @@ struct NowRow: Identifiable {
     isNew = o.bool("new", false)
     icon = o.str("icon", "circle.fill")
     color = (o["color"] as? String).flatMap { Color(hex: $0) }
+    bot = o.str("bot")
     actions = ((o["actions"] as? [Any]) ?? []).compactMap { ($0 as? [String: Any]).flatMap(NowAction.init) }
   }
+
+  /// A bot's row (a bot asks, or a connected app waits for its yes): drawn with the bot's ring.
+  var isBot: Bool { !bot.isEmpty || kind == "question" || kind == "approval" }
+
+  /// The bot's own colour for its ring: by its key, else the colour the server sent, else ink. Nil for a person.
+  func ring(_ p: X0Palette) -> Color? {
+    guard isBot else { return nil }
+    return BotInk.color(bot) ?? color ?? p.ink
+  }
+
+  /// The letter an avatar shows.
+  var letter: String {
+    if !initial.isEmpty { return initial }
+    return who.first.map { String($0).uppercased() } ?? ""
+  }
+
+  /// The words of a row: the whole line ("Riya shared Weekend plan"), else its text.
+  var sentence: String { line.isEmpty ? text : line }
+
+  /// A question or a task as asked: its text ("Move dinner to 7:30?"), else the line.
+  var ask: String { text.isEmpty ? line : text }
 }
 
 struct NowSection {
@@ -167,43 +195,9 @@ struct NowSection {
   func word(_ key: String, _ fallback: String) -> String { words[key].flatMap { $0.isEmpty ? nil : $0 } ?? fallback }
 }
 
-/// The colours and styles the server sent with the rows, read through the month's Ink when absent.
-struct NowLook {
-  var colors: [String: String] = [:]
-  var alphas: [String: Double] = [:]
-  var styles: [String: [String: String]] = [:]
-  var light: [String: String] = [:]
-
-  init() {}
-
-  init(_ o: [String: Any]) {
-    colors = o.obj("colors").compactMapValues { $0 as? String }
-    alphas = o.obj("alpha").compactMapValues { WidgetLook.number($0) }
-    styles = o.obj("styles").compactMapValues { value -> [String: String]? in
-      (value as? [String: Any])?.compactMapValues { part in part as? String }
-    }
-    light = o.obj("light").compactMapValues { $0 as? String }
-  }
-
-  /// A colour by role. In Light Mode the server's `light` palette wins when it sent one; with none the card stays the brand's
-  /// dark ink, as the Month draws it.
-  func color(_ key: String, _ fallback: Color, scheme: ColorScheme) -> Color {
-    if scheme == .light, let c = light[key].flatMap({ Color(hex: $0) }) { return c }
-    return colors[key].flatMap { Color(hex: $0) } ?? fallback
-  }
-
-  func alpha(_ key: String, _ fallback: Double) -> Double {
-    guard let a = alphas[key], a >= 0, a <= 1 else { return fallback }
-    return a
-  }
-
-  func style(_ name: String, _ part: String) -> Color? { styles[name]?[part].flatMap { Color(hex: $0) } }
-}
-
 struct NowDoc {
   var time = "relative"
   var refreshSec: Double = 900
-  var look = NowLook()
   var people = NowSection()
   var needs = NowSection()
   var writtenAt: Double = 0
@@ -214,7 +208,6 @@ struct NowDoc {
     guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], (o["v"] as? NSNumber) != nil else { return nil }
     time = o.str("time", "relative")
     refreshSec = max(60, o.num("refreshSec") ?? 900)
-    look = NowLook(o.obj("look"))
     people = NowSection(o.obj("people"))
     needs = NowSection(o.obj("needs"))
   }
@@ -319,7 +312,7 @@ enum WidgetAct {
 /// the rows again. Asks for the phone to be unlocked first.
 struct AnswerNeedIntent: AppIntent {
   static let title: LocalizedStringResource = "Answer from the widget"
-  static let description = IntentDescription("Answers a question or ticks off a task from the X0 Bot widget.")
+  static let description = IntentDescription("Answers a question or ticks off a task from the X0 widget.")
   static var isDiscoverable: Bool { false }
   static var authenticationPolicy: IntentAuthenticationPolicy { .requiresAuthentication }
 
@@ -360,68 +353,83 @@ struct NowProvider: TimelineProvider {
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<NowEntry>) -> Void) {
     // The app redraws both widgets every time it writes fresh rows; this only has to hold between those writes, so it asks again
-    // after the server's interval (relative times count on their own meanwhile).
+    // after the server's interval. Meanwhile a relative time is words ("4 min ago"), not a ticking clock: one entry a minute
+    // until then (at most an hour of them), each worded as of its own minute.
     let doc = NowDoc.load()
-    let entry = NowEntry(date: Date(), doc: doc, states: NowStates.all(since: doc?.writtenAt ?? 0))
-    completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(doc?.refreshSec ?? 900))))
+    let states = NowStates.all(since: doc?.writtenAt ?? 0)
+    let start = Date()
+    let span = doc?.refreshSec ?? 900
+    let steps = (doc?.time ?? "relative") == "relative" ? max(1, min(60, Int(span / 60))) : 1
+    let entries = (0..<steps).map { i in
+      NowEntry(date: start.addingTimeInterval(Double(i) * 60), doc: doc, states: states)
+    }
+    completion(Timeline(entries: entries, policy: .after(start.addingTimeInterval(span))))
   }
 }
 
 // ------------------------------------------------------------------ parts both widgets draw
 
-/// The colours a quick-access widget draws with: the server's look, then the Month's ink, then the literal.
-struct QuickInk {
-  let look: NowLook
-  let scheme: ColorScheme
-  var ground: Color { look.color("ground", Ink.ground, scheme: scheme) }
-  var pale: Color { look.color("pale", Ink.pale, scheme: scheme) }
-  var accent: Color { look.color("accent", look.color("mark", Ink.mark, scheme: scheme), scheme: scheme) }
-  var dim: Color { pale.opacity(look.alpha("dim", 0.52)) }
-  var rule: Color { pale.opacity(look.alpha("rule", 0.13)) }
+/// When, in words that hold for a minute: "now", "4 min ago", "2 h ago", "Yesterday", "Mon", "12 Oct". Never seconds.
+enum When {
+  private static let weekday: DateFormatter = {
+    let f = DateFormatter()
+    f.setLocalizedDateFormatFromTemplate("EEE")
+    return f
+  }()
 
-  func fg(_ style: String) -> Color {
-    look.style(style, "fg") ?? (style == "primary" ? ground : pale)
-  }
+  private static let day: DateFormatter = {
+    let f = DateFormatter()
+    f.setLocalizedDateFormatFromTemplate("d MMM")
+    return f
+  }()
 
-  func bg(_ style: String) -> Color {
-    look.style(style, "bg") ?? (style == "primary" ? pale : rule)
-  }
-}
-
-/// When, the way the server said: counting ("4 min"), the clock ("6:30 pm"), or its own words.
-struct WhenText: View {
-  let row: NowRow
-  let style: String
-  var body: some View {
-    if let at = row.at, style == "relative" {
-      Text(at, style: .relative)
-    } else if let at = row.at, style == "clock" {
-      Text(at, style: .time)
-    } else {
-      Text(row.when)
-    }
+  static func words(_ at: Date, now: Date) -> String {
+    let ago = max(0, now.timeIntervalSince(at))
+    if ago < 60 { return "now" }
+    if ago < 3600 { return "\(Int(ago / 60)) min ago" }
+    let cal = Calendar.current
+    if ago < 12 * 3600 || cal.isDate(at, inSameDayAs: now) { return "\(Int(ago / 3600)) h ago" }
+    if let yesterday = cal.date(byAdding: .day, value: -1, to: now), cal.isDate(at, inSameDayAs: yesterday) { return "Yesterday" }
+    if ago < 6 * 86_400 { return weekday.string(from: at) }
+    return day.string(from: at)
   }
 }
 
-/// A section's header: its symbol and title.
+/// When, the way the server said: in words as of `now` ("4 min ago"), the clock ("6:30 PM"), or its own words.
+func whenText(_ row: NowRow, style: String, now: Date) -> Text {
+  if let at = row.at, style == "relative" { return Text(When.words(at, now: now)) }
+  if let at = row.at, style == "clock" { return Text(at, style: .time) }
+  return Text(row.when)
+}
+
+/// Whether a row has a time to show at all.
+func hasWhen(_ row: NowRow, style: String) -> Bool {
+  (row.at != nil && (style == "relative" || style == "clock")) || !row.when.isEmpty
+}
+
+/// A section's header: its title (and, when given, how many), and the mark.
 struct QuickHeader: View {
-  let section: NowSection
-  let fallbackTitle: String
-  let fallbackIcon: String
-  let ink: QuickInk
+  let title: String
+  var count: Int? = nil
+  let p: X0Palette
+
   var body: some View {
-    HStack(spacing: 6) {
-      Image(systemName: symbol(section.icon, fallbackIcon))
-        .font(.system(size: 11, weight: .semibold))
-        .foregroundStyle(ink.accent)
-        .widgetAccentable()
-      Text(section.title.isEmpty ? fallbackTitle : section.title)
-        .font(.system(size: 11, weight: .semibold))
-        .tracking(0.4)
-        .foregroundStyle(ink.dim)
+    HStack(alignment: .center, spacing: 6) {
+      Text(title)
+        .font(.system(size: 13, weight: .semibold))
+        .tracking(-0.2)
+        .foregroundStyle(p.ink)
         .lineLimit(1)
-      Spacer(minLength: 0)
+      if let count, count > 0 {
+        Text(String(count))
+          .font(.system(size: 13, weight: .medium))
+          .monospacedDigit()
+          .foregroundStyle(p.meta)
+      }
+      Spacer(minLength: 4)
+      X0Mark(size: 18, onDark: p.onDark)
     }
+    .frame(height: 18)
   }
 }
 
@@ -429,7 +437,7 @@ struct QuickHeader: View {
 /// opened, signed out), the literals.
 struct QuickEmpty: View {
   let section: NowSection
-  let ink: QuickInk
+  let p: X0Palette
   let compact: Bool
   let fallbackTitle: String
   let fallbackBody: String
@@ -440,41 +448,42 @@ struct QuickEmpty: View {
   private var cta: String { section.emptyTitle.isEmpty ? fallbackCta : section.emptyCta }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 4) {
       Spacer(minLength: 0)
       Text(title)
-        .font(.system(size: compact ? 14 : 16, weight: .semibold))
-        .foregroundStyle(ink.pale)
+        .font(.system(size: compact ? 15 : 17, weight: .semibold))
+        .tracking(-0.3)
+        .foregroundStyle(p.ink)
         .lineLimit(2)
       if !bodyLine.isEmpty {
         Text(bodyLine)
           .font(.system(size: 12))
-          .foregroundStyle(ink.dim)
+          .foregroundStyle(p.meta)
           .lineLimit(compact ? 3 : 2)
       }
       if !cta.isEmpty {
-        Text(cta)
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(ink.fg("primary"))
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
-          .background(ink.bg("primary"), in: Capsule())
-          .padding(.top, 2)
+        X0Pill(label: cta, primary: true, p: p, fill: compact, height: compact ? 28 : 30)
+          .padding(.top, 8)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
   }
 }
 
-/// A row's mark: its kind's symbol, in its kind's colour when the server gave one.
-struct KindMark: View {
+/// Who a row is from: their initial on a grey disc; a bot's with a ring in its own colour (ink when the row has none).
+struct RowAvatar: View {
   let row: NowRow
-  let ink: QuickInk
+  let p: X0Palette
+  var size: CGFloat = 26
+
   var body: some View {
-    Image(systemName: symbol(row.icon, "circle.fill"))
-      .font(.system(size: 12, weight: .semibold))
-      .foregroundStyle(row.color ?? ink.accent)
-      .frame(width: 16)
-      .widgetAccentable()
+    let ring = row.ring(p)
+    Text(row.letter)
+      .font(.system(size: size * 0.42, weight: .semibold))
+      .foregroundStyle(p.ink)
+      .lineLimit(1)
+      .frame(width: size, height: size)
+      .background { Circle().fill(p.surface) }
+      .overlay { Circle().strokeBorder(ring ?? p.line, lineWidth: ring == nil ? 1 : max(1.5, size / 14)) }
   }
 }
