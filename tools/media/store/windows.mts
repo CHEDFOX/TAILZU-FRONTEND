@@ -13,7 +13,7 @@
 //   box-art-1x1.png            2160 x 2160   1:1 box art
 //   poster-2x3.png             1440 x 2160   2:3 poster art
 //   hero-16x9.png              3840 x 2160   16:9 super hero art (nothing in the bottom left, where the Store sets the title)
-//   tile-300.png                300 x 300    1:1 app tile icon
+//   tile-300.png                300 x 300    1:1 app tile icon, round corners, clear outside them
 //   sheet.png                                every image on one page, to review
 import fs from "node:fs";
 import path from "node:path";
@@ -126,13 +126,13 @@ function heroPage(shots: string[]): string {
   </div></body></html>`;
 }
 
-async function shoot(browser: any, html: string, file: string, w: number, h: number, scale: number): Promise<void> {
+async function shoot(browser: any, html: string, file: string, w: number, h: number, scale: number, clear = false): Promise<void> {
   const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: scale });
   const tmp = path.join(OUT, `.${path.basename(file)}.html`);
   fs.writeFileSync(tmp, html);
   await page.goto(url(tmp), { waitUntil: "networkidle" });
   await page.evaluate(() => (document as any).fonts.ready);
-  await page.screenshot({ path: file, type: "png", omitBackground: false });
+  await page.screenshot({ path: file, type: "png", omitBackground: clear });
   await page.close();
   fs.rmSync(tmp);
 }
@@ -162,8 +162,10 @@ try {
   await shoot(browser, brandPage(1080, 1080, { botW: 640, title: 120, sub: "Your bots, on your computer", gap: 40 }), path.join(OUT, "box-art-1x1.png"), 1080, 1080, 2);
   await shoot(browser, brandPage(720, 1080, { botW: 560, title: 104, sub: "Your bots, on your computer", gap: 48 }), path.join(OUT, "poster-2x3.png"), 720, 1080, 2);
   await shoot(browser, heroPage([path.join(SHOTS, "home.png"), path.join(SHOTS, "keylessbord.png")]), path.join(OUT, "hero-16x9.png"), 1920, 1080, 2);
-  const tile = `<!doctype html><html><body style="margin:0"><img src="${url(path.join(HERE, "out/icons/app-store-1024.png"))}" style="width:300px;height:300px;display:block"></body></html>`;
-  await shoot(browser, tile, path.join(OUT, "tile-300.png"), 300, 300, 1);
+  // The tile icon with round corners and clear outside them (the Store shows it as it is: nothing rounds it for us).
+  const tile = `<!doctype html><html><body style="margin:0;background:transparent"><img src="${url(path.join(HERE, "out/icons/app-store-1024.png"))}"
+    style="width:300px;height:300px;display:block;border-radius:22.5%"></body></html>`;
+  await shoot(browser, tile, path.join(OUT, "tile-300.png"), 300, 300, 1, true);
   // The sheet: every screenshot, then the brand images, small.
   const thumbs = [...made, path.join(OUT, "hero-16x9.png")].map((f) => `<img src="${url(f)}" style="width:620px;border:1px solid ${LINE}">`).join("");
   const sheet = `<!doctype html><html><body style="margin:0;padding:24px;background:#EEE;display:flex;flex-wrap:wrap;gap:20px;width:1960px">${thumbs}
