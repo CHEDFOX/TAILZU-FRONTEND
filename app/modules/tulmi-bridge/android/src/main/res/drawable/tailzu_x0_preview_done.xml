@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Month picker preview's line, the part the month has filled: ink, a capsule. -->
+<!-- The X0 picker preview's stage bar: a stage done, in Code bot's colour (lighter at night, values-night). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/tailzu_widget_ink" />
+    <solid android:color="@color/tailzu_x0_preview_code" />
     <corners android:radius="100dp" />
 </shape>

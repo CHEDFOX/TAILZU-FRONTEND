@@ -24,10 +24,11 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * THE QUICK-ACCESS WIDGETS ON AN ANDROID HOME SCREEN: "From your people" (TailzuPeopleWidget) and "Needs you" (TailzuNeedsWidget),
- * the iOS PeopleWidget.swift / NeedsWidget.swift with plain framework APIs.
+ * THE QUICK-ACCESS WIDGET ON AN ANDROID HOME SCREEN: "From your people" (TailzuPeopleWidget), the iOS PeopleWidget.swift with
+ * plain framework APIs; and what every widget here shares: the prefs file, the links a widget may open, answering in place with
+ * the widgets' own token (the X0 widget's answers come through here too, TailzuX0Widget.kt).
  *
- * Everything they draw is the server's: GET /v1/widgets/now's document, which the app checked and wrote with setWidgetNow
+ * Everything it draws is the server's: GET /v1/widgets/now's document, which the app checked and wrote with setWidgetNow
  * (src/widgets/now.ts) to this app's `tulmi.widget` SharedPreferences: the rows already worded, each tap's link, each button and
  * whether it answers here or opens the app, how many rows each size shows, the colours, each kind's drawable, the empty state
  * and its button. Every field read here keeps a literal fallback, so a missing one never stops the rest; a new kind of row or
@@ -48,7 +49,11 @@ import kotlin.math.min
  * `limits.android`). No timer: the app asks for a redraw whenever it writes rows, and after a button.
  */
 object TailzuQuick {
-  const val PREFS = TailzuMonthWidget.PREFS
+  /** The app's SharedPreferences file every widget reads (TulmiBridgeModule writes it). */
+  const val PREFS = "tulmi.widget"
+
+  /** The widget theme (setWidgetTheme): the server's colours, `colors` for dark and `light` for light. */
+  const val THEME_KEY = "tulmi.widget.theme"
   const val NOW = "tulmi.widget.now"
   const val WRITTEN_AT = "tulmi.widget.now.writtenAt"
   const val STATE = "tulmi.widget.now.state"
@@ -59,19 +64,20 @@ object TailzuQuick {
   /** The header's height in dp (its padding, the mark, the gap under it): what is left is the rows'. */
   private const val HEADER_DP = 56f
 
-  /** Ask both quick-access widgets to draw again (a broadcast, so the caller never waits on a draw). Never throws. */
-  fun requestUpdate(context: Context) {
-    for (cls in listOf(TailzuPeopleWidget::class.java, TailzuNeedsWidget::class.java)) {
-      try {
-        val manager = AppWidgetManager.getInstance(context) ?: continue
-        val ids = manager.getAppWidgetIds(ComponentName(context, cls))
-        if (ids == null || ids.isEmpty()) continue
-        context.sendBroadcast(
-          Intent(context, cls).setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE).putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
-        )
-      } catch (_: Exception) {
-        // A widget never stops the app.
-      }
+  /** Ask the quick-access widget to draw again (a broadcast, so the caller never waits on a draw). Never throws. */
+  fun requestUpdate(context: Context) = requestUpdate(context, TailzuPeopleWidget::class.java)
+
+  /** Ask every placed widget of one provider to draw again. Never throws. */
+  internal fun requestUpdate(context: Context, cls: Class<*>) {
+    try {
+      val manager = AppWidgetManager.getInstance(context) ?: return
+      val ids = manager.getAppWidgetIds(ComponentName(context, cls))
+      if (ids == null || ids.isEmpty()) return
+      context.sendBroadcast(
+        Intent(context, cls).setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE).putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+      )
+    } catch (_: Exception) {
+      // A widget never stops the app.
     }
   }
 
@@ -91,17 +97,33 @@ object TailzuQuick {
   internal fun load(context: Context): Pair<JSONObject?, Map<String, String>> = try {
     val p = prefs(context)
     val doc = obj(p.getString(NOW, null))?.takeIf { it.opt("v") is Number }
-    val written = p.getLong(WRITTEN_AT, 0L)
-    val states = mutableMapOf<String, String>()
-    obj(p.getString(STATE, null))?.let { o ->
-      for (k in o.keys()) {
-        val e = o.optJSONObject(k) ?: continue
-        if (e.optLong("at", 0L) > written) states[k] = e.optString("s", "")
-      }
-    }
-    Pair(doc, states)
+    Pair(doc, states(context, p.getLong(WRITTEN_AT, 0L)))
   } catch (_: Exception) {
     Pair(null, emptyMap())
+  }
+
+  /** What buttons did to items (working, done, gone, failed) since `since`: a newer write of the widget's data clears them. */
+  internal fun states(context: Context, since: Long): Map<String, String> {
+    val out = mutableMapOf<String, String>()
+    try {
+      obj(prefs(context).getString(STATE, null))?.let { o ->
+        for (k in o.keys()) {
+          val e = o.optJSONObject(k) ?: continue
+          if (e.optLong("at", 0L) > since) out[k] = e.optString("s", "")
+        }
+      }
+    } catch (_: Exception) {
+    }
+    return out
+  }
+
+  /** Whether a button can answer here now: the widgets' own token is kept and has not run out. Else it opens the app. */
+  internal fun canAnswer(context: Context): Boolean = try {
+    val p = prefs(context)
+    p.getString(TOKEN, null)?.startsWith("xwt_") == true &&
+      (obj(p.getString(TOKEN_META, null))?.optLong("expiresAt", 0L) ?: 0L) > System.currentTimeMillis()
+  } catch (_: Exception) {
+    false
   }
 
   /** What a button did to a row: working, done, gone, failed. */
@@ -122,8 +144,8 @@ object TailzuQuick {
 
   internal class Look(doc: JSONObject?, context: Context) {
     private val look = doc?.optJSONObject("look")
-    private val theme = obj(prefs(context).getString(TailzuMonthWidget.THEME_KEY, null))
-    // The server's colours for each theme: the rows' look first, then the month's theme key.
+    private val theme = obj(prefs(context).getString(THEME_KEY, null))
+    // The server's colours for each theme: the rows' look first, then the widget theme.
     private val darks = listOf(look?.optJSONObject("colors"), theme?.optJSONObject("colors"))
     private val lights = listOf(look?.optJSONObject("light"), theme?.optJSONObject("light"))
     private val darkStyles = look?.optJSONObject("styles")
@@ -145,8 +167,8 @@ object TailzuQuick {
 
     /** One part (fg, bg, border) of a button's style, each theme: the server's, else the app's own. */
     private fun style(name: String, part: String, fallback: Ink): Ink = Ink(
-      MonthLook.hex(lightStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.light,
-      MonthLook.hex(darkStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.dark,
+      WidgetInk.hex(lightStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.light,
+      WidgetInk.hex(darkStyles?.optJSONObject(name)?.opt(part) as? String) ?: fallback.dark,
     )
 
     // A primary button is ink with the ground's words; any other is the ink's words in a line-grey ring.
@@ -306,7 +328,7 @@ object TailzuQuick {
 
   /**
    * A button's look, the server's style: a capsule tinted to its fill, a 1dp capsule ring tinted to its border, and its words
-   * (images tinted the way the Month tints its ground, so every Android version takes them).
+   * (images tinted, as the card is, so every Android version takes them).
    */
   private fun pill(rv: RemoteViews, bg: Int, ring: Int, text: Int, style: String, look: Look) {
     WidgetInk.image(rv, bg, look.bg(style), look.night)
@@ -322,21 +344,14 @@ object TailzuQuick {
   )
 
   /**
-   * Each bot's own colour, by the row's `bot`: the built-ins' (backend bots/art.ts BOT_INK) and a person's own bot's palette
-   * name (bots/palette.ts PALETTE_HEX). X0 itself ("tailzu") is the ink, light or dark.
+   * A row's bot's ring colour, by the row's `bot` (WidgetInk.botRgb: the built-ins' and a person's own bot's palette name),
+   * or null for a row that is not a bot's. X0 itself ("tailzu"), or a bot without a colour, is the ink.
    */
-  private val BOT_INK = mapOf(
-    "keybot" to 0xA9573A, "code" to 0x4F7A3A, "plan" to 0x8F6A1F, "travel" to 0x3E6E8E,
-    "moss" to 0x4F7A3A, "clay" to 0xA9573A, "ochre" to 0x8F6A1F, "sea" to 0x3E6E8E,
-    "pine" to 0x2F5D50, "plum" to 0x6E4A6B, "sand" to 0x7A6440, "stone" to 0x5F6B6E,
-  )
-
-  /** A row's bot's ring colour, or null for a row that is not a bot's. */
   private fun botInk(bot: String, look: Look): Ink? {
     if (bot.isEmpty()) return null
     if (bot == "tailzu") return look.ink
-    val rgb = BOT_INK[bot] ?: return look.ink
-    return WidgetInk.onDark(rgb or 0xFF000000.toInt(), look.ink)
+    val rgb = WidgetInk.botRgb(bot) ?: return look.ink
+    return WidgetInk.onDark(rgb, look.ink)
   }
 
   /**
@@ -360,7 +375,7 @@ object TailzuQuick {
     v.setViewVisibility(R.id.tailzu_row_initial, View.GONE)
     v.setViewVisibility(R.id.tailzu_row_icon, View.VISIBLE)
     // A kind's own colour (the look's kinds.*.color), when the server gives one; else the ink.
-    val tint = MonthLook.hex(row.optString("color"))?.let { Ink(it, it) } ?: look.ink
+    val tint = WidgetInk.hex(row.optString("color"))?.let { Ink(it, it) } ?: look.ink
     glyph(v, R.id.tailzu_row_icon, context, row.optString("androidIcon"), R.drawable.tailzu_widget_mark, tint, night)
   }
 
@@ -495,35 +510,10 @@ class TailzuPeopleWidget : AppWidgetProvider() {
   }
 }
 
-/** NEEDS YOU: a bot's question with its answers, a yes, a task with Done; answered right here when the server says so. */
-class TailzuNeedsWidget : AppWidgetProvider() {
-  override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-    for (id in appWidgetIds) redraw(context, appWidgetManager, id)
-  }
-
-  override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle?) {
-    redraw(context, appWidgetManager, appWidgetId)
-  }
-
-  private fun redraw(context: Context, manager: AppWidgetManager, id: Int) {
-    try {
-      manager.updateAppWidget(id, TailzuQuick.draw(
-        context, "needs", id, manager.getAppWidgetOptions(id),
-        fallbackTitle = context.getString(R.string.tailzu_widget_needs_label),
-        fallbackEmptyTitle = context.getString(R.string.tailzu_widget_needs_empty_title),
-        fallbackEmptyBody = context.getString(R.string.tailzu_widget_needs_empty_body),
-        fallbackEmptyCta = "",
-        fallbackUrl = "tulmi://screen/bots.home",
-        rowDp = 96f, sectionIcon = R.drawable.tailzu_widget_mark,
-      ))
-    } catch (_: Throwable) {
-    }
-  }
-}
-
 /**
- * A Needs you button that answers here: posted off the main thread (goAsync keeps the receiver alive for it), the row marked as it
- * goes and as it went, both widgets redrawn. Not exported: only the widgets' own PendingIntents reach it.
+ * A widget's button that answers here (an answer on X0, a button on a row): posted off the main thread (goAsync keeps the
+ * receiver alive for it), the item marked as it goes and as it went, the widgets redrawn. Not exported: only the widgets' own
+ * PendingIntents reach it.
  */
 class TailzuWidgetActReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
@@ -534,11 +524,13 @@ class TailzuWidgetActReceiver : BroadcastReceiver() {
     val app = context.applicationContext
     TailzuQuick.setState(app, item, "working")
     TailzuQuick.requestUpdate(app)
+    TailzuX0.requestUpdate(app)
     val pending = goAsync()
     Thread {
       try {
         TailzuQuick.setState(app, item, TailzuQuick.post(app, item, action))
         TailzuQuick.requestUpdate(app)
+        TailzuX0.requestUpdate(app)
       } finally {
         pending.finish()
       }

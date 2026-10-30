@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows on Android 12+ before X0 is placed (previewLayout): the 4x2 with Code bot at work on the cart fix,
+  step 3 of 5, and the crew's faces while Travel bot finds a hotel. Fixed, because the picker cannot read what the app wrote; the
+  colours follow the phone's light or dark theme. Before Android 12 the picker shows tailzu_x0_preview_image instead.
+  Generated with the tailzu_x0_* layouts (android/x0-layouts.py).
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/tailzu_widget_ground">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitCenter"
+                android:src="@drawable/tailzu_x0_head_code" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="@string/tailzu_x0_preview_task"
+                    android:textColor="@color/tailzu_widget_ink"
+                    android:textSize="20dp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="@string/tailzu_x0_preview_sub"
+                    android:textColor="@color/tailzu_widget_meta"
+                    android:textSize="13dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/tailzu_widget_pill"
+                android:backgroundTint="@color/tailzu_widget_surface"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:paddingEnd="10dp"
+                android:paddingStart="10dp"
+                android:text="@string/tailzu_x0_preview_min"
+                android:textColor="@color/tailzu_x0_preview_code"
+                android:textSize="12.5dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_marginEnd="3dp"
+                android:layout_weight="1"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tailzu_x0_preview_done" />
+
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_marginEnd="3dp"
+                android:layout_weight="1"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tailzu_x0_preview_done" />
+
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_marginEnd="3dp"
+                android:layout_weight="1"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tailzu_x0_preview_now" />
+
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_marginEnd="3dp"
+                android:layout_weight="1"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tailzu_x0_preview_todo" />
+
+            <ImageView
+                android:layout_width="0dp"
+                android:layout_height="8dp"
+                android:layout_weight="1"
+                android:contentDescription="@null"
+                android:importantForAccessibility="no"
+                android:scaleType="fitXY"
+                android:src="@drawable/tailzu_x0_preview_todo" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="none"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_stage1"
+                android:textColor="@color/tailzu_widget_meta"
+                android:textSize="10.5dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="none"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_stage2"
+                android:textColor="@color/tailzu_widget_meta"
+                android:textSize="10.5dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="none"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_stage3"
+                android:textColor="@color/tailzu_widget_ink"
+                android:textSize="10.5dp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="none"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_stage4"
+                android:textColor="@color/tailzu_widget_dim"
+                android:textSize="10.5dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="none"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_stage5"
+                android:textColor="@color/tailzu_widget_dim"
+                android:textSize="10.5dp" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/tailzu_x0_head_travel" />
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="18dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/tailzu_x0_head_keybot" />
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="36dp"
+                    android:contentDescription="@null"
+                    android:importantForAccessibility="no"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/tailzu_x0_head_plan" />
+            </FrameLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_crew"
+                android:textColor="@color/tailzu_widget_ink"
+                android:textSize="12.5dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/tailzu_x0_preview_crew_line"
+                android:textColor="@color/tailzu_x0_preview_travel"
+                android:textSize="12.5dp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

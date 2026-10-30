@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A bot's tile in the X0 widget (Home's tiles): Material You's inner 16dp rounding, the surface grey; tinted at run time. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/tailzu_widget_surface" />
+    <corners android:radius="16dp" />
+</shape>

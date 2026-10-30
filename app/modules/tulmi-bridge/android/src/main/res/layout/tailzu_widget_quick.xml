@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  A quick-access widget (TailzuQuickWidgets.kt): From your people, Needs you.
-  The card, tinted at run time as the Month's is (the theme's own before that);
+  The quick-access widget (TailzuQuickWidgets.kt): From your people. The
+  card, tinted at run time to the server's ground (the theme's own before that);
   the header (the mark, the app icon's bot, and the title); a column the rows
   are added to (tailzu_widget_quick_row, one per row the height has room for,
   hairlines between them); and the empty state with its button. Every colour

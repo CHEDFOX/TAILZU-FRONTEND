@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Month picker preview's line, the part still to come: the line grey, a capsule. -->
+<!-- The X0 picker preview's stage bar: a stage still to come, the line grey. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/tailzu_widget_line" />

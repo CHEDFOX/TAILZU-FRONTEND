@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The quick-access widgets and the app shortcuts find these drawables by the
-  name the server sends (getIdentifier), which resource shrinking cannot see:
-  kept, so a release build with shrinkResources still draws them.
+  The widgets and the app shortcuts find some drawables by name (the name the
+  server sends, or a bot's face key: getIdentifier), which resource shrinking
+  cannot see: kept, so a release build with shrinkResources still draws them.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/tailzu_wi_*,@drawable/tailzu_qa_*,@drawable/tailzu_widget_*" />
+    tools:keep="@drawable/tailzu_wi_*,@drawable/tailzu_qa_*,@drawable/tailzu_widget_*,@drawable/tailzu_x0_*" />
