@@ -169,13 +169,3 @@ export async function streamConfig(): Promise<{ url: string; token: string }> {
   const query = lang ? `?language=${encodeURIComponent(lang)}` : "";
   return { url: `${ws}${rooted(str("net.transcribeStreamPath", "/v1/transcribe-stream"))}${query}`, token: await getToken() };
 }
-
-// --- Screen: draft a personalized reply -------------------------------------
-
-export async function draft(
-  screenContent: string,
-  intent: string,
-  opts: Options & { recipient?: string } = {},
-): Promise<{ draftText: string; usage: Usage }> {
-  return jsonPost(rooted(str("net.draftPath", "/v1/draft")), { screenContent, intent, ...opts });
-}

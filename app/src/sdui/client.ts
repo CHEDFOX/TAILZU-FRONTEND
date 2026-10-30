@@ -87,6 +87,7 @@ export async function forgetAccountData(): Promise<void> {
   setWidgetMonth(null);
   setWidgetTheme(null);
   try {
+    // authName and profileDone: what older builds kept for the name card, cleared wherever they are left.
     const keys = (await AsyncStorage.getAllKeys()).filter((k) =>
       k.startsWith("tulmi.cache.") || k === "tulmi.authName" || k === "tulmi.profileDone");
     if (keys.length) await AsyncStorage.multiRemove(keys);

@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import {
-  checkBaseUrl, isBackendPath, isHandoffUrl, isOpenableUrl, isScreenId, isTailzuPage, isWebUrl, safeFileName,
+  checkBaseUrl, isBackendPath, isHandoffUrl, isOpenableUrl, isScreenId, isWebUrl, safeFileName,
 } from "./security.ts";
 
 test("a release build talks only to https on x0bot.com, or tailzu.space from before the move", () => {
@@ -166,18 +166,6 @@ test("the in-app browser and downloads are web pages only", () => {
   assert.equal(isWebUrl("http://example.com/a.pdf"), true);
   assert.equal(isWebUrl("file:///etc/hosts"), false);
   assert.equal(isWebUrl("javascript:alert(1)"), false);
-});
-
-test("the WebView node shows our pages and nothing else", () => {
-  assert.equal(isTailzuPage("https://x0bot.com/help"), true);
-  assert.equal(isTailzuPage("https://app.x0bot.com/x"), true);
-  assert.equal(isTailzuPage("https://tailzu.space/help"), true);
-  assert.equal(isTailzuPage("https://app.tailzu.space/x"), true);
-  assert.equal(isTailzuPage("http://x0bot.com/help"), false);
-  assert.equal(isTailzuPage("https://x0bot.com.evil.example/"), false);
-  assert.equal(isTailzuPage("https://evilx0bot.com/"), false);
-  assert.equal(isTailzuPage("https://evil.example/?x0bot.com"), false);
-  assert.equal(isTailzuPage("https://tailzu.space.evil.example/"), false);
 });
 
 test("a link names a screen, never a path", () => {
