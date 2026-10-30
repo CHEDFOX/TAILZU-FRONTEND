@@ -447,7 +447,8 @@ const config: ExpoConfig = {
     // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
     "expo-video",
     // Splash / launch screen: the app icon's bot, small, hanging from a piece of
-    // its clay bar, dead centre on the icon's cream. ONE asset, both platforms.
+    // its clay bar, dead centre on white: the Bots app's own paper, so the
+    // launch ends on the app's ground. ONE asset, both platforms.
     //
     // From API 31 Android's splash is the SYSTEM one: a colour and a centred
     // icon, masked to a circle 192 dp across. There is no full-bleed option, so
@@ -458,20 +459,21 @@ const config: ExpoConfig = {
     // THE LAUNCH ANIMATION STARTS FROM THIS FRAME. src/launch/LaunchCurtain draws
     // the same art (assets/launch: drawn with the icon's own code by
     // tools/media/brand/x0-icon/curious-hang/launch.mjs) at the same size on the
-    // same ground, lifts this splash from under it, and swings the bot once.
+    // same ground, lifts this splash from under it, and the bot pulls himself
+    // up over his bar and is gone, and the bar is pulled in to its middle.
     // imageWidth and backgroundColor here are SPLASH_PT and GROUND in
     // src/launch/launchCore.ts (launchCore.test.ts holds them together): change
     // one, change both — and a change here needs a new native build.
     //
-    // Dark mode gets the same: the cream is the brand's ground, not a theme.
+    // Dark mode gets the same: the white is the app's ground, not a theme.
     [
       "expo-splash-screen",
       {
-        backgroundColor: "#F7F3EC",
+        backgroundColor: "#FFFFFF",
         image: "./assets/launch/splash.png",
         imageWidth: 136,
         resizeMode: "contain",
-        dark: { backgroundColor: "#F7F3EC", image: "./assets/launch/splash.png" },
+        dark: { backgroundColor: "#FFFFFF", image: "./assets/launch/splash.png" },
       },
     ],
     // expo-sharing ships an app.plugin.js in SDK 56.0.15+; expo install --fix
