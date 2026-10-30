@@ -1,0 +1,3833 @@
+{
+ "schemaVersion": 1,
+ "screenId": "bots.code",
+ "title": "Xode · storefront",
+ "hideChrome": true,
+ "look": "bots",
+ "theme": {
+  "color": {
+   "bg": "#ffffff",
+   "surface": "#f5f5f5",
+   "card": "#ffffff",
+   "inputBg": "#ffffff",
+   "text": "#0a0a0a",
+   "body": "#3d3d3d",
+   "muted": "#5c5c5c",
+   "label": "#5c5c5c",
+   "border": "#e6e6e6",
+   "primary": "#0a0a0a",
+   "accent": "#0a0a0a",
+   "danger": "#0a0a0a",
+   "tabBar": "#ffffff",
+   "tabBarBorder": "#ededed",
+   "toastInfo": "#0a0a0a",
+   "toastSuccess": "#0a0a0a",
+   "toastError": "#0a0a0a",
+   "toastText": "#ffffff"
+  }
+ },
+ "cacheTtlSeconds": 1,
+ "state": {
+  "ask": "",
+  "asking": false,
+  "task": ""
+ },
+ "root": {
+  "type": "Stack",
+  "style": {
+   "flexDirection": "row",
+   "alignItems": "stretch",
+   "height": "100%",
+   "minHeight": 600,
+   "backgroundColor": "#ffffff"
+  },
+  "children": [
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "width": 240,
+     "flexShrink": 0,
+     "height": "100%",
+     "borderRightWidth": 1,
+     "borderRightColor": "#ededed",
+     "paddingTop": 22,
+     "paddingHorizontal": 14,
+     "paddingBottom": 18,
+     "gap": 2,
+     "backgroundColor": "#ffffff"
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 8,
+       "paddingBottom": 16
+      },
+      "children": [
+       {
+        "type": "SVG",
+        "props": {
+         "viewBox": "0 0 34 34",
+         "d": "M15 4a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M24 7a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M28 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M25 25a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M15 30a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M5 25a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M2 16a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M6 7a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M10.4 15a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0M18.4 15a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0",
+         "fill": "#0a0a0a",
+         "stroke": "none",
+         "accessibilityLabel": "X0 Bot"
+        },
+        "style": {
+         "width": 28,
+         "height": 28,
+         "flexShrink": 0
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "X0 Bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist Bold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 17,
+         "lineHeight": 23,
+         "letterSpacing": -0.3,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 44
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "shapes": [
+            {
+             "circle": [
+              7.5,
+              7.5,
+              3.6
+             ],
+             "fill": "#4F7A3A",
+             "motion": "breathe"
+            },
+            {
+             "circle": [
+              16.5,
+              7.5,
+              3.2
+             ],
+             "stroke": "#8a8a8a",
+             "strokeWidth": 1.6
+            },
+            {
+             "circle": [
+              7.5,
+              16.5,
+              3.2
+             ],
+             "stroke": "#8a8a8a",
+             "strokeWidth": 1.6
+            },
+            {
+             "circle": [
+              16.5,
+              16.5,
+              3.2
+             ],
+             "stroke": "#8a8a8a",
+             "strokeWidth": 1.6
+            }
+           ]
+          },
+          "style": {
+           "width": 22,
+           "height": 22,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Bots",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "switchTab",
+        "tabId": "bots"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 44
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "shapes": [
+            {
+             "d": "M6 4v16",
+             "stroke": "#d4d4d4",
+             "strokeWidth": 1.6
+            },
+            {
+             "circle": [
+              6,
+              5,
+              3
+             ],
+             "fill": "#0a0a0a"
+            },
+            {
+             "circle": [
+              6,
+              12,
+              2.8
+             ],
+             "fill": "#4F7A3A",
+             "motion": "breathe"
+            },
+            {
+             "circle": [
+              6,
+              19,
+              2.4
+             ],
+             "fill": "#ffffff",
+             "stroke": "#8a8a8a",
+             "strokeWidth": 1.6
+            },
+            {
+             "d": "M11.5 5h9M11.5 12h6.5M11.5 19h8",
+             "stroke": "#8a8a8a",
+             "strokeWidth": 1.8,
+             "linecap": "round"
+            }
+           ]
+          },
+          "style": {
+           "width": 22,
+           "height": 22,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Activity",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "switchTab",
+        "tabId": "activity"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 44
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "shapes": [
+            {
+             "circle": [
+              12,
+              12,
+              9
+             ],
+             "stroke": "#ededed",
+             "strokeWidth": 2.2
+            },
+            {
+             "circle": [
+              12,
+              12,
+              9
+             ],
+             "stroke": "#8a8a8a",
+             "strokeWidth": 2.2,
+             "linecap": "round",
+             "dash": "5.7 56.55",
+             "rotate": -90
+            },
+            {
+             "circle": [
+              12,
+              12,
+              3.4
+             ],
+             "fill": "#8a8a8a"
+            }
+           ]
+          },
+          "style": {
+           "width": 22,
+           "height": 22,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "You",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "switchTab",
+        "tabId": "you"
+       }
+      }
+     },
+     {
+      "type": "Text",
+      "props": {
+       "content": "Your bots",
+       "variant": "bots"
+      },
+      "style": {
+       "fontFamily": "Tailzu Geist SemiBold",
+       "fontWeight": "normal",
+       "fontStyle": "normal",
+       "fontSize": 11,
+       "lineHeight": 15,
+       "letterSpacing": 0.4,
+       "color": "#5c5c5c",
+       "margin": 0,
+       "textTransform": "uppercase",
+       "paddingTop": 16,
+       "paddingBottom": 6,
+       "paddingHorizontal": 10
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38,
+       "backgroundColor": "#f5f5f5"
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#4F7A3A",
+             "motion": "breathe"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Xode",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist SemiBold",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "marginLeft": "auto",
+         "flexShrink": 0
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#0a0a0a"
+            }
+           ],
+           "accessibilityLabel": "needs you"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#A9573A"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Keylessbord",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.keybot"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#8F6A1F"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Plan Ease",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.plan"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#3E6E8E"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Travel bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.travel"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#2F5D50"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Gym bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.bot",
+        "params": {
+         "slug": "gym-bot"
+        }
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 38
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M12 5v14M5 12h14",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 18,
+           "height": 18,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Make a bot",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.make"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "height": 1,
+       "backgroundColor": "#ededed",
+       "marginVertical": 8,
+       "marginHorizontal": 10
+      },
+      "children": []
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 40
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M6 5h12a2.5 2.5 0 0 1 2.5 2.5v10.5a2.5 2.5 0 0 1 -2.5 2.5h-12a2.5 2.5 0 0 1 -2.5 -2.5v-10.5a2.5 2.5 0 0 1 2.5 -2.5zM3.5 9.5h17M8 3v4M16 3v4",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 20,
+           "height": 20,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Today",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.today"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 40
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M7.5 3.5h9a2.5 2.5 0 0 1 2.5 2.5v12a2.5 2.5 0 0 1 -2.5 2.5h-9a2.5 2.5 0 0 1 -2.5 -2.5v-12a2.5 2.5 0 0 1 2.5 -2.5zM8.5 8.5h7M8.5 12h7M8.5 15.5h4",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 20,
+           "height": 20,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Notes",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.notes"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexGrow": 1,
+       "flexShrink": 1
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 40
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M5.8 5h12.4a1.8 1.8 0 0 1 1.8 1.8v7.4a1.8 1.8 0 0 1 -1.8 1.8h-12.4a1.8 1.8 0 0 1 -1.8 -1.8v-7.4a1.8 1.8 0 0 1 1.8 -1.8zM2.5 19h19",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 20,
+           "height": 20,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "This computer helps",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "marginLeft": "auto",
+         "flexShrink": 0
+        },
+        "children": [
+         {
+          "type": "Text",
+          "props": {
+           "content": "On",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 12,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ]
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "bots.computer"
+       }
+      }
+     },
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "row",
+       "alignItems": "center",
+       "gap": 10,
+       "paddingHorizontal": 10,
+       "borderRadius": 12,
+       "minHeight": 40
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "width": 22,
+         "height": 22,
+         "alignItems": "center",
+         "justifyContent": "center"
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 24 24",
+           "d": "M4 7h10M18 7h2M4 17h4M12 17h8M14 7a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M8 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+           "fill": "none",
+           "stroke": "#5c5c5c",
+           "strokeWidth": 1.9,
+           "strokeLinecap": "round",
+           "strokeLinejoin": "round"
+          },
+          "style": {
+           "width": 20,
+           "height": 20,
+           "flexShrink": 0
+          }
+         }
+        ]
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "Settings",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 14,
+         "lineHeight": 18,
+         "letterSpacing": 0,
+         "color": "#0a0a0a",
+         "margin": 0,
+         "textTransform": "none",
+         "flexShrink": 1
+        }
+       }
+      ],
+      "on": {
+       "onPress": {
+        "kind": "navigate",
+        "screenId": "desk_settings"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "Stack",
+    "style": {
+     "flexDirection": "column",
+     "flexGrow": 1,
+     "flexShrink": 1,
+     "minWidth": 0,
+     "height": "100%",
+     "overflowY": "auto",
+     "paddingTop": 40,
+     "paddingHorizontal": 48,
+     "paddingBottom": 32
+    },
+    "children": [
+     {
+      "type": "Stack",
+      "style": {
+       "flexDirection": "column",
+       "maxWidth": 1100,
+       "width": "100%",
+       "flexGrow": 1,
+       "gap": 18
+      },
+      "children": [
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 10
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 36,
+           "height": 36,
+           "flexShrink": 0,
+           "overflow": "hidden",
+           "borderRadius": 18,
+           "backgroundColor": "#f5f5f5"
+          },
+          "children": [
+           {
+            "type": "Image",
+            "props": {
+             "source": {
+              "url": "https://api.local/blip/bots/head-code.png?v=1"
+             },
+             "contentFit": "contain",
+             "radius": 0
+            },
+            "style": {
+             "width": "100%",
+             "height": "100%",
+             "borderRadius": 0
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "flexShrink": 1
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "aanya-sharma/",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Medium",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 26,
+             "lineHeight": 32,
+             "letterSpacing": -0.5,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "storefront",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Bold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 26,
+             "lineHeight": 32,
+             "letterSpacing": -0.5,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "borderRadius": 12,
+           "paddingVertical": 4,
+           "paddingHorizontal": 10,
+           "flexShrink": 0
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "main",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist Mono",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 12,
+             "lineHeight": 16,
+             "letterSpacing": 0,
+             "color": "#0a0a0a",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "BotBuddy",
+          "props": {
+           "kind": "code",
+           "color": "#4F7A3A",
+           "life": "page.code",
+           "width": 150,
+           "height": 56,
+           "size": 34,
+           "state": "working",
+           "lookTo": "down",
+           "thinkWhen": {
+            "any": [
+             {
+              "truthy": "starting"
+             },
+             {
+              "truthy": "asking"
+             }
+            ]
+           }
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 7
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 8 8",
+             "shapes": [
+              {
+               "circle": [
+                4,
+                4,
+                3.25
+               ],
+               "stroke": "#0a0a0a",
+               "strokeWidth": 1.5
+              }
+             ],
+             "accessibilityLabel": "done"
+            },
+            "style": {
+             "width": 8,
+             "height": 8,
+             "flexShrink": 0
+            }
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "I've read your project",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 17,
+             "letterSpacing": 0,
+             "color": "#3d3d3d",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 6,
+           "flexShrink": 1,
+           "overflow": "hidden"
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "backgroundColor": "#f5f5f5",
+             "borderRadius": 8,
+             "paddingVertical": 4,
+             "paddingHorizontal": 8,
+             "alignSelf": "flex-start",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Next.js",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Mono",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "backgroundColor": "#f5f5f5",
+             "borderRadius": 8,
+             "paddingVertical": 4,
+             "paddingHorizontal": 8,
+             "alignSelf": "flex-start",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Supabase",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Mono",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "backgroundColor": "#f5f5f5",
+             "borderRadius": 8,
+             "paddingVertical": 4,
+             "paddingHorizontal": 8,
+             "alignSelf": "flex-start",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "TypeScript",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Mono",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "backgroundColor": "#f5f5f5",
+             "borderRadius": 8,
+             "paddingVertical": 4,
+             "paddingHorizontal": 8,
+             "alignSelf": "flex-start",
+             "flexShrink": 0
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "1,284 files",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Mono",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 12,
+               "lineHeight": 16,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 36,
+           "height": 36,
+           "borderRadius": 18,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "alignItems": "center",
+           "justifyContent": "center",
+           "flexShrink": 0
+          },
+          "children": [
+           {
+            "type": "SVG",
+            "props": {
+             "viewBox": "0 0 24 24",
+             "d": "M4 7h10M18 7h2M4 17h4M12 17h8M14 7a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M8 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
+             "fill": "none",
+             "stroke": "#0a0a0a",
+             "strokeWidth": 1.9,
+             "strokeLinecap": "round",
+             "strokeLinejoin": "round"
+            },
+            "style": {
+             "width": 18,
+             "height": 18,
+             "flexShrink": 0
+            }
+           }
+          ],
+          "on": {
+           "onPress": {
+            "kind": "navigate",
+            "screenId": "bots.code.rules",
+            "params": {
+             "project": "11111111-1111-4111-8111-111111111111"
+            }
+           }
+          },
+          "props": {
+           "accessibilityLabel": "Project rules"
+          }
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "column",
+         "borderWidth": 1.5,
+         "borderColor": "#0a0a0a",
+         "borderRadius": 22,
+         "paddingTop": 18,
+         "paddingRight": 16,
+         "paddingBottom": 14,
+         "paddingLeft": 22,
+         "gap": 12
+        },
+        "children": [
+         {
+          "type": "TextField",
+          "id": "task",
+          "bind": {
+           "value": "task"
+          },
+          "props": {
+           "placeholder": "Tell Xode what to do in storefront…",
+           "placeholderColor": "#8a8a8a",
+           "background": "transparent",
+           "borderWidth": 0,
+           "radius": 0,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "minHeight": 81,
+           "color": "#0a0a0a",
+           "multiline": true,
+           "accessibilityLabel": "Tell Xode what to do"
+          },
+          "style": {
+           "flexGrow": 1,
+           "flexShrink": 1,
+           "minWidth": 0,
+           "minHeight": 81,
+           "paddingHorizontal": 0,
+           "paddingVertical": 0,
+           "fontFamily": "Tailzu Geist",
+           "fontSize": 19,
+           "lineHeight": 27,
+           "color": "#0a0a0a",
+           "borderWidth": 0,
+           "backgroundColor": "transparent",
+           "outlineStyle": "none",
+           "textAlignVertical": "top"
+          }
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "row",
+           "alignItems": "center",
+           "gap": 8,
+           "flexWrap": "wrap"
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Good first tasks",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 15,
+             "letterSpacing": 0.4,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "uppercase"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "borderWidth": 1,
+             "borderColor": "#d4d4d4",
+             "borderRadius": 18,
+             "paddingVertical": 8,
+             "paddingHorizontal": 14,
+             "flexShrink": 1
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Fix the 3 failing tests",
+               "variant": "bots",
+               "numberOfLines": 1
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "sent",
+                "value": "Fix the 3 failing tests: payments/refund.test.ts, emails/receipt.test.ts, search/filters.test.ts."
+               },
+               {
+                "kind": "setState",
+                "path": "stopped",
+                "value": false
+               },
+               {
+                "kind": "setState",
+                "path": "reply",
+                "value": null
+               },
+               {
+                "kind": "setState",
+                "path": "starting",
+                "value": true
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "POST",
+                "path": "/v1/bots/code/start",
+                "body": {
+                 "projectId": "11111111-1111-4111-8111-111111111111",
+                 "task": "$state.sent"
+                },
+                "assignTo": "started",
+                "onSuccess": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "starting",
+                   "value": false
+                  },
+                  {
+                   "kind": "navigate",
+                   "screenId": "bots.code.plan",
+                   "params": {
+                    "id": "$state.started.job.id"
+                   }
+                  }
+                 ]
+                },
+                "onError": {
+                 "kind": "condition",
+                 "if": {
+                  "truthy": "stopped"
+                 },
+                 "then": {
+                  "kind": "setState",
+                  "path": "starting",
+                  "value": false
+                 },
+                 "else": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "starting",
+                    "value": false
+                   },
+                   {
+                    "kind": "clearState",
+                    "path": "sent"
+                   },
+                   {
+                    "kind": "clearState",
+                    "path": "reply"
+                   },
+                   {
+                    "kind": "toast",
+                    "message": "Couldn't start that. Try again."
+                   }
+                  ]
+                 }
+                }
+               }
+              ]
+             }
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "borderWidth": 1,
+             "borderColor": "#d4d4d4",
+             "borderRadius": 18,
+             "paddingVertical": 8,
+             "paddingHorizontal": 14,
+             "flexShrink": 1
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Add tests to Checkout",
+               "variant": "bots",
+               "numberOfLines": 1
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 13,
+               "lineHeight": 17,
+               "letterSpacing": 0,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "sequence",
+              "actions": [
+               {
+                "kind": "setState",
+                "path": "sent",
+                "value": "Add tests to Checkout (app/checkout/page.tsx): it changes often and nothing tests it."
+               },
+               {
+                "kind": "setState",
+                "path": "stopped",
+                "value": false
+               },
+               {
+                "kind": "setState",
+                "path": "reply",
+                "value": null
+               },
+               {
+                "kind": "setState",
+                "path": "starting",
+                "value": true
+               },
+               {
+                "kind": "callEndpoint",
+                "method": "POST",
+                "path": "/v1/bots/code/start",
+                "body": {
+                 "projectId": "11111111-1111-4111-8111-111111111111",
+                 "task": "$state.sent"
+                },
+                "assignTo": "started",
+                "onSuccess": {
+                 "kind": "sequence",
+                 "actions": [
+                  {
+                   "kind": "setState",
+                   "path": "starting",
+                   "value": false
+                  },
+                  {
+                   "kind": "navigate",
+                   "screenId": "bots.code.plan",
+                   "params": {
+                    "id": "$state.started.job.id"
+                   }
+                  }
+                 ]
+                },
+                "onError": {
+                 "kind": "condition",
+                 "if": {
+                  "truthy": "stopped"
+                 },
+                 "then": {
+                  "kind": "setState",
+                  "path": "starting",
+                  "value": false
+                 },
+                 "else": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "starting",
+                    "value": false
+                   },
+                   {
+                    "kind": "clearState",
+                    "path": "sent"
+                   },
+                   {
+                    "kind": "clearState",
+                    "path": "reply"
+                   },
+                   {
+                    "kind": "toast",
+                    "message": "Couldn't start that. Try again."
+                   }
+                  ]
+                 }
+                }
+               }
+              ]
+             }
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexGrow": 1,
+             "flexShrink": 1
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 44,
+             "height": 44,
+             "borderRadius": 22,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0,
+             "backgroundColor": "#ffffff",
+             "borderWidth": 1,
+             "borderColor": "#d4d4d4"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M20 11.5l-7.6 7.6a5 5 0 0 1-7.1-7.1l8.1-8.1a3.3 3.3 0 0 1 4.7 4.7l-8.1 8.1a1.7 1.7 0 0 1-2.4-2.4l7.4-7.4",
+               "fill": "none",
+               "stroke": "#0a0a0a",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 20,
+               "height": 20,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "navigate",
+              "screenId": "bots.attach",
+              "params": {
+               "project": "11111111-1111-4111-8111-111111111111"
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Attach"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 44,
+             "height": 44,
+             "borderRadius": 22,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0,
+             "backgroundColor": "#ffffff",
+             "borderWidth": 1,
+             "borderColor": "#d4d4d4"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 3h0a3 3 0 0 1 3 3v5a3 3 0 0 1 -3 3h0a3 3 0 0 1 -3 -3v-5a3 3 0 0 1 3 -3zM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21",
+               "fill": "none",
+               "stroke": "#0a0a0a",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 20,
+               "height": 20,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "dictate"
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Speak"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "width": 48,
+             "height": 48,
+             "borderRadius": 24,
+             "alignItems": "center",
+             "justifyContent": "center",
+             "flexShrink": 0,
+             "backgroundColor": "#0a0a0a"
+            },
+            "children": [
+             {
+              "type": "SVG",
+              "props": {
+               "viewBox": "0 0 24 24",
+               "d": "M12 19V5M6 11l6-6 6 6",
+               "fill": "none",
+               "stroke": "#ffffff",
+               "strokeWidth": 1.9,
+               "strokeLinecap": "round",
+               "strokeLinejoin": "round"
+              },
+              "style": {
+               "width": 20,
+               "height": 20,
+               "flexShrink": 0
+              }
+             }
+            ],
+            "on": {
+             "onPress": {
+              "kind": "condition",
+              "if": {
+               "falsy": "task"
+              },
+              "then": {
+               "kind": "toast",
+               "message": "Say what you want done first"
+              },
+              "else": {
+               "kind": "sequence",
+               "actions": [
+                {
+                 "kind": "setState",
+                 "path": "sent",
+                 "value": "$state.task"
+                },
+                {
+                 "kind": "setState",
+                 "path": "stopped",
+                 "value": false
+                },
+                {
+                 "kind": "setState",
+                 "path": "reply",
+                 "value": null
+                },
+                {
+                 "kind": "clearState",
+                 "path": "task"
+                },
+                {
+                 "kind": "setState",
+                 "path": "starting",
+                 "value": true
+                },
+                {
+                 "kind": "callEndpoint",
+                 "method": "POST",
+                 "path": "/v1/bots/code/start",
+                 "body": {
+                  "projectId": "11111111-1111-4111-8111-111111111111",
+                  "task": "$state.sent"
+                 },
+                 "assignTo": "started",
+                 "onSuccess": {
+                  "kind": "sequence",
+                  "actions": [
+                   {
+                    "kind": "setState",
+                    "path": "starting",
+                    "value": false
+                   },
+                   {
+                    "kind": "navigate",
+                    "screenId": "bots.code.plan",
+                    "params": {
+                     "id": "$state.started.job.id"
+                    }
+                   }
+                  ]
+                 },
+                 "onError": {
+                  "kind": "condition",
+                  "if": {
+                   "truthy": "stopped"
+                  },
+                  "then": {
+                   "kind": "setState",
+                   "path": "starting",
+                   "value": false
+                  },
+                  "else": {
+                   "kind": "sequence",
+                   "actions": [
+                    {
+                     "kind": "setState",
+                     "path": "starting",
+                     "value": false
+                    },
+                    {
+                     "kind": "setState",
+                     "path": "task",
+                     "value": "$state.sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "sent"
+                    },
+                    {
+                     "kind": "clearState",
+                     "path": "reply"
+                    },
+                    {
+                     "kind": "toast",
+                     "message": "Couldn't start that. Try again."
+                    }
+                   ]
+                  }
+                 }
+                }
+               ]
+              }
+             }
+            },
+            "props": {
+             "accessibilityLabel": "Plan it"
+            }
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "center",
+         "gap": 8
+        },
+        "children": [
+         {
+          "type": "SVG",
+          "props": {
+           "viewBox": "0 0 8 8",
+           "shapes": [
+            {
+             "circle": [
+              4,
+              4,
+              4
+             ],
+             "fill": "#4F7A3A",
+             "motion": "breathe"
+            }
+           ],
+           "accessibilityLabel": "working"
+          },
+          "style": {
+           "width": 8,
+           "height": 8,
+           "flexShrink": 0
+          }
+         },
+         {
+          "type": "Text",
+          "props": {
+           "content": "Making a plan…",
+           "variant": "bots"
+          },
+          "style": {
+           "fontFamily": "Tailzu Geist",
+           "fontWeight": "normal",
+           "fontStyle": "normal",
+           "fontSize": 13,
+           "lineHeight": 16,
+           "letterSpacing": 0,
+           "color": "#5c5c5c",
+           "margin": 0,
+           "textTransform": "none"
+          }
+         }
+        ],
+        "visibleIf": {
+         "truthy": "starting"
+        }
+       },
+       {
+        "type": "Text",
+        "props": {
+         "content": "I plan first and show you. Nothing changes until you press Start.",
+         "variant": "bots"
+        },
+        "style": {
+         "fontFamily": "Tailzu Geist",
+         "fontWeight": "normal",
+         "fontStyle": "normal",
+         "fontSize": 12,
+         "lineHeight": 16,
+         "letterSpacing": 0,
+         "color": "#5c5c5c",
+         "margin": 0,
+         "textTransform": "none"
+        }
+       },
+       {
+        "type": "Stack",
+        "style": {
+         "flexDirection": "row",
+         "alignItems": "flex-start",
+         "gap": 24
+        },
+        "children": [
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "flexGrow": 1,
+           "flexBasis": 0,
+           "minWidth": 0,
+           "gap": 18
+          },
+          "children": [
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Lately",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist SemiBold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 11,
+               "lineHeight": 15,
+               "letterSpacing": 0.4,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "uppercase"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "borderWidth": 1,
+               "borderColor": "#e6e6e6",
+               "borderRadius": 18
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 60
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 12,
+                   "alignItems": "center"
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        4
+                       ],
+                       "fill": "#0a0a0a"
+                      }
+                     ],
+                     "accessibilityLabel": "needs you"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "gap": 1,
+                   "flexGrow": 1,
+                   "flexShrink": 1,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Add dark mode",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Needs you · your OK",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#5c5c5c",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "height": 44,
+                   "borderRadius": 22,
+                   "paddingHorizontal": 16,
+                   "gap": 8,
+                   "justifyContent": "center",
+                   "flexShrink": 0,
+                   "backgroundColor": "#ffffff",
+                   "borderWidth": 1,
+                   "borderColor": "#d4d4d4",
+                   "alignSelf": "flex-start"
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Look",
+                     "variant": "bots"
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 18,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ],
+                  "on": {
+                   "onPress": {
+                    "kind": "navigate",
+                    "screenId": "bots.code.plan",
+                    "params": {
+                     "id": "7c1d2e3f-0000-4000-8000-000000000004"
+                    }
+                   }
+                  }
+                 }
+                ]
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 60,
+                 "borderTopWidth": 1,
+                 "borderTopColor": "#ededed"
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 12,
+                   "alignItems": "center"
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        4
+                       ],
+                       "fill": "#0a0a0a"
+                      }
+                     ],
+                     "accessibilityLabel": "needs you"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "gap": 1,
+                   "flexGrow": 1,
+                   "flexShrink": 1,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Pick a sign-in page style",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Needs you · 1 question",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#5c5c5c",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "height": 44,
+                   "borderRadius": 22,
+                   "paddingHorizontal": 16,
+                   "gap": 8,
+                   "justifyContent": "center",
+                   "flexShrink": 0,
+                   "backgroundColor": "#ffffff",
+                   "borderWidth": 1,
+                   "borderColor": "#d4d4d4",
+                   "alignSelf": "flex-start"
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Answer",
+                     "variant": "bots"
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 18,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ],
+                  "on": {
+                   "onPress": {
+                    "kind": "navigate",
+                    "screenId": "bots.code.job",
+                    "params": {
+                     "id": "7c1d2e3f-0000-4000-8000-000000000002"
+                    }
+                   }
+                  }
+                 }
+                ]
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 60,
+                 "borderTopWidth": 1,
+                 "borderTopColor": "#ededed"
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 12,
+                   "alignItems": "center"
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        4
+                       ],
+                       "fill": "#4F7A3A",
+                       "motion": "breathe"
+                      }
+                     ],
+                     "accessibilityLabel": "working"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "gap": 1,
+                   "flexGrow": 1,
+                   "flexShrink": 1,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Fix cart total rounding",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Working · step 3 of 5",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#5c5c5c",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.code.job",
+                  "params": {
+                   "id": "7c1d2e3f-0000-4000-8000-000000000001"
+                  }
+                 }
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 60,
+                 "borderTopWidth": 1,
+                 "borderTopColor": "#ededed"
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 12,
+                   "alignItems": "center"
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        3.25
+                       ],
+                       "stroke": "#0a0a0a",
+                       "strokeWidth": 1.5
+                      }
+                     ],
+                     "accessibilityLabel": "done"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "gap": 1,
+                   "flexGrow": 1,
+                   "flexShrink": 1,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Add Hindi to sign-up",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Medium",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Shipped · PR #126 · 2 days ago",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#5c5c5c",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.code.job",
+                  "params": {
+                   "id": "7c1d2e3f-0000-4000-8000-000000000003"
+                  }
+                 }
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "Pull requests",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist SemiBold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 11,
+               "lineHeight": 15,
+               "letterSpacing": 0.4,
+               "color": "#5c5c5c",
+               "margin": 0,
+               "textTransform": "uppercase"
+              }
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "borderWidth": 1,
+               "borderColor": "#e6e6e6",
+               "borderRadius": 18
+              },
+              "children": [
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 50
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 52
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "#128",
+                     "variant": "bots"
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Mono",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "flexGrow": 1,
+                   "flexBasis": 0,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Fix cart total rounding",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 90
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Xode",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 13,
+                     "lineHeight": 17,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "gap": 7,
+                   "width": 170
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        4
+                       ],
+                       "fill": "#4F7A3A",
+                       "motion": "breathe"
+                      }
+                     ],
+                     "accessibilityLabel": "working"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Draft · checks running",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12.5,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.code.pr-care",
+                  "params": {
+                   "project": "11111111-1111-4111-8111-111111111111",
+                   "pr": 128,
+                   "branch": "tailzu/fix-cart-total-rounding-1a2b"
+                  }
+                 }
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 50,
+                 "borderTopWidth": 1,
+                 "borderTopColor": "#ededed"
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 52
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "#127",
+                     "variant": "bots"
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Mono",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "flexGrow": 1,
+                   "flexBasis": 0,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Product filters on phones",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 90
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Handed over",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 13,
+                     "lineHeight": 17,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "gap": 7,
+                   "width": 170
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        3.25
+                       ],
+                       "stroke": "#0a0a0a",
+                       "strokeWidth": 1.5,
+                       "dash": "1.7 1.7"
+                      }
+                     ],
+                     "accessibilityLabel": "waiting"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Waiting for review",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12.5,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.code.pr-care",
+                  "params": {
+                   "project": "11111111-1111-4111-8111-111111111111",
+                   "pr": 127,
+                   "branch": "rohan/filters"
+                  }
+                 }
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexDirection": "row",
+                 "alignItems": "center",
+                 "gap": 12,
+                 "paddingHorizontal": 16,
+                 "minHeight": 50,
+                 "borderTopWidth": 1,
+                 "borderTopColor": "#ededed"
+                },
+                "children": [
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 52
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "#126",
+                     "variant": "bots"
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist Mono",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "flexGrow": 1,
+                   "flexBasis": 0,
+                   "minWidth": 0
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Add Hindi to sign-up",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 14,
+                     "lineHeight": 19,
+                     "letterSpacing": 0,
+                     "color": "#0a0a0a",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "column",
+                   "width": 90
+                  },
+                  "children": [
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Xode",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 13,
+                     "lineHeight": 17,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 },
+                 {
+                  "type": "Stack",
+                  "style": {
+                   "flexDirection": "row",
+                   "alignItems": "center",
+                   "gap": 7,
+                   "width": 170
+                  },
+                  "children": [
+                   {
+                    "type": "SVG",
+                    "props": {
+                     "viewBox": "0 0 8 8",
+                     "shapes": [
+                      {
+                       "circle": [
+                        4,
+                        4,
+                        3.25
+                       ],
+                       "stroke": "#0a0a0a",
+                       "strokeWidth": 1.5
+                      }
+                     ],
+                     "accessibilityLabel": "done"
+                    },
+                    "style": {
+                     "width": 8,
+                     "height": 8,
+                     "flexShrink": 0
+                    }
+                   },
+                   {
+                    "type": "Text",
+                    "props": {
+                     "content": "Merged",
+                     "variant": "bots",
+                     "numberOfLines": 1
+                    },
+                    "style": {
+                     "fontFamily": "Tailzu Geist",
+                     "fontWeight": "normal",
+                     "fontStyle": "normal",
+                     "fontSize": 12.5,
+                     "lineHeight": 16,
+                     "letterSpacing": 0,
+                     "color": "#3d3d3d",
+                     "margin": 0,
+                     "textTransform": "none"
+                    }
+                   }
+                  ]
+                 }
+                ],
+                "on": {
+                 "onPress": {
+                  "kind": "navigate",
+                  "screenId": "bots.code.pr-care",
+                  "params": {
+                   "project": "11111111-1111-4111-8111-111111111111",
+                   "pr": 126,
+                   "branch": "tailzu/add-hindi-to-sign-up-77aa"
+                  }
+                 }
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "type": "Stack",
+          "style": {
+           "flexDirection": "column",
+           "width": 290,
+           "flexShrink": 0,
+           "borderWidth": 1,
+           "borderColor": "#e6e6e6",
+           "borderRadius": 18,
+           "paddingVertical": 16,
+           "paddingHorizontal": 18,
+           "gap": 12
+          },
+          "children": [
+           {
+            "type": "Text",
+            "props": {
+             "content": "Health",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist SemiBold",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 11,
+             "lineHeight": 15,
+             "letterSpacing": 0.4,
+             "color": "#5c5c5c",
+             "margin": 0,
+             "textTransform": "uppercase"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "flex-end",
+             "gap": 8
+            },
+            "children": [
+             {
+              "type": "Text",
+              "props": {
+               "content": "212",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist Bold",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 34,
+               "lineHeight": 40,
+               "letterSpacing": -0.8,
+               "color": "#0a0a0a",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             },
+             {
+              "type": "Text",
+              "props": {
+               "content": "of 215 tests pass",
+               "variant": "bots"
+              },
+              "style": {
+               "fontFamily": "Tailzu Geist",
+               "fontWeight": "normal",
+               "fontStyle": "normal",
+               "fontSize": 14,
+               "lineHeight": 19,
+               "letterSpacing": 0,
+               "color": "#3d3d3d",
+               "margin": 0,
+               "textTransform": "none"
+              }
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "row",
+             "alignItems": "stretch",
+             "height": 5,
+             "borderRadius": 2.5,
+             "backgroundColor": "#e0e0e0",
+             "overflow": "hidden"
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "column",
+               "width": "98.6%",
+               "height": 5,
+               "backgroundColor": "#0a0a0a"
+              },
+              "children": []
+             }
+            ]
+           },
+           {
+            "type": "Text",
+            "props": {
+             "content": "3 were already failing before me. I'll keep them apart from my work.",
+             "variant": "bots"
+            },
+            "style": {
+             "fontFamily": "Tailzu Geist",
+             "fontWeight": "normal",
+             "fontStyle": "normal",
+             "fontSize": 13,
+             "lineHeight": 18,
+             "letterSpacing": 0,
+             "color": "#3d3d3d",
+             "margin": 0,
+             "textTransform": "none"
+            }
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column",
+             "gap": 7,
+             "backgroundColor": "#f5f5f5",
+             "borderRadius": 12,
+             "paddingVertical": 10,
+             "paddingHorizontal": 12
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 8
+              },
+              "children": [
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 8 8",
+                 "shapes": [
+                  {
+                   "d": "M1 1l6 6M7 1L1 7",
+                   "stroke": "#0a0a0a",
+                   "strokeWidth": 1.6,
+                   "linecap": "round"
+                  }
+                 ],
+                 "accessibilityLabel": "failed"
+                },
+                "style": {
+                 "width": 8,
+                 "height": 8,
+                 "flexShrink": 0
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "payments/refund.test.ts",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Mono",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 11.5,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 8
+              },
+              "children": [
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 8 8",
+                 "shapes": [
+                  {
+                   "d": "M1 1l6 6M7 1L1 7",
+                   "stroke": "#0a0a0a",
+                   "strokeWidth": 1.6,
+                   "linecap": "round"
+                  }
+                 ],
+                 "accessibilityLabel": "failed"
+                },
+                "style": {
+                 "width": 8,
+                 "height": 8,
+                 "flexShrink": 0
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "emails/receipt.test.ts",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Mono",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 11.5,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 8
+              },
+              "children": [
+               {
+                "type": "SVG",
+                "props": {
+                 "viewBox": "0 0 8 8",
+                 "shapes": [
+                  {
+                   "d": "M1 1l6 6M7 1L1 7",
+                   "stroke": "#0a0a0a",
+                   "strokeWidth": 1.6,
+                   "linecap": "round"
+                  }
+                 ],
+                 "accessibilityLabel": "failed"
+                },
+                "style": {
+                 "width": 8,
+                 "height": 8,
+                 "flexShrink": 0
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "search/filters.test.ts",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist Mono",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 11.5,
+                 "lineHeight": 16,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             }
+            ]
+           },
+           {
+            "type": "Stack",
+            "style": {
+             "flexDirection": "column"
+            },
+            "children": [
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 10,
+               "paddingVertical": 9,
+               "borderBottomWidth": 1,
+               "borderBottomColor": "#ededed"
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Busy, untested",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexGrow": 1,
+                 "flexShrink": 1
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "checkout",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 10,
+               "paddingVertical": 9,
+               "borderBottomWidth": 1,
+               "borderBottomColor": "#ededed"
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Test files",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexGrow": 1,
+                 "flexShrink": 1
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "215",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 10,
+               "paddingVertical": 9,
+               "borderBottomWidth": 1,
+               "borderBottomColor": "#ededed"
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Checks",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexGrow": 1,
+                 "flexShrink": 1
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "4",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             },
+             {
+              "type": "Stack",
+              "style": {
+               "flexDirection": "row",
+               "alignItems": "center",
+               "gap": 10,
+               "paddingVertical": 9
+              },
+              "children": [
+               {
+                "type": "Text",
+                "props": {
+                 "content": "Last read",
+                 "variant": "bots"
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#0a0a0a",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               },
+               {
+                "type": "Stack",
+                "style": {
+                 "flexGrow": 1,
+                 "flexShrink": 1
+                }
+               },
+               {
+                "type": "Text",
+                "props": {
+                 "content": "today, 14:40",
+                 "variant": "bots",
+                 "numberOfLines": 1
+                },
+                "style": {
+                 "fontFamily": "Tailzu Geist",
+                 "fontWeight": "normal",
+                 "fontStyle": "normal",
+                 "fontSize": 13,
+                 "lineHeight": 17,
+                 "letterSpacing": 0,
+                 "color": "#5c5c5c",
+                 "margin": 0,
+                 "textTransform": "none"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "liveTopics": [
+  "code"
+ ]
+}
