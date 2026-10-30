@@ -1639,6 +1639,7 @@ import { PieChart } from "./PieChart";
 import { OnboardStage } from "../onboard/OnboardStage";
 import { BlipSpot } from "../onboard/BlipSpot";
 import { BlipRoam } from "../onboard/BlipRoam";
+import { BlipWalkOut } from "../onboard/BlipWalkOut";
 import { BotTiles } from "./BotTiles";
 import { BotCard } from "./BotCard";
 import { BotBuddy } from "./BotBuddy";
@@ -1662,7 +1663,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   ChatThread, VoiceBubble, VoiceSession, SwipeAction, Coverflow, Reels, AuroraOrb,
   SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase, Rise,
   KeyboardPreview, MorphOut, WordMeter, PieChart, NeuralField,
-  OnboardStage, BlipSpot, BlipRoam, BotTiles, BotCard, BotBuddy, WriteOn, LiveMark: LiveMarkNode, HeadBar,
+  OnboardStage, BlipSpot, BlipRoam, BlipWalkOut, BotTiles, BotCard, BotBuddy, WriteOn, LiveMark: LiveMarkNode, HeadBar,
   // A running page or artifact, sandboxed (LiveView.tsx).
   LiveView,
 };
