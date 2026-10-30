@@ -4,15 +4,18 @@
  *
  *   publishQuickAccess()   on every bootstrap: the server's long-press list and notification categories, registered when they
  *                          changed; Android's background task for a press with the app closed
- *   refreshQuickAccess()   on launch, coming to the front, a push, an answer: the widgets' rows (and their token), and any answer
+ *   refreshQuickAccess()   on launch, coming to the front, a push, an answer: the widgets' rows (and their token), the X0
+ *                          widget's glance (glance.ts: its faces, and the Bots at work Live Activity on iOS), and any answer
  *                          from a notification still owed
  *   signingOut()           before the session goes: the widgets' token revoked on the server
- *   forgetQuickAccess()    once it has gone: nothing of the account left in a widget, the Keychain or the owed answers
+ *   forgetQuickAccess()    once it has gone: nothing of the account left in a widget, a Live Activity, the Keychain or the
+ *                          owed answers
  */
 import { registerNotificationTask } from "../notifications/backgroundTask";
 import { registerNotificationCategories } from "../notifications/categories";
 import { flushOwedActions, forgetOwedActions } from "../notifications/actions";
 import { applyQuickActions } from "../quickActions/quickActions";
+import { forgetGlance, refreshGlance } from "./glance";
 import { forgetWidgets, refreshWidgetsNow, revokeWidgetToken } from "./now";
 
 export function publishQuickAccess(): void {
@@ -23,6 +26,7 @@ export function publishQuickAccess(): void {
 
 export function refreshQuickAccess(o: { force?: boolean } = {}): void {
   void refreshWidgetsNow(o);
+  void refreshGlance(o);
   void flushOwedActions();
 }
 
@@ -32,5 +36,6 @@ export async function signingOut(): Promise<void> {
 
 export function forgetQuickAccess(): void {
   forgetWidgets();
+  forgetGlance();
   forgetOwedActions();
 }

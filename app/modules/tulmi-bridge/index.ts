@@ -106,6 +106,13 @@ interface TulmiBridgeNative {
   setWidgetToken?(json: string): void;
   setQuickActions?(json: string): void;
   consumeQuickAction?(): string;
+  // The X0 widget (src/widgets/glance.ts): the glance, and on iOS the
+  // "Bots at work" Live Activity and its push token.
+  setWidgetGlance?(json: string): void;
+  startBotsActivity?(json: string): void;
+  updateBotsActivity?(json: string): void;
+  endBotsActivity?(json: string): void;
+  botsActivityPushToken?(): string | null | undefined;
   addListener?(event: string, listener: (e: unknown) => void): { remove(): void };
   beginBackgroundWork?(): number;
   endBackgroundWork?(id: number): void;
@@ -346,8 +353,9 @@ export function cancelKeyboardHandoff(sessionId: string): void {
 /**
  * The month's numbers for the Home and Lock Screen widget — and, optional so
  * an older writer still fits, what the widget draws them with. Each absent
- * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift,
- * and MonthLook in the Android bridge's TailzuMonthWidget.kt).
+ * field keeps the widget's own literal (see WidgetLook in TailzuWidgets.swift).
+ * Android has no Month widget any more (the X0 widget took its place), so
+ * there the native setter is gone and this is a no-op.
  */
 export interface WidgetMonth {
   used: number;
@@ -501,11 +509,11 @@ export function setWidgetDictate(dictate: WidgetDictate): void {
 }
 
 /**
- * THE QUICK-ACCESS WIDGETS' ROWS: "From your people" and "Needs you", exactly
- * as GET /v1/widgets/now answered them (worded, linked, with their buttons
+ * THE QUICK-ACCESS WIDGET'S ROWS: "From your people", exactly as
+ * GET /v1/widgets/now answered them (worded, linked, with their buttons
  * and the look). Written as JSON to the App Group key `tulmi.widget.now`
- * (iOS) or the app's `tulmi.widget` SharedPreferences (Android), and both
- * widgets are redrawn. `null` clears it (sign-out): the widgets then show
+ * (iOS) or the app's `tulmi.widget` SharedPreferences (Android), and the
+ * widget is redrawn. `null` clears it (sign-out): the widgets then show
  * their empty state. No-op without the native function (Expo Go, an older
  * binary).
  */
@@ -588,6 +596,100 @@ export function consumeQuickAction(): string | null {
 export function addQuickActionListener(listener: () => void): () => void {
   try {
     const sub = native?.addListener?.("onQuickAction", () => listener());
+    return () => { try { sub?.remove(); } catch { /* gone */ } };
+  } catch {
+    return () => {};
+  }
+}
+
+/**
+ * THE X0 WIDGET'S GLANCE: GET /v1/shell/glance?v=2 as the app checked it
+ * (src/widgets/glanceCore.ts cleanGlance; the contract is the backend's
+ * docs/widget-glance-v2.md). Written as JSON under `x0.glance` to the App
+ * Group (iOS; the widget kind space.tailzu.x0 is reloaded) or the app's
+ * `tulmi.widget` SharedPreferences (Android; TailzuX0Widget redraws). The
+ * bots' faces go beside it as files (glance.ts). `null` clears it
+ * (sign-out): the widget then shows its empty state. No-op without the
+ * native function (Expo Go, an older binary).
+ */
+export function setWidgetGlance(json: string | null): void {
+  try {
+    native?.setWidgetGlance?.(json ?? "");
+  } catch {
+    // never let a widget stop the app
+  }
+}
+
+/**
+ * THE "BOTS AT WORK" LIVE ACTIVITY (iOS 16.1+; contract §6). Each takes one
+ * JSON object, BotsActivityRequest in src/widgets/glanceCore.ts:
+ *
+ *   { jobId, state: { bot, botName, face, task, stage, of, stageName, stages,
+ *     startedAt, phase: "working" | "needs" | "done", question?, choices?,
+ *     itemId?, itemKind?, decideLink?, result?, pr?: { number, url },
+ *     minutes?, link }, dismissAfterSec? }
+ *
+ * start: a new activity for the job (none is running for it); update: the
+ * running one shows `state`; end: it shows `state` and is dismissed after
+ * `dismissAfterSec` seconds (0: at once); end with "" ends every one
+ * (sign-out). No-ops on Android, in Expo Go and on a binary older than the
+ * activity.
+ */
+export function startBotsActivity(json: string): void {
+  try {
+    native?.startBotsActivity?.(json);
+  } catch {
+    // never let a Live Activity stop the app
+  }
+}
+
+export function updateBotsActivity(json: string): void {
+  try {
+    native?.updateBotsActivity?.(json);
+  } catch {
+    // never let a Live Activity stop the app
+  }
+}
+
+export function endBotsActivity(json: string): void {
+  try {
+    native?.endBotsActivity?.(json);
+  } catch {
+    // never let a Live Activity stop the app
+  }
+}
+
+/**
+ * The running Bots at work activity's APNs push token (hex), once iOS has
+ * handed it over; null when there is none (no activity, Android, server
+ * pushes not set up, an older binary). The app registers it at
+ * POST /v1/widgets/activity-token so the server can update the activity.
+ */
+export function botsActivityPushToken(): string | null {
+  try {
+    const t = native?.botsActivityPushToken?.();
+    return typeof t === "string" && t.length > 0 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Be told when the Bots at work activity's push token arrives or changes
+ * (iOS: the native event "onBotsActivityPushToken", `{ token, jobId }`). The
+ * listener gets the token (null when it went) and its job. Returns an
+ * unsubscribe. glance.ts also reads botsActivityPushToken() after every
+ * glance, so a token is registered even if an event is missed.
+ */
+export function addBotsActivityTokenListener(listener: (token: string | null, jobId: string | null) => void): () => void {
+  try {
+    const sub = native?.addListener?.("onBotsActivityPushToken", (e: unknown) => {
+      const { token, jobId } = (e ?? {}) as { token?: unknown; jobId?: unknown };
+      listener(
+        typeof token === "string" && token.length > 0 ? token : null,
+        typeof jobId === "string" && jobId.length > 0 ? jobId : null,
+      );
+    });
     return () => { try { sub?.remove(); } catch { /* gone */ } };
   } catch {
     return () => {};

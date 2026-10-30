@@ -19,6 +19,7 @@ import { beginBackgroundWork, endBackgroundWork } from "../../modules/tulmi-brid
 import { callEndpoint, primeKnobsFromDisk } from "../sdui/client";
 import { bool, num, str, txt } from "../sdui/knobs";
 import { actKey } from "../widgets/nowCore";
+import { refreshGlance } from "../widgets/glance";
 import { refreshWidgetsNow } from "../widgets/now";
 import { currentCategories } from "./categories";
 import { callFor, owe, retryable, stillOwed, type Owed } from "./categoriesCore";
@@ -61,6 +62,7 @@ async function settle(o: Owed, outcome: "done" | "again" | "refused", screenId?:
   await writeOwed(list.filter((x) => x.key !== o.key));
   if (outcome === "done") {
     void refreshWidgetsNow({ force: true });
+    void refreshGlance({ force: true });
     return;
   }
   // Refused: say so, quietly, and let a tap finish it in the app.
