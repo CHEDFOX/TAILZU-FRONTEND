@@ -8,6 +8,11 @@ import WidgetKit
 // word is the server's (the bootstrap's `liveActivity.setup`); a tap goes back
 // into the app at that step.
 //
+// It names the app: the mark and "X0" head the Lock Screen banner and the
+// expanded island. The banner is the palette's ground with ink words, Light or
+// Dark as the phone is; the island is always black, so white words. Progress
+// is ink on the line colour.
+//
 // The attributes are declared once more, byte for byte, in the app's bridge
 // module (SetupLiveActivity.swift). ActivityKit matches the two by the type's
 // name and its encoding, so the two copies must stay identical.
@@ -29,102 +34,158 @@ struct SetupActivityAttributes: ActivityAttributes {
 struct SetupActivityWidget: Widget {
   var body: some WidgetConfiguration {
     ActivityConfiguration(for: SetupActivityAttributes.self) { context in
-      SetupBanner(state: context.state)
-        .activityBackgroundTint(Ink.ground)
-        .activitySystemActionForegroundColor(Ink.pale)
+      SetupLockScreen(state: context.state)
         .widgetURL(URL(string: context.state.url))
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          SetupRing(state: context.state).frame(width: 30, height: 30).padding(.leading, 4)
-        }
-        DynamicIslandExpandedRegion(.center) {
-          SetupTitle(state: context.state)
+          X0Brand(p: .dark, size: 24)
+            .padding(.leading, 6)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Image(systemName: "chevron.right")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Ink.dim)
-            .padding(.trailing, 4)
+          SetupCount(state: context.state, p: .dark)
+            .padding(.trailing, 6)
+        }
+        DynamicIslandExpandedRegion(.bottom) {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
+              SetupTitle(state: context.state, p: .dark)
+              Spacer(minLength: 8)
+              SetupChevron(p: .dark)
+            }
+            SetupSegments(state: context.state, p: .dark)
+          }
+          .padding(.horizontal, 6)
+          .padding(.top, 4)
         }
       } compactLeading: {
-        SetupRing(state: context.state).frame(width: 16, height: 16)
+        X0Mark(size: 22, onDark: true)
       } compactTrailing: {
-        Text("\(context.state.done)/\(context.state.total)")
-          .font(.system(size: 12, weight: .medium, design: .rounded))
-          .monospacedDigit()
-          .foregroundStyle(Ink.dim)
+        SetupRing(state: context.state, p: .dark).frame(width: 16, height: 16)
       } minimal: {
-        SetupRing(state: context.state).frame(width: 16, height: 16)
+        SetupRing(state: context.state, p: .dark).frame(width: 16, height: 16)
       }
       .widgetURL(URL(string: context.state.url))
-      .keylineTint(Ink.dim)
+      .keylineTint(X0Palette.dark.dim)
     }
+  }
+}
+
+/// The Lock Screen's banner, in the phone's own appearance.
+struct SetupLockScreen: View {
+  @Environment(\.colorScheme) private var scheme
+  let state: SetupActivityAttributes.ContentState
+
+  var body: some View {
+    let p = X0Palette.of(scheme)
+    SetupBanner(state: state, p: p)
+      .activityBackgroundTint(p.ground)
+      .activitySystemActionForegroundColor(p.ink)
   }
 }
 
 /// The step, and under it what it takes.
 struct SetupTitle: View {
   let state: SetupActivityAttributes.ContentState
+  let p: X0Palette
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
       Text(state.title)
-        .font(.system(size: 15, weight: .medium))
-        .foregroundStyle(Ink.pale)
+        .font(.system(size: 16, weight: .semibold))
+        .tracking(-0.3)
+        .foregroundStyle(p.ink)
         .lineLimit(1)
+        .minimumScaleFactor(0.8)
       if !state.detail.isEmpty {
         Text(state.detail)
-          .font(.system(size: 12))
-          .foregroundStyle(Ink.dim)
+          .font(.system(size: 13))
+          .foregroundStyle(p.meta)
           .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
 }
 
-/// One segment per step, the finished ones filled.
+/// Where a tap goes: on into the app.
+struct SetupChevron: View {
+  let p: X0Palette
+  var body: some View {
+    Image(systemName: "chevron.right")
+      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(p.meta)
+  }
+}
+
+/// How far along: "1/3" and the ring.
+struct SetupCount: View {
+  let state: SetupActivityAttributes.ContentState
+  let p: X0Palette
+  var body: some View {
+    HStack(spacing: 6) {
+      Text("\(state.done)/\(state.total)")
+        .font(.system(size: 13, weight: .medium))
+        .monospacedDigit()
+        .foregroundStyle(p.meta)
+      SetupRing(state: state, p: p).frame(width: 18, height: 18)
+    }
+  }
+}
+
+/// One segment per step, the finished ones filled with ink.
 struct SetupSegments: View {
   let state: SetupActivityAttributes.ContentState
+  let p: X0Palette
   var body: some View {
     HStack(spacing: 4) {
       ForEach(0..<max(1, state.total), id: \.self) { i in
         Capsule()
-          .fill(i < state.done ? Ink.pale : Ink.rule)
-          .frame(height: 3)
+          .fill(i < state.done ? p.ink : p.line)
+          .frame(height: 4)
       }
     }
   }
 }
 
-/// The same progress, round, for the Dynamic Island.
+/// The same progress, round: ink on the line colour.
 struct SetupRing: View {
   let state: SetupActivityAttributes.ContentState
-  private var progress: Double { Double(state.done) / Double(max(1, state.total)) }
+  let p: X0Palette
+  private var progress: Double { min(1, max(0, Double(state.done) / Double(max(1, state.total)))) }
   var body: some View {
     ZStack {
-      Circle().stroke(Ink.rule, lineWidth: 2.5)
+      Circle().stroke(p.line, lineWidth: 2.5)
       Circle()
         .trim(from: 0, to: progress)
-        .stroke(Ink.pale, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+        .stroke(p.ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
         .rotationEffect(.degrees(-90))
     }
   }
 }
 
-/// The Lock Screen banner: the step, what it takes, the steps as segments.
+/// The Lock Screen banner: the mark and the name with how far along, the step
+/// and what it takes, the steps as segments.
 struct SetupBanner: View {
   let state: SetupActivityAttributes.ContentState
+  let p: X0Palette
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      HStack(alignment: .center, spacing: 12) {
-        SetupTitle(state: state)
+      HStack(alignment: .center, spacing: 8) {
+        X0Brand(p: p)
         Spacer(minLength: 8)
-        Image(systemName: "chevron.right")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Ink.dim)
+        Text("\(state.done)/\(state.total)")
+          .font(.system(size: 13, weight: .medium))
+          .monospacedDigit()
+          .foregroundStyle(p.meta)
       }
-      SetupSegments(state: state)
+      HStack(alignment: .center, spacing: 12) {
+        SetupTitle(state: state, p: p)
+        Spacer(minLength: 8)
+        SetupChevron(p: p)
+      }
+      SetupSegments(state: state, p: p)
     }
-    .padding(16)
+    .padding(.horizontal, 18)
+    .padding(.vertical, 16)
   }
 }

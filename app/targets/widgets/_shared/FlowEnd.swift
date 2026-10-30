@@ -35,8 +35,10 @@ struct FlowActivityAttributes: ActivityAttributes {
 
 @available(iOS 17.0, *)
 struct EndFlowSessionIntent: LiveActivityIntent {
-  static let title: LocalizedStringResource = "End Flow session"
-  static let description = IntentDescription("Turn the background microphone off.")
+  static let title: LocalizedStringResource = "Turn off the X0 mic"
+  static let description = IntentDescription("Turns the X0 mic off.")
+  /// The Live Activity's End button, not an action of its own in Shortcuts.
+  static var isDiscoverable: Bool { false }
 
   func perform() async throws -> some IntentResult {
     // A live session hears this and ends itself: the microphone, the

@@ -210,9 +210,9 @@ public class TulmiBridgeModule: Module {
     // Lock Screen widget reads from the App Group, and asks WidgetKit to draw
     // it again. Nothing the widget shows is fetched by the widget.
     //
-    // The same JSON carries what the widget draws them with — its words,
-    // colours, tap target, refresh interval — built from the server's labels
-    // and flags (src/widgets/month.ts).
+    // The same JSON carries the widget's words, tap target and refresh
+    // interval, built from the server's labels and flags (src/widgets/month.ts).
+    // Its colours ride along but are not read: the widget's palette is native.
     Function("setWidgetMonth") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.month")
@@ -221,13 +221,12 @@ public class TulmiBridgeModule: Module {
       }
     }
 
-    // THE WIDGET THEME, FOR EVERY SURFACE. The colours and alphas the app
-    // writes on every bootstrap (from widget.color.* / widget.alpha.*), read
-    // first by Ink — so the month widget and the Live Activities get the
-    // server's colours even before any month numbers have been written. An
-    // empty string clears it (sign-out); Ink then falls back to the month key
-    // and the literal. The month widget is redrawn, and a running Flow Live
-    // Activity too, so a colour change shows now.
+    // THE WIDGET THEME. The colours and alphas the app writes on every
+    // bootstrap (from widget.color.* / widget.alpha.*), kept in the App Group
+    // as before; an empty string clears it (sign-out). The iOS widgets and
+    // Live Activities no longer read it: their palette is the app's own,
+    // light and dark (X0Palette in targets/widgets/TailzuWidgets.swift). The
+    // month widget is still redrawn, and a running Live Activity too.
     Function("setWidgetTheme") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.theme")

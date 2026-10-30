@@ -3,15 +3,16 @@ import WidgetKit
 
 // THE WIDGETS. One extension: the month on the Home and Lock Screen, the
 // quick-access widgets (From your people, Needs you: QuickAccess.swift), the
-// Flow session as a Live Activity, and Dictate as a Control.
+// microphone session as a Live Activity, setup as a Live Activity, and
+// Dictate as a Control.
 // Everything they show comes from the App Group the app writes; nothing here
 // talks to the server, and no dictated text is ever drawn — a widget sits on
 // a Lock Screen.
 //
-// That includes the words and the colours: the app writes them from the
-// server's labels and flags next to the month's numbers (src/widgets/month.ts),
-// and every one read here keeps the literal it replaced as its fallback, for a
-// phone whose app has not written them yet.
+// The words are the server's: the app writes them from the server's labels
+// and flags (src/widgets/month.ts, now.ts, flow.ts), and every one read here
+// keeps a literal as its fallback, for a phone whose app has not written them
+// yet. The look is the app's own and lives here: X0Palette, X0Mark, X0Pill.
 
 @main
 struct TailzuWidgetBundle: WidgetBundle {
@@ -27,67 +28,148 @@ struct TailzuWidgetBundle: WidgetBundle {
   }
 }
 
-/// The widgets' ink: a dark ground and one pale ink at a few strengths. The
-/// brand colour stays in the app. As the server last sent them (widget.color.*
-/// / widget.alpha.* in the app's flags), or these.
-///
-/// Read in three steps: the theme key (tulmi.widget.theme, written on every
-/// bootstrap) first, then the month key (tulmi.widget.month, written with the
-/// numbers), then the literal. So every surface — the month widget and the
-/// Live Activities — gets the server's colours even before any month stats
-/// exist, and a phone that has written neither renders exactly as before.
-enum Ink {
-  private static let groundFallback = Color(red: 0x0F / 255, green: 0x0D / 255, blue: 0x0B / 255)
-  private static let paleFallback = Color(red: 0xF3 / 255, green: 0xE2 / 255, blue: 0xC6 / 255)
+/// The name on every surface.
+let x0Name = "X0"
 
-  static var ground: Color { WidgetTheme.current.color("ground", WidgetLook.current.color("ground", groundFallback)) }
-  static var pale: Color { WidgetTheme.current.color("pale", WidgetLook.current.color("pale", paleFallback)) }
-  /// The mark and the line's fill. Pale unless the server says otherwise.
-  static var mark: Color { WidgetTheme.current.color("mark", WidgetLook.current.color("mark", pale)) }
-  static var dim: Color { pale.opacity(WidgetTheme.current.alpha("dim", WidgetLook.current.alpha("dim", 0.52))) }
-  static var rule: Color { pale.opacity(WidgetTheme.current.alpha("rule", WidgetLook.current.alpha("rule", 0.13))) }
-  /// The empty part of the month's line.
-  static var track: Double { WidgetTheme.current.alpha("track", WidgetLook.current.alpha("track", 0.14)) }
+/// THE PALETTE: the app's own (backend experience/bots/palette.ts), white and
+/// ink with greys, in a light and a dark version. Home Screen widgets and the
+/// Lock Screen banners follow the system's appearance; the Dynamic Island is
+/// always dark; the Lock Screen's accessory widgets stay system-tinted. Colour
+/// belongs only to bots (BotInk).
+///
+/// The server's old widget colour knobs (widget.color.* / widget.alpha.*, and
+/// the colours in widgets.look) are still written by the app but no longer
+/// read: the palette is native.
+struct X0Palette {
+  let ground: Color
+  let ink: Color
+  /// Secondary words: who, when, a label.
+  let meta: Color
+  let dim: Color
+  /// Hairlines between rows, a secondary button's border, an empty track.
+  let line: Color
+  /// An avatar's ground.
+  let surface: Color
+  /// A dark ground: the mark sits on its white tile.
+  let onDark: Bool
+
+  static let light = X0Palette(
+    ground: Color(rgb: 0xFFFFFF), ink: Color(rgb: 0x0A0A0A), meta: Color(rgb: 0x5C5C5C),
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5), onDark: false)
+
+  static let dark = X0Palette(
+    ground: Color(rgb: 0x0A0A0A), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
+    dim: Color(rgb: 0x737373), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717), onDark: true)
+
+  static func of(_ scheme: ColorScheme) -> X0Palette { scheme == .dark ? dark : light }
 }
 
-/// The always-published theme: the colours and alphas the app writes to
-/// `tulmi.widget.theme` on every bootstrap (from widget.color.* / widget.alpha.*
-/// — see publishWidgetTheme in src/widgets/month.ts). Read leniently and
-/// consulted first by Ink; an absent key falls through to the month key and
-/// then to the literal, so a phone that has never written it renders as before.
-struct WidgetTheme {
-  var colors: [String: String] = [:]
-  var alphas: [String: Double] = [:]
+/// Each bot's own ink (backend experience/bots/art.ts BOT_INK, by the bot's
+/// key) and the natural palette a person's own bot is given (palette.ts
+/// PALETTE_HEX, by name). X0 itself ("tailzu") has none: it is drawn in ink,
+/// which turns white in the dark.
+enum BotInk {
+  private static let inks: [String: UInt32] = [
+    "keybot": 0xA9573A, "code": 0x4F7A3A, "plan": 0x8F6A1F, "travel": 0x3E6E8E,
+    "moss": 0x4F7A3A, "clay": 0xA9573A, "ochre": 0x8F6A1F, "sea": 0x3E6E8E,
+    "pine": 0x2F5D50, "plum": 0x6E4A6B, "sand": 0x7A6440, "stone": 0x5F6B6E,
+  ]
 
-  init() {}
+  static func color(_ key: String) -> Color? {
+    inks[key.lowercased()].map { Color(rgb: $0) }
+  }
+}
 
-  init(json data: Data) {
-    guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-    colors = (o["colors"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
-    alphas = (o["alpha"] as? [String: Any])?.compactMapValues { WidgetLook.number($0) } ?? [:]
+/// THE MARK: the app icon's painted black bot — his head, cut from the launch
+/// art (Assets.xcassets/X0Mark). On a dark ground (Dark Mode, the Dynamic
+/// Island, the Lock Screen) he sits on a small white circle so he stays
+/// visible. Takes the same size-by-size box either way, so a layout is the
+/// same in both appearances.
+struct X0Mark: View {
+  var size: CGFloat = 20
+  var onDark: Bool
+
+  var body: some View {
+    ZStack {
+      if onDark {
+        Circle().fill(Color.white)
+        head.frame(width: size * 0.8)
+      } else {
+        head.frame(width: size)
+      }
+    }
+    .frame(width: size, height: size)
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(x0Name)
   }
 
-  func color(_ key: String, _ fallback: Color) -> Color {
-    colors[key].flatMap { Color(hex: $0) } ?? fallback
+  private var head: some View {
+    Image("X0Mark")
+      .resizable()
+      .interpolation(.high)
+      .aspectRatio(contentMode: .fit)
   }
+}
 
-  func alpha(_ key: String, _ fallback: Double) -> Double {
-    guard let a = alphas[key], a >= 0, a <= 1 else { return fallback }
-    return a
+/// The mark and the name, as a surface's header.
+struct X0Brand: View {
+  let p: X0Palette
+  var size: CGFloat = 22
+  var body: some View {
+    HStack(spacing: 7) {
+      X0Mark(size: size, onDark: p.onDark)
+      Text(x0Name)
+        .font(.system(size: 14, weight: .semibold))
+        .tracking(-0.2)
+        .foregroundStyle(p.ink)
+        .lineLimit(1)
+    }
   }
+}
 
-  // Parsed once per change, like WidgetLook.current.
-  private static let lock = NSLock()
-  private static var cachedRaw: String?
-  private static var cached = WidgetTheme()
+/// A button, as the app draws one: fully rounded; the primary filled with ink
+/// and worded in the ground, a secondary one a 1pt line-coloured border with
+/// ink words. Never truncated: a pill keeps its words' width (`fill` stretches
+/// it to the row and shrinks its words a little before cutting any).
+struct X0Pill: View {
+  let label: String
+  var icon: String? = nil
+  let primary: Bool
+  let p: X0Palette
+  var fill = false
+  var height: CGFloat = 30
 
-  static var current: WidgetTheme {
-    let raw = Shared.store?.string(forKey: "tulmi.widget.theme")
-    lock.lock(); defer { lock.unlock() }
-    if raw == cachedRaw { return cached }
-    cachedRaw = raw
-    cached = raw.flatMap { $0.data(using: .utf8) }.map { WidgetTheme(json: $0) } ?? WidgetTheme()
-    return cached
+  var body: some View {
+    HStack(spacing: 5) {
+      if let icon {
+        Image(systemName: symbol(icon, "checkmark")).font(.system(size: 11, weight: .bold))
+      }
+      Text(label)
+        .lineLimit(1)
+        .minimumScaleFactor(fill ? 0.75 : 1)
+    }
+    .font(.system(size: 13, weight: .semibold))
+    .foregroundStyle(primary ? p.ground : p.ink)
+    .padding(.horizontal, 14)
+    .frame(maxWidth: fill ? .infinity : nil)
+    .frame(height: height)
+    .background {
+      if primary {
+        Capsule().fill(p.ink)
+      } else {
+        Capsule().strokeBorder(p.line, lineWidth: 1)
+      }
+    }
+    .fixedSize(horizontal: !fill, vertical: false)
+    .contentShape(Capsule())
+  }
+}
+
+/// A line between rows.
+struct Hairline: View {
+  let p: X0Palette
+  var body: some View {
+    Rectangle().fill(p.line).frame(height: 1)
   }
 }
 
@@ -97,14 +179,13 @@ enum Shared {
 }
 
 /// Everything the app wrote next to the month's numbers that is not a number:
-/// the words (labels), the colours, the line's alphas, where a tap goes, how
-/// often to ask again, the subscriber's span, whether the streak shows. Read
-/// leniently — a missing or mistyped field is simply absent, and its caller
-/// falls back to its literal — so nothing here can stop the numbers drawing.
+/// the words (labels), where a tap goes, how often to ask again, the
+/// subscriber's span, whether the streak shows. Read leniently — a missing or
+/// mistyped field is simply absent, and its caller falls back to its literal —
+/// so nothing here can stop the numbers drawing. (The colours and alphas the
+/// app still writes beside them are not read: X0Palette.)
 struct WidgetLook {
   var labels: [String: String] = [:]
-  var colors: [String: String] = [:]
-  var alphas: [String: Double] = [:]
   var url: String?
   var refreshSec: Double?
   var span: Double?
@@ -119,8 +200,6 @@ struct WidgetLook {
   init(json data: Data) {
     guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
     labels = (o["labels"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
-    colors = (o["colors"] as? [String: Any])?.compactMapValues { $0 as? String } ?? [:]
-    alphas = (o["alpha"] as? [String: Any])?.compactMapValues { WidgetLook.number($0) } ?? [:]
     url = o["url"] as? String
     refreshSec = WidgetLook.number(o["refreshSec"])
     span = WidgetLook.number(o["span"])
@@ -128,7 +207,7 @@ struct WidgetLook {
     showProgress = (o["showProgress"] as? Bool) ?? true
   }
 
-  // Shared with WidgetTheme, which parses alphas the same way.
+  /// A finite JSON number, or nil. Shared by every lenient read here.
   static func number(_ v: Any?) -> Double? {
     guard let n = v as? NSNumber else { return nil }
     let d = n.doubleValue
@@ -143,17 +222,12 @@ struct WidgetLook {
     text(key, fallback).replacingOccurrences(of: "{n}", with: value)
   }
 
-  func color(_ key: String, _ fallback: Color) -> Color {
-    colors[key].flatMap { Color(hex: $0) } ?? fallback
+  /// Where a tap on the month goes: the server's link (widget.month.url), or
+  /// the Bots app's usage screen.
+  var tapURL: URL? {
+    let fallback = "tulmi://screen/bots.usage"
+    return URL(string: url ?? fallback) ?? URL(string: fallback)
   }
-
-  func alpha(_ key: String, _ fallback: Double) -> Double {
-    guard let a = alphas[key], a >= 0, a <= 1 else { return fallback }
-    return a
-  }
-
-  /// Where a tap on the month goes.
-  var tapURL: URL? { URL(string: url ?? "tulmi://screen/stats") ?? URL(string: "tulmi://screen/stats") }
 
   /// Seconds until the timeline asks again (the app also reloads it whenever
   /// it writes fresh numbers).
@@ -162,8 +236,8 @@ struct WidgetLook {
     return s
   }
 
-  // What the App Group holds right now, parsed once per change: every colour
-  // and word reads through here, several times a render.
+  // What the App Group holds right now, parsed once per change: every word
+  // reads through here, several times a render.
   private static let lock = NSLock()
   private static var cachedRaw: String?
   private static var cached = WidgetLook()
@@ -179,6 +253,16 @@ struct WidgetLook {
 }
 
 extension Color {
+  /// 0xRRGGBB.
+  init(rgb: UInt32) {
+    self.init(
+      .sRGB,
+      red: Double((rgb >> 16) & 0xFF) / 255,
+      green: Double((rgb >> 8) & 0xFF) / 255,
+      blue: Double(rgb & 0xFF) / 255,
+      opacity: 1)
+  }
+
   /// "#RGB", "#RRGGBB" or "#RRGGBBAA" (the # optional); nil for anything else.
   init?(hex: String) {
     var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,29 +278,6 @@ extension Color {
     let b = Double(rgb & 0xFF) / 255
     let a = hasAlpha ? Double(v & 0xFF) / 255 : 1
     self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
-  }
-}
-
-/// THE WAVE OF THE MARK: the seven bars of uneven height from the app icon,
-/// as the keyboard's mic key draws them. Drawn, not an image, so it is the
-/// same shape at every size and in every colour.
-struct WaveMark: View {
-  var color: Color = Ink.mark
-  private let heights: [CGFloat] = [28, 36, 41, 46, 43, 34, 28]
-  var body: some View {
-    GeometryReader { geo in
-      let n = CGFloat(heights.count)
-      let gap = geo.size.width / (n * 2 - 1)
-      let unit = geo.size.height / 46
-      HStack(alignment: .center, spacing: gap) {
-        ForEach(0..<heights.count, id: \.self) { i in
-          RoundedRectangle(cornerRadius: gap * 0.5, style: .continuous)
-            .fill(color)
-            .frame(width: gap, height: heights[i] * unit)
-        }
-      }
-      .frame(width: geo.size.width, height: geo.size.height)
-    }
   }
 }
 

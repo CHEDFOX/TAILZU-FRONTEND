@@ -8,9 +8,11 @@ import WidgetKit
 // fills very slowly — the same rule as the stats screen.
 //
 // The app now writes the headline and the line's fill itself, along with the
-// words, colours, tap target, refresh interval, subscriber span and whether
-// the streak shows (see WidgetLook in TailzuWidgets.swift). The rule below is
-// kept only for JSON an older app wrote, which has none of that.
+// words, tap target, refresh interval, subscriber span and whether the streak
+// shows (see WidgetLook in TailzuWidgets.swift). The rule below is kept only
+// for JSON an older app wrote, which has none of that. The look is the app's:
+// the mark, the number in ink, the line in ink on the line colour, on the
+// palette's ground in Light and Dark (X0Palette).
 
 struct MonthStats: Codable {
   var used: Int = 0
@@ -88,7 +90,6 @@ struct MonthWidget: Widget {
   var body: some WidgetConfiguration {
     StaticConfiguration(kind: "space.tailzu.month", provider: MonthProvider()) { entry in
       MonthView(entry: entry)
-        .containerBackground(Ink.ground, for: .widget)
         .widgetURL(WidgetLook.current.tapURL)
     }
     .configurationDisplayName(WidgetLook.current.text("displayName", "The Month"))
@@ -99,56 +100,77 @@ struct MonthWidget: Widget {
 
 struct MonthView: View {
   @Environment(\.widgetFamily) private var family
+  @Environment(\.colorScheme) private var scheme
   let entry: MonthEntry
   /// The words the app last wrote (cached per change, so cheap to ask for).
   private var look: WidgetLook { WidgetLook.current }
+  private var p: X0Palette { X0Palette.of(scheme) }
+
+  /// The Home Screen's card is the palette's ground; the Lock Screen's
+  /// accessories have none of their own (the system tints them).
+  private var isAccessory: Bool {
+    family == .accessoryCircular || family == .accessoryRectangular || family == .accessoryInline
+  }
 
   var body: some View {
-    switch family {
-    case .accessoryCircular: circular
-    case .accessoryRectangular: rectangular
-    case .accessoryInline: inline
-    default: small
+    Group {
+      switch family {
+      case .accessoryCircular: circular
+      case .accessoryRectangular: rectangular
+      case .accessoryInline: inline
+      default: small
+      }
     }
+    .containerBackground(isAccessory ? Color.clear : p.ground, for: .widget)
   }
 
-  /// Nothing written yet, or a phone that has not signed in: the mark alone.
-  private var empty: some View {
-    WaveMark(color: Ink.dim).frame(width: 36, height: 24)
+  /// Nothing written yet, or a phone that has not signed in: the mark and the
+  /// name.
+  private var signedOut: some View {
+    VStack(spacing: 10) {
+      X0Mark(size: 48, onDark: p.onDark)
+      Text(x0Name)
+        .font(.system(size: 17, weight: .semibold))
+        .tracking(-0.3)
+        .foregroundStyle(p.ink)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
-  /// The number, what it counts, and the line. Nothing else unless the server
-  /// turns the streak on.
+  /// The mark, the number, what it counts, and the line. Nothing else unless
+  /// the server turns the streak on.
   private var small: some View {
     Group {
       if let m = entry.month {
         VStack(alignment: .leading, spacing: 0) {
+          X0Mark(size: 22, onDark: p.onDark)
           Spacer(minLength: 0)
           Text(n(m.headline))
-            .font(.system(size: 34, weight: .semibold, design: .rounded))
+            .font(.system(size: 34, weight: .semibold))
+            .tracking(-0.4)
             .monospacedDigit()
-            .foregroundStyle(Ink.pale)
+            .foregroundStyle(p.ink)
             .minimumScaleFactor(0.5)
             .lineLimit(1)
           Text(m.label)
-            .font(.system(size: 9, weight: .medium))
-            .tracking(1.4)
-            .foregroundStyle(Ink.dim)
+            .font(.system(size: 11, weight: .medium))
+            .tracking(0.4)
+            .foregroundStyle(p.meta)
             .lineLimit(1)
             .padding(.top, 2)
           if look.showStreak && m.streak > 0 {
             Text(look.text("streakShort", "{n}d", n: String(m.streak)))
-              .font(.system(size: 9, weight: .medium))
-              .foregroundStyle(Ink.dim)
+              .font(.system(size: 11, weight: .medium))
+              .foregroundStyle(p.meta)
               .padding(.top, 2)
           }
           if look.showProgress {
-            Line(fraction: m.fraction).frame(height: 3).padding(.top, 10)
+            Line(fraction: m.fraction, fill: p.ink, track: p.line).frame(height: 4).padding(.top, 12)
           }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
       } else {
-        empty
+        signedOut
       }
     }
   }
@@ -159,11 +181,12 @@ struct MonthView: View {
         Gauge(value: m.entitled ? m.fraction : 1 - m.fraction) {
           Text(look.text("gaugeWords", "words"))
         } currentValueLabel: {
-          Text(short(m.headline)).font(.system(size: 14, weight: .bold, design: .rounded))
+          Text(short(m.headline)).font(.system(size: 14, weight: .semibold))
         }
         .gaugeStyle(.accessoryCircular)
       } else {
-        WaveMark(color: .primary).frame(width: 34, height: 22)
+        // On its white tile, the bot reads through the Lock Screen's tint.
+        X0Mark(size: 40, onDark: true)
       }
     }
   }
@@ -175,13 +198,16 @@ struct MonthView: View {
           Text(m.entitled
                ? look.text("wordsThisMonth", "Words this month")
                : look.text("wordsLeftTitle", "Words left"))
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.secondary)
           Text(n(m.headline))
-            .font(.system(size: 22, weight: .semibold, design: .rounded))
+            .font(.system(size: 22, weight: .semibold))
+            .tracking(-0.3)
             .monospacedDigit()
           if look.showProgress {
-            Line(fraction: m.fraction, tint: .primary).frame(height: 3).padding(.top, 2)
+            Line(fraction: m.fraction, fill: .primary, track: Color.primary.opacity(0.25))
+              .frame(height: 3)
+              .padding(.top, 2)
           }
           if look.showStreak && m.streak > 0 {
             Text(look.text("streakLong", "{n}-day streak", n: String(m.streak)))
@@ -189,7 +215,11 @@ struct MonthView: View {
           }
         }
       } else {
-        Text(look.text("brand", "X0 Bot")).font(.system(size: 12, weight: .medium))
+        HStack(spacing: 8) {
+          X0Mark(size: 26, onDark: true)
+          Text(x0Name).font(.system(size: 15, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -199,12 +229,12 @@ struct MonthView: View {
       if let m = entry.month {
         let streak = look.showStreak && m.streak > 0 ? look.text("inlineStreak", " · {n}d", n: String(m.streak)) : ""
         if m.entitled {
-          Text(look.text("inlinePaid", "X0 Bot · {n} words", n: n(m.used)) + streak)
+          Text(look.text("inlinePaid", "X0 · {n} words", n: n(m.used)) + streak)
         } else {
-          Text(look.text("inlineFree", "X0 Bot · {n} left", n: n(m.remaining)) + streak)
+          Text(look.text("inlineFree", "X0 · {n} left", n: n(m.remaining)) + streak)
         }
       } else {
-        Text(look.text("brand", "X0 Bot"))
+        Text(x0Name)
       }
     }
   }
@@ -215,15 +245,16 @@ struct MonthView: View {
   }
 }
 
-/// The line: the month, as far along as it is.
+/// The line: the month, as far along as it is. Ink on the line colour.
 struct Line: View {
   let fraction: Double
-  var tint: Color = Ink.mark
+  let fill: Color
+  let track: Color
   var body: some View {
     GeometryReader { geo in
       ZStack(alignment: .leading) {
-        Capsule().fill(tint.opacity(Ink.track))
-        Capsule().fill(tint).frame(width: max(0, min(1, fraction)) * geo.size.width)
+        Capsule().fill(track)
+        Capsule().fill(fill).frame(width: max(0, min(1, fraction)) * geo.size.width)
       }
     }
   }
