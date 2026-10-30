@@ -30,18 +30,33 @@ const ART = path.join(HERE, "out/art");
 const url = (p: string) => pathToFileURL(p).href;
 
 const INK = "#0A0A0A", PAPER = "#FFFFFF", LINE = "#E6E6E6";
+/** The photo frames' colours (the phone set's): ink with an olive-teal undertone in the shadows, cream light, clay marks. */
+const DARK = "#0C110F", CREAM = "#F6EEDF", CLAY = "#c9683f";
 /** The bots' own colours (backend palette.ts), for the underline of a frame that is one bot's. */
 const COLOR = { xode: "#4F7A3A", keylessbord: "#A9573A", plan: "#8F6A1F", travel: "#3E6E8E", ink: INK };
 
-/** The frames, in story order: the first is the one the Store shows first. */
-const FRAMES = [
-  { key: "home", screen: "bots.home", title: "Your bots,\nall in *one* place", color: COLOR.ink, pose: "hello" },
-  { key: "keylessbord", screen: "bots.keybot", title: "Hold a key.\n*Speak* in any app", color: COLOR.keylessbord, pose: "curious" },
-  { key: "ask", screen: "bots.ask", title: "Ask once.\nThe right bot *takes* it", color: COLOR.ink, pose: "wink" },
-  { key: "xode", screen: "bots.code", title: "Xode fixes\nyour *code*", color: COLOR.xode, pose: "happy" },
-  { key: "notes", screen: "bots.notes", title: "Notes that\n*write* themselves", color: COLOR.ink, pose: "shy" },
-  { key: "activity", screen: "bots.activity", title: "See what\nyour bots *did*", color: COLOR.ink, pose: "starry" },
-] as const;
+/**
+ * The frames, in story order: the first is the one the Store shows first. As on the phone (build.mjs `card`): the app as
+ * a white card cut from a real screen (`card`, in the screen's pixels: the window is drawn 2560 x 1600), one part of it
+ * lifted out, bigger, over the card (`pop`) with the hand-drawn arrow at it, and the bot peeking over the card's edge.
+ */
+type Rect = { x: number; y: number; w: number; h: number };
+/** The photo behind a frame (photos/, CREDITS.md): where its focus is (0..1), a blur, how light. */
+type Photo = { file: string; x: number; y: number; blur?: number; light?: number };
+const FRAMES: ReadonlyArray<{ key: string; screen: string; title: string; color: string; pose: string; card: Rect; pop: Rect; photo: Photo }> = [
+  { key: "home", screen: "bots.home", title: "Your bots, all\nin *one* place", color: COLOR.ink, pose: "hello",
+    card: { x: 520, y: 40, w: 1880, h: 1250 }, pop: { x: 570, y: 720, w: 1772, h: 312 }, photo: { file: "team.jpg", x: 0.48, y: 0.42, light: 0.5 } },
+  { key: "keylessbord", screen: "bots.keybot", title: "Hold a key.\n*Speak* in any app", color: COLOR.keylessbord, pose: "curious",
+    card: { x: 540, y: 60, w: 1960, h: 1250 }, pop: { x: 572, y: 340, w: 936, h: 588 }, photo: { file: "connect.jpg", x: 0.45, y: 0.5, blur: 12, light: 0.55 } },
+  { key: "ask", screen: "bots.ask", title: "Ask once. The\nright bot *takes* it", color: COLOR.ink, pose: "wink",
+    card: { x: 540, y: 160, w: 1840, h: 1250 }, pop: { x: 578, y: 462, w: 1760, h: 196 }, photo: { file: "ask.jpg", x: 0.55, y: 0.5, blur: 30, light: 0.7 } },
+  { key: "xode", screen: "bots.code", title: "Xode fixes your\ncode, and *asks*", color: COLOR.xode, pose: "happy",
+    card: { x: 540, y: 40, w: 1960, h: 1250 }, pop: { x: 572, y: 792, w: 1270, h: 480 }, photo: { file: "code.jpg", x: 0.47, y: 0.5, light: 0.55 } },
+  { key: "notes", screen: "bots.notes", title: "Notes that\n*write* themselves", color: COLOR.ink, pose: "shy",
+    card: { x: 540, y: 140, w: 1960, h: 1250 }, pop: { x: 572, y: 625, w: 1896, h: 380 }, photo: { file: "notes.jpg", x: 0.5, y: 0.45, light: 0.5 } },
+  { key: "activity", screen: "bots.activity", title: "See what your\nbots *did*", color: COLOR.ink, pose: "starry",
+    card: { x: 540, y: 140, w: 1960, h: 1250 }, pop: { x: 572, y: 712, w: 1896, h: 452 }, photo: { file: "plan.jpg", x: 0.5, y: 0.42, light: 0.55 } },
+];
 
 const fontFace = `
 @font-face{font-family:Geist;src:url(${url(path.join(HERE, "fonts/Geist[wght].ttf"))}) format("truetype");font-weight:100 900}
@@ -65,6 +80,8 @@ h1{font-family:Geist,sans-serif;font-weight:800;line-height:1.02;letter-spacing:
 h1 .hand{position:relative;display:inline-block;font-family:Caveat,cursive;font-weight:700;font-size:1.34em;line-height:.7;letter-spacing:-.005em;
   transform:rotate(-2.5deg) translateY(.02em);margin:0 .02em}
 h1 .ul{position:absolute;left:-6%;width:112%;bottom:-.2em;height:.28em;object-fit:fill}
+.on-photo h1,.on-photo h1 .hand{color:${CREAM}}
+.on-photo h1{text-shadow:0 2px 30px rgba(6,9,8,.35)}
 .brand{display:flex;align-items:center;gap:14px;font-family:Geist,sans-serif;font-weight:700;font-size:26px;letter-spacing:-.02em;color:${INK}}
 .brand img{width:52px;height:52px;border-radius:12px}
 `;
@@ -85,22 +102,66 @@ function windowOf(shot: string, w: number): string {
   </div>`;
 }
 
-/** One screenshot: the headline on the left, the app's window on the right, the bot peeking over its top edge. */
+const GRAIN = `<svg style="position:absolute;inset:0;opacity:.1;mix-blend-mode:overlay;pointer-events:none" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .6 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>`;
+
+/**
+ * The photograph, full bleed, under the phone set's grade: a split tone (ink shadows with an olive-teal undertone, cream
+ * light, colour held back so the clay marks are the brightest thing), a vignette, and the shade the headline sits on.
+ */
+function photoLayer(ph: Photo): string {
+  const light = ph.light ?? 0.55, blur = ph.blur ?? 0;
+  const filter = `brightness(${(0.62 + light * 0.5).toFixed(3)}) contrast(1.14) saturate(0.5) sepia(0.12)${blur ? ` blur(${blur}px)` : ""}`;
+  return `
+    <img src="${url(path.join(HERE, "photos", ph.file))}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+      object-position:${ph.x * 100}% ${ph.y * 100}%;filter:${filter};${blur ? "transform:scale(1.05);" : ""}">
+    <div style="position:absolute;inset:0;background:#2E3B33;mix-blend-mode:soft-light;opacity:.55"></div>
+    <div style="position:absolute;inset:0;background:#13201B;mix-blend-mode:lighten;opacity:.85"></div>
+    <div style="position:absolute;inset:0;background:#F2E4CB;mix-blend-mode:multiply;opacity:.9"></div>
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse 110% 100% at 60% 50%, rgba(8,12,10,0) 48%, rgba(8,12,10,.62) 100%)"></div>
+    <div style="position:absolute;inset:0;background:linear-gradient(100deg, rgba(8,12,10,.82) 0%, rgba(8,12,10,.5) 26%, rgba(8,12,10,.08) 46%, rgba(8,12,10,0) 56%)"></div>
+    ${GRAIN}`;
+}
+
+/** The black bot on a dark photo: a cream sticker edge round him, so he reads, and a soft shadow under it. */
+const STICKER = [[4, 0], [-4, 0], [0, 4], [0, -4], [3, 3], [-3, 3], [3, -3], [-3, -3]].map(([x, y]) => `drop-shadow(${x}px ${y}px 0 ${CREAM})`).join(" ")
+  + " drop-shadow(0 10px 22px rgba(6,9,8,.45))";
+
+/** A piece of the screen, `r` of it, drawn at scale `k` (the screen is 2560 x 1600). */
+const cut = (shot: string, r: Rect, k: number): string =>
+  `<img src="${url(shot)}" style="position:absolute;left:${-r.x * k}px;top:${-r.y * k}px;width:${2560 * k}px;height:${1600 * k}px;max-width:none">`;
+
+/**
+ * One screenshot, the phone set's card (build.mjs): the headline at the top left, the card on the right, the part that
+ * matters lifted out of it, bigger, with the arrow at it from the left, and the bot peeking over the card's top edge.
+ */
 function screenshotPage(f: (typeof FRAMES)[number], shot: string): string {
-  // The window as big as the frame lets it be, so the app reads at the Store's size; the words take what is left.
-  const winW = 1360;
+  const C = { left: 700, top: 292, w: 1130 };
+  const k = C.w / f.card.w, cardH = f.card.h * k;
+  const kp = k * 1.16;                                   // the lifted part, a little bigger than the card
+  const pw = f.pop.w * kp, ph = f.pop.h * kp;
+  const cx = C.left + (f.pop.x + f.pop.w / 2 - f.card.x) * k, cy = C.top + (f.pop.y + f.pop.h / 2 - f.card.y) * k;
+  const pl = Math.max(C.left - 70, Math.min(cx - pw / 2, 1920 - 40 - pw)), pt = cy - ph / 2;
+  const aw = 64, ah = aw * 728 / 263;                    // the arrow: down, then right, its tip at the part's left edge
+  const arrow = path.join(ART, `arrow-${CLAY.replace("#", "")}.png`);
+  const botW = 250, botH = botW * 483 / 833;
   return `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}</style></head><body>
-  <div style="position:relative;width:1920px;height:1080px;overflow:hidden">
-    <div style="position:absolute;left:84px;top:0;bottom:0;width:420px;display:flex;flex-direction:column;justify-content:center">
-      ${headline(f.title, f.color, 60)}
-    </div>
-    <div class="brand" style="position:absolute;left:84px;bottom:70px">
+  <div style="position:relative;width:1920px;height:1080px;overflow:hidden;background:${DARK}">
+    ${photoLayer(f.photo)}
+    <div class="on-photo" style="position:absolute;left:96px;top:84px;width:1100px">${headline(f.title, CLAY, 74)}</div>
+    <div class="brand" style="position:absolute;left:96px;bottom:72px;color:${CREAM}">
       <img src="${url(path.join(HERE, "out/icons/app-store-1024.png"))}">X0 Bot
     </div>
-    <div style="position:absolute;right:56px;top:50%;transform:translateY(-47%)">
-      <img src="${url(path.join(ART, `bot-${f.pose}.png`))}" style="position:absolute;width:170px;left:60px;top:-90px;z-index:2">
-      <div style="position:relative;z-index:1">${windowOf(shot, winW)}</div>
-    </div>
+    <img src="${url(path.join(ART, `bot-${f.pose}.png`))}" style="position:absolute;width:${botW}px;left:${C.left + C.w - botW - 90}px;top:${C.top - botH * 0.8}px;z-index:5;
+      filter:${STICKER}">
+    <div style="position:absolute;left:${C.left - 10}px;top:${C.top - 10}px;width:${C.w + 20}px;height:${cardH + 20}px;border-radius:40px;background:${CREAM};
+      box-shadow:0 30px 90px rgba(6,9,8,.45);z-index:2"></div>
+    <div style="position:absolute;left:${C.left}px;top:${C.top}px;width:${C.w}px;height:${cardH}px;overflow:hidden;background:#fff;
+      border-radius:30px;z-index:2">${cut(shot, f.card, k)}</div>
+    <div style="position:absolute;left:${pl - 8}px;top:${pt - 8}px;width:${pw + 16}px;height:${ph + 16}px;border-radius:32px;background:${CREAM};
+      box-shadow:0 34px 90px rgba(6,9,8,.5);z-index:3"></div>
+    <div style="position:absolute;left:${pl}px;top:${pt}px;width:${pw}px;height:${ph}px;overflow:hidden;background:#fff;
+      border-radius:24px;z-index:3">${cut(shot, f.pop, kp)}</div>
+    ${fs.existsSync(arrow) ? `<img src="${url(arrow)}" style="position:absolute;width:${aw}px;left:${pl - aw - 4}px;top:${pt + ph / 2 - ah * 0.94}px;z-index:4">` : ""}
   </div></body></html>`;
 }
 
