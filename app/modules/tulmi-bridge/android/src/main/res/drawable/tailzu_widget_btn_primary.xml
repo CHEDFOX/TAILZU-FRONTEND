@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- The pickers' previews: a primary button, an ink-filled capsule (its words in the ground colour). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/tailzu_widget_ink" />
-    <corners android:radius="100dp" />
-</shape>

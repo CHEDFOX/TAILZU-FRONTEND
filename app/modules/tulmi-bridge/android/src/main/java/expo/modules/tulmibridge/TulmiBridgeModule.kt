@@ -7,8 +7,8 @@ import expo.modules.kotlin.modules.ModuleDefinition
 /**
  * Writes the app's backend URL + the user's token into the app's `tulmi`
  * SharedPreferences. The Tulmi IME runs in the same package, so it can read
- * these directly (see Net.load in the keyboard module). The month for the
- * home-screen widget goes the same way, into `tulmi.widget`.
+ * these directly (see Net.load in the keyboard module). What the home-screen
+ * widgets draw goes the same way, into `tulmi.widget`.
  */
 class TulmiBridgeModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -66,42 +66,42 @@ class TulmiBridgeModule : Module() {
         .apply()
     }
 
-    // THE MONTH, FOR THE WIDGET. The same JSON the iOS widget reads from the
-    // App Group: the numbers the app just fetched, and the words, colours and
-    // tap target the widget draws them with, built from the server's labels
-    // and flags (src/widgets/month.ts). Kept in the app's own
-    // SharedPreferences, since the widget's provider runs in this package
-    // (TailzuMonthWidget.kt), and every placed widget is asked to draw again.
-    // Nothing the widget shows is fetched by the widget.
-    Function("setWidgetMonth") { json: String ->
-      val ctx = appContext.reactContext ?: return@Function
-      ctx.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putString(TailzuMonthWidget.KEY, json)
-        .apply()
-      TailzuMonthWidget.requestUpdate(ctx)
-    }
-
-    // THE WIDGET THEME. The colours and alphas the app writes on every
-    // bootstrap (from widget.color.* / widget.alpha.*); MonthLook reads this
-    // key first, so the widget's colours are the server's even before any
-    // month numbers have been written. An empty string clears it (sign-out),
-    // and MonthLook falls back to the month key and the literal. Same
-    // SharedPreferences file as the month, and every placed widget redraws.
+    // THE WIDGET THEME. The colours the app writes on every bootstrap (from
+    // widget.color.*: `colors` for dark, `light` for light); the widgets read
+    // them over their own palette (WidgetInk), From your people and X0 alike.
+    // An empty string clears it (sign-out). Both redraw. (There is no Month
+    // widget on Android any more: X0 took its place, so its key, which nothing
+    // reads now, goes too.)
     Function("setWidgetTheme") { json: String ->
       val ctx = appContext.reactContext ?: return@Function
-      ctx.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
+      ctx.getSharedPreferences(TailzuQuick.PREFS, Context.MODE_PRIVATE)
         .edit()
-        .putString(TailzuMonthWidget.THEME_KEY, json)
+        .putString(TailzuQuick.THEME_KEY, json)
+        .remove("tulmi.widget.month")
         .apply()
-      TailzuMonthWidget.requestUpdate(ctx)
+      TailzuQuick.requestUpdate(ctx)
+      TailzuX0.requestUpdate(ctx)
+    }
+
+    // THE X0 WIDGET'S GLANCE (TailzuX0Widget.kt): GET /v1/shell/glance?v=2
+    // as the app checked it (src/widgets/glance.ts), under `x0.glance`, with
+    // the moment it was written (an answer pressed on the widget is drawn
+    // over its question until the next write). The bots' faces are files the
+    // app downloads beside it (files/widget-faces/<face>.png). An empty string
+    // clears it (sign-out). Every placed X0 redraws.
+    Function("setWidgetGlance") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      val e = ctx.getSharedPreferences(TailzuQuick.PREFS, Context.MODE_PRIVATE).edit()
+      if (json.isEmpty()) e.remove(TailzuX0.KEY) else e.putString(TailzuX0.KEY, json)
+      e.putLong(TailzuX0.WRITTEN_AT, System.currentTimeMillis()).apply()
+      TailzuX0.requestUpdate(ctx)
     }
 
     // THE QUICK-ACCESS WIDGETS' ROWS (TailzuQuickWidgets.kt): GET
     // /v1/widgets/now's document as the app checked it (src/widgets/now.ts),
     // with the moment it was written (a pressed button's outcome is drawn over
     // its row until the next write). An empty string clears it (sign-out).
-    // Both widgets redraw.
+    // From your people redraws.
     Function("setWidgetNow") { json: String ->
       val ctx = appContext.reactContext ?: return@Function
       val e = ctx.getSharedPreferences(TailzuQuick.PREFS, Context.MODE_PRIVATE).edit()
@@ -121,6 +121,7 @@ class TulmiBridgeModule : Module() {
       val token = o?.optString("token")?.takeIf { it.startsWith("xwt_") }
       if (o == null || token == null) {
         e.remove(TailzuQuick.TOKEN).remove(TailzuQuick.TOKEN_META).apply()
+        TailzuX0.requestUpdate(ctx)
         return@Function
       }
       val meta = org.json.JSONObject()
@@ -128,6 +129,8 @@ class TulmiBridgeModule : Module() {
         .put("baseUrl", o.optString("baseUrl", ""))
         .put("path", o.optString("path", "/v1/widgets/act"))
       e.putString(TailzuQuick.TOKEN, token).putString(TailzuQuick.TOKEN_META, meta.toString()).apply()
+      // X0's answers answer here only while there is a token: drawn again with it.
+      TailzuX0.requestUpdate(ctx)
     }
 
     // THE APP ICON'S LONG-PRESS LIST (TailzuShortcuts.kt), as the server

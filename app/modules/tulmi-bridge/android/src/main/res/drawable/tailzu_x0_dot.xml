@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The X0 widget's disc: a status mark (needs you in ink, at work in the bot's own colour), a week bead, the check's ground, the
+  ground under a face in a row of faces. White, tinted at run time; sized by its view.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FFFFFFFF" />
+</shape>

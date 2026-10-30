@@ -1,22 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The widgets' words that the picker shows before the app has run, so they
-  cannot come from the server. Everything drawn on the Month itself comes from
-  the labels the app writes with the month (src/widgets/month.ts). Its name and
-  description are the iOS widget's (widget.month.displayName and
-  widget.month.description): short, sentence case, the app's own voice.
+  cannot come from the server, and the X0 widget's fallbacks for the words its
+  glance brings (the glance's `words`, the server's knobs in en and Hinglish).
 -->
 <resources>
-    <string name="tailzu_widget_month_label">This month</string>
-    <string name="tailzu_widget_month_description">Your words this month.</string>
-    <!-- The picker preview's sample: the iOS gallery's 318 words left. -->
-    <string name="tailzu_widget_month_preview_number" translatable="false">318</string>
-    <string name="tailzu_widget_month_preview_label">WORDS LEFT</string>
+    <!--
+      X0 (TailzuX0Widget.kt): its picker name and description, the words it
+      falls back on when the glance has none (each the contract's own,
+      docs/widget-glance-v2.md in the backend: needsYou, ready, ask, brand,
+      youDecide, working, step, minIn, seePr, done; and min, pr and the answer's
+      states, which a glance may add), and its picker preview's sample: Code bot
+      building the cart fix, step 3 of 5, while Travel bot finds a hotel.
+    -->
+    <string name="tailzu_x0_label" translatable="false">X0</string>
+    <string name="tailzu_x0_description">Your bots at a glance: what needs you, what they\'re doing, and Ask.</string>
+    <string name="tailzu_x0_needs_you">Needs you</string>
+    <string name="tailzu_x0_ready">Ready</string>
+    <string name="tailzu_x0_ask">Ask any bot…</string>
+    <string name="tailzu_x0_you_decide">You decide</string>
+    <string name="tailzu_x0_working">{n} working</string>
+    <string name="tailzu_x0_step">Step {stage} of {of}</string>
+    <string name="tailzu_x0_min_in">{n} min in</string>
+    <string name="tailzu_x0_min">{n} min</string>
+    <string name="tailzu_x0_pr">PR #{n}</string>
+    <string name="tailzu_x0_see_pr">See the PR</string>
+    <string name="tailzu_x0_done">Done</string>
+    <string name="tailzu_x0_sending">Sending…</string>
+    <string name="tailzu_x0_gone">Already answered</string>
+    <string name="tailzu_x0_failed">Open X0 to finish</string>
+    <!-- Before the app has written a glance (never opened, or signed out). -->
+    <string name="tailzu_x0_empty">Your bots, at a glance.</string>
+    <string name="tailzu_x0_preview_task">Fixing cart</string>
+    <string name="tailzu_x0_preview_sub">Code bot · Build, step 3 of 5</string>
+    <string name="tailzu_x0_preview_min">52 min</string>
+    <string name="tailzu_x0_preview_stage1">Understand</string>
+    <string name="tailzu_x0_preview_stage2">Plan</string>
+    <string name="tailzu_x0_preview_stage3">Build</string>
+    <string name="tailzu_x0_preview_stage4">Check</string>
+    <string name="tailzu_x0_preview_stage5">Ship</string>
+    <string name="tailzu_x0_preview_crew">Travel bot</string>
+    <string name="tailzu_x0_preview_crew_line">finding a hotel in Goa</string>
 
     <!--
-      The quick-access widgets (TailzuQuickWidgets.kt): their picker names and
-      descriptions, and what they show before the app has written any rows
-      (never opened, or signed out). Everything else they draw is the
+      From your people (TailzuQuickWidgets.kt): its picker name and
+      description, and what it shows before the app has written any rows
+      (never opened, or signed out). Everything else it draws is the
       server's (GET /v1/widgets/now: widgets.* in the backend).
     -->
     <string name="tailzu_widget_people_label">From your people</string>
@@ -24,11 +53,7 @@
     <string name="tailzu_widget_people_empty_title">Your people, here</string>
     <string name="tailzu_widget_people_empty_body">Make a space for family and friends.</string>
     <string name="tailzu_widget_people_empty_cta">Make a space</string>
-    <string name="tailzu_widget_needs_label">Needs you</string>
-    <string name="tailzu_widget_needs_description">Answer your bots and tick off tasks.</string>
-    <string name="tailzu_widget_needs_empty_title">All clear</string>
-    <string name="tailzu_widget_needs_empty_body">Nothing needs you right now.</string>
-    <!-- The pickers' previews: sample rows, worded as the server words them. -->
+    <!-- The picker's preview: sample rows, worded as the server words them. -->
     <string name="tailzu_widget_people_preview_initial" translatable="false">R</string>
     <string name="tailzu_widget_people_preview_who" translatable="false">Riya</string>
     <string name="tailzu_widget_people_preview_tag">shared</string>
@@ -38,9 +63,4 @@
     <string name="tailzu_widget_people_preview2_who" translatable="false">Sam</string>
     <string name="tailzu_widget_people_preview2_when" translatable="false">1h</string>
     <string name="tailzu_widget_people_preview2_text">Running late, start without me</string>
-    <string name="tailzu_widget_needs_preview_who">Plan bot</string>
-    <string name="tailzu_widget_needs_preview_when">now</string>
-    <string name="tailzu_widget_needs_preview_text">Move dinner to 7:30?</string>
-    <string name="tailzu_widget_needs_preview_yes">Yes</string>
-    <string name="tailzu_widget_needs_preview_no">No</string>
 </resources>

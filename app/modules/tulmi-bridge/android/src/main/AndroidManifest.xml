@@ -1,28 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application>
     <!--
-      The Month, the home-screen widget (TailzuMonthWidget.kt). Merged into the
+      X0, the home-screen widget (TailzuX0Widget.kt): one entry in the picker,
+      resizable from 2x2 to 4x4, leading with what matters now. Merged into the
       app's manifest with this library, so it runs in the app's own process and
-      reads the month setWidgetMonth wrote to the app's SharedPreferences. Not
-      exported: only the system delivers widget updates, and it can reach a
-      receiver that is not.
+      reads the glance setWidgetGlance wrote to the app's SharedPreferences.
+      Not exported: only the system delivers widget updates (and this app's own
+      alarm its redraw while a job runs), and both reach a receiver that is not.
+      (The Month and Needs you widgets were retired for it.)
     -->
     <receiver
-        android:name="expo.modules.tulmibridge.TailzuMonthWidget"
+        android:name="expo.modules.tulmibridge.TailzuX0Widget"
         android:exported="false"
-        android:label="@string/tailzu_widget_month_label">
+        android:label="@string/tailzu_x0_label">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
       </intent-filter>
       <meta-data
           android:name="android.appwidget.provider"
-          android:resource="@xml/tailzu_widget_month_info" />
+          android:resource="@xml/tailzu_x0_info" />
     </receiver>
 
     <!--
-      The quick-access widgets (TailzuQuickWidgets.kt): From your people and
-      Needs you. Same rules as the Month: in the app's process, reading what
-      setWidgetNow wrote, not exported.
+      From your people (TailzuQuickWidgets.kt). Same rules: in the app's
+      process, reading what setWidgetNow wrote, not exported.
     -->
     <receiver
         android:name="expo.modules.tulmibridge.TailzuPeopleWidget"
@@ -35,21 +36,11 @@
           android:name="android.appwidget.provider"
           android:resource="@xml/tailzu_widget_people_info" />
     </receiver>
-    <receiver
-        android:name="expo.modules.tulmibridge.TailzuNeedsWidget"
-        android:exported="false"
-        android:label="@string/tailzu_widget_needs_label">
-      <intent-filter>
-        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-      </intent-filter>
-      <meta-data
-          android:name="android.appwidget.provider"
-          android:resource="@xml/tailzu_widget_needs_info" />
-    </receiver>
     <!--
-      A Needs you button that answers on the spot: only the widgets' own
-      PendingIntents reach it (not exported, no intent filter). It posts with
-      the widgets' narrow token, never the session's.
+      A widget's button that answers on the spot (X0's answers, a row's
+      button): only the widgets' own PendingIntents reach it (not exported, no
+      intent filter). It posts with the widgets' narrow token, never the
+      session's.
     -->
     <receiver
         android:name="expo.modules.tulmibridge.TailzuWidgetActReceiver"

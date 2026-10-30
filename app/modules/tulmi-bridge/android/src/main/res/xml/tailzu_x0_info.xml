@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X0 in the widget picker (TailzuX0Widget.kt): one entry that resizes, not three widgets. 4 by 2 cells by default; resizable
+  from 2 by 2 to 4 by 4 and past, each size with its own layout (Android 12+ is handed one per size; before that the provider picks
+  by the size the launcher reports).
+
+  updatePeriodMillis is 0: the app asks for a redraw each time it writes a glance, and after an answer; while a job runs or a
+  finished thing shows, the widget itself redraws every few minutes (its minutes count on) without asking the server anything.
+
+  The name and description are string resources: the picker reads them before the app has run. The preview is the 4x2 with faces
+  and the stage bar: the layout on Android 12+, an image (light, and dark in drawable-night-xxhdpi) before that.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/tailzu_x0_description"
+    android:initialLayout="@layout/tailzu_x0_medium_quiet"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:previewImage="@drawable/tailzu_x0_preview_image"
+    android:previewLayout="@layout/tailzu_x0_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

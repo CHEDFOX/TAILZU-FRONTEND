@@ -6,19 +6,30 @@
   the phone's light or dark theme.
 
   The widgets read these as their fallbacks (WidgetInk.palette); colours the
-  server sends with the rows or the month go over them.
+  server sends with the rows and the widget theme go over them.
 -->
 <resources>
     <!-- The card. -->
     <color name="tailzu_widget_ground">#FFFFFF</color>
-    <!-- Titles, the number, a primary button's fill. -->
+    <!-- Titles, a primary button's fill, the needs-you mark, the week's beads. -->
     <color name="tailzu_widget_ink">#0A0A0A</color>
     <!-- Meta text: times, tags, a label. -->
     <color name="tailzu_widget_meta">#5C5C5C</color>
-    <!-- Idle icons. -->
+    <!-- Idle icons, a stage still to come. -->
     <color name="tailzu_widget_dim">#8A8A8A</color>
-    <!-- Hairlines between rows, a secondary button's border, the month line's track. -->
+    <!-- Hairlines between rows, a secondary button's border, a card's outline, the stage bar's track. -->
     <color name="tailzu_widget_line">#E6E6E6</color>
-    <!-- An avatar's ground, a shortcut icon's disc. -->
+    <!-- An avatar's ground, a shortcut icon's disc, the X0 widget's tiles, Ask and chips. -->
     <color name="tailzu_widget_surface">#F5F5F5</color>
+    <!-- The X0 widget's open week bead. -->
+    <color name="tailzu_widget_hollow">#C9C9C9</color>
+    <!-- The X0 widget's secondary answer: a capsule's 1dp ring. -->
+    <color name="tailzu_widget_outline">#D4D4D4</color>
+
+    <!--
+      The X0 picker preview's sample bots, Code bot and Travel bot, in their own colours (backend bots/art.ts); a touch lighter
+      at night so they carry on the dark ground. On the placed widget a bot's colour is the server's.
+    -->
+    <color name="tailzu_x0_preview_code">#4F7A3A</color>
+    <color name="tailzu_x0_preview_travel">#3E6E8E</color>
 </resources>

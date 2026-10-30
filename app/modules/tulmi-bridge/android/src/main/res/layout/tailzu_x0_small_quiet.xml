@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE X0 WIDGET (TailzuX0Widget.kt), 2x2, all quiet: the painted X0 bot hanging off the top, the peek-bot key (Ask), the
+  greeting and the day's line.
+
+  Generated with the other tailzu_x0_* layouts from one spec (android/x0-layouts.py), so a pill, a tile or a face is the same
+  block everywhere. Every word, colour, face and tap is set at run time from the glance the app wrote (x0.glance); what is here
+  is the theme's, for the moment before the first draw. RemoteViews-safe views only. The root carries @android:id/background:
+  Android 12+ rounds the widget on it and animates a tap from it.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/tailzu_x0_ground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="fitXY"
+        android:src="@drawable/tailzu_widget_ground" />
+
+    <ImageView
+        android:id="@+id/tailzu_x0_hang"
+        android:layout_width="104dp"
+        android:layout_height="62dp"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="12dp"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="fitStart"
+        android:src="@drawable/tailzu_x0_hang" />
+
+    <ImageView
+        android:id="@+id/tailzu_x0_ask_key"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_marginEnd="14dp"
+        android:layout_marginTop="14dp"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:src="@drawable/tailzu_x0_peek" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="bottom"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tailzu_x0_hello"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@color/tailzu_widget_meta"
+            android:textSize="12.5dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tailzu_x0_line"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:lineSpacingExtra="1dp"
+            android:maxLines="3"
+            android:textColor="@color/tailzu_widget_ink"
+            android:textSize="16dp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</FrameLayout>
