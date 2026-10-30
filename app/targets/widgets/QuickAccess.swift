@@ -1,52 +1,40 @@
 import AppIntents
 import Foundation
-import Security
 import SwiftUI
 import UIKit
 import WidgetKit
 
-// QUICK ACCESS: what the two quick-access widgets read, and their buttons.
+// QUICK ACCESS: what From your people reads (PeopleWidget.swift), and the X0 widget's answer button.
 //
-//   From your people (PeopleWidget.swift)   the latest few things from family and friends
-//   Needs you (NeedsWidget.swift)           a bot's question with its answers, a yes, a task given to you, each with its buttons
+// What From your people says is the server's: GET /v1/widgets/now answers its rows already worded, each with where its tap goes,
+// how a time is written, the Lock Screen's line, the empty state and its button. The app writes that document as it is to the
+// App Group key "tulmi.widget.now" (src/widgets/now.ts, setWidgetNow); nothing here asks the server for rows. Every read is
+// lenient and keeps a literal fallback, so a missing or mistyped field never stops the rest from drawing, and a new kind of row
+// is the server's data, not code. (The document's needs section was the retired Needs you widget's: the X0 widget now asks the
+// person's questions, from glance v2.)
 //
-// What they say is the server's: GET /v1/widgets/now answers both widgets' rows already worded, each with where its tap goes and
-// its buttons (their words, order and which one is primary), how a time is written, the Lock Screen's line, the empty state and
-// its button. The app writes that document as it is to the App Group key "tulmi.widget.now" (src/widgets/now.ts, setWidgetNow);
-// nothing here asks the server for rows. Every read is lenient and keeps a literal fallback, so a missing or mistyped field never
-// stops the rest from drawing, and a new kind of row or button is the server's data, not code.
-//
-// How they look is the app's own (X0Palette, X0Mark, X0Pill in TailzuWidgets.swift): white and ink with greys in Light, the same
+// How it looks is the app's own (X0Palette, X0Mark, X0Pill in TailzuWidgets.swift): white and ink with greys in Light, the same
 // inverted in Dark, rows on hairlines, a person's initial on a grey disc, a bot's in its own colour's ring. The document's `look`
 // (its old colours and button colours) is no longer read.
 //
-// ANSWERING IN PLACE. A button the server marks "inPlace" runs AnswerNeedIntent here, in the extension: it posts to the server
-// with the widgets' OWN token, never the session's. That token (POST /v1/widgets/token; backend src/widgets/token.ts) can only
-// answer this person's needs-you and tick their own tasks, runs out in a day, is revoked at sign-out, and is kept in the shared
-// Keychain (WidgetKeychain below; the app writes it through the bridge). The intent asks for the phone to be unlocked
-// (authenticationPolicy). An answer that cannot be sent (no token, offline, refused) leaves the row saying "Open X0 to finish",
-// and a tap opens it there. A button marked "open" is a Link to the row in the app.
+// ANSWERING IN PLACE. An X0 widget answer pill runs AnswerNeedIntent here, in the extension: it posts to the server with the
+// widgets' OWN token, never the session's (_shared/WidgetAct.swift: the token, the post, what a press did). The intent asks for
+// the phone to be unlocked (authenticationPolicy). It shows "Done" at once; an answer that cannot be sent (no token, offline,
+// refused) then says "Open X0 to finish", and a tap opens it there.
 
 enum QuickKeys {
   /** The document the app wrote (GET /v1/widgets/now, as it was). */
   static let now = "tulmi.widget.now"
-  /** When the app wrote it (ms since 1970): an answer given after this is drawn over the row until the next write. */
+  /** When the app wrote it (ms since 1970). */
   static let writtenAt = "tulmi.widget.now.writtenAt"
-  /** What a button did to a row since: { "<item>": { "s": "done" | "gone" | "failed", "at": ms } }. */
-  static let state = "tulmi.widget.now.state"
-  /** Where a button posts and when the token runs out: { "baseUrl", "path", "expiresAt" }. Not the token (the Keychain's). */
-  static let tokenMeta = "tulmi.widget.token.meta"
-  /** The token's Keychain account. */
-  static let tokenAccount = "tulmi.widget.token"
-  static let peopleKind = "space.tailzu.people"
-  static let needsKind = "space.tailzu.needs"
+  static let peopleKind = WidgetKinds.people
 }
 
 /// Lenient reads out of a JSON object.
 private extension Dictionary where Key == String, Value == Any {
   func str(_ k: String, _ fallback: String = "") -> String { (self[k] as? String) ?? fallback }
   func obj(_ k: String) -> [String: Any] { (self[k] as? [String: Any]) ?? [:] }
-  func num(_ k: String) -> Double? { WidgetLook.number(self[k]) }
+  func num(_ k: String) -> Double? { WidgetAct.number(self[k]) }
   func bool(_ k: String, _ fallback: Bool) -> Bool { (self[k] as? Bool) ?? fallback }
 }
 
@@ -175,7 +163,7 @@ struct NowSection {
     url = appLink(o["url"] as? String)
     icon = o.str("icon", "circle.fill")
     limits = o.obj("limits").compactMapValues { value -> Int? in
-      guard let n = WidgetLook.number(value) else { return nil }
+      guard let n = WidgetAct.number(value) else { return nil }
       return max(0, Int(n))
     }
     rows = ((o["rows"] as? [Any]) ?? []).compactMap { ($0 as? [String: Any]).flatMap(NowRow.init) }
@@ -221,95 +209,9 @@ struct NowDoc {
   }
 }
 
-/// What a button did to a row, until the app next writes the rows.
-enum RowState: String {
-  case done, gone, failed
-}
-
-enum NowStates {
-  static func all(since writtenAt: Double) -> [String: RowState] {
-    guard let raw = Shared.store?.string(forKey: QuickKeys.state), let data = raw.data(using: .utf8),
-          let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return [:] }
-    var out: [String: RowState] = [:]
-    for (item, v) in o {
-      guard let e = v as? [String: Any], let s = (e["s"] as? String).flatMap(RowState.init(rawValue:)),
-            let at = WidgetLook.number(e["at"]), at > writtenAt else { continue }
-      out[item] = s
-    }
-    return out
-  }
-
-  static func set(_ item: String, _ state: RowState) {
-    let d = Shared.store
-    var o = (d?.string(forKey: QuickKeys.state)?.data(using: .utf8))
-      .flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
-    let now = Date().timeIntervalSince1970 * 1000
-    // A day is long enough for any row to have been written again.
-    o = o.filter { entry in
-      let at = (entry.value as? [String: Any]).flatMap { e in WidgetLook.number(e["at"]) } ?? 0
-      return at > now - 86_400_000
-    }
-    o[item] = ["s": state.rawValue, "at": now]
-    if let data = try? JSONSerialization.data(withJSONObject: o), let s = String(data: data, encoding: .utf8) {
-      d?.set(s, forKey: QuickKeys.state)
-    }
-  }
-}
-
-/// The widgets' own token, read from the shared Keychain the app writes it to (the bridge's TulmiKeychain, the same group and
-/// service as the session's, its own account). Read only, here.
-enum WidgetKeychain {
-  static let accessGroup = "6552H8HYA4.com.tulmi.app.shared"
-  static let service = "space.tailzu.tulmi.bearer"
-
-  static func string(_ account: String) -> String? {
-    let q: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
-      kSecAttrAccessGroup as String: accessGroup,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
-    var out: AnyObject?
-    guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-    return String(data: data, encoding: .utf8)
-  }
-}
-
-/// One answer, posted with the widgets' token. What happened, as the row will show it.
-enum WidgetAct {
-  static func post(item: String, action: String) async -> RowState {
-    guard let token = WidgetKeychain.string(QuickKeys.tokenAccount), token.hasPrefix("xwt_"),
-          let raw = Shared.store?.string(forKey: QuickKeys.tokenMeta), let data = raw.data(using: .utf8),
-          let meta = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return .failed }
-    let expiresAt = WidgetLook.number(meta["expiresAt"]) ?? 0
-    guard expiresAt > Date().timeIntervalSince1970 * 1000 else { return .failed }
-    let base = (meta["baseUrl"] as? String) ?? Shared.store?.string(forKey: "tulmi.baseUrl") ?? "https://api.x0bot.com"
-    let path = (meta["path"] as? String).flatMap { $0.hasPrefix("/v1/") ? $0 : nil } ?? "/v1/widgets/act"
-    guard let url = URL(string: base.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path),
-          url.scheme == "https" || url.host == "localhost" else { return .failed }
-    var req = URLRequest(url: url, timeoutInterval: 12)
-    req.httpMethod = "POST"
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    req.setValue(token, forHTTPHeaderField: "X-Widget-Token")
-    // A key per tap: the server answers it once, whatever reaches it twice.
-    let body: [String: Any] = ["item": item, "action": action, "key": "w" + UUID().uuidString.replacingOccurrences(of: "-", with: "")]
-    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-    do {
-      let (_, res) = try await URLSession.shared.data(for: req)
-      let status = (res as? HTTPURLResponse)?.statusCode ?? 0
-      if (200..<300).contains(status) { return .done }
-      if status == 409 || status == 404 || status == 410 { return .gone }
-      return .failed
-    } catch {
-      return .failed
-    }
-  }
-}
-
-/// A button of a Needs you row, pressed: answered here with the widgets' token; the row shows how it went until the app writes
-/// the rows again. Asks for the phone to be unlocked first.
+/// An answer pill of the X0 widget, pressed: answered here with the widgets' token. The item shows "Done" at once (the widget is
+/// redrawn before the answer goes out), then how it went, until the app writes fresh data. Asks for the phone to be unlocked
+/// first.
 struct AnswerNeedIntent: AppIntent {
   static let title: LocalizedStringResource = "Answer from the widget"
   static let description = IntentDescription("Answers a question or ticks off a task from the X0 widget.")
@@ -327,15 +229,18 @@ struct AnswerNeedIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult {
+    NowStates.set(item, .done)
+    WidgetCenter.shared.reloadTimelines(ofKind: WidgetKinds.x0)
     let outcome = await WidgetAct.post(item: item, action: action)
-    NowStates.set(item, outcome)
-    WidgetCenter.shared.reloadTimelines(ofKind: QuickKeys.needsKind)
-    WidgetCenter.shared.reloadTimelines(ofKind: QuickKeys.peopleKind)
+    if outcome != .done {
+      NowStates.set(item, outcome)
+    }
+    WidgetCenter.shared.reloadTimelines(ofKind: WidgetKinds.x0)
     return .result()
   }
 }
 
-// ------------------------------------------------------------------ the timeline both widgets share
+// ------------------------------------------------------------------ From your people's timeline
 
 struct NowEntry: TimelineEntry {
   let date: Date
@@ -352,7 +257,7 @@ struct NowProvider: TimelineProvider {
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<NowEntry>) -> Void) {
-    // The app redraws both widgets every time it writes fresh rows; this only has to hold between those writes, so it asks again
+    // The app redraws the widget every time it writes fresh rows; this only has to hold between those writes, so it asks again
     // after the server's interval. Meanwhile a relative time is words ("4 min ago"), not a ticking clock: one entry a minute
     // until then (at most an hour of them), each worded as of its own minute.
     let doc = NowDoc.load()
@@ -367,7 +272,7 @@ struct NowProvider: TimelineProvider {
   }
 }
 
-// ------------------------------------------------------------------ parts both widgets draw
+// ------------------------------------------------------------------ parts the widgets draw
 
 /// When, in words that hold for a minute: "now", "4 min ago", "2 h ago", "Yesterday", "Mon", "12 Oct". Never seconds.
 enum When {
