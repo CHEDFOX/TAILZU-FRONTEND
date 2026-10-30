@@ -1,6 +1,7 @@
 /**
- * THE QUICK-ACCESS WIDGETS' DATA: "From your people" and "Needs you" (targets/widgets PeopleWidget.swift / NeedsWidget.swift,
- * the Android bridge's TailzuPeopleWidget.kt / TailzuNeedsWidget.kt).
+ * THE QUICK-ACCESS WIDGETS' DATA: "From your people" (targets/widgets PeopleWidget.swift, the Android bridge's
+ * TailzuPeopleWidget in TailzuQuickWidgets.kt). Needs you was retired for the X0 widget (glance.ts), whose answers post on the
+ * same narrow token this file keeps.
  *
  * The widgets never ask the server. The app does, here: GET /v1/widgets/now answers both widgets' rows already worded, with
  * where each tap goes, each button and how it answers, and everything they are drawn with; the app checks it (nowCore.cleanNow)
