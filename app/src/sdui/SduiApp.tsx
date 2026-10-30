@@ -60,6 +60,21 @@ import {
   endFlowSession,
 } from "../../modules/tulmi-bridge";
 import { supabaseAuth, getSupabaseAccessToken } from "../auth/supabaseClient";
+import { restoreSession } from "../auth/restore";
+
+/**
+ * Resolves once the app is in front: the phone is unlocked, and the network is the app's. Only a launch known to be in
+ * the background (or passing through inactive) waits; "unknown", which a cold start can report first, does not.
+ */
+function untilAppActive(): Promise<void> {
+  const now = AppState.currentState;
+  if (now !== "background" && now !== "inactive") return Promise.resolve();
+  return new Promise((resolve) => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") { sub.remove(); resolve(); }
+    });
+  });
+}
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics, resetAnalytics } from "../telemetry/analytics";
@@ -796,11 +811,26 @@ export default function SduiApp() {
         await supabaseAuth.clearLocalSession().catch(() => {});
       }
       // Gate on auth first: the app needs a JWT to talk to the backend.
-      const { data: { session } } = await supabaseAuth.getSession();
+      //
+      // ONLY A PHONE HOLDING NO SESSION IS SIGNED OUT (auth/restore.ts). A
+      // session whose refresh failed for a moment as the app opened, or a
+      // Keychain read while the phone was locked, both came back "no session",
+      // and the app showed the sign-in page to someone who was signed in until
+      // they closed it and opened it again. Those are tried again now; a
+      // session still out of reach opens the app as signed in, and is
+      // refreshed the moment it can be.
+      const restored = SUPABASE_CONFIGURED
+        ? await restoreSession({
+            getSession: async () => (await supabaseAuth.getSession()).data.session,
+            stored: () => supabaseAuth.storedSession(),
+            untilActive: () => untilAppActive(),
+            sleep: (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+          })
+        : null;
       // Tie RevenueCat purchases/entitlements to the signed-in user so they
       // restore across devices (was never identified → anonymous-only).
-      if (session?.user?.id) void identifyBilling(session.user.id);
-      if (SUPABASE_CONFIGURED && !session) setPhase("auth");
+      if (restored?.state === "in" && restored.session?.user?.id) void identifyBilling(restored.session.user.id);
+      if (restored?.state === "out") setPhase("auth");
       else await loadBoot();
       // React to sign-out from anywhere (e.g. Settings → Sign out), and — just
       // as important — re-share the freshest JWT with the keyboard extension on
@@ -813,7 +843,12 @@ export default function SduiApp() {
         // Signed out (or the account deleted): the background microphone goes
         // with the session — nothing may stay armed for nobody — and so does
         // everything else the account left on the phone.
-        if (!s && SUPABASE_CONFIGURED) {
+        //
+        // SIGNED_OUT only, the one event Supabase sends when the session is
+        // really gone. INITIAL_SESSION also comes with no session when the
+        // first read failed for a moment, and taking that as a sign-out wiped
+        // the phone and showed the sign-in page to someone still signed in.
+        if (e === "SIGNED_OUT" && SUPABASE_CONFIGURED) {
           endFlowSession();
           void forgetAccountData();
           outbox.clearAll();
@@ -837,7 +872,10 @@ export default function SduiApp() {
           void registerForPushToken();
         }
       });
-      unsub = () => subscription.unsubscribe();
+      const front = AppState.addEventListener("change", (next) => {
+        if (next === "active") void supabaseAuth.startAutoRefresh().catch(() => {});
+      });
+      unsub = () => { subscription.unsubscribe(); front.remove(); };
     })();
     return () => unsub();
   }, [loadBoot]);

@@ -19,11 +19,16 @@ import { createClient, type Session } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabaseConfig";
 import { bool, str } from "../sdui/knobs";
+import type { StoredSession } from "./restore";
 
 // SecureStore caps values at ~2048 bytes; Supabase sessions exceed that. Split
 // large values across `${key}__0..n` with a `${key}__n` count, falling back to
 // the legacy single key so already-signed-in users aren't logged out.
 const CHUNK = 1800;
+// Readable once the phone has been unlocked since it started, not only while it is unlocked: the app is also woken in
+// the background (a push, a Live Activity update) while the phone is locked, and a session it cannot read there must
+// not look like no session. An item already kept keeps its class until it is written new (a fresh sign-in).
+const KEEP: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 const ChunkedSecureStore = {
   getItem: async (key: string): Promise<string | null> => {
     const countRaw = await SecureStore.getItemAsync(`${key}__n`).catch(() => null);
@@ -42,8 +47,8 @@ const ChunkedSecureStore = {
     const chunks: string[] = [];
     for (let i = 0; i < v.length; i += CHUNK) chunks.push(v.slice(i, i + CHUNK));
     if (!chunks.length) chunks.push("");
-    for (let i = 0; i < chunks.length; i++) await SecureStore.setItemAsync(`${key}__${i}`, chunks[i]);
-    await SecureStore.setItemAsync(`${key}__n`, String(chunks.length));
+    for (let i = 0; i < chunks.length; i++) await SecureStore.setItemAsync(`${key}__${i}`, chunks[i], KEEP);
+    await SecureStore.setItemAsync(`${key}__n`, String(chunks.length), KEEP);
     for (let i = chunks.length; i < chunks.length + 8; i++) {
       await SecureStore.deleteItemAsync(`${key}__${i}`).catch(() => {});
     }
@@ -196,6 +201,25 @@ export const supabaseAuth = {
     }),
 
   getSession: () => supabase.auth.getSession(),
+  /**
+   * What this phone holds, read without the network (auth/restore.ts): "present" a session is kept (whether or not it
+   * could be refreshed just now), "absent" none is (signed out), "unreadable" the Keychain refused (a locked phone).
+   */
+  storedSession: async (): Promise<StoredSession> => {
+    const key = (supabase.auth as unknown as { storageKey: string }).storageKey;
+    try {
+      if ((await SecureStore.getItemAsync(`${key}__n`)) != null) return "present";
+      return (await SecureStore.getItemAsync(key)) != null ? "present" : "absent";
+    } catch {
+      return "unreadable";
+    }
+  },
+  /**
+   * Refresh now if it is due, and keep refreshing: called on every return to the front, so a session that could not
+   * be refreshed as the app opened is refreshed the moment the app is back. Never stopped in the background: a Flow
+   * session keeps the app awake there, and the keyboard's copy of the token is only fresh while the app refreshes it.
+   */
+  startAutoRefresh: () => supabase.auth.startAutoRefresh(),
   getUser: () => supabase.auth.getUser(),
   signOut: () => supabase.auth.signOut(),
   /**
