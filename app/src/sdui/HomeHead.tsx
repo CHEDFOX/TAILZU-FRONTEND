@@ -18,6 +18,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import type { CompProps } from "./components";
+import { tightRoom } from "./tightText";
 import { LiveMark, writeOnTimes } from "../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../botTiles/TileSurface";
 import { onPage, pageNow } from "./pageBus";
@@ -45,6 +46,8 @@ export function WriteOn({ props }: CompProps): React.ReactElement {
     fontFamily: String(props?.fontFamily || "Tailzu Geist Bold"), fontWeight: "normal" as const, fontSize: size, lineHeight: lh,
     letterSpacing: Number(props?.tracking) || 0, color: String(props?.color || "#0a0a0a"),
   };
+  // Room for the last letter of each word, which iOS clips at this tight spacing; the caret goes by the ink, not the room.
+  const room = tightRoom(font);
   const reduced = useReducedMotion();
   // The write-on's own timings: node props (wordFadeMs, caretStayMs, caretFadeMs), today's as the fallback.
   const wordFadeMs = ms(props?.wordFadeMs, 170), caretStayMs = ms(props?.caretStayMs, CARET_STAYS_MS), caretFadeMs = ms(props?.caretFadeMs, 420);
@@ -101,10 +104,10 @@ export function WriteOn({ props }: CompProps): React.ReactElement {
             key={`${i}-${w}`}
             onLayout={(e) => {
               const { x, y, width } = e.nativeEvent.layout;
-              boxes.current[i] = { x, y, w: width };
+              boxes.current[i] = { x, y, w: width - (room?.paddingRight as number || 0) };
               if (!laid && boxes.current.filter(Boolean).length >= words.length) setLaid(true);
             }}
-            style={[font, { opacity: ops[i], transform: [{ translateY: ops[i]!.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }] }]}
+            style={[font, room, { opacity: ops[i], transform: [{ translateY: ops[i]!.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }) }] }]}
           >{w}</Animated.Text>
         ))}
       </View>

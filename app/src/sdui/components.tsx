@@ -32,6 +32,7 @@ import type { GestureResponderEvent, LayoutChangeEvent, TextStyle } from "react-
 import type { Node, NodeEvent, ThemeTokens } from "./types";
 import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
+import { tightRoom } from "./tightText";
 import * as api from "../api";
 import { errorDetail, streamErrorMessage, userErrorMessage } from "./client";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
@@ -633,9 +634,10 @@ const TextC = ({ node, props, style }: CompProps) => {
     : raw;
   // A plan's price: the store's own words once it answers (billing/storePrice.ts), the server's until then.
   const storeWords = useStorePrice(props.storePrice);
+  const look = [textVariant(props.variant, theme), style];
   return (
     <Text
-      style={[textVariant(props.variant, theme), style]}
+      style={[...look, tightRoom(look)]}
       // Authored on the history rows and previously dropped, so a long
       // dictation rendered in full and blew the card out.
       numberOfLines={Number(props.numberOfLines) > 0 ? Number(props.numberOfLines) : undefined}
