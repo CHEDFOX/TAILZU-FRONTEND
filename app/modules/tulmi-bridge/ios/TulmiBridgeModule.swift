@@ -17,8 +17,18 @@ public class TulmiBridgeModule: Module {
 
     // At launch: take down a Flow activity left by a session that died with
     // the last process, and listen for the activity's End button from here on.
+    // A Bots at work activity an earlier process started keeps handing its
+    // push token over (onBotsActivityPushToken).
     OnCreate {
       FlowSessionManager.shared.adoptLaunch()
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        BotsLiveActivity.shared.onPushToken = { [weak self] token, job in
+          self?.sendEvent("onBotsActivityPushToken", ["token": token, "jobId": job])
+        }
+        BotsLiveActivity.shared.adoptLaunch()
+      }
+      #endif
     }
 
     Function("setKeyboardCredentials") { (baseUrl: String, token: String) in
@@ -205,34 +215,88 @@ public class TulmiBridgeModule: Module {
       FlowSessionManager.shared.end()
     }
 
-    // THE MONTH, FOR THE WIDGET. The app writes the numbers it just fetched
-    // (words used, left, earned, the streak, the plan) as JSON the Home and
-    // Lock Screen widget reads from the App Group, and asks WidgetKit to draw
-    // it again. Nothing the widget shows is fetched by the widget.
-    //
-    // The same JSON carries the widget's words, tap target and refresh
-    // interval, built from the server's labels and flags (src/widgets/month.ts).
-    // Its colours ride along but are not read: the widget's palette is native.
+    // THE MONTH. The numbers the app last fetched, as JSON, kept in the App
+    // Group under "tulmi.widget.month". The Month widget that drew them was
+    // retired (the X0 widget took its place: setWidgetGlance), so nothing on
+    // iOS reads them now; the call stays so an older JS build is unharmed.
     Function("setWidgetMonth") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.month")
-      if #available(iOS 14.0, *) {
-        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.month")
+    }
+
+    // THE X0 WIDGET'S GLANCE. GET /v1/shell/glance?v=2 as the app checked it
+    // (src/widgets/glanceCore.ts; the contract is the backend's
+    // docs/widget-glance-v2.md), kept in the App Group under "x0.glance" with
+    // the moment it was written ("x0.glance.writtenAt", ms: an answer pressed
+    // after it is drawn over its question until the next write), and the
+    // widget (kind space.tailzu.x0) is drawn again. An empty string clears it
+    // (sign-out): the widget shows its empty state. The bots' faces are files
+    // the app downloads beside it (faces/<face>.png in the group's container);
+    // the widget never fetches anything.
+    Function("setWidgetGlance") { (json: String) in
+      let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
+      if json.isEmpty {
+        defaults?.removeObject(forKey: "x0.glance")
+      } else {
+        defaults?.set(json, forKey: "x0.glance")
       }
+      defaults?.set(Date().timeIntervalSince1970 * 1000, forKey: "x0.glance.writtenAt")
+      if #available(iOS 14.0, *) {
+        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.x0")
+      }
+    }
+
+    // "BOTS AT WORK", THE RUNNING JOB AS A LIVE ACTIVITY (BotsLiveActivity.swift).
+    // Each takes { jobId, state: <ContentState>, dismissAfterSec? } as JSON.
+    // start: show the job (only while the app is in front; one running for the
+    // job is updated, one for another job ends); update: what it is doing now;
+    // end: its last state stays dismissAfterSec seconds (at most 15 minutes;
+    // 0 or no state: it goes now; "" ends every one, for sign-out).
+    Function("startBotsActivity") { (json: String) in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        BotsLiveActivity.shared.start(json)
+      }
+      #endif
+    }
+
+    Function("updateBotsActivity") { (json: String) in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        BotsLiveActivity.shared.update(json)
+      }
+      #endif
+    }
+
+    Function("endBotsActivity") { (json: String) in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        BotsLiveActivity.shared.end(json)
+      }
+      #endif
+    }
+
+    // The running Bots at work activity's APNs push token (hex), or null. It
+    // also arrives as the event onBotsActivityPushToken { token, jobId } when
+    // iOS hands it over or changes it (token null: the activity has gone).
+    Function("botsActivityPushToken") { () -> String? in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        return BotsLiveActivity.shared.pushToken
+      }
+      #endif
+      return nil
     }
 
     // THE WIDGET THEME. The colours and alphas the app writes on every
     // bootstrap (from widget.color.* / widget.alpha.*), kept in the App Group
     // as before; an empty string clears it (sign-out). The iOS widgets and
     // Live Activities no longer read it: their palette is the app's own,
-    // light and dark (X0Palette in targets/widgets/TailzuWidgets.swift). The
-    // month widget is still redrawn, and a running Live Activity too.
+    // light and dark (X0Palette in targets/widgets/TailzuWidgets.swift). A
+    // running mic-session Live Activity is still redrawn.
     Function("setWidgetTheme") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       defaults?.set(json, forKey: "tulmi.widget.theme")
-      if #available(iOS 14.0, *) {
-        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.month")
-      }
       #if canImport(ActivityKit)
       if #available(iOS 16.2, *) {
         DispatchQueue.main.async { FlowLiveActivity.shared.redraw() }
@@ -290,14 +354,14 @@ public class TulmiBridgeModule: Module {
       }
     }
 
-    // MARK: - Quick access: the two widgets' rows, their token, the icon's long-press list
+    // MARK: - Quick access: From your people's rows, the widgets' token, the icon's long-press list
 
-    // THE QUICK-ACCESS WIDGETS' ROWS. GET /v1/widgets/now's document, as the
-    // app checked and wrote it (src/widgets/now.ts): both widgets' rows
-    // already worded, each tap's link, each button, the look. Kept in the App
-    // Group for the widget extension (QuickAccess.swift), with the moment it
-    // was written (a button's outcome is drawn over its row until the next
-    // write). An empty string clears it (sign-out). Both widgets redraw.
+    // FROM YOUR PEOPLE'S ROWS. GET /v1/widgets/now's document, as the app
+    // checked and wrote it (src/widgets/now.ts): the rows already worded, each
+    // tap's link, the look. Kept in the App Group for the widget extension
+    // (QuickAccess.swift), with the moment it was written. An empty string
+    // clears it (sign-out). The widget redraws. (Its needs section was the
+    // retired Needs you widget's; the X0 widget asks from the glance.)
     Function("setWidgetNow") { (json: String) in
       let defaults = UserDefaults(suiteName: TulmiBridgeModule.appGroup)
       if json.isEmpty {
@@ -309,12 +373,13 @@ public class TulmiBridgeModule: Module {
       defaults?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.widget.now.writtenAt")
       if #available(iOS 14.0, *) {
         WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.people")
-        WidgetCenter.shared.reloadTimelines(ofKind: "space.tailzu.needs")
       }
     }
 
     // THE WIDGETS' OWN TOKEN (POST /v1/widgets/token): it can only answer this
     // person's needs-you and tick their own tasks, and runs out in a day. The
+    // X0 widget's answers and the Bots at work activity's post with it
+    // (targets/widgets/_shared/WidgetAct.swift). The
     // token goes to the shared Keychain, beside the session's but never the
     // session's (its own account, "tulmi.widget.token"); where a button posts
     // and when it runs out go to the App Group. An empty string deletes both
@@ -363,7 +428,8 @@ public class TulmiBridgeModule: Module {
     }
 
     // A quick action pressed while the app runs: JS is told, and consumes it.
-    Events("onQuickAction")
+    // The Bots at work activity's push token, as iOS hands it over.
+    Events("onQuickAction", "onBotsActivityPushToken")
 
     OnStartObserving {
       TulmiShortcuts.onQueued = { [weak self] in self?.sendEvent("onQuickAction", [:]) }
