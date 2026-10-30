@@ -9,7 +9,7 @@ import { cleanQuickActions, quickActionsSignature } from "./quickActionsCore.ts"
 const LIST = [
   { id: "ask", title: "Ask", subtitle: "Ask any bot", icon: "sparkles", url: "tulmi://screen/bots.ask" },
   { id: "dictate", title: "Dictate", icon: "waveform", url: "tulmi://screen/bots.keybot", arm: "screen/flow_arm" },
-  { id: "note", title: "New note", icon: "square.and.pencil", url: "tulmi://screen/bots.plan.item?kind=task" },
+  { id: "note", title: "New to-do", icon: "checklist", url: "tulmi://screen/bots.plan.item?kind=task" },
   { id: "spaces", title: "Spaces", icon: "person.2", url: "https://app.x0bot.com/s/bots.spaces" },
 ];
 

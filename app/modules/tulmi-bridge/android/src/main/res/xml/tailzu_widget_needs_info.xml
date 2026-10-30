@@ -5,7 +5,8 @@
   (at most the server's limits.android). No timer (updatePeriodMillis 0): the
   app asks for a redraw each time it writes rows, and after a button.
   The name and description are string resources: the picker reads them
-  before the app has run.
+  before the app has run. The preview is its own: the layout on Android 12+,
+  an image (light, and dark in drawable-night-xxhdpi) before that.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/tailzu_widget_needs_description"
@@ -14,7 +15,7 @@
     android:minHeight="110dp"
     android:minResizeWidth="110dp"
     android:minResizeHeight="110dp"
-    android:previewImage="@drawable/tailzu_widget_month_preview_image"
+    android:previewImage="@drawable/tailzu_widget_needs_preview_image"
     android:previewLayout="@layout/tailzu_widget_needs_preview"
     android:resizeMode="horizontal|vertical"
     android:targetCellWidth="4"

@@ -406,7 +406,7 @@ const config: ExpoConfig = {
     // carries the icon's clay bar and cream ground on past the art's edge, so the
     // launcher's parallax and press animations never show a seam or a strip of
     // flat colour. Both come from tools/media/brand/x0-icon/curious-hang.
-    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#F7F3EC" },
+    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#F4F0E8" },
     intentFilters: [
       {
         action: "VIEW",

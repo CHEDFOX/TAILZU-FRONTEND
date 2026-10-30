@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The app icon's long-press shortcut "New note" (TailzuShortcuts.kt): the white
-  mark on the widgets' dark ground, so it reads in a light or a dark launcher.
-  The server picks the drawable per shortcut (app.quickActions.android).
+  The app icon's long-press shortcut for an older server's New note (TailzuShortcuts.kt; the server picks
+  the drawable per shortcut, app.quickActions.android): tailzu_wi_note's glyph in the theme's
+  ink on a disc of its surface grey. Android 8 and later take the adaptive icon in
+  drawable-anydpi-v26 instead. Generated with its siblings; edit them together.
 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <shape android:shape="oval">
-            <solid android:color="#0F0D0B" />
-            <size android:width="48dp" android:height="48dp" />
-        </shape>
-    </item>
-    <item
-        android:bottom="12dp"
-        android:drawable="@drawable/tailzu_wi_note"
-        android:left="12dp"
-        android:right="12dp"
-        android:top="12dp" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/tailzu_widget_surface"
+        android:pathData="M24,0A24,24 0 1,1 24,48A24,24 0 1,1 24,0Z" />
+    <group
+        android:translateX="12"
+        android:translateY="12">
+        <path
+            android:fillColor="@color/tailzu_widget_ink"
+            android:pathData="M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75L3,17.25zM20.71,7.04c0.39,-0.39 0.39,-1.02 0,-1.41l-2.34,-2.34c-0.39,-0.39 -1.02,-0.39 -1.41,0l-1.83,1.83 3.75,3.75 1.83,-1.83z" />
+    </group>
+</vector>

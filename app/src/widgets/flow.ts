@@ -21,23 +21,32 @@ import { getSupabaseAccessToken } from "../auth/supabaseClient";
 import { getBaseUrl, getLanguage } from "../storage";
 import { bool, color, num, obj, str, txt } from "../sdui/knobs";
 
-/** The Live Activity's words. `{n}` is filled with the count by the widget. */
+/**
+ * The Live Activity's words, in the app's voice: short, sentence case, what is
+ * happening and what to do, never the feature's name. `{n}` is filled with the
+ * count by the widget.
+ */
 export function flowActivityCopy(): FlowActivityCopy {
-  const copy: FlowActivityCopy = {
+  // The words beyond the ones FlowActivityCopy names ride in the same JSON; a build that does not read them skips them.
+  const copy: FlowActivityCopy & Partial<Record<"compactListening" | "compactWriting" | "iconWriting", string>> = {
     listening: txt("widget.flow.listening", "Listening"),
     writing: txt("widget.flow.writing", "Writing it up"),
-    ready: txt("widget.flow.ready", "Ready in any app"),
+    ready: txt("widget.flow.ready", "Mic on in every app"),
     // What to do, not what state it is in.
     readyHint: txt("widget.flow.readyHint", "Tap the mic on your keyboard and talk."),
     words: txt("widget.flow.words", "{n} words so far"),
     stop: txt("widget.flow.stop", "Stop"),
     end: txt("widget.flow.end", "End"),
-    compact: txt("widget.flow.compact", "Ready"),
+    // The Dynamic Island's compact word for each moment: ready, listening, writing.
+    compact: txt("widget.flow.compact", "Mic on"),
+    compactListening: txt("widget.flow.compactListening", "Live"),
+    compactWriting: txt("widget.flow.compactWriting", "Writing"),
     iconListening: str("widget.flow.icon.listening", "waveform"),
     iconIdle: str("widget.flow.icon.idle", "mic"),
     iconMinimal: str("widget.flow.icon.minimal", "waveform"),
     iconStop: str("widget.flow.icon.stop", "stop.fill"),
     iconEnd: str("widget.flow.icon.end", "xmark"),
+    iconWriting: str("widget.flow.icon.writing", "pencil"),
     // Both shown unless the server hides them (default = today's behaviour).
     showWords: bool("widget.flow.show.words", true),
     showEnd: bool("widget.flow.show.end", true),

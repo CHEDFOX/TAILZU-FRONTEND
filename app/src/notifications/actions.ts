@@ -67,7 +67,7 @@ async function settle(o: Owed, outcome: "done" | "again" | "refused", screenId?:
   await Notifications.scheduleNotificationAsync({
     content: {
       title: txt("push.actions.failedTitle", "Couldn't do that from here"),
-      body: txt("push.actions.failedBody", "Open X0 Bot to finish it."),
+      body: txt("push.actions.failedBody", "Open X0 to finish it."),
       data: screenId ? { screenId } : {},
       sound: false,
     },

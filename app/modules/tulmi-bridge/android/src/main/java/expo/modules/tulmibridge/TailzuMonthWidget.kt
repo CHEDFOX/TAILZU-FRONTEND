@@ -13,12 +13,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.SizeF
+import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
 import java.text.NumberFormat
@@ -32,7 +34,14 @@ import kotlin.math.sqrt
  * THE MONTH, ON AN ANDROID HOME SCREEN. The iOS Month widget
  * (app/targets/widgets/MonthWidget.swift) with plain framework APIs: the
  * headline number, what it counts, and the line; the streak only when the
- * server turns it on; the wave mark alone before the app has written anything.
+ * server turns it on; the mark (the app icon's bot) at the top, or alone in
+ * the middle before the app has written anything.
+ *
+ * In the app's own look, and the phone's theme: white and ink in light, the
+ * dark ink at night (WidgetInk; the server's colours go over the palette's,
+ * `colors` for dark and `light` for light). On Android 12+ the face is drawn
+ * once for each theme and the launcher shows the one that matches, as the
+ * theme changes; before that it is drawn in the theme showing.
  *
  * Everything it draws comes from the one JSON the app writes with
  * setWidgetMonth (src/widgets/month.ts builds it from the bootstrap): the
@@ -41,10 +50,11 @@ import kotlin.math.sqrt
  * server, and nothing the user said is ever drawn.
  *
  * RemoteViews has no way to draw a 3dp line in a colour it is handed at run
- * time, or the mark, so the face is drawn into a bitmap at the widget's own
- * size and shown in one ImageView. The ground under it is a rounded shape
- * tinted to the JSON's colour, so it fills the cell exactly whatever size the
- * launcher settles on.
+ * time, so the face is drawn into a bitmap at the widget's own size and shown
+ * in one ImageView. The ground under it is a rounded shape tinted to the
+ * JSON's colour, so it fills the cell exactly whatever size the launcher
+ * settles on. The mark is a themed drawable (on a small white disc at night,
+ * so the black bot shows), never tinted.
  *
  * There is no timer (updatePeriodMillis is 0): the app asks for a redraw every
  * time it writes fresh numbers, and nothing between those writes would change
@@ -75,14 +85,20 @@ class TailzuMonthWidget : AppWidgetProvider() {
     /** Where setWidgetTheme keeps the always-published colours (same file). */
     const val THEME_KEY = "tulmi.widget.theme"
 
-    /** Where a tap goes when the JSON names nowhere this app opens. */
-    private const val DEFAULT_URL = "tulmi://screen/stats"
+    /** Where a tap goes when the JSON names nowhere this app opens: the Bots app's Usage, the month's own page. */
+    private const val DEFAULT_URL = "tulmi://screen/bots.usage"
 
     /** A 2x2 cell, for a launcher that reports no size at all. */
     private const val DEFAULT_DP = 150f
 
     /** No face wider or taller than this many pixels, however big the widget. */
     private const val MAX_EDGE_PX = 1024f
+
+    /** A card shorter than this many dp shows the month without the mark above it: the number needs the room. */
+    private const val MARK_MIN_DP = 136f
+
+    /** The room the small mark takes at the top: its 14dp margin, its 22dp, and a gap. */
+    private const val MARK_ROOM_DP = 44f
 
     /**
      * Ask every Month widget on the home screen to draw again. A broadcast to
@@ -123,33 +139,47 @@ class TailzuMonthWidget : AppWidgetProvider() {
       val sizes = sizes(context, options)
       // Android 12 and later take one face per size the launcher may show the
       // widget at and pick the one that fits, so each is drawn at exactly its
-      // size instead of one face being stretched to the other.
+      // size instead of one face being stretched to the other; and each face
+      // twice, once per theme.
       if (Build.VERSION.SDK_INT >= 31 && sizes.size > 1) {
-        val budget = pixelBudget(context, sizes.size)
+        val budget = pixelBudget(context, sizes.size * 2)
         return RemoteViews(sizes.associate { SizeF(it.w, it.h) to face(context, look, it, budget) })
       }
-      return face(context, look, sizes[0], pixelBudget(context, 1))
+      return face(context, look, sizes[0], pixelBudget(context, if (Build.VERSION.SDK_INT >= 31) 2 else 1))
     }
 
-    /** The ground, the tap and what the face says, with nothing drawn yet. */
+    /** The ground, the tap and what the face says, with nothing drawn yet: the mark alone. */
     private fun bare(context: Context, look: MonthLook): RemoteViews {
       val rv = RemoteViews(context.packageName, R.layout.tailzu_widget_month)
-      // The shape keeps its own alpha; the colour's goes on the image, so a
-      // ground sent with one is see-through rather than lightened.
-      rv.setInt(R.id.tailzu_month_ground, "setColorFilter", look.ground or 0xFF000000.toInt())
-      rv.setInt(R.id.tailzu_month_ground, "setImageAlpha", Color.alpha(look.ground))
+      WidgetInk.image(rv, R.id.tailzu_month_ground, look.ground, look.night)
       rv.setContentDescription(R.id.tailzu_month_face, look.spoken())
+      rv.setViewVisibility(R.id.tailzu_month_mark, View.GONE)
+      rv.setViewVisibility(R.id.tailzu_month_mark_big, View.VISIBLE)
       tap(context, look.url)?.let { rv.setOnClickPendingIntent(android.R.id.background, it) }
       return rv
     }
 
     private fun face(context: Context, look: MonthLook, size: SizeDp, budget: Float): RemoteViews {
       val rv = bare(context, look)
+      // Nothing written yet, or a phone that has not signed in: the mark alone.
+      if (look.month == null) return rv
+      val marked = size.h >= MARK_MIN_DP
+      rv.setViewVisibility(R.id.tailzu_month_mark_big, View.GONE)
+      rv.setViewVisibility(R.id.tailzu_month_mark, if (marked) View.VISIBLE else View.GONE)
+      val top = if (marked) MARK_ROOM_DP else 0f
       val density = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
       var scale = density
       if (size.w * size.h * scale * scale > budget) scale = sqrt(budget / (size.w * size.h))
       scale = min(scale, MAX_EDGE_PX / max(size.w, size.h))
-      rv.setImageViewBitmap(R.id.tailzu_month_face, MonthFace.draw(look, size.w, size.h, scale))
+      if (Build.VERSION.SDK_INT >= 31) {
+        rv.setIcon(
+          R.id.tailzu_month_face, "setImageIcon",
+          Icon.createWithBitmap(MonthFace.draw(look, size.w, size.h, scale, night = false, top = top)),
+          Icon.createWithBitmap(MonthFace.draw(look, size.w, size.h, scale, night = true, top = top)),
+        )
+      } else {
+        rv.setImageViewBitmap(R.id.tailzu_month_face, MonthFace.draw(look, size.w, size.h, scale, look.night, top))
+      }
       return rv
     }
 
@@ -199,7 +229,7 @@ class TailzuMonthWidget : AppWidgetProvider() {
     /**
      * Open the app on the JSON's link, as iOS's widgetURL does: always this
      * app, never a browser. A link this app has no screen for falls back to the
-     * stats screen, then to simply opening the app.
+     * Bots app's Usage, then to simply opening the app.
      */
     private fun tap(context: Context, url: String?): PendingIntent? {
       return try {
@@ -235,15 +265,14 @@ internal data class SizeDp(val w: Float, val h: Float)
  * falls back to the literal; JSON that is not an object, or carries none of the
  * month's numbers, is nothing written, and the widget shows the mark.
  */
-internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?) {
+internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?, palette: WidgetInk.Palette?, val night: Boolean) {
   private val labels: JSONObject? = o?.optJSONObject("labels")
-  private val colors: JSONObject? = o?.optJSONObject("colors")
-  private val alphas: JSONObject? = o?.optJSONObject("alpha")
-  // The always-published theme (tulmi.widget.theme): read first, so the colours
-  // are the server's even before any month numbers have been written. Each
-  // falls through to the month key and then to the literal.
-  private val themeColors: JSONObject? = theme?.optJSONObject("colors")
-  private val themeAlphas: JSONObject? = theme?.optJSONObject("alpha")
+  // The always-published theme (tulmi.widget.theme) is read first, so the
+  // colours are the server's even before any month numbers have been written;
+  // each falls through to the month key and then to the palette. `colors` is
+  // the dark theme's, `light` the light one's.
+  private val darks: List<JSONObject?> = listOf(theme?.optJSONObject("colors"), o?.optJSONObject("colors"))
+  private val lights: List<JSONObject?> = listOf(theme?.optJSONObject("light"), o?.optJSONObject("light"))
 
   /** Where a tap goes (widget.month.url). */
   val url: String? = o?.opt("url") as? String
@@ -254,15 +283,17 @@ internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?)
   /** Whether the month shows the progress line (widget.month.show.progress). */
   val showProgress: Boolean = o?.opt("showProgress") as? Boolean ?: true
 
-  // The ink: a dark ground and one pale ink at a few strengths. The brand
-  // colour stays in the app.
-  val ground: Int = color("ground", GROUND)
-  val pale: Int = color("pale", PALE)
-  /** The mark and the line's fill. Pale unless the server says otherwise. */
-  val mark: Int = color("mark", pale)
-  val dim: Int = fade(pale, alpha("dim", 0.52f))
-  /** The empty part of the month's line, as a strength of the mark. */
-  val track: Float = alpha("track", 0.14f)
+  // The app's ink: white and ink with greys, per theme. Colour is the bots'
+  // alone, so none of it is here.
+  val ground: Ink = color("ground", "ground", palette)
+  /** The number. */
+  val pale: Ink = color("pale", "ink", palette)
+  /** The line's fill. The ink unless the server says otherwise. */
+  val mark: Ink = WidgetInk.resolve("mark", pale, lights, darks)
+  /** What the number counts, and the streak. */
+  val meta: Ink = color("meta", "meta", palette)
+  /** The empty part of the month's line. */
+  val track: Ink = color("line", "line", palette)
 
   val month: Month? = o?.let { if (NUMBERS.any { k -> number(it, k) != null }) Month(it) else null }
 
@@ -275,19 +306,13 @@ internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?)
 
   /** The face as a screen reader says it: the number and what it counts. */
   fun spoken(): String {
-    val m = month ?: return text("brand", "X0 Bot")
+    val m = month ?: return text("brand", "X0")
     return "${count(m.headline)} ${label(m)}"
   }
 
-  // The theme's colour first, then the month's, then the literal.
-  private fun color(key: String, fallback: Int): Int =
-    hex(themeColors?.opt(key) as? String) ?: hex(colors?.opt(key) as? String) ?: fallback
-
-  private fun alpha(key: String, fallback: Float): Float {
-    themeAlphas?.let { number(it, key) }?.let { if (it in 0.0..1.0) return it.toFloat() }
-    alphas?.let { number(it, key) }?.let { if (it in 0.0..1.0) return it.toFloat() }
-    return fallback
-  }
+  // The theme key's colour first, then the month's, then the palette's.
+  private fun color(key: String, role: String, palette: WidgetInk.Palette?): Ink =
+    WidgetInk.resolve(key, palette?.role(role) ?: FALLBACK.getValue(role), lights, darks)
 
   /** The month's numbers, and the headline and line the app worked out. */
   internal class Month(o: JSONObject) {
@@ -315,23 +340,38 @@ internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?)
   }
 
   companion object {
-    private val GROUND = Color.rgb(0x0F, 0x0D, 0x0B)
-    private val PALE = Color.rgb(0xF3, 0xE2, 0xC6)
     private val NUMBERS = listOf("used", "total", "remaining", "headline")
 
+    /** The palette as literals (tailzu_widget_colors.xml in res/values and values-night), for a look made without a Context. */
+    private val FALLBACK = mapOf(
+      "ground" to Ink(Color.rgb(0xFF, 0xFF, 0xFF), Color.rgb(0x0A, 0x0A, 0x0A)),
+      "ink" to Ink(Color.rgb(0x0A, 0x0A, 0x0A), Color.rgb(0xFF, 0xFF, 0xFF)),
+      "meta" to Ink(Color.rgb(0x5C, 0x5C, 0x5C), Color.rgb(0xA3, 0xA3, 0xA3)),
+      "line" to Ink(Color.rgb(0xE6, 0xE6, 0xE6), Color.rgb(0x26, 0x26, 0x26)),
+    )
+
     /** What setWidgetMonth / setWidgetTheme last stored, or nothing. Never throws. */
-    fun load(context: Context): MonthLook = try {
-      val prefs = context.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
-      MonthLook(
-        obj(prefs.getString(TailzuMonthWidget.KEY, null)),
-        obj(prefs.getString(TailzuMonthWidget.THEME_KEY, null)),
-      )
-    } catch (_: Exception) {
-      MonthLook(null, null)
+    fun load(context: Context): MonthLook {
+      val night = WidgetInk.isNight(context)
+      val palette = try {
+        WidgetInk.Palette(context)
+      } catch (_: Exception) {
+        null
+      }
+      return try {
+        val prefs = context.getSharedPreferences(TailzuMonthWidget.PREFS, Context.MODE_PRIVATE)
+        MonthLook(
+          obj(prefs.getString(TailzuMonthWidget.KEY, null)),
+          obj(prefs.getString(TailzuMonthWidget.THEME_KEY, null)),
+          palette, night,
+        )
+      } catch (_: Exception) {
+        MonthLook(null, null, palette, night)
+      }
     }
 
     /** The month JSON alone, as it was before the theme key existed. */
-    fun parse(raw: String?): MonthLook = MonthLook(obj(raw), null)
+    fun parse(raw: String?): MonthLook = MonthLook(obj(raw), null, null, false)
 
     private fun obj(raw: String?): JSONObject? = raw?.let {
       try {
@@ -381,18 +421,16 @@ internal class MonthLook private constructor(o: JSONObject?, theme: JSONObject?)
 
 /**
  * The face, drawn in dp on a clear bitmap: the iOS small widget's stack, from
- * the bottom up, or the mark alone. Sizes are fixed dp, not sp, as the iOS
- * widget's are fixed points: the layout is a picture of a card, and a larger
- * font setting would only push the number off it.
+ * the bottom up, in one theme's colours. The mark is not drawn here: it is its
+ * own view over the face. Sizes are fixed dp, not sp, as the iOS widget's are
+ * fixed points: the layout is a picture of a card, and a larger font setting
+ * would only push the number off it.
  */
 internal object MonthFace {
-  /** The seven bars of the app icon's wave, as the keyboard's mic key draws them. */
-  private val BARS = floatArrayOf(28f, 36f, 41f, 46f, 43f, 34f, 28f)
-
   private const val INSET = 16f
   private const val NUMBER = 34f
-  private const val SMALL = 9f
-  private const val TRACKING = 1.4f
+  private const val SMALL = 10f
+  private const val TRACKING = 0.4f
   private const val LINE = 3f
 
   // Android has no rounded system face; the default sans at the weights the
@@ -404,20 +442,17 @@ internal object MonthFace {
     if (Build.VERSION.SDK_INT >= 28) Typeface.create(Typeface.DEFAULT, w, false)
     else Typeface.create("sans-serif-medium", Typeface.NORMAL)
 
-  /** The face at w × h dp, `scale` pixels to the dp. */
-  fun draw(look: MonthLook, w: Float, h: Float, scale: Float): Bitmap {
+  /**
+   * The face at w × h dp, `scale` pixels to the dp, in the light or the dark
+   * theme's colours; `top` dp at the top left for the mark. Empty with no month.
+   */
+  fun draw(look: MonthLook, w: Float, h: Float, scale: Float, night: Boolean, top: Float = 0f): Bitmap {
     val bitmap = Bitmap.createBitmap(
       max(1, (w * scale).roundToInt()), max(1, (h * scale).roundToInt()), Bitmap.Config.ARGB_8888
     )
     val canvas = Canvas(bitmap)
     canvas.scale(bitmap.width / w, bitmap.height / h)
-    val m = look.month
-    if (m == null) {
-      // Nothing written yet, or a phone that has not signed in: the mark alone.
-      wave(canvas, w / 2f, h / 2f, 36f, 24f, look.dim)
-    } else {
-      month(canvas, look, m, w, h)
-    }
+    look.month?.let { month(canvas, look, it, w, h, night, top) }
     return bitmap
   }
 
@@ -425,22 +460,23 @@ internal object MonthFace {
    * The number, what it counts, and the line; the streak between them only
    * when the server turns it on. Bottom-leading, like the iOS stack.
    */
-  private fun month(c: Canvas, look: MonthLook, m: MonthLook.Month, w: Float, h: Float) {
+  private fun month(c: Canvas, look: MonthLook, m: MonthLook.Month, w: Float, h: Float, night: Boolean, top: Float) {
     val inset = min(INSET, min(w, h) / 8f)
     val width = w - inset * 2f
-    val room = h - inset * 2f
+    val room = h - inset * 2f - top
     if (width <= 0f || room <= 0f) return
 
     val number = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
       typeface = semibold
       textSize = NUMBER
-      color = look.pale
+      color = look.pale.pick(night)
+      letterSpacing = -0.02f
       fontFeatureSettings = "tnum"
     }
     val small = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
       typeface = medium
       textSize = SMALL
-      color = look.dim
+      color = look.meta.pick(night)
     }
     val caps = TextPaint(small).apply { letterSpacing = TRACKING / SMALL }
 
@@ -463,7 +499,7 @@ internal object MonthFace {
     // when the server shows the progress line.
     val showProgress = look.showProgress
     val smallBox = box(small)
-    val need = box(number) + 2f + smallBox + (if (streak != null) smallBox + 2f else 0f) +
+    val need = box(number) + 4f + smallBox + (if (streak != null) smallBox + 2f else 0f) +
       (if (showProgress) 10f + LINE else 0f)
     val k = min(1f, room / need)
     c.save()
@@ -471,7 +507,7 @@ internal object MonthFace {
     c.scale(k, k)
     var y = 0f
     if (showProgress) {
-      line(c, width / k, y - LINE, m.fraction, look.mark, look.track)
+      line(c, width / k, y - LINE, m.fraction, look.mark.pick(night), look.track.pick(night))
       y -= LINE + 10f
     }
     if (streak != null) {
@@ -479,7 +515,7 @@ internal object MonthFace {
       y -= smallBox + 2f
     }
     text(c, label, caps, y)
-    y -= smallBox + 2f
+    y -= smallBox + 4f
     text(c, headline, number, y)
     c.restore()
   }
@@ -491,32 +527,16 @@ internal object MonthFace {
 
   private fun box(paint: TextPaint): Float = paint.fontMetrics.let { it.descent - it.ascent }
 
-  /** The line: the month, as far along as it is. Two capsules, the track under the fill. */
-  private fun line(c: Canvas, w: Float, top: Float, fraction: Float, mark: Int, track: Float) {
+  /** The line: the month, as far along as it is. Two capsules, the track (the line grey) under the fill (the ink). */
+  private fun line(c: Canvas, w: Float, top: Float, fraction: Float, mark: Int, track: Int) {
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     val r = LINE / 2f
-    paint.color = MonthLook.fade(mark, track)
+    paint.color = track
     c.drawRoundRect(RectF(0f, top, w, top + LINE), r, r, paint)
     val fill = w * fraction.coerceIn(0f, 1f)
     if (fill <= 0f) return
     paint.color = mark
     val fr = min(fill, LINE) / 2f
     c.drawRoundRect(RectF(0f, top, fill, top + LINE), fr, fr, paint)
-  }
-
-  /**
-   * THE WAVE OF THE MARK, w × h and centred on (cx, cy): seven bars of uneven
-   * height, each as wide as the gap between them.
-   */
-  private fun wave(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, color: Int) {
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-    val gap = w / (BARS.size * 2 - 1)
-    val unit = h / 46f
-    var x = cx - w / 2f
-    for (bar in BARS) {
-      val half = bar * unit / 2f
-      c.drawRoundRect(RectF(x, cy - half, x + gap, cy + half), gap / 2f, gap / 2f, paint)
-      x += gap * 2f
-    }
   }
 }

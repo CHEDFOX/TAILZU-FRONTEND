@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A row's avatar: a disc in the surface grey, under the person's initial or
+  the row's mark. The widget tints it to the server's surface colour.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/tailzu_widget_surface" />
+</shape>

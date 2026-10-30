@@ -9,7 +9,9 @@
   on its own after a reboot or an app update.
 
   The name and description come from string resources, not the server's
-  labels: the picker reads them before the app has run.
+  labels: the picker reads them before the app has run. The preview is the
+  layout on Android 12+, an image (light, and dark in drawable-night-xxhdpi)
+  before that.
 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/tailzu_widget_month_description"

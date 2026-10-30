@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE WIDGETS' PALETTE, LIGHT: the app's own (backend bots/palette.ts). White
+  and ink with greys; colour belongs only to bots. values-night/ holds the
+  dark one, role for role, so every widget, preview and shortcut icon follows
+  the phone's light or dark theme.
+
+  The widgets read these as their fallbacks (WidgetInk.palette); colours the
+  server sends with the rows or the month go over them.
+-->
+<resources>
+    <!-- The card. -->
+    <color name="tailzu_widget_ground">#FFFFFF</color>
+    <!-- Titles, the number, a primary button's fill. -->
+    <color name="tailzu_widget_ink">#0A0A0A</color>
+    <!-- Meta text: times, tags, a label. -->
+    <color name="tailzu_widget_meta">#5C5C5C</color>
+    <!-- Idle icons. -->
+    <color name="tailzu_widget_dim">#8A8A8A</color>
+    <!-- Hairlines between rows, a secondary button's border, the month line's track. -->
+    <color name="tailzu_widget_line">#E6E6E6</color>
+    <!-- An avatar's ground, a shortcut icon's disc. -->
+    <color name="tailzu_widget_surface">#F5F5F5</color>
+</resources>

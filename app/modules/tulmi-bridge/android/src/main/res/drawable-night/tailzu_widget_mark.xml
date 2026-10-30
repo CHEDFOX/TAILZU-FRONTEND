@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  THE MARK at night: the black bot on a small white disc, so it shows on the
+  dark ground. Same size as drawable/tailzu_widget_mark.xml.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFF" />
+            <size
+                android:width="60dp"
+                android:height="60dp" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/tailzu_widget_mark_art" />
+</layer-list>
