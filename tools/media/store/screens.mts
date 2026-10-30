@@ -34,7 +34,7 @@ const only = flag("only") ? new RegExp(flag("only")!) : undefined;
 const has = (name: string): boolean => argv.includes(`--${name}`);
 
 
-const R = await imp("scripts/bots-render/render.ts");
+export const R = await imp("scripts/bots-render/render.ts");
 const { sample, apiFor } = await imp("scripts/bots-render/samples/index.ts");
 const { buildBotsScreen } = await imp("src/experience/bots/index.ts");
 const { fakeDeps, IST } = await imp("src/experience/bots/fixtures.ts");
@@ -44,11 +44,11 @@ const { framesFor, swapDeep, DEFAULT_SET, RULES, SIZES } = await import(pathToFi
 const SET = flag("set") ?? DEFAULT_SET;
 const FRAMES = framesFor(SET);
 /** The phone the screens are drawn on (frames.mjs SIZES.phone; a screen may name its own `viewport`). */
-type Viewport = { w: number; h: number; top: number; bottom: number; scale: number };
-const PHONE = { scale: 4, ...SIZES.phone } as Viewport;
+export type Viewport = { w: number; h: number; top: number; bottom: number; scale: number };
+export const PHONE = { scale: 4, ...SIZES.phone } as Viewport;
 
 
-interface ScreenSpec {
+export interface ScreenSpec {
   id: string;
   variant?: string;
   params?: Record<string, string | number | boolean>;
@@ -67,12 +67,12 @@ interface ScreenSpec {
 }
 
 /** The part of a screen a frame lifts out: the smallest element holding every text in `has`; `card` widens it to the card around it. */
-interface PopSpec { has: string[]; card?: boolean; up?: number; bare?: boolean; pad?: number; tall?: number; union?: boolean }
+export interface PopSpec { has: string[]; card?: boolean; up?: number; bare?: boolean; pad?: number; tall?: number; union?: boolean }
 
 /** The person signed in (the set's), and the swap of names and places for the set's sample data (frames.mjs). */
-interface FrameData { user: { id: string; name: string; email: string }; swap: Array<[string, string]> }
+export interface FrameData { user: { id: string; name: string; email: string }; swap: Array<[string, string]> }
 
-async function build(spec: ScreenSpec, misses: string[], fr: FrameData): Promise<unknown> {
+export async function build(spec: ScreenSpec, misses: string[], fr: FrameData): Promise<unknown> {
   let s: { params?: Record<string, unknown>; fake?: Record<string, unknown>; area: string } & Record<string, unknown>;
   try { s = sample(spec.id, spec.variant); } catch { s = { id: spec.id, area: "shell" }; }
   const api: Record<string, unknown> = { ...(await apiFor(s)) };
@@ -119,7 +119,7 @@ const CHECK = `((rules) => {
 
 /** A page with the screen drawn by the phone's renderer, on a phone of this size, with its fonts and pictures in. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function openScreen(browser: any, bundle: string, screen: unknown, V: Viewport, errors: string[]): Promise<any> {
+export async function openScreen(browser: any, bundle: string, screen: unknown, V: Viewport, errors: string[]): Promise<any> {
   const page = await browser.newPage({ viewport: { width: V.w, height: V.h }, deviceScaleFactor: V.scale, reducedMotion: "reduce" });
   page.on("pageerror", (e: Error) => errors.push(e.message));
   const fonts = botsFonts();
@@ -141,7 +141,7 @@ async function openScreen(browser: any, bundle: string, screen: unknown, V: View
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function draw(browser: any, bundle: string, screen: unknown, spec: ScreenSpec, file: string, pop?: PopSpec) {
+export async function draw(browser: any, bundle: string, screen: unknown, spec: ScreenSpec, file: string, pop?: PopSpec) {
   const errors: string[] = [];
   const V: Viewport = { ...PHONE, ...(spec.viewport ?? {}) };
   const page = await openScreen(browser, bundle, screen, V, errors);
@@ -229,7 +229,9 @@ async function draw(browser: any, bundle: string, screen: unknown, spec: ScreenS
 
 async function main(): Promise<void> {
   fs.mkdirSync(OUT, { recursive: true });
-  const frames = (FRAMES as Array<{ key: string; screen?: ScreenSpec; pop?: PopSpec; off?: boolean } & FrameData>).filter((f) => f.screen && (!only || only.test(f.key)) && (!f.off || has("all")));
+  // A frame that is off, or that neither store takes (ios: false, play: false), is drawn only with --all.
+  const frames = (FRAMES as Array<{ key: string; screen?: ScreenSpec; pop?: PopSpec; off?: boolean; ios?: unknown; play?: unknown } & FrameData>)
+    .filter((f) => f.screen && (!only || only.test(f.key)) && ((!f.off && !(f.ios === false && f.play === false)) || has("all")));
   const browser = await R.launchBrowser();
   const bundle = await R.buildPhoneBundle();
   const report: Record<string, unknown> = {};
@@ -250,4 +252,5 @@ async function main(): Promise<void> {
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 1));
 }
 
-await main();
+// Run as a script (build.mjs does); imported (preview.mts), it only lends its builders.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

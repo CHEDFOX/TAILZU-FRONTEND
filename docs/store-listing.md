@@ -376,44 +376,68 @@ A team of bots for your day: a voice keyboard, plans, trips, notes and more.
 
 Built by `node tools/media/store/build.mjs` (one command: it renders the app's real screens with the server's own
 builders and the phone's own renderer, then composes every frame). Files are in `tools/media/store/out/`:
-`ios-6.9/` (1320 x 2868), `ios-6.7/` (1290 x 2796), `play-phone/` (1080 x 1920) and `play-feature.png` (1024 x 500),
-all RGB PNG without alpha, sRGB. Upload them in this order. The frames are data (`tools/media/store/frames.mjs`): a
-new bot's frame is one entry there.
+`ios-6.9/` (1320 x 2868), `ios-6.5/` (1284 x 2778), `play-phone/` (1080 x 1920) and `play-feature.png` (1024 x 500),
+all RGB PNG without alpha, sRGB, and `search-mock.png`, the first three as App Store search shows them. Upload them in
+this order. The frames are data (`tools/media/store/frames.mjs`): a new bot's frame is one entry there.
 
-The look, ours: a full-bleed photograph under one shared grade (deep ink shadows with an olive-teal undertone, warm cream
-light, colour held back so the clay is the brightest colour on the frame); a heavy Geist headline (the app's own face),
-left aligned, in two lines with no full stop, one word written by hand with a clay brush underline; the app as a light
-cream card cut from a real screen, with a thin hand-drawn outline and one part lifted out, a clay arrow pointing at it; and
-the app icon's bot peeking over the card's top edge, its gloves on it: the painted black head with cream eyes and clay
-ears, cut flat like the icon, with a thin cream border so it reads on the photographs, and a face for the frame (a
-straight look on Home, curious on Ask, a happy squint on Plan, wide eyes on Travel, a wink on Make a bot). The bot and
-the brush marks are drawn by the same code as the icon (`tools/media/brand/x0-icon/handdrawn-v2`). The photos are from Unsplash, free for commercial use, with no identifiable face; who took each one
-is in `tools/media/store/photos/CREDITS.md`.
+The look is the app's own: white paper, ink and greys, colour only where it is a bot's (Code moss, Keybot clay, Plan
+ochre, Travel sea) and the icon's clay bar. A heavy Geist headline, left aligned, two lines with no full stop, one word
+written by hand with a brush underline in the frame's bot's colour (ink when it is no one bot's). The painted black bot of
+the icon is on every frame.
 
-| # | Frame | Headline | What it shows (global set) |
-| --- | --- | --- | --- |
-| 1 | team | Players that make your life easy | Home ("Good evening, Maya"), with the bots' tiles lifted out (the team) |
-| 2 | ask | Ask once, and the right bot takes it | Ask, in Hinglish: "Travel bot will take this", every other bot a tap away (kept Indian) |
-| 3 | keybot | Say it, and Keybot writes it | Hands on a phone, and the keyboard's own Peek-a-bot mic key, listening |
-| 4 | connect | Works with the apps you already use | The marks of apps X0 Bot connects to, on white tiles |
-| 5 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, Dr. Lee, dinner with Mom |
-| 6 | notes | Every meeting, written up | "Spring launch plan", with its to-dos lifted out (App Store only) |
-| 7 | travel | Your trips, all sorted | Lisbon, 14–16 Nov: the train, and two stays lifted out |
-| 8 | code | Ship code by asking | Code bot, with its question lifted out (App Store only) |
-| 9 | spaces | Your people, in sync | A grandmother's and a baby's hands; "Call Nani, from Mom" lifted out (kept Indian) |
-| 10 | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
+**The first three are one idea each, and one panorama.** App Store search shows an app's first three portrait
+screenshots side by side, tiny, and Google Play shows its first ones large; so each of the three says one thing in three
+or four words of big type, with one big picture, and one clay bar (the icon's) runs across all three at the same height:
+from it hang the bot, the X0 widget and a phone. After them come the app's screens as white cards: the top of a real
+screen, one part lifted out with an arrow at it, and the bot peeking over the card's edge with a face for the frame.
 
-The default set is global: international names and places (Maya, Sofia, Kenji, Amara; Lisbon, Porto) and photos that do
-not read as one country. Two frames keep an Indian moment on purpose: Ask (a Hinglish request, the "speaks your language"
-touch) and Spaces (a family with Nani). `node tools/media/store/build.mjs --set india` builds the India set (Aanya, Pune,
-a Diwali sale, Indian photos for Plan and Travel) into `out/india/` for Google Play's English (India) and Hindi listings.
+| # (App Store) | # (Play) | Frame | Headline | What it shows |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | x0 | Your team of bots | The icon's bot hanging from the bar, big; under him the four bots, each in its colour, with what it does |
+| 2 | 2 | widget | Answer in one tap | The X0 widget (large) on a Home Screen, Code bot asking "Round the cart total per item, or once at the end?", an arrow at "Per item". Play: the 4 x 4 Android widget |
+| 3 | 3 | live | Watch them work | A phone on its Lock Screen with Bots at work: "Fixing cart · Code bot · Build, step 3 of 5". Play (no Live Activities there): the app's own job screen, its steps and its question |
+| 4 | | team | Players that make your life easy | Home ("Good evening, Maya"), the bots' tiles lifted out |
+| 5 | 4 | ask | Ask once, and the right bot takes it | Ask, in Hinglish: "Travel bot will take this", every other bot a tap away (kept Indian) |
+| 6 | 5 | keybot | Say it, and Keybot writes it | X0's family chat with the Keybot keyboard up, the Peek-a-bot key listening, "Running late, start without me." written in the box |
+| 7 | 6 | plan | Your day, planned for you | Plan bot, with tomorrow's evening lifted out: when to leave, Dr. Lee, dinner with Mom |
+| 8 | 7 | travel | Your trips, all sorted | Lisbon, 14–16 Nov: the train, and two stays lifted out |
+| 9 | 8 | spaces | Your people, in sync | A family space; "Call Nani, from Mom" lifted out (kept Indian) |
+| 10 | | make | Make a bot of your own | Make a bot, with the one sentence it was made from lifted out |
 
-The App Store gets all ten (its limit). Google Play takes eight, so its set leaves out Notes (the meetings are noted on
-the computer, so it says least on a phone) and Code bot (the most specialist of the bots for a phone audience). The
-feature graphic carries the app icon and name, the first frame's headline, its photo and Home.
+Out of both sets, still defined in `frames.mjs`: notes (the meetings are noted on the computer), code (the first three
+are Code bot's: its question on the widget, its job at work) and connect (other companies' marks; `off`). The widget, the
+Live Activity and the keyboard are drawn from their own specs by `tools/media/store/surfaces.mjs` (they are drawn by the
+phone itself, not by the screens' renderer); the bot under the bar is the launch's own art, drawn big by the brand's
+`launch.mjs` code (`art.mjs` renderHang). The photographs in `tools/media/store/photos/` belong to the earlier, dark set
+and are not used by this one.
 
-The connect frame is the only one with other companies' marks on it (from simple-icons, CC0): each is an app X0 Bot
-really connects to in this build, shown as a plain mark with no words around it, and no store text names a brand.
+The default set is global: international names and places (Maya, Sofia, Kenji, Amara; Lisbon, Porto). Two frames keep an
+Indian moment on purpose: Ask (a Hinglish request) and Spaces (a family with Nani).
+`node tools/media/store/build.mjs --set india` builds the India set (Aanya, Pune) into `out/india/` for Google Play's
+English (India) and Hindi listings.
+
+The App Store takes ten (its limit), Google Play eight. The feature graphic is the icon's bot hanging from his bar, the
+mark "X0" and one line, "Your team of bots", on white, everything that reads well inside its middle (Play crops its
+edges on some devices).
+
+### App Preview
+
+Built by `cd TAILZU-BACKEND/tulmi && npx tsx ../../TAILZU-FRONTEND/tools/media/store/preview.mts` into
+`tools/media/store/out/preview/` (not in git: about 30 MB): `x0-app-preview.mp4`, 886 x 1920 (the 6.9" preview size),
+H.264 High 4.0 at 10 Mbps, 30 fps, 24.3 s, with a silent stereo AAC track (App Store Connect wants an audio track), and
+`poster.png`, its poster frame (set the poster to 00:06.4 in App Store Connect). Only the app: no hands, no device, no
+price. The beats:
+
+1. 0–2.2 s: the launch. The bot pulls himself up over his bar and is gone, the bar is pulled in, Home is there (the real
+   launch art moved by `app/src/launch/launchCore.ts`'s own numbers).
+2. 2.2–5 s: Home with the bots, Code bot asking.
+3. 5–10 s: the Home Screen. The X0 widget asks the same question; "Per item" is taken in place (Done), and Code bot is
+   back at work on "Fixing cart".
+4. 10–17.6 s: the Lock Screen. Bots at work runs as a Live Activity (Build, Check, Ship), then "Done — tap to see the PR";
+   a tap opens the app on the job: "Shipped. PR #128 is ready".
+5. 17.6–22.8 s: Keybot. X0's family chat, "Dinner at 8, everyone home?"; the Peek-a-bot key listens, thinks, and
+   "Running late, start without me." lands in the box, sent.
+6. 22.8–24.3 s: the launch picture again, with "X0" and "Your team of bots".
 
 ## India
 

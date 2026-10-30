@@ -26,7 +26,7 @@
    "toastText": "#ffffff"
   }
  },
- "cacheTtlSeconds": 0,
+ "cacheTtlSeconds": 1,
  "state": {
   "ask": "14 Nov ko Pune ki shaam wali train dekh lo, 2 seats",
   "asking": false,
@@ -5825,7 +5825,10 @@
        }
       ]
      }
-    ]
+    ],
+    "props": {
+     "keyboard": "above"
+    }
    }
   ]
  }
