@@ -140,6 +140,8 @@ export const CORE_COMPONENTS = [
    * every other gets the waving picture by the greeting, as before.
    */
   "BlipRoam",
+  /** Home's welcome: Blip waving, who turns and walks off the side when `goWhen` turns true (onboard/BlipWalkOut.tsx). */
+  "BlipWalkOut",
   /**
    * NOT A COMPONENT — the Bots app's kit (types.ts BOTS_KIT_CAPABILITY):
    * SVG `shapes` with breathe / pop / draw (SvgShapes.tsx, still under Reduce
