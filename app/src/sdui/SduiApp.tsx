@@ -26,7 +26,7 @@ import { refreshQuickAccess } from "../widgets/quickAccess";
 import { useShareIn } from "../share/useShareIn";
 import { LaunchStill } from "../launch/LaunchCurtain";
 import type { NavItem, Toast } from "./shell/types";
-import { cmpVersion } from "./shell/version";
+import { cmpVersion } from "./shell/cmpVersion";
 import { styles } from "./shell/styles";
 import { Header } from "./shell/Header";
 import { TabBar } from "./shell/TabBar";

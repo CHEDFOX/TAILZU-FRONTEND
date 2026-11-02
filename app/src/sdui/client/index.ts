@@ -5,7 +5,7 @@
  * The bootstrap and its disk copy (bootstrap.ts), screens and their caches
  * (screens.ts), what this build declares about itself (capabilities.ts), the
  * request plumbing (http.ts) and how failures are worded (errors.ts), the
- * sign-in screen's config (authConfig.ts), the generic call behind the
+  * sign-in screen's config (signInConfig.ts), the generic call behind the
  * callEndpoint action (endpoint.ts), the update check (updates.ts) and the
  * keyboard's credentials (keyboard.ts).
  */
@@ -19,5 +19,5 @@ export {
   peekBootstrap, markKnobsPrimed, primeKnobsFromDisk, bootstrap, expireBootstrap, bootstrapIsFresh, forgetAccountData,
 } from "./bootstrap";
 export { hydrateScreenCache, peekScreen, prefetchScreens, refreshCachedScreens, invalidateScreens, fetchScreen } from "./screens";
-export { fetchAuthConfig, type AuthBackground } from "./authConfig";
+export { fetchAuthConfig, type AuthBackground } from "./signInConfig";
 export { callEndpoint } from "./endpoint";
