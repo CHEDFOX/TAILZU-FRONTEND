@@ -466,6 +466,11 @@ export default function SduiApp() {
     return () => { linkSub(); notifSub.remove(); quickSub(); arrivalSub.remove(); };
   }, []);
 
+  // Meta again once a bootstrap is in hand (src/telemetry/meta.ts): the mount's try above comes before the server's knobs,
+  // so on an iPhone it never finds ads.meta.ios.enabled and never asks Apple's tracking prompt. This one does, on the first
+  // bootstrap that turns it on. A no-op once Meta has started, or while it stays off.
+  useEffect(() => { if (boot) initMeta(); }, [boot]);
+
   // One timer for the one toast: a second toast used to be cleared early by
   // the first one's timer.
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
