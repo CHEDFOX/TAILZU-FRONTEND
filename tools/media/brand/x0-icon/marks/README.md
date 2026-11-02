@@ -1,6 +1,6 @@
 # X0 Bot: marks made of the letters
 
-This is a different direction from the bot. There's no character: x and 0 are the shapes. Each mark is painted the way the Claude mark is: flat colour with no lines or shading, and every edge cut in short, uneven straight facets. Each sits on its own colour field. The marks use the paper and media model of `../handdrawn-v2/draw.js`.
+This is a different direction from the bot. There's no character: x and 0 are the shapes. Each mark is painted flat: flat colour with no lines or shading, and every edge cut in short, uneven straight facets. Each sits on its own colour field. The marks use the paper and media model of `../handdrawn-v2/draw.js`.
 
 | Version | Idea |
 | --- | --- |

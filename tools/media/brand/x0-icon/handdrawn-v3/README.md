@@ -1,6 +1,6 @@
 # X0 Bot icon, hand-drawn v3: "Curious" in six colourways
 
-The owner picked v2 "3 · Curious": wide eyes looking up at its own antenna, head cocked, one clay
+The pick from v2 was "3 · Curious": wide eyes looking up at its own antenna, head cocked, one clay
 brush ring. v3 keeps that drawing (v1 and v2 are kept in `../handdrawn/` and `../handdrawn-v2/`) and
 tries six colour combinations, with a little more hand-made feeling.
 

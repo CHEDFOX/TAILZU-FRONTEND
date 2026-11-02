@@ -8,7 +8,7 @@
     "black-coral-rounds": {"tag": "3", "title": "Round eyes", "line": "Two bright rounds of different sizes: the clearest at 29 px, but more cartoon and wide-eyed than curious."},
     "black-coral-peek": {"tag": "4", "title": "Straight peek", "line": "Straight up with the curious glance and lid-light. Most iconic, but without the tilt the curiosity is subtle."}
   },
-  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the icon the owner pointed to, shown for level and distinctness."},
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the reference icon, shown for level and distinctness."},
   "homeRows": [
     ["black-coral-bent", null, "ref", null],
     [null, "black-coral-tilt", null, "black-coral-rounds"],

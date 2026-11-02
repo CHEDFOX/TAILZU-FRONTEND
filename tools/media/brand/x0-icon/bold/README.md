@@ -11,7 +11,7 @@ One idea per icon: few shapes, one gesture, and light carrying the emotion inste
 | 4 | `d-players/` | **Players.** One crossing of the noughts-and-crosses grid, a clay X, and a 0 that is the bot, winking. It's graphic, but it says "game". |
 | dropped | `c-over-the-edge/` | Two eyes and four fingertips over one horizon line. It's lovely large, but at 29 px it's two dots on a line. |
 
-Why the diamond ring ranks first: it's one shape plus one burst, with no scene. It's a symbol, not a mascot, in the same family as the ChatGPT knot or the Claude spark. It holds up at 29 px as "a ring with a spark" and stands out among colourful apps on dark and light walls. It also tells the brand story without words: X0 is written in light, the moon is the visor, and the burst is the instant something peeks out. That's Peek-a-bot as an event rather than a drawing.
+Why the diamond ring ranks first: it's one shape plus one burst, with no scene. It's a symbol, not a mascot, in the family of one-shape app marks. It holds up at 29 px as "a ring with a spark" and stands out among colourful apps on dark and light walls. It also tells the brand story without words: X0 is written in light, the moon is the visor, and the burst is the instant something peeks out. That's Peek-a-bot as an event rather than a drawing.
 
 ## Palette (evolved)
 
