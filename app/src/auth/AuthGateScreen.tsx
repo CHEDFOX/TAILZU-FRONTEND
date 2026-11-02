@@ -1217,6 +1217,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         );
         return;
       }
+      // Apple's one-time code, for the server to trade for the token that lets it end this Apple sign-in when the account is
+      // deleted (Apple asks that of every app with Sign in with Apple). Only the phone ever has it, for five minutes. Never in the way.
+      if (cred.authorizationCode) void callEndpoint("POST", "/v1/auth/apple/code", { code: cred.authorizationCode }).catch(() => undefined);
       onAuthed();
     } catch (e: any) {
       if (e?.code !== "ERR_REQUEST_CANCELED") {
