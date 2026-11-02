@@ -12,7 +12,7 @@
  *   playAudio    one sound at a time: a server path is fetched with the session (and kept for the session), an https
  *                address played as it is; how far it is goes into state.
  *
- * Each belongs to the screen that started it (`owner`, its store): leaving that screen (SduiApp's ScreenHost) stops
+ * Each belongs to the screen that started it (`owner`, its store): leaving that screen (the shell's ScreenHost) stops
  * the sound, throws the recording away and stops the upload. The words a person reads are knobs (media.*).
  */
 import { Platform } from "react-native";

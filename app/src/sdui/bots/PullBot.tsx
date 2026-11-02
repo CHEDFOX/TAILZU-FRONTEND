@@ -5,7 +5,7 @@
  *
  *   The server turns it on per screen (ScreenResponse.pullBot: `top`, `bottom`, the list's `items`, where new ones land,
  *   which bot), only for a build that declares the capability; ScreenHost hands the screen's spec down (PullBotContext)
- *   and the Screen (components.tsx) draws its scroll view through PullBotScroll when it has one.
+ *   and the Screen (components/Screen.tsx) draws its scroll view through PullBotScroll when it has one.
  *
  * ONE WAY ON BOTH PLATFORMS. The pull is taken over rather than read from the scroll view's own bounce: iOS's bounce
  * cannot spring back the prototype's way (a quick snap with one small bounce, rate 17, damping 0.58) or carry the bot to

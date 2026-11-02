@@ -39,7 +39,7 @@ export type { CompProps } from "./props";
  * pieces, the keyboard handoff screens' mic) and nothing else. A type that is
  * not here draws its `fallback`, or nothing.
  *
- * Button stays for the bootstrap's launch card (SduiApp's LaunchCardOverlay),
+ * Button stays for the bootstrap's launch card (shell/LaunchCardOverlay),
  * which the server still builds from Text and Button.
  */
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {

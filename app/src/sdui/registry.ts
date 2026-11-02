@@ -4,7 +4,8 @@
  *
  * This build draws the Bots app and nothing else: its kit, its sign-in and the
  * keyboard's handoff screens. The renderer implementations live in
- * components.tsx / componentsV3.tsx (nodes) and actions.ts (actions).
+ * components/ (nodes, one file each; components/index.ts is the registry) and
+ * actions.ts (actions).
  *
  * THE LIST IS A PROMISE, SO IT ONLY NAMES WHAT ACTUALLY WORKS. The server
  * withholds anything this bundle does not advertise and draws a fallback
