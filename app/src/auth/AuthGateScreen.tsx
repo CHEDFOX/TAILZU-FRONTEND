@@ -1205,7 +1205,9 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
         nonce: hashed,
       });
       if (!cred.identityToken) throw new Error("no identity token");
-      const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw);
+      // The name Apple shares, given only on this Apple ID's first sign-in to the app: kept on the account (supabaseClient.ts).
+      const name = [cred.fullName?.givenName, cred.fullName?.middleName, cred.fullName?.familyName].filter(Boolean).join(" ");
+      const { error } = await supabaseAuth.signInWithApple(cred.identityToken, raw, name || undefined);
       if (error) {
         flashError();
         authFailed(

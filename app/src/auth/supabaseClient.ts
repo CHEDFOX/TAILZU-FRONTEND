@@ -171,9 +171,19 @@ export const supabaseAuth = {
    *  when the flow began, which is what makes a foreign code worthless. */
   exchangeCode: (code: string) => supabase.auth.exchangeCodeForSession(code),
 
-  /** Native Sign in with Apple (identity token + nonce). */
-  signInWithApple: (identityToken: string, nonce?: string) =>
-    supabase.auth.signInWithIdToken({ provider: "apple", token: identityToken, nonce }),
+  /**
+   * Native Sign in with Apple (identity token + nonce). Apple's token carries no name: Apple gives it to the app once, on the first sign-in,
+   * beside the token. It is kept on the account (full_name), where the server reads it and fills it in on About you, so no one who signed in
+   * with Apple types a name Apple already gave (App Review 4). A name the account has is never overwritten; a failed save is never a failed sign-in.
+   */
+  signInWithApple: async (identityToken: string, nonce?: string, fullName?: string) => {
+    const res = await supabase.auth.signInWithIdToken({ provider: "apple", token: identityToken, nonce });
+    const name = fullName?.trim().slice(0, 120);
+    if (!res.error && name && !res.data.user?.user_metadata?.full_name) {
+      await supabase.auth.updateUser({ data: { full_name: name } }).catch(() => undefined);
+    }
+    return res;
+  },
 
   /** Google (id token from native Google sign-in). Pass the auth request's
    *  nonce when one was used — Supabase rejects id_tokens whose nonce claim
