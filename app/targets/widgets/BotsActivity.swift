@@ -12,13 +12,13 @@ import WidgetKit
 //   done      "Done — tap to see the PR", the task · PR #131 · 58 min, every stage filled; a tap opens the job and its PR
 //
 // The Lock Screen banner is the palette's ground (light, or dark in Dark Mode); the Dynamic Island is always black: compact,
-// Blip's head and five tiny segments (● 1 when it needs the person, ✓ Done when finished); minimal, Blip's head; expanded,
-// Blip in the job's pose with the bot's face as his badge, 3/5 (NEEDS YOU, or the check), the task and its step, the bar (the
+// Blip's head and five tiny segments (● 1 when it needs the person, Done when finished); minimal, Blip's head; expanded,
+// Blip in the job's pose, 3/5 (NEEDS YOU, or Done), the task and its step, the bar (the
 // question and its answers; See the PR).
 //
 // BLIP is X0's own mascot and tells the state at a glance: at work, hands over his eye ("your turn") when the job waits on
 // the person, a thumbs up when it is done (an "oops" and a rest pose are kept for a failed or queued job, should the server
-// send one). The bot doing the job keeps its own face (the badge on Blip's corner) and its own colour (the bar, 3/5).
+// send one). The bot doing the job is named in the line and keeps its own colour (the bar, 3/5); no badge on Blip.
 //
 // The state is the activity's own (BotsAtWorkAttributes, _shared/BotsAtWork.swift), sent by the app (the bridge's
 // start/update/endBotsActivity) or pushed by the server; the words are the glance's (X0Glance words), each with its literal.
@@ -148,22 +148,7 @@ struct BotsWords {
   }
 }
 
-/// The bot's face (Blip's badge).
-struct BotsFace: View {
-  let state: BotsAtWorkAttributes.ContentState
-  let g: X0Glance?
-  let size: CGFloat
-  var dark = false
-
-  var body: some View {
-    BotFace(
-      face: g?.face(state.bot, state.face ?? "") ?? (state.face ?? state.bot),
-      name: state.botName.isEmpty ? state.bot : state.botName,
-      color: BotsWords(g).tint(state, dark: dark), size: size)
-  }
-}
-
-/// Blip in the job's pose, with the bot doing it as his badge (its own face, on a ring of the ground), in a box as wide as his
+/// Blip in the job's pose, alone, in a box as wide as his
 /// widest pose so the words beside him never move.
 struct BotsBlip: View {
   let state: BotsAtWorkAttributes.ContentState
@@ -172,15 +157,9 @@ struct BotsBlip: View {
   let p: X0Palette
 
   var body: some View {
-    let badge = (height * 0.36).rounded()
+    // Blip alone: no badge, no symbol beside him. The bot doing the job is named in the line and keeps its colour on the bar.
     Blip(pose: state.blipPose, height: height)
       .frame(width: (height * 0.86).rounded(), height: height)
-      .overlay(alignment: .bottomTrailing) {
-        BotsFace(state: state, g: g, size: badge, dark: p.onDark)
-          .padding(2)
-          .background { Circle().fill(p.ground) }
-          .offset(x: 8, y: 3)
-      }
       .padding(.trailing, 6)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(state.botName.isEmpty ? x0Name : state.botName)
@@ -268,9 +247,8 @@ struct BotsBanner: View {
               .minimumScaleFactor(0.9)
           }
           .frame(maxWidth: .infinity, alignment: .leading)
-          if state.isDone {
-            CheckCircle(fill: p.ink, mark: p.ground, size: 30)
-          } else if let m = state.minutesIn {
+          // Done: Blip's thumbs-up says it, no check beside him.
+          if !state.isDone, let m = state.minutesIn {
             Text("\(m) min")
               .font(.system(size: 13, weight: .semibold))
               .monospacedDigit()
@@ -302,11 +280,8 @@ struct BotsCompactTrailing: View {
           .foregroundStyle(Color.white)
       }
     } else if state.isDone {
-      HStack(spacing: 4) {
-        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
-        Text(w.word("done", "Done")).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-      }
-      .foregroundStyle(tint)
+      Text(w.word("done", "Done")).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+        .foregroundStyle(tint)
     } else {
       HStack(spacing: 2) {
         ForEach(1...max(1, min(6, state.of)), id: \.self) { i in
@@ -321,7 +296,7 @@ struct BotsCompactTrailing: View {
   }
 }
 
-/// The expanded right: 3/5; NEEDS YOU; or a white check.
+/// The expanded right: 3/5; NEEDS YOU; or Done.
 struct BotsIslandTrailing: View {
   let state: BotsAtWorkAttributes.ContentState
   let g: X0Glance?
@@ -335,7 +310,10 @@ struct BotsIslandTrailing: View {
         .foregroundStyle(X0Palette.island.meta)
         .lineLimit(1)
     } else if state.isDone {
-      CheckCircle(fill: .white, mark: .black, size: 26)
+      Text(w.word("done", "Done"))
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(Color.white)
+        .lineLimit(1)
     } else {
       Text("\(state.stage)/\(state.of)")
         .font(.system(size: 14, weight: .bold))
