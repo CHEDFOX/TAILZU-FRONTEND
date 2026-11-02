@@ -138,10 +138,11 @@ struct FlowActivityWidget: Widget {
 /// The Lock Screen's banner, in the phone's own appearance.
 struct FlowLockScreen: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.isLuminanceReduced) private var reduced
   let state: FlowActivityAttributes.ContentState
 
   var body: some View {
-    let p = X0Palette.of(scheme)
+    let p = X0Palette.of(scheme).reduced(reduced)
     FlowBanner(state: state, p: p)
       .activityBackgroundTint(p.ground)
       .activitySystemActionForegroundColor(p.ink)
@@ -247,7 +248,7 @@ struct FlowCompactLeading: View {
 
   var body: some View {
     if phaseOf(phase) == "ready" {
-      X0Mark(size: 22, onDark: true)
+      X0Mark(size: 22)
     } else {
       Image(systemName: phaseSymbol(phase))
         .font(.system(size: 14, weight: .semibold))

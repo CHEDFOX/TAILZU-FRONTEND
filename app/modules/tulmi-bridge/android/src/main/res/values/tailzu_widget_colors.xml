@@ -15,8 +15,11 @@
     <color name="tailzu_widget_ink">#0A0A0A</color>
     <!-- Meta text: times, tags, a label. -->
     <color name="tailzu_widget_meta">#5C5C5C</color>
-    <!-- Idle icons, a stage still to come. -->
-    <color name="tailzu_widget_dim">#8A8A8A</color>
+    <!--
+      Idle icons, a stage still to come. Words are set in it (the stage bar's names), so it keeps 4.5:1 on the ground and on
+      the surface grey: #6E6E6E is 5.1:1 on white (it was #8A8A8A, 3.4:1, which read as faded).
+    -->
+    <color name="tailzu_widget_dim">#6E6E6E</color>
     <!-- Hairlines between rows, a secondary button's border, a card's outline, the stage bar's track. -->
     <color name="tailzu_widget_line">#E6E6E6</color>
     <!-- An avatar's ground, a shortcut icon's disc, the X0 widget's tiles, Ask and chips. -->

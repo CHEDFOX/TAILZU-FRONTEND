@@ -14,7 +14,7 @@ import WidgetKit
 // The words are the server's: the app writes them from the server's labels,
 // flags and glance (src/widgets), and every one read here keeps a literal as
 // its fallback, for a phone whose app has not written them yet. The look is
-// the app's own and lives here: X0Palette, X0Mark, X0Pill.
+// the app's own and lives here: X0Palette, X0Mark (Blip's head), Blip, X0Pill.
 
 @main
 struct TailzuWidgetBundle: WidgetBundle {
@@ -47,6 +47,7 @@ struct X0Palette {
   let ink: Color
   /// Secondary words: who, when, a label.
   let meta: Color
+  /// A stage still to come, idle things. Words are set in it, so it holds 4.5:1 on its ground (5.1:1 light, 5.7:1 dark).
   let dim: Color
   /// Hairlines between rows, a secondary button's border, an empty track.
   let line: Color
@@ -61,21 +62,30 @@ struct X0Palette {
 
   static let light = X0Palette(
     ground: Color(rgb: 0xFFFFFF), ink: Color(rgb: 0x0A0A0A), meta: Color(rgb: 0x5C5C5C),
-    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5),
+    dim: Color(rgb: 0x6E6E6E), line: Color(rgb: 0xE6E6E6), surface: Color(rgb: 0xF5F5F5),
     outline: Color(rgb: 0xD4D4D4), hollow: Color(rgb: 0xC9C9C9), onDark: false)
 
   static let dark = X0Palette(
     ground: Color(rgb: 0x0A0A0A), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
-    dim: Color(rgb: 0x737373), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717),
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x262626), surface: Color(rgb: 0x171717),
     outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
 
   /// The Dynamic Island: always black.
   static let island = X0Palette(
     ground: Color(rgb: 0x000000), ink: Color(rgb: 0xFFFFFF), meta: Color(rgb: 0xA3A3A3),
-    dim: Color(rgb: 0x737373), line: Color(rgb: 0x2C2C2C), surface: Color(rgb: 0x171717),
+    dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x2C2C2C), surface: Color(rgb: 0x171717),
     outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
 
   static func of(_ scheme: ColorScheme) -> X0Palette { scheme == .dark ? dark : light }
+
+  /// The Always-On Lock Screen dims everything it keeps to about half: there every word takes the ink, so nothing fades out
+  /// (a Live Activity's banner reads `isLuminanceReduced`); the weights keep the hierarchy.
+  func reduced(_ on: Bool) -> X0Palette {
+    guard on else { return self }
+    return X0Palette(
+      ground: ground, ink: ink, meta: ink, dim: ink, line: line, surface: surface, outline: outline, hollow: hollow,
+      onDark: onDark)
+  }
 }
 
 /// Each bot's own ink (backend experience/bots/art.ts BOT_INK, by the bot's
@@ -99,7 +109,9 @@ enum BotInk {
   }
 
   /// A bot's colour as drawn: the server's (`color`), else its own ink by key, else nil (draw it in ink). On a dark ground it is
-  /// lifted 28% towards white, so it carries.
+  /// lifted 28% towards white, so it carries. Words are set in it (3/5, what a bot is doing), so it is then stepped towards
+  /// black (light) or white (dark) until it holds 4.5:1 on the paler of the grounds it sits on (the surface grey): a pale
+  /// colour from the server (an amber) would otherwise fade. The built-in bots' colours already hold and come back as they are.
   static func tint(_ key: String, hex: String? = nil, dark: Bool) -> Color? {
     guard let v = hex.flatMap(rgbOf) ?? rgb(key) else { return nil }
     let t = dark ? 0.28 : 0
@@ -107,7 +119,24 @@ enum BotInk {
       let x = Double((v >> shift) & 0xFF) / 255
       return x + (1 - x) * t
     }
-    return Color(.sRGB, red: c(16), green: c(8), blue: c(0), opacity: 1)
+    var mix = (c(16), c(8), c(0))
+    let g = dark ? Double(0x17) / 255 : Double(0xF5) / 255
+    var steps = 0
+    while contrast(mix, (g, g, g)) < 4.5 && steps < 20 {
+      mix = dark
+        ? (mix.0 + (1 - mix.0) * 0.08, mix.1 + (1 - mix.1) * 0.08, mix.2 + (1 - mix.2) * 0.08)
+        : (mix.0 * 0.92, mix.1 * 0.92, mix.2 * 0.92)
+      steps += 1
+    }
+    return Color(.sRGB, red: mix.0, green: mix.1, blue: mix.2, opacity: 1)
+  }
+
+  /// WCAG's contrast ratio of two sRGB colours (0...1 channels).
+  private static func contrast(_ a: (Double, Double, Double), _ b: (Double, Double, Double)) -> Double {
+    func lin(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+    func lum(_ x: (Double, Double, Double)) -> Double { 0.2126 * lin(x.0) + 0.7152 * lin(x.1) + 0.0722 * lin(x.2) }
+    let (la, lb) = (lum(a), lum(b))
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
   }
 
   /// "#RRGGBB" (the # optional) as 0xRRGGBB.
@@ -119,34 +148,58 @@ enum BotInk {
   }
 }
 
-/// THE MARK: the app icon's painted black bot — his head, cut from the launch
-/// art (Assets.xcassets/X0Mark). On a dark ground (Dark Mode, the Dynamic
-/// Island, the Lock Screen) he sits on a small white circle so he stays
-/// visible. Takes the same size-by-size box either way, so a layout is the
-/// same in both appearances.
+/// THE MARK: Blip's head — X0's own mascot, as the small solid glyph (no dots, which would be mush at this size:
+/// Assets.xcassets/BlipHead). His malt face in its dark outline reads on the light ground, the dark one and the Dynamic Island
+/// alike, so he needs no tile. Fits a size-by-size box, so a layout is the same in both appearances.
 struct X0Mark: View {
   var size: CGFloat = 20
-  var onDark: Bool
 
   var body: some View {
-    ZStack {
-      if onDark {
-        Circle().fill(Color.white)
-        head.frame(width: size * 0.8)
-      } else {
-        head.frame(width: size)
-      }
-    }
-    .frame(width: size, height: size)
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(x0Name)
-  }
-
-  private var head: some View {
-    Image("X0Mark")
+    Image("BlipHead")
       .resizable()
       .interpolation(.high)
+      .x0Desaturated()
       .aspectRatio(contentMode: .fit)
+      .frame(width: size, height: size)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(x0Name)
+  }
+}
+
+/// Blip's poses (Assets.xcassets/Blip<Pose>): the whole dotted figure — one great eye under a heavy lid, a long neck, two
+/// antennae — for the places big enough to show him (a Live Activity's banner, the widgets' quiet hours).
+enum BlipPose: String {
+  case rest, listen, think, look, work, yourTurn, done, oops, sleep
+
+  var asset: String { "Blip" + rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+}
+
+/// Blip in a pose, `height` tall, his own width (no pose is wider than 0.86 of its height).
+struct Blip: View {
+  let pose: BlipPose
+  var height: CGFloat = 52
+
+  var body: some View {
+    Image(pose.asset)
+      .resizable()
+      .interpolation(.high)
+      .x0Desaturated()
+      .aspectRatio(contentMode: .fit)
+      .frame(height: height)
+      .accessibilityHidden(true)
+  }
+}
+
+extension Image {
+  /// On a tinted or clear Home Screen (iOS 18's accented rendering) a full-colour picture would be flattened to one tinted
+  /// blob; drawn desaturated it keeps its eye and its dots.
+  @ViewBuilder
+  func x0Desaturated() -> some View {
+    if #available(iOS 18.0, *) {
+      self.widgetAccentedRenderingMode(.desaturated)
+    } else {
+      self
+    }
   }
 }
 
@@ -156,7 +209,7 @@ struct X0Brand: View {
   var size: CGFloat = 22
   var body: some View {
     HStack(spacing: 7) {
-      X0Mark(size: size, onDark: p.onDark)
+      X0Mark(size: size)
       Text(x0Name)
         .font(.system(size: 14, weight: .semibold))
         .tracking(-0.2)

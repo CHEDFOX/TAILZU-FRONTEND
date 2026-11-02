@@ -5,8 +5,8 @@ import WidgetKit
 // THE PARTS THE X0 WIDGET AND THE BOTS AT WORK LIVE ACTIVITY DRAW (the approved design: the universal widget sheet, its
 // generator's ukit.js). A bot's face, the stage bar (the goal gradient: one segment per stage, the done ones filled, the current
 // one filling, striped), the week's beads, the status marks (working: the bot's colour with its halo; needs you: filled ink),
-// the keyboard's peek-bot key (backend experience/bots/glyphs.ts peekKey, rendered as drawn into Assets.xcassets/X0Peek), the
-// painted X0 bot hanging off the top edge (X0Hang), the Ask bar, and the answer pills with what pressing one does.
+// the Ask key (Blip peeking into the keyboard's dark round window: Assets.xcassets/BlipPeek), Blip at rest in the quiet hours,
+// the Ask bar, and the answer pills with what pressing one does.
 
 /// Where a tap goes when the glance names nowhere.
 enum X0Links {
@@ -28,7 +28,7 @@ func upperFirst(_ s: String) -> String {
 }
 
 /// Everything a widget view needs: the glance (or none yet), the palette, what the pills did, the entry's moment, and whether
-/// the painted bot needs its rim (a dark ground, or StandBy's black).
+/// a drawn edge needs its rim (a dark ground, or StandBy's black).
 struct X0Context {
   let g: X0Glance?
   let p: X0Palette
@@ -77,6 +77,7 @@ struct BotFace: View {
         Image(uiImage: img)
           .resizable()
           .interpolation(.medium)
+          .x0Desaturated()
           .aspectRatio(contentMode: .fit)
       } else {
         Circle()
@@ -132,7 +133,8 @@ struct StageBar: View {
   /// Every stage done (the finished job).
   var done = false
   var labels: [String] = []
-  var labelSize: CGFloat = 10
+  /// Never under 11 pt: the names are read, not decoration.
+  var labelSize: CGFloat = 11
   var p: X0Palette? = nil
 
   private var count: Int { max(1, min(8, of)) }
@@ -174,10 +176,10 @@ struct StageBar: View {
   private func label(_ n: Int, _ p: X0Palette) -> some View {
     let current = n == stage && !done
     return Text(labels[n - 1])
-      .font(.system(size: labelSize, weight: current ? .bold : .medium))
+      .font(.system(size: max(11, labelSize), weight: current ? .bold : .medium))
       .foregroundStyle(current ? p.ink : (n < stage || done) ? p.meta : p.dim)
       .lineLimit(1)
-      .minimumScaleFactor(0.75)
+      .minimumScaleFactor(0.85)
       .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
@@ -207,7 +209,7 @@ struct StageRing: View {
     return Circle()
       .trim(from: from, to: max(from, to))
       .stroke(
-        Color.white.opacity(n < stage ? 1 : n == stage ? 0.75 : 0.25),
+        Color.white.opacity(n < stage ? 1 : n == stage ? 0.8 : 0.4),
         style: StrokeStyle(lineWidth: width, lineCap: .round, dash: n == stage ? [3, 2.2] : []))
       .rotationEffect(.degrees(-90))
   }
@@ -277,7 +279,7 @@ struct NeedsLabel: View {
   let needsYou: String
   let botName: String
   let ink: Color
-  var size: CGFloat = 10.5
+  var size: CGFloat = 11
 
   var body: some View {
     HStack(spacing: 6) {
@@ -291,16 +293,18 @@ struct NeedsLabel: View {
   }
 }
 
-/// The keyboard's mic key: the bot peeking into his dark round window. On a dark ground a hairline rim keeps the window's edge.
+/// The Ask key: Blip peeking up into the keyboard's dark round window (Assets.xcassets/BlipPeek). On a dark ground a hairline rim
+/// keeps the window's edge.
 struct PeekKey: View {
   let size: CGFloat
   var rim = false
   var label = "Ask"
 
   var body: some View {
-    Image("X0Peek")
+    Image("BlipPeek")
       .resizable()
       .interpolation(.high)
+      .x0Desaturated()
       .aspectRatio(contentMode: .fit)
       .frame(width: size, height: size)
       .overlay {
@@ -312,21 +316,13 @@ struct PeekKey: View {
   }
 }
 
-/// The painted X0 bot hanging from his clay bar, off the top edge (the app icon's bot). On a dark ground he gets a hairline rim
-/// so he does not vanish.
-struct HangingBot: View {
-  let width: CGFloat
-  let rim: Bool
+/// Blip, X0's own, at rest in the quiet hours (where the painted bot used to hang off the top edge). His malt dots carry on
+/// the light ground, the dark one and StandBy's black alike, so he needs no rim.
+struct QuietBlip: View {
+  let height: CGFloat
 
   var body: some View {
-    Image("X0Hang")
-      .resizable()
-      .interpolation(.high)
-      .aspectRatio(contentMode: .fit)
-      .frame(width: width, height: width * 267 / 447)
-      .shadow(color: rim ? Color.white.opacity(0.75) : Color.clear, radius: 0.6)
-      .shadow(color: rim ? Color.white.opacity(0.14) : Color.clear, radius: 7)
-      .accessibilityHidden(true)
+    Blip(pose: .rest, height: height)
   }
 }
 

@@ -63,18 +63,30 @@ The app's own, drawn natively (`TailzuWidgets.swift`); no colour is the
 server's any more:
 
 - **Palette** (`X0Palette`, from the backend's `experience/bots/palette.ts`).
-  Light: ground `#FFFFFF`, ink `#0A0A0A`, meta `#5C5C5C`, dim `#8A8A8A`, line
+  Light: ground `#FFFFFF`, ink `#0A0A0A`, meta `#5C5C5C`, dim `#6E6E6E`, line
   `#E6E6E6`, surface `#F5F5F5`. Dark: ground `#0A0A0A`, ink `#FFFFFF`, meta
-  `#A3A3A3`, dim `#737373`, line `#262626`, surface `#171717`. Home Screen
+  `#A3A3A3`, dim `#8A8A8A`, line `#262626`, surface `#171717`. Every grey that
+  carries words holds 4.5:1 on its ground (dim was `#8A8A8A` / `#737373`, 3.4
+  and 4.2:1, and read as faded); no word is drawn at an opacity, nor under
+  11 pt. A bot's colour is stepped darker (light) or lighter (dark) until it
+  holds 4.5:1 too, so a pale colour from the server cannot fade. On the
+  Always-On Lock Screen a Live Activity's secondary words take the ink. Home Screen
   widgets and the Lock Screen banners follow the system's appearance; the
   Dynamic Island is always the dark one; the Lock Screen's accessory widgets
   have no ground of their own and stay system-tinted (vibrant).
-- **The mark** (`X0Mark`): the app icon's painted black bot, his head, cut from
-  `assets/launch/head.png` into `Assets.xcassets/X0Mark.imageset` (@2x/@3x, 32
-  pt tall, padded; this folder is synced into the target whole, as the
-  keyboard's catalog is). On a dark ground (Dark Mode, the island, the Lock
-  Screen) he sits on a small white circle, so he stays visible. It is the brand
-  mark everywhere; a waveform appears only as the live "listening" symbol.
+- **Blip, X0's own** (`X0Mark`, `Blip` in `TailzuWidgets.swift`): the mark is
+  Blip's head, the small solid glyph (`Assets.xcassets/BlipHead`, no dots, so it
+  stays crisp at 18–24 pt) — on every ground as it is, no tile. The whole dotted
+  figure in his poses (`BlipRest`, `BlipWork`, `BlipYourTurn`, `BlipDone`,
+  `BlipOops`, and `BlipListen` / `BlipThink` / `BlipLook` / `BlipSleep` kept for
+  later) is drawn where there is room: Bots at work's banner and expanded
+  island, and the X0 widget's quiet hours (`BlipRest`). The Ask key is Blip
+  peeking into the keyboard's dark round window (`BlipPeek`). Each @2x/@3x,
+  `template-rendering-intent: original`; this folder is synced into the target
+  whole, as the keyboard's catalog is. On a tinted or clear Home Screen (iOS
+  18+) the art is drawn desaturated rather than flattened. Blip is X0 only: a
+  user's bot keeps its own face and colour. A waveform appears only as the
+  live "listening" symbol.
 - **Buttons** (`X0Pill`): fully rounded. The server's `primary` is filled with
   ink and worded in the ground; every other style is the secondary, a 1 pt
   outline-grey (`#D4D4D4` / `#3D3D3D`) border with ink words; "You decide" is
@@ -136,7 +148,7 @@ Screen, `X0Parts.swift` the parts (from the approved design's kit):
 | needs (`needs.items[0]`) | face, name, "needs you", the question (3 lines), both answers in one capsule | big face (and what the bot is still at), NEEDS YOU · BOT, the question, the answers | greeting + week beads; the question card with its answers and You decide; the crew of four; Ask |
 | working (`job`, or a bot at work) | face, 3/5, the task, "Code bot · Build", the bar, "+1 working" | face, task, "Code bot · Build, step 3 of 5", minutes, the bar with names, the other bot at work | the job card (bar with names, "Step 3 of 5 · 52 min in"), the crew, Ask |
 | done (`lastDone`) | face with a check, what it finished, whose and when, See the PR | the same, wider | the done card (See the PR), the crew, Ask |
-| quiet | the painted bot hanging off the top, the peek-bot key, greeting and day line | greeting, day line, Ask any bot… with the peek-bot key, the bot hanging on | the big day line, week beads, the crew, Ask |
+| quiet | Blip at rest at the top, Blip's peek key, greeting and day line | greeting, day line, Ask any bot… with Blip's peek key, Blip at rest | the big day line beside Blip at rest, week beads, the crew, Ask |
 
 - **Faces**: `faces/<face>.png` in the App Group container (the app downloads
   each `faceUrl` there), else the built-in bots' bundled heads
@@ -168,9 +180,8 @@ Screen, `X0Parts.swift` the parts (from the approved design's kit):
   "{n} min in", `seePr`, `done`), each with its literal. Read too when sent:
   `answered` ("Already answered"), `finish` ("Open X0 to finish"),
   `doneSeePr` ("Done — tap to see the PR").
-- **Art**: `X0Hang` (the painted bot on his clay bar, the server's
-  x0-hang.png cropped; a hairline rim on dark grounds and in StandBy) and
-  `X0Peek` (glyphs.ts `peekKey`, rendered as drawn).
+- **Art**: `BlipRest` (the quiet hours) and `BlipPeek` (Blip peeking into the
+  keyboard's round window: the Ask key; a hairline rim on dark grounds).
 
 ## Bots at work
 
@@ -185,14 +196,20 @@ one bad field still lands. Declared in `_shared/BotsAtWork.swift` (the widget
 and the app) and once more in the bridge (`BotsLiveActivity.swift`); the
 copies must stay identical.
 
-- Lock Screen banner (light, or dark in Dark Mode): working — face, task,
-  "Code bot · Build, step 3 of 5", minutes, the bar with names; needs —
-  NEEDS YOU · BOT, the question, its answers and You decide; done — "Done —
-  tap to see the PR", "task · PR #131 · 58 min", every stage filled, a check.
-- Dynamic Island (always black): compact — the face and five tiny segments
-  (● 1 when it needs the person, ✓ Done when finished); minimal — the face;
-  expanded — face, 3/5 (NEEDS YOU, or a check), the task and its step and
-  minutes, the bar (the question and its answers, You decide; See the PR).
+- Blip tells the phase: working — `BlipWork`; needs — `BlipYourTurn` (hands
+  over his eye); done — `BlipDone` (thumbs up); a `failed` / `error` phase
+  would be `BlipOops`, `queued` / `idle` `BlipRest`. The bot doing the job is
+  his badge (its face, bottom right) and keeps its colour (the bar, 3/5).
+- Lock Screen banner (light, or dark in Dark Mode): working — Blip (56 pt),
+  task (two lines), "Code bot · Build, step 3 of 5", minutes, the bar with
+  names; needs — NEEDS YOU · BOT, the question, its answers and You decide;
+  done — "Done — tap to see the PR", "task · PR #131 · 58 min", every stage
+  filled, a check.
+- Dynamic Island (always black): compact — Blip's head and five tiny segments
+  (● 1 when it needs the person, ✓ Done when finished); minimal — Blip's
+  head; expanded — Blip in the pose with the badge, 3/5 (NEEDS YOU, or a
+  check), the task and its step and minutes, the bar (the question and its
+  answers, You decide; See the PR).
 - Answers: `AnswerBotsActivityIntent`, a LiveActivityIntent (so it runs in
   the app's process, which iOS wakes for it): the activity goes back to work
   at once, the answer posts with the widgets' token, the X0 widget shows it
@@ -270,8 +287,8 @@ CI type-checks the Swift here and the bridge; the Android Kotlin compiles
 against the Android 15 framework. Nothing below can be seen without a phone:
 
 1. X0, every size, Light and Dark, in each case (needs, working, done, quiet)
-   against the approved sheet: the painted bot hangs off the top edge
-   (contentMarginsDisabled) and has its rim in Dark; faces drawn from
+   against the approved sheet: Blip at rest in the quiet corner, his dots
+   clear in Light, Dark and on a tinted Home Screen; faces drawn from
    `faces/` (and the disc with the initial for a bot without art); the bar's
    current stage striped; nothing clipped, no answer label cut.
 2. X0 in StandBy (iPhone on its side, charging): the small widget on black,
@@ -302,7 +319,7 @@ against the Android 15 framework. Nothing below can be seen without a phone:
 
 Also by eye, on a phone: the mic session's banner (Light and Dark) and island
 (compact in each phase, expanded ready with its hint uncut, minimal); Setup's
-banner and island; the mark, the hanging bot and the peek-bot key found in
+banner and island; Blip's head, his poses and his peek key found in
 the bundle everywhere (a missing `Assets.xcassets` would draw nothing).
 
 Type-checked in CI (`keyboard-ios.yml`, job `widgets`). Built by EAS with the

@@ -10,7 +10,7 @@ import WidgetKit
 //   3. all quiet             the greeting and the day's line, the week's beads, the crew, Ask (the peek-bot key)
 //
 // Home Screen small (158 x 158 on a 390 pt phone), medium (338 x 158) and large (338 x 354) draw their own margins (14 pt small,
-// 16 pt medium and large: contentMarginsDisabled), so the painted X0 bot can hang off the top edge. White and ink in Light, the
+// 16 pt medium and large: contentMarginsDisabled), so Blip (X0's own) can sit in the quiet corner. White and ink in Light, the
 // same inverted in Dark (X0Palette); the only colour is the bots' own (lifted 28% on dark). StandBy shows the small one on black.
 // The Lock Screen's inline, rectangle and circle (X0Lock.swift) draw only the glance's `lock` words, never a question's.
 //
@@ -283,7 +283,7 @@ struct SmallBusy: View {
         HStack(spacing: 5) {
           c.face(other.slug, other.face, size: 16)
           Text(c.moreWorking(others.count))
-            .font(.system(size: 10.5))
+            .font(.system(size: 11))
             .foregroundStyle(c.p.meta)
             .lineLimit(1)
         }
@@ -328,7 +328,7 @@ struct SmallDone: View {
   }
 }
 
-/// All quiet: the painted bot hangs off the top, the peek-bot key (Ask) at the corner, the greeting and the day's line.
+/// All quiet: Blip at rest at the top, his peek key (Ask) at the corner, the greeting and the day's line.
 struct SmallQuiet: View {
   let c: X0Context
 
@@ -347,7 +347,7 @@ struct SmallQuiet: View {
     .padding(14)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     .overlay(alignment: .topLeading) {
-      HangingBot(width: 72, rim: c.rim).padding(.leading, 12)
+      QuietBlip(height: 48).padding(.leading, 16).padding(.top, 12)
     }
     .overlay(alignment: .topTrailing) {
       PeekKey(size: 36, rim: c.p.onDark, label: c.word("ask", "Ask any bot…")).padding(12)
@@ -386,10 +386,10 @@ struct MediumNeeds: View {
           HStack(spacing: 3) {
             WorkingDot(color: c.tint(ask.bot), size: 5)
             Text(b.line)
-              .font(.system(size: 9.5, weight: .medium))
+              .font(.system(size: 11, weight: .medium))
               .foregroundStyle(c.tint(ask.bot))
-              .lineLimit(1)
-              .minimumScaleFactor(0.8)
+              .lineLimit(2)
+              .minimumScaleFactor(0.9)
           }
           .frame(width: 70)
         }
@@ -483,7 +483,7 @@ struct MediumBusy: View {
       }
       if let job {
         StageBar(
-          stage: job.stage, of: job.of, color: tint, track: c.p.line, height: 7, labels: job.stages, labelSize: 10, p: c.p)
+          stage: job.stage, of: job.of, color: tint, track: c.p.line, height: 7, labels: job.stages, labelSize: 11, p: c.p)
           .padding(.top, 12)
       }
       Spacer(minLength: 4)
@@ -571,7 +571,7 @@ struct MediumDone: View {
   }
 }
 
-/// All quiet: the greeting, the day's line, Ask any bot… with the peek-bot key; the painted bot hanging on.
+/// All quiet: the greeting, the day's line, Ask any bot… with Blip's peek key; Blip at rest beside them.
 struct MediumQuiet: View {
   let c: X0Context
 
@@ -595,7 +595,7 @@ struct MediumQuiet: View {
     .padding(16)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .overlay(alignment: .topTrailing) {
-      HangingBot(width: 86, rim: c.rim).padding(.trailing, 30)
+      QuietBlip(height: 72).padding(.trailing, 34).padding(.top, 14)
     }
   }
 }
@@ -717,7 +717,7 @@ struct LargeCard: View {
       if let job {
         StageBar(
           stage: job.stage, of: job.of, color: c.tint(slug), track: c.p.line, height: 7, labels: job.stages,
-          labelSize: 9.5, p: c.p)
+          labelSize: 11, p: c.p)
           .padding(.top, 14)
         stepLine(job).padding(.top, 10)
       }
@@ -805,7 +805,7 @@ struct Seat: View {
       HStack(spacing: 4) {
         NeedsDot(color: c.p.ink, size: 6)
         Text(lowerFirst(c.word("needsYou", "Needs you")))
-          .font(.system(size: 10.5, weight: .semibold))
+          .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(c.p.ink)
           .lineLimit(1)
       }
@@ -813,20 +813,20 @@ struct Seat: View {
       HStack(alignment: .top, spacing: 4) {
         WorkingDot(color: c.tint(bot.slug), size: 6).padding(.top, 4)
         Text(bot.line.isEmpty ? c.word("working", "{n} working", ["n": "1"]) : bot.line)
-          .font(.system(size: 10.5, weight: .medium))
+          .font(.system(size: 11, weight: .medium))
           .foregroundStyle(c.tint(bot.slug))
           .lineLimit(2)
       }
     } else {
       Text(bot.line.isEmpty ? c.word("ready", "Ready") : bot.line)
-        .font(.system(size: 10.5))
+        .font(.system(size: 11))
         .foregroundStyle(c.p.meta)
         .lineLimit(2)
     }
   }
 }
 
-/// All quiet: the big day line beside the hanging bot, the week's beads, the crew all Ready, Ask. Nothing red, nothing owed.
+/// All quiet: the big day line beside Blip at rest, the week's beads, the crew all Ready, Ask. Nothing red, nothing owed.
 struct LargeQuiet: View {
   let c: X0Context
 
@@ -854,7 +854,7 @@ struct LargeQuiet: View {
     .padding(16)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .overlay(alignment: .topTrailing) {
-      HangingBot(width: 104, rim: c.rim).padding(.trailing, 24)
+      QuietBlip(height: 96).padding(.trailing, 36).padding(.top, 16)
     }
   }
 }

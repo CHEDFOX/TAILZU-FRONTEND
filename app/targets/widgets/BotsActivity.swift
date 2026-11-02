@@ -12,8 +12,13 @@ import WidgetKit
 //   done      "Done — tap to see the PR", the task · PR #131 · 58 min, every stage filled; a tap opens the job and its PR
 //
 // The Lock Screen banner is the palette's ground (light, or dark in Dark Mode); the Dynamic Island is always black: compact,
-// the face and five tiny segments (● 1 when it needs the person, ✓ Done when finished); minimal, the face; expanded, the face,
-// 3/5 (NEEDS YOU, or the check), the task and its step, the bar (the question and its answers; See the PR).
+// Blip's head and five tiny segments (● 1 when it needs the person, Done when finished); minimal, Blip's head; expanded,
+// Blip in the job's pose, 3/5 (NEEDS YOU, or Done), the task and its step, the bar (the
+// question and its answers; See the PR).
+//
+// BLIP is X0's own mascot and tells the state at a glance: at work, hands over his eye ("your turn") when the job waits on
+// the person, a thumbs up when it is done (an "oops" and a rest pose are kept for a failed or queued job, should the server
+// send one). The bot doing the job is named in the line and keeps its own colour (the bar, 3/5); no badge on Blip.
 //
 // The state is the activity's own (BotsAtWorkAttributes, _shared/BotsAtWork.swift), sent by the app (the bridge's
 // start/update/endBotsActivity) or pushed by the server; the words are the glance's (X0Glance words), each with its literal.
@@ -29,7 +34,7 @@ struct BotsActivityWidget: Widget {
       let job = context.attributes.jobId
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          BotsFace(state: s, g: g, size: 44, dark: true)
+          BotsBlip(state: s, g: g, height: 50, p: .island)
             .padding(.leading, 6)
             .padding(.top, 2)
         }
@@ -44,11 +49,11 @@ struct BotsActivityWidget: Widget {
             .padding(.top, 2)
         }
       } compactLeading: {
-        BotsFace(state: s, g: g, size: 24, dark: true, disc: true)
+        X0Mark(size: 22)
       } compactTrailing: {
         BotsCompactTrailing(state: s, g: g)
       } minimal: {
-        BotsFace(state: s, g: g, size: 24, dark: true, disc: true)
+        X0Mark(size: 22)
       }
       .widgetURL(s.tapURL)
       .keylineTint(BotsWords(g).tint(s, dark: true))
@@ -61,6 +66,18 @@ struct BotsActivityWidget: Widget {
 extension BotsAtWorkAttributes.ContentState {
   var isNeeds: Bool { phase == "needs" }
   var isDone: Bool { phase == "done" }
+
+  /// Blip's pose for the phase: at work; your turn (the job waits on the person); done; and, should the server ever send
+  /// them, oops for a failed job and rest for a queued or idle one.
+  var blipPose: BlipPose {
+    switch phase {
+    case "needs": return .yourTurn
+    case "done": return .done
+    case "failed", "error": return .oops
+    case "queued", "idle": return .rest
+    default: return .work
+    }
+  }
 
   /// Where a tap goes: the question while it waits, else the job (whose page shows its PR).
   var tapURL: URL? {
@@ -131,26 +148,21 @@ struct BotsWords {
   }
 }
 
-/// The bot's face; in the island's compact and minimal places, on a dark disc.
-struct BotsFace: View {
+/// Blip in the job's pose, alone, in a box as wide as his
+/// widest pose so the words beside him never move.
+struct BotsBlip: View {
   let state: BotsAtWorkAttributes.ContentState
   let g: X0Glance?
-  let size: CGFloat
-  var dark = false
-  var disc = false
+  var height: CGFloat = 52
+  let p: X0Palette
 
   var body: some View {
-    let face = BotFace(
-      face: g?.face(state.bot, state.face ?? "") ?? (state.face ?? state.bot),
-      name: state.botName.isEmpty ? state.bot : state.botName,
-      color: BotsWords(g).tint(state, dark: dark), size: size)
-    if disc {
-      face
-        .background { Circle().fill(Color(rgb: 0x1A1A1A)) }
-        .clipShape(Circle())
-    } else {
-      face
-    }
+    // Blip alone: no badge, no symbol beside him. The bot doing the job is named in the line and keeps its colour on the bar.
+    Blip(pose: state.blipPose, height: height)
+      .frame(width: (height * 0.86).rounded(), height: height)
+      .padding(.trailing, 6)
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(state.botName.isEmpty ? x0Name : state.botName)
   }
 }
 
@@ -164,7 +176,7 @@ struct BotsBar: View {
   var body: some View {
     StageBar(
       stage: state.isDone ? state.of : state.stage, of: state.of, color: tint, track: p.line, height: 6,
-      done: state.isDone, labels: labels ? state.stages : [], labelSize: 10, p: p)
+      done: state.isDone, labels: labels ? state.stages : [], labelSize: 11, p: p)
   }
 }
 
@@ -172,12 +184,13 @@ struct BotsBar: View {
 
 struct BotsLockScreen: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.isLuminanceReduced) private var reduced
   let job: String
   let state: BotsAtWorkAttributes.ContentState
   let g: X0Glance?
 
   var body: some View {
-    let p = X0Palette.of(scheme)
+    let p = X0Palette.of(scheme).reduced(reduced)
     BotsBanner(job: job, state: state, w: BotsWords(g), g: g, p: p)
       .padding(.horizontal, 16)
       .padding(.vertical, 14)
@@ -197,18 +210,19 @@ struct BotsBanner: View {
     let tint = w.tint(state, dark: p.onDark)
     if state.isNeeds {
       HStack(alignment: .top, spacing: 12) {
-        BotsFace(state: state, g: g, size: 44, dark: p.onDark)
+        BotsBlip(state: state, g: g, height: 56, p: p)
         VStack(alignment: .leading, spacing: 0) {
           NeedsLabel(needsYou: w.word("needsYou", "Needs you"), botName: state.botName, ink: p.ink)
           Text(w.question(state))
             .font(.system(size: 15, weight: .semibold))
             .tracking(-0.25)
             .foregroundStyle(p.ink)
-            .lineLimit(2)
+            .lineLimit(state.answers.isEmpty ? 3 : 2)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 4)
           if !state.answers.isEmpty {
             ChoiceRow(
-              choices: state.answers, tap: state.tap(job: job), p: p, height: 30, size: 12.5,
+              choices: state.answers, tap: state.tap(job: job), p: p, height: 30, size: 13,
               decide: w.word("youDecide", "You decide"))
               .padding(.top, 10)
           }
@@ -218,28 +232,28 @@ struct BotsBanner: View {
     } else {
       VStack(alignment: .leading, spacing: 12) {
         HStack(alignment: .center, spacing: 12) {
-          BotsFace(state: state, g: g, size: 44, dark: p.onDark)
-          VStack(alignment: .leading, spacing: 1) {
+          BotsBlip(state: state, g: g, height: 56, p: p)
+          VStack(alignment: .leading, spacing: 2) {
             Text(state.isDone ? w.doneTitle(state) : state.task)
               .font(.system(size: 16, weight: .bold))
               .tracking(-0.3)
               .foregroundStyle(p.ink)
-              .lineLimit(1)
-              .minimumScaleFactor(0.85)
+              .lineLimit(2)
+              .minimumScaleFactor(0.9)
             Text(state.isDone ? w.doneLine(state) : w.stepLine(state))
-              .font(.system(size: 12.5))
+              .font(.system(size: 13))
               .foregroundStyle(p.meta)
-              .lineLimit(1)
+              .lineLimit(2)
+              .minimumScaleFactor(0.9)
           }
           .frame(maxWidth: .infinity, alignment: .leading)
-          if state.isDone {
-            CheckCircle(fill: p.ink, mark: p.ground, size: 30)
-          } else if let m = state.minutesIn {
+          // Done: Blip's thumbs-up says it, no check beside him.
+          if !state.isDone, let m = state.minutesIn {
             Text("\(m) min")
-              .font(.system(size: 12))
+              .font(.system(size: 13, weight: .semibold))
               .monospacedDigit()
-              .foregroundStyle(p.meta)
-              .frame(maxHeight: 44, alignment: .top)
+              .foregroundStyle(p.ink)
+              .fixedSize()
           }
         }
         BotsBar(state: state, p: p, tint: tint)
@@ -266,16 +280,13 @@ struct BotsCompactTrailing: View {
           .foregroundStyle(Color.white)
       }
     } else if state.isDone {
-      HStack(spacing: 4) {
-        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold))
-        Text(w.word("done", "Done")).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-      }
-      .foregroundStyle(tint)
+      Text(w.word("done", "Done")).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+        .foregroundStyle(tint)
     } else {
       HStack(spacing: 2) {
         ForEach(1...max(1, min(6, state.of)), id: \.self) { i in
           RoundedRectangle(cornerRadius: 2.5)
-            .fill(i < state.stage ? tint : i == state.stage ? tint.opacity(0.67) : Color(rgb: 0x333333))
+            .fill(i < state.stage ? tint : i == state.stage ? tint.opacity(0.67) : Color(rgb: 0x4A4A4A))
             .frame(width: 6, height: 5)
         }
       }
@@ -285,7 +296,7 @@ struct BotsCompactTrailing: View {
   }
 }
 
-/// The expanded right: 3/5; NEEDS YOU; or a white check.
+/// The expanded right: 3/5; NEEDS YOU; or Done.
 struct BotsIslandTrailing: View {
   let state: BotsAtWorkAttributes.ContentState
   let g: X0Glance?
@@ -299,7 +310,10 @@ struct BotsIslandTrailing: View {
         .foregroundStyle(X0Palette.island.meta)
         .lineLimit(1)
     } else if state.isDone {
-      CheckCircle(fill: .white, mark: .black, size: 26)
+      Text(w.word("done", "Done"))
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(Color.white)
+        .lineLimit(1)
     } else {
       Text("\(state.stage)/\(state.of)")
         .font(.system(size: 14, weight: .bold))
@@ -340,7 +354,7 @@ struct BotsIslandBottom: View {
             .lineLimit(1)
             .minimumScaleFactor(0.85)
           Text(w.doneLine(state))
-            .font(.system(size: 12.5))
+            .font(.system(size: 13))
             .foregroundStyle(p.meta)
             .lineLimit(1)
         }
@@ -363,7 +377,7 @@ struct BotsIslandBottom: View {
             .foregroundStyle(p.ink)
             .lineLimit(1)
           Text(state.minutesIn.map { w.stepLine(state) + " · \($0) min" } ?? w.stepLine(state))
-            .font(.system(size: 12.5))
+            .font(.system(size: 13))
             .foregroundStyle(p.meta)
             .lineLimit(1)
         }
