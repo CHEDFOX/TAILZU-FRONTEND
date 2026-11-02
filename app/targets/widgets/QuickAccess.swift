@@ -335,7 +335,7 @@ struct QuickHeader: View {
           .foregroundStyle(p.meta)
       }
       Spacer(minLength: 4)
-      X0Mark(size: 18, onDark: p.onDark)
+      X0Mark(size: 18)
     }
     .frame(height: 18)
   }

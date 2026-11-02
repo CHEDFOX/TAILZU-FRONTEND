@@ -25,6 +25,7 @@ import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.StyleSpan
 import android.util.SizeF
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -48,7 +49,7 @@ import kotlin.math.sqrt
  *             own narrow token, TailzuWidgetActReceiver) and You decide
  *   working   bots at work: the job's task, its stage bar with the stages' names, minutes so far; who else is at work
  *   done      something just finished: what, how long, See the PR
- *   quiet     all quiet: the greeting and the day's line, the week's beads, the X0 bot hanging on, Ask with the peek-bot key
+ *   quiet     all quiet: the greeting and the day's line, the week's beads, Blip (X0's own) at rest, Ask with his peek key
  *
  *   2x2 (small, narrower than 250dp)  ·  4x2 (medium)  ·  4x4 (large, 280dp tall and more: the bots as Home's tiles, Ask)
  *
@@ -485,6 +486,26 @@ internal class X0Ctx(val context: Context, val doc: X0Doc?, private val widgetId
 
   /** How wide quiet words (You decide) are, in dp. */
   fun quietDp(label: String): Float = pillPaint.measureText(label) / density + 8f
+
+  private val stagePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    textSize = STAGE_DP * density
+  }
+
+  /**
+   * The size a stage's name is set in to fit its share of the bar whole: 11dp, and a long name ("Understand" on the 4x4's card)
+   * a little smaller, never under 9dp, rather than cut.
+   */
+  fun stageDp(name: String, current: Boolean, room: Float): Float {
+    stagePaint.isFakeBoldText = current
+    val wide = stagePaint.measureText(name) / density
+    return if (wide <= room || wide <= 0f) STAGE_DP else max(9f, STAGE_DP * room / wide)
+  }
+
+  companion object {
+    /** The stages' names: never smaller unless a name would not fit. */
+    const val STAGE_DP = 11f
+  }
 }
 
 // ====================================================================================================== setting views safely
@@ -520,6 +541,11 @@ internal class Views(context: Context, layout: Int, private val night: Boolean) 
 
   fun lines(id: Int, n: Int) {
     if (has(id)) rv.setInt(id, "setMaxLines", max(1, n))
+  }
+
+  /** Words' size, in dp. */
+  fun size(id: Int, dp: Float) {
+    if (has(id)) rv.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_DIP, dp)
   }
 
   fun tint(id: Int, ink: Ink) {
@@ -917,12 +943,14 @@ internal class X0Fill(private val c: X0Ctx, private val v: Views, private val si
     val named = job.stages.size == job.of && job.of <= labels.size && !(cls == TailzuX0.MEDIUM && size.h < 140f)
     v.visible(R.id.tailzu_x0_stages, named)
     if (!named) return
+    val room = (width - 3f * (job.of - 1)) / job.of
     labels.forEachIndexed { i, id ->
       if (i >= job.of) {
         v.visible(id, false)
         return@forEachIndexed
       }
       val current = i == job.stage - 1
+      v.size(id, c.stageDp(job.stages[i], current, room))
       val words: CharSequence = if (current) {
         SpannableString(job.stages[i]).apply { setSpan(StyleSpan(Typeface.BOLD), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
       } else {
@@ -968,7 +996,7 @@ internal class X0Fill(private val c: X0Ctx, private val v: Views, private val si
     v.text(R.id.tailzu_x0_line, line, c.ink)
     when (cls) {
       TailzuX0.SMALL -> {
-        // The hanging bot and the key take the top; the words what is left.
+        // Blip and the key take the top; the words what is left.
         val room = size.h - 32f - 52f - (if (d?.hello.isNullOrEmpty()) 0f else 16f)
         v.lines(R.id.tailzu_x0_line, floor(room / 20f).toInt().coerceIn(1, 3))
         v.click(R.id.tailzu_x0_ask_key, c.open(d?.ask?.ifEmpty { null } ?: ASK_LINK, Slot.KEY))

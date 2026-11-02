@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.os.Build
 import android.widget.RemoteViews
 import org.json.JSONObject
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * A colour for each theme. The widgets follow the phone's light or dark theme: on Android 12+ a view is handed both and the
@@ -75,12 +77,12 @@ internal object WidgetInk {
   // The same palette as literals, only for a phone that cannot read the resources (it never should).
   private val LIGHT = mapOf(
     "ground" to Color.rgb(0xFF, 0xFF, 0xFF), "ink" to Color.rgb(0x0A, 0x0A, 0x0A), "meta" to Color.rgb(0x5C, 0x5C, 0x5C),
-    "dim" to Color.rgb(0x8A, 0x8A, 0x8A), "line" to Color.rgb(0xE6, 0xE6, 0xE6), "surface" to Color.rgb(0xF5, 0xF5, 0xF5),
+    "dim" to Color.rgb(0x6E, 0x6E, 0x6E), "line" to Color.rgb(0xE6, 0xE6, 0xE6), "surface" to Color.rgb(0xF5, 0xF5, 0xF5),
     "hollow" to Color.rgb(0xC9, 0xC9, 0xC9), "outline" to Color.rgb(0xD4, 0xD4, 0xD4),
   )
   private val DARK = mapOf(
     "ground" to Color.rgb(0x0A, 0x0A, 0x0A), "ink" to Color.rgb(0xFF, 0xFF, 0xFF), "meta" to Color.rgb(0xA3, 0xA3, 0xA3),
-    "dim" to Color.rgb(0x73, 0x73, 0x73), "line" to Color.rgb(0x26, 0x26, 0x26), "surface" to Color.rgb(0x17, 0x17, 0x17),
+    "dim" to Color.rgb(0x8A, 0x8A, 0x8A), "line" to Color.rgb(0x26, 0x26, 0x26), "surface" to Color.rgb(0x17, 0x17, 0x17),
     "hollow" to Color.rgb(0x4A, 0x4A, 0x4A), "outline" to Color.rgb(0x3D, 0x3D, 0x3D),
   )
 
@@ -132,7 +134,46 @@ internal object WidgetInk {
   fun bot(color: Int?, key: String, ink: Ink): Ink? {
     if (key == "tailzu") return ink
     val c = color ?: botRgb(key) ?: return null
-    return if (tooDark(c)) Ink(c, ink.dark) else Ink(c, lighten(c, 0.28f))
+    val day = readable(c, false)
+    return if (tooDark(c)) Ink(day, ink.dark) else Ink(day, readable(lighten(c, 0.28f), true))
+  }
+
+  /**
+   * A bot's colour as words can carry it: its name, what it is doing, 3/5 and the minutes are set in it. A colour the server
+   * sends may be too pale for the white ground (an amber) or too deep for the dark one, so it is stepped towards black (day)
+   * or white (night) until it holds 4.5:1 against the surface grey, the paler of the grounds it is drawn on (a tile, the
+   * widget). The built-in bots' colours already do and come back as they are. Its alpha is kept.
+   */
+  fun readable(color: Int, night: Boolean): Int {
+    val against = if (night) 0x171717 else 0xF5F5F5
+    var c = color
+    var step = 0
+    while (contrast(c, against) < 4.5 && step < 20) {
+      c = if (night) lighten(c, 0.08f) else darken(c, 0.08f)
+      step++
+    }
+    return c
+  }
+
+  /** A colour `t` of the way to black, its alpha kept. */
+  private fun darken(color: Int, t: Float): Int {
+    fun down(c: Int) = (c * (1f - t.coerceIn(0f, 1f))).toInt().coerceIn(0, 255)
+    return Color.argb(Color.alpha(color), down(Color.red(color)), down(Color.green(color)), down(Color.blue(color)))
+  }
+
+  /** WCAG's contrast ratio of two colours (their alpha ignored). */
+  private fun contrast(a: Int, b: Int): Double {
+    val la = luminance(a)
+    val lb = luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+  }
+
+  private fun luminance(rgb: Int): Double {
+    fun lin(v: Int): Double {
+      val c = v / 255.0
+      return if (c <= 0.03928) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * lin((rgb shr 16) and 0xFF) + 0.7152 * lin((rgb shr 8) and 0xFF) + 0.0722 * lin(rgb and 0xFF)
   }
 
   private fun tooDark(color: Int): Boolean =

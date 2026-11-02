@@ -70,7 +70,7 @@
                     android:includeFontPadding="false"
                     android:maxLines="2"
                     android:textColor="@color/tailzu_widget_meta"
-                    android:textSize="10.5dp" />
+                    android:textSize="11dp" />
             </LinearLayout>
         </LinearLayout>
 
