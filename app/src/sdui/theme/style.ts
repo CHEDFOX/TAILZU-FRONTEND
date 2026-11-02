@@ -7,7 +7,7 @@ import { getPath } from "../state";
 import * as K from "../knobs";
 
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
-export function tok(value: any, theme: ThemeTokens): any {
+function tok(value: any, theme: ThemeTokens): any {
   if (typeof value === "string" && value.startsWith("$")) return getPath(theme, value.slice(1));
   return value;
 }
