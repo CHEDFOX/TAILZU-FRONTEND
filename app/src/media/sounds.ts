@@ -79,11 +79,6 @@ function setOn(on: boolean, keep: boolean): void {
   for (const fn of switched) { try { fn(on); } catch { /* a listener's fault is its own */ } }
 }
 
-/** The Sounds switch on this phone (on until turned off). */
-function soundsOn(): boolean {
-  return userOn;
-}
-
 /** The action devicePref "sounds": kept on this phone, honoured at once. */
 export function setSoundsOn(on: boolean): void {
   setOn(on, true);

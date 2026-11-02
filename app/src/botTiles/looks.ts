@@ -26,11 +26,6 @@ const store = new LooksStore(STARTER, {
 // The kept copy, as soon as the app starts (a screen drawn before it lands wears the starter's looks, then these).
 void store.restore();
 
-/** The catalog in use now. */
-function looks(): Looks {
-  return store.current;
-}
-
 /** The bootstrap's "bots.looks" flag: fetch and keep the server's catalog when it is another version. Never throws. */
 export function syncLooks(flag: unknown): void {
   void store.sync(flag).catch(() => {});
