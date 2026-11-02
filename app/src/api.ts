@@ -159,7 +159,7 @@ export async function transcribeClean(
 /**
  * Connection details for live dictation: the WebSocket URL (same host as the
  * REST base, with the ws/wss scheme) and the current auth token. Passed to the
- * native TulmiStream module. See STREAMING.md.
+ * native TulmiStream module. See docs/STREAMING.md.
  */
 export async function streamConfig(): Promise<{ url: string; token: string }> {
   const base = await getBaseUrl();
