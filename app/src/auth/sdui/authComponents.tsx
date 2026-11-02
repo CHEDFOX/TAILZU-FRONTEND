@@ -25,15 +25,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, Keyboard, Platform, Pressable, Text, TextInput, View } from "react-native";
 import * as AppleAuthentication from "expo-apple-authentication";
 import Svg, { Path } from "react-native-svg";
-// TYPE-ONLY. A value import here would close a cycle:
-//   components → authComponents → AuthGateScreen → authRender → components
-// and Metro resolves a cycle by handing someone a half-initialised module. The
-// symptom is not a warning, it is the app throwing during module init — before
-// the first render, so the splash never leaves, and the keyboard falls back to
-// its built-in layout because the config it reads is written on boot by an app
-// that never booted. Types are erased at build time and cost nothing at
-// runtime; the component itself is fetched lazily below.
-import type { Field } from "../AuthGateScreen";
+// TYPE-ONLY: the pill component itself is fetched lazily below, at render
+// time. The pill used to live in AuthGateScreen, and a value import of that
+// module here closed a cycle (components → authComponents → AuthGateScreen →
+// authRender → components) that Metro resolves by handing someone a
+// half-initialised module: the app threw during module init, before the first
+// render. The pill is a module of its own now (gate/MethodPill); the lazy
+// require stays so that SwipePill's props stay loosely typed to what the
+// server sends.
+import type { Field } from "../gate/types";
 import { useAuthFlow } from "../AuthFlowContext";
 import type { CompProps } from "../../sdui/components/props";
 import * as K from "../../sdui/knobs";
@@ -47,11 +47,9 @@ import { codeLiftTarget } from "./codeLift";
  */
 export const SwipePill = ({ props, style }: CompProps): React.ReactElement | null => {
   const flow = useAuthFlow();
-  // Resolved at RENDER time, not module-init time. By the time anything
-  // renders, every module has finished initialising, so reaching back into the
-  // auth screen here is safe where a top-level import is not.
+  // Resolved at RENDER time, not module-init time (see the type import above).
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { MethodPill } = require("../AuthGateScreen") as {
+  const { MethodPill } = require("../gate/MethodPill") as {
     MethodPill: React.ComponentType<{
       field: Field;
       onSubmit: (f: Field, value: string) => void;
