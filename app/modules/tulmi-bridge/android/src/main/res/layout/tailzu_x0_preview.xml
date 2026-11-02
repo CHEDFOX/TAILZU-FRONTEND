@@ -153,7 +153,7 @@
                 android:maxLines="1"
                 android:text="@string/tailzu_x0_preview_stage1"
                 android:textColor="@color/tailzu_widget_meta"
-                android:textSize="10.5dp" />
+                android:textSize="11dp" />
 
             <TextView
                 android:layout_width="0dp"
@@ -165,7 +165,7 @@
                 android:maxLines="1"
                 android:text="@string/tailzu_x0_preview_stage2"
                 android:textColor="@color/tailzu_widget_meta"
-                android:textSize="10.5dp" />
+                android:textSize="11dp" />
 
             <TextView
                 android:layout_width="0dp"
@@ -176,7 +176,7 @@
                 android:maxLines="1"
                 android:text="@string/tailzu_x0_preview_stage3"
                 android:textColor="@color/tailzu_widget_ink"
-                android:textSize="10.5dp"
+                android:textSize="11dp"
                 android:textStyle="bold" />
 
             <TextView
@@ -189,7 +189,7 @@
                 android:maxLines="1"
                 android:text="@string/tailzu_x0_preview_stage4"
                 android:textColor="@color/tailzu_widget_dim"
-                android:textSize="10.5dp" />
+                android:textSize="11dp" />
 
             <TextView
                 android:layout_width="0dp"
@@ -201,7 +201,7 @@
                 android:maxLines="1"
                 android:text="@string/tailzu_x0_preview_stage5"
                 android:textColor="@color/tailzu_widget_dim"
-                android:textSize="10.5dp" />
+                android:textSize="11dp" />
         </LinearLayout>
 
         <FrameLayout

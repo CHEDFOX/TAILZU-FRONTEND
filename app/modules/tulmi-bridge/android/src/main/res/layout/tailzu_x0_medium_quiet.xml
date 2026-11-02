@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  THE X0 WIDGET (TailzuX0Widget.kt), 4x2, all quiet: the greeting, the day's line, Ask any bot with the peek-bot key; the X0
-  bot hanging on at the top. Also the widget as placed, before the first draw.
+  THE X0 WIDGET (TailzuX0Widget.kt), 4x2, all quiet: the greeting, the day's line, Ask any bot with Blip's peek key; Blip
+  (X0's own) at rest at the top. Also the widget as placed, before the first draw.
 
   Generated with the other tailzu_x0_* layouts from one spec (android/x0-layouts.py), so a pill, a tile or a face is the same
   block everywhere. Every word, colour, face and tap is set at run time from the glance the app wrote (x0.glance); what is here
@@ -23,15 +23,16 @@
         android:src="@drawable/tailzu_widget_ground" />
 
     <ImageView
-        android:id="@+id/tailzu_x0_hang"
-        android:layout_width="112dp"
-        android:layout_height="67dp"
+        android:id="@+id/tailzu_x0_blip"
+        android:layout_width="52dp"
+        android:layout_height="72dp"
         android:layout_gravity="top|end"
-        android:layout_marginEnd="20dp"
+        android:layout_marginEnd="40dp"
+        android:layout_marginTop="14dp"
         android:contentDescription="@null"
         android:importantForAccessibility="no"
-        android:scaleType="fitStart"
-        android:src="@drawable/tailzu_x0_hang" />
+        android:scaleType="fitCenter"
+        android:src="@drawable/tailzu_x0_blip" />
 
     <LinearLayout
         android:layout_width="match_parent"

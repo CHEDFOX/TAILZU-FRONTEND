@@ -59,7 +59,7 @@ struct SetupActivityWidget: Widget {
           .padding(.top, 4)
         }
       } compactLeading: {
-        X0Mark(size: 22, onDark: true)
+        X0Mark(size: 22)
       } compactTrailing: {
         SetupRing(state: context.state, p: .dark).frame(width: 16, height: 16)
       } minimal: {
@@ -74,10 +74,11 @@ struct SetupActivityWidget: Widget {
 /// The Lock Screen's banner, in the phone's own appearance.
 struct SetupLockScreen: View {
   @Environment(\.colorScheme) private var scheme
+  @Environment(\.isLuminanceReduced) private var reduced
   let state: SetupActivityAttributes.ContentState
 
   var body: some View {
-    let p = X0Palette.of(scheme)
+    let p = X0Palette.of(scheme).reduced(reduced)
     SetupBanner(state: state, p: p)
       .activityBackgroundTint(p.ground)
       .activitySystemActionForegroundColor(p.ink)

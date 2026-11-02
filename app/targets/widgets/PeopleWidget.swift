@@ -119,9 +119,10 @@ struct PeopleView: View {
       }
       .font(.system(size: 12, weight: .semibold))
       .widgetAccentable()
+      // Full strength: `.secondary` fades to a wash over a bright wallpaper; the title's weight carries the hierarchy.
       Text(section.lockLine.isEmpty ? "Open X0" : section.lockLine)
         .font(.system(size: 13))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary)
         .lineLimit(2)
     }
     .frame(maxWidth: .infinity, alignment: .leading)

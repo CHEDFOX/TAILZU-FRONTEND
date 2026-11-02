@@ -220,7 +220,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
 
                         <TextView
                             android:id="@+id/tailzu_x0_stage1"
@@ -232,7 +232,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
 
                         <TextView
                             android:id="@+id/tailzu_x0_stage2"
@@ -244,7 +244,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
 
                         <TextView
                             android:id="@+id/tailzu_x0_stage3"
@@ -256,7 +256,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
 
                         <TextView
                             android:id="@+id/tailzu_x0_stage4"
@@ -268,7 +268,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
 
                         <TextView
                             android:id="@+id/tailzu_x0_stage5"
@@ -280,7 +280,7 @@
                             android:includeFontPadding="false"
                             android:maxLines="1"
                             android:textColor="@color/tailzu_widget_dim"
-                            android:textSize="10dp" />
+                            android:textSize="11dp" />
                     </LinearLayout>
                 </LinearLayout>
 
