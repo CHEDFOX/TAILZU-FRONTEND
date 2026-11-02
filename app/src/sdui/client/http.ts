@@ -30,7 +30,7 @@ export async function commonHeaders(): Promise<Record<string, string>> {
  * are worth retrying; 4xx client errors are not. Kept as a class so
  * `withRetry` can type-check the branch without brittle string parsing.
  */
-export class RetryableFetchError extends HttpError {
+class RetryableFetchError extends HttpError {
   constructor(status: number, detail: string) {
     super(status, detail);
     this.name = "RetryableFetchError";

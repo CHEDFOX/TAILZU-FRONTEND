@@ -15,7 +15,7 @@ import { tightRoom } from "./tightText";
  * is an authoring decision, and the catalog owns the copy; the renderer must
  * never rewrite it.
  */
-export function staticText(_node: Node, raw: string): string {
+function staticText(_node: Node, raw: string): string {
   return raw;
 }
 

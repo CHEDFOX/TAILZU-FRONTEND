@@ -32,7 +32,7 @@ export class HttpError extends Error {
 }
 
 /** What to tell a person about a refused request, by status. */
-export function httpErrorText(status: number): string {
+function httpErrorText(status: number): string {
   if (status === 401 || status === 403) {
     return txt("error.unauthorized", "Your session has expired. Sign in again to continue.");
   }
