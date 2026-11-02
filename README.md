@@ -1,58 +1,37 @@
-# Tulmi — app
+# X0 Bot — phone app
 
-The **Tulmi** mobile app: an Expo (React Native) client for Android + iOS that
-turns rough speech or typing into clean, ready-to-send text **in your own
-voice**. The app is a thin, **server-driven** shell — the backend decides what
-screens to show and does all the language work.
+The X0 Bot app for iOS and Android: an Expo (React Native, TypeScript) client that draws whatever the Tailzu
+backend sends (server-driven UI), plus its native parts — the iOS and Android keyboards, widgets and Live
+Activities, the share extension and live dictation.
 
-> **Backend lives in its own repo.** This repository is the app only. The
-> Fastify backend (voice/typing/screen pipeline, Supabase auth, SDUI catalog)
-> was split out — it runs on the VPS and is deployed separately.
+The backend (`TAILZU-BACKEND`) composes the screens and does the language work; this repository is the app only.
+The architecture, the folder map and a "where to find X" index are in **[archi.md](archi.md)**.
 
 ## Layout
 
 ```
-app/                Expo app (Android + iOS from one codebase)
-├─ src/sdui/        Server-Driven UI engine (renderer + action interpreter)
-├─ src/auth/        Supabase email auth (sign in/up, JWT, session)
-├─ src/api.ts       Backend client (talks to the VPS)
-├─ modules/         Native Android keyboard (Kotlin IME) via config plugin
-└─ targets/         Native iOS keyboard extension (Swift) via @bacons/apple-targets
+app/        the Expo app: src/ (TypeScript), modules/ (native modules, Android keyboard), targets/ (iOS extensions)
+docs/       launch and shipping guides, the streaming protocol, phone sign-in setup, keyboard spec, store listing
+tools/      CI scripts, knob manifests, the keyboard simulator, store and brand media
 ```
 
-## Quick start
+## Develop
 
 ```bash
 cd app
 npm install
-npm start            # press 'a' for Android, or scan the QR with Expo Go
+npx tsc --noEmit     # type-check
+npm test             # unit tests (node --test over src/**/*.test.ts)
+npx expo start       # Metro; the keyboards, widgets and other native parts need a development build
 ```
 
-Point the app at the backend: launch it, tap **⚙ (top-right)**, and set the
-backend URL to your VPS (e.g. `https://flow.yourdomain.com`).
+A development build: `npx expo run:ios` / `npx expo run:android` (or `eas build --profile development`).
 
-> Expo Go runs the main app, auth, and onboarding. The **native keyboard**
-> needs a development build: `npx expo prebuild` then `npx expo run:android`
-> (iOS builds via EAS — `eas build -p ios`).
+## Build and ship
 
-## How it works
+Store builds and over-the-air updates run on EAS, started from GitHub Actions → **EAS Release**
+(`.github/workflows/eas-release.yml`). A push to `main` that touches `app/` publishes an over-the-air update to
+every installed phone, unless it also changed a native file, in which case it needs a store build. Commands for
+every repo are in [docs/SHIP.md](docs/SHIP.md); the launch checklist is [docs/LAUNCH.md](docs/LAUNCH.md).
 
-- **Server-driven UI** — the backend sends a tree of UI nodes + actions; the app
-  renders them generically. Most product changes ship from the server with no
-  app update. See `app/src/sdui/`.
-- **Auth** — Supabase email sign-in; the JWT is sent to the backend, which
-  verifies it and scopes data per user. Config in `app/src/auth/`.
-- **Keyboard** — a native phone keyboard (separate system process where JS can't
-  run): Kotlin `InputMethodService` on Android, Swift keyboard extension on iOS,
-  both packaged by Expo.
-
-## Build
-
-| Target | Command | Notes |
-|---|---|---|
-| Android (dev) | `npx expo run:android` | needs Android Studio |
-| Android (cloud) | `eas build -p android` | APK/AAB for Play |
-| iOS (cloud) | `eas build -p ios` | no Mac needed; needs Apple Developer account |
-
-App identifiers: `com.tulmi.app` (both platforms). Build profiles in
-`app/eas.json`.
+App identifiers: `com.tulmi.app` on both platforms. Build profiles: `app/eas.json`.

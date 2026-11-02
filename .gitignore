@@ -11,19 +11,8 @@ dist/
 npm-debug.log*
 .pnpm-debug.log*
 
-# Backend test artifacts + sample audio (keep the README)
-tulmi/test-assets/*
-!tulmi/test-assets/README.md
-
-# Android
-android/.gradle/
-android/build/
-android/app/build/
-android/local.properties
-android/.idea/
+# Android Studio
 *.iml
-android/captures/
-android/.cxx/
 
 # OS / editor
 .DS_Store
