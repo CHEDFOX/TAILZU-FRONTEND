@@ -1686,7 +1686,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     /**
      * The app the keyboard is typing into, by name. The few apps a saved
      * per-app style can name keep the names those styles use; every other
-     * app is named as its launcher names it ("ChatGPT", "Claude", "Outlook")
+     * app is named as its launcher names it ("ChatGPT", "Gemini", "Outlook")
      * instead of "Generic", so the writer knows a prompt for an AI from a
      * chat, and Today says where each line went.
      */
