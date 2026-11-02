@@ -145,10 +145,6 @@ export function readLook(p: Record<string, unknown> | null | undefined): StageLo
  */
 const HOLD_PHASES: ReadonlySet<AppPhase> = new Set(["auth", "loading", "pending", "stage"]);
 
-export function holdsIn(phase: AppPhase): boolean {
-  return HOLD_PHASES.has(phase);
-}
-
 /**
  * SduiApp's own phase, mapped onto the overlay's.
  *

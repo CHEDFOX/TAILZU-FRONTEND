@@ -15,7 +15,7 @@
  * States: loading (until the page loads, or says `ready` when `waitForReady`; 15 s at most), the page, or an error with "Try again"
  * (a fresh WebView). `send`, bound to state, is handed to the page's window.tzLive whenever it changes, and after each load.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
 import type { CompProps } from "./components";

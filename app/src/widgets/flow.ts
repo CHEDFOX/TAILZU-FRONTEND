@@ -26,7 +26,7 @@ import { bool, color, num, obj, str, txt } from "../sdui/knobs";
  * happening and what to do, never the feature's name. `{n}` is filled with the
  * count by the widget.
  */
-export function flowActivityCopy(): FlowActivityCopy {
+function flowActivityCopy(): FlowActivityCopy {
   // The words beyond the ones FlowActivityCopy names ride in the same JSON; a build that does not read them skips them.
   const copy: FlowActivityCopy & Partial<Record<"compactListening" | "compactWriting" | "iconWriting", string>> = {
     listening: txt("widget.flow.listening", "Listening"),
@@ -102,7 +102,7 @@ export async function armFlow(
 }
 
 /** The Flow Session's numbers, for armFlowSession(…, flowArmOptions()). */
-export function flowArmOptions(): FlowArmOptions {
+function flowArmOptions(): FlowArmOptions {
   return {
     heartbeatMs: num("app.flow.heartbeatMs", 1000),
     bufferFreshMs: num("app.flow.bufferFreshMs", 2000),

@@ -9,7 +9,7 @@
  *                    from when the phone was last online; it goes back when the connection returns (useOfflineSwitch). Any other
  *                    screen shows the line `offline.bar` over it (OfflineBar). When kept asks have gone, `offline.sentToast`.
  */
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
@@ -77,7 +77,7 @@ function schedule(): void {
 }
 
 /** Send what waits, if the phone is online, and come back for what has to wait its turn. */
-export async function sendOutbox(): Promise<void> {
+async function sendOutbox(): Promise<void> {
   if (online === false) return;
   const n = await outbox.flush(true).catch(() => 0);
   if (n > 0) sentListener?.(n);

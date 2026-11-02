@@ -13,7 +13,7 @@ import { setShareConfig, type ShareConfig } from "../../modules/tulmi-share";
 import { color, num, txt } from "../sdui/knobs";
 
 /** The block, as the knobs in hand say it. */
-export function shareConfig(): ShareConfig {
+function shareConfig(): ShareConfig {
   return {
     v: 1,
     words: {

@@ -166,7 +166,7 @@ const TRAIN_NODE =
   "H13.16 A1.96 1.96 0 0 1 11.2 18.84 V13.16 A1.96 1.96 0 0 1 13.16 11.2 Z";
 const TRAIN_THREAD = "M3.2 25.8 L11.6 18.0 M20.4 14.0 L28.8 6.2";
 
-export function ThreadTrain({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
+function ThreadTrain({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? activeColor() : color;
   const w = strokes();
   return (
@@ -197,7 +197,7 @@ const STATS_FOLD =
   "M4.6 7.6 H23 A2.8 2.8 0 0 1 23 13.2 H9 A2.8 2.8 0 0 0 9 18.8 " +
   "H24 A2.8 2.8 0 0 1 24 24.4 H5.6";
 
-export function ThreadStats({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
+function ThreadStats({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0 }: Props & { nonce?: number }) {
   const c = active ? activeColor() : color;
   const w = strokes();
   return (
@@ -226,7 +226,7 @@ const YOU_TAG =
   "V13.4 A2.4 2.4 0 0 1 5.9 11.7 L11.7 5.9 A2.4 2.4 0 0 1 13.4 5.2 Z";
 const YOU_HOLE = "M19.3 10.5 A2.15 2.15 0 1 1 23.6 10.5 A2.15 2.15 0 1 1 19.3 10.5 Z";
 
-export function ThreadYou({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0, holeColor = K.color("ui.ThreadIcons.surface", "#000000") }:
+function ThreadYou({ active, color, size = K.num("ui.ThreadIcons.size", 26), nonce = 0, holeColor = K.color("ui.ThreadIcons.surface", "#000000") }:
   Props & { nonce?: number; holeColor?: string }) {
   const c = active ? activeColor() : color;
   const w = strokes();

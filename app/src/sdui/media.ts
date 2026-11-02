@@ -389,7 +389,7 @@ async function writeDown(h: Listening): Promise<void> {
 }
 
 /** Throw the recording away (the screen went). */
-export function cancelRecording(): void {
+function cancelRecording(): void {
   const h = heard;
   if (!h) return;
   h.stopped = true;
