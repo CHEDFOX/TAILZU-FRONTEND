@@ -338,7 +338,7 @@ For all your bots
 
 ## Alternatives
 
-For the owner to choose from. The chosen lines are above; any of these can replace them as they are.
+Lines to choose from. The chosen lines are above; any of these can replace them as they are.
 
 ### Subtitle, option 2 · 27 / 30
 

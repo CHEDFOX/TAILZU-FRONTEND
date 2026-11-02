@@ -98,8 +98,8 @@
     edge: bar(), bot: bot({ earMarks: ["o", "x"], face: { eyes: eyesX0 } }), style: (K) => black(K, { earMark: { color: "#5E2A16", w: 7, amp: 0.3, taper: [3, 3] } }),
     note: "Both: x0 in the glints and on the ears. Still quiet, but it rewards a second look." });
 
-  // Painted, the way the Claude mark is: flat colour only (no outlines, gradients, highlights or shadows), every
-  // edge cut in short, slightly uneven straight facets. Our colours: a black bot on warm white, clay ears.
+  // Painted: flat colour only (no outlines, gradients, highlights or shadows), every edge cut in short, slightly
+  // uneven straight facets. Our colours: a black bot on warm white, clay ears.
   function painted(K, c) {
     const cut = (len, jit) => ({ len, jit });
     return {
@@ -120,7 +120,7 @@
     edge: bar({ line: null, belowTint: null, wave: 0.8 }), bot: bot(o), style: (K) => painted(K, c) });
   const INK = "#151311", CREAM = "#FBF2E2", CLAY = "#C9683F";
   paintedVersion("6-painted", "6 · Painted", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: "#D8D0C3", head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ear: CLAY },
-    "Painted like the Claude mark: flat colour, no lines, every edge cut in short uneven facets. Black bot on warm white, a stone-grey bar.");
+    "Painted: flat colour, no lines, every edge cut in short uneven facets. Black bot on warm white, a stone-grey bar.");
   paintedVersion("7-painted-ink-bar", "7 · Painted, black bar", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: INK, head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ear: CLAY },
     "The bar painted black too, so the bot and the bar are one shape: just the gloves, the eyes and the ears break it.");
   paintedVersion("8-painted-clay-bar", "8 · Painted, clay bar", { ground: "#F7F3EC", ground2: "#EFE9DF", bar: CLAY, head: INK, visor: "#2C2825", eye: CREAM, hand: CREAM, ear: CLAY },

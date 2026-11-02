@@ -5,13 +5,14 @@
 // apps, plus the 512 px Google Play icon under Play's mask). Playwright with Chromium.
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CONCEPTS } from "./gen.mjs";
 
 const require = createRequire("/opt/node-tools/node_modules/");
 const { chromium } = require("playwright");
 const here = path.dirname(new URL(import.meta.url).pathname);
-const SCRATCH = "/tmp/claude-0/-home-user/36aabdc6-23c5-5bb4-b965-f6afd0072759/scratchpad";
+const SCRATCH = process.env.OUT_DIR || os.tmpdir();
 const [OUT1 = `${SCRATCH}/x0-icon-concepts.png`, OUT2 = `${SCRATCH}/x0-icon-top2-in-context.png`] = process.argv.slice(2);
 export const TOP = ["wink", "butler"];
 

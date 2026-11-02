@@ -10,7 +10,7 @@
     "cream-clay": {"tag": "5", "title": "Cream on clay", "line": "The warmest and most on-brand ground. Clay is a quieter ground than black, so the head pops less."},
     "ink-cream": {"tag": "6", "title": "Ink on cream", "line": "A charcoal matte head with a gloss-black visor on cream. Premium up close; the visor and head merge when small."}
   },
-  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the icon the owner pointed to, shown for level and distinctness."},
+  "reference": {"tag": "Ref", "title": "Grok Bot (reference)", "line": "Not ours: the reference icon, shown for level and distinctness."},
   "homeRows": [
     ["cream-black", null, "ref", null],
     [null, "curious", null, "coral-black"],

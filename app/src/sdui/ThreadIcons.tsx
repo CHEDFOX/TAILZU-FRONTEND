@@ -32,7 +32,7 @@ import * as K from "./knobs";
 
 /**
  * The lit colour — the selected tab icon's lit layer, and nothing else (it is
- * the one owner-kept exception to "amber only for what is live"; the app's
+ * the one deliberate exception to "amber only for what is live"; the app's
  * loading spinner no longer borrows it). Everything drawn HERE asks
  * activeColor(): the ui.ThreadIcons.active knob over its literal.
  */

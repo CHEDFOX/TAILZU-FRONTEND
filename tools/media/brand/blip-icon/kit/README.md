@@ -1,9 +1,7 @@
 # Blip icon kit
 
-Everything runs with plain `node` (v22); Chromium and Playwright are preinstalled.
-Run the scripts from this folder, or give their full paths.
-
-KIT=/tmp/claude-0/-home-user/36aabdc6-23c5-5bb4-b965-f6afd0072759/scratchpad/logo/kit
+Everything runs with plain `node` (v22) and Playwright with Chromium. `$KIT` below is this folder
+(`tools/media/brand/blip-icon/kit`).
 
 ## Tools
 
@@ -13,9 +11,8 @@ KIT=/tmp/claude-0/-home-user/36aabdc6-23c5-5bb4-b965-f6afd0072759/scratchpad/log
   - 60/40 on a light wallpaper;
   - a 1x 29 px worst case, enlarged.
 
-  Look at the sheet with the Read tool; it shows you the image.
 - `node $KIT/png.mjs in.svg out.png 1024 [1]` exports one PNG; pass `1` to add the squircle corners.
-- `node $KIT/run.mjs script.js out.json` runs `script.js` in a browser page. The script is the body of an async function and can use `KIT` and `BF`; it should `return` JSON. See `example-bust.js`, which writes an SVG string from the real figure.
+- `node $KIT/run.mjs script.js out.json` runs `script.js` in a browser page. The script is the body of an async function and can use `KIT` and `BF`; it should `return` JSON.
   - `BF` is Blip's real figure code (app/src/onboard/blipFigure.ts, bundled): `figure`, `makeDither`, `BAYER`, `POSES`, `arcPath`, `ellipsePath`, `roundRect`, `grey`.
   - `KIT.state(pose, overrides)` gives a still figure state, e.g. `{tilt, brows, look:[x,y], mouth:"grin"|"smile"}`.
   - `KIT.figure(g, H, st)` draws him in greys into a .84H x H box.
@@ -25,7 +22,7 @@ KIT=/tmp/claude-0/-home-user/36aabdc6-23c5-5bb4-b965-f6afd0072759/scratchpad/log
 
 ## Who Blip is (read app/src/onboard/blipFigure.ts `figure()` for the exact drawing)
 
-Look at the frames: /home/user/TAILZU-FRONTEND/tools/media/app/blip/wave-l/004.png and the other folders.
+The frames show him in motion: `tools/media/app/blip/wave-l/004.png` and the other folders there.
 
 - **Head:** an ellipse a little wider than tall, lit from the upper left. In the app, shading is the density of pale dots.
 - **Ears:** small rounded tabs on the sides.
@@ -54,8 +51,6 @@ Look at the frames: /home/user/TAILZU-FRONTEND/tools/media/app/blip/wave-l/004.p
 | rust | #C77A3A |
 
 Amber #E8A23C is reserved for streaks in the app, so avoid it.
-
-The current icon is ../try/current-faceDark.svg, its moods are in ../project/Face.dc.html, and ../try/sheet0.png shows it next to a raw real-dither test. The user's verdict on the current icon: "looks fine — refine it further and make it aesthetic", and "also create a cute version".
 
 ## Output rules for every icon SVG
 

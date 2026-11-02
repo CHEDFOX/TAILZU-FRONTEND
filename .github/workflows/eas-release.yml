@@ -283,8 +283,8 @@ jobs:
 
       - name: Send to TestFlight
         working-directory: app
-        # On failure the real eas error is on a log host the agent can't read,
-        # so the key lines are echoed as a GitHub error annotation too.
+        # On failure the full eas error sits on Expo's log host, outside this
+        # run, so the key lines are echoed as a GitHub error annotation too.
         run: |
           set -o pipefail
           if npx eas-cli@latest submit --platform ios --profile production --path "$RUNNER_TEMP/tailzu.ipa" --non-interactive 2>&1 | tee "$RUNNER_TEMP/submit.log"; then

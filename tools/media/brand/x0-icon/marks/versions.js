@@ -1,6 +1,6 @@
 /* X0 Bot: marks made of the letters themselves, painted flat. No character: x and 0 are the shapes.
- * Painted the way the Claude mark is (flat colour, no lines or shading, every edge cut in short uneven
- * facets), each on its own colour field. Uses the paper and media model of ../handdrawn-v2/draw.js.
+ * Painted flat (flat colour, no lines or shading, every edge cut in short uneven facets), each on its own
+ * colour field. Uses the paper and media model of ../handdrawn-v2/draw.js.
  * Space: the 1000 x 1000 icon square. */
 (function () {
   "use strict";
