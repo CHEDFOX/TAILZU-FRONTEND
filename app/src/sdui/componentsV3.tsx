@@ -14,7 +14,7 @@ import Svg, { Path } from "react-native-svg";
 import type { CompProps } from "./components";
 import * as K from "./knobs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { SvgShapes } from "./SvgShapes";
+import { SvgShapes } from "./components/SvgShapes";
 
 // ---------------------------------------------------------------------------
 // Layout

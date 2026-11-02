@@ -27,13 +27,13 @@ import type { GestureResponderEvent, LayoutChangeEvent, TextStyle } from "react-
 import type { Node, NodeEvent, ThemeTokens } from "./types";
 import type { Ctx } from "./actions";
 import { Store, getPath } from "./state";
-import { tightRoom } from "./tightText";
+import { tightRoom } from "./components/tightText";
 import * as api from "../api";
 import { errorDetail, streamErrorMessage, userErrorMessage } from "./client";
 import { isStreamAvailable, startStream, type LiveSession } from "../../modules/tulmi-stream";
-import { VoiceToggle } from "./morphControls";
-import { SpringPressable } from "./motion";
-import { createHold, type HoldIO } from "./holdToSpeak";
+import { VoiceToggle } from "./components/morphControls";
+import { SpringPressable } from "./components/motion";
+import { createHold, type HoldIO } from "./components/holdToSpeak";
 import { Image as ExpoImage } from "expo-image";
 import { resolveMedia } from "../media/resolveMedia";
 import { useFocusFill } from "../media/focusFill";
@@ -1098,19 +1098,19 @@ const VoiceButton = ({ node, props, style, store, fire, children }: CompProps) =
 };
 
 import { REGISTRY_V3 } from "./componentsV3";
-import { Rise } from "./Rise";
-import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "./authComponents";
-import { MorphOut } from "./MorphOut";
+import { Rise } from "./components/Rise";
+import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "../auth/sdui/authComponents";
+import { MorphOut } from "./components/MorphOut";
 import { OnboardStage } from "../onboard/OnboardStage";
 import { BlipSpot } from "../onboard/BlipSpot";
 import { BlipWalkOut } from "../onboard/BlipWalkOut";
-import { BotTiles } from "./BotTiles";
-import { BotCard } from "./BotCard";
-import { BotBuddy } from "./BotBuddy";
-import { HeadBar, LiveMarkNode, WriteOn } from "./HomeHead";
-import { LiveView } from "./LiveView";
-import { pageScrolled, pageTouched } from "./pageBus";
-import { PullBotScroll, usePullBot } from "./PullBot";
+import { BotTiles } from "./bots/BotTiles";
+import { BotCard } from "./bots/BotCard";
+import { BotBuddy } from "./bots/BotBuddy";
+import { HeadBar, LiveMarkNode, WriteOn } from "./bots/HomeHead";
+import { LiveView } from "./components/LiveView";
+import { pageScrolled, pageTouched } from "./components/pageBus";
+import { PullBotScroll, usePullBot } from "./bots/PullBot";
 
 /**
  * Every node type this build draws: the Bots app's (its kit, the sign-in's
