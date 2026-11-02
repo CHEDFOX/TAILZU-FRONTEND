@@ -811,7 +811,7 @@ const TextField = ({ node, props, style, store, fire }: CompProps) => {
  *
  * Two modes, picked by the server:
  *   • Live (props.live === true, native module present): streams mic audio over
- *     a WebSocket and fills the field word-by-word as you speak. See STREAMING.md.
+ *     a WebSocket and fills the field word-by-word as you speak. See docs/STREAMING.md.
  *   • File-based (default / fallback): records the mic (expo-audio), uploads to
  *     /v1/transcribe-clean, writes the cleaned text once.
  *
