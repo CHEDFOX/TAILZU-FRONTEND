@@ -42,7 +42,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import { Animated, Easing, View } from "react-native";
-import type { CompProps } from "../components";
+import type { CompProps } from "./props";
 import * as K from "../knobs";
 
 /**

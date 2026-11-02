@@ -13,7 +13,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, AppState, PixelRatio, View } from "react-native";
 import { Canvas, Picture, type SkPicture } from "@shopify/react-native-skia";
 import Reanimated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import type { CompProps } from "../sdui/components";
+import type { CompProps } from "../sdui/components/props";
 import { makeDither } from "./blipFigure";
 import { Blip, boxOf } from "./blipMotion";
 import { SkiaRaster, emptyPicture, recordBlip } from "./skiaCtx";

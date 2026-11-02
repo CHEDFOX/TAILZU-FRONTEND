@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
-import type { CompProps } from "../components";
+import type { CompProps } from "./props";
 import { decideNav, LIVE_READY_MS, liveSourceOf, openableHost, parseLiveMessage, sendScript } from "./liveViewRules";
 import * as K from "../knobs";
 

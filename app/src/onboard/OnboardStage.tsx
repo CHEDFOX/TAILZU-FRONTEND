@@ -30,7 +30,7 @@
 import React, { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, ScrollView, StatusBar, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { CompProps } from "../sdui/components";
+import type { CompProps } from "../sdui/components/props";
 import { useAuthFlow } from "../auth/AuthFlowContext";
 import { EASE } from "./blipMotion";
 import * as bus from "./stageBus";

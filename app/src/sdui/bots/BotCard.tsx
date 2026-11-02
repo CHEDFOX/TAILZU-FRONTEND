@@ -23,7 +23,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Dimensions, Modal, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { CompProps } from "../components";
+import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import { BotTile, type BotKind } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";

@@ -27,7 +27,7 @@
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LayoutAnimation, Text, View } from "react-native";
-import type { CompProps } from "../components";
+import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import { BotTile, kindOf, type BotKind, type BotMood, type BuddyAct } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";
