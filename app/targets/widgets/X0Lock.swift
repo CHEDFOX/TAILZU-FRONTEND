@@ -2,7 +2,9 @@ import SwiftUI
 import WidgetKit
 
 // X0 ON THE LOCK SCREEN: inline (in the date line), rectangular and circular, rendered by the system in its vibrant style
-// (white at strengths, faces turned to luminance). A locked phone is anyone's to read, so the words here are only the glance's
+// (white at strengths, faces turned to luminance). Every line is drawn at full strength (`.primary`): the system's `.secondary`
+// fades to a wash over a bright or busy wallpaper, so the hierarchy is the type's (the title semibold and accented, the line
+// regular) and the empty track and beads keep 40% and more. A locked phone is anyone's to read, so the words here are only the glance's
 // `lock` words (lock.inline, lock.title, lock.line), which the server makes safe: a private question's words never reach them.
 // A question's own text is never drawn here. Beside the words: a face, the stage bar or ring, the week's beads, the peek-bot key.
 
@@ -63,7 +65,7 @@ struct X0Rectangle: View {
           if !line.isEmpty {
             Text(line)
               .font(.system(size: 12.5))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(.primary)
               .lineLimit(2)
           }
         }
@@ -76,9 +78,9 @@ struct X0Rectangle: View {
           .widgetAccentable()
         Text(line.isEmpty ? c.jobShortLine(j) : line)
           .font(.system(size: 12))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(.primary)
           .lineLimit(1)
-        StageBar(stage: j.stage, of: j.of, color: .white, track: Color.white.opacity(0.25), height: 5)
+        StageBar(stage: j.stage, of: j.of, color: .white, track: Color.white.opacity(0.4), height: 5)
           .padding(.top, 6)
       }
     case .bot(let b):
@@ -89,7 +91,7 @@ struct X0Rectangle: View {
           .widgetAccentable()
         Text(line.isEmpty ? b.line : line)
           .font(.system(size: 12))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(.primary)
           .lineLimit(2)
       }
     case .done(let d):
@@ -102,7 +104,7 @@ struct X0Rectangle: View {
             .widgetAccentable()
           Text(line.isEmpty ? c.doneLine(d) : line)
             .font(.system(size: 12.5))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.primary)
             .lineLimit(2)
         }
       }
@@ -113,11 +115,11 @@ struct X0Rectangle: View {
           .lineLimit(1)
           .widgetAccentable()
         HStack(spacing: 7) {
-          Beads(dots: c.g?.weekDots ?? 0, ink: .white, hollow: Color.white.opacity(0.45), size: 6, gap: 3)
+          Beads(dots: c.g?.weekDots ?? 0, ink: .white, hollow: Color.white.opacity(0.65), size: 6, gap: 3)
           if !line.isEmpty {
             Text(line)
               .font(.system(size: 12))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(.primary)
               .lineLimit(1)
           }
         }

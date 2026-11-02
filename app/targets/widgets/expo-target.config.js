@@ -25,9 +25,10 @@
  * the faces, the keyboard's arming tombstone) — the same group the keyboard
  * uses, so it MUST match app.config.ts and targets/keyboard.
  *
- * Assets.xcassets (X0Mark: the app icon's bot head; X0Hang: the painted bot
- * hanging off the X0 widget's top edge; X0Peek: the keyboard's peek-bot key;
- * Face-*: the built-in bots' heads, for the gallery and a first run) is in
+ * Assets.xcassets (BlipHead: X0's mark, Blip's head; Blip<Pose>: Blip, X0's
+ * own mascot, in his poses for Bots at work and the quiet hours; BlipPeek: the
+ * Ask key, Blip peeking into the keyboard's window; Face-*: the built-in
+ * bots' heads, for the gallery and a first run) is in
  * this folder, which the plugin syncs into the target whole —
  * as targets/keyboard's own catalog is.
  *

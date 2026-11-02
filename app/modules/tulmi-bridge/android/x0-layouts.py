@@ -137,6 +137,11 @@ def face(id_, size, **kw):
     return img(id_, size, size, "@drawable/tailzu_x0_head_tailzu", scaleType="fitCenter", **kw)
 
 
+def blip(w, h, **kw):
+    """Blip, X0's own, at rest (all quiet): the dotted figure, as drawn, on either ground."""
+    return img("blip", w, h, "@drawable/tailzu_x0_blip", scaleType="fitCenter", **kw)
+
+
 def dot(id_, size=6, **kw):
     return img(id_, size, size, "@drawable/tailzu_x0_dot", **kw)
 
@@ -172,7 +177,8 @@ def check(size, mark):
 def bar(h, label=None, **kw):
     kids = [img("bar", "match_parent", h, "@drawable/tailzu_widget_pill", scaleType="fitXY")]
     if label:
-        kids.append(row([text(f"stage{i}", label, "dim", 500, w="0dp", layout_weight="1", ellipsize="none")
+        # The stages' names: never under 11dp, the ones still to come in the dim grey (4.5:1 and more on the ground).
+        kids.append(row([text(f"stage{i}", max(11, label), "dim", 500, w="0dp", layout_weight="1", ellipsize="none")
                          for i in range(6)], id_="stages", layout_marginTop="5dp"))
     return col(kids, id_="track", **kw)
 
@@ -286,7 +292,7 @@ L["small_working"] = ("2x2, bots working: the job's bot, its stage of the whole 
     text("sub", 11.5, "meta", w="match_parent", layout_marginTop="1dp"),
     vspace(),
     bar(6),
-    row([face("more_face", 16), text("more_text", 10.5, "meta", w="0dp", layout_weight="1", layout_marginStart="5dp")],
+    row([face("more_face", 16), text("more_text", 11, "meta", w="0dp", layout_weight="1", layout_marginStart="5dp")],
         id_="more", layout_marginTop="8dp", visibility="gone"),
 ])]))
 
@@ -299,10 +305,9 @@ L["small_done"] = ("2x2, something just finished: the bot, a check, what it fini
     pill(0, w="match_parent", full=True),
 ])]))
 
-L["small_quiet"] = ("2x2, all quiet: the painted X0 bot hanging off the top, the peek-bot key (Ask), the greeting and the day's line.",
+L["small_quiet"] = ("2x2, all quiet: Blip (X0's own) at rest at the top, Blip's peek key (Ask), the greeting and the day's line.",
                     root([
-    img("hang", 104, 62, "@drawable/tailzu_x0_hang", layout_gravity="top|start", layout_marginStart="12dp",
-        scaleType="fitStart"),
+    blip(40, 54, layout_gravity="top|start", layout_marginStart="16dp", layout_marginTop="12dp"),
     img("ask_key", 36, 36, "@drawable/tailzu_x0_peek", layout_gravity="top|end", layout_marginTop="14dp",
         layout_marginEnd="14dp"),
     col([
@@ -316,7 +321,7 @@ L["medium_needs"] = ("4x2, something needs you: the bot's big face (and what it 
     row([
         col([
             face("face", 56),
-            row([dot("lead_dot", layout_marginEnd="4dp"), text("lead_text", 10.5, "meta", lines=2, w="0dp", layout_weight="1")],
+            row([dot("lead_dot", layout_marginEnd="4dp"), text("lead_text", 11, "meta", lines=2, w="0dp", layout_weight="1")],
                 id_="lead", gravity="top", layout_marginTop="4dp", visibility="gone"),
         ], w="64dp"),
         col([
@@ -356,9 +361,9 @@ L["medium_done"] = ("4x2, something just finished: the bot, what it finished, ho
     crew(layout_marginTop="10dp"),
 ])]))
 
-L["medium_quiet"] = ("4x2, all quiet: the greeting, the day's line, Ask any bot with the peek-bot key; the X0 bot hanging on at the "
-                     "top. Also the widget as placed, before the first draw.", root([
-    img("hang", 112, 67, "@drawable/tailzu_x0_hang", layout_gravity="top|end", layout_marginEnd="20dp", scaleType="fitStart"),
+L["medium_quiet"] = ("4x2, all quiet: the greeting, the day's line, Ask any bot with Blip's peek key; Blip (X0's own) at rest at "
+                     "the top. Also the widget as placed, before the first draw.", root([
+    blip(52, 72, layout_gravity="top|end", layout_marginEnd="40dp", layout_marginTop="14dp"),
     body([
         text("hello", 13, "meta", w="match_parent", layout_marginEnd="116dp", layout_marginTop="2dp", visibility="gone"),
         text("line", 20, "ink", 700, lines=2, w="match_parent", layout_marginEnd="116dp", layout_marginTop="4dp",
@@ -415,9 +420,9 @@ L["large_done"] = ("4x4, something just finished: the greeting and the week's be
     ask(layout_marginTop="10dp"),
 ])]))
 
-L["large_quiet"] = ("4x4, all quiet: the X0 bot hanging on; the greeting, the day's line, the week's beads; the bots as Home's tiles; "
-                    "Ask with the peek-bot key.", root([
-    img("hang", 118, 70, "@drawable/tailzu_x0_hang", layout_gravity="top|end", layout_marginEnd="24dp", scaleType="fitStart"),
+L["large_quiet"] = ("4x4, all quiet: Blip (X0's own) at rest; the greeting, the day's line, the week's beads; the bots as Home's "
+                    "tiles; Ask with Blip's peek key.", root([
+    blip(64, 92, layout_gravity="top|end", layout_marginEnd="44dp", layout_marginTop="16dp"),
     body([
         text("hello", 14, "meta", w="match_parent", layout_marginEnd="128dp", layout_marginTop="4dp", visibility="gone"),
         text("line", 26, "ink", 700, lines=3, w="match_parent", layout_marginEnd="128dp", layout_marginTop="6dp",
@@ -465,11 +470,11 @@ PREVIEW = E("FrameLayout", a(id="@android:id/background", layout_width="match_pa
             seg("@drawable/tailzu_x0_preview_todo"),
         ], layout_marginTop="14dp"),
         row([
-            plain(10.5, "meta", 500, "tailzu_x0_preview_stage1", w="0dp", layout_weight="1", ellipsize="none"),
-            plain(10.5, "meta", 500, "tailzu_x0_preview_stage2", w="0dp", layout_weight="1", ellipsize="none"),
-            plain(10.5, "ink", 700, "tailzu_x0_preview_stage3", w="0dp", layout_weight="1", ellipsize="none"),
-            plain(10.5, "dim", 500, "tailzu_x0_preview_stage4", w="0dp", layout_weight="1", ellipsize="none"),
-            plain(10.5, "dim", 500, "tailzu_x0_preview_stage5", w="0dp", layout_weight="1", ellipsize="none"),
+            plain(11, "meta", 500, "tailzu_x0_preview_stage1", w="0dp", layout_weight="1", ellipsize="none"),
+            plain(11, "meta", 500, "tailzu_x0_preview_stage2", w="0dp", layout_weight="1", ellipsize="none"),
+            plain(11, "ink", 700, "tailzu_x0_preview_stage3", w="0dp", layout_weight="1", ellipsize="none"),
+            plain(11, "dim", 500, "tailzu_x0_preview_stage4", w="0dp", layout_weight="1", ellipsize="none"),
+            plain(11, "dim", 500, "tailzu_x0_preview_stage5", w="0dp", layout_weight="1", ellipsize="none"),
         ], layout_marginTop="5dp"),
         vspace(),
         row([
