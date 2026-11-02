@@ -1,6 +1,6 @@
 /**
  * The desktop app's own pages, captured for the films: TAILZU-DESKTOP's
- * app.html and sdui.js, drawn by Chromium against a real backend, and
+ * src/app/app.html and its renderer (src/app/sdui/), drawn by Chromium against a real backend, and
  * driven the way a person would. Today, the gear, Settings, "Give it a
  * name", the name typed a letter at a time, Save, the toast. Each step is a
  * PNG of the window's content at 2×, and deskapp/meta.js says where the
@@ -57,7 +57,7 @@ page.on("pageerror", (e) => console.error("page:", e.message));
 if (process.env.CLOCK) await page.clock.setFixedTime(new Date(process.env.CLOCK));
 // A fresh account each run: the name starts empty.
 await fetch(BASE + "/v1/personality", { method: "PUT", headers: { "content-type": "application/json", authorization: "Bearer dev" }, body: JSON.stringify({ assistantName: "" }) }).catch(() => {});
-await page.goto("file://" + path.join(desk, "app.html"));
+await page.goto("file://" + path.join(desk, "src", "app", "app.html"));
 await page.waitForSelector("#view *", { timeout: 20000 }); await page.waitForTimeout(1200);
 if (MODE === "voices") {
   // The Voices page whole, on each of its tabs, and after a voice is chosen;

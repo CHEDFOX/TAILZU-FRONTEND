@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Capture the desktop's REAL pill, frame by frame, from the desktop app's own
- * pill.html (TAILZU-DESKTOP), for the films that show it over a window.
+ * src/dictation/pill/pill.html (TAILZU-DESKTOP), for the films that show it over a window.
  *
  *   PW_ROOT=<dir with playwright> node tools/media/capture-pill.mjs <path/to/pill.html> [outDir] [--w=720] [--fps=30] [--seconds=9.6]
  *
