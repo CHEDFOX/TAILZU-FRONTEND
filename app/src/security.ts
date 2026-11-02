@@ -12,7 +12,7 @@
 const OUR_DOMAINS = ["x0bot.com", "tailzu.space"];
 
 /** x0bot.com or tailzu.space itself, or any subdomain of either. */
-export function isTailzuHost(host: string): boolean {
+function isTailzuHost(host: string): boolean {
   const h = host.toLowerCase();
   return OUR_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`));
 }

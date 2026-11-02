@@ -9,7 +9,7 @@
  * and colour carry it. The contract is the backend's (shared/types/sdui.ts SvgShape); desktop/sdui.js draws the
  * same shapes with CSS animations.
  */
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing } from "react-native";
 import Svg, { Circle, G, Path } from "react-native-svg";
 import type { SvgShape } from "./types";
@@ -19,7 +19,7 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 /** Reduce Motion, followed live. */
-export function useReduceMotion(): boolean {
+function useReduceMotion(): boolean {
   const [reduce, setReduce] = useState(false);
   useEffect(() => {
     let live = true;

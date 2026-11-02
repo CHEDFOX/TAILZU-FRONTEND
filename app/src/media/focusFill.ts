@@ -52,7 +52,7 @@ const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n))
  * worse failure than a mark a few points off. What it can reach, it reaches
  * exactly.
  */
-export function focusFill(
+function focusFill(
   boxW: number,
   boxH: number,
   aspect: number,

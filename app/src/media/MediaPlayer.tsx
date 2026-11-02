@@ -33,7 +33,7 @@
  * assets it returns null so the caller's fallback path takes over.
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { Image as RNImage, Text, View, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
+import { Image as RNImage, Text, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import { Image as ExpoImage, ImageContentFit } from "expo-image";
 import { resolveMedia, MediaSpec } from "./resolveMedia";
 import * as K from "../sdui/knobs";

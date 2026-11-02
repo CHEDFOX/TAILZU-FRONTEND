@@ -147,7 +147,7 @@ function drawFace(cv: SkCanvas, s: number[], K: Kit): void {
 }
 
 /** The bot, the prototype's drawBot: legs and feet, body, chest light, ears and antenna, head, visor, face, arms in front. */
-export function drawBot(cv: SkCanvas, s: number[], c: number[], K: Kit): void {
+function drawBot(cv: SkCanvas, s: number[], c: number[], K: Kit): void {
   "worklet";
   const top = s[S_BE] === 0, phase = s[S_B], scale = c[C_SCALE];
   cv.save();

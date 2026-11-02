@@ -13,7 +13,7 @@
  *
  * LaunchStill is the same picture standing still: the boot view between the launch and a first screen.
  */
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, View } from "react-native";
 import { num } from "../sdui/knobs";
 import {

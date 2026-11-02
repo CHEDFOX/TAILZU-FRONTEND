@@ -70,7 +70,7 @@ const waiting = new Map<number, Waiter>();
 let nextId = 1;
 
 /** Is a challenge configured at all? */
-export const captchaConfigured = (): boolean => TURNSTILE.siteKey.length > 0;
+const captchaConfigured = (): boolean => TURNSTILE.siteKey.length > 0;
 
 /**
  * Get a token for one auth request.

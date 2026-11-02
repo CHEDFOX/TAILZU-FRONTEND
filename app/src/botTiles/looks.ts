@@ -27,7 +27,7 @@ const store = new LooksStore(STARTER, {
 void store.restore();
 
 /** The catalog in use now. */
-export function looks(): Looks {
+function looks(): Looks {
   return store.current;
 }
 

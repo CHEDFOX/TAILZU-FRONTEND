@@ -113,10 +113,6 @@ export interface PoseTarget {
   thumb: number; point: number; hop: number; grin: number;
 }
 
-export type PoseName =
-  | "present" | "tap" | "pointd" | "tada" | "thumbs" | "wave" | "listen"
-  | "carry" | "wait" | "key" | "nod" | "think" | "walk";
-
 const P = (
   ra0: number, ra1: number, la0: number, la1: number, tilt: number, brows: number,
   lx: number, ly: number, thumb: number, point: number, hop: number, grin: number,

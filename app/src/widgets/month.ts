@@ -23,7 +23,7 @@ import type { BootstrapResponse } from "../sdui/types";
 import { publishFlowCopy, publishSetupActivity } from "./flow";
 
 /** The widget's words. `{n}` is a count the widget fills in. */
-export function widgetMonthLabels(): Record<string, string> {
+function widgetMonthLabels(): Record<string, string> {
   return {
     thisMonth: txt("widget.month.thisMonth", "THIS MONTH"),
     wordsLeft: txt("widget.month.wordsLeft", "WORDS LEFT"),
@@ -51,7 +51,7 @@ export function widgetMonthLabels(): Record<string, string> {
  * the grey of a label; line the hairline, a border, the line's track; surface
  * an avatar's disc; mark the line's fill. Never a bot's colour: that is theirs.
  */
-export function widgetColors(): { colors: Record<string, string>; light: Record<string, string> } {
+function widgetColors(): { colors: Record<string, string>; light: Record<string, string> } {
   return {
     colors: {
       ground: color("widget.color.ground", "#0A0A0A"),
@@ -162,7 +162,7 @@ export function publishWidgetMonth(
  * every bootstrap so the colours are the server's even before month stats have
  * been written. Each value falls back to the literal the native sides keep.
  */
-export function publishWidgetTheme(): void {
+function publishWidgetTheme(): void {
   if (Platform.OS !== "ios" && Platform.OS !== "android") return;
   const { colors, light } = widgetColors();
   // `light` beside the fields WidgetTheme names, as with the month.

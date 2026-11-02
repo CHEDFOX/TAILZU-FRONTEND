@@ -11,8 +11,6 @@
  */
 import * as Haptics from "expo-haptics";
 
-export type HapticStyle = "light" | "medium" | "heavy" | "rigid" | "soft" | "selection" | "success" | "warning" | "error" | "none";
-
 const IMPACT: Record<string, Haptics.ImpactFeedbackStyle> = {
   light: Haptics.ImpactFeedbackStyle.Light,
   medium: Haptics.ImpactFeedbackStyle.Medium,

@@ -146,4 +146,3 @@ export function MorphOut({ props, style, children }: CompProps): React.ReactElem
   );
 }
 
-export default MorphOut;

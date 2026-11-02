@@ -80,7 +80,7 @@ function setOn(on: boolean, keep: boolean): void {
 }
 
 /** The Sounds switch on this phone (on until turned off). */
-export function soundsOn(): boolean {
+function soundsOn(): boolean {
   return userOn;
 }
 

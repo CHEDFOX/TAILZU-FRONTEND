@@ -15,7 +15,7 @@ export function getPath(obj: any, path: string): any {
   return path.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
 }
 
-export function setPath(obj: any, path: string, value: any): void {
+function setPath(obj: any, path: string, value: any): void {
   const keys = path.split(".");
   // A path is data (a screen's, a link's); "__proto__.x" must not reach every
   // object in the app.

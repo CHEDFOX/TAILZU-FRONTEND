@@ -19,7 +19,7 @@
  * the only copy of anything. If the SDUI path is turned off, the native screen
  * still works because the native screen is still the thing doing the work.
  */
-import React, { createContext, useContext } from "react";
+import { createContext, useContext } from "react";
 
 export type AuthPhase = "entry" | "sending" | "verify" | "verifying";
 export type AuthMethodType = "email" | "phone";

@@ -9,7 +9,7 @@
  * All motion is spring physics (RN Animated — no worklet/babel deps) and every
  * interaction is haptic-tuned.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable } from "react-native";
 import { haptic } from "./haptic";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
