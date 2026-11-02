@@ -80,9 +80,9 @@ const config: ExpoConfig = {
   // 8.6 since 10 Oct 2026 (a version set outside this repo), so 1.0.2 could
   // never be uploaded; 8.7 is on the store now too. The iOS release job checks
   // this against the live store version before it builds (tools/ci/ios-version.mjs).
-  // 9.4: the version App Store Connect has in review (build 79 was sent on it, from
-  // a laptop). A rejected version stays open, so the next build goes on 9.4 too.
-  version: "9.4",
+  // The App Store has 8.5 live (lookup, 19 Oct 2026), so Apple refuses any build
+  // at 8.5 or below, 8.4 included. 8.8 is what build 79 carried, so build 80 stays on it.
+  version: "8.8",
   orientation: "portrait",
   // TWO SCHEMES, and the second one is why Google sign-in returns to the app.
   //
