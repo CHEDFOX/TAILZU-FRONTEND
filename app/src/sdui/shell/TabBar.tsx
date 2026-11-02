@@ -8,9 +8,13 @@ import { num, color } from "../knobs";
 import type { SetState } from "./types";
 import { styles, TAB_RAIL_TOP } from "./styles";
 
+type TabsNavigation = Extract<BootstrapResponse["navigation"], { kind: "tabs" }>;
+
 export function TabBar({ boot, theme, insets, dock, tabs, tabsWidth, setTabsWidth, tabId, tabPluck, setTabPluck, nav }: {
-  boot: BootstrapResponse | null; theme: ThemeTokens; insets: EdgeInsets; dock: Extract<BootstrapResponse["navigation"], { kind: "tabs" }>["dock"]; tabs: Extract<BootstrapResponse["navigation"], { kind: "tabs" }>["tabs"];
-  tabsWidth: number; setTabsWidth: (w: number) => void; tabId: string; tabPluck: number; setTabPluck: SetState<number>; nav: NavApi;
+  boot: BootstrapResponse | null; theme: ThemeTokens; insets: EdgeInsets;
+  dock: TabsNavigation["dock"]; tabs: TabsNavigation["tabs"];
+  tabsWidth: number; setTabsWidth: (w: number) => void; tabId: string;
+  tabPluck: number; setTabPluck: SetState<number>; nav: NavApi;
 }) {
   return (
     <View style={[styles.tabs, {
