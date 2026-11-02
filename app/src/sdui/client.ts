@@ -7,7 +7,7 @@ import { Appearance, Dimensions, I18nManager, PixelRatio, Platform } from "react
 import * as Localization from "expo-localization";
 import { DEFAULT_BASE_URL, bumpLaunchCount, getBaseUrl, getLanguage, saveKnobSnapshot } from "../storage";
 import { syncLooks } from "../botTiles/looks";
-import { syncSounds } from "./sounds";
+import { syncSounds } from "../media/sounds";
 import { getSupabaseAccessToken as getAccessToken } from "../auth/supabaseClient";
 import type {
   BootstrapResponse,
@@ -20,7 +20,7 @@ import { SDUI_SCHEMA_VERSION } from "./types";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "./registry";
 import { setKeyboardCredentials, setKeyboardDictionary, setWidgetMonth, setWidgetTheme } from "../../modules/tulmi-bridge";
 import { setKnobs, txt, num, bool, str, obj, color } from "./knobs";
-import { loadRemoteFonts } from "./remoteFonts";
+import { loadRemoteFonts } from "./theme/remoteFonts";
 import { isBackendPath } from "../security";
 import { logMetaEvents } from "../telemetry/meta";
 

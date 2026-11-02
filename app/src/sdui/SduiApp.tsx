@@ -26,25 +26,25 @@ import {
 } from "./client";
 import {
   TabThreadIcon, SettingsLines, ThreadRail, THREAD_RAIL_HEIGHT,
-} from "./ThreadIcons";
-import { loadRemoteFonts } from "./remoteFonts";
+} from "./shell/ThreadIcons";
+import { loadRemoteFonts } from "./theme/remoteFonts";
 import * as onboardBus from "../onboard/stageBus";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { RenderNode } from "./Renderer";
 import { ThemeContext, typeRole } from "./components";
 import { Store } from "./state";
-import { keptStore, liveShowing, reloadQuietly, useLiveUpdates } from "./live";
-import { PullBotContext } from "./PullBot";
-import { useSoundsState } from "./sounds";
+import { keptStore, liveShowing, reloadQuietly, useLiveUpdates } from "./live/live";
+import { PullBotContext } from "./bots/PullBot";
+import { useSoundsState } from "../media/sounds";
 import { runAction } from "./actions";
 import type { Ctx, NavApi } from "./actions";
-import { leaveMedia } from "./media";
+import { leaveMedia } from "../media/media";
 import type { ActionSpec, BootstrapResponse, LanguageOption, LaunchCard, ScreenResponse, ThemeTokens, UpdateGate } from "./types";
 import { setKnobs, txt, num, bool, str, color, obj, list } from "./knobs";
 import * as Notifications from "expo-notifications";
-import OfflineScreen from "./OfflineScreen";
-import { OfflineBar, outbox, startOutbox, useOfflineState, useOfflineSwitch, useOnline } from "./offline";
-import { hasSeenCard, markCardSeen } from "./launchCard";
+import OfflineScreen from "./offline/OfflineScreen";
+import { OfflineBar, outbox, startOutbox, useOfflineState, useOfflineSwitch, useOnline } from "./offline/offline";
+import { hasSeenCard, markCardSeen } from "./shell/launchCard";
 import {
   DEFAULT_BASE_URL, getBaseUrl, setBaseUrl, getLanguage, setLanguage, isFreshInstall,
   getPushAsked, setPushAsked, getOnboarded, setOnboarded, getLastBoot, setLastBoot,
@@ -75,7 +75,7 @@ function untilAppActive(): Promise<void> {
     });
   });
 }
-import { useEdgeSwipeBack, resolveEdgeSwipe } from "./gestures";
+import { useEdgeSwipeBack, resolveEdgeSwipe } from "./shell/gestures";
 import { SUPABASE_CONFIGURED } from "../auth/supabaseConfig";
 import { initAnalytics, resetAnalytics } from "../telemetry/analytics";
 import { initMeta } from "../telemetry/meta";
@@ -1746,7 +1746,7 @@ export default function SduiApp() {
     };
   }, [boot, screen]);
 
-  // Edge-swipe-back: a general, backend-driven capability (src/sdui/gestures).
+  // Edge-swipe-back: a general, backend-driven capability (src/sdui/shell/gestures).
   // Swiping right from the left edge pops the nav stack. Called unconditionally
   // (before any early return) so hook order stays stable; the zone only renders
   // when there's somewhere to go back to and the backend hasn't disabled it.

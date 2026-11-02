@@ -11,7 +11,7 @@
  * app.config.ts) — native-build only, it can't be flipped on via OTA.
  *
  * Back from the code step: top-left arrow OR swipe-right-from-the-left-edge
- * (the app-wide edge-swipe capability, src/sdui/gestures) — swipe, haptic, back.
+ * (the app-wide edge-swipe capability, src/sdui/shell/gestures) — swipe, haptic, back.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -38,22 +38,22 @@ import { BlurView } from "expo-blur";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as Crypto from "expo-crypto";
 import * as Localization from "expo-localization";
-import { haptic } from "../sdui/haptic";
+import { haptic } from "../sdui/components/haptic";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import { supabaseAuth } from "./supabaseClient";
 import { CaptchaHost, solveCaptcha } from "./captcha";
 import { AuthFlowProvider, type AuthFlow } from "./AuthFlowContext";
-import { RiseView } from "../sdui/Rise";
+import { RiseView } from "../sdui/components/Rise";
 import { RenderNode } from "../sdui/Renderer";
 import { ThemeContext, typeRole } from "../sdui/components";
-import { useAuthSduiCtx, missingComponents } from "../sdui/authRender";
+import { useAuthSduiCtx, missingComponents } from "./sdui/authRender";
 import type { Node, ThemeTokens } from "../sdui/types";
 import { MediaPlayer } from "../media/MediaPlayer";
-import { useEdgeSwipeBack } from "../sdui/gestures";
+import { useEdgeSwipeBack } from "../sdui/shell/gestures";
 import { callEndpoint, fetchAuthConfig, type AuthBackground } from "../sdui/client";
-import { fontsReady } from "../sdui/remoteFonts";
-import { ErrorBoundary } from "../sdui/ErrorBoundary";
+import { fontsReady } from "../sdui/theme/remoteFonts";
+import { ErrorBoundary } from "../sdui/shell/ErrorBoundary";
 import { abandon as abandonOnboard } from "../onboard/stageBus";
 import { AUTH_METHODS, countries, pickCountry, Country, GOOGLE_OAUTH, isGoogleConfigured } from "./authConfig";
 import { parseLink } from "../deeplinks/router";

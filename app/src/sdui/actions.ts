@@ -43,10 +43,10 @@ import { setLanguage } from "../storage";
 import { armFlow } from "../widgets/flow";
 import { isHandoffUrl, isOpenableUrl, isWebUrl, safeFileName } from "../security";
 import { fillText, navParams, resolveValue } from "./fill";
-import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "./media";
-import { runOutboxAction } from "./offline";
-import { setSoundsOn } from "./sounds";
-import { listenStream, makeStreamId, StreamTap } from "./askStream";
+import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "../media/media";
+import { runOutboxAction } from "./offline/offline";
+import { setSoundsOn } from "../media/sounds";
+import { listenStream, makeStreamId, StreamTap } from "./live/askStream";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;

@@ -189,7 +189,7 @@ export default function App() {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { SafeAreaProvider } = require("react-native-safe-area-context");
     const SduiApp = require("./src/sdui/SduiApp").default;
-    const { ErrorBoundary } = require("./src/sdui/ErrorBoundary");
+    const { ErrorBoundary } = require("./src/sdui/shell/ErrorBoundary");
     const LaunchCurtain = require("./src/launch/LaunchCurtain").default;
     /* eslint-enable @typescript-eslint/no-require-imports */
     const BlipHost = loadBlipHost();
