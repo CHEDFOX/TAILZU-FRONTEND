@@ -29,7 +29,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, Text, View } from "react-native";
-import type { CompProps } from "../components";
+import type { CompProps } from "../components/props";
 import { runAction } from "../actions";
 import type { BotTileSpec } from "../types";
 import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood, type Looks, type Moment } from "../../botTiles/core";

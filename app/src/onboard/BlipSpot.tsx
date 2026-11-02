@@ -22,7 +22,7 @@
  */
 import React, { useContext, useEffect, useRef } from "react";
 import { View } from "react-native";
-import type { CompProps } from "../sdui/components";
+import type { CompProps } from "../sdui/components/props";
 import { boxOf } from "./blipMotion";
 import { StepCtx } from "./OnboardStage";
 import * as bus from "./stageBus";

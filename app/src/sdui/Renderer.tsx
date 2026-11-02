@@ -6,7 +6,10 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { Animated } from "react-native";
 import type { Node, NodeEvent } from "./types";
 import { useStoreVersion } from "./state";
-import { REGISTRY, resolveStyle, useTheme, CompProps } from "./components";
+import { REGISTRY } from "./components";
+import type { CompProps } from "./components/props";
+import { resolveStyle } from "./theme/style";
+import { useTheme } from "./theme/ThemeContext";
 import { Ctx, evalCondition, runAction } from "./actions";
 import { num, str } from "./knobs";
 

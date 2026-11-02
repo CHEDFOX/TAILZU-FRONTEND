@@ -35,7 +35,7 @@ import Svg, { Path } from "react-native-svg";
 // runtime; the component itself is fetched lazily below.
 import type { Field } from "../AuthGateScreen";
 import { useAuthFlow } from "../AuthFlowContext";
-import type { CompProps } from "../../sdui/components";
+import type { CompProps } from "../../sdui/components/props";
 import * as K from "../../sdui/knobs";
 import { codeLiftTarget } from "./codeLift";
 

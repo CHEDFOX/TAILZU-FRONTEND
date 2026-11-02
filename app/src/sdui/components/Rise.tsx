@@ -24,7 +24,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated } from "react-native";
-import type { CompProps } from "../components";
+import type { CompProps } from "./props";
 import * as K from "../knobs";
 
 export type RiseCfg = {

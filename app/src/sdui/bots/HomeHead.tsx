@@ -17,7 +17,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
-import type { CompProps } from "../components";
+import type { CompProps } from "../components/props";
 import { tightRoom } from "../components/tightText";
 import { LiveMark, writeOnTimes } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";

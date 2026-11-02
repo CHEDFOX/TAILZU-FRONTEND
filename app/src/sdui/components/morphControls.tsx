@@ -15,7 +15,7 @@ import { haptic } from "./haptic";
 import { useAudioRecorder, AudioModule, RecordingPresets, setAudioModeAsync } from "expo-audio";
 import * as api from "../../api";
 import { errorDetail, userErrorMessage } from "../client";
-import type { CompProps } from "../components";
+import type { CompProps } from "./props";
 import { resolveMedia, type MediaSpec } from "../../media/resolveMedia";
 import { MediaPlayer } from "../../media/MediaPlayer";
 import * as K from "../knobs";
