@@ -21,7 +21,7 @@ import { VoiceToggle } from "./morphControls";
 import { Rise } from "./Rise";
 import { MorphOut } from "./MorphOut";
 import { LiveView } from "./LiveView";
-import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "../../auth/sdui/authComponents";
+import { SwipePill, AppleSignIn, GoogleSignIn, CodeEntry, AuthPhase } from "../../auth/sdui";
 import { OnboardStage } from "../../onboard/OnboardStage";
 import { BlipSpot } from "../../onboard/BlipSpot";
 import { BlipWalkOut } from "../../onboard/BlipWalkOut";
