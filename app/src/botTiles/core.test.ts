@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
-import { BotTile, BotTilesWorld, CARRY, Fabric, LiveMark, STEP, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
+import { BotTile, BotTilesWorld, CARRY, Fabric, LiveMark, STEP, checkExpression, compileWith, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
 // @ts-expect-error a plain .mjs script, no types
 import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
 
@@ -449,4 +449,13 @@ test("the window's botTiles.js is generated from this core, unchanged", { skip: 
   const h = hashesOf(out);
   assert.strictEqual(h.src, sha(readFileSync(SOURCE, "utf8")), "core.ts changed: run `node src/botTiles/genDesktop.mjs` and commit TAILZU-DESKTOP/botTiles.js");
   assert.strictEqual(h.actualBody, h.body, "TAILZU-DESKTOP/botTiles.js was edited by hand: regenerate it");
+});
+
+test("the motion language over a caller's own names (the desktop's Blip catalog): t and v, nothing else", () => {
+  const f = compileWith("sin(t*2) + v*0.5", ["t", "v"]);
+  assert.ok(Math.abs(f(Float64Array.from([0.25, 1])) - (Math.sin(0.5) + 0.5)) < 1e-12);
+  assert.strictEqual(compileWith("2*3", ["t"])(new Float64Array(1)), 6);
+  assert.throws(() => compileWith("beat + 1", ["t", "v"]), /unknown name beat/);
+  assert.strictEqual(checkExpression("beat + 1"), "", "a moment's names stay a moment's");
+  assert.match(checkExpression("t + w", ["t"]), /unknown name w/);
 });

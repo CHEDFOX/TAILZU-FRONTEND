@@ -246,8 +246,9 @@ const own = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.c
 interface Xp { c: number; code: Float64Array | null }
 const XP0: Xp = { c: 0, code: null };
 
-/** Expression text into bytecode (a constant when it reads no name). Throws on anything it does not know. */
-function xcompile(src: string): Xp {
+/** Expression text into bytecode (a constant when it reads no name). Throws on anything it does not know. `names` are the
+ *  names it may read, in the order their values are handed to it: a moment's (MOMENT_VARS), or a caller's own. */
+function xcompile(src: string, names: readonly string[] = MOMENT_VARS): Xp {
   const toks: Array<{ t: number; v: string; n: number }> = [];
   for (let i = 0; i < src.length;) {
     const ch = src.charCodeAt(i);
@@ -312,7 +313,7 @@ function xcompile(src: string): Xp {
         return;
       }
       if (own(XCONST, k.v)) { code.push(XO_NUM, XCONST[k.v]!); push(); return; }
-      const vi = MOMENT_VARS.indexOf(k.v);
+      const vi = names.indexOf(k.v);
       if (vi < 0) throw new Error(`unknown name ${k.v}`);
       code.push(XO_VAR, vi);
       reads = true;
@@ -405,9 +406,21 @@ function xrun(code: Float64Array, vars: Float64Array): number {
   return s[0]!;
 }
 
-/** Check an expression the way a recipe's would be compiled (the server's checks and tests use this). */
-export function checkExpression(src: string): string {
-  try { xcompile(src); return ""; } catch (e) { return (e as Error).message; }
+/** Check an expression the way a recipe's would be compiled (the server's checks and tests use this). `names`: as compileWith's. */
+export function checkExpression(src: string, names?: readonly string[]): string {
+  try { xcompile(src, names); return ""; } catch (e) { return (e as Error).message; }
+}
+
+/**
+ * The same language over names of a caller's own: the desktop's Blip catalog (his moves read t, seconds into the move,
+ * and v, the voice's level). Gives a function of their values, in `names` order (a Float64Array of that length); throws
+ * on anything the language does not know, as a moment's expression does.
+ */
+export function compileWith(src: string, names: readonly string[]): (vals: Float64Array) => number {
+  if (names.length > 32) throw new Error("too many names");
+  const xp = xcompile(src, names);
+  const code = xp.code;
+  return code ? (vals) => xrun(code, vals) : () => xp.c;
 }
 
 // ---- parts: small drawings in bot heights
