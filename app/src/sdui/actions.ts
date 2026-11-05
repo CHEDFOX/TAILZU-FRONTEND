@@ -48,6 +48,7 @@ import { playAudio, recordVoice, stopAudio, uploadFile, type MediaIO } from "../
 import { runOutboxAction } from "./offline/offline";
 import { setSoundsOn } from "../media/sounds";
 import { listenStream, makeStreamId, StreamTap } from "./live/askStream";
+import { voiceLive, voiceStop } from "./voice/voiceLive";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -514,6 +515,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "playAudio": await playAudio(action, mediaIO(ctx)); break;
     case "stopAudio": stopAudio(); break;
     case "recordVoice": await recordVoice(action, mediaIO(ctx)); break;
+    // Live words, turn by turn (voice/voiceLive.ts): it returns once listening has started, not when the session ends.
+    case "voiceLive":
+      await voiceLive(action, {
+        owner: ctx.store,
+        set: (path, value) => ctx.store.set(path, value),
+        run: (r, event) => runAction(r, event === undefined ? ctx : { ...ctx, event }),
+        cond: (c) => evalCondition(c, ctx),
+      });
+      break;
+    case "voiceStop": voiceStop(ctx.store); break;
     // Keep an ask to send once the phone is online, take one out, try one again (offline.tsx).
     case "outbox": await runOutboxAction(action, ctx); break;
     // A setting kept on this phone (sounds.ts): the Sounds switch, honoured at once.

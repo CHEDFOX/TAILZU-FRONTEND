@@ -2,11 +2,17 @@
 //
 // The living tiles' core (core.ts): the same seed gives the same frames; long runs stay finite, inside their tile
 // and calm; a look target turns the head; Reduce Motion is still; a frame draws in a bounded number of calls; and the
-// window's generated copy (TAILZU-DESKTOP/botTiles.js) is this file, unchanged.
+// window's generated copy (TAILZU-DESKTOP/botTiles.js) is this file, unchanged. A bot on a stage of his own (BotStage):
+// walking to a spot, out and back in, roaming, listening, his crown; his thought's trail and the resting box following
+// him; a crowd of tiny bots drawn in bounded calls.
 import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
-import { BotTile, BotTilesWorld, CARRY, Fabric, LiveMark, STEP, checkExpression, compileWith, gridWorld, rng, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type TileCtx } from "./core.ts";
+import {
+  BotTile, BotTilesWorld, CARRY, FOLLOW, Fabric, LiveMark, Roam, STEP, TRAIL, checkExpression, compileLooks, compileWith, followStep, gridWorld, rng,
+  thoughtTrail, trailRoom, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type FollowState, type TileCtx,
+} from "./core.ts";
+import { STARTER } from "./starter.ts";
 // @ts-expect-error a plain .mjs script, no types
 import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
 
@@ -458,4 +464,262 @@ test("the motion language over a caller's own names (the desktop's Blip catalog)
   assert.throws(() => compileWith("beat + 1", ["t", "v"]), /unknown name beat/);
   assert.strictEqual(checkExpression("beat + 1"), "", "a moment's names stay a moment's");
   assert.match(checkExpression("t + w", ["t"]), /unknown name w/);
+});
+
+// ===================================================================== a bot on a stage of his own
+
+const LOOKS = compileLooks(STARTER);
+const ROAM = { moments: ["dance", "shrug", "juggle", "hiccup", "highfive", "celebrate", "sneeze"], every: [2.4, 3.8] as [number, number], pause: [0.3, 0.9] as [number, number], span: [0.1, 0.9] as [number, number] };
+
+/** The person's own bot on a stage: ink, no toys, no cloth, his size fixed. */
+function stageBot(seed = 7, w = 360, h = 132, size = 30): BotTile {
+  const t = new BotTile({ kind: "custom", color: "#0a0a0a", mood: "idle", seed, size, toys: false });
+  t.cloth = 0;
+  t.setAvatar(LOOKS.avatar("custom"));
+  t.resize(w, h, h - 2);
+  return t;
+}
+
+test("walkTo: he walks there on his own legs and stands; the same seed walks the same way", () => {
+  const a = stageBot(7), b = stageBot(7);
+  a.walkTo(300);
+  b.walkTo(300);
+  assert.ok(a.walking());
+  let there = -1;
+  for (let f = 0; f < 60 * 8; f++) {
+    a.step(1 / 60); b.step(1 / 60);
+    if (there < 0 && !a.walking()) there = f;
+  }
+  assert.ok(there > 0, "he gets there");
+  assert.ok(Math.abs(a.x[2]! - 300) < a.S * 0.6, `standing near 300 (${a.x[2]!.toFixed(1)})`);
+  assert.deepStrictEqual(Array.from(a.x), Array.from(b.x), "the same frames");
+  assert.ok(a.finite() && a.inside());
+  assert.strictEqual(a.np, 0, "no toys on his stage");
+});
+
+test("exit and enter: out past the edge and standing there, then back in to a spot; deterministic", () => {
+  for (const side of ["left", "right"] as const) {
+    const a = stageBot(9), b = stageBot(9);
+    for (let f = 0; f < 60; f++) { a.step(1 / 60); b.step(1 / 60); }
+    a.exit(side); b.exit(side);
+    let out = false;
+    for (let f = 0; f < 60 * 10 && !out; f++) { a.step(1 / 60); b.step(1 / 60); out = a.out(); }
+    assert.ok(out, `out at the ${side}`);
+    const hx = a.x[2]!;
+    assert.ok(side === "left" ? hx < -a.S * 0.8 : hx > a.w + a.S * 0.8, `past the ${side} edge (${hx.toFixed(1)})`);
+    assert.ok(!a.walking(), "standing out there");
+    for (let f = 0; f < 120; f++) a.step(1 / 60);
+    assert.ok(a.out() && Math.abs(a.x[2]! - hx) < a.S, "he stays out");
+    for (let f = 0; f < 120; f++) b.step(1 / 60);
+    a.enter(side, 180); b.enter(side, 180);
+    assert.ok(!a.out() && a.walking());
+    let at = NaN;
+    for (let f = 0; f < 60 * 10; f++) { a.step(1 / 60); b.step(1 / 60); if (at !== at && !a.walking()) at = a.x[2]!; }
+    assert.ok(!a.out() && !a.walking(), "in again");
+    assert.ok(Math.abs(at - 180) < a.S * 0.5, `he stops at 180 (${at.toFixed(1)}), then his own life again`);
+    assert.ok(a.finite() && a.inside());
+    assert.deepStrictEqual(Array.from(a.x), Array.from(b.x), "the same frames");
+  }
+  // Drawn already gone (a screen whose state has him out): out at once, then in from there.
+  const c = stageBot(3);
+  c.exit("right", { now: true });
+  assert.ok(c.out() && c.x[2]! > c.w);
+  c.enter("right", 100);
+  let at = NaN;
+  for (let f = 0; f < 60 * 10; f++) { c.step(1 / 60); if (at !== at && !c.walking()) at = c.x[2]!; }
+  assert.ok(!c.out() && Math.abs(at - 100) < c.S * 0.5);
+});
+
+test("Roam: walks to spots in his span and plays moments; the same seed, the same roam; it waits while he listens, thinks or is out", () => {
+  const run = (seed: number) => {
+    const t = stageBot(5);
+    const r = new Roam(t, LOOKS, ROAM, t.w, seed);
+    const played = new Set<string>();
+    let lo = 1e9, hi = -1e9;
+    for (let f = 0; f < 60 * 40; f++) {
+      t.step(1 / 60);
+      r.step(1 / 60);
+      if (t.mo) played.add(t.mo.id);
+      lo = Math.min(lo, t.x[2]!); hi = Math.max(hi, t.x[2]!);
+      if (f % 60 === 0) assert.ok(t.finite() && t.inside(), `frame ${f}`);
+    }
+    return { t, played, lo, hi };
+  };
+  const a = run(11), b = run(11);
+  assert.deepStrictEqual(Array.from(a.t.x), Array.from(b.t.x), "deterministic");
+  assert.ok(a.played.size >= 3, `moments played: ${[...a.played].join(", ")}`);
+  assert.ok(a.hi - a.lo > a.t.w * 0.3, `he walks about (${a.lo.toFixed(0)}..${a.hi.toFixed(0)})`);
+  assert.ok(a.lo > a.t.w * 0.1 - a.t.S && a.hi < a.t.w * 0.9 + a.t.S, "inside his span");
+  const c = run(12);
+  assert.notDeepStrictEqual(Array.from(a.t.x), Array.from(c.t.x), "another seed, another roam");
+  // listening: Roam leaves him be
+  const t = stageBot(5), r = new Roam(t, LOOKS, ROAM, t.w, 4);
+  for (let f = 0; f < 60 * 3; f++) { t.step(1 / 60); r.step(1 / 60); }
+  t.setAct("listen");
+  const x0 = t.x[2]!;
+  for (let f = 0; f < 60 * 8; f++) { t.step(1 / 60); r.step(1 / 60); assert.ok(!t.mo && !t.walking(), "no moment, no walk while he listens"); }
+  assert.ok(Math.abs(t.x[2]! - x0) < t.S * 0.6, "he stands where he is");
+  t.setAct("play");
+  r.pause(true);
+  for (let f = 0; f < 60 * 8; f++) { t.step(1 / 60); r.step(1 / 60); assert.ok(!t.walking() && !t.mo, "paused: nothing"); }
+});
+
+test("listening: still, eyes wide open, his head toward his thought, the antenna lit with the voice; standing: still", () => {
+  const t = stageBot(6);
+  for (let f = 0; f < 60; f++) t.step(1 / 60);
+  t.setAct("listen");
+  const g0 = t.gaze();
+  t.lookAt(g0.headX + 80, g0.headY - 60);
+  let glow = 0, lid = 1;
+  const r = rng(3);
+  for (let f = 0; f < 60 * 6; f++) {
+    t.setLevel(r());
+    t.step(1 / 60);
+    glow = Math.max(glow, t.glow);
+    if (f > 60) lid = Math.min(lid, t.lid);
+    assert.ok(t.finite(), `frame ${f}`);
+  }
+  assert.ok(t.inside());
+  assert.ok(t.lid < 0.2 && lid < 0.1, `eyes open (${t.lid.toFixed(2)})`);
+  assert.ok(t.gaze().tilt > 0.05 && t.gaze().tilt < 0.4, `head toward it (${t.gaze().tilt.toFixed(2)})`);
+  assert.ok(Math.abs(t.x[2]! - g0.headX) < t.S * 0.6, "no step toward it: he stays");
+  assert.ok(glow > 0.3, `the antenna glows with the voice (${glow.toFixed(2)})`);
+  t.setLevel(0);
+  for (let f = 0; f < 120; f++) t.step(1 / 60);
+  assert.ok(t.glow < 0.15, "and dims when it is quiet");
+  t.setAct("stand");
+  t.lookAway();
+  const x = t.x[2]!;
+  for (let f = 0; f < 60 * 5; f++) t.step(1 / 60);
+  assert.ok(Math.abs(t.x[2]! - x) < t.S * 0.5 && t.finite() && t.inside(), "standing still");
+  // every kind listens and stands, finite and inside
+  for (const kind of KINDS) for (const act of ["listen", "stand"] as BuddyAct[]) {
+    const b = buddy(kind, act, "idle", 150, 56, 34);
+    for (let f = 0; f < 600; f++) { b.setLevel((f % 20) / 20); b.step(1 / 60); }
+    assert.ok(b.finite() && b.inside(), `${kind}/${act}`);
+  }
+});
+
+test("his crown: finite, over his head and inside the stage, with every look", () => {
+  for (const av of [...LOOKS.avatars.keys()]) {
+    const t = stageBot(8);
+    t.setAvatar(LOOKS.avatar("custom", av));
+    for (let f = 0; f < 240; f++) t.step(1 / 60);
+    const c = t.crown(), g = t.gaze();
+    assert.ok(Number.isFinite(c.x) && Number.isFinite(c.y), av);
+    assert.ok(c.y < g.headY - t.rH * 0.5, `${av}: over his head`);
+    assert.ok(c.y > 0 && c.x > 0 && c.x < t.w, `${av}: inside the stage (${c.x.toFixed(1)}, ${c.y.toFixed(1)})`);
+  }
+});
+
+test("a bot without toys: no props and never his kind's play; every kind stays finite and inside", () => {
+  for (const kind of KINDS) {
+    const t = new BotTile({ kind, color: "#4F7A3A", seed: 4, size: 22, toys: false });
+    t.cloth = 0;
+    t.resize(120, 90, 88);
+    for (let f = 0; f < 60 * 60; f++) {
+      t.step(1 / 60);
+      if (kind !== "make") assert.ok(t.act !== 6, `${kind}: no play without toys`);
+    }
+    assert.strictEqual(t.np, 0, kind);
+    assert.ok(t.finite() && t.inside(), kind);
+  }
+});
+
+test("the trail: three bubbles 10/17/26 with 1.5/1.75/2 outlines, equal gaps, smallest at his head, meeting the box", () => {
+  const crown = { x: 100, y: 200 }, box = { x: 40, y: 60, w: 240, h: 40 };
+  const b = thoughtTrail(crown, box, 0, -1);
+  assert.strictEqual(b.length, 3);
+  assert.deepStrictEqual(b.map((x) => Math.round(x.r * 2 * 100) / 100), TRAIL.sizes, "full size with room");
+  assert.deepStrictEqual(b.map((x) => x.stroke), TRAIL.strokes);
+  assert.ok(b.every((x) => x.alpha === 1));
+  assert.ok(b[0]!.y > b[1]!.y && b[1]!.y > b[2]!.y, "rising to the box");
+  // equal gaps along the path: from just over his crown to the first, and between each (the bob is a px at most)
+  const d = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.hypot(p.x - q.x, p.y - q.y);
+  const g1 = d(b[0]!, b[1]!) - b[0]!.r - b[1]!.r, g2 = d(b[1]!, b[2]!) - b[1]!.r - b[2]!.r;
+  const g0 = crown.y - TRAIL.lift - (b[0]!.y + b[0]!.r);
+  assert.ok(Math.abs(g1 - g2) < 3.5 && Math.abs(g0 - g1) < 3.5, `gaps ${g0.toFixed(1)} ${g1.toFixed(1)} ${g2.toFixed(1)}`);
+  assert.ok(b[2]!.y - b[2]!.r > box.y + box.h, "the last under the box, not on it");
+  assert.ok(b[2]!.x >= box.x + TRAIL.anchorPad - 1 && b[2]!.x <= box.x + box.w - TRAIL.anchorPad + 1, "meets the box inside its corners");
+  // the same frame, the same bubbles; time bobs them by a px or so
+  assert.deepStrictEqual(thoughtTrail(crown, box, 0, -1), b);
+  const later = thoughtTrail(crown, box, 1.3, -1);
+  assert.ok(later.every((x, i) => Math.abs(x.y - b[i]!.y) <= 2 * TRAIL.bob + 1e-9 && Math.abs(x.x - b[i]!.x) <= TRAIL.bob + 1e-9));
+  assert.ok(later.some((x, i) => x.y !== b[i]!.y), "and they bob");
+});
+
+test("the trail: short of room the bubbles shrink together, then fade; a box not over him hides them; they swell with the voice", () => {
+  const crown = { x: 100, y: 200 };
+  const full = thoughtTrail(crown, { x: 0, y: 60, w: 240, h: 40 }, 0, -1);
+  const short = thoughtTrail(crown, { x: 0, y: 150, w: 240, h: 20 }, 0, -1);
+  const k = short[0]!.r / full[0]!.r;
+  assert.ok(k < 1 && k >= TRAIL.minScale - 1e-9, `scaled ${k.toFixed(2)}`);
+  for (let i = 1; i < 3; i++) assert.ok(Math.abs(short[i]!.r / full[i]!.r - k) < 1e-9, "all together");
+  const none = thoughtTrail(crown, { x: 0, y: 190, w: 240, h: 20 }, 0, -1);
+  assert.ok(none.every((x) => x.alpha === 0), "no room: faded out");
+  const below = thoughtTrail(crown, { x: 0, y: 260, w: 240, h: 40 }, 0, -1);
+  assert.ok(below.every((x) => x.alpha === 0), "a box under him: none");
+  const box = { x: 0, y: 40, w: 240, h: 40 };
+  const loud = thoughtTrail(crown, box, 0, 1), quiet = thoughtTrail(crown, box, 0, 0), mid = thoughtTrail(crown, box, 0, 0.5);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(Math.abs(loud[i]!.r / mid[i]!.r - (1 + TRAIL.pulse)) < 1e-9, "swells with the voice");
+    assert.ok(Math.abs(quiet[i]!.r / mid[i]!.r - (1 - TRAIL.pulse)) < 1e-9, "and shrinks when it is quiet");
+  }
+  // the room a resting stage plans for holds the whole trail at full size
+  const room = trailRoom(1);
+  const rest = thoughtTrail(crown, { x: 0, y: crown.y - room - 40, w: 240, h: 40 }, 0, -1);
+  assert.ok(Math.abs(rest[2]!.r * 2 - 26) < 1e-6, `rest room ${room}`);
+  assert.ok(room > 75 && room < 90);
+});
+
+test("followStep: the box stays put while his head sways inside the deadband, follows a walk a little behind, stops at the bounds", () => {
+  const B = { lo: 60, hi: 300 };
+  let s: FollowState = { x: NaN, v: 0, target: NaN };
+  s = followStep(s, 150, 1 / 60, B);
+  assert.strictEqual(s.x, 150, "starts over him");
+  for (let f = 0; f < 30; f++) s = followStep(s, 150 + Math.sin(f / 3) * (FOLLOW.deadband - 1), 1 / 60, B);
+  assert.ok(Math.abs(s.x - 150) < 2, `a sway inside the deadband barely moves it (${s.x.toFixed(2)})`);
+  // a walk to the right at 120 px/s: it trails him
+  let head = 150, lagged = false;
+  for (let f = 0; f < 60; f++) { head += 2; s = followStep(s, head, 1 / 60, B); if (s.x < head - FOLLOW.deadband - 2) lagged = true; }
+  assert.ok(lagged, "a little behind him at a walk");
+  for (let f = 0; f < 300; f++) s = followStep(s, head, 1 / 60, B);
+  assert.ok(Math.abs(s.x - head) < 1.5, `and over him once he stands (${(s.x - head).toFixed(2)})`);
+  // past the bound: it stops there, no bounce
+  for (let f = 0; f < 240; f++) { head = Math.min(400, head + 3); s = followStep(s, head, 1 / 60, B); assert.ok(s.x <= B.hi + 1e-9, "never past hi"); }
+  assert.strictEqual(s.x, B.hi);
+  assert.ok(s.v <= 0);
+  // deterministic, pure
+  const a = followStep({ x: 100, v: 3, target: 110 }, 200, 1 / 60, B), b = followStep({ x: 100, v: 3, target: 110 }, 200, 1 / 60, B);
+  assert.deepStrictEqual(a, b);
+});
+
+test("a crowd: seven tiny bots on their own patches, no cloth, no toys: finite, inside, and drawn in bounded calls", () => {
+  const kinds: BotKind[] = ["plan", "travel", "notes", "code", "keybot", "custom", "make"];
+  const world = new BotTilesWorld();
+  const W = 340, H = 340;
+  kinds.forEach((k, i) => {
+    const t = new BotTile({ kind: k, color: "#4F7A3A", seed: 20 + i, size: 22, toys: false });
+    t.cloth = 0;
+    world.add(t);
+  });
+  kinds.forEach((_k, i) => {
+    const row = i % 2, cols = 4, col = Math.floor(i / 2);
+    const pw = W / cols;
+    world.place(i, col * pw + (row ? pw / 2 : 0) - (row && col === cols - 1 ? pw : 0), H * 0.45 + row * H * 0.25, pw, H * 0.3, H * 0.3 - 2);
+  });
+  world.surprise(["dance", "shrug", "juggle"].map((id) => LOOKS.moment(id)!).filter(Boolean), 2.6, 0.75, 7);
+  const c = counter();
+  let worst = 0;
+  for (let f = 0; f < 60 * 30; f++) {
+    world.step(1 / 60);
+    if (f % 10 === 0) {
+      c.calls = 0;
+      for (const t of world.tiles) t.draw(c);
+      worst = Math.max(worst, c.calls);
+    }
+    if (f % 60 === 0) for (const t of world.tiles) assert.ok(t.finite() && t.inside(), `${t.kind} at ${f}`);
+  }
+  assert.ok(worst < 7 * 420, `${worst} calls for seven`);
+  assert.ok(world.tiles.every((t) => t.np === 0 && t.fabric.maxShift() === 0), "no toys, a still cloth");
 });

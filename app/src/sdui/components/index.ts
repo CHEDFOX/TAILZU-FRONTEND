@@ -30,6 +30,11 @@ import { BotTiles } from "../bots/BotTiles";
 import { BotCard } from "../bots/BotCard";
 import { BotBuddy } from "../bots/BotBuddy";
 import { HeadBar, LiveMarkNode, WriteOn } from "../bots/HomeHead";
+import { BotStage } from "../bots/BotStage";
+import { BotCrowd } from "../bots/BotCrowd";
+import { Vanish } from "./Vanish";
+import { MentionField } from "./MentionField";
+import { LiveWords } from "./LiveWords";
 
 export { ThemeContext } from "../theme/ThemeContext";
 export { typeRole } from "../theme/typeRole";
@@ -61,4 +66,7 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   WriteOn, LiveMark: LiveMarkNode, HeadBar,
   // A running page or artifact, sandboxed (LiveView.tsx).
   LiveView,
+  // Spaces, the family redesign (types.ts 3i): a bot with a thought, a crowd of tiny bots, a row that vaporises, a message
+  // field with @ and /, and the words of a voice session as they are heard.
+  BotStage, BotCrowd, Vanish, MentionField, LiveWords,
 };

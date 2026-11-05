@@ -163,6 +163,23 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     content,
   ];
   const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); };
+  /**
+   * STARTS AT ITS END (KitExtras `startAtEnd`: a space's feed, newest at the bottom). It opens scrolled to the end; while the
+   * person is within 80 px of the end, content that grows (a new message) or a view that gets shorter (the composer opening
+   * under it) keeps the end in view; scrolled further up, their place is kept.
+   */
+  const atEnd = props?.startAtEnd === true;
+  const ends = useRef({ content: 0, view: 0, first: true });
+  const nearEnd = () => scrolled.current + ends.current.view >= ends.current.content - K.num("ui.Screen.endSlop", 80);
+  const toEnd = (animated: boolean) => requestAnimationFrame(() => scroll.current?.scrollToEnd({ animated }));
+  const onContentSize = (_w: number, h: number) => {
+    const e = ends.current;
+    const near = e.first || nearEnd();
+    e.content = h;
+    if (!atEnd || !near || h <= 0) return;
+    toEnd(!e.first);
+    e.first = false;
+  };
   const scrollProps = {
     automaticallyAdjustKeyboardInsets: true,
     // For the nodes that follow the page (pageBus.ts): where it is scrolled, where a finger is.
@@ -172,8 +189,14 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     scrollEventThrottle: 16,
     onLayout: (e: LayoutChangeEvent) => {
       const h = Math.round(e.nativeEvent.layout.height);
+      if (atEnd && h > 0 && h !== ends.current.view) {
+        const near = nearEnd();
+        ends.current.view = h;
+        if (near && !ends.current.first) toEnd(false);
+      }
       if (h > 0 && h !== vh) setVh(h);
     },
+    onContentSizeChange: onContentSize,
     style: { flex: 1, backgroundColor: backgroundColor ?? theme.color.bg },
     canCancelContentTouches: !hold,
     directionalLockEnabled: hold,

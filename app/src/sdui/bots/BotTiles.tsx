@@ -26,6 +26,9 @@
  * a spec; none: its kind's), its `moment` a recipe he plays (`momentMode` "once" or "loop"). `surprises`: Home's rare idle
  * moments ({ every, chance, moments }: every `every` seconds, with `chance`, one idle bot plays one of them; the bots
  * near him answer, as a moment's recipe asks). Moments this build cannot play are left out.
+ *
+ * DOUBLE TAP (DoubleTap): a tile's `doubleTap` runs on a second tap within 260 ms; the first tap's moment and action are
+ * dropped (its fades come back at once). The first tap's action already waits longer than that, so a single tap is as it was.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, Text, View } from "react-native";
@@ -36,6 +39,7 @@ import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood, type Looks
 import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
 import { useLooks } from "../../botTiles/looks";
+import * as K from "../knobs";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
 
@@ -178,10 +182,28 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
     });
     return () => sub.remove();
   }, [restore]);
+  // A tile with a double tap (DoubleTap: its bot talks to you): a second tap on it within doubleTapMs drops the first tap's
+  // moment and its action, and runs the double instead. (The first tap's action already waits TAP.holdMs, longer than that.)
+  const lastTap = useRef<{ i: number; at: number } | null>(null);
   const tap = (i: number, x: number, y: number) => {
     const t = tiles[i];
+    const dbl = t?.doubleTap;
+    const now = Date.now(), ms = K.num("ui.BotTiles.doubleTapMs", 260);
+    if (dbl && lastTap.current && lastTap.current.i === i && now - lastTap.current.at <= ms) {
+      lastTap.current = null;
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      restore(true);
+      void runAction(dbl, ctx);
+      return;
+    }
     if (!t?.action || busy.current) return;
-    if (reduced || !bots) { void runAction(t.action, ctx); return; }
+    lastTap.current = dbl ? { i, at: now } : null;
+    if (reduced || !bots) {
+      if (dbl) { busy.current = true; timers.current.push(setTimeout(() => { busy.current = false; void runAction(t.action, ctx); }, ms)); }
+      else void runAction(t.action, ctx);
+      return;
+    }
     busy.current = true;
     world.focus(i, strip && i === grid.length ? Math.min(x, sw) : x, y);
     paintAll();

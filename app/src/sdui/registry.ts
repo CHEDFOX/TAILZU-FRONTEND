@@ -136,6 +136,31 @@ export const CORE_COMPONENTS = [
    * "sounds" for the switch. The server shows the Sounds switch only to a bundle that says this.
    */
   "BotSounds",
+  /**
+   * Spaces, the family redesign (types.ts section 3i). BotStage: a full tiny bot on a stage of his own who roams with the
+   * catalog's moments, walks out and back in, listens, and holds a thought (a box over him, joined to his head by three
+   * bubbles, that follows him at rest and opens when tapped; bots/BotStage.tsx). BotCrowd: a box of tiny bots playing, that
+   * grows taller and cheers (bots/BotCrowd.tsx). Vanish: its children vaporise and come back (components/Vanish.tsx).
+   * MentionField: a message field where "@" picks a person and "/" a bot's thing (components/MentionField.tsx). LiveWords:
+   * the words of the voice session as they are heard (components/LiveWords.tsx). The server sends the new Spaces, Home's
+   * Ask and the space feed only to a build that says all of them; older builds keep today's screens.
+   */
+  "BotStage", "BotCrowd", "Vanish", "MentionField", "LiveWords",
+  /**
+   * NOT A COMPONENT — the voiceLive and voiceStop actions (voice/voiceLive.ts): live words over /v1/transcribe-stream, a turn
+   * ending on a pause. Only when this binary has the stream module: client/capabilities.ts takes the name out otherwise, and
+   * the server then sends no voice piece at all.
+   */
+  "VoiceLive",
+  /** NOT A COMPONENT — BotStage's on.onDoubleTap and a Home tile's doubleTap (BotTiles.tsx): a single tap then waits 260 ms. */
+  "DoubleTap",
+  /**
+   * NOT A COMPONENT — the kit's extras for the new screens: TextField keyboard / autoFocus / maxLength (TextField.tsx);
+   * Screen and Scroll startAtEnd; a dotted border with a radius drawn dotted on Android too (Stack.tsx); callEndpoint.stay
+   * (a phone never fetches the screen again after a write, so it has nothing to skip); a failed call's { code, message } at
+   * `lastError` (actions.ts, as before).
+   */
+  "KitExtras",
 ] as const;
 
 export const CORE_ACTIONS = [
@@ -158,6 +183,8 @@ export const CORE_ACTIONS = [
   "uploadFile", "playAudio", "stopAudio", "recordVoice",
   // keep an ask to send when online, take one out, try one again, clear the sent (offline.tsx)
   "outbox",
+  // listen with live words, turn by turn; stop listening (voice/voiceLive.ts; capability VoiceLive)
+  "voiceLive", "voiceStop",
   // a setting kept on this phone: the Sounds switch (sounds.ts)
   "devicePref",
   // permissions

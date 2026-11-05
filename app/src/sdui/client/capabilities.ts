@@ -6,6 +6,7 @@ import { getDeviceSignals } from "../../device/signals";
 import { CORE_COMPONENTS, CORE_ACTIONS, CORE_TEMPLATES } from "../registry";
 import { str } from "../knobs";
 import { APP_VERSION } from "./version";
+import { isStreamAvailable } from "../../../modules/tulmi-stream";
 
 /**
  * Which JS bundle is actually running.
@@ -33,6 +34,14 @@ export function runningBundle(): string {
   }
 }
 
+/**
+ * What this build draws and does, as the registry says, less what this binary cannot back: live words need the stream
+ * module (a store build has it, Expo Go does not), so VoiceLive is said only when it is there.
+ */
+function declared(): readonly string[] {
+  return isStreamAvailable() ? CORE_COMPONENTS : CORE_COMPONENTS.filter((n) => n !== "VoiceLive");
+}
+
 export function buildCapabilities() {
   const { width, height } = Dimensions.get("window");
   const colorScheme: "light" | "dark" = Appearance.getColorScheme() === "dark" ? "dark" : "light";
@@ -50,7 +59,7 @@ export function buildCapabilities() {
     // handed, because on Android that bundle cannot come back at all. Not a
     // flag to flip: a constant, true of every bundle that has this line.
     googleWeb: true,
-    components: CORE_COMPONENTS,
+    components: declared(),
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
     device: {

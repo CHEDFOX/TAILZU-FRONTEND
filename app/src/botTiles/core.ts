@@ -11,7 +11,11 @@
  *   BotTile        one tile: a bot (13 particles), its props (<= 8 bodies), its fabric (14 x 9 points). On his own pages
  *                  (BotBuddy) the same bot has moments (BuddyAct); carrying, his stage is a chat's lane and his only prop
  *                  is a bag he hauls across, heavier each trip (CARRY, carrying()), until deliver() says the answer is here.
+ *                  On a stage of his own (BotStage) he also walks to a spot, out at a side and back in (walkTo, exit,
+ *                  enter), listens (act "listen", setLevel) and stands, and plays without toys (TileOptions.toys false).
  *   BotTilesWorld  the tiles of one grid, laid out in one space, so every other bot can look at a tapped one.
+ *   Roam           one bot's wandering on his stage: walk somewhere, stand, a catalog moment, again.
+ *   thoughtTrail   his thought's three bubbles, from his crown to the box (TRAIL); followStep: the resting box following him.
  *   LiveMark       the Tailzu dot mark, alive (Home's header): its ring dots on springs, its eyes on the finger.
  *   TileCtx        what drawing needs: a strict subset of CanvasRenderingContext2D. The window and the phone on the
  *                  web hand a real canvas context; the phone hands onboard/skiaCtx.ts's SkiaCtx (Skia).
@@ -40,8 +44,10 @@ export type BotMood = "working" | "needs" | "idle";
  * eyes up, small dots rising (an answer is on its way). think wins over needs; needs wins over the rest.
  * carry: an answer is on its way, as a load he hauls across a lane: in from the right, slowly across, out at the left,
  * and in again with a heavier bag (CARRY); deliver() says the answer is here. carry wins over everything.
+ * listen: he stands still and listens, eyes wide open, his head tilted a little toward what he listens to (lookAt), his
+ * antenna lit by the voice (setLevel) · stand: still where he is, looking about (a breath after a thought closes).
  */
-export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think" | "carry";
+export type BuddyAct = "play" | "wave" | "survey" | "read" | "settle" | "think" | "carry" | "listen" | "stand";
 
 /**
  * The carry act's knobs. A trip is a wait off stage, then the walk across; the load grows a step a trip and stops
@@ -95,6 +101,8 @@ export interface TileOptions {
   size?: number;
   /** His look (compileLooks' avatars); none: Blip, as he always was. */
   avatar?: Avatar | null;
+  /** false: no props on his stage and he never plays with them (the person's own bot, a crowd's tiny bots); default true. */
+  toys?: boolean;
 }
 
 /** The tap: press, the other bots look, the others' words fade to fadeTo, and after holdMs the tile's action runs. */
@@ -1247,7 +1255,7 @@ const C_FLOOR = 1, C_WALL = 2, C_CEIL = 4, C_SUPPORT = 8;
 
 // Acts.
 const A_STAND = 0, A_WANDER = 1, A_SIT = 2, A_STRETCH = 3, A_PEEK = 4, A_LOOK = 5, A_PLAY = 6, A_NEEDS = 7;
-const A_WAVE = 8, A_SURVEY = 9, A_READ = 10, A_THINK = 11, A_CARRY = 12;
+const A_WAVE = 8, A_SURVEY = 9, A_READ = 10, A_THINK = 11, A_CARRY = 12, A_LISTEN = 13;
 
 /** Where on the skeleton each dot of the halftone body sits: between particles a and b, at t, offset (u along, w across). */
 interface Skin {
@@ -1591,6 +1599,26 @@ export class BotTile {
   /** An anchor's frame, filled by anchor(): its point, forward and down (unit vectors, mirrored by his facing). */
   af = new Float64Array(6);
 
+  /** false: no props, and his brain never picks his kind's play (it needs them); a short wander instead. */
+  toys = true;
+  /**
+   * A walk asked from outside (walkTo, exit, enter, Roam): where to (stage px; NaN: none), how brisk, whether the walls are
+   * off (to leave the stage), how near counts as there, and how long it has gone on. The brain resets the goal every step,
+   * so this is applied after it (steer()).
+   */
+  steerX = NaN;
+  steerSpeed = 1;
+  steerFree = false;
+  steerTol = 0;
+  steerT = 0;
+  /** Leaving at a side (-1 left, 1 right, 0 not), and whether he is out past that edge now. */
+  exitSide = 0;
+  isOut = false;
+  /** The voice while he listens (0..1): his antenna's light and a small bob follow it. */
+  level = 0;
+  /** What the antenna's light settles to (the voice while he listens; 0 otherwise). */
+  glowTo = 0;
+
   constructor(o: TileOptions) {
     this.kind = o.kind;
     this.color = o.color || INK;
@@ -1602,6 +1630,7 @@ export class BotTile {
     this.skin = { a: new Int8Array(DUST), b: new Int8Array(DUST), t: new Float32Array(DUST), u: new Float32Array(DUST), w: new Float32Array(DUST), head: new Uint8Array(DUST), lift: new Float32Array(DUST), n: 0 };
     this.on.fill(-1);
     this.av = o.avatar ?? BLIP;
+    this.toys = o.toys !== false;
     this.mrand = rng(this.seed ^ 0x2545f491);
     this.moSlot.fill(-1);
     this.wtrack.fill(-1);
@@ -1677,6 +1706,11 @@ export class BotTile {
   setAct(a: BuddyAct): void {
     const again = a === "carry" && this.delivered;
     if (a === this.moment && !again) return;
+    // Listening or standing, he stops what he is at: a moment, a walk (but not a walk out: he stays gone).
+    if (a === "listen" || a === "stand") {
+      if (this.mo) this.moFinish(false);
+      if (this.exitSide === 0) this.steerX = NaN;
+    }
     this.moment = a;
     this.delivered = false;
     this.trip = 0;
@@ -1720,6 +1754,106 @@ export class BotTile {
     if (this.act === A_CARRY || this.mo) return;
     this.cheerT = 0;
     this.glowV += 9;
+  }
+
+  /**
+   * Walk to x (stage px) on his own legs: the brain still runs (his eyes, his arms), the walk wins over where it would go.
+   * speed: 1 his walk, 1.4 brisk, 0.6 slow. free: the walls are off, so he may walk past the stage's edges (to leave it).
+   * A moment he is in stops. When he is there he takes a breath, then his own life again.
+   */
+  walkTo(x: number, o?: { speed?: number; free?: boolean }): void {
+    if (this.mo) this.moFinish(false);
+    this.cheerT = -1;
+    this.steerX = x;
+    this.steerSpeed = o?.speed ?? 1;
+    this.steerFree = o?.free === true;
+    this.steerTol = this.S * 0.25;
+    this.steerT = 0;
+    this.exitSide = 0;
+    this.isOut = false;
+    this.act = A_WANDER;
+    this.tx = x;
+    this.actT = 0;
+    this.actDur = 1e9;
+    this.phase = 0;
+  }
+
+  /** On a walk asked from outside (not yet there, and not standing out past an edge). */
+  walking(): boolean {
+    return this.steerX === this.steerX && !this.isOut;
+  }
+
+  /** Give up a walk asked from outside where he is (a walk out too: he is simply in again). */
+  stopWalk(): void {
+    if (this.steerX !== this.steerX) return;
+    this.steerX = NaN;
+    this.exitSide = 0;
+    this.isOut = false;
+    this.act = A_LOOK;
+    this.actT = 0;
+    this.actDur = 0.7;
+  }
+
+  /** Where he stands when he is out past an edge (stage px): far enough that nothing of him shows. */
+  offAt(side: number): number {
+    return side < 0 ? -this.S * 1.6 : this.w + this.S * 1.6;
+  }
+
+  /**
+   * Walk out past the stage's edge at `side` and stay there, out of sight (then out() is true). now: put him there at once
+   * (a screen drawn with him already gone; Reduce Motion).
+   */
+  exit(side: "left" | "right", o?: { now?: boolean }): void {
+    const sd = side === "left" ? -1 : 1, off = this.offAt(sd);
+    this.walkTo(off, { speed: 1.1, free: true });
+    this.steerTol = this.S * 0.6;
+    this.exitSide = sd;
+    if (o?.now && this.placed) {
+      this.standAt(off);
+      this.turn(-sd);
+      this.isOut = true;
+    }
+  }
+
+  /**
+   * Come in from outside `side`'s edge and walk to x. Still on his way out at that side, he simply turns back; anywhere
+   * else he is put out there first (out of sight).
+   */
+  enter(side: "left" | "right", x: number): void {
+    const sd = side === "left" ? -1 : 1;
+    if (this.exitSide !== sd && this.placed) {
+      this.standAt(this.offAt(sd));
+      this.turn(-sd);
+    }
+    this.walkTo(x, { speed: 1.1, free: true });
+  }
+
+  /** Out past an edge (exit), standing there. */
+  out(): boolean {
+    return this.isOut;
+  }
+
+  /** The voice, 0..1, while he listens: his antenna's light and a small bob follow it. */
+  setLevel(v: number): void {
+    this.level = v > 0 ? (v < 1 ? v : 1) : 0;
+  }
+
+  /** The top of him (stage px): over his head, or over his antennae's tips when they stand higher. The thought starts here. */
+  crown(): { x: number; y: number } {
+    let top = this.y[HEAD]! - this.rH;
+    const a = this.y[ANT_A2]! - this.S * 0.06, b = this.y[ANT_B2]! - this.S * 0.06;
+    if (a < top) top = a;
+    if (b < top) top = b;
+    return { x: this.x[HEAD]!, y: top };
+  }
+
+  /** Face one way at once (1 right, -1 left). */
+  turn(dir: number): void {
+    const f = dir >= 0 ? 1 : -1;
+    this.face = f;
+    this.faceTo = f;
+    this.faceV = 0;
+    this.faceSign = f;
   }
 
   // ------------------------------------------------------------------- set up
@@ -1899,8 +2033,9 @@ export class BotTile {
     return Math.pow(q, 1 / p);
   }
 
-  /** Each bot's toys. */
+  /** Each bot's toys (none for a bot without them). */
   props(): void {
+    if (!this.toys) return;
     const S = this.S, w = this.w, fl = this.floor, r = this.rand;
     if (this.kind === "code") {
       // Two 0s and two 1s: capsules of two particles.
@@ -2083,6 +2218,7 @@ export class BotTile {
   stepOnce(h: number): void {
     this.t += h;
     this.think(h);
+    if (this.steerX === this.steerX) this.steer(h);
     this.forces(h);
     this.integrate(h);
     this.hit.fill(0, 0, this.n);
@@ -2095,8 +2231,11 @@ export class BotTile {
     this.sparksStep(h);
     if (this.qLive > 0 || this.wUsed > 0) this.thingsStep(h);
     if (this.kind === "make") this.dustStep(h);
-    this.feedFabric(h);
-    this.fabric.step(h);
+    // No cloth drawn (a bot on a page's own stage, a crowd): no cloth to move.
+    if (this.cloth > 0) {
+      this.feedFabric(h);
+      this.fabric.step(h);
+    }
   }
 
   vx(i: number): number { return (this.x[i]! - this.px[i]!) / STEP; }
@@ -2612,7 +2751,7 @@ export class BotTile {
     if (this.kind === "make" && this.solid < 0.5) lidTo = 1;
     this.lidV += ((lidTo - this.lid) * 1400 - this.lidV * 55) * h;
     this.lid = clamp(this.lid + this.lidV * h, 0, 1);
-    this.glowV += (-this.glow * 60 - this.glowV * 9) * h;
+    this.glowV += ((this.glowTo - this.glow) * 60 - this.glowV * 9) * h;
     this.glow += this.glowV * h;
     // Wide eyes grow (a spring, so they pop).
     if (this.eyeState === EYE_WIDE || this.eyeK !== 1) {
@@ -2721,6 +2860,8 @@ export class BotTile {
     if (reset) this.release();
     const m = this.moment;
     if (m === "carry" && this.stageCarry) { this.act = A_CARRY; this.actDur = 1e9; this.carryTo(this.delivered ? C_GONE : C_WAIT); return; }
+    if (m === "listen" && this.kind !== "make") { this.act = A_LISTEN; this.actDur = 1e9; return; }
+    if (m === "stand" && this.kind !== "make") { this.act = A_LOOK; this.actDur = 1e9; return; }
     if (m === "think" && this.kind !== "make") { this.act = A_THINK; this.actDur = 99; return; }
     if (this.mood === "needs" && this.kind !== "make") { this.act = A_NEEDS; this.actDur = 3; return; }
     if (this.kind === "make") { this.act = A_PLAY; this.actDur = 99; return; }
@@ -2731,11 +2872,15 @@ export class BotTile {
       return;
     }
     if (m === "wave") {
-      if (r < 0.4) { this.act = A_WAVE; this.actDur = 2.4; } else { this.act = A_PLAY; this.actDur = 8; }
+      if (r < 0.4) { this.act = A_WAVE; this.actDur = 2.4; }
+      else if (!this.toys) { this.act = A_WANDER; this.actDur = 2.5 + this.rand() * 1.5; this.tx = this.w * (0.15 + this.rand() * 0.7); }
+      else { this.act = A_PLAY; this.actDur = 8; }
       return;
     }
     const play = busy ? 0.8 : 0.42;
-    if (r < play) { this.act = A_PLAY; this.actDur = busy ? 14 : 9; }
+    // Without toys there is nothing to play with: a short wander instead.
+    if (r < play && !this.toys) { this.act = A_WANDER; this.actDur = 2.5 + this.rand() * 1.5; this.tx = this.w * (0.15 + this.rand() * 0.7); }
+    else if (r < play) { this.act = A_PLAY; this.actDur = busy ? 14 : 9; }
     else if (busy) { this.act = r < 0.9 ? A_LOOK : A_WANDER; this.actDur = 1.4 + this.rand(); }
     else {
       const q = (r - play) / (1 - play);
@@ -2786,12 +2931,14 @@ export class BotTile {
     this.eyeState = EYE_REST;
     this.mouthState = MO_REST;
     this.mouthOpen = 1;
+    this.glowTo = 0;
     // Carrying, he comes in and goes out past the stage's edges.
     if (this.act === A_CARRY) { this.wallL = -S * 1.4; this.wallR = this.w + S * 1.4; }
     if (this.limp > 0 && this.kind !== "make") this.limp = Math.max(0, this.limp - h * 2);
 
     // A look from outside (another tile was tapped): stop, turn the head to it.
-    const focused = this.focusX === this.focusX && (this.kind !== "make" || this.together > 0.9);
+    // (Listening, a look is where his head tilts, not a step: listening() reads it.)
+    const focused = this.focusX === this.focusX && this.act !== A_LISTEN && (this.kind !== "make" || this.together > 0.9);
     if (focused) {
       const dx = this.focusX - this.x[HEAD]!, dy = this.focusY - this.y[HEAD]!;
       // Readable at tile size: one step its way, the head turned hard to it, the body leaning in.
@@ -2813,17 +2960,45 @@ export class BotTile {
       case A_STRETCH: this.stretch(); break;
       case A_PEEK: this.peek(h); break;
       case A_LOOK: this.goalX = NaN; this.idleLook(h, 0.9); break;
-      case A_WANDER: this.goalX = this.tx; if (Math.abs(this.x[HIP]! - this.tx) < S * 0.2 && this.actT > 0.6) this.actT = this.actDur; break;
+      // (A walk asked from outside ends in steer(), not here.)
+      case A_WANDER: this.goalX = this.tx; if (this.steerX !== this.steerX && Math.abs(this.x[HIP]! - this.tx) < S * 0.2 && this.actT > 0.6) this.actT = this.actDur; break;
       case A_PLAY: this.play(h); break;
       case A_WAVE: this.waving(); break;
       case A_SURVEY: this.survey(); break;
       case A_READ: this.reading(); break;
       case A_THINK: this.thinking(); break;
       case A_CARRY: this.carrying(h); break;
+      case A_LISTEN: this.listening(); break;
       default: this.goalX = NaN;
     }
     if (this.actT >= this.actDur && this.act !== A_PLAY) this.next(false);
     this.sitTo(this.sitWant, h);
+  }
+
+  /**
+   * A walk asked from outside, after the brain: the goal, the pace, his eyes ahead, the walls off when free. There, he
+   * takes a breath (or, walking out, stays out there).
+   */
+  steer(h: number): void {
+    const S = this.S, x = this.steerX;
+    this.steerT += h;
+    this.goalX = x;
+    this.speed = this.steerSpeed;
+    this.lookOut = 0;
+    if (this.focusX !== this.focusX) {
+      const dir = x >= this.x[HIP]! ? 1 : -1;
+      this.lookX = this.x[HEAD]! + dir * S * 2.2;
+      this.lookY = this.y[HEAD]! + S * 0.15;
+    }
+    if (this.steerFree) { this.wallL = -S * 8; this.wallR = this.w + S * 8; }
+    if (Math.abs(this.x[HIP]! - x) >= this.steerTol || Math.abs(this.vx(HIP)) >= S * 1.2) return;
+    if (this.exitSide !== 0) { this.isOut = true; return; }
+    this.steerX = NaN;
+    this.act = A_LOOK;
+    this.actT = 0;
+    this.actDur = 0.7 + this.rand() * 0.6;
+    this.lookX = NaN;
+    this.lookOut = 1;
   }
 
   sitWant = 0;
@@ -2952,6 +3127,26 @@ export class BotTile {
       this.glowV += 7;
       this.spark(this.x[HEAD]! + f * this.rH * 0.8, this.y[HEAD]! - this.rH * 1.4, f * S * 0.3, -S * 0.9, 1.25);
     }
+  }
+
+  /**
+   * Listening: still, eyes wide open, the head tilted a little toward what he listens to (lookAt: his thought), the
+   * antenna lit by the voice and a small bob with it (setLevel).
+   */
+  listening(): void {
+    const S = this.S;
+    this.goalX = NaN;
+    this.lidTo = 0.02;
+    if (this.focusX === this.focusX) {
+      this.lookX = this.focusX;
+      this.lookY = this.focusY;
+      this.tilt = clamp((this.focusX - this.x[HEAD]!) / (S * 6), -0.2, 0.2);
+    } else {
+      this.lookX = NaN;
+      this.lookOut = 1;
+    }
+    this.glowTo = this.level * 1.2;
+    this.crouch = this.level * 0.12;
   }
 
   /** Carrying: into a phase, and what starting it takes. */
@@ -3859,7 +4054,8 @@ export class BotTile {
     for (let s = 0; s < WSLOTS; s++) { this.wlive[s] = 0; this.wtrack[s] = -1; }
   }
 
-  moFinish(): void {
+  /** The moment is over; `again`: his brain picks what comes next now (false: the caller does). */
+  moFinish(again = true): void {
     this.mo = null;
     this.moDone = true;
     this.moEnding = false;
@@ -3867,7 +4063,7 @@ export class BotTile {
     this.peerX = NaN;
     this.peerY = NaN;
     for (let s = 0; s < WSLOTS; s++) { this.wlive[s] = 0; this.wtrack[s] = -1; }
-    if (this.placed) this.next(true);
+    if (this.placed && again) this.next(true);
   }
 
   /** A compiled number, now. */
@@ -5375,6 +5571,235 @@ export function gridWorld(tiles: BotTile[]): BotTilesWorld {
   for (const t of tiles) w.add(t);
   w.release();
   return w;
+}
+
+// ===================================================================== a bot on a stage of his own: roaming, his thought
+
+/** How a bot wanders on his stage: walk to a random spot in `span` (fractions of the stage's width), stand, a moment, again. */
+export interface RoamSpec { moments: string[]; every: [number, number]; pause: [number, number]; span?: [number, number] }
+
+/** A roam's walk that has not arrived after this long (s) is given up (a wall, a prop in the way). */
+const ROAM_WALK_MAX = 6;
+
+/**
+ * Drives one bot on a stage of his own (the BotStage node): walk to a random spot, stand a little, and every few seconds
+ * play one of `moments` (in a shuffled order). step() after bot.step(). It waits while he listens, thinks or stands (any
+ * act but his own play), while he is walked from outside (out, or on his way out or in), and while a moment plays. Its
+ * own random numbers: the same seed, the same roam.
+ */
+export class Roam {
+  bot: BotTile;
+  looks: Looks;
+  spec: RoamSpec;
+  /** The stage's width (px); a stage that is resized sets it again. */
+  w: number;
+  rand: () => number;
+  paused = false;
+  /** Seconds to the next moment, and left of a stand. */
+  gestureIn: number;
+  wait: number;
+  /** How long the walk it started has gone on (-1: none of its own). */
+  walkT = -1;
+  order: string[] = [];
+  k = 0;
+
+  constructor(bot: BotTile, looks: Looks, spec: RoamSpec, w: number, seed: number) {
+    this.bot = bot;
+    this.looks = looks;
+    this.spec = spec;
+    this.w = w;
+    this.rand = rng((seed >>> 0) ^ 0x51ed27);
+    this.gestureIn = this.pick(spec.every);
+    this.wait = this.pick(spec.pause);
+  }
+
+  pick(r: [number, number]): number {
+    const a = Number(r?.[0]) || 0, b = Number(r?.[1]) || a;
+    return a + this.rand() * (b - a);
+  }
+
+  /** The next moment's id: the list shuffled, played through, shuffled again. */
+  nextMoment(): string {
+    const ids = this.spec.moments || [];
+    if (!ids.length) return "";
+    if (this.k >= this.order.length) {
+      this.order = ids.slice();
+      for (let i = this.order.length - 1; i > 0; i--) {
+        const j = Math.floor(this.rand() * (i + 1));
+        const t = this.order[i]!;
+        this.order[i] = this.order[j]!;
+        this.order[j] = t;
+      }
+      this.k = 0;
+    }
+    return this.order[this.k++]!;
+  }
+
+  step(dt: number): void {
+    const b = this.bot;
+    if (this.paused || !b.placed || b.still) return;
+    // Walked from outside (out, on his way out or in), or at an act of his own: not ours to move.
+    if (b.isOut || b.exitSide !== 0 || b.moment !== "play" || (b.walking() && this.walkT < 0)) return;
+    if (b.mo) return;
+    this.gestureIn -= dt;
+    if (this.walkT >= 0) {
+      if (b.walking()) {
+        this.walkT += dt;
+        if (this.walkT > ROAM_WALK_MAX) { b.stopWalk(); this.walkT = -1; this.wait = this.pick(this.spec.pause); }
+        return;
+      }
+      this.walkT = -1;
+      this.wait = this.pick(this.spec.pause);
+      return;
+    }
+    if (this.wait > 0) { this.wait -= dt; return; }
+    if (this.gestureIn <= 0) {
+      this.gestureIn = this.pick(this.spec.every);
+      this.wait = this.pick(this.spec.pause);
+      const m = this.looks.moment(this.nextMoment());
+      if (m) b.playMoment(m, "once");
+      return;
+    }
+    const S = b.S, span = this.spec.span || [0.1, 0.9], w = this.w;
+    const lo = Math.max(S * 0.9, w * span[0]), hi = Math.max(lo, Math.min(w - S * 0.9, w * span[1]));
+    const x = b.x[HIP]!;
+    let to = lo + this.rand() * (hi - lo);
+    if (Math.abs(to - x) < S * 1.4) to = x < (lo + hi) / 2 ? Math.min(hi, x + S * 2.2) : Math.max(lo, x - S * 2.2);
+    b.walkTo(to);
+    this.walkT = 0;
+  }
+
+  /** Hold still (a thought open, a breath after it closes), or roam again after a short stand. */
+  pause(on: boolean): void {
+    if (on === this.paused) return;
+    this.paused = on;
+    if (on && this.walkT >= 0) this.bot.stopWalk();
+    this.walkT = -1;
+    if (!on) this.wait = this.pick(this.spec.pause);
+  }
+}
+
+/** One bubble of his thought's trail: its centre, radius and ink outline (px), and how much it shows (0..1). */
+export interface TrailBubble { x: number; y: number; r: number; stroke: number; alpha: number }
+
+/**
+ * His thought's trail: three bubbles from just over his antennae up to the box, growing toward it (sizes, diameters at
+ * scale 1), each outlined in ink (strokes). anchorPad: how near the box's corners the trail may meet it. lift: px over
+ * his crown the trail starts. gap: px between the last bubble and the box. minGap: the gaps never go under this (short of
+ * room, the bubbles shrink together), and under minScale the trail fades out instead. restGap: the gap a resting stage
+ * plans its room for. lean: the most the trail steps toward the box's centre. bob: each bubble's own gentle bob (px).
+ * pulse: how much they swell and shrink with the voice.
+ */
+export const TRAIL = { sizes: [10, 17, 26], strokes: [1.5, 1.75, 2], anchorPad: 34, lift: 3, gap: 5, minGap: 4, minScale: 0.45, restGap: 7, lean: 28, bob: 1, pulse: 0.14 };
+
+/** The room (px) from his crown to the bottom of a box at rest that the trail wants at full size: lift, three bubbles, gaps, gap. */
+export function trailRoom(scale = 1): number {
+  return TRAIL.lift + (TRAIL.sizes[0]! + TRAIL.sizes[1]! + TRAIL.sizes[2]!) * scale + 3 * TRAIL.restGap + TRAIL.gap;
+}
+
+const TRAIL_NS = 24;
+const trailPX = new Float64Array(TRAIL_NS + 1);
+const trailPY = new Float64Array(TRAIL_NS + 1);
+const trailA = new Float64Array(TRAIL_NS + 1);
+/** Each bubble's own bob: its phase and pace. */
+const TRAIL_PH = [1.7, 3.8, 5.9];
+const TRAIL_W = [2.3, 1.9, 2.6];
+
+/**
+ * The three bubbles from his crown (stage px) to the box (its rect, the same px) at time t (s): equal gaps between them
+ * (and from his crown to the first), the smallest at his head; the trail leaves his head straight up and steps a little
+ * toward the box's centre, meeting the box's bottom edge. level: the voice while he listens (0..1; below 0: none), and
+ * they swell and shrink with it (room kept for the biggest swell, so a pulse never closes a gap). Short of room they all
+ * shrink together, then fade; a box that is not over him hides them. scale: the bubbles' size (1: a tiny bot's).
+ */
+export function thoughtTrail(crown: { x: number; y: number }, box: { x: number; y: number; w: number; h: number }, t: number, level: number, scale = 1): TrailBubble[] {
+  const sx = crown.x, sy = crown.y - TRAIL.lift;
+  const pad = Math.min(TRAIL.anchorPad, box.w / 2);
+  const lean = clamp((box.x + box.w / 2 - sx) * 0.5, -TRAIL.lean, TRAIL.lean);
+  const ax = clamp(sx + lean, box.x + pad, box.x + box.w - pad);
+  const ay = box.y + box.h + TRAIL.gap;
+  // A soft curve: straight up out of his head, straight up into the box, stepping across between (an arc length table).
+  const rise = (sy - ay) * 0.5, c1y = sy - rise, c2y = ay + rise;
+  trailA[0] = 0;
+  for (let j = 0; j <= TRAIL_NS; j++) {
+    const u = j / TRAIL_NS, v = 1 - u, b0 = v * v * v, b1 = 3 * v * v * u, b2 = 3 * v * u * u, b3 = u * u * u;
+    trailPX[j] = (b0 + b1) * sx + (b2 + b3) * ax;
+    trailPY[j] = b0 * sy + b1 * c1y + b2 * c2y + b3 * ay;
+    if (j) trailA[j] = trailA[j - 1]! + Math.hypot(trailPX[j]! - trailPX[j - 1]!, trailPY[j]! - trailPY[j - 1]!);
+  }
+  const total = ay < sy ? trailA[TRAIL_NS]! : 0;
+  const voice = level >= 0;
+  const pm = voice ? 1 + TRAIL.pulse : 1;
+  const n = TRAIL.sizes.length;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += TRAIL.sizes[i]! * scale * pm;
+  const rawK = Math.min(1, (total - n * TRAIL.minGap) / sum);
+  const k = Math.max(TRAIL.minScale, rawK);
+  const alpha = clamp((rawK - (TRAIL.minScale - 0.12)) / 0.12, 0, 1);
+  const g = (total - sum * k) / n;
+  const kStroke = clamp(k + 0.25, 0.7, 1);
+  const out: TrailBubble[] = [];
+  let acc = g;
+  for (let i = 0; i < n; i++) {
+    const slot = TRAIL.sizes[i]! * scale * k * pm;
+    const s = acc + slot / 2;
+    acc += slot + g;
+    // the point at arc length s
+    let px = trailPX[0]!, py = trailPY[0]!;
+    if (s >= trailA[TRAIL_NS]!) { px = trailPX[TRAIL_NS]!; py = trailPY[TRAIL_NS]!; }
+    else if (s > 0) {
+      let j = 1;
+      while (j < TRAIL_NS && trailA[j]! < s) j++;
+      const f = (s - trailA[j - 1]!) / (trailA[j]! - trailA[j - 1]! || 1);
+      px = trailPX[j - 1]! + (trailPX[j]! - trailPX[j - 1]!) * f;
+      py = trailPY[j - 1]! + (trailPY[j]! - trailPY[j - 1]!) * f;
+    }
+    const ph = TRAIL_PH[i]!, w = TRAIL_W[i]!;
+    const sc = voice ? 1 + TRAIL.pulse * (2 * clamp(level, 0, 1) - 1) : 1;
+    out.push({
+      x: px + Math.sin(t * w * 0.7 + ph * 1.3) * TRAIL.bob * 0.5,
+      y: py + Math.sin(t * w + ph) * TRAIL.bob,
+      r: (TRAIL.sizes[i]! * scale * k * sc) / 2,
+      stroke: TRAIL.strokes[i]! * kStroke * Math.min(1, scale),
+      alpha,
+    });
+  }
+  return out;
+}
+
+/** The resting box following his head: its centre x, its speed, and where it is headed (his head, past a deadband). */
+export interface FollowState { x: number; v: number; target: number }
+/**
+ * deadband: px his head may sway before the box moves. lag: how far (s) the box trails him at a walk. damping: the spring,
+ * a touch under critical. glide: the lag while it glides back over him after a thought closes.
+ */
+export const FOLLOW = { deadband: 6, lag: 0.25, damping: 0.9, glide: 0.45 };
+
+/**
+ * One frame of the resting box following his head x: the target keeps within the deadband of his head (and drifts home
+ * slowly, so once he stands he is right under it), the box's centre springs to it, and at a bound (lo..hi: where its
+ * centre may be) it simply stops. gliding: a softer spring (back over him after a thought), not stopped by the bounds.
+ */
+export function followStep(s: FollowState, headX: number, dt: number, bounds: { lo: number; hi: number }, gliding = false): FollowState {
+  let target = s.target === s.target ? s.target : headX;
+  const db = FOLLOW.deadband;
+  if (headX > target + db) target = headX - db; else if (headX < target - db) target = headX + db;
+  if (dt > 0) target += (headX - target) * (1 - Math.exp(-dt / 1.6));
+  const lo = bounds.lo, hi = bounds.hi;
+  const tgt = lo <= hi ? clamp(target, lo, hi) : (lo + hi) / 2;
+  let x = s.x, v = s.v;
+  if (x !== x) { x = tgt; v = 0; }
+  if (dt > 0) {
+    const lag = gliding ? Math.max(FOLLOW.lag, FOLLOW.glide) : FOLLOW.lag;
+    const z = FOLLOW.damping, om = (2 * z) / Math.max(0.05, lag);
+    const steps = Math.max(1, Math.ceil((dt * om) / 0.25)), h1 = dt / steps;
+    for (let q = 0; q < steps; q++) { v += (om * om * (tgt - x) - 2 * z * om * v) * h1; x += v * h1; }
+  }
+  if (lo <= hi && !gliding) {
+    if (x < lo) { x = lo; if (v < 0) v = 0; }
+    if (x > hi) { x = hi; if (v > 0) v = 0; }
+  }
+  return { x, v, target };
 }
 
 // ===================================================================== the living mark

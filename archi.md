@@ -64,7 +64,11 @@ src/
 │  ├─ client/             transport: bootstrap + disk copy, screens + caches, capabilities, errors, endpoint, update check
 │  ├─ theme/              ThemeContext, the type scale (typeRole), style resolution, remote fonts
 │  ├─ components/         one file per node component; components/index.ts is the REGISTRY
-│  ├─ bots/               the Bots app's living components: BotTiles, BotCard, BotBuddy, Home's header, pull-a-bot
+│  ├─ bots/               the Bots app's living components: BotTiles, BotCard, BotBuddy, Home's header, pull-a-bot, BotStage
+│  │                      (a bot with a thought; stageCore.ts its geometry and taps; thought.ts what a field in it may ask),
+│  │                      BotCrowd (a box of tiny bots)
+│  ├─ voice/              live words turn by turn (voiceLive / voiceStop: voiceLive.ts on tulmi-stream, voiceLiveCore.ts the loop),
+│  │                      and the voice bus (voiceBus.ts: the words and the level, kept out of the screen's state)
 │  ├─ live/               live updates over the socket, and an answer's words streamed into state (askStream)
 │  └─ offline/            the connection, the Offline page switch, the outbox, the can't-reach-the-server card
 ├─ auth/                  sign-in
@@ -99,6 +103,9 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | Rendering a node tree | `src/sdui/Renderer.tsx` |
 | A node component (Screen, Stack, Text, Image, Button, …) | `src/sdui/components/<Name>.tsx`; the type → component map is `components/index.ts` |
 | The Bots kit (tiles, cards, buddy, Home's header, pull-a-bot) | `src/sdui/bots/`; engine in `src/botTiles/` |
+| Spaces' pieces (section 3i): a bot with a thought, a crowd, a vanishing row, the @ and / field, live words | `sdui/bots/BotStage.tsx` + `stageCore.ts`, `sdui/bots/BotCrowd.tsx`, `sdui/components/Vanish.tsx`, `sdui/components/MentionField.tsx` + `mentionCore.ts`, `sdui/components/LiveWords.tsx` + `liveWordsCore.ts`; walking, roaming, listening, the thought's trail and follow in `src/botTiles/core.ts` |
+| Talking to a bot (voiceLive, voiceStop) | `sdui/voice/voiceLive.ts` (the microphone, the screen's actions), `voiceLiveCore.ts` (turns, pauses, the made-up level), `voiceBus.ts` |
+| A dotted border with round corners; the screen behind an overlay, blurred | `sdui/components/dotted.tsx` (Stack draws it), `sdui/components/blur.tsx` (BotCard, BotStage) |
 | Actions (what a tap does) | `src/sdui/actions.ts`; media actions in `src/media/media.ts` |
 | What the build declares to the server | `src/sdui/registry.ts` |
 | Theme, type scale, styles | `src/sdui/theme/` |

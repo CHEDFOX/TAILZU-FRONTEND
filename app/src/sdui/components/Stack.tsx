@@ -1,8 +1,9 @@
 import { useContext } from "react";
-import { Pressable, useWindowDimensions, View } from "react-native";
+import { Platform, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import * as K from "../knobs";
 import type { CompProps } from "./props";
 import { ScreenViewport, KeyboardAbove } from "./Screen";
+import { DottedFrame, dottedOf } from "./dotted";
 
 /**
  * A box — and, when the backend gives it one, a tappable box.
@@ -34,9 +35,17 @@ export const Stack = ({ node, props, children, style, fire }: CompProps) => {
   // pane actually scrolls in, by exactly the chrome around it, and that
   // difference is a control pushed under the fold.
   const screenH = useContext(ScreenViewport);
-  const sized = fill ? [style, { minHeight: screenH || win.height }] : style;
-  if (props?.keyboard === "above" && !node.on?.onPress && !node.on?.onLongPress) return <KeyboardAbove style={sized}>{children}</KeyboardAbove>;
-  if (!node.on?.onPress && !node.on?.onLongPress) return <View style={sized}>{children}</View>;
+  /**
+   * A DOTTED BORDER WITH ROUND CORNERS (KitExtras: Create, "Have a code?"). A phone draws a view's dotted border solid once it
+   * has a radius (Android) or with dots of its own spacing (iOS), so the frame draws the dots and the view's own border is
+   * kept, see-through, for its room. The web (the render check) draws CSS's own.
+   */
+  const dots = Platform.OS === "web" ? null : dottedOf(StyleSheet.flatten(style) as Record<string, any> | undefined);
+  const base = dots ? [style, { borderColor: "transparent", borderStyle: "solid" as const }] : style;
+  const sized = fill ? [base, { minHeight: screenH || win.height }] : base;
+  const inner = dots ? <>{children}<DottedFrame radius={dots.radius} width={dots.width} color={dots.color} /></> : children;
+  if (props?.keyboard === "above" && !node.on?.onPress && !node.on?.onLongPress) return <KeyboardAbove style={sized}>{inner}</KeyboardAbove>;
+  if (!node.on?.onPress && !node.on?.onLongPress) return <View style={sized}>{inner}</View>;
   // How far it dims under a finger. A Stack is the app's general-purpose
   // pressable — the allow pill, the plan rows, the deck cards are all one —
   // so the one number that says "this was pressed" cannot be fixed in the
@@ -85,7 +94,7 @@ export const Stack = ({ node, props, children, style, fire }: CompProps) => {
       // What a screen reader says for a box whose content is a picture (the Bots kit's icon buttons).
       accessibilityLabel={typeof props?.accessibilityLabel === "string" ? props.accessibilityLabel : undefined}
     >
-      {children}
+      {inner}
     </Pressable>
   );
 };

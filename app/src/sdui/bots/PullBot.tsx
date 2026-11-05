@@ -429,7 +429,7 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
     );
   };
 
-  const onContent = useCallback((_w: number, h: number) => {
+  const onContent = useCallback((w: number, h: number) => {
     const was = contentH.current;
     contentH.current = h;
     const k = keep.current;
@@ -437,6 +437,8 @@ export function PullBotScroll(p: PullBotScrollProps): React.ReactElement {
       keep.current = null;
       if (Date.now() - k.at < 3000) follow(k, h);
     }
+    // The Screen's own (startAtEnd keeps a feed at its newest).
+    p.scroll.onContentSizeChange?.(w, h);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goTo = useCallback((edge: Edge) => {

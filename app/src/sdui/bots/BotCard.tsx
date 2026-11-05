@@ -29,8 +29,7 @@ import { BotTile, type BotKind } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
 import { useLooks } from "../../botTiles/looks";
-
-const WEB = Platform.OS === "web";
+import { Blur } from "../components/blur";
 const LINE = "#e6e6e6", PAPER = "#ffffff";
 const ONCE_KEY = "tz.botcard.once.";
 
@@ -219,34 +218,5 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
         </KeyboardAvoidingView>
       </View>
     </Modal>
-  );
-}
-
-/** The screen behind, blurred, under a light white veil. */
-function Blur(): React.ReactElement {
-  const ref = useRef<View>(null);
-  useEffect(() => {
-    if (!WEB) return;
-    // react-native-web: the view is a div; the blur is the browser's.
-    const el = ref.current as unknown as { style?: Record<string, string> } | null;
-    if (el?.style) {
-      el.style.backdropFilter = "blur(10px) saturate(1.05)";
-      el.style.webkitBackdropFilter = "blur(10px) saturate(1.05)";
-    }
-  }, []);
-  if (WEB) return <View ref={ref} style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.42)" }} />;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { BlurView } = require("expo-blur") as typeof import("expo-blur");
-  return (
-    <View style={{ flex: 1 }}>
-      <BlurView
-        intensity={30}
-        tint="light"
-        // Android draws a real blur only with this method; without it, a translucent fill.
-        experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
-        style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}
-      />
-      <View style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.35)" }} />
-    </View>
   );
 }
