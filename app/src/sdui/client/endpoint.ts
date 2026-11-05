@@ -52,7 +52,14 @@ export async function callEndpoint(
     // The raw path and status go to the log; the thrown message is the one a
     // screen may show (see HttpError).
     console.warn(`[net] ${method} ${path} → ${res.status}`);
-    throw new HttpError(res.status, `${method} ${path} → ${res.status}`);
+    // A 4xx the server explains ({ code, message }: "That wasn't posted…", "needs your OK…") is kept, so the screen's own
+    // failure can say it (actions.ts puts it at state lastError). Never a 5xx's: those stay vague.
+    let server: { code: string; message: string } | undefined;
+    if (res.status < 500) {
+      const b = await res.json().catch(() => null) as { code?: unknown; message?: unknown } | null;
+      if (b && typeof b.message === "string" && b.message && b.message.length <= 300) server = { code: typeof b.code === "string" ? b.code : "", message: b.message };
+    }
+    throw new HttpError(res.status, `${method} ${path} → ${res.status}`, server);
   }
   const ct = res.headers.get("content-type") ?? "";
   return ct.includes("application/json") ? res.json() : res.text();

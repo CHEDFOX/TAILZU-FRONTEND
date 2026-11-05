@@ -33,6 +33,7 @@ import * as StoreReview from "expo-store-review";
 import type { ActionRef, ActionSpec, Condition, ScreenResponse } from "./types";
 import { Store } from "./state";
 import { callEndpoint, invalidateScreens, QuotaExceededError, expireBootstrap } from "./client";
+import { HttpError } from "./client/errors";
 import { supabase } from "../auth/supabaseClient";
 import { trackEvent, identifyUser, resetAnalytics } from "../telemetry/analytics";
 import { buyPackage, subscribeToProduct, restorePurchases, hasEntitlement } from "../billing/purchases";
@@ -318,6 +319,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           ctx.nav.push(str("quota.screenId", "paywall"));
           break;
         }
+        // What the server said about it, for the failure's own toast ("$state.lastError.message"); nothing when it said nothing.
+        ctx.store.set("lastError", err instanceof HttpError && err.server ? err.server : null);
         await runAction(action.onError, ctx);
       } finally {
         // A moment more: the last words can come over the socket just after the answer.

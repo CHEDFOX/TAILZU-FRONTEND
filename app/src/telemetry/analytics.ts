@@ -2,7 +2,9 @@
  * PostHog analytics — env-driven wiring.
  *
  * If POSTHOG_API_KEY is unset (dev / early launch / privacy-first users), every
- * function here is a no-op. The same binary works whether or not the key is
+ * function here is a no-op. With it set, still nothing is sent until the server's
+ * "analytics.enabled" flag says this person turned usage statistics on in
+ * You › Privacy (App Review 5.1.1(ii)); the default is off. The same binary works whether or not the key is
  * configured, so this is safe to ship in all channels.
  */
 import Constants from "expo-constants";
@@ -17,7 +19,7 @@ let inited = false;
 let queue: Array<() => void> = [];
 
 export async function initAnalytics(): Promise<void> {
-  if (inited || !API_KEY || !bool("analytics.enabled", true)) return;
+  if (inited || !API_KEY || !bool("analytics.enabled", false)) return;
   inited = true;
   // The build's host wins when it names one; otherwise the server's.
   const HOST = extra.posthogHost ?? str("analytics.posthogHost", "https://us.i.posthog.com");
@@ -34,9 +36,12 @@ export async function initAnalytics(): Promise<void> {
 }
 
 function run(fn: (c: PostHog) => void) {
-  // Switched off by the server: nothing is sent, and nothing is queued for a
-  // client that will never exist (the queue grew for the life of the app).
-  if (!API_KEY || !bool("analytics.enabled", true)) return;
+  // Off unless the server says this person turned usage statistics on
+  // (You › Privacy; App Review 5.1.1(ii): consent first). Off, nothing is sent
+  // and nothing is queued for a client that will never exist.
+  if (!API_KEY || !bool("analytics.enabled", false)) return;
+  // Turned on after start-up (the flag came with the bootstrap): start now.
+  if (!inited) void initAnalytics();
   if (client) fn(client);
   else if (queue.length < 100) queue.push(() => client && fn(client));
 }

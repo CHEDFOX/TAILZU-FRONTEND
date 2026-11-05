@@ -25,7 +25,12 @@ export class QuotaExceededError extends Error {
  * the raw path + status travel in `detail`, which is what goes to the log.
  */
 export class HttpError extends Error {
-  constructor(public readonly status: number, public readonly detail: string) {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+    /** The server's own code and words for a refusal it explains ({ code, message }), when it sent them. */
+    public readonly server?: { code: string; message: string },
+  ) {
     super(httpErrorText(status));
     this.name = "HttpError";
   }
