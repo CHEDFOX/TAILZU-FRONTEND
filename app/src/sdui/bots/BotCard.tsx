@@ -6,7 +6,7 @@
  * the keyboard). When the step changes the words cross-fade in and the bot gives a little hop; he never restarts
  * (he is kept by the card's key for the life of the app, so even a rebuilt screen finds him where he was).
  *
- *   overlay   centred over the screen, which is blurred behind it (a real blur: expo-blur on a phone, a CSS
+ *   overlay   centred over the screen (lifted above the keyboard while a field on it is typed in), which is blurred behind it (a real blur: expo-blur on a phone, a CSS
  *             backdrop-filter on the web) under a light white veil; it comes in with a soft scale and fade
  *             (Reduce Motion: no scale) and goes the same way, the blur clearing with it.
  *   readyWhen nothing is drawn until this holds (the app's own readings of the microphone and the keyboard).
@@ -21,7 +21,7 @@
  *     momentMode? }, on: { onComplete }, children: [step, step, step] }
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Dimensions, Modal, Platform, View } from "react-native";
+import { Animated, Dimensions, KeyboardAvoidingView, Modal, Platform, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
@@ -209,11 +209,14 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
   if (!overlay) return card;
   return (
     <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={() => { /* answered on the card */ }}>
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <View style={{ flex: 1 }}>
         <Animated.View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, opacity: veil }}>
           <Blur />
         </Animated.View>
-        {card}
+        {/* A card with a field (About you) rises above the keyboard while it is typed in; the blur stays put behind it. */}
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 20 }}>
+          {card}
+        </KeyboardAvoidingView>
       </View>
     </Modal>
   );
