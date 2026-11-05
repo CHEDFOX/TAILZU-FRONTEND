@@ -8,6 +8,7 @@
 import type React from "react";
 import type { CompProps } from "./props";
 import { Grid } from "./Grid";
+import { Scroll } from "./Scroll";
 import { SafeArea } from "./SafeArea";
 import { SVGC } from "./Svg";
 import { Screen } from "./Screen";
@@ -45,6 +46,8 @@ export type { CompProps } from "./props";
 export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   // The Bots kit's layout and drawing.
   Grid, SafeArea, SVG: SVGC,
+  // A box that scrolls on its own inside a card (the terms and privacy card).
+  Scroll,
   Screen, Stack, Text: TextC, Image: ImageC, Button, TextField,
   // The keyboard handoff screens' mic and dictation (keyboard_record, keyboard_primer, flow_arm).
   VoiceButton, VoiceToggle,

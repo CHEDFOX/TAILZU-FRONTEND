@@ -16,6 +16,8 @@
 export const CORE_COMPONENTS = [
   // The Bots kit's primitives (Button: the bootstrap's launch card).
   "Screen", "Stack", "Text", "Image", "Button", "TextField", "Grid", "SafeArea", "SVG",
+  // A box that scrolls on its own inside a card (components/Scroll.tsx).
+  "Scroll",
   // The keyboard handoff screens' mic and dictation (keyboard_record, keyboard_primer, flow_arm).
   "VoiceButton", "VoiceToggle",
 
