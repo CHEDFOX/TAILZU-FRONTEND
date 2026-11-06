@@ -332,6 +332,16 @@ const config: ExpoConfig = {
       "keychain-access-groups": [
         "$(AppIdentifierPrefix)com.tulmi.app.shared",
       ],
+      // TIME SENSITIVE: a leave-by and a bill due today may break through a
+      // Focus and the Scheduled Summary (Plan Ease's plan_leave and plan_due,
+      // sent with interruptionLevel "time-sensitive"). Only those: the day
+      // notes go as they are, and the morning note as "passive". The person
+      // can still turn it off for X0 Bot in Settings › Notifications. The
+      // server sends the level only to a phone whose binary says it has this
+      // (TulmiBridgeModule.swift binaryFeatures → PushTimeSensitive with the
+      // push token), so an over-the-air update to an older binary changes
+      // nothing. EAS turns the capability on for the App ID from this key.
+      "com.apple.developer.usernotifications.time-sensitive": true,
     },
   },
   android: {

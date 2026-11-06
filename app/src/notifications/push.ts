@@ -17,6 +17,9 @@ import Constants from "expo-constants";
 import { APP_VERSION, callEndpoint } from "../sdui/client";
 import { bool, list, str, txt } from "../sdui/knobs";
 import { handleNotificationAction } from "./actions";
+import { pressedButton } from "./categoriesCore";
+import { binaryFeatures } from "../device/binary";
+import { pushCaps } from "../device/binaryCore";
 
 /** A channel the server lists (push.android.channels): its id, the name and line Android's settings show. */
 interface AndroidChannel { id: string; name: string; description?: string; importance?: "min" | "low" | "default" | "high"; sound?: boolean }
@@ -115,7 +118,7 @@ export async function registerForPushToken(): Promise<string | null> {
     const token = tokenData.data;
     if (!token || token === lastToken) return token ?? null;
 
-    // Best-effort — backend endpoint stores {token, platform, appVersion}.
+    // Best-effort — backend endpoint stores {token, platform, appVersion, caps}.
     // Only mark the token as "sent" AFTER a successful POST, so a failed
     // registration is retried on the next call this session instead of being
     // suppressed by the dedupe guard above.
@@ -126,6 +129,11 @@ export async function registerForPushToken(): Promise<string | null> {
         // The binary's own version (see client.readAppVersion) — this said
         // "0.0.0" whenever the manifest had none.
         appVersion: APP_VERSION,
+        // What this phone's binary can do with a push (device/binaryCore.ts pushCaps): "PushTimeSensitive" when the Time
+        // Sensitive entitlement is signed in, so the server marks a leave-by or a bill due today time-sensitive only for a phone
+        // that has it. Every launch sends it, so a phone updated from the store says so on its first launch. A server that does
+        // not read it drops it.
+        caps: pushCaps(binaryFeatures()),
       });
       lastToken = token;
     } catch { /* silent — retry on next boot / call */ }
@@ -149,9 +157,12 @@ function onTap(res: Notifications.NotificationResponse, handler: (data: any) => 
   }
   const data = res?.notification?.request?.content?.data ?? {};
   // A button (Reply, Done, Yes, No…; the server's categories, categories.ts) answers without opening anything, unless the server
-  // made it one that opens; a plain tap opens the push's screen, as ever.
+  // made it one that opens; a plain tap opens the push's screen, as ever. A button that opens says which it was (the `button` param,
+  // capability PushButton), so the screen can tell "Pay" from a tap just to look.
+  const pressed = pressedButton(res?.actionIdentifier, Notifications.DEFAULT_ACTION_IDENTIFIER);
+  const params = pressed ? { ...data, button: pressed } : data;
   void handleNotificationAction(res)
-    .then((r) => { if (r === "open") handler(data); })
+    .then((r) => { if (r === "open") handler(params); })
     .catch(() => handler(data));
 }
 

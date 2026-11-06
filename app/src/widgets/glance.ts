@@ -3,8 +3,9 @@
  * app at a glance and leads with what matters now: something that needs the person, bots working, a thing just done, or all
  * quiet. iOS: targets/widgets (kind space.tailzu.x0) and the "Bots at work" Live Activity; Android: TailzuX0Widget.kt.
  *
- * The widgets never ask the server. The app does, here: GET /v1/shell/glance?v=2&tz= on the person's session, checked by
- * glanceCore.cleanGlance, then
+ * The widgets never ask the server. The app does, here: GET /v1/shell/glance?v=2&tz= (and &steps=1 from a binary whose widgets
+ * switch their lines on their own at the glance's `steps`, so a leave-by and then the next thing show at their minute with no
+ * new glance) on the person's session, checked by glanceCore.cleanGlance, then
  *   1. the bots' faces (each bot's faceUrl) downloaded once per picture into faces/<face>.png in the App Group container (iOS)
  *      or widget-faces/<face>.png in the app's files dir (Android): the widgets draw them from there and never fetch;
  *   2. the glance written under `x0.glance` (setWidgetGlance), and the widget redrawn;
@@ -33,6 +34,7 @@ import {
   updateBotsActivity,
 } from "../../modules/tulmi-bridge";
 import { callEndpoint } from "../sdui/client";
+import { hasBinaryFeature } from "../device/binary";
 import { bool, num, str } from "../sdui/knobs";
 import {
   activityPlan,
@@ -213,7 +215,10 @@ export function refreshGlance(o: { force?: boolean; mode?: "due" | "soon" | "for
     try {
       lastAt = now;
       const tz = -new Date().getTimezoneOffset();
-      const g = cleanGlance(await callEndpoint("GET", `${str("widgets.glance.path", "/v1/shell/glance")}?v=2&tz=${tz}`), now);
+      // A binary whose widgets switch lines on their own asks for the steps that do it (device/binaryCore.ts glanceSteps); an
+      // older one is sent lines worded to stay true until their time passes, as before.
+      const steps = hasBinaryFeature("glanceSteps") ? "&steps=1" : "";
+      const g = cleanGlance(await callEndpoint("GET", `${str("widgets.glance.path", "/v1/shell/glance")}?v=2&tz=${tz}${steps}`), now);
       if (!g || mine !== epoch) return;
       refreshAfterSec = g.refreshAfterSec;
       // The faces first, so the widget's first draw of this glance has them (each bounded: a slow picture never holds it).

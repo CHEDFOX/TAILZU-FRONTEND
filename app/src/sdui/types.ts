@@ -663,6 +663,11 @@ export const PERSON_BOT_COMPONENT = "PersonBot";
  * bootstrap's `fonts` (theme/remoteFonts.ts), which names them for a build that says this.
  */
 export const FONT_BRICOLAGE_CAPABILITY = "FontBricolage";
+/**
+ * NOT A COMPONENT: a notification button that opens the app (Pay, Send, No, Open map) hands its id to the push's screen as the
+ * `button` param; a plain tap has none (notifications/push.ts). The server's hand-off screens open other apps only for the button.
+ */
+export const PUSH_BUTTON_CAPABILITY = "PushButton";
 
 export interface PersonBotProps {
   /** Who he is (the person's id): what staggers his idling, so two of them never blink together. */

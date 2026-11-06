@@ -85,6 +85,17 @@ are the same number. Change it in one place; both follow. `0` = unlimited.
      extensions cannot record; the app holds the mic like Wispr Flow; the
      orange recording indicator is expected while a session is warm).
    - Privacy labels: mic + speech data, no tracking (`NSPrivacyTracking=false`).
+   - Time Sensitive notifications (`com.apple.developer.usernotifications.time-sensitive`
+     in `app/app.config.ts`): EAS turns the capability on for the App ID and
+     signs it in; nothing to do by hand unless the build says the profile
+     lacks it (then Certificates, Identifiers & Profiles → com.tulmi.app →
+     Time Sensitive Notifications, and build again). Used only for a leave-by
+     and a bill due today (Plan Ease), never for news or a nudge; the person
+     can turn it off in Settings › Notifications. If review asks: "Leave-by
+     reminders and bills due today are time-sensitive by their nature; the
+     day notes and every other push go as ordinary or passive notifications."
+     The server sends the level only to a phone whose binary says it has the
+     entitlement (`src/device/binaryCore.ts`), so older builds are unaffected.
 
 ### If review rejects on the microphone
 

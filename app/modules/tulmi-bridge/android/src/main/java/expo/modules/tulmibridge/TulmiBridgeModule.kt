@@ -143,6 +143,14 @@ class TulmiBridgeModule : Module() {
     // Android's shortcuts arrive as links: nothing is ever left to consume.
     Function("consumeQuickAction") { "" }
 
+    // WHAT THIS BINARY CAN DO THAT A JAVASCRIPT UPDATE CANNOT ADD. An update
+    // reaches binaries built before these existed, so the app tells the server
+    // only what the binary says here (src/device/binaryCore.ts). glanceSteps:
+    // the X0 widget switches its lines on its own at the glance's `steps`
+    // (TailzuX0Widget.kt). Time Sensitive is iOS's alone; a leave-by already
+    // wakes an Android phone through its high priority and channel.
+    Function("binaryFeatures") { listOf("glanceSteps") }
+
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being
     // enabled is the permission the onboarding gate waits for.

@@ -174,6 +174,12 @@ export const CORE_COMPONENTS = [
    * the server fills with them for a build that says this; others get the same nodes in Geist.
    */
   "FontBricolage",
+  /**
+   * NOT A COMPONENT — a notification button that opens the app (Pay, Send, No, Open map) hands its id to the push's screen as the
+   * `button` param (notifications/push.ts onTap). A plain tap on the notification has none, so the server's hand-off screens open
+   * WhatsApp, UPI or Maps only for the button, and a tap just to look opens the Plan. Builds without it hand off on neither.
+   */
+  "PushButton",
 ] as const;
 
 export const CORE_ACTIONS = [

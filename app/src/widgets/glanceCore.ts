@@ -7,6 +7,9 @@
  *                    github.com), every face a safe file name and an https picture, an answer's id one the widget's answer path
  *                    takes; the case the widget leads with is the server's when the rest of the glance backs it, else picked
  *                    by the contract's order (needs → done → working → quiet)
+ *   cleanSteps       the glance's `steps`: lines that take over at their own minute with no new glance (a leave-by, then the
+ *                    next thing), so the widget's words stay true while the app is not opened; glanceAt is the glance as it reads
+ *                    at a moment (the rule X0Glance.swift `asOf(_:)` and TailzuX0Widget.kt X0Doc apply), nextStepAt when it next changes
  *   glanceDue        whether to ask again now: the server's refreshAfterSec, sooner when something happened
  *   faceSources      the bot faces the widget will draw (face key → picture), and facesToFetch the ones not on the phone yet
  *   activityPlan     the "Bots at work" Live Activity (iOS) after a glance: start, update or end it, and what it shows
@@ -72,6 +75,21 @@ export interface GlanceDone {
   link: string;
 }
 
+/**
+ * A line that takes over at its own minute (only for a binary that asked for steps, device/binaryCore.ts GlanceSteps). From `at`
+ * until the next step for the same bot, `line` is that bot's row line; from `at` until the next step with lock words, `lock` is
+ * the lock screen's. A row that is asking, working or showing something done keeps its own line, and the lock screen keeps a
+ * question's words while the widget leads with it: what needs the person beats the time of day.
+ */
+export interface GlanceStep {
+  at: number;
+  /** The bot whose row line it sets ("plan"), or "" for lock words alone. */
+  bot: string;
+  line: string;
+  /** The lock screen's words from `at` on, or null: they stay as they were. */
+  lock: { inline: string; title: string; line: string } | null;
+}
+
 export interface Glance {
   v: 2;
   at: number;
@@ -89,6 +107,8 @@ export interface Glance {
   lock: { inline: string; title: string; line: string };
   links: { ask: string; home: string; mic: string };
   words: Record<string, string>;
+  /** Oldest first; empty for a server or a request without them. */
+  steps: GlanceStep[];
 }
 
 type Obj = Record<string, unknown>;
@@ -219,6 +239,67 @@ function cleanWords(w: unknown): Record<string, string> {
   return out;
 }
 
+/** How many steps a glance may carry, and how far past the glance's own time (the server writes a day or so ahead). */
+export const STEPS_MAX = 16;
+export const STEPS_AHEAD_MS = 48 * 3_600_000;
+
+const cleanLock = (v: unknown): GlanceStep["lock"] => {
+  if (!isObj(v)) return null;
+  const lock = { inline: text(v.inline, 40), title: text(v.title, 60), line: text(v.line, 100) };
+  return lock.inline || lock.title || lock.line ? lock : null;
+};
+
+/**
+ * The steps a widget may be given: each with a time, setting a line of a bot the glance has or lock words, within
+ * STEPS_AHEAD_MS of the glance's time; oldest first. Of those already begun by `now` only the last for each bot and the last
+ * with lock words are kept (the rest can never show again); at most STEPS_MAX, the ones in force first.
+ */
+export function cleanSteps(v: unknown, bots: readonly GlanceBot[], at: number, now: number): GlanceStep[] {
+  if (!Array.isArray(v)) return [];
+  const slugs = new Set(bots.map((b) => b.slug));
+  const all = v.slice(0, 64).map((s): GlanceStep | null => {
+    if (!isObj(s)) return null;
+    const when = time(s.at);
+    if (!when || when > Math.max(at, now) + STEPS_AHEAD_MS) return null;
+    const bot = typeof s.bot === "string" && slugs.has(s.bot) ? s.bot : "";
+    const line = bot ? text(s.line, 40) : "";
+    const lock = cleanLock(s.lock);
+    if (!line && !lock) return null;
+    return { at: when, bot: line ? bot : "", line, lock };
+  }).filter((s): s is GlanceStep => !!s).sort((a, b) => a.at - b.at);
+  const begun = all.filter((s) => s.at <= now);
+  const keep = new Set<GlanceStep>();
+  const lastLine = new Map<string, GlanceStep>();
+  let lastLock: GlanceStep | null = null;
+  for (const s of begun) {
+    if (s.bot) lastLine.set(s.bot, s);
+    if (s.lock) lastLock = s;
+  }
+  for (const s of lastLine.values()) keep.add(s);
+  if (lastLock) keep.add(lastLock);
+  // The latest begun step wins for a line and for the lock words alike (glanceAt), so the ones kept read as the whole list did.
+  return [...begun.filter((s) => keep.has(s)), ...all.filter((s) => s.at > now)].slice(0, STEPS_MAX);
+}
+
+/** The glance as it reads at `t`: each idle row's line and the lock words from the latest of their steps begun by then. */
+export function glanceAt(g: Glance, t: number): Glance {
+  const due = g.steps.filter((s) => s.at <= t);
+  if (due.length === 0) return g;
+  const lineOf = (slug: string) => [...due].reverse().find((s) => s.bot === slug && s.line)?.line;
+  const bots = g.bots.map((b) => {
+    if (b.state !== "idle" || b.working) return b;
+    const line = lineOf(b.slug);
+    return line ? { ...b, line } : b;
+  });
+  const lock = g.case === "needs" ? null : [...due].reverse().find((s) => s.lock)?.lock ?? null;
+  return { ...g, bots, ...(lock ? { lock } : {}) };
+}
+
+/** When the glance next reads differently on its own, or null. */
+export function nextStepAt(g: Pick<Glance, "steps">, t: number): number | null {
+  return g.steps.find((s) => s.at > t)?.at ?? null;
+}
+
 /** The case the contract's order picks: needs (count > 0) → done (lastDone) → working (a bot working or a job) → quiet. */
 export function pickCase(g: Pick<Glance, "needs" | "lastDone" | "job" | "bots" | "counts">): GlanceCase {
   if (g.needs.count > 0 || g.needs.items.length > 0) return "needs";
@@ -267,6 +348,7 @@ export function cleanGlance(doc: unknown, now = Date.now()): Glance | null {
     lock: { inline: text(lock.inline, 40), title: text(lock.title, 60), line: text(lock.line, 100) },
     links: { ask: link(links.ask), home: link(links.home), mic: link(links.mic) },
     words: cleanWords(doc.words),
+    steps: cleanSteps(doc.steps, bots, time(doc.at) || now, now),
   };
   const said = CASES.includes(doc.case as GlanceCase) ? (doc.case as GlanceCase) : null;
   return { ...g, case: said && backs(said, g) ? said : pickCase(g) };

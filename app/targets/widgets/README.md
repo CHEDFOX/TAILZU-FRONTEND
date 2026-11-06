@@ -182,6 +182,33 @@ Screen, `X0Parts.swift` the parts (from the approved design's kit):
   `doneSeePr` ("Done — tap to see the PR").
 - **Art**: `BlipRest` (the quiet hours) and `BlipPeek` (Blip peeking into the
   keyboard's round window: the Ask key; a hairline rim on dark grounds).
+- **Steps: lines that switch on their own.** The widget never asks the
+  server, so a line written at 9 pm is still up at 10 am if the app was not
+  opened. A binary that says `glanceSteps` (the bridge's `binaryFeatures`,
+  `src/device/binaryCore.ts`) asks for the glance with `steps=1`, and the
+  glance may then carry `steps` (at most 16, within two days of its `at`;
+  `src/widgets/glanceCore.ts` `cleanSteps` checks them):
+
+  ```
+  "steps": [
+    { "at": 1793383800000, "bot": "plan", "line": "Leave by 9:00 am for PTM",
+      "lock": { "inline": "Leave by 9:00 · PTM", "title": "Leave by 9:00 am", "line": "PTM at school, 9:30" } },
+    { "at": 1793385600000, "bot": "plan", "line": "Next: PTM 9:30 am" },
+    { "at": 1793390400000, "lock": { "inline": "Ready", "title": "Good evening", "line": "" } }
+  ]
+  ```
+
+  From a step's `at` until the next step for the same bot, `line` is that
+  bot's row line; from its `at` until the next step with `lock`, those are the
+  Lock Screen's words. A row that is asking, working or showing something
+  done keeps its own line, and while the widget leads with a question the
+  Lock Screen keeps that question's lock words: what needs the person beats
+  the time of day. Before the first step the glance reads as written.
+  `X0Provider` adds an entry at each step's minute over the next day and
+  draws each entry as the glance reads then (`X0Glance.asOf(_:)`), so a
+  leave-by takes Plan Ease's row and the Lock Screen at its minute even when
+  the system holds back the next reload. The words are the server's, already
+  lock-safe (no amount, a health title as "Appointment", nobody's own words).
 
 ## Bots at work
 
@@ -260,7 +287,10 @@ open the app) so an answer takes one tap; the server can turn answering in
 place off (`answerable` false, or `widgets.token.enabled` off).
 
 **Android** (`modules/tulmi-bridge/android`) has its own X0 widget
-(`TailzuX0Widget`, the same glance under `x0.glance`) and From your people
+(`TailzuX0Widget`, the same glance under `x0.glance`, its steps applied as it
+is read by `X0Steps.kt`, the same rule, and redrawn at the next step's minute
+by an inexact alarm that never wakes the phone and needs no exact-alarm
+permission) and From your people
 (`TailzuQuickWidgets.kt`, with the `TailzuWidgetActReceiver` buttons post
 through) reading the same document from the app's `tulmi.widget` SharedPreferences (keys as above; the
 token under `tulmi.widget.token`, private to the app), and the app shortcuts
@@ -277,7 +307,8 @@ server decides, the app keeps today's values as fallbacks):
 | --- | --- | --- |
 | `push.categories` | the notification categories and their buttons: `id`, `title`, `icon` (kept for when expo-notifications can show one), `input` (`placeholder`, `send`: a text field), `foreground`, `destructive`, `auth`, and what a press does: `act` (POST /v1/widgets/act with the push's `data.item`, the app's session), `open`, or `call` (`method`, a `/v1/` `path` and `body`, `{data.<field>}` / `{text}` filled). Registered on launch when changed; one no longer listed is removed | `src/notifications/categories.ts`, `categoriesCore.ts`, `actions.ts` |
 | `push.actions.enabled`, `.path`, `.keepHours`, `.maxTries`, `.backgroundTask`; labels `push.actions.failedTitle` / `failedBody` | the kill switch; where `act` posts; how long and how often an answer the phone could not send is tried again (on coming to the front, same key); Android's task for a press with the app closed; the quiet notice when the server refused one | `src/notifications/actions.ts`, `backgroundTask.ts` |
-| `push.<kind>.category` (the push engine's, backend `push/defaults.ts`) | which category each push kind carries: today `space_message` → `x0_reply`, `space_task` / `space_plan` → `x0_task`, `approval` → `x0_yesno` | backend `push/engine.ts` (also adds `data.item`) |
+| `push.<kind>.category` (the push engine's, backend `push/defaults.ts`) | which category each push kind carries: today `space_message` → `x0_reply`, `space_task` / `space_plan` → `x0_task`, `approval` → `x0_yesno`, and Plan Ease's (`plan_todo` → `x0_todo`, `plan_leave` → `x0_leave`, …, backend `botsBots/planKinds.ts`) | backend `push/engine.ts` (also adds `data.item`) |
+| `push.<kind>.interruptionLevel` (the push engine's) | iOS: how loud a push may be. `passive` (the morning note: no sound, no lighting up) needs nothing. `time-sensitive` (a leave-by, a bill due today: through a Focus and the Scheduled Summary) needs the entitlement in `app.config.ts`, so the server sends it only to a token registered with `caps: ["PushTimeSensitive"]` (`src/notifications/push.ts`, from the bridge's `binaryFeatures`) | backend `push/engine.ts` |
 | `app.quickActions.ios`, `app.quickActions.android`, `app.quickActions.max`, `app.quickActions.enabled` | the app icon's long-press list per platform, in order: `id`, `title`, `subtitle`, `icon` (an SF Symbol / a drawable), `url`, and on iOS `arm` (the microphone's arming screen, opened through the keyboard's App Group tombstone, as Dictate does) | `src/quickActions`, the bridge's `TulmiShortcuts.swift` / `TailzuShortcuts.kt` |
 | `widgets.now.enabled`, `.path`, `.fetchSec`; `widgets.token.path` | the app's side of the widgets: whether and where it fetches the rows, how often before the server's own `fetchSec` arrives, where it asks for the widgets' token | `src/widgets/now.ts` |
 
@@ -316,6 +347,16 @@ against the Android 15 framework. Nothing below can be seen without a phone:
    and link; notification buttons; the app shortcuts.
 10. Both: sign out, and the widgets empty, any Bots at work activity ends, and
     the widgets' token is gone.
+11. Steps (Plan Ease's line): with a glance whose steps begin a few minutes
+    ahead, close the app and wait. iOS: the medium and large rows and the
+    Lock Screen's inline and rectangle change at each step's minute; with a
+    question showing, the Lock Screen keeps it. Android: the 4x4 tile's line
+    changes within a few minutes of the step once the screen is on.
+12. Time Sensitive (iPhone): turn on a Focus that silences X0 Bot, then send
+    a `plan_leave` push to a token registered with `PushTimeSensitive`: it
+    breaks through and shows "Time Sensitive"; the same push to an older
+    build's token arrives as an ordinary push. On the new build, Settings ›
+    Notifications › X0 Bot has a Time Sensitive Notifications switch.
 
 Also by eye, on a phone: the mic session's banner (Light and Dark) and island
 (compact in each phase, expanded ready with its hint uncut, minimal); Setup's

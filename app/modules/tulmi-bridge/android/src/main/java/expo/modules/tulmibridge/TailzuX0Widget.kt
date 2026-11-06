@@ -68,6 +68,8 @@ import kotlin.math.sqrt
  *
  * Redrawn whenever the app writes a glance, after an answer pressed here, and, while a job runs or a finished thing shows, every
  * few minutes by itself (an inexact alarm that never wakes the phone), so its minutes count on; it stops on a glance hours old.
+ * And at each of the glance's steps (X0Steps): a leave-by takes Plan Ease's line at its minute, then the next thing, with no new
+ * glance, through a second alarm of the same kind set for the next step.
  */
 class TailzuX0Widget : AppWidgetProvider() {
   override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -80,7 +82,7 @@ class TailzuX0Widget : AppWidgetProvider() {
   }
 
   override fun onReceive(context: Context, intent: Intent) {
-    if (intent.action == TailzuX0.TICK) {
+    if (intent.action == TailzuX0.TICK || intent.action == TailzuX0.STEP) {
       TailzuX0.drawAll(context)
       return
     }
@@ -89,6 +91,7 @@ class TailzuX0Widget : AppWidgetProvider() {
 
   override fun onDisabled(context: Context) {
     TailzuX0.tick(context, false)
+    TailzuX0.step(context, null)
   }
 }
 
@@ -100,6 +103,9 @@ object TailzuX0 {
   /** The widget's own redraw while a job runs (an explicit broadcast to the provider, from this app's own alarm). */
   internal const val TICK = "expo.modules.tulmibridge.X0_TICK"
   private const val TICK_MS = 3 * 60_000L
+
+  /** The redraw at the glance's next step (X0Steps), on an alarm of its own so it never moves the tick's. */
+  internal const val STEP = "expo.modules.tulmibridge.X0_STEP"
 
   /** No ticking on a glance older than this: what it says of a running job is no longer worth counting on. */
   private const val TICK_FOR_MS = 3 * 3_600_000L
@@ -115,9 +121,11 @@ object TailzuX0 {
       val widgets = manager ?: AppWidgetManager.getInstance(context) ?: return
       val ids = only ?: widgets.getAppWidgetIds(ComponentName(context, TailzuX0Widget::class.java)) ?: return
       if (ids.isEmpty()) return
-      val doc = X0Doc.load(context)
+      val now = System.currentTimeMillis()
+      val doc = X0Doc.load(context, now)
       for (id in ids) draw(context, widgets, id, doc)
-      tick(context, doc != null && ticks(doc, System.currentTimeMillis()))
+      tick(context, doc != null && ticks(doc, now))
+      step(context, doc?.nextStepAt)
     } catch (_: Throwable) {
       // A widget never stops the app.
     }
@@ -142,6 +150,21 @@ object TailzuX0 {
       val intent = Intent(context, TailzuX0Widget::class.java).setAction(TICK)
       val pending = PendingIntent.getBroadcast(context, 0x58, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
       if (on) alarms.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + TICK_MS, pending)
+      else alarms.cancel(pending)
+    } catch (_: Exception) {
+    }
+  }
+
+  /**
+   * Redraw at `at` (wall-clock ms), the glance's next step, or not at all (null). Inexact and never waking the phone, as the tick:
+   * a line only has to be right when someone looks, and the phone is awake then. No exact-alarm permission is asked for.
+   */
+  internal fun step(context: Context, at: Long?) {
+    try {
+      val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+      val intent = Intent(context, TailzuX0Widget::class.java).setAction(STEP)
+      val pending = PendingIntent.getBroadcast(context, 0x59, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+      if (at != null && at > 0L) alarms.set(AlarmManager.RTC, at, pending)
       else alarms.cancel(pending)
     } catch (_: Exception) {
     }
@@ -234,7 +257,7 @@ internal data class SizeDp(val w: Float, val h: Float)
  * The glance the app wrote, read leniently: a missing or mistyped field is absent and its caller falls back. JSON's null is
  * absent too (org.json's optString would say "null").
  */
-internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long) {
+internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long, val now: Long) {
   class Bot(val slug: String, val name: String, val color: Int?, val face: String?, val state: String, val needs: Int,
             val working: Boolean, val line: String, val link: String)
 
@@ -258,11 +281,21 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long) {
   private val week = o.optJSONObject("week")
   val weekDots: Int = (num(week, "dots")?.toInt() ?: 0).coerceIn(0, 5)
   val weekLine: String = str(week, "line")
+  /** The glance's steps, oldest first: lines that take over at their own minute (X0Steps; glanceCore.ts GlanceStep). */
+  private val steps: List<X0Steps.Step> = objects(o.optJSONArray("steps")).mapNotNull { st ->
+    val l = st.optJSONObject("lock")
+    val lock = if (l == null) null else X0Steps.Lock(str(l, "inline"), str(l, "title"), str(l, "line"))
+    X0Steps.of(num(st, "at")?.toLong(), str(st, "bot"), str(st, "line"), lock)
+  }.sortedBy { it.at }.take(X0Steps.MAX)
+
+  /** Each bot as the glance reads now: an idle row's line from its latest step begun by now. */
   val bots: List<Bot> = objects(o.optJSONArray("bots")).mapNotNull { b ->
     val slug = str(b, "slug").takeIf { it.isNotEmpty() } ?: return@mapNotNull null
     val state = str(b, "state").ifEmpty { "idle" }
+    val working = b.opt("working") == true || state == "working"
+    val line = X0Steps.line(steps, slug, state, working, now) ?: str(b, "line")
     Bot(slug, str(b, "name").ifEmpty { slug }, WidgetInk.hex(str(b, "color").ifEmpty { null }), face(str(b, "face")), state,
-      num(b, "needs")?.toInt() ?: 0, b.opt("working") == true || state == "working", str(b, "line"), str(b, "link"))
+      num(b, "needs")?.toInt() ?: 0, working, line, str(b, "link"))
   }.take(8)
   private val needs = o.optJSONObject("needs")
   val items: List<Item> = objects(needs?.optJSONArray("items")).mapNotNull { i ->
@@ -288,8 +321,13 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long) {
       num(pr, "number")?.toInt() ?: 0, str(pr, "url"), str(d, "link"))
   }
   private val lock = o.optJSONObject("lock")
-  val lockTitle: String = str(lock, "title")
-  val lockLine: String = str(lock, "line")
+  // A step's lock words from its minute on, except while the widget leads with a question: what needs the person comes first.
+  private val lockNow: X0Steps.Lock? = if (caseAt(now) == "needs") null else X0Steps.lock(steps, now)
+  val lockTitle: String = lockNow?.title ?: str(lock, "title")
+  val lockLine: String = lockNow?.line ?: str(lock, "line")
+
+  /** When the glance next reads differently on its own (its next step's minute), or null. */
+  val nextStepAt: Long? = X0Steps.next(steps, now)
   private val links = o.optJSONObject("links")
   val ask: String = str(links, "ask")
   val home: String = str(links, "home")
@@ -320,12 +358,12 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long) {
     private val ORDER = listOf("needs", "done", "working", "quiet")
     private val FACE = Regex("^[a-z0-9][a-z0-9_-]{0,47}$")
 
-    /** What setWidgetGlance last stored, or nothing (never written, or signed out). Never throws. */
-    fun load(context: Context): X0Doc? = try {
+    /** What setWidgetGlance last stored, as it reads at `now`, or nothing (never written, or signed out). Never throws. */
+    fun load(context: Context, now: Long = System.currentTimeMillis()): X0Doc? = try {
       val p = TailzuQuick.prefs(context)
       TailzuQuick.obj(p.getString(TailzuX0.KEY, null))
         ?.takeIf { (it.opt("v") as? Number)?.toInt() == 2 }
-        ?.let { X0Doc(it, p.getLong(TailzuX0.WRITTEN_AT, 0L)) }
+        ?.let { X0Doc(it, p.getLong(TailzuX0.WRITTEN_AT, 0L), now) }
     } catch (_: Exception) {
       null
     }
@@ -352,7 +390,8 @@ internal sealed class Face {
 
 /** What every size of one widget's draw shares: the glance, the colours, the faces (decoded once), the taps. */
 internal class X0Ctx(val context: Context, val doc: X0Doc?, private val widgetId: Int) {
-  val now = System.currentTimeMillis()
+  /** The moment the glance was read as of (its steps applied), so every part of one draw tells the same time. */
+  val now = doc?.now ?: System.currentTimeMillis()
   val night = WidgetInk.isNight(context)
   val density: Float = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
 

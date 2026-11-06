@@ -116,6 +116,8 @@ interface TulmiBridgeNative {
   addListener?(event: string, listener: (e: unknown) => void): { remove(): void };
   beginBackgroundWork?(): number;
   endBackgroundWork?(id: number): void;
+  // What this binary can do that an update cannot add (src/device/binaryCore.ts).
+  binaryFeatures?(): unknown;
 }
 
 export interface KeyboardRecordRequest {
@@ -719,5 +721,21 @@ export function endBackgroundWork(id: number): void {
     native?.endBackgroundWork?.(id);
   } catch {
     /* the system ends it on its own */
+  }
+}
+
+/**
+ * WHAT THIS BINARY CAN DO THAT A JAVASCRIPT UPDATE CANNOT ADD: native code or
+ * an entitlement, named as TulmiBridgeModule.swift / .kt say them
+ * ("timeSensitive", "glanceSteps"). An over-the-air update also reaches
+ * binaries built before a feature, so the server is told only what this
+ * returns (src/device/binaryCore.ts cleans it). [] in Expo Go and on an older
+ * binary, which has no such function. Never throws.
+ */
+export function binaryFeatures(): unknown {
+  try {
+    return native?.binaryFeatures?.() ?? [];
+  } catch {
+    return [];
   }
 }

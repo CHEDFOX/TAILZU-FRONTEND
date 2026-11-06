@@ -10,6 +10,11 @@ import WidgetKit
 // Every read is lenient: a missing or mistyped field is simply absent, every word keeps a literal as its fallback, and a glance
 // that is not version 2 is no glance. The case the widget leads with is the server's when the glance backs it, else the
 // contract's order: needs → done → working → quiet.
+//
+// STEPS: lines that take over at their own minute with no new glance (glanceCore.ts GlanceStep; asked for with steps=1 only
+// because this binary says glanceSteps, TulmiBridgeModule.swift). A leave-by takes Plan Ease's row and the Lock Screen at its
+// time, then the next thing, so what the widget says stays true while the app is not opened. X0Provider puts an entry at each
+// step's minute and draws each entry as the glance reads then (`asOf(_:)`).
 
 enum X0Keys {
   static let glance = "x0.glance"
@@ -125,6 +130,19 @@ struct X0Glance {
   var micURL: URL?
   var words: [String: String] = [:]
 
+  /// A line that takes over at its own minute: the bot's row line (when `bot` is set) and the Lock Screen's words (when sent),
+  /// each until the next step that sets them.
+  struct Step {
+    /// ms since 1970.
+    let at: Double
+    let bot: String
+    let line: String
+    let lock: (inline: String, title: String, line: String)?
+  }
+
+  /// Oldest first.
+  var steps: [Step] = []
+
   init() {}
 
   init?(json data: Data) {
@@ -193,7 +211,52 @@ struct X0Glance {
       guard let s = v as? String, !s.isEmpty else { return nil }
       return s
     }
+    steps = o.objs("steps").compactMap { st -> Step? in
+      guard let at = st.num("at"), at.isFinite, at > 0 else { return nil }
+      let bot = st.str("bot"), line = st.str("line")
+      let l = st.obj("lock")
+      let lock = (inline: l.str("inline"), title: l.str("title"), line: l.str("line"))
+      let hasLock = !lock.inline.isEmpty || !lock.title.isEmpty || !lock.line.isEmpty
+      let hasLine = !bot.isEmpty && !line.isEmpty
+      guard hasLine || hasLock else { return nil }
+      return Step(at: at, bot: hasLine ? bot : "", line: hasLine ? line : "", lock: hasLock ? lock : nil)
+    }
+    .sorted { $0.at < $1.at }
+    .prefix(16)
+    .map { $0 }
     lead = X0Glance.pick(said: X0Case(rawValue: o.str("case")), self)
+  }
+
+  /// The glance as it reads at `date` (glanceCore.ts glanceAt): each idle row's line and the Lock Screen's words from the latest
+  /// of their steps begun by then. A row that is asking, working or showing something done keeps its own line, and while the
+  /// widget leads with a question the Lock Screen keeps its words: what needs the person beats the time of day.
+  func asOf(_ date: Date) -> X0Glance {
+    let t = date.timeIntervalSince1970 * 1000
+    let due = steps.filter { $0.at <= t }
+    guard !due.isEmpty else { return self }
+    var g = self
+    g.bots = bots.map { b in
+      guard b.state == "idle", !b.working, let s = due.last(where: { $0.bot == b.slug && !$0.line.isEmpty }) else { return b }
+      return Bot(
+        slug: b.slug, name: b.name, color: b.color, face: b.face, state: b.state, needs: b.needs, working: b.working, line: s.line,
+        link: b.link)
+    }
+    if lead != .needs, let l = due.last(where: { $0.lock != nil })?.lock {
+      g.lockInline = l.inline
+      g.lockTitle = l.title
+      g.lockLine = l.line
+    }
+    return g
+  }
+
+  /// The moments after `start`, within `span` seconds, at which the glance reads differently on its own.
+  func stepDates(after start: Date, within span: TimeInterval) -> [Date] {
+    let from = start.timeIntervalSince1970 * 1000, to = from + span * 1000
+    var seen = Set<Double>()
+    return steps.compactMap { s -> Date? in
+      guard s.at > from, s.at <= to, seen.insert(s.at).inserted else { return nil }
+      return Date(timeIntervalSince1970: s.at / 1000)
+    }
   }
 
   /// The server's case when the glance backs it, else the contract's order.
@@ -344,23 +407,27 @@ struct X0Provider: TimelineProvider {
   func getSnapshot(in context: Context, completion: @escaping (X0Entry) -> Void) {
     let g = X0Glance.load()
     let shown: X0Glance? = g ?? (context.isPreview ? X0Glance.sample : nil)
-    completion(X0Entry(date: Date(), glance: shown, states: NowStates.all(since: g?.outcomesSince ?? 0)))
+    let now = Date()
+    completion(X0Entry(date: now, glance: shown?.asOf(now), states: NowStates.all(since: g?.outcomesSince ?? 0)))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<X0Entry>) -> Void) {
     // The app redraws the widget whenever it writes a fresh glance; this only has to hold between those writes, so it asks again
     // after the server's refreshAfterSec. A running job's minutes and a finished one's time are words of whole minutes, never a
     // ticking clock: while one shows, one entry a minute until then (at most an hour of them), each as of its own minute.
+    // The glance's steps add an entry at each of their minutes over the next day, so a leave-by and the next thing take over on
+    // time even when the system holds back the next reload; each entry is drawn as the glance reads at its own date.
     let g = X0Glance.load()
     let states = NowStates.all(since: g?.outcomesSince ?? 0)
     let start = Date()
     let span = g?.refreshAfterSec ?? 3600
     let ticks = g.map { $0.job != nil || $0.lastDone != nil } ?? false
-    let steps = ticks ? max(1, min(60, Int(span / 60))) : 1
+    let count = ticks ? max(1, min(60, Int(span / 60))) : 1
     let minute = Calendar.current.dateInterval(of: .minute, for: start)?.start ?? start
-    let entries = (0..<steps).map { i in
-      X0Entry(date: i == 0 ? start : minute.addingTimeInterval(Double(i) * 60), glance: g, states: states)
-    }
+    let tickDates = (0..<count).map { i in i == 0 ? start : minute.addingTimeInterval(Double(i) * 60) }
+    let stepDates = g?.stepDates(after: start, within: 86_400) ?? []
+    let dates = Array(Set(tickDates + stepDates)).sorted()
+    let entries = dates.map { d in X0Entry(date: d, glance: g?.asOf(d), states: states) }
     completion(Timeline(entries: entries, policy: .after(start.addingTimeInterval(span))))
   }
 }

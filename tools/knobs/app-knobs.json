@@ -320,9 +320,11 @@
     "desktop.recorder.stopFailed": "Recording didn't finish. Try again.",
     "desktop.recorder.streamError": "Voice stopped working. Try again.",
     "desktop.recorder.uploadFailed": "Couldn't send your recording. Check your connection and try again.",
+    "desktop.route.added": "Added to {bot}",
     "desktop.route.altAsk": "Ask instead",
     "desktop.route.altBot": "Send to a bot",
     "desktop.route.altType": "Type it instead",
+    "desktop.route.altUndo": "Undo",
     "desktop.route.asked": "Asked X0",
     "desktop.route.botAnswer": "{bot}: {text}",
     "desktop.route.botFailed": "Couldn't reach your bots",
@@ -340,6 +342,8 @@
     "desktop.route.sending": "Sending",
     "desktop.route.sent": "Sent to {bot}",
     "desktop.route.typed": "Typed",
+    "desktop.route.undoFailed": "Couldn't take it out",
+    "desktop.route.undone": "Taken out",
     "desktop.runner.allow": "Allow",
     "desktop.runner.badgeAllowed": "allowed",
     "desktop.runner.badgeDenied": "denied",
@@ -1323,6 +1327,10 @@
     "desktop.notes.uploadTries": 5,
     "desktop.notes.watchEveryMs": 5000,
     "desktop.notes.watchMs": 600000,
+    "desktop.notices.connectMs": 15000,
+    "desktop.notices.enabled": false,
+    "desktop.notices.hereMs": 60000,
+    "desktop.notices.max": 8,
     "desktop.notify.nudgeThrottleMs": 5000,
     "desktop.oauth.height": 680,
     "desktop.oauth.loopbackPort": 8788,
@@ -1508,6 +1516,10 @@
     "desktop.pill.writeHeight": 30,
     "desktop.pill.writeWidth": 124,
     "desktop.pill.writingMaxMs": 120000,
+    "desktop.plan.addThis": false,
+    "desktop.plan.addThis.chars": 12000,
+    "desktop.plan.addThis.minChars": 40,
+    "desktop.plan.addThis.path": "/v1/botsapp/bots/plan/box",
     "desktop.progress.height": 6,
     "desktop.progressBar.height": 3,
     "desktop.recorder.contextChars": 600,
@@ -2324,107 +2336,115 @@
     },
     "desktop.oneKey.default.mac": {
       "kind": "str",
-      "at": "../TAILZU-DESKTOP/src/main/main.js:478"
+      "at": "../TAILZU-DESKTOP/src/main/main.js:490"
     },
     "desktop.rest.nearPx": {
       "kind": "num",
-      "at": "../TAILZU-DESKTOP/src/main/main.js:1203"
+      "at": "../TAILZU-DESKTOP/src/main/main.js:1218"
     },
     "desktop.rest.windowHeight": {
       "kind": "num",
-      "at": "../TAILZU-DESKTOP/src/main/main.js:1193"
+      "at": "../TAILZU-DESKTOP/src/main/main.js:1208"
     },
     "desktop.router.bots": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:196"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:215"
     },
     "desktop.router.commandEnd": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:189"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:208"
     },
     "desktop.router.commandVerbs": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:188"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:207"
     },
     "desktop.router.explain": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:192"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:211"
     },
     "desktop.router.explainAnywhere": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:193"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:212"
     },
     "desktop.router.frontOnly": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:176"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:195"
     },
     "desktop.router.greetings": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:177"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:196"
     },
     "desktop.router.heardAs": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:175"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:194"
+    },
+    "desktop.router.notThings": {
+      "kind": "list",
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:218"
     },
     "desktop.router.notesPre": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:178"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:197"
     },
     "desktop.router.notesStart": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:180"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:199"
     },
     "desktop.router.notesStartDeva": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:182"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:201"
     },
     "desktop.router.notesStartHi": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:181"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:200"
     },
     "desktop.router.notesStop": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:183"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:202"
     },
     "desktop.router.notesStopDeva": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:185"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:204"
     },
     "desktop.router.notesStopHi": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:184"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:203"
     },
     "desktop.router.notesSuffix": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:179"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:198"
+    },
+    "desktop.router.pointsAt": {
+      "kind": "list",
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:217"
     },
     "desktop.router.questionEnd": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:187"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:206"
     },
     "desktop.router.questionStart": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:186"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:205"
     },
     "desktop.router.screenStrong": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:191"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:210"
     },
     "desktop.router.screenThings": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:190"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:209"
     },
     "desktop.router.tasks": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:197"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:216"
     },
     "desktop.router.writeEnd": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:195"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:214"
     },
     "desktop.router.writeStart": {
       "kind": "list",
-      "at": "../TAILZU-DESKTOP/src/dictation/router.js:194"
+      "at": "../TAILZU-DESKTOP/src/dictation/router.js:213"
     },
     "postLanguageScreenId": {
       "kind": "str",

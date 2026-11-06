@@ -5,7 +5,7 @@
 
 import test from "node:test";
 import assert from "node:assert";
-import { callFor, categoriesSignature, cleanCategories, fillTemplate, findAction, owe, retryable, stillOwed } from "./categoriesCore.ts";
+import { callFor, categoriesSignature, cleanCategories, fillTemplate, findAction, owe, pressedButton, retryable, stillOwed } from "./categoriesCore.ts";
 
 const DEFAULTS = [
   { id: "x0_reply", actions: [{ id: "reply", title: "Reply", icon: "arrowshape.turn.up.left", input: { placeholder: "Reply…", send: "Send" }, foreground: false, act: "reply" }] },
@@ -83,4 +83,12 @@ test("answers owed: once per key, newest kept, given up when old or tried too of
   assert.equal(retryable(429), true);
   assert.equal(retryable(403), false);
   assert.equal(retryable(409), false);
+});
+
+test("a button that opens says which it was; a plain tap says nothing", () => {
+  const DEFAULT = "expo.modules.notifications.actions.DEFAULT";
+  assert.equal(pressedButton("p_pay", DEFAULT), "p_pay");
+  assert.equal(pressedButton(DEFAULT, DEFAULT), "");
+  assert.equal(pressedButton(undefined, DEFAULT), "");
+  assert.equal(pressedButton("x; rm -rf", DEFAULT), "");
 });

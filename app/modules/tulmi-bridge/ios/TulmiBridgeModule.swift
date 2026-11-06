@@ -427,6 +427,20 @@ public class TulmiBridgeModule: Module {
       TulmiShortcuts.endWork(id)
     }
 
+    // WHAT THIS BINARY CAN DO THAT A JAVASCRIPT UPDATE CANNOT ADD. An update
+    // reaches binaries built before these existed, so the app tells the server
+    // only what the binary says here (src/device/binaryCore.ts):
+    //   timeSensitive  the Time Sensitive entitlement is signed into this app
+    //                  (app.config.ts), so a leave-by or a bill due today may
+    //                  break through a Focus; without it iOS would treat one
+    //                  as an ordinary push
+    //   glanceSteps    the X0 widget switches its lines on its own at the
+    //                  glance's `steps` (X0Glance.swift `asOf(_:)`, X0Provider)
+    // A name is added here only in the same build as what it promises.
+    Function("binaryFeatures") { () -> [String] in
+      ["timeSensitive", "glanceSteps"]
+    }
+
     // A quick action pressed while the app runs: JS is told, and consumes it.
     // The Bots at work activity's push token, as iOS hands it over.
     Events("onQuickAction", "onBotsActivityPushToken")

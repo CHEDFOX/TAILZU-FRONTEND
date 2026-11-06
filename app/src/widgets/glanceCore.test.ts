@@ -7,8 +7,8 @@
 import test from "node:test";
 import assert from "node:assert";
 import {
-  activityPlan, activityState, cleanGlance, cut, faceSources, facesToFetch, glanceDue, isFaceUrl, isPng, isPrUrl, pickCase,
-  type ActivityMemo, type Glance,
+  activityPlan, activityState, cleanGlance, cut, faceSources, facesToFetch, glanceAt, glanceDue, isFaceUrl, isPng, isPrUrl, nextStepAt,
+  pickCase, STEPS_AHEAD_MS, STEPS_MAX, type ActivityMemo, type Glance,
 } from "./glanceCore.ts";
 
 const NOW = 1_793_350_000_000;
@@ -226,3 +226,123 @@ test("the Live Activity: started for a new job, updated on change, ended on its 
 
   assert.deepEqual(activityPlan(glance({ job: null }), null, NOW), { ops: [], memo: null });
 });
+
+// ------------------------------------------------------------------ steps: lines that take over at their own minute
+
+const MIN = 60_000;
+/** A quiet evening glance with Plan Ease idle: its line, the lock words, and what comes next on their own. */
+function planGlance(steps: unknown, over: Record<string, unknown> = {}): Glance {
+  return cleanGlance(sample({
+    case: "quiet", needs: { count: 0, items: [] }, job: null, counts: { working: 0, needs: 0 },
+    bots: [
+      { slug: "plan", name: "Plan Ease", state: "idle", line: "Next: design review 6 pm", link: "tulmi://screen/bots.plan" },
+      { slug: "code", name: "Code bot", state: "idle", line: "Ready", link: "tulmi://screen/bots.code" },
+    ],
+    lock: { inline: "Next: design review 6 pm", title: "Design review at 6 pm", line: "Indiranagar" },
+    steps, ...over,
+  }), NOW)!;
+}
+
+test("no steps from a server or a request without them: the glance reads as written, and never changes on its own", () => {
+  const g = planGlance(undefined);
+  assert.deepEqual(g.steps, []);
+  assert.strictEqual(glanceAt(g, NOW + 5 * 60 * MIN), g);
+  assert.equal(nextStepAt(g, NOW), null);
+});
+
+test("a leave-by takes the row and the lock screen at its minute, and the next thing after it, with no new glance", () => {
+  const g = planGlance([
+    { at: NOW + 80 * MIN, bot: "plan", line: "Leave by 5:30 pm, Appointment", lock: { inline: "Leave by 5:30 · Appointment", title: "Leave by 5:30 pm", line: "Appointment, Indiranagar" } },
+    { at: NOW + 110 * MIN, bot: "plan", line: "Next: Appointment 6 pm", lock: { inline: "Next: Appointment 6:00", title: "Appointment at 6 pm", line: "Indiranagar" } },
+    { at: NOW + 150 * MIN, bot: "plan", line: "Tomorrow: PTM 9:30 am", lock: { inline: "Ready", title: "Good evening, Aanya", line: "" } },
+  ]);
+  assert.equal(g.steps.length, 3);
+  // Before the first: as written.
+  assert.equal(glanceAt(g, NOW + 79 * MIN).bots[0]!.line, "Next: design review 6 pm");
+  assert.equal(glanceAt(g, NOW + 79 * MIN).lock.inline, "Next: design review 6 pm");
+  // From the leave-by's minute.
+  const leave = glanceAt(g, NOW + 80 * MIN);
+  assert.equal(leave.bots[0]!.line, "Leave by 5:30 pm, Appointment");
+  assert.deepEqual(leave.lock, { inline: "Leave by 5:30 · Appointment", title: "Leave by 5:30 pm", line: "Appointment, Indiranagar" });
+  // Another bot's row is not touched.
+  assert.equal(leave.bots[1]!.line, "Ready");
+  // Then the next thing, then tomorrow: never "next" for a thing already over.
+  assert.equal(glanceAt(g, NOW + 111 * MIN).lock.title, "Appointment at 6 pm");
+  assert.equal(glanceAt(g, NOW + 200 * MIN).bots[0]!.line, "Tomorrow: PTM 9:30 am");
+  assert.equal(glanceAt(g, NOW + 200 * MIN).lock.inline, "Ready");
+  // When it next reads differently.
+  assert.equal(nextStepAt(g, NOW), NOW + 80 * MIN);
+  assert.equal(nextStepAt(g, NOW + 80 * MIN), NOW + 110 * MIN);
+  assert.equal(nextStepAt(g, NOW + 150 * MIN), null);
+});
+
+test("a step's line and its lock words each hold until the next step that sets them", () => {
+  const g = planGlance([
+    { at: NOW + 10 * MIN, bot: "plan", line: "Leave by 9:00 for PTM" , lock: { inline: "Leave by 9:00 · PTM", title: "Leave by 9:00 am", line: "PTM at school, 9:30" } },
+    { at: NOW + 20 * MIN, bot: "plan", line: "Next: PTM 9:30" },
+    { at: NOW + 30 * MIN, lock: { inline: "Next: PTM 9:30", title: "PTM at 9:30", line: "School" } },
+  ]);
+  const a = glanceAt(g, NOW + 25 * MIN);
+  assert.equal(a.bots[0]!.line, "Next: PTM 9:30");
+  assert.equal(a.lock.title, "Leave by 9:00 am");
+  const b = glanceAt(g, NOW + 35 * MIN);
+  assert.equal(b.bots[0]!.line, "Next: PTM 9:30");
+  assert.equal(b.lock.title, "PTM at 9:30");
+});
+
+test("what needs the person beats the time of day: an asking or busy row keeps its line, a question keeps the lock screen", () => {
+  const steps = [{ at: NOW + MIN, bot: "plan", line: "Leave by 5:30 pm", lock: { inline: "Leave by 5:30", title: "Leave by 5:30 pm", line: "" } }];
+  const asking = planGlance(steps, {
+    case: "needs",
+    bots: [{ slug: "plan", name: "Plan Ease", state: "needs", needs: 1, line: "Move the grocery run to Sat 11 am?" }],
+    needs: { count: 1, items: [{ id: "pm:e1:1793400000000", kind: "plan", bot: "plan", question: "Move the grocery run to Sat 11 am?",
+      choices: [{ id: "move", label: "Move it", primary: true }, { id: "keep", label: "Keep" }], answerable: true }] },
+    lock: { inline: "Plan Ease needs you", title: "Plan Ease needs you", line: "Move the grocery run?" },
+  });
+  const later = glanceAt(asking, NOW + 2 * MIN);
+  assert.equal(later.bots[0]!.line, "Move the grocery run to Sat 11 am?");
+  assert.equal(later.lock.title, "Plan Ease needs you");
+  const busy = planGlance(steps, { bots: [{ slug: "plan", name: "Plan Ease", state: "working", working: true, line: "reading the circular" }] });
+  assert.equal(glanceAt(busy, NOW + 2 * MIN).bots[0]!.line, "reading the circular");
+  // The lock words still move on a quiet or busy widget.
+  assert.equal(glanceAt(busy, NOW + 2 * MIN).lock.title, "Leave by 5:30 pm");
+});
+
+test("steps are checked: a time, a bot the glance has or lock words, within two days; cut to their lengths; oldest first", () => {
+  const g = planGlance([
+    { at: NOW + 30 * MIN, bot: "plan", line: "B" },
+    { at: NOW + 20 * MIN, bot: "plan", line: "A " + "x".repeat(80) },
+    { at: 0, bot: "plan", line: "no time" },
+    { at: "soon", bot: "plan", line: "no time" },
+    { at: NOW + 40 * MIN, bot: "ghost", line: "a bot it does not have" },
+    { at: NOW + 50 * MIN, bot: "plan", line: "" },
+    { at: NOW + 60 * MIN, bot: "plan", line: "   ", lock: { inline: "", title: "", line: "" } },
+    { at: NOW + STEPS_AHEAD_MS + MIN, bot: "plan", line: "too far ahead" },
+    "not a step", null,
+    { at: NOW + 70 * MIN, lock: { inline: "I".repeat(80), title: "T", line: "L" } },
+  ]);
+  assert.deepEqual(g.steps.map((s) => s.at), [NOW + 20 * MIN, NOW + 30 * MIN, NOW + 70 * MIN]);
+  assert.ok(Array.from(g.steps[0]!.line).length <= 40);
+  assert.ok(g.steps[0]!.line.endsWith("…"));
+  assert.equal(g.steps[2]!.bot, "");
+  assert.equal(g.steps[2]!.line, "");
+  assert.ok(Array.from(g.steps[2]!.lock!.inline).length <= 40);
+  assert.equal(g.steps[0]!.lock, null);
+});
+
+test("of the steps already begun only the one in force is kept, and at most a handful in all", () => {
+  const g = planGlance([
+    { at: NOW - 30 * MIN, bot: "plan", line: "old", lock: { inline: "old lock", title: "", line: "" } },
+    { at: NOW - 20 * MIN, bot: "plan", line: "in force" },
+    { at: NOW - 10 * MIN, lock: { inline: "lock in force", title: "", line: "" } },
+    ...Array.from({ length: 30 }, (_, i) => ({ at: NOW + (i + 1) * MIN, bot: "plan", line: `step ${i + 1}` })),
+  ]);
+  assert.equal(g.steps.length, STEPS_MAX);
+  assert.deepEqual(g.steps.slice(0, 2).map((s) => s.line || s.lock?.inline), ["in force", "lock in force"]);
+  assert.equal(g.steps[2]!.line, "step 1");
+  // Read now, the kept ones give what the whole list gave.
+  const now = glanceAt(g, NOW);
+  assert.equal(now.bots[0]!.line, "in force");
+  assert.equal(now.lock.inline, "lock in force");
+});
+

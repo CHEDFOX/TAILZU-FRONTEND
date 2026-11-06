@@ -162,3 +162,14 @@ export function stillOwed(list: Owed[], now: number, maxAgeMs: number, maxTries:
 export function retryable(status: number | undefined): boolean {
   return status === undefined || status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
 }
+
+/**
+ * The pressed button's id, handed to the push's screen as its `button` param (capability PushButton), or "" for a plain tap on the
+ * notification (`defaultId`, the system's own) or an id that isn't one of ours. The server's hand-off screens open WhatsApp, UPI or
+ * Maps only for a button, so a tap just to look never does.
+ */
+export function pressedButton(actionIdentifier: unknown, defaultId: string): string {
+  const id = typeof actionIdentifier === "string" ? actionIdentifier : "";
+  if (!id || id === defaultId) return "";
+  return /^[A-Za-z0-9_]{1,40}$/.test(id) ? id : "";
+}

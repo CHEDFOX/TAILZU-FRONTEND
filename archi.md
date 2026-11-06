@@ -87,7 +87,8 @@ src/
 ├─ quickActions/          the app icon's long-press items
 ├─ share/                 share-in: files from other apps to the backend, then the share screen
 ├─ deeplinks/             tulmi:// and universal-link parsing
-├─ device/                device signals (microphone, keyboard enabled / full access)
+├─ device/                device signals (microphone, keyboard enabled / full access); what the binary can do that an
+│                         update cannot add (binaryCore.ts: Time Sensitive pushes, the widget's steps)
 └─ telemetry/             Sentry, PostHog analytics, Meta ads
 ```
 
@@ -120,6 +121,9 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | iOS keyboard | `app/targets/keyboard/` (spec: `docs/keyboard-spec.md`) |
 | Android keyboard | `app/modules/tulmi-keyboard/android/` |
 | Widgets (iOS / Android) | `app/targets/widgets/` / `modules/tulmi-bridge/android/…/TailzuX0Widget.kt`; data from `src/widgets/` |
+| Widget lines that switch on their own (the glance's `steps`: a leave-by, then the next thing) | `src/widgets/glanceCore.ts` (`cleanSteps`, `glanceAt`, the rule), `targets/widgets/X0Glance.swift` (`asOf`, `X0Provider`), `modules/tulmi-bridge/android/…/X0Steps.kt` and `TailzuX0Widget.kt` (the step alarm) |
+| What only the binary can promise the server (PushTimeSensitive with the push token, GlanceSteps in the bootstrap and `steps=1` on the glance) | `src/device/binaryCore.ts` (`binary.ts` reads the bridge's `binaryFeatures`, `TulmiBridgeModule.swift` / `.kt`); the Time Sensitive entitlement in `app.config.ts` |
+| Which notification button opened the app (`PushButton`): an opening button's id goes to the push's screen as its `button` param, a plain tap has none, so the server's hand-off screens open UPI, WhatsApp or Maps only for Pay, Send, No or Open map | `src/notifications/push.ts` onTap, `categoriesCore.ts` pressedButton; declared in `src/sdui/registry.ts` |
 | Live Activities | `targets/widgets/BotsActivity.swift`, `FlowActivity.swift`, `SetupActivity.swift`; started from `modules/tulmi-bridge/ios/*LiveActivity.swift`; JS side `src/widgets/glance.ts`, `src/widgets/flow.ts` |
 | Live updates (screens refreshed from another device) | `src/sdui/live/` |
 | Offline page and outbox | `src/sdui/offline/` |
