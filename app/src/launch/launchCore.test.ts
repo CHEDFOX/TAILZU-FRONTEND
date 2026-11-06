@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { BAR_TOP, GROUND, LAUNCH_MS, PINCH_AT, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
+import { BAR, BAR_TOP, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SLIP, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url));
 
@@ -34,7 +34,7 @@ test("the motion starts on the splash: nothing has moved before he gathers", () 
     assert.equal(barDy(t), 0, `bar at ${t}`);
     const h = head(t);
     assert.deepEqual([h.dy, h.sway, h.sq, h.shown], [0, -0, 1, 1], `head at ${t}`);
-    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, shown: 1 });
+    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, edge: 0, shown: 1 });
     for (let i = 0; i < STRIPS; i++) {
       const st = strip(i, STRIPS, t);
       assert.ok(Math.abs(st.dx) < 1e-9 && st.sx === 1 && st.sy === 1 && st.shown === 1, `strip ${i} at ${t}`);
@@ -47,9 +47,27 @@ test("he goes over the bar: his head ends above its edge, his gloves let go, lef
   // The head's lowest pixel (405 px) is at or above the bar's top edge by the time it is hidden.
   assert.ok(405 * U + h.dy < BAR_TOP + 2, `head bottom ${405 * U + h.dy} vs ${BAR_TOP}`);
   assert.equal(head(900).shown, 0);
-  assert.equal(glove(0, 930).shown, 0);
-  assert.equal(glove(1, 930).shown, 1);
-  assert.equal(glove(1, 1000).shown, 0);
+  assert.ok(LET_GO[0] < LET_GO[1]);
+  for (const s of [0, 1] as const) assert.equal(glove(s, LET_GO[s] + LET_GO_MS).shown, 0, `glove ${s}`);
+  // Both are gone before his head is, give or take a frame: no glove is left on an empty bar.
+  assert.ok(LET_GO[1] + LET_GO_MS <= 900);
+});
+
+test("a glove letting go never grows back and never crosses the bar's face: it goes into the bar's lower edge", () => {
+  const HANDS_BOTTOM = 222 * U, BAR_BOTTOM = BAR.y1 * U;
+  for (const s of [0, 1] as const) {
+    let grip = 0;
+    for (let t = 560; t <= LET_GO[s] + LET_GO_MS; t += 5) {
+      const g = glove(s, t);
+      assert.ok(g.grip >= grip - 1e-9, `glove ${s} lets go of its squeeze at ${t}`);
+      grip = g.grip;
+      assert.ok(g.edge >= 0 && g.edge <= SLIP + 1e-9 && g.dy <= 0);
+    }
+    // At the end, all that is left below the clip edge is above the bar's lower edge: hidden by the bar.
+    const end = glove(s, LET_GO[s] + LET_GO_MS - 1e-6);
+    const grippedBottom = BAR_BOTTOM + (HANDS_BOTTOM - BAR_BOTTOM) * (1 - end.grip);
+    assert.ok(grippedBottom + end.dy <= BAR_BOTTOM + 0.5, `glove ${s} still shows below the bar: ${grippedBottom + end.dy}`);
+  }
 });
 
 test("the bar is pulled in to its middle and gone, and the window is white before the end", () => {

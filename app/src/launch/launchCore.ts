@@ -44,7 +44,8 @@ export const STRIPS = 48;
 // The beats (t, ms):
 //   0      the splash, still · 200 a blink
 //   420    he gathers: a small dip, the bar giving under him · 560 he pulls himself up, quick out and slow in, a little
-//          sway, his head going up behind the bar · 840 / 905 his gloves let go, left then right, over the bar's edge
+//          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
+//          rising: each slips behind the bar after him, fingers first, and is gone as his head is
 //   900    the bar springs back up, free of him, and settles
 //   1150   the bar's middle pinches · 1260 it is pulled in to its middle, faster and faster · 1600 gone · 1700 white
 
@@ -58,7 +59,7 @@ export function barDy(t: number): number {
   const gather = K(t, 420, 560), pull = K(t, 560, 900), free = K(t, 900, 1250);
   const sag = t < 560 ? ease(gather) * 1.6 : t < 900 ? 1.6 + Math.sin(pull * Math.PI) * 1.4 : 0;
   const spring = t >= 900 ? -Math.sin(free * Math.PI * 2.5) * (1 - free) * 3.2 : 0;
-  const kick = -(Math.sin(K(t, 840, 900) * Math.PI) + Math.sin(K(t, 905, 965) * Math.PI)) * 1.2;
+  const kick = -LET_GO.reduce((k, go) => k + Math.sin(K(t, go, go + 60) * Math.PI), 0) * 1.2;
   return sag + spring + kick;
 }
 
@@ -75,15 +76,27 @@ export function head(t: number): { dy: number; sway: number; sq: number; shut: n
   };
 }
 
-/** When each glove lets go, ms: the left, then the right. */
-export const LET_GO = [840, 905] as const;
+/** When each glove lets go, ms: the left, then the right, while his head is still going up behind the bar. */
+export const LET_GO = [690, 740] as const;
 
-/** A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar), how far it has flicked up, whether it is still there. */
-export function glove(side: 0 | 1, t: number): { grip: number; dy: number; shown: number } {
-  const go = LET_GO[side], rel = K(t, go, go + 85);
+/** How long a glove takes to slip behind the bar, ms. */
+export const LET_GO_MS = 140;
+
+/** How far a glove's clip edge comes down as it lets go, points: from the bar's top edge to its lower one. */
+export const SLIP = BAR.y1 * U - BAR_TOP;
+
+/**
+ * A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar), and as it lets go, how far it has risen
+ * (dy) and how far the edge it is clipped at has come down (edge): the fingers go behind the bar first and the glove
+ * follows them up, so it is gone into the bar's lower edge, after him. It stays the size it gripped at the whole way:
+ * nothing grows back, and nothing crosses the bar's face.
+ */
+export function glove(side: 0 | 1, t: number): { grip: number; dy: number; edge: number; shown: number } {
+  const go = LET_GO[side], rel = K(t, go, go + LET_GO_MS), r = ease(rel);
   return {
-    grip: t < go ? ease(K(t, 560, 760)) * 0.22 : 0.22 * (1 - ease(rel * 3)),
-    dy: -Math.pow(rel, 1.8) * SPLASH_PT * 0.16,
+    grip: ease(K(t, 560, 680)) * 0.22,
+    dy: -r * SPLASH_PT * 0.06,
+    edge: r * SLIP,
     shown: rel >= 1 ? 0 : 1,
   };
 }
