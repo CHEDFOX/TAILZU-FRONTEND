@@ -1,6 +1,6 @@
 /**
- * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back to the
- * bar's middle, it is pulled in to them, and the app is there (launchCore.ts says how it fits together, and has every number).
+ * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back and grab
+ * its middle, from above and below, it is pulled in to them as they twist, and the app is there (launchCore.ts says how it fits together, and has every number).
  *
  * LaunchCurtain sits over the whole app from its first render. It draws the native splash's own frame (the same art,
  * size, place and ground), and once that is on screen it lifts the native splash from under it, so the join is one
@@ -9,8 +9,8 @@
  * screen), whichever comes later. Reduce Motion: the still, then the fade.
  *
  * The layers, back to front: his head (behind the bar, shown only below its top edge), the bar (whole, then in strips
- * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, coming back to
- * its middle, and the bar pulled in to them).
+ * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, grabbing its
+ * middle again, from above and below, and twisting as the bar is pulled in to them).
  *
  * LaunchStill is the same picture standing still: the boot view between the launch and a first screen.
  */
@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, View } from "react-native";
 import { num } from "../sdui/knobs";
 import {
-  BAR, BAR_TOP, COME_BACK, COME_BACK_MS, FADE_MS, GLOVES, GONE_AT, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SPLASH_PT,
+  BAR, BAR_MID, BAR_TOP, COME_BACK, COME_BACK_MS, FADE_MS, GLOVES, GONE_AT, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SPLASH_PT,
   STRIPS, SUCK_AT, U, barDy, degKeys, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
 } from "./launchCore";
 
@@ -47,8 +47,11 @@ const K = {
   gloves: ([0, 1] as const).map((s) => {
     const k = (f: (g: ReturnType<typeof glove>) => number, from: number, to: number) => keys((t) => f(glove(s, t)), from, to);
     return {
-      grip: k((g) => g.grip, 0, 680), dy: k((g) => g.dy, LET_GO[s], COME_BACK[s] + COME_BACK_MS), edge: k((g) => g.edge, LET_GO[s], COME_BACK[s] + COME_BACK_MS),
-      gx: k((g) => g.gx, COME_BACK[s] - 10, END), size: k((g) => g.size, END - 160, END), shown: k((g) => g.shown, LET_GO[s] + LET_GO_MS - 10, END),
+      grip: k((g) => g.grip, 0, COME_BACK[s] + COME_BACK_MS + 110), dy: k((g) => g.dy, LET_GO[s], COME_BACK[s]),
+      edge: k((g) => g.edge, LET_GO[s], COME_BACK[s]), lift: k((g) => g.lift, COME_BACK[s] - 10, COME_BACK[s] + COME_BACK_MS),
+      flip: k((g) => g.flip, COME_BACK[s] - 10, COME_BACK[s]), gx: k((g) => g.gx, COME_BACK[s] - 10, END),
+      turn: degKeys((t) => glove(s, t).turn, SUCK_AT, END), size: k((g) => g.size, END - 160, END),
+      shown: k((g) => g.shown, LET_GO[s] + LET_GO_MS - 10, END),
     };
   }),
   whole: { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [1, 1, 0] },
@@ -135,19 +138,22 @@ export default function LaunchCurtain() {
             );
           })}
         </Animated.View>
-        {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Going, the
-            edge each is clipped at moves down the bar's face as the glove goes up into its lower edge; coming back,
-            they come to its middle, the left down over its top edge, the right up from below, and the bar is pulled
-            in to them. */}
+        {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Going, the edge each is
+            clipped at moves down the bar's face as the glove goes up into its lower edge. Coming back, to the bar's
+            middle: the left in from above, turned over to grip its top; the right in from below. Then they twist
+            against each other as the bar is pulled in to them, and close on the middle. */}
         {K.gloves.map((g, side) => {
           const edge = at(g.edge);
-          const origin = `${GLOVES[side].cx - side * Z / 2}px ${GRIP_AT * Z}px`;
+          const barMid = BAR_MID - BAR_TOP;
           return (
             <Animated.View key={side} style={[styles.below, { left: side * Z / 2, width: Z / 2, opacity: at(g.shown), transform: [{ translateY: bar }, { translateY: edge }] }]}>
               <Animated.View style={[styles.piece, { transform: [{ translateY: Animated.multiply(edge, -1) }] }]}>
-                <Animated.View style={[styles.piece, { transformOrigin: origin, transform: [{ translateX: at(g.gx) }, { scale: at(g.size) }] }]}>
-                  <Animated.View style={[styles.piece, { transformOrigin: `50% ${GRIP_AT * 100}%`, transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
-                    <Animated.Image source={ART.hands} style={[styles.lifted, { left: -side * Z / 2, transform: [{ translateY: at(g.dy) }] }]} onLoad={side ? undefined : loaded} />
+                <Animated.View style={[styles.piece, { transformOrigin: `${GLOVES[side].cx - side * Z / 2}px ${barMid}px`,
+                  transform: [{ translateX: at(g.gx) }, { translateY: at(g.lift) }, { rotate: at(g.turn) }, { scale: at(g.size) }] }]}>
+                  <Animated.View style={[styles.piece, { transformOrigin: `50% ${barMid}px`, transform: [{ scaleY: at(g.flip) }] }]}>
+                    <Animated.View style={[styles.piece, { transformOrigin: `50% ${GRIP_AT * 100}%`, transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
+                      <Animated.Image source={ART.hands} style={[styles.lifted, { left: -side * Z / 2, transform: [{ translateY: at(g.dy) }] }]} onLoad={side ? undefined : loaded} />
+                    </Animated.View>
                   </Animated.View>
                 </Animated.View>
               </Animated.View>

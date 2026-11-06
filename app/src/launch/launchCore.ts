@@ -47,14 +47,15 @@ export const STRIPS = 48;
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
 //   900    the bar springs back up, free of him, and settles
-//   980 / 1030  his gloves come back to the bar's middle, side by side: the left over its top edge from behind it,
-//          fingers first, down onto it; the right up from below; gripping
-//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, into his gloves there
-//          · 1550 they close on the middle · 1700 gone · 1800 white
+//   960 / 1010  his gloves come back to the bar's middle, side by side: the left in from above, grabbing its top,
+//          the right in from below, grabbing its bottom; each squeezes as it lands, and the bar gives
+//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, into his gloves there,
+//          the two twisting against each other as it goes · 1550 they close on the middle · 1700 gone · 1800 white
 
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 const K = (t: number, a: number, b: number) => clamp((t - a) / (b - a));
 const ease = (x: number) => { const c = clamp(x); return c * c * (3 - 2 * c); };
+const out = (x: number) => 1 - Math.pow(1 - clamp(x), 3);
 const inOut = (x: number) => { const c = clamp(x); return c < 0.5 ? 4 * c * c * c : 1 - Math.pow(-2 * c + 2, 3) / 2; };
 
 /** The bar's drop under him at t, points: a dip as he gathers, harder as he pulls, a kick as each glove lets go, then a spring back past rest. */
@@ -63,7 +64,9 @@ export function barDy(t: number): number {
   const sag = t < 560 ? ease(gather) * 1.6 : t < 900 ? 1.6 + Math.sin(pull * Math.PI) * 1.4 : 0;
   const spring = t >= 900 ? -Math.sin(free * Math.PI * 2.5) * (1 - free) * 3.2 : 0;
   const kick = -LET_GO.reduce((k, go) => k + Math.sin(K(t, go, go + 60) * Math.PI), 0) * 1.2;
-  return sag + spring + kick;
+  // His gloves grabbing it again: the one from above pushes it down a little, the one from below up.
+  const grab = COME_BACK.reduce((k, c, side) => k + Math.sin(K(t, c + COME_BACK_MS - 20, c + COME_BACK_MS + 70) * Math.PI) * (side ? -0.9 : 0.9), 0);
+  return sag + spring + kick + grab;
 }
 
 /** The head at t: how far it has gone up (dy, points, on top of the bar's), its sway (degrees), its squash, the blink. */
@@ -85,8 +88,11 @@ export const LET_GO = [690, 740] as const;
 /** How long a glove takes to slip behind the bar, ms (and to come back from behind it). */
 export const LET_GO_MS = 140;
 
-/** When each glove comes back, ms: to the bar's middle, side by side, the left over its top edge, the right up from below. */
-export const COME_BACK = [980, 1030] as const;
+/**
+ * When each glove comes back, ms: to the bar's middle, side by side, the left in from above to grip its top (turned over,
+ * fingers down its face), the right in from below to grip its bottom.
+ */
+export const COME_BACK = [960, 1010] as const;
 export const COME_BACK_MS = 200;
 
 /** The bar's middle pinches, ms: until then the bar is drawn whole; from then, in strips. */
@@ -99,11 +105,14 @@ export const GONE_AT = 1700;
 /** How far a glove's clip edge comes down as it goes behind the bar, points: from the bar's top edge to its lower one. */
 export const SLIP = BAR.y1 * U - BAR_TOP;
 
-/** How far above where it grips the left glove comes back from, points: all of it above the bar's top edge, out of sight. */
-export const DROP = SPLASH_PT * 0.15;
+/** How far a glove comes in from, points: the left from above the bar, the right from below it. */
+export const FROM = SPLASH_PT * 0.25;
 
-/** How far below where it grips the right glove comes up from, points, fading in as it comes. */
-export const RISE = SPLASH_PT * 0.1;
+/** How far the left glove's clip edge goes up as it comes in from above, points: out of its way. */
+export const OPEN = SPLASH_PT * 0.45;
+
+/** The bar's middle, top to bottom, points from the art's top: the left glove is turned over about it. */
+export const BAR_MID = (BAR.y0 + BAR.y1) / 2 * U;
 
 /** The last of it, ms: the gloves close on the middle and are gone with the bar. */
 export const CLOSE_MS = 150;
@@ -133,24 +142,35 @@ export function gloveX(side: 0 | 1, t: number): number {
 }
 
 /**
- * A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar); how far it is from where it grips (dy) and
- * how far the edge it is clipped at has come down (edge): letting go, the edge comes down to the bar's lower edge as the
- * glove goes up into it. Coming back, to the bar's middle: the left over the bar's top edge, sliding down onto it from
- * behind; the right up from below, fading in. gx, how far it is from where the art has it; size, 1 until they close on
- * the middle at the end; shown. It keeps the size it gripped at the whole way: nothing grows back.
+ * A glove at t (side 0 left, 1 right).
+ *
+ * Holding and letting go: grip, a squeeze toward the bar; dy, how far it has gone up into the bar; edge, how far the edge
+ * it is clipped at has come down the bar's face (the fingers going behind it).
+ *
+ * Coming back, out of sight until then: lift, how far it still is from the bar (the left above it, the right below it),
+ * fading in (shown) as it comes, quick out and slow in; flip, -1 for the left, turned over about the bar's middle so it
+ * grips the top, fingers down; edge, opened up out of the left's way. Each squeezes as it lands, and the bar gives.
+ *
+ * Then gx, how far it is from where the art has it; turn, the two twisting against each other as the bar is pulled in to
+ * them (degrees); size, 1 until they close on the middle at the end.
  */
-export function glove(side: 0 | 1, t: number): { grip: number; dy: number; edge: number; gx: number; size: number; shown: number } {
-  const away = ease(K(t, LET_GO[side], LET_GO[side] + LET_GO_MS)), back = ease(K(t, COME_BACK[side], COME_BACK[side] + COME_BACK_MS));
-  const close = ease(K(t, GONE_AT - CLOSE_MS, GONE_AT));
-  const coming = t >= COME_BACK[side], gone = t >= LET_GO[side] + LET_GO_MS;
+export function glove(side: 0 | 1, t: number): {
+  grip: number; dy: number; edge: number; lift: number; flip: number; gx: number; turn: number; size: number; shown: number;
+} {
+  const away = ease(K(t, LET_GO[side], LET_GO[side] + LET_GO_MS));
+  const c = COME_BACK[side], landed = c + COME_BACK_MS, back = out(K(t, c, landed));
+  const close = ease(K(t, GONE_AT - CLOSE_MS, GONE_AT)), wring = K(t, SUCK_AT, GONE_AT);
+  const coming = t >= c, gone = t >= LET_GO[side] + LET_GO_MS;
   return {
-    grip: ease(K(t, 560, 680)) * 0.22,
-    dy: !coming ? -away * SPLASH_PT * 0.06 : side ? (1 - back) * RISE : -(1 - back) * DROP,
-    edge: coming ? 0 : away * SLIP,
+    grip: ease(K(t, 560, 680)) * 0.22 + Math.sin(K(t, landed - 30, landed + 110) * Math.PI) * 0.12,
+    dy: coming ? 0 : -away * SPLASH_PT * 0.06,
+    edge: coming ? (side ? 0 : -OPEN) : away * SLIP,
+    lift: coming ? (1 - back) * FROM * (side ? 1 : -1) : 0,
+    flip: coming && !side ? -1 : 1,
     gx: gloveX(side, t) - GLOVES[side].cx,
+    turn: Math.sin(wring * Math.PI * 2) * (1 - close) * 10 * (side ? 1 : -1),
     size: 1 - close,
-    // The right one comes up into sight, so it fades in; until then, out of sight behind the bar, it is not drawn.
-    shown: t >= GONE_AT ? 0 : side && gone ? (coming ? Math.min(1, K(t, COME_BACK[side], COME_BACK[side] + COME_BACK_MS * 0.6)) : 0) : 1,
+    shown: t >= GONE_AT ? 0 : !gone ? 1 : !coming ? 0 : K(t, c, c + COME_BACK_MS * 0.5),
   };
 }
 

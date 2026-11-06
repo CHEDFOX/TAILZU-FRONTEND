@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, CLOSE_MS, GONE_AT, PINCH_AT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
+import { BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, BAR_MID, CLOSE_MS, FROM, GONE_AT, OPEN, PINCH_AT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url));
 
@@ -34,7 +34,7 @@ test("the motion starts on the splash: nothing has moved before he gathers", () 
     assert.equal(barDy(t), 0, `bar at ${t}`);
     const h = head(t);
     assert.deepEqual([h.dy, h.sway, h.sq, h.shown], [0, -0, 1, 1], `head at ${t}`);
-    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, edge: 0, gx: 0, size: 1, shown: 1 });
+    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, edge: 0, lift: 0, flip: 1, gx: 0, turn: 0, size: 1, shown: 1 });
     for (let i = 0; i < STRIPS; i++) {
       const st = strip(i, STRIPS, t);
       assert.ok(Math.abs(st.dx) < 1e-9 && st.sx === 1 && st.sy === 1 && st.shown === 1, `strip ${i} at ${t}`);
@@ -69,27 +69,34 @@ test("a glove letting go never grows back and never crosses the bar's face: it g
   }
 });
 
-test("his gloves come back to the bar's middle, side by side, the left from above and the right from below, once he is gone", () => {
-  const HANDS_TOP = 167 * U, HANDS_BOTTOM = 222 * U, BAR_BOTTOM = BAR.y1 * U;
-  // Out of sight: not drawn, above the edge it is clipped at, or gone up behind the bar.
-  const hidden = (g: ReturnType<typeof glove>) => {
-    const bottom = BAR_BOTTOM + (HANDS_BOTTOM - BAR_BOTTOM) * (1 - g.grip) + g.dy;
-    return g.shown === 0 || bottom <= BAR_TOP + g.edge + 0.5 || (g.edge >= SLIP - 1e-9 && bottom <= BAR_BOTTOM + 0.5);
-  };
+test("his gloves come back to the bar's middle, the left in from above to grip its top, the right in from below", () => {
   for (const s of [0, 1] as const) {
     assert.ok(COME_BACK[s] >= 900, "he is gone first");
-    // Hidden from the moment they are gone until they come back: moving to the middle happens out of sight.
-    for (let t = LET_GO[s] + LET_GO_MS; t < COME_BACK[s]; t += 5) assert.ok(hidden(glove(s, t)), `glove ${s} shows at ${t}`);
+    // Not drawn from the moment they are gone until they come back: the move to the middle happens out of sight.
+    for (let t = LET_GO[s] + LET_GO_MS; t < COME_BACK[s]; t += 5) assert.equal(glove(s, t).shown, 0, `glove ${s} shows at ${t}`);
     const back = glove(s, COME_BACK[s] + COME_BACK_MS);
-    assert.deepEqual([back.edge, back.dy, back.shown], [0, s ? 0 : -0, 1], `glove ${s} all the way back`);
+    assert.deepEqual([back.lift, back.shown, back.flip], [0, 1, s ? 1 : -1], `glove ${s} all the way back`);
     // At the middle, side by side, not over each other.
     assert.ok(Math.abs(GLOVES[s].cx + back.gx - heldAt(s)) < 1e-9);
     assert.ok(heldAt(1) - heldAt(0) >= GLOVES[0].half + GLOVES[1].half);
+    // It squeezes as it lands, then settles to its grip.
+    const landed = COME_BACK[s] + COME_BACK_MS;
+    assert.ok(glove(s, landed + 40).grip > glove(s, landed - 60).grip && glove(s, landed + 200).grip < glove(s, landed + 40).grip);
   }
-  // Halfway back: the left is coming down over the bar's top edge; the right is coming up from below, fading in.
+  // Halfway in: the left still above the bar, turned over, its clip edge out of its way; the right still below it.
   const left = glove(0, COME_BACK[0] + COME_BACK_MS / 2), right = glove(1, COME_BACK[1] + COME_BACK_MS / 2);
-  assert.ok(left.dy < 0 && HANDS_TOP + left.dy < BAR_TOP && !hidden(left));
-  assert.ok(right.dy > 0 && right.shown > 0 && right.shown <= 1);
+  assert.ok(left.lift < 0 && left.flip === -1 && left.edge === -OPEN && left.shown === 1);
+  assert.ok(right.lift > 0 && right.edge === 0 && right.shown === 1);
+  // The left, turned over about the bar's middle and lifted, is all inside its clip: nothing of it is cut off.
+  const HANDS_BOTTOM = 222 * U, top = 2 * BAR_MID - HANDS_BOTTOM;
+  assert.ok(top - FROM >= BAR_TOP - OPEN, "the left glove's clip is open far enough");
+});
+
+test("they twist against each other as the bar goes, and are still when it is gone", () => {
+  const mid = (SUCK_AT + GONE_AT) / 2 - 85;
+  assert.ok(Math.sign(glove(0, mid).turn) === -Math.sign(glove(1, mid).turn) && Math.abs(glove(0, mid).turn) > 3);
+  assert.ok(Math.abs(glove(0, GONE_AT).turn) < 1e-9);
+  assert.ok(Math.abs(barDy(1300)) < 1e-9, "the bar has settled after they grab it, before it is pulled in");
 });
 
 test("the bar is pulled in to its middle, the middle first, into his gloves there, and the window is white before the end", () => {
