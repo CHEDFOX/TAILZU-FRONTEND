@@ -35,6 +35,7 @@ import { BotCrowd } from "../bots/BotCrowd";
 import { Vanish } from "./Vanish";
 import { MentionField } from "./MentionField";
 import { LiveWords } from "./LiveWords";
+import { PersonBot } from "../bots/PersonBot";
 
 export { ThemeContext } from "../theme/ThemeContext";
 export { typeRole } from "../theme/typeRole";
@@ -69,4 +70,6 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   // Spaces, the family redesign (types.ts 3i): a bot with a thought, a crowd of tiny bots, a row that vaporises, a message
   // field with @ and /, and the words of a voice session as they are heard.
   BotStage, BotCrowd, Vanish, MentionField, LiveWords,
+  // A person, as their own tiny bot (types.ts 3j).
+  PersonBot,
 };

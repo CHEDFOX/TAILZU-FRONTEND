@@ -60,7 +60,7 @@ export function typed(s: MentionState, text: string, caret = text.length): Menti
 const lc = (v: string) => v.toLocaleLowerCase();
 
 /** The people whose name, or a word of it, starts with the query (any case); all of them for none. */
-export function filterPeople(people: Person[], query: string): Person[] {
+export function filterPeople<P extends Person>(people: P[], query: string): P[] {
   const q = lc(query.trim());
   if (!q) return people;
   return people.filter((p) => lc(p.name).split(/\s+/).some((w) => w.startsWith(q)) || lc(p.name).startsWith(q));

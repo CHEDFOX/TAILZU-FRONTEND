@@ -66,7 +66,8 @@ src/
 │  ├─ components/         one file per node component; components/index.ts is the REGISTRY
 │  ├─ bots/               the Bots app's living components: BotTiles, BotCard, BotBuddy, Home's header, pull-a-bot, BotStage
 │  │                      (a bot with a thought; stageCore.ts its geometry and taps; thought.ts what a field in it may ask),
-│  │                      BotCrowd (a box of tiny bots)
+│  │                      BotCrowd (a box of tiny bots), PersonBot (a person as their own tiny bot, idling; personBotCore.ts
+│  │                      his box, his idle and the one loop every PersonBot shares)
 │  ├─ voice/              live words turn by turn (voiceLive / voiceStop: voiceLive.ts on tulmi-stream, voiceLiveCore.ts the loop),
 │  │                      and the voice bus (voiceBus.ts: the words and the level, kept out of the screen's state)
 │  ├─ live/               live updates over the socket, and an answer's words streamed into state (askStream)
@@ -104,6 +105,8 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | A node component (Screen, Stack, Text, Image, Button, …) | `src/sdui/components/<Name>.tsx`; the type → component map is `components/index.ts` |
 | The Bots kit (tiles, cards, buddy, Home's header, pull-a-bot) | `src/sdui/bots/`; engine in `src/botTiles/` |
 | Spaces' pieces (section 3i): a bot with a thought, a crowd, a vanishing row, the @ and / field, live words | `sdui/bots/BotStage.tsx` + `stageCore.ts`, `sdui/bots/BotCrowd.tsx`, `sdui/components/Vanish.tsx`, `sdui/components/MentionField.tsx` + `mentionCore.ts`, `sdui/components/LiveWords.tsx` + `liveWordsCore.ts`; walking, roaming, listening, the thought's trail and follow in `src/botTiles/core.ts` |
+| A person as their own tiny bot (section 3j: no initials anywhere in Spaces), in the "@" list too | `sdui/bots/PersonBot.tsx` (the node, PersonBotView for a list drawn from data), `sdui/bots/personBotCore.ts` (his box, his idle recipe and gestures, the one loop; tested on the real engine) |
+| The messages' face (Bricolage Grotesque, capability FontBricolage) | no file of its own: the bootstrap's `fonts` names "Tailzu Bricolage", "… Medium", "… SemiBold" for a build that declares it, and `theme/remoteFonts.ts` registers them as it does Geist (the files and their licence are the server's, TAILZU-BACKEND tulmi/fonts) |
 | Talking to a bot (voiceLive, voiceStop) | `sdui/voice/voiceLive.ts` (the microphone, the screen's actions), `voiceLiveCore.ts` (turns, pauses, the made-up level), `voiceBus.ts` |
 | A dotted border with round corners; the screen behind an overlay, blurred | `sdui/components/dotted.tsx` (Stack draws it), `sdui/components/blur.tsx` (BotCard, BotStage) |
 | Actions (what a tap does) | `src/sdui/actions.ts`; media actions in `src/media/media.ts` |

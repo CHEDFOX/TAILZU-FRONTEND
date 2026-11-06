@@ -3,7 +3,8 @@
  * "MentionField"; section 3i): the space's composer, in its bot's thought.
  *
  * It owns its words, its chips (a person, a thing: 28 high, round, a light fill, with an x) and the list over the words:
- * People ("@"), the person's bots ("/", each with its dot, then `tools` under a line), and a bot's things (fetched from
+ * People ("@", each with their own tiny bot from the row's `bot`, never a letter: bots/PersonBot.tsx), the person's bots ("/",
+ * each with its dot, then `tools` under a line), and a bot's things (fetched from
  * `thingsPath` with the app's own signed-in call). The rules are mentionCore.ts's. Every change writes a MentionDraft to
  * `draftPath` (the words without the chips); the return key and the send button run on.onSubmit, after "@name" typed out
  * is turned into its chip (or, with two such people, their list opens and nothing is sent). When the screen clears
@@ -26,6 +27,8 @@ import { callEndpoint } from "../client";
 import type { ActionRef } from "../types";
 import { FooterField } from "./Screen";
 import { ThoughtContext } from "../bots/thought";
+import { PersonBotView } from "../bots/PersonBot";
+import { readPersonBot } from "../bots/personBotCore";
 import {
   EMPTY, atSubmit, backspace, canSend, draftOf, escape, filterBots, filterPeople, fromDraft, isEmptyDraft, pickBot, pickPerson, pickThing, pickTool, typed,
   type BotRef, type MentionState, type Person, type Thing,
@@ -36,7 +39,11 @@ const FACE = "Tailzu Geist", FACE_SEMI = "Tailzu Geist SemiBold";
 /** The web (the render check, Expo web) rings a focused field; the box around it is its frame. */
 const WEB_FIELD = (Platform.OS === "web" ? { outlineStyle: "none" } : null) as object | null;
 
-/** A person's dot: their first letter on a colour of their own (the same name, the same colour). */
+/**
+ * A row's person: their own tiny bot (the row's `bot`, the server's look for them). A row without one (a server from before
+ * people were bots) gets a plain circle in a colour of the person's own (the same name, the same colour): never a letter.
+ */
+type Row = Person & { bot?: { seed: string; avatar: string; color: string } };
 const DOTS = ["#6E4A6B", "#4F7A3A", "#A9573A", "#3E6E8E", "#8F6A1F", "#2F5D50", "#7A6440", "#5F6B6E"];
 function dotColor(name: string): string {
   let h = 0;
@@ -44,9 +51,19 @@ function dotColor(name: string): string {
   return DOTS[h % DOTS.length]!;
 }
 
+/** The look a row carries, when it carries one that names a person and a colour. */
+function rowBot(b: unknown): Row["bot"] {
+  if (!b || typeof b !== "object") return undefined;
+  const o = b as Record<string, unknown>;
+  if (typeof o.seed !== "string" || typeof o.color !== "string") return undefined;
+  return { seed: o.seed, avatar: typeof o.avatar === "string" ? o.avatar : "", color: o.color };
+}
+
 export const MentionField = ({ props, store, ctx, fire }: CompProps): React.ReactElement => {
   const draftPath = typeof props?.draftPath === "string" ? props.draftPath : "draft";
-  const people: Person[] = Array.isArray(props?.people) ? props.people.filter((p: any) => p && typeof p.id === "string").map((p: any) => ({ id: p.id, name: String(p.name ?? "") })) : [];
+  const people: Row[] = Array.isArray(props?.people)
+    ? props.people.filter((p: any) => p && typeof p.id === "string").map((p: any) => ({ id: p.id, name: String(p.name ?? ""), bot: rowBot(p.bot) }))
+    : [];
   const bots: BotRef[] = Array.isArray(props?.bots) ? props.bots.filter((b: any) => b && typeof b.slug === "string") : [];
   const tools: Array<{ id: string; label: string; action: ActionRef }> = Array.isArray(props?.tools) ? props.tools : [];
   const words = { people: "People", bots: "Share from a bot", empty: "Nothing here yet", ...(props?.words ?? {}) };
@@ -117,6 +134,11 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
       {!!sub && <Text numberOfLines={1} style={{ fontFamily: FACE, fontWeight: "normal", fontSize: 12, lineHeight: 16, color: META }}>{sub}</Text>}
     </View>
   );
+  // A person in the "@" list: their own tiny bot, decoration beside their name (which a screen reader reads).
+  const botSize = K.num("ui.MentionField.botSize", 28);
+  const face = (p: Row) => (p.bot
+    ? <PersonBotView {...readPersonBot({ ...p.bot, size: botSize })} />
+    : <View style={{ width: botSize, height: botSize, borderRadius: botSize / 2, backgroundColor: dotColor(p.name) }} />);
   let list: React.ReactNode = null;
   const m = st.menu;
   if (m?.kind === "people") {
@@ -126,9 +148,7 @@ export const MentionField = ({ props, store, ctx, fire }: CompProps): React.Reac
         {label(words.people)}
         {shown.length ? shown.map((p) => row(p.id, () => update(pickPerson(st, p)), (
           <>
-            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: dotColor(p.name), alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#fff", fontFamily: FACE_SEMI, fontWeight: "normal", fontSize: 13, lineHeight: 16 }}>{(p.name.trim()[0] ?? "?").toUpperCase()}</Text>
-            </View>
+            {face(p)}
             {name(p.name)}
           </>
         ))) : <Text style={{ fontFamily: FACE, fontSize: 14, lineHeight: 20, color: META, paddingHorizontal: 12, paddingVertical: 8 }}>{words.empty}</Text>}

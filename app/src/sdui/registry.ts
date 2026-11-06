@@ -161,6 +161,19 @@ export const CORE_COMPONENTS = [
    * `lastError` (actions.ts, as before).
    */
   "KitExtras",
+  /**
+   * People as their own tiny bots (types.ts section 3j). PersonBot: a person's full tiny bot standing in a size x size box, on the
+   * bots' engine with the catalog's avatar and the person's colour, idling on his own seed; every one on a screen on one loop,
+   * paused off screen (bots/PersonBot.tsx, personBotCore.ts). MentionField draws one in each row of its "@" list from the row's
+   * `bot`. The server shows people this way only to a build that says it; others get a plain circle in the person's colour.
+   */
+  "PersonBot",
+  /**
+   * NOT A COMPONENT — the messages' face: "Tailzu Bricolage", "Tailzu Bricolage Medium" and "Tailzu Bricolage SemiBold"
+   * (Bricolage Grotesque 400, 500, 600). Loaded as the Geist faces are, from the bootstrap's `fonts` (theme/remoteFonts.ts), which
+   * the server fills with them for a build that says this; others get the same nodes in Geist.
+   */
+  "FontBricolage",
 ] as const;
 
 export const CORE_ACTIONS = [
