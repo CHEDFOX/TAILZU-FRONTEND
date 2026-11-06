@@ -1,6 +1,6 @@
 /**
- * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, the bar is pulled in, and the
- * app is there (launchCore.ts says how it fits together, and has every number).
+ * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back and wind
+ * the bar in, and the app is there (launchCore.ts says how it fits together, and has every number).
  *
  * LaunchCurtain sits over the whole app from its first render. It draws the native splash's own frame (the same art,
  * size, place and ground), and once that is on screen it lifts the native splash from under it, so the join is one
@@ -9,7 +9,8 @@
  * screen), whichever comes later. Reduce Motion: the still, then the fade.
  *
  * The layers, back to front: his head (behind the bar, shown only below its top edge), the bar (whole, then in strips
- * for the pull-in), his gloves (in front, each its own half, gripping, then slipping behind the bar after him).
+ * for the wind), his gloves (in front, each its own half: gripping, slipping behind the bar after him, coming back at
+ * its ends and winding it in).
  *
  * LaunchStill is the same picture standing still: the boot view between the launch and a first screen.
  */
@@ -17,8 +18,8 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, View } from "react-native";
 import { num } from "../sdui/knobs";
 import {
-  BAR, BAR_TOP, FADE_MS, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SPLASH_PT, STRIPS, U,
-  barDy, degKeys, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
+  BAR, BAR_TOP, COME_BACK, COME_BACK_MS, FADE_MS, GLOVES, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, MEET_AT, MEET_MS, PINCH_AT, SPLASH_PT,
+  STRIPS, U, WIND_AT, barDy, degKeys, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
 } from "./launchCore";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -35,20 +36,26 @@ const Z = SPLASH_PT;
 /** The head's clip reaches past the art on both sides: his sway may take an ear over its edge. */
 const WIDE = 60;
 
+/** When the gloves have met and the last of the bar is gone. */
+const END = MEET_AT + MEET_MS;
+
 /** Every key, sampled once. The strips only move from the pinch on, so theirs start there. */
 const K = {
   bar: keys(barDy, 0, 1300),
   head: { dy: keys((t) => head(t).dy, 0, 900), sway: degKeys((t) => head(t).sway, 0, 900), sq: keys((t) => head(t).sq, 0, 900),
     shut: keys((t) => head(t).shut, 0, 700), shown: keys((t) => head(t).shown, 880, 900, 20) },
   gloves: ([0, 1] as const).map((s) => {
-    const [a, b] = [LET_GO[s], LET_GO[s] + LET_GO_MS];
-    return { grip: keys((t) => glove(s, t).grip, 0, b), dy: keys((t) => glove(s, t).dy, a, b), edge: keys((t) => glove(s, t).edge, a, b),
-      shown: keys((t) => glove(s, t).shown, b - 10, b) };
+    const k = (f: (g: ReturnType<typeof glove>) => number, from: number, to: number) => keys((t) => f(glove(s, t)), from, to);
+    return {
+      grip: k((g) => g.grip, 0, 680), dy: k((g) => g.dy, LET_GO[s], COME_BACK[s] + COME_BACK_MS), edge: k((g) => g.edge, LET_GO[s], COME_BACK[s] + COME_BACK_MS),
+      gx: k((g) => g.gx, LET_GO[s] + LET_GO_MS - 10, MEET_AT + MEET_MS), turn: degKeys((t) => glove(s, t).turn, WIND_AT, MEET_AT),
+      size: k((g) => g.size, MEET_AT, MEET_AT + MEET_MS), shown: k((g) => g.shown, MEET_AT + MEET_MS - 10, MEET_AT + MEET_MS),
+    };
   }),
   whole: { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [1, 1, 0] },
   strips: Array.from({ length: STRIPS }, (_, i) => ({
-    dx: keys((t) => strip(i, STRIPS, t).dx, PINCH_AT, 1600), sx: keys((t) => strip(i, STRIPS, t).sx, PINCH_AT, 1600),
-    sy: keys((t) => strip(i, STRIPS, t).sy, PINCH_AT, 1600), shown: keys((t) => strip(i, STRIPS, t).shown, PINCH_AT, 1600),
+    dx: keys((t) => strip(i, STRIPS, t).dx, MEET_AT, END), sx: keys((t) => strip(i, STRIPS, t).sx, MEET_AT, END),
+    sy: keys((t) => strip(i, STRIPS, t).sy, MEET_AT, END), shown: keys((t) => strip(i, STRIPS, t).shown, PINCH_AT, END, 5),
   })),
 };
 const SHOW_STRIPS = { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [0, 0, 1] };
@@ -129,15 +136,20 @@ export default function LaunchCurtain() {
             );
           })}
         </Animated.View>
-        {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Letting go, the edge each is
-            clipped at comes down the bar's face (the fingers slip behind it) while the glove rises into its lower edge. */}
+        {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Going, the
+            edge each is clipped at moves down the bar's face as the glove goes up into its lower edge; coming back,
+            each slides down over the bar's top edge onto it. Then each rolls along the bar to the middle,
+            taking it in, and shrinks to nothing there with the other. */}
         {K.gloves.map((g, side) => {
           const edge = at(g.edge);
+          const origin = `${GLOVES[side].cx - side * Z / 2}px ${GRIP_AT * Z}px`;
           return (
             <Animated.View key={side} style={[styles.below, { left: side * Z / 2, width: Z / 2, opacity: at(g.shown), transform: [{ translateY: bar }, { translateY: edge }] }]}>
               <Animated.View style={[styles.piece, { transform: [{ translateY: Animated.multiply(edge, -1) }] }]}>
-                <Animated.View style={[styles.piece, { transformOrigin: `50% ${GRIP_AT * 100}%`, transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
-                  <Animated.Image source={ART.hands} style={[styles.lifted, { left: -side * Z / 2, transform: [{ translateY: at(g.dy) }] }]} onLoad={side ? undefined : loaded} />
+                <Animated.View style={[styles.piece, { transformOrigin: origin, transform: [{ translateX: at(g.gx) }, { rotate: at(g.turn) }, { scale: at(g.size) }] }]}>
+                  <Animated.View style={[styles.piece, { transformOrigin: `50% ${GRIP_AT * 100}%`, transform: [{ scaleY: t.interpolate({ ...g.grip, outputRange: g.grip.outputRange.map((v) => 1 - v), extrapolate: "clamp" }) }] }]}>
+                    <Animated.Image source={ART.hands} style={[styles.lifted, { left: -side * Z / 2, transform: [{ translateY: at(g.dy) }] }]} onLoad={side ? undefined : loaded} />
+                  </Animated.View>
                 </Animated.View>
               </Animated.View>
             </Animated.View>

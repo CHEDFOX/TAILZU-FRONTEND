@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { BAR, BAR_TOP, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SLIP, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
+import { BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, MEET_AT, MEET_MS, PINCH_AT, SLIP, WIND_AT, gloveX, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url));
 
@@ -34,7 +34,7 @@ test("the motion starts on the splash: nothing has moved before he gathers", () 
     assert.equal(barDy(t), 0, `bar at ${t}`);
     const h = head(t);
     assert.deepEqual([h.dy, h.sway, h.sq, h.shown], [0, -0, 1, 1], `head at ${t}`);
-    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, edge: 0, shown: 1 });
+    for (const s of [0, 1] as const) assert.deepEqual(glove(s, t), { grip: 0, dy: -0, edge: 0, gx: 0, turn: 0, size: 1, shown: 1 });
     for (let i = 0; i < STRIPS; i++) {
       const st = strip(i, STRIPS, t);
       assert.ok(Math.abs(st.dx) < 1e-9 && st.sx === 1 && st.sy === 1 && st.shown === 1, `strip ${i} at ${t}`);
@@ -48,7 +48,6 @@ test("he goes over the bar: his head ends above its edge, his gloves let go, lef
   assert.ok(405 * U + h.dy < BAR_TOP + 2, `head bottom ${405 * U + h.dy} vs ${BAR_TOP}`);
   assert.equal(head(900).shown, 0);
   assert.ok(LET_GO[0] < LET_GO[1]);
-  for (const s of [0, 1] as const) assert.equal(glove(s, LET_GO[s] + LET_GO_MS).shown, 0, `glove ${s}`);
   // Both are gone before his head is, give or take a frame: no glove is left on an empty bar.
   assert.ok(LET_GO[1] + LET_GO_MS <= 900);
 });
@@ -63,21 +62,57 @@ test("a glove letting go never grows back and never crosses the bar's face: it g
       grip = g.grip;
       assert.ok(g.edge >= 0 && g.edge <= SLIP + 1e-9 && g.dy <= 0);
     }
-    // At the end, all that is left below the clip edge is above the bar's lower edge: hidden by the bar.
-    const end = glove(s, LET_GO[s] + LET_GO_MS - 1e-6);
+    // Gone: all that is left below the clip edge is above the bar's lower edge, hidden by the bar.
+    const end = glove(s, LET_GO[s] + LET_GO_MS);
     const grippedBottom = BAR_BOTTOM + (HANDS_BOTTOM - BAR_BOTTOM) * (1 - end.grip);
     assert.ok(grippedBottom + end.dy <= BAR_BOTTOM + 0.5, `glove ${s} still shows below the bar: ${grippedBottom + end.dy}`);
   }
 });
 
-test("the bar is pulled in to its middle and gone, and the window is white before the end", () => {
-  for (let i = 0; i < STRIPS; i++) assert.equal(strip(i, STRIPS, 1600).shown, 0, `strip ${i}`);
-  // The middle goes first.
-  const mid = Math.floor(STRIPS / 2), end = 0;
+test("his gloves come back at the bar's ends, over its top edge onto it, and only once he is gone", () => {
+  const HANDS_TOP = 167 * U, HANDS_BOTTOM = 222 * U, BAR_BOTTOM = BAR.y1 * U;
+  // Out of sight: above the edge it is clipped at, or gone up behind the bar.
+  const hidden = (g: ReturnType<typeof glove>) => {
+    const bottom = BAR_BOTTOM + (HANDS_BOTTOM - BAR_BOTTOM) * (1 - g.grip) + g.dy;
+    return bottom <= BAR_TOP + g.edge + 0.5 || (g.edge >= SLIP - 1e-9 && bottom <= BAR_BOTTOM + 0.5);
+  };
+  for (const s of [0, 1] as const) {
+    assert.ok(COME_BACK[s] >= 900, "he is gone first");
+    // Hidden from the moment they are gone until they come back: moving to the end happens out of sight.
+    for (let t = LET_GO[s] + LET_GO_MS; t <= COME_BACK[s]; t += 5) assert.ok(hidden(glove(s, t)), `glove ${s} shows at ${t}`);
+    // Coming back, its fingers come over the bar's top edge first and it slides down onto the bar.
+    const mid = glove(s, COME_BACK[s] + COME_BACK_MS / 2);
+    assert.equal(mid.edge, 0);
+    assert.ok(HANDS_TOP + mid.dy < BAR_TOP && !hidden(mid));
+    const back = glove(s, COME_BACK[s] + COME_BACK_MS);
+    assert.deepEqual([back.edge, back.dy], [0, -0], `glove ${s} all the way back`);
+    // At the bar's end on its side: its outer edge on the bar's.
+    const x = GLOVES[s].cx + back.gx, half = GLOVES[s].half;
+    assert.ok(Math.abs(s ? x + half - BAR.x1 * U : x - half - BAR.x0 * U) < 1e-9, `glove ${s} at ${x}`);
+    // Smooth: no jump of more than a few points a frame (16 ms) while it can be seen.
+    let prev = gloveX(s, COME_BACK[s]);
+    for (let t = COME_BACK[s]; t <= MEET_AT + MEET_MS; t += 16) {
+      const x2 = gloveX(s, t);
+      assert.ok(Math.abs(x2 - prev) < 6, `glove ${s} jumps at ${t}`);
+      prev = x2;
+    }
+  }
+});
+
+test("they wind the bar in to its middle: the ends go first, nothing is left, and the window is white before the end", () => {
+  // The bar is whole until the wind, and a strip is only gone once a glove's middle has passed it.
+  for (let i = 0; i < STRIPS; i++) assert.equal(strip(i, STRIPS, WIND_AT - 1).shown, 1);
+  for (let i = 0; i < STRIPS; i++) assert.equal(strip(i, STRIPS, MEET_AT + MEET_MS).shown, 0, `strip ${i}`);
   const goneAt = (i: number) => { for (let t = PINCH_AT; t <= LAUNCH_MS; t += 5) if (!strip(i, STRIPS, t).shown) return t; return Infinity; };
-  assert.ok(goneAt(mid) < goneAt(end));
-  assert.ok(Math.abs(barDy(1300)) < 1e-9, "the bar has settled before it goes");
-  assert.ok(LAUNCH_MS >= 1600 && LAUNCH_MS <= 2000);
+  assert.ok(goneAt(0) < goneAt(Math.floor(STRIPS / 4)) && goneAt(Math.floor(STRIPS / 4)) < goneAt(Math.floor(STRIPS / 2)));
+  assert.ok(goneAt(STRIPS - 1) < goneAt(Math.floor(STRIPS * 3 / 4)));
+  // Both gloves are gone with it, at the middle.
+  for (const s of [0, 1] as const) {
+    assert.equal(glove(s, MEET_AT + MEET_MS).shown, 0);
+    assert.ok(Math.abs(gloveX(s, MEET_AT + MEET_MS) - SPLASH_PT / 2) < 1e-9);
+  }
+  assert.ok(Math.abs(barDy(1300)) < 1e-9, "the bar has settled before it is wound in");
+  assert.ok(MEET_AT + MEET_MS < LAUNCH_MS && LAUNCH_MS <= 2000);
 });
 
 test("keys are increasing, start and end where asked, and clamp nothing away", () => {
