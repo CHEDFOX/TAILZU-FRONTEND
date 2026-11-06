@@ -71,7 +71,7 @@ test("a glove letting go never grows back and never crosses the bar's face: it g
 
 test("his gloves come back to the bar's middle, the left in from above to grip its top, the right in from below", () => {
   for (const s of [0, 1] as const) {
-    assert.ok(COME_BACK[s] >= 900, "he is gone first");
+    assert.ok(COME_BACK[s] - 900 >= 500, "he is gone first (900), and half a second passes with nobody there");
     // Not drawn from the moment they are gone until they come back: the move to the middle happens out of sight.
     for (let t = LET_GO[s] + LET_GO_MS; t < COME_BACK[s]; t += 5) assert.equal(glove(s, t).shown, 0, `glove ${s} shows at ${t}`);
     const back = glove(s, COME_BACK[s] + COME_BACK_MS);
@@ -96,7 +96,7 @@ test("they twist against each other as the bar goes, and are still when it is go
   const mid = (SUCK_AT + GONE_AT) / 2 - 85;
   assert.ok(Math.sign(glove(0, mid).turn) === -Math.sign(glove(1, mid).turn) && Math.abs(glove(0, mid).turn) > 3);
   assert.ok(Math.abs(glove(0, GONE_AT).turn) < 1e-9);
-  assert.ok(Math.abs(barDy(1300)) < 1e-9, "the bar has settled after they grab it, before it is pulled in");
+  assert.ok(Math.abs(barDy(PINCH_AT)) < 1e-9, "the bar has settled after they grab it, before it is pulled in");
 });
 
 test("the bar is pulled in to its middle, the middle first, into his gloves there, and the window is white before the end", () => {
@@ -111,8 +111,8 @@ test("the bar is pulled in to its middle, the middle first, into his gloves ther
     assert.equal(glove(s, GONE_AT).shown, 0);
     assert.ok(COME_BACK[s] + COME_BACK_MS <= PINCH_AT, "back on the bar before it pinches");
   }
-  assert.ok(Math.abs(barDy(1300)) < 1e-9, "the bar has settled before it is pulled in");
-  assert.ok(GONE_AT < LAUNCH_MS && LAUNCH_MS <= 2000);
+  assert.ok(Math.abs(barDy(PINCH_AT)) < 1e-9, "the bar has settled before it is pulled in");
+  assert.ok(GONE_AT < LAUNCH_MS && LAUNCH_MS <= 2300);
 });
 
 test("keys are increasing, start and end where asked, and clamp nothing away", () => {

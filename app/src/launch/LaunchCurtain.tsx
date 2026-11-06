@@ -41,7 +41,7 @@ const END = GONE_AT;
 
 /** Every key, sampled once. The strips only move from the pinch on, so theirs start there. */
 const K = {
-  bar: keys(barDy, 0, 1300),
+  bar: keys(barDy, 0, PINCH_AT),
   head: { dy: keys((t) => head(t).dy, 0, 900), sway: degKeys((t) => head(t).sway, 0, 900), sq: keys((t) => head(t).sq, 0, 900),
     shut: keys((t) => head(t).shut, 0, 700), shown: keys((t) => head(t).shown, 880, 900, 20) },
   gloves: ([0, 1] as const).map((s) => {

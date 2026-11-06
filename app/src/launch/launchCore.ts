@@ -33,7 +33,7 @@ export const BAR_TOP = BAR.y0 * U + SPLASH_PT * 0.012;
 export const GRIP_AT = (BAR.y1 * U - BAR_TOP) / SPLASH_PT;
 
 /** How long the motion lasts, ms: then the window is the app's white. */
-export const LAUNCH_MS = 1800;
+export const LAUNCH_MS = 2200;
 
 /** How long the curtain takes to fade into the app, ms. */
 export const FADE_MS = 220;
@@ -46,11 +46,11 @@ export const STRIPS = 48;
 //   420    he gathers: a small dip, the bar giving under him · 560 he pulls himself up, quick out and slow in, a little
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
-//   900    the bar springs back up, free of him, and settles
-//   960 / 1010  his gloves come back to the bar's middle, side by side: the left in from above, grabbing its top,
+//   900    the bar springs back up, free of him, and settles; half a second with nobody there
+//   1400 / 1450  his gloves come back to the bar's middle, side by side: the left in from above, grabbing its top,
 //          the right in from below, grabbing its bottom; each squeezes as it lands, and the bar gives
-//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, into his gloves there,
-//          the two twisting against each other as it goes · 1550 they close on the middle · 1700 gone · 1800 white
+//   1730   the bar's middle pinches · 1810 it is pulled in to its middle, faster and faster, into his gloves there,
+//          the two twisting against each other as it goes · 1970 they close on the middle · 2120 gone · 2200 white
 
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 const K = (t: number, a: number, b: number) => clamp((t - a) / (b - a));
@@ -92,15 +92,15 @@ export const LET_GO_MS = 140;
  * When each glove comes back, ms: to the bar's middle, side by side, the left in from above to grip its top (turned over,
  * fingers down its face), the right in from below to grip its bottom.
  */
-export const COME_BACK = [960, 1010] as const;
+export const COME_BACK = [1400, 1450] as const;
 export const COME_BACK_MS = 200;
 
 /** The bar's middle pinches, ms: until then the bar is drawn whole; from then, in strips. */
-export const PINCH_AT = 1250;
+export const PINCH_AT = 1730;
 
 /** The bar is pulled in to its middle from SUCK_AT, and gone, gloves and all, at GONE_AT, ms. */
-export const SUCK_AT = 1360;
-export const GONE_AT = 1700;
+export const SUCK_AT = 1810;
+export const GONE_AT = 2120;
 
 /** How far a glove's clip edge comes down as it goes behind the bar, points: from the bar's top edge to its lower one. */
 export const SLIP = BAR.y1 * U - BAR_TOP;
