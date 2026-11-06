@@ -47,10 +47,10 @@ export const STRIPS = 48;
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
 //   900    the bar springs back up, free of him, and settles
-//   980 / 1030  his gloves come back, left then right, at the bar's two ends: over its top edge from behind it,
-//          fingers first, down onto it, gripping
-//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, his gloves going in with
-//          their ends of it · 1700 gone · 1800 white
+//   980 / 1030  his gloves come back to the bar's middle, side by side: the left over its top edge from behind it,
+//          fingers first, down onto it; the right up from below; gripping
+//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, into his gloves there
+//          · 1550 they close on the middle · 1700 gone · 1800 white
 
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 const K = (t: number, a: number, b: number) => clamp((t - a) / (b - a));
@@ -85,7 +85,7 @@ export const LET_GO = [690, 740] as const;
 /** How long a glove takes to slip behind the bar, ms (and to come back from behind it). */
 export const LET_GO_MS = 140;
 
-/** When each glove comes back, ms: at the bar's end on its side. */
+/** When each glove comes back, ms: to the bar's middle, side by side, the left over its top edge, the right up from below. */
 export const COME_BACK = [980, 1030] as const;
 export const COME_BACK_MS = 200;
 
@@ -99,8 +99,14 @@ export const GONE_AT = 1700;
 /** How far a glove's clip edge comes down as it goes behind the bar, points: from the bar's top edge to its lower one. */
 export const SLIP = BAR.y1 * U - BAR_TOP;
 
-/** How far above where it grips a glove comes back from, points: all of it above the bar's top edge, out of sight. */
+/** How far above where it grips the left glove comes back from, points: all of it above the bar's top edge, out of sight. */
 export const DROP = SPLASH_PT * 0.15;
+
+/** How far below where it grips the right glove comes up from, points, fading in as it comes. */
+export const RISE = SPLASH_PT * 0.1;
+
+/** The last of it, ms: the gloves close on the middle and are gone with the bar. */
+export const CLOSE_MS = 150;
 
 /** Each glove in the art: its middle and half its width, points (launch.mjs; the hands layer's bounds, each side). */
 export const GLOVES = [{ cx: 159 * U, half: 36 * U }, { cx: 385.5 * U, half: 36.5 * U }] as const;
@@ -116,34 +122,35 @@ export function pulled(x: number, t: number): number {
   return Math.pow(K(K(t, SUCK_AT, GONE_AT), d * 0.22, d * 0.22 + 0.78), 2.6);
 }
 
-/** Where a bar's end is held when the gloves come back, points across the art: the glove's outer edge on the bar's. */
-const heldAt = (side: 0 | 1) => (side ? BAR.x1 * U - GLOVES[1].half : BAR.x0 * U + GLOVES[0].half);
+/** Where a glove grips the bar when it comes back, points across the art: the bar's middle, the two side by side. */
+export const heldAt = (side: 0 | 1): number => (side ? MID + GLOVES[1].half + 1 : MID - GLOVES[0].half - 1);
 
-/** Where a glove's middle is at t, points across the art: where he held it; then the bar's end, going in with it. */
+/** Where a glove's middle is at t, points across the art: where he held the bar; then the middle; closing on it at the end. */
 export function gloveX(side: 0 | 1, t: number): number {
-  if (t < LET_GO[side] + LET_GO_MS) return GLOVES[side].cx;
+  if (t < COME_BACK[side]) return GLOVES[side].cx;
   const x = heldAt(side);
-  return x - (x - MID) * pulled(x, t);
+  return x + (MID - x) * ease(K(t, GONE_AT - CLOSE_MS, GONE_AT));
 }
 
 /**
- * A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar); how far it is above where it grips (dy) and
+ * A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar); how far it is from where it grips (dy) and
  * how far the edge it is clipped at has come down (edge): letting go, the edge comes down to the bar's lower edge as the
- * glove goes up into it; coming back, it is over the bar's top edge, sliding down onto the bar from behind it; gx, how
- * far it is from where the art has it; size, smaller as it goes in with its end of the bar; shown. It keeps the size it
- * gripped at until then: nothing grows back.
+ * glove goes up into it. Coming back, to the bar's middle: the left over the bar's top edge, sliding down onto it from
+ * behind; the right up from below, fading in. gx, how far it is from where the art has it; size, 1 until they close on
+ * the middle at the end; shown. It keeps the size it gripped at the whole way: nothing grows back.
  */
 export function glove(side: 0 | 1, t: number): { grip: number; dy: number; edge: number; gx: number; size: number; shown: number } {
   const away = ease(K(t, LET_GO[side], LET_GO[side] + LET_GO_MS)), back = ease(K(t, COME_BACK[side], COME_BACK[side] + COME_BACK_MS));
-  const k = t < LET_GO[side] + LET_GO_MS ? 0 : pulled(heldAt(side), t);
-  const coming = t >= COME_BACK[side];
+  const close = ease(K(t, GONE_AT - CLOSE_MS, GONE_AT));
+  const coming = t >= COME_BACK[side], gone = t >= LET_GO[side] + LET_GO_MS;
   return {
     grip: ease(K(t, 560, 680)) * 0.22,
-    dy: coming ? -(1 - back) * DROP : -away * SPLASH_PT * 0.06,
+    dy: !coming ? -away * SPLASH_PT * 0.06 : side ? (1 - back) * RISE : -(1 - back) * DROP,
     edge: coming ? 0 : away * SLIP,
     gx: gloveX(side, t) - GLOVES[side].cx,
-    size: 1 - k * 0.7,
-    shown: k >= 0.995 ? 0 : 1,
+    size: 1 - close,
+    // The right one comes up into sight, so it fades in; until then, out of sight behind the bar, it is not drawn.
+    shown: t >= GONE_AT ? 0 : side && gone ? (coming ? Math.min(1, K(t, COME_BACK[side], COME_BACK[side] + COME_BACK_MS * 0.6)) : 0) : 1,
   };
 }
 

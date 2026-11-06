@@ -1,6 +1,6 @@
 /**
- * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back and grip
- * the bar, it is pulled in to its middle with them, and the app is there (launchCore.ts says how it fits together, and has every number).
+ * THE LAUNCH, DRAWN: the splash's picture, then the bot pulls himself up over his bar, his hands come back to the
+ * bar's middle, it is pulled in to them, and the app is there (launchCore.ts says how it fits together, and has every number).
  *
  * LaunchCurtain sits over the whole app from its first render. It draws the native splash's own frame (the same art,
  * size, place and ground), and once that is on screen it lifts the native splash from under it, so the join is one
@@ -9,8 +9,8 @@
  * screen), whichever comes later. Reduce Motion: the still, then the fade.
  *
  * The layers, back to front: his head (behind the bar, shown only below its top edge), the bar (whole, then in strips
- * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, coming back at
- * its ends and going in with it).
+ * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, coming back to
+ * its middle, and the bar pulled in to them).
  *
  * LaunchStill is the same picture standing still: the boot view between the launch and a first screen.
  */
@@ -48,7 +48,7 @@ const K = {
     const k = (f: (g: ReturnType<typeof glove>) => number, from: number, to: number) => keys((t) => f(glove(s, t)), from, to);
     return {
       grip: k((g) => g.grip, 0, 680), dy: k((g) => g.dy, LET_GO[s], COME_BACK[s] + COME_BACK_MS), edge: k((g) => g.edge, LET_GO[s], COME_BACK[s] + COME_BACK_MS),
-      gx: k((g) => g.gx, LET_GO[s] + LET_GO_MS - 10, END), size: k((g) => g.size, SUCK_AT, END), shown: k((g) => g.shown, SUCK_AT, END),
+      gx: k((g) => g.gx, COME_BACK[s] - 10, END), size: k((g) => g.size, END - 160, END), shown: k((g) => g.shown, LET_GO[s] + LET_GO_MS - 10, END),
     };
   }),
   whole: { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [1, 1, 0] },
@@ -137,7 +137,8 @@ export default function LaunchCurtain() {
         </Animated.View>
         {/* His gloves, in front: each its own half, squeezed toward the bar as they grip. Going, the
             edge each is clipped at moves down the bar's face as the glove goes up into its lower edge; coming back,
-            each slides down over the bar's top edge onto it, at the bar's end, and goes in to the middle with it. */}
+            they come to its middle, the left down over its top edge, the right up from below, and the bar is pulled
+            in to them. */}
         {K.gloves.map((g, side) => {
           const edge = at(g.edge);
           const origin = `${GLOVES[side].cx - side * Z / 2}px ${GRIP_AT * Z}px`;

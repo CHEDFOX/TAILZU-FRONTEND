@@ -466,8 +466,9 @@ const config: ExpoConfig = {
     // the same art (assets/launch: drawn with the icon's own code by
     // tools/media/brand/x0-icon/curious-hang/launch.mjs) at the same size on the
     // same ground, lifts this splash from under it, and the bot pulls himself
-    // up over his bar and is gone, hands and all; then his hands come back,
-    // grip the bar's ends, and go in with it as it is pulled in to its middle.
+    // up over his bar and is gone, hands and all; then his hands come back to
+    // the bar's middle, one from above and one from below, and the bar is
+    // pulled in to them.
     // imageWidth and backgroundColor here are SPLASH_PT and GROUND in
     // src/launch/launchCore.ts (launchCore.test.ts holds them together): change
     // one, change both — and a change here needs a new native build.
