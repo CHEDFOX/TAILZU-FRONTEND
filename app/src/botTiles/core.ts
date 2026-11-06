@@ -5690,7 +5690,7 @@ export interface TrailBubble { x: number; y: number; r: number; stroke: number; 
  * plans its room for. lean: the most the trail steps toward the box's centre. bob: each bubble's own gentle bob (px).
  * pulse: how much they swell and shrink with the voice.
  */
-export const TRAIL = { sizes: [10, 17, 26], strokes: [1.5, 1.75, 2], anchorPad: 34, lift: 3, gap: 5, minGap: 4, minScale: 0.45, restGap: 7, lean: 28, bob: 1, pulse: 0.14 };
+export const TRAIL = { sizes: [5, 8, 12], strokes: [1.25, 1.5, 1.75], anchorPad: 24, lift: 2, gap: 4, minGap: 3, minScale: 0.45, restGap: 4, lean: 18, bob: 1, pulse: 0.14 };
 
 /** The room (px) from his crown to the bottom of a box at rest that the trail wants at full size: lift, three bubbles, gaps, gap. */
 export function trailRoom(scale = 1): number {

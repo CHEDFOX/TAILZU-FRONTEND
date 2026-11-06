@@ -43,7 +43,7 @@ test("the stage's least height: him and his room; with a resting box, the trail'
   assert.strictEqual(minStageHeight(30, false), 48);
   const withBox = minStageHeight(26, true);
   assert.strictEqual(withBox, Math.ceil(26 + 18 + trailRoom(1) + 48));
-  assert.ok(withBox > 170 && withBox <= 176, `about the feed's 176 (${withBox})`);
+  assert.ok(withBox > 130 && withBox <= 136, `about the feed's 136 (${withBox})`);
   assert.strictEqual(restHeight(112, 26, true), withBox, "a server's 112 is drawn at the least");
   assert.strictEqual(restHeight(184, 30, true), 184, "a taller one as it is");
   assert.strictEqual(restHeight(132, 30, false), 132);

@@ -668,8 +668,8 @@ test("the trail: short of room the bubbles shrink together, then fade; a box not
   // the room a resting stage plans for holds the whole trail at full size
   const room = trailRoom(1);
   const rest = thoughtTrail(crown, { x: 0, y: crown.y - room - 40, w: 240, h: 40 }, 0, -1);
-  assert.ok(Math.abs(rest[2]!.r * 2 - 26) < 1e-6, `rest room ${room}`);
-  assert.ok(room > 75 && room < 90);
+  assert.ok(Math.abs(rest[2]!.r * 2 - TRAIL.sizes[2]!) < 1e-6, `rest room ${room}`);
+  assert.ok(room > 38 && room < 50);
 });
 
 test("followStep: the box stays put while his head sways inside the deadband, follows a walk a little behind, stops at the bounds", () => {
