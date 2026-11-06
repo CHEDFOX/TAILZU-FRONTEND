@@ -1990,6 +1990,7 @@
     "ui.BotCrowd.cheerStaggerMs": 70,
     "ui.BotCrowd.growMs": 600,
     "ui.BotStage.doubleTapMs": 260,
+    "ui.BotStage.keyboardWaitMs": 450,
     "ui.BotStage.pillMax": 260,
     "ui.BotTiles.doubleTapMs": 260,
     "ui.Button.clearBackground": "transparent",

@@ -300,6 +300,27 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const stageWin = useRef<{ x: number; y: number } | null>(null);
   const host = useRef<View>(null);
   const [kbTop, setKbTop] = useState<number | null>(null);
+  // Whether a keyboard is up right now (the box's field or any other): read when a close starts, so the box waits for it.
+  const kbUp = useRef(false);
+  useEffect(() => {
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", () => { kbUp.current = true; });
+    const hide = Keyboard.addListener("keyboardDidHide", () => { kbUp.current = false; });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  /**
+   * CLOSING IN TWO STEPS. The keyboard and the box going at once fought each other: the box shrank toward a spot the
+   * keyboard was still moving, and it jumped at the end. So the keyboard goes first, and the box settles only once it has
+   * gone (or after a short wait, if the system never says so).
+   */
+  const afterKeyboard = useCallback((run: () => void) => {
+    if (still || !kbUp.current) { run(); return; }
+    let done = false;
+    const go = () => { if (done) return; done = true; sub.remove(); clearTimeout(timer); kbUp.current = false; run(); };
+    const sub = Keyboard.addListener("keyboardDidHide", go);
+    const timer = setTimeout(go, K.num("ui.BotStage.keyboardWaitMs", 450));
+    Keyboard.dismiss();
+  }, [still]);
 
   /** The pill's rect now (stage px), riding over him. */
   const restRect = useCallback((): Rect => {
@@ -377,12 +398,15 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       const fromFull = was === "full";
       shownRef.current = "out";
       setShown("out");
-      Animated.timing(veilA, { toValue: 0, duration: still ? 0 : STAGE.veilMs, useNativeDriver: true }).start();
       const shrink = () => {
         layer.go(restOnWindow(), still ? 0 : STAGE.openMs, () => { if (shownRef.current === "out") { shownRef.current = "none"; setShown("none"); } });
         Animated.timing(stageY, { toValue: stageWin.current?.y ?? 0, duration: still ? 0 : STAGE.openMs, easing: GROW, useNativeDriver: false }).start();
       };
-      if (fromFull && !still) setTimeout(shrink, STAGE.unfullMs); else shrink();
+      // the keyboard first; then the veil clears and the box settles back to the pill
+      afterKeyboard(() => {
+        Animated.timing(veilA, { toValue: 0, duration: still ? 0 : STAGE.veilMs, useNativeDriver: true }).start();
+        if (fromFull && !still) setTimeout(shrink, STAGE.unfullMs); else shrink();
+      });
       life.standUntil = nowMs() + STAGE.standMs;
       life.glide = true;
       setStandTick((n) => n + 1);
@@ -395,10 +419,12 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
         life.glide = true;
         setStandTick((n) => n + 1);
         if (!first) {
-          // the box shrinks back to where the pill will be, then rides over him again
-          const to = restRect();
-          box.go({ x: to.x, y: 0, w: to.w, h: STAGE.pillH }, ms);
-          LayoutAnimation.configureNext(LayoutAnimation.create(ms || 1, "easeInEaseOut", "scaleY"));
+          // the keyboard first; then the box shrinks back to where the pill will be, and rides over him again
+          afterKeyboard(() => {
+            const to = restRect();
+            box.go({ x: to.x, y: 0, w: to.w, h: STAGE.pillH }, ms);
+            LayoutAnimation.configureNext(LayoutAnimation.create(ms || 1, "easeInEaseOut", "scaleY"));
+          });
         }
       }
       return;
