@@ -1,6 +1,6 @@
 /**
  * THE LAUNCH: the native splash, then the bot pulls himself up over his bar and is gone, hands and all; his hands come
- * back and wind the bar in to its middle; and the app is there.
+ * back and grip the bar, and it is pulled in to its middle with them; and the app is there.
  *
  * The native splash (app.config.ts, expo-splash-screen) is the app icon's bot, small, hanging from a piece of its clay
  * bar, centred on white: the Bots app's own paper, so the end of the launch is already the app's ground.
@@ -33,7 +33,7 @@ export const BAR_TOP = BAR.y0 * U + SPLASH_PT * 0.012;
 export const GRIP_AT = (BAR.y1 * U - BAR_TOP) / SPLASH_PT;
 
 /** How long the motion lasts, ms: then the window is the app's white. */
-export const LAUNCH_MS = 1850;
+export const LAUNCH_MS = 1800;
 
 /** How long the curtain takes to fade into the app, ms. */
 export const FADE_MS = 220;
@@ -49,8 +49,8 @@ export const STRIPS = 48;
 //   900    the bar springs back up, free of him, and settles
 //   980 / 1030  his gloves come back, left then right, at the bar's two ends: over its top edge from behind it,
 //          fingers first, down onto it, gripping
-//   1250   they wind the bar in to its middle: each rolls along it, and the bar is gone into them as they go
-//   1650   they meet in the middle and are gone, with the last of the bar · 1780 gone · 1850 white
+//   1250   the bar's middle pinches · 1360 it is pulled in to its middle, faster and faster, his gloves going in with
+//          their ends of it · 1700 gone · 1800 white
 
 const clamp = (v: number, a = 0, b = 1) => Math.max(a, Math.min(b, v));
 const K = (t: number, a: number, b: number) => clamp((t - a) / (b - a));
@@ -89,15 +89,12 @@ export const LET_GO_MS = 140;
 export const COME_BACK = [980, 1030] as const;
 export const COME_BACK_MS = 200;
 
-/** The gloves wind the bar in, from its ends to its middle, ms. */
-export const WIND_AT = 1250;
-export const MEET_AT = 1650;
+/** The bar's middle pinches, ms: until then the bar is drawn whole; from then, in strips. */
+export const PINCH_AT = 1250;
 
-/** They meet and are gone with the last of the bar, ms. */
-export const MEET_MS = 130;
-
-/** Until the wind, the bar is drawn whole; from it, in strips, so the gloves can take it in. */
-export const PINCH_AT = WIND_AT;
+/** The bar is pulled in to its middle from SUCK_AT, and gone, gloves and all, at GONE_AT, ms. */
+export const SUCK_AT = 1360;
+export const GONE_AT = 1700;
 
 /** How far a glove's clip edge comes down as it goes behind the bar, points: from the bar's top edge to its lower one. */
 export const SLIP = BAR.y1 * U - BAR_TOP;
@@ -110,47 +107,54 @@ export const GLOVES = [{ cx: 159 * U, half: 36 * U }, { cx: 385.5 * U, half: 36.
 
 const MID = SPLASH_PT / 2;
 
-/** Where a glove's middle is at t, points across the art: where he held it; then the bar's end; then winding in. */
+/**
+ * How far the bar at x (points across the art) has been pulled in to its middle at t, 0 to 1: the near parts first,
+ * each faster as it goes.
+ */
+export function pulled(x: number, t: number): number {
+  const d = Math.min(1, Math.abs(x - MID) / ((BAR.x1 - BAR.x0) * U / 2));
+  return Math.pow(K(K(t, SUCK_AT, GONE_AT), d * 0.22, d * 0.22 + 0.78), 2.6);
+}
+
+/** Where a bar's end is held when the gloves come back, points across the art: the glove's outer edge on the bar's. */
+const heldAt = (side: 0 | 1) => (side ? BAR.x1 * U - GLOVES[1].half : BAR.x0 * U + GLOVES[0].half);
+
+/** Where a glove's middle is at t, points across the art: where he held it; then the bar's end, going in with it. */
 export function gloveX(side: 0 | 1, t: number): number {
-  const { cx, half } = GLOVES[side];
-  if (t < LET_GO[side] + LET_GO_MS) return cx;
-  const end = side ? BAR.x1 * U - half : BAR.x0 * U + half, meet = side ? MID + half : MID - half;
-  return end + (meet - end) * inOut(K(t, WIND_AT, MEET_AT)) + (MID - meet) * ease(K(t, MEET_AT, MEET_AT + MEET_MS));
+  if (t < LET_GO[side] + LET_GO_MS) return GLOVES[side].cx;
+  const x = heldAt(side);
+  return x - (x - MID) * pulled(x, t);
 }
 
 /**
  * A glove at t (side 0 left, 1 right): its grip (a squeeze toward the bar); how far it is above where it grips (dy) and
  * how far the edge it is clipped at has come down (edge): letting go, the edge comes down to the bar's lower edge as the
- * glove goes up into it; coming back, it is over the bar's top edge, sliding down onto the bar from behind it; gx, how far it is from where the art has it; turn, its roll as it winds (degrees); size,
- * 1 until it meets the other; shown. It keeps the size it gripped at the whole way: nothing grows back.
+ * glove goes up into it; coming back, it is over the bar's top edge, sliding down onto the bar from behind it; gx, how
+ * far it is from where the art has it; size, smaller as it goes in with its end of the bar; shown. It keeps the size it
+ * gripped at until then: nothing grows back.
  */
-export function glove(side: 0 | 1, t: number): { grip: number; dy: number; edge: number; gx: number; turn: number; size: number; shown: number } {
+export function glove(side: 0 | 1, t: number): { grip: number; dy: number; edge: number; gx: number; size: number; shown: number } {
   const away = ease(K(t, LET_GO[side], LET_GO[side] + LET_GO_MS)), back = ease(K(t, COME_BACK[side], COME_BACK[side] + COME_BACK_MS));
-  const w = K(t, WIND_AT, MEET_AT), m = ease(K(t, MEET_AT, MEET_AT + MEET_MS));
+  const k = t < LET_GO[side] + LET_GO_MS ? 0 : pulled(heldAt(side), t);
   const coming = t >= COME_BACK[side];
   return {
     grip: ease(K(t, 560, 680)) * 0.22,
     dy: coming ? -(1 - back) * DROP : -away * SPLASH_PT * 0.06,
     edge: coming ? 0 : away * SLIP,
     gx: gloveX(side, t) - GLOVES[side].cx,
-    turn: Math.sin(w * Math.PI * 6) * Math.sin(w * Math.PI) * 9 * (side ? -1 : 1),
-    size: 1 - m,
-    shown: m >= 1 ? 0 : 1,
+    size: 1 - k * 0.7,
+    shown: k >= 0.995 ? 0 : 1,
   };
 }
 
 /**
- * Strip i of n at t: the bar, taken in by the gloves as they wind. A strip outside the gloves' middles is gone (into
- * them), and when they meet the last of it goes into the middle with them. Before the wind, every strip is where the
- * whole bar is.
+ * Strip i of n at t: the middle pinches; then each is pulled toward the bar's middle (the near ones first, each faster as
+ * it goes), thinner, stretched along the way it goes, and gone when it gets there.
  */
 export function strip(i: number, n: number, t: number): { dx: number; sx: number; sy: number; shown: number } {
-  const w = (BAR.x1 - BAR.x0) * U, x = BAR.x0 * U + w * (i + 0.5) / n;
-  if (t < WIND_AT) return { dx: 0, sx: 1, sy: 1, shown: 1 };
-  const take = ease(K(t, WIND_AT, WIND_AT + 120));
-  const cutL = gloveX(0, t) - GLOVES[0].half * (1 - take), cutR = gloveX(1, t) + GLOVES[1].half * (1 - take);
-  const m = ease(K(t, MEET_AT, MEET_AT + MEET_MS));
-  return { dx: -(x - MID) * m, sx: 1 - 0.8 * m, sy: 1 - m, shown: x > cutL && x < cutR && m < 1 ? 1 : 0 };
+  const w = (BAR.x1 - BAR.x0) * U, x = BAR.x0 * U + w * (i + 0.5) / n, d = Math.abs(x - MID) / (w / 2);
+  const k = pulled(x, t), near = Math.exp(-d * d * 9);
+  return { dx: -(x - MID) * k, sx: 1 + k * 2.2, sy: (1 - ease(K(t, PINCH_AT, SUCK_AT)) * 0.38 * near) * (1 - k * 0.85), shown: k >= 0.995 ? 0 : 1 };
 }
 
 /** f sampled every `step` ms from `from` to `to`, for Animated.interpolate (clamped outside). */
