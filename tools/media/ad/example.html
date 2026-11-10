@@ -1,0 +1,21 @@
+<!doctype html><meta charset="utf-8"><title>X0 Bot · ad kit example</title><style>html,body{margin:0;background:#000}canvas{display:block}</style><canvas id="c"></canvas>
+<script src="../trailer/engine.js"></script><script src="adkit.js"></script>
+<script>
+AD.start({
+  footage: { fox: { dir: "footage-fox/", frames: 520, fps: 72 } },
+  voices: { plan: "voice/plan.json" }, scripts: { plan: "Plan... move dinner with Mom to eight thirty. And tell her." },
+  duration: 9,
+  frame(t, S) {
+    const src = AD.map([[0, 0], [4, 2.0], [4.6, 2.0], [9, 5]])(t);
+    const cold = t >= 4 && t < 4.6 ? 1 : 0;
+    AD.film(S, S.foot("fox", src), { zoom: 1 + 0.02 * t, cold });
+    AD.bars(S, 100);
+    AD.dots(S, S.V.plan, 0.5, t, AD.BOT.plan.color); AD.caption(S, S.V.plan, 0.5, t);
+    if (t >= 4) AD.card(S, { k: AD.fr(t, 4, 0.2), out: AD.fr(t, 4.4, 0.25), bot: "plan", lines: [{ text: "Dinner with Mom · 8:30 pm", ulWord: "8:30 pm", ulK: AD.fr(t, 4.25, 0.3) }, { text: "Told Mom", size: 42, weight: 500, color: "#333" }] });
+    AD.headline(S, t, { lines: ["Hands full", "Day sorted"], hand: { line: 1, word: "sorted" }, ul: "ul-bar", at: { l1: 5, l2: 5.2, hand: 5.4, ul: 5.6 } });
+    AD.cornerMark(S, 80, 1920 - 100 + 30, 40, 0.85, "Your team of bots");
+    AD.endCard(S, t, 7);
+  },
+  cues(S) { return [{ at: 0.5, kind: "sample", file: "voice/plan.wav", gain: 1 }, ...AD.endCues(7)]; },
+}).catch((e) => { console.error(e); document.title = "ERROR " + e.message; });
+</script>

@@ -202,7 +202,8 @@
       const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0); c2.drawImage(A.mark, 0, 0, mw, mh);
       X0.reveal(ctx, cvs, mx, my, mw, mh, k, dir, { rag: 10, seed: 7 }); X0.release(cvs);
     };
-    region(0, 0.47, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.47, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);   // 0.52: the X's tip, squeezed inward, must stay out of the 0's region
+    // the X ends at ~0.48 of the picture (its bars' end caps), the 0 begins at ~0.51: the X's region runs to 0.495 so no tip is cut, the 0's from 0.52 so the X's tip, squeezed inward, stays out of it
+    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);
     return mh;
   }
   /** The end: a white sheet slides up over the kitchen; the hero on his bar, the mark painting itself, the line, the stamp with the address first. */

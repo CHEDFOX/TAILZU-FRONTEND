@@ -258,9 +258,12 @@
       c1.globalCompositeOperation = "destination-out"; poly(c1, b2); c1.clip();
       for (const side of [1, -1]) { poly(c1, halfPlane(S1[0], S1[1], 88 * sc, side)); c1.fill(); }
       const x2 = mk(w, h), c2 = x2.getContext("2d"); c2.beginPath(); c2.rect(0, 0, MARK.xEnd * sc, h); c2.clip(); c2.drawImage(im, 0, 0, w, h);
-      const z = MARK.zero, zx = z.x0 * sc, zy = z.y0 * sc, zw = (z.x1 - z.x0) * sc, zh = (z.y1 - z.y0) * sc, zero = mk(zw, zh); zero.getContext("2d").drawImage(im, -zx, -zy, w, h);
+      const z = MARK.zero, zx0 = z.x0 * sc, zy = z.y0 * sc, zw0 = (z.x1 - z.x0) * sc, zh = (z.y1 - z.y0) * sc, zeroFull = mk(zw0, zh); zeroFull.getContext("2d").drawImage(im, -zx0, -zy, w, h);
+      // the 0 is a digit, not an O: narrowed to 0.74 of its painted width about its own centre (the marks' brief: "a short x and a tall 0")
+      const SQ = 0.74, zw = zw0 * SQ, zx = zx0 + (zw0 - zw) / 2, zero = mk(zw, zh); zero.getContext("2d").drawImage(zeroFull, 0, 0, zw, zh);
+      const full = mk(w, h), cf = full.getContext("2d"); cf.drawImage(x2, 0, 0); cf.drawImage(zero, zx, zy);
       const len = w + h, s1 = b1.map((p) => p[0] + p[1]), s2 = b2.map((p) => w - (p[0] - p[1]));
-      return { x1, x2, zero, zx, zy, zw, zh, k1: [Math.min(...s1) / len, Math.max(...s1) / len], k2: [Math.min(...s2) / len, Math.max(...s2) / len], full: im };
+      return { x1, x2, zero, zx, zy, zw, zh, k1: [Math.min(...s1) / len, Math.max(...s1) / len], k2: [Math.min(...s2) / len, Math.max(...s2) / len], full };
     });
   }
   /** The mark painting itself: slash 1 (diag, 6 f), slash 2 (-diag, 6 f), the 0 (conic from 12 o'clock, 16 f, E.io); the press

@@ -116,7 +116,8 @@
       const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0); c2.drawImage(A.mark, 0, 0, mw, mh);
       X0.reveal(ctx, cvs, mx, my, mw, mh, k, dir, { rag: 10, seed: 7 }); X0.release(cvs);
     };
-    region(0, 0.47, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.47, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);   // 0.52: the X's tip, squeezed inward, must stay out of the 0's region
+    // the X ends at ~0.48 of the picture (its bars' end caps), the 0 begins at ~0.51: the X's region runs to 0.495 so no tip is cut, the 0's from 0.52 so the X's tip, squeezed inward, stays out of it
+    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);
   }
   /** The end card (the campaign's): the sheet, the hero on his bar, the mark, the line, the stamp with the address first. */
   function endCard(t) {
@@ -158,7 +159,11 @@
       X0.cover(ctx, footage(t), 0, 0, 1080, 1920, { zoom });
       ctx.restore();
       // the clip's own watermark sits at the left edge over the dark backdrop: a soft dark patch over it, under the vignette
-      { const g = ctx.createRadialGradient(90, 1262, 10, 90, 1262, 230); g.addColorStop(0, "rgba(4,5,8,1)"); g.addColorStop(0.55, "rgba(4,5,8,0.96)"); g.addColorStop(1, "rgba(4,5,8,0)"); ctx.fillStyle = g; ctx.fillRect(-100, 1030, 420, 470); }
+      { const pw = 300, ph = 460, py = 860, cvs = X0.offscreen(pw, ph), c2 = cvs.getContext("2d");
+        const g = c2.createLinearGradient(0, 0, pw, 0); g.addColorStop(0, "rgba(4,5,8,1)"); g.addColorStop(0.6, "rgba(4,5,8,0.97)"); g.addColorStop(1, "rgba(4,5,8,0)"); c2.fillStyle = g; c2.fillRect(0, 0, pw, ph);
+        const v = c2.createLinearGradient(0, 0, 0, ph); v.addColorStop(0, "rgba(0,0,0,0)"); v.addColorStop(0.18, "rgba(0,0,0,1)"); v.addColorStop(0.85, "rgba(0,0,0,1)"); v.addColorStop(1, "rgba(0,0,0,0)");
+        c2.globalCompositeOperation = "destination-in"; c2.fillStyle = v; c2.fillRect(0, 0, pw, ph);
+        ctx.drawImage(cvs, 0, py); X0.release(cvs); }
       X0.vignette(ctx, 1080, 1920, 0.25 + 0.3 * cold);
       if (hit && t < hit.t + F(1)) { ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.fillRect(0, 0, 1080, 1920); }   // the shutter on a hit
       if (t >= T.freeze && t < T.freeze + F(1)) { ctx.fillStyle = "rgba(255,255,255,0.14)"; ctx.fillRect(0, 0, 1080, 1920); }
