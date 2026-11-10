@@ -45,16 +45,30 @@ async function mixkit(q) {
   return ids.map((id) => ({ source: "mixkit", id, title: titles[id] || `mixkit ${id}`, page: `https://mixkit.co/free-stock-video/?q=${encodeURIComponent(q)}`, licence: "Mixkit licence: free for commercial use, no attribution required",
     urls: [`https://assets.mixkit.co/videos/${id}/${id}-1080.mp4`, `https://assets.mixkit.co/videos/${id}/${id}-720.mp4`] }));
 }
-/** The Internet Archive: public-domain / CC0 films only; the first mp4 of each item. */
+/**
+ * The Internet Archive: public-domain / CC0 films only (a licence URL that says so, or a NASA item: a US government
+ * work). Downloads the h.264 derivative (<name>.ia.mp4, else _512kb.mp4, else any mp4), which is the lightest file that
+ * is still judgeable; the item's other video files (the MPEG-2 original, often 720x480) are listed in meta.json as
+ * `files` so one chosen clip can have its original fetched afterwards.
+ */
 async function archive(q) {
-  const j = JSON.parse(await text(`https://archive.org/advancedsearch.php?q=${encodeURIComponent(`${q} mediatype:movies AND (licenseurl:*publicdomain* OR licenseurl:*zero*)`)}&fl[]=identifier&fl[]=title&fl[]=licenseurl&rows=${N * 2}&output=json`));
+  const lic = "(licenseurl:*publicdomain* OR licenseurl:*zero* OR collection:nasa)";
+  const j = JSON.parse(await text(`https://archive.org/advancedsearch.php?q=${encodeURIComponent(`${q} AND mediatype:movies AND ${lic}`)}&fl[]=identifier&fl[]=title&fl[]=licenseurl&fl[]=collection&rows=${N * 2}&output=json`));
   const out = [];
   for (const d of j.response.docs) {
     try {
       const meta = JSON.parse(await text(`https://archive.org/metadata/${d.identifier}`));
-      const f = (meta.files || []).filter((x) => /\.mp4$/i.test(x.name) && !/\.ia\.mp4$|_512kb/.test(x.name)).sort((a, b) => (Number(b.size) || 0) - (Number(a.size) || 0))[0] || (meta.files || []).find((x) => /\.mp4$/i.test(x.name));
+      const vids = (meta.files || []).filter((x) => /\.(mp4|m4v|mpe?g|mov|avi|mkv|ogv)$/i.test(x.name));
+      // judge on the small 512 kb derivative (about 4 MB a minute); the picked clip's better file is fetched afterwards from `files`
+      const f = vids.find((x) => /_512kb\.mp4$/i.test(x.name)) || vids.find((x) => /\.ia\.mp4$/i.test(x.name)) || vids.find((x) => /\.mp4$/i.test(x.name));
       if (!f) continue;
-      out.push({ source: "archive", id: d.identifier, title: d.title, page: `https://archive.org/details/${d.identifier}`, licence: `${d.licenseurl} (public domain / CC0)`, urls: [`https://archive.org/download/${d.identifier}/${encodeURIComponent(f.name)}`] });
+      if ((Number(f.size) || 0) > 300e6) { console.error(`  archive ${d.identifier}: ${(Number(f.size) / 1e6).toFixed(0)} MB, too long, skipped`); continue; }
+      const coll = [].concat(d.collection || []);
+      const licence = d.licenseurl ? `${d.licenseurl} (public domain / CC0)` : coll.includes("nasa") ? "NASA item: US government work, public domain (archive.org collection nasa)" : null;
+      if (!licence) continue;
+      out.push({ source: "archive", id: d.identifier, title: d.title, page: `https://archive.org/details/${d.identifier}`, licence, collection: coll,
+        files: vids.map((x) => ({ name: x.name, size: Number(x.size) || 0, format: x.format, width: x.width, height: x.height, url: `https://archive.org/download/${d.identifier}/${encodeURIComponent(x.name)}` })),
+        urls: [`https://archive.org/download/${d.identifier}/${encodeURIComponent(f.name)}`] });
     } catch (e) { /* skip */ }
     if (out.length >= N) break;
   }
@@ -63,7 +77,7 @@ async function archive(q) {
 
 async function download(c, dir) {
   for (const u of c.urls) {
-    const r = spawnSync("curl", ["-sS", "-L", "-A", UA, "--max-time", "180", "-o", path.join(dir, "clip.mp4"), "-w", "%{http_code}", u], { encoding: "utf8" });
+    const r = spawnSync("curl", ["-sS", "-L", "-A", UA, "--max-time", c.source === "archive" ? "900" : "180", "-o", path.join(dir, "clip.mp4"), "-w", "%{http_code}", u], { encoding: "utf8" });
     if (r.stdout.trim() === "200" && fs.existsSync(path.join(dir, "clip.mp4")) && fs.statSync(path.join(dir, "clip.mp4")).size > 50000) return u;
     fs.rmSync(path.join(dir, "clip.mp4"), { force: true });
   }
@@ -73,8 +87,10 @@ function probe(file) {
   const r = spawnSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate:format=duration", "-of", "json", file], { encoding: "utf8" });
   try { const j = JSON.parse(r.stdout); const s = j.streams[0]; return { w: s.width, h: s.height, fps: eval(s.r_frame_rate), dur: Number(j.format.duration) }; } catch { return null; }
 }
+/** A contact sheet: 12 frames for a clip, 48 for a film longer than two minutes (one every dur/48 s, so a stretch can be found). */
 function sheet(file, to, dur) {
-  spawnSync("ffmpeg", ["-v", "error", "-y", "-i", file, "-vf", `fps=12/${Math.max(dur, 0.5)},scale=320:-2,tile=6x2:padding=4:margin=4:color=0xDDDDDD`, "-frames:v", "1", to]);
+  const long = dur > 120, n = long ? 48 : 12;
+  spawnSync("ffmpeg", ["-v", "error", "-y", "-i", file, "-vf", `fps=${n}/${Math.max(dur, 0.5)},scale=${long ? 240 : 320}:-2,tile=${long ? "8x6" : "6x2"}:padding=4:margin=4:color=0xDDDDDD`, "-frames:v", "1", to]);
 }
 
 const found = [];
@@ -86,7 +102,8 @@ const manifest = [];
 for (const c of found) {
   const dir = path.join(OUT, `${c.source}-${c.id}`.replace(/[^a-z0-9_-]+/gi, "_").slice(0, 80)); fs.mkdirSync(dir, { recursive: true });
   const url = await download(c, dir); if (!url) { console.error(`  ${c.source} ${c.id}: no download`); continue; }
-  const p = probe(path.join(dir, "clip.mp4")); if (!p || p.dur < MIN || p.dur > MAX) { console.error(`  ${c.source} ${c.id}: ${p ? p.dur.toFixed(1) + " s" : "unreadable"}, skipped`); fs.rmSync(dir, { recursive: true, force: true }); continue; }
+  const max = c.source === "archive" && !argv.includes("--max") ? 3600 : MAX; // an archive film is minutes long; a stretch is cut from it later
+  const p = probe(path.join(dir, "clip.mp4")); if (!p || p.dur < MIN || p.dur > max) { console.error(`  ${c.source} ${c.id}: ${p ? p.dur.toFixed(1) + " s" : "unreadable"}, skipped`); fs.rmSync(dir, { recursive: true, force: true }); continue; }
   sheet(path.join(dir, "clip.mp4"), path.join(dir, "sheet.png"), p.dur);
   const meta = { ...c, url, ...p, dir, sheet: path.join(dir, "sheet.png"), file: path.join(dir, "clip.mp4") };
   fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta, null, 1)); manifest.push(meta);
