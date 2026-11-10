@@ -19,6 +19,8 @@ const env = (i, a, tau) => { const t = i / SR; return (t < a ? t / a : 1) * Math
 /** A smooth window: in over `a`, out over `r`, within `n` samples. */
 const win = (i, n, a, r) => { const t = i / SR, T = n / SR; const x = t < a ? t / a : 1, y = T - t < r ? (T - t) / r : 1; return clamp(Math.min(x, y), 0, 1) ** 2 * (3 - 2 * clamp(Math.min(x, y), 0, 1)); };
 
+/** A sparse random trigger (about 14 a second) on the seeded stream, for crackle. */
+const hashBit = (i) => (i % 97 === 0) && (rnd() > .86);
 function mixInto(buf, at, s, gain) { const i0 = Math.round(at * SR); for (let i = 0; i < s.length; i++) { const j = i0 + i; if (j >= 0 && j < buf.length) buf[j] += s[i] * gain; } }
 
 /** Noise through a one-pole lowpass (alpha: 0 dark, 1 white), under an attack/decay envelope. */
@@ -73,14 +75,26 @@ function boom(seconds, f0 = 62, f1 = 36) {
 function heart(gain) { return (b, at) => { mixInto(b, at, tone(58, .32, .006, .07, .82), .9 * gain); mixInto(b, at + .22, tone(52, .3, .006, .06, .85), .62 * gain); }; }
 
 const KINDS = {
-  // the bed
-  drone(b, at, g, dur, c) { mixInto(b, at, drone(c.f ?? 55, dur || 8, c.a ?? 1.2, c.r ?? 1.5), .5 * g); },
+  // the bed. Every low cue also carries a small body above 130 Hz, so the rhythm exists on a phone speaker and the sub
+  // is kept for headphones.
+  drone(b, at, g, dur, c) { mixInto(b, at, drone(c.f ?? 55, dur || 8, c.a ?? 1.2, c.r ?? 1.5), .5 * g); mixInto(b, at, drone((c.f ?? 55) * 3, dur || 8, c.a ?? 1.2, c.r ?? 1.5), .1 * g); mixInto(b, at, drone((c.f ?? 55) * 4, dur || 8, c.a ?? 1.2, c.r ?? 1.5), .06 * g); },
   pad(b, at, g, dur, c) { mixInto(b, at, pad(c.f ?? 110, dur || 4, c.a ?? 1.5, c.r ?? 1.2), .35 * g); },
-  heart(b, at, g) { heart(g)(b, at); },
+  heart(b, at, g) { heart(g)(b, at); mixInto(b, at, tone(150, .14, .004, .04, .93), .45 * g); mixInto(b, at + .22, tone(140, .12, .004, .035, .93), .3 * g); },
   riser(b, at, g, dur) { mixInto(b, at, riser(dur || 2), .55 * g); },
-  boom(b, at, g, dur, c) { mixInto(b, at, boom(dur || 1.6, c.f0, c.f1), .9 * g); },
-  /** A soft pulse on the beat: a muted low thump. */
-  pulse(b, at, g) { mixInto(b, at, tone(70, .18, .003, .045, .8), .5 * g); },
+  boom(b, at, g, dur, c) { mixInto(b, at, boom(dur || 1.6, c.f0, c.f1), .9 * g); mixInto(b, at, tone(110, .5, .003, .14, .82), .4 * g); mixInto(b, at, noise(.03, .7, .0005, .008), .35 * g); },
+  /** A soft pulse on the beat: a muted low thump with a woody knock and a click, so a phone hears it. */
+  pulse(b, at, g) { mixInto(b, at, tone(70, .18, .003, .045, .8), .5 * g); mixInto(b, at, tone(220, .06, .002, .018, .82), .28 * g); mixInto(b, at, noise(.02, .5, .0004, .005), .18 * g); },
+  /** A soft paper landing with a knock. */
+  "paper-thud"(b, at, g) { mixInto(b, at, noise(.08, .08, .002, .03), .5 * g); mixInto(b, at, tone(70, .1, .002, .03), .5 * g); mixInto(b, at, tone(190, .05, .001, .02), .5 * g); },
+  /** The bar springing: a tone gliding up. */
+  boing(b, at, g) { mixInto(b, at, tone(180, .25, .003, .08, 1.45), .5 * g); },
+  /** A freeze: a low thud, a paper click and a tiny tick (the repo's lesson-freeze sound). */
+  freeze(b, at, g) { mixInto(b, at, tone(110, .3, .002, .12, .55), .55 * g); mixInto(b, at, noise(.01, .3, .0003, .003), .14 * g); mixInto(b, at, tone(2400, .03, .0005, .006), .1 * g); },
+  /** A room: a kitchen hood's fan, steady dark noise with a slow swell, `dur` long. */
+  fan(b, at, g, dur) { const n = Math.ceil((dur || 10) * SR), o = new Float32Array(n); let y = 0, y2 = 0; for (let i = 0; i < n; i++) { y += .012 * (rnd() - y); y2 += .18 * (y - y2); o[i] = (y2 * 6 + y * .8) * win(i, n, 1.5, 1.5) * (1 + .08 * Math.sin(TAU * i / SR / 7)); } mixInto(b, at, o, .35 * g); },
+  /** A pan's sizzle: crackling high noise, breathing, `dur` long. */
+  sizzle(b, at, g, dur) { const n = Math.ceil((dur || 10) * SR), o = new Float32Array(n); let y = 0, env2 = 0; for (let i = 0; i < n; i++) { const r = rnd(); y += .7 * (r - y); if (hashBit(i)) env2 = 1; env2 *= .9993; o[i] = (r - y) * (.35 + .65 * env2) * win(i, n, 1.2, 1.5) * (.8 + .2 * Math.sin(TAU * i / SR / 2.3)); } mixInto(b, at, o, .07 * g); },
+  silence() {},
   tick(b, at, g) { mixInto(b, at, noise(.02, .6, .0003, .003), .35 * g); mixInto(b, at, tone(2400, .02, .0003, .004), .08 * g); },
   // the brand's small sounds (as tools/media/sound.mjs has them)
   click(b, at, g) { mixInto(b, at, noise(.03, .35, .0005, .004), .6 * g); mixInto(b, at, tone(170, .04, .001, .012), .3 * g); },

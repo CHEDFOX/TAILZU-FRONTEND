@@ -1,0 +1,993 @@
+{
+ "title": "The Pile-Up",
+ "logline": "An evening's worth of trouble lands on one white page behind a small painted bot asleep on his clay bar; he wakes, watches it heap up, strikes the words out, climbs over his bar (the app's own launch move, bar and all) and sorts it one card at a time: a filler word flicked off a spoken sentence, a note hung on 5 pm the way he hangs himself, scraps swept into one trip, a hand that stops short of the button, a question he waits on with the beat gone. His team pops up under him and takes a note from his hand, he paints his bar back, swings home onto it, paints his mark and winks.",
+ "duration_s": 39.467,
+ "bpm": 112.5,
+ "palette_rule": "White paper (components/paper.png covered at 0.9 over #FFFFFF, no vignette), ink #0A0A0A, greys #5C5C5C / #6B6B6B / #E6E6E6, three blank-scrap paper tones #FBFAF7 / #ECE9E3 / #D9D5CD, and the 'copy' tape in paper grey #ECE9E3. Colour appears ONLY as: the icon's clay #C9683F (the bar, its seed dot, its dry-brush stroke, the payoff underline under 'bots'), and one bot colour per episode on the Caveat word's brush underline plus one small coloured idea in the deed (clay #A9573A: the three listen dots; ochre #8F6A1F: the leave-by dashes and line, written only after the clay bar is gone; sea #3E6E8E: the sparkle and the short '12 min' underline; moss #4F7A3A: the tick and the filled Yes). Never two colours in one frame except the team row (the four dotted heads, once) and the end card (clay only). Cream #FBF2E2 is the bot's eyes and gloves only: the beetle has no eyes, the tape is grey, the sparkle is sea. Moss is ONE constant #4F7A3A in every moss pixel: head-code.png and swash-moss.png are exactly that already; underline-2f5d50.png (#2F5D50, the brief's old moss) is never drawn; underline-4f7a3a is regenerated. No colour measurement in this document is 'approximate': head-keybot/plan/travel/code are exactly #A9573A / #8F6A1F / #3E6E8E / #4F7A3A; listen-dots.png is the icon's #C9683F and is recoloured to Keybot's #A9573A via source-in for its one appearance.",
+ "beats": [
+  {
+   "t0": 0,
+   "t1": 2.133,
+   "name": "Asleep, then awake (the mute hook)",
+   "visual": "White paper. The hero, the icon itself, centred and large: X0.hang(ctx, L, x=132, y=100, size=816) in 1080x1920 (the 1632 art at 0.5). From the measured 1632 bounds: bar y 308-392 (mid 350), bar x 205-874; gloves L x 316-424 / R x 656-765, y 351-433; head x 231-848, y 387-707 (57% of the width, in the top 37% of the frame, fully above the Reels safe line at y 270 only by its bar: the bar sits at 308, under the top chrome's 270 line is clear); left eye centre (447, 479) 95x128 px; right eye centre (630, 507) 100x145 px. This is ALSO the end card's transform, so the Reels loop cuts from the last frame to this one with no jump. He is ASLEEP but breathing: the face layer with the eyes layer squeezed to two slits, EACH EYE about its own centre (two clipped draws: L x 536-725 about (630, 758), R x 895-1095 about (995, 812) in the 1632 frame, sy 0.08), so two thin cream lines sit in their sockets and it reads as a face, never a blob and never the blink layer. Nothing else on the page: no logo, no text. f30 (1.000) the first thing enters from above the top edge BEHIND him (layer 5, between paper and bot): a chat card 460x300 (white, 2 px #E6E6E6 hairline, radius 28, graphite hatch shadow): Mom's grey bubble 'Dinner at 8,' / 'everyone home?' with '7:28 pm' beneath, and an empty input pill with the black send circle. It falls under gravity, tumbling 18 to -6 deg, passes behind the right end of his bar and the right side of his head (both eyes stay clear), and lands bottom-right with its centre at (840, 1200) (x 610-1070, y 1050-1350; Mom's text at y 1070-1200, inside the 9:16 safe box y 270-1400 and above the 1250 line) exactly on f48 (1.600) with a 2-frame squash 1.06/0.94. f46 (1.533) the torn note 'dentist' / 'Friday 5 pm' (Caveat, ink, live on torn-note seed 91, 330x130) enters at x~900, falls behind him the same way and lands on the card at -12 deg, centre (870, 1120), on f64 (2.133).",
+   "motion": "f0-f10: he breathes from the first frame (hang's bob, +-3 px, period 64 f = one bar of four beats) so an autoplay feed never mistakes the frame for a stalled load; nothing else moves. f10 (0.333) the eyes snap open: each eye sy 0.08 -> 1.00 over 6 f, E.o3 with a 1.06 overshoot on frame 4, while the head squashes in y 1.00 -> 0.97 -> 1.00 over 6 f (a one-off scale about BAR_TOP). f22 (0.733) gaze right: eyes dx +12 art px (E.io, 4 f); f27 back to centre. f30 the chat card appears above the frame (its bottom edge at y 0) and falls: y(t) = y0 + v0 t + 0.5 g t^2 with v0 1600 px/s, g 2400 px/s^2, 18 f (0.6 s, 1390 px) to land on the grid at f48; rotation 18 -> -6 deg linear; landing squash 2 f. His eyes track it: gaze target = the card's centre, mapped to eyes {dx, dy} clamped to +-16 art px, with a 2-frame lag. f46 the note enters, lands f64, same physics; gaze follows. Camera static at 1.0. Poster frame for feeds: f36 (1.200): eyes open, the card dropping in at the top right behind his bar, both eyes clear.",
+   "text": "(no headline) On the falling pieces only: 'Dinner at 8,' / 'everyone home?' '7:28 pm' and the handwritten 'dentist' / 'Friday 5 pm'",
+   "text_style": "Chat card: Geist 500, 44 px (0.041 W), ink #0A0A0A on a #F5F5F5 bubble, left; time Geist 500 44 px #5C5C5C. Note: Caveat 700, 52 px (0.048 W), ink, two lines, written live over the torn-note PNG. No headline. Every word is at camera 1.0 for at least 16 f before the camera moves.",
+   "handcrafted": [
+    "hang-face-1632 + hang-eyes-1632 (the existing eye rig: hero/), with the new per-eye squeeze",
+    "hang-bar-1632, hang-hands-1632 (hero/)",
+    "paper.png cover (components/)",
+    "torn-note seed 91 (new), drawn 330x130",
+    "hatch.png as the graphite shadow under the card, at ONE scale clipped to the card's rounded rect (components/)",
+    "chat card (canvas, in the look of screens/keybot.png)",
+    "heap physics (code)",
+    "eye-tracking (code)",
+    "line boil: hero layers cycle seeds A/B/C every 4 f from f10 (frame 0 is seed A)"
+   ],
+   "sound": [
+    {
+     "at": 0,
+     "kind": "silence",
+     "note": "No music, no bed: the first two seconds are built to work with the sound off and do, because the picture carries the hook"
+    },
+    {
+     "at": 0.333,
+     "kind": "tick",
+     "note": "gain 0.2, a soft paper rustle on the eye snap (f10): sound-on viewers hear that the audio is alive, nothing more"
+    },
+    {
+     "at": 1.6,
+     "kind": "paper-thud",
+     "note": "gain 0.25: the chat card lands (f48; new cue kind)"
+    },
+    {
+     "at": 2.133,
+     "kind": "paper-thud",
+     "note": "gain 0.3: the note lands (f64), on the bar line where the drone enters"
+    }
+   ],
+   "psychology": "PATTERN INTERRUPT: a flat, white, hand-painted frame with one breathing shape in a feed of moving photographic video reads as 'not an ad' and stops the thumb. EYES AND FACES: two big cream eyes snapping open at 0.33 s is the strongest attention trigger there is, and an upside-down face makes the brain work half a second longer to resolve it. MOTION ONSET at 1.0 s (the first thing falls) re-hooks anyone about to scroll; his eyes following it make the viewer's eyes follow too (joint attention), which is why the pieces fall BEHIND him: the eyes are never covered. CURIOSITY GAP: what is this creature, and what is falling on it?",
+   "portrait_vs_landscape": "9:16 as above. 16:9 (1920x1080): hang(x=70, y=-100, size=979) (scale 0.6): bar y 150-251, bar x 158-961, head x 189-930 (39% of the width), y 244-629, eyes at (449, 355) and (667, 388); this is also the 16:9 end-card transform (the loop holds in both aspects). The pieces fall at x 1150-1900, to his right, never behind or in front of him: the chat card lands centre (1450, 900), the note on it. Rule for the whole film: the left 36% (x 96-700) is the text column, the right (x 740-1860) the stage."
+  },
+  {
+   "t0": 2.133,
+   "t1": 4.267,
+   "name": "The pile-up",
+   "visual": "Things keep landing bottom-right in the column x 600-1070 and heap up on the chat card, all WORDLESS, ink, grey and white: f80 a blank grey torn scrap (#ECE9E3, 380x220), f96 a blank ticket card (white, 420x200, a dashed ink perforation, no words), f104 the ink sun with a small cloud, f112 a blank scrap (#D9D5CD), f116 a blank stay card (white, 420x120), f120 the blank packing scrap (seed 92, #FBF8F2), f124 a blank scrap (#FBFAF7), f128 the ring card (white, 480x270) with the wide loose ink ring across its middle and an eyeless ink beetle sitting on the ring's top-right. The pile is felt, not read: the only words on the page are Mom's and the note's, already read at camera 1.0, and the headline. Every card and scrap carries the same graphite shadow (hatch at one scale, clipped, offset +6, +9): one light. The heap's top is near y 920 (world) by f128 and its upper tiers stay right of x 600 so the headline keeps clean paper. The headline writes bottom-left: 'It all' / 'piles up'. All of it falls and heaps BEHIND him.",
+   "motion": "Camera pulls back 1.00 -> 0.85 about (540, 560) over f64-f128 (E.io), so the heap gets room and he looks smaller against it; no push-in follows. Landings on the grid, an accelerando of gaps 16, 16, 8, 8, 4, 4, 4, 4 frames: f80 (2.667), f96 (3.200), f104, f112, f116, f120, f124, f128 (4.267); each item enters 18 f before its landing with the same gravity (v0 1600, g 2400), tumbles, lands with the 2-frame squash and jostles the items under it by 6 px for 3 f. His eyes track every drop (2-frame lag). From f96 his eyes widen: eyes sx, sy 1.0 -> 1.15 (E.io over 16 f); his head rotates 0 -> 4 deg away from the heap (hang's sway). From f112 his gloves squeeze the bar: the new hang option grip 0 -> 0.22 (the launch's own grip squash, y-scale about BAR.y1) over 9 f. Headline: line 1 'It all' writes f88-f94 as a left-to-right clip wipe; line 2 'piles up' f96-f102; the Caveat word 'up' writes f100-f106 behind a left-to-right mask; its INK brush underline brushes in f104-f112 with the ragged alpha-threshold edge, thick (height >= 22 px) and wide 1.3 because 'up' is two letters.",
+   "text": "It all / piles up",
+   "text_style": "Geist 900, 120 px (0.111 W), ink, left at x 72, baselines y 1040 and 1178, no full stop; 'up' in Caveat 700 at 138 px (1.15x) on the same baseline, ink; underline-0a0a0a.png via underline() with wide 1.3 and thick so the mark is >= 22 px tall, 8 px under the baseline (ink: no bot owns this line). 'piles up' ends near x 575, its underline near 595; the heap column starts at 600. No other words.",
+   "handcrafted": [
+    "hang layers + eye rig + grip (new hang option)",
+    "paper.png",
+    "torn-note blanks seeds 94-96 in three tones (new)",
+    "torn-note seed 92 (packing), blank here (new)",
+    "ink-sun (new)",
+    "ink-dashes ink (new) on the blank ticket card",
+    "ring-ink-wide (new: a wide ring painted at its drawn ratio, never a squashed ring-ink.png)",
+    "beetle frames A/B, eyeless (new)",
+    "hatch.png shadows at one scale, clipped (components/)",
+    "blank ticket, stay and ring cards (canvas)",
+    "underline-0a0a0a.png (store/out/art/) through underline() thick/wide"
+   ],
+   "sound": [
+    {
+     "at": 2.133,
+     "kind": "drone",
+     "note": "55 Hz with a quiet 165 Hz partial (-14 dB) and 220 Hz (-18 dB) so a phone speaker hears a floor, not nothing; fades in over 1.2 s, gain 0.6, holds under everything to f952 then fades out by f984"
+    },
+    {
+     "at": 2.133,
+     "kind": "heart",
+     "note": "gain 0.6, one per two beats: f64, f96, f128, f160, f192, f224 (56 bpm under the 112.5 grid); the heart carries a 150/140 Hz body at -6 dB over its 58/52 Hz thump"
+    },
+    {
+     "at": 2.133,
+     "kind": "pulse",
+     "note": "FULL-TIME on every beat f64, f80, f96, f112 only (f128 is the boom), gain 0.3: the body is entrained before the first cut. The pulse is 70 Hz plus a woody 220 -> 180 Hz knock (60 ms) and a noise transient (20 ms) so it exists on a phone"
+    },
+    {
+     "at": 2.133,
+     "kind": "riser",
+     "note": "dur 2.133, gain 0.5, ending exactly on the ring card's landing at f128"
+    },
+    {
+     "at": 2.667,
+     "kind": "paper-thud",
+     "note": "one per landing, gains rising 0.3 -> 0.7 (f80, f96, f104, f112, f116, f120, f124)"
+    },
+    {
+     "at": 2.933,
+     "kind": "tick",
+     "note": "gain 0.3 on each headline line (f88, f96)"
+    },
+    {
+     "at": 3.333,
+     "kind": "write",
+     "note": "gain 0.4, the Caveat 'up' writing (f100)"
+    },
+    {
+     "at": 3.467,
+     "kind": "whoosh",
+     "note": "dur 0.25, down, gain 0.25: the brush under 'up' (f104)"
+    }
+   ],
+   "psychology": "RELATABILITY: one true everyday moment, the evening when everything lands at once; the viewer sees their own pile. EMOTIONAL ARC, TENSION: accelerating drops, a riser, widening eyes, a grip tightening on the bar. RHYTHM AND ENTRAINMENT: a calm 56 bpm heartbeat under a 112.5 pulse and rising mess, so the body feels 'too much' before the mind reads it. PROCESSING FLUENCY: four short words and a wordless heap, so nothing competes with them. CONTRAST AND NEGATIVE SPACE: the left column above the headline and the whole top stay empty; blank grey scraps make the heap mass rather than text.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: camera 1.00 -> 0.85 about (960, 400); the heap lands at x 1150-1900 and climbs to y~450 (world) by f128, right of him; the headline sits bottom-left in the text column at x 96, baselines 760 and 898 (120 px), under his head (bottom 629)."
+  },
+  {
+   "t0": 4.267,
+   "t1": 5.867,
+   "name": "The look, and the strike",
+   "visual": "The heap is complete and towers at the right behind him; he hangs at his bar, smaller against it (camera 0.85). White everywhere else. The headline holds. At f168 one ink brush stroke strikes through 'piles up' as his eyes narrow: he has decided.",
+   "motion": "f128 (4.267) the ring card lands on the riser's hit; the whole heap settles with a 3-frame jostle. f128-f136 his gaze goes down-right to the heap (eyes dx +16, dy +12 art px, E.io). f136-f144 the gaze travels to centre: he looks straight at the viewer, eyes still 1.15 wide. f144-f160 HOLD, one full beat, dead still (the comic hold; the bob freezes). f160 (5.333) one blink (both eyes sy -> 0.08 for 2 f, back in 1). f164-f168 the lids narrow: eyes sy 1.15 -> 0.72 (determination). f168-f176 (5.600-5.867) THE STRIKE: strike-ink, an ink brush stroke the width of line 2 x1.06, rotated -2 deg, centred on the x-height of 'piles up' (world y ~1133), revealed left to right by its own ragged alpha mask (E.o3). f175 a head tilt of -3 deg (sway). Camera holds at 0.85 (no push-in: the next cut arrives at 1.0 cleanly).",
+   "text": "It all / piles up (holding; 'piles up' struck through from f168)",
+   "text_style": "As beat 2; the strike is ink, 22 px thick at the middle tapering to the ends.",
+   "handcrafted": [
+    "hang layers + eye rig",
+    "strike-ink (new; fallback swash-ink.png scaled UNIFORMLY to 1000 wide, never squashed)",
+    "heap items"
+   ],
+   "sound": [
+    {
+     "at": 4.267,
+     "kind": "boom",
+     "note": "gain 0.45, f0 62 -> f1 36 under a 110 -> 90 Hz body (0.5 s) and a louder noise front: the last item lands (f128); the pulse stops here"
+    },
+    {
+     "at": 4.267,
+     "kind": "heart",
+     "note": "f128, f160 continue"
+    },
+    {
+     "at": 5.333,
+     "kind": "click",
+     "note": "gain 0.5 on the blink (f160)"
+    },
+    {
+     "at": 5.6,
+     "kind": "whoosh",
+     "note": "dur 0.25, down, gain 0.45: the brush 'shhk' of the strike (f168); nothing else, the quiet is the point"
+    }
+   ],
+   "psychology": "DIRECT GAZE: a face that has found you holds social attention; we cannot easily look away from eyes that look back. THE COMIC HOLD: a full beat of stillness before action is where the character lives (react, hold, decide). ZEIGARNIK OPEN LOOP: striking the words out announces a decision without saying what it is, so the viewer has to stay to see. The strike is motivated, handmade and a little funny: it marks the turn from tension to action.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: identical timing; the strike crosses 'piles up' in the left text column at baseline 898; the heap stands at right."
+  },
+  {
+   "t0": 5.867,
+   "t1": 8.533,
+   "name": "Up and over, the bar goes too, then a peek",
+   "visual": "Same frame. He pulls himself up over the bar and is gone, and then the app's own launch move plays out in full with nobody in frame: the bar springs, his two gloves come back over it, pinch it and pull it in to its middle until it is gone. White paper and the heap. One frame later two cream gloves grip the top edge of the heap's top card (the ring card) and his head rises behind it the right way up, as bot-curious, peeking over the problem itself. He glances up at the empty paper where his bar was, then at you.",
+   "motion": "Launch time t_launch = (f - 176) * 1000/30 + 420 ms, UNCLAMPED (the full launchCore timeline): gather f176-f180 (bar sags 1.6 u, head dips 3.5 u); pull f180-f190 (head rises 0.47 ART behind the bar, E.io, sway -2.5 deg sine, squash 0.96); gloves let go at f184 and f186 (LET_GO 690/740), each slipping behind the bar fingers first over 0.14 s; f190-f201 the bar springs (-3.2 u, damped sine, 2.5 cycles) and settles. f205/f207 the gloves come back over the bar (COME_BACK 1400/1450, landed by f211/f213); f215 PINCH (1730); f218 the SUCK begins (1810): the bar is drawn in to its middle, wringing; f227 (7.567) GONE (2120): empty paper above the heap. f228 (7.600) the ring card wobbles +-2 deg for 4 f and peek(bot-curious, ledge 428, x = the ring card's centre ~835 world, y = its top edge ~920 world, w 440): rise 0 -> 1 with E.back(1.35) over 9 f (the gloves slide up over the edge first, then the head pops). f240 (8.000) he glances up at where his bar was (the whole face translates -6 px y, 6 f, E.io); f248 (8.267) at you (back). Camera holds 0.85 to the cut.",
+   "text": "(none)",
+   "text_style": "(none)",
+   "handcrafted": [
+    "hang layers driven by hang(t_launch) in full (gather, pull, spring, come-back, pinch, suck, gone): the engine's existing launch, no clamp",
+    "bot-curious.png (store/out/art/, ledge 428.18)",
+    "peek-face gaze by translating the whole face +-6 px (cheap and it reads)"
+   ],
+   "sound": [
+    {
+     "at": 6,
+     "kind": "whoosh",
+     "note": "dur 0.35, up, gain 0.5: the pull (f180)"
+    },
+    {
+     "at": 6.333,
+     "kind": "boing",
+     "note": "tone glide 180 -> 260 Hz over 0.25 s, gain 0.4: the bar springs (f190; new cue kind)"
+    },
+    {
+     "at": 6.4,
+     "kind": "heart",
+     "note": "f192, f224: only the drone and the heartbeat under the empty stage"
+    },
+    {
+     "at": 6.833,
+     "kind": "land",
+     "note": "gain 0.3 at f205 and f207: the gloves come back onto the bar"
+    },
+    {
+     "at": 7.167,
+     "kind": "click",
+     "note": "gain 0.35 on the pinch (f215), then a 'whoosh' dur 0.3 down gain 0.35 for the suck (f218-f227)"
+    },
+    {
+     "at": 7.6,
+     "kind": "open",
+     "note": "gain 0.6: the card wobbles and he pops (f228), with a 'land' 0.5 under it"
+    },
+    {
+     "at": 8,
+     "kind": "tick",
+     "note": "gain 0.2: the glance up (f240)"
+    }
+   ],
+   "psychology": "ANTICIPATION BY WITHHOLDING: he vanishes and the stage has no face for 1.3 s; the brain leans in to fill the gap, and what fills it is the brand's own launch animation (the gloves come back and pull the bar in), so the viewer has met the app's opening move before they have met the app. MERE EXPOSURE: the same silhouette returns in a new place and orientation, and recognising it is its own small pleasure. HUMOUR: the whack-a-mole pop from behind the very thing that was piling up. The glance at the empty paper is a tiny character beat that says he chose this. CONTINUITY: no bar is left behind and none is carried; the only bar that persists is the one he paints at the end.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the same full launch at hang(70, -100, 979); he peeks over the heap's top card in the bottom-right at x~1500, w 440; the glance up reads toward the empty upper-left of the stage where the bar was."
+  },
+  {
+   "t0": 8.533,
+   "t1": 12.267,
+   "name": "Keybot: say it, the flick, and 'late' lands late",
+   "visual": "Hard cut to the deed layout at camera 1.0: a white stage card x 72-940, y 850-1270 (868x420; 2 px #E6E6E6 hairline, radius 28, graphite hatch shadow) drawn in canvas in the real chat's look (screens/keybot.png is the layout reference, never a bitmap crop): Mom's grey bubble 'Dinner at 8,' / 'everyone home?', '7:28 pm', and at the card's bottom an EMPTY TWO-LINE input pill (868-48 wide, height 120, hairline, radius 40: the app's input grows) with the black send circle at its right. bot-curious peeks over the card's top edge centred x 400, w 560 (ledge on y 850; head top ~560). The rest of the heap (the note on top, the trip scraps, the ring card) peeks up from below the stage card's bottom edge, y 1270-1400, at 90% opacity: three items. The headline's FIRST line writes on the cut, top-left: 'Say it'. To the right of his head, in the air (x 700-1040, y 420-840), three listen dots in Keybot's clay pulse where the speech begins, and a grey handwritten scrawl writes word by word below them as he listens: 'umm thoda late ho raha hoon start kar do' (the Hinglish primary; English alternate 'umm running late start without me'; Devanagari alternate '\u0909\u092e\u094d\u092e \u0925\u094b\u0921\u093c\u093e \u0932\u0947\u091f \u0939\u094b \u0930\u0939\u093e \u0939\u0942\u0901 \u0936\u0941\u0930\u0942 \u0915\u0930 \u0926\u094b'). The dots are the only colour in this beat besides the underline to come.",
+   "motion": "f256 (8.533) hard cut, no transition; 'Say it' writes f256-f262 (left-to-right wipe). f256-f292 the scrawl writes one word per 4 f (9 words; English 6 words at 6 f each; both end at f292), Caveat glyphs each jittered +-1.5 px and +-1 deg (seeded), each word a 3-frame left-to-right write-on, ragged left, up to two words per line; the three listen dots (recoloured #A9573A, 26 px, at the column's top-left (700, 400)) bloom in turn 1-2-3 on each word's start (scale 0.7 -> 1.0, alpha 0.5 -> 1, 4 f) and fade out over f292-f296; his face follows the writing cursor (+-6 px). f304 (10.133) THE FLICK: the right glove sprite (peek-reach) lifts off the ledge, arcs to 'umm' (8 f, quadratic arc, rotating -20 deg), snaps +25 deg in 3 f; 'umm' tears off as a scrap (the torn-note alpha applied as a mask to the word's box) and spins off the top-right corner (12 f, 400 deg, E.i2): gone. The glove returns to the ledge in 9 f. f320-f360 the clean words drop into the pill on 16ths (4 f) as Geist 500 ink, filling line 1 then line 2: f320 (10.667) 'Thoda'; f324 the slot for 'late' stays EMPTY, a visible hole; f328 'ho'; f332 'raha'; f336 'hoon'; f340 (11.333) 'late' slides into its hole from the right with two ghost copies (alpha 0.35, 0.2 trailing 40/80 px) and a 2% overshoot (E.back(1.7), 6 f): it is late; f344 the dip-pen comma falls in after 'hoon' (ink-comma, 4 f, 2-frame squash); f348 'start' on line 2; f352 'kar'; f356 'do'; f360 (12.000) the full stop (ink-dot) drops in. Each word lands scaling 1.08 -> 1.0 in 3 f; each scrawled word fades (3 f) as its typed twin lands: handwriting becomes type. (English: 'Running' f320, hole f324, 'start' f328, 'without' f332, 'me' f336, 'late' late at f340, comma f344, full stop f348. Devanagari: '\u0925\u094b\u0921\u093c\u093e' f320, hole f324, '\u0939\u094b' f328, '\u0930\u0939\u093e' f332, '\u0939\u0942\u0901' f336, '\u0932\u0947\u091f' late at f340, comma f344, '\u0936\u0941\u0930\u0942' f348, '\u0915\u0930' f352, '\u0926\u094b' f356, '\u0964' f360.)",
+   "text": "Headline line 1: Say it   Scrawl (Caveat, grey): umm thoda late ho raha hoon start kar do  ->  pill (Geist, two lines): Thoda late ho raha hoon, / start kar do.   Chat: Dinner at 8, everyone home?  7:28 pm   (English alternate: umm running late start without me -> Running late, / start without me.   Devanagari alternate: \u0909\u092e\u094d\u092e \u0925\u094b\u0921\u093c\u093e \u0932\u0947\u091f \u0939\u094b \u0930\u0939\u093e \u0939\u0942\u0901 \u0936\u0941\u0930\u0942 \u0915\u0930 \u0926\u094b -> \u0925\u094b\u0921\u093c\u093e \u0932\u0947\u091f \u0939\u094b \u0930\u0939\u093e \u0939\u0942\u0901, / \u0936\u0941\u0930\u0942 \u0915\u0930 \u0926\u094b\u0964)",
+   "text_style": "Headline line 1 Geist 900, 96 px (0.089 W), ink, left at x 72, baseline 370, no full stop. Scrawl: Caveat 700, 68 px (0.063 W), #5C5C5C, ragged left, no capitals, no punctuation (Devanagari scrawl: Kalam Devanagari 400 if added to fonts/, else Noto Sans Devanagari 400 with the same jitter). Pill text: Geist 500, 46 px (0.043 W), ink, left, two lines at 52 px pitch (Devanagari: Noto Sans Devanagari 400, 46 px). Chat bubble Geist 500 44 px ink on #F5F5F5; time 44 px #5C5C5C.",
+   "handcrafted": [
+    "bot-curious-nohands + peek-glove-R (new: peek-reach)",
+    "listen-dots.png (components/, exists) recoloured #A9573A via source-in, drawn as three 26 px dots",
+    "speech-scrawl (code)",
+    "torn-note alpha as the 'umm' scrap mask",
+    "ink-comma (new)",
+    "ink-dot (new)",
+    "chat card with the two-line pill (canvas)",
+    "hatch.png shadow at one scale, clipped",
+    "paper.png"
+   ],
+   "sound": [
+    {
+     "at": 8.533,
+     "kind": "listen",
+     "note": "gain 0.5: the keyboard's own listen bell on the cut (f256), with a 'tick' 0.3 for 'Say it'"
+    },
+    {
+     "at": 8.533,
+     "kind": "pulse",
+     "note": "HALF-TIME from here: one thump every two beats (f256, f288, f320, f352 ... to f736), gain 0.35, the phone-audible pulse"
+    },
+    {
+     "at": 8.533,
+     "kind": "tick",
+     "note": "one soft tick per scrawled word (f256 ... f288, every 4 f), gain 0.2"
+    },
+    {
+     "at": 10.133,
+     "kind": "whoosh",
+     "note": "dur 0.25, up, gain 0.5: the flick (f304); 'umm' spins off"
+    },
+    {
+     "at": 10.667,
+     "kind": "key",
+     "note": "one 'key' per landed word on 16ths (f320, f328, f332, f336, f348, f352, f356), gain 0.5; the 16th at f324 is a HOLE in the ticks"
+    },
+    {
+     "at": 11.333,
+     "kind": "key",
+     "note": "gain 0.6 with a 'land' under it: 'late' arrives late (f340)"
+    },
+    {
+     "at": 11.467,
+     "kind": "land",
+     "note": "gain 0.4 on the comma (f344)"
+    },
+    {
+     "at": 12,
+     "kind": "click",
+     "note": "gain 0.5 on the full stop (f360)"
+    }
+   ],
+   "psychology": "VOICE MADE VISIBLE: 'Say it' on the cut and three pulsing listen dots at the speech's origin tell a muted viewer this is spoken, not typed, before a single word appears. HUMOUR THROUGH A PHYSICAL GAG: the filler word is literally flicked off the page, so 'filler out, punctuation in' becomes slapstick the viewer feels rather than reads. PREDICTION ERROR: the viewer's brain fills the hole where 'late' should be a frame before 'late' slides in late; being right is rewarded, and the gag restates the sentence. RELATABILITY: a real family chat, in the language people actually speak, and a true everyday message everyone has sent. CONTRAST: grey wobbling handwriting beside crisp black type is the before and after in one frame. PROCESSING FLUENCY: one idea per shot, messy in, clean out.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the stage card x 800-1800, y 330-980 (1000x650) at right with the two-line pill at its bottom; he peeks over its top edge at x 1150, w 520; the listen dots and the scrawl float right of his head inside the stage (x 1450-1840, y 40-320); the remaining heap sits in the bottom-right corner (x 1700-1920); 'Say it' writes in the left column at x 96, baseline 420."
+  },
+  {
+   "t0": 12.267,
+   "t1": 13.867,
+   "name": "Keybot: sent, and the first colour",
+   "visual": "Same layout. The message is sent and rises into the chat as a black bubble (the chat scrolls up 70 px, Mom's bubble clipping at the card top as a real chat does). The headline's second line arrives under 'Say it' with one clay word and a clay brush underline: the first colour in the film other than the bar and the dots, on exactly one stroke. He does a tiny ta-da, looks at you, and ducks; the card flies up and off and the torn note lifts off the heap at the bottom and flies to where the next episode needs it.",
+   "motion": "f368 (12.267) the left glove taps the send circle (the glove lifts 40 px and drops in 6 f; a tap-ring blooms 8 f); the sentence slides up out of the pill into a black right-aligned two-line bubble (engine bubble() in Geist 500, 11 f, E.o3) and the pill empties. f376 (12.533) headline line 2 'Keybot writes it' writes (6 f wipe) with 'writes' left blank; 'writes' in Caveat writes f379-f384 behind a left-to-right mask; the clay underline brushes in f384-f392 (12.800-13.067) with the ragged edge. f384 face swap to bot-happy hidden inside a 2-frame 20 px dip, then a bounce (y -24 px, E.back(1.5), 9 f). f394-f406 he looks at you (the one episode where eye contact is held). f408 (13.600) he ducks (rise 1 -> 0, E.i2, 6 f); f408-f416 the card and its bubble fly up and off the top (E.i3, 8 f); the torn note lifts off the heap at the bottom edge and flies up-right to rest crooked at centre (900, 585), -12 deg, right of where he will hang next (E.o3, 8 f).",
+   "text": "Say it / Keybot writes it",
+   "text_style": "Geist 900, 96 px (0.089 W), ink, left at x 72, baselines y 370 and 480, no full stop; 'writes' Caveat 700 at 110 px on the same baseline, ink; underline-a9573a.png via underline() (wide 1.12, thick to >= 22 px), 8 px under the baseline. Bubble: Geist 500 46 px white on ink, radius 28, two lines. Line 2's descenders end near y 510; his head top at ~560: 50 px clear.",
+   "handcrafted": [
+    "bot-curious-nohands -> bot-happy-nohands + peek-glove-L (peek-reach)",
+    "tap-ring (new)",
+    "underline-a9573a.png (store/out/art/)",
+    "chat card + bubble (canvas / engine bubble() given the card face Geist 500)"
+   ],
+   "sound": [
+    {
+     "at": 12.267,
+     "kind": "send",
+     "note": "gain 0.6: the message goes (f368)"
+    },
+    {
+     "at": 12.533,
+     "kind": "tick",
+     "note": "gain 0.3 on headline line 2 (f376)"
+    },
+    {
+     "at": 12.633,
+     "kind": "write",
+     "note": "gain 0.4: 'writes' writing (f379)"
+    },
+    {
+     "at": 12.8,
+     "kind": "notify",
+     "note": "gain 0.35 on the ta-da bounce (f384)"
+    },
+    {
+     "at": 12.8,
+     "kind": "bell",
+     "note": "KEYBOT'S NOTE D4 293.66 Hz, dur 1.2, gain 0.4, on the beat (f384) as the clay underline lands (each bot owns one note; the chord is incomplete until the team)"
+    },
+    {
+     "at": 12.8,
+     "kind": "whoosh",
+     "note": "dur 0.25, down, gain 0.25: the brush 'shh' under the underline"
+    },
+    {
+     "at": 12.8,
+     "kind": "pulse",
+     "note": "half-time thump f384 (b24), f416 (b26)"
+    },
+    {
+     "at": 13.6,
+     "kind": "whoosh",
+     "note": "dur 0.3, up, gain 0.45: the card leaves (f408)"
+    }
+   ],
+   "psychology": "VON RESTORFF ISOLATION: one clay underline on a white page, so it pops and tags the memory 'Keybot = clay' without a label. PEAK PER EPISODE: a small ta-da and eye contact close the loop with a reward, teaching the viewer that staying pays (this is the only episode that holds the look; later exits vary so the ta-da never becomes a tic). RHYTHM: send, headline, underline and exit all on the grid.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: line 2 writes in the left column at x 96, baseline 540; the card at right flies up and off; the bubble rises inside it; the note flies to the upper right of the stage (x 1600-1900, y ~300). Identical timing."
+  },
+  {
+   "t0": 13.867,
+   "t1": 19.2,
+   "name": "Plan: he drops in and hangs the note on 5 pm",
+   "visual": "The stage card is a day in the app's look (screens/plan.pop.png as the reference): x 72-940, y 850-1280; 'Fri' Geist 600 44 px #5C5C5C at (112, 896); Geist 500 44 px #5C5C5C times at x 112 on rows 76 px apart (4 pm y 940, 5 pm 1016, 6 pm 1092, 7 pm 1168, 8 pm 1244), a 2 px #E6E6E6 rail at x 240, and one card already on the 8 pm row: 'Dinner with Mom \u00b7 8:00 pm' (white, hairline, 620x56 at x 280). The torn note 'dentist' / 'Friday 5 pm' (330x130) lies crooked at -12 deg to the RIGHT of where his head will be, centre (900, 585), half tucked behind his ear. The headline area (y 300-540) is EMPTY because he is about to hang there: this episode he does not peek; he drops into frame from the top in his icon pose, upside down, hanging from his bar: hang(x=100, y=92, size=816) (bar y 300-384, under the Reels top chrome's 270 line; bar x 173-842; head x 199-816, y 379-699; eyes (415, 471) and (598, 499); right glove x 624-733, y 343-423). He hangs the note the way he hangs himself, then leaves exactly as the app launches: he pulls up, his gloves come back and pull the bar in. Only when the bar is gone does this beat's colour arrive: ochre #8F6A1F on the leave-by dashes and line, then the underline. The headline writes into the space he vacated.",
+   "motion": "f416 (13.867) cut on the beat: the day card lands from below (E.o3 8 f, a one-frame settle). f424 (14.133) THE DROP-IN: hang(100, 92, 816) enters as a whole, bar and all, translating from y -700 to rest with E.back(1.2) over 9 f; eyes open. f432 (14.400) he looks at the note (eyes dx +12, dy +10 art px, E.io 5 f). f440 (14.667) the RIGHT glove lets go: the engine's right-glove half gets a `reach` transform: it flips (scaleY -1 about its centre, fingers down) and travels a quadratic arc from its anchor (678, 384) to the note's visible top-left corner (~(800, 528)), control point 120 px to the right so the path bulges outward and never crosses either eye (8 f, E.io), rotating 0 -> -20 deg. f448 (14.933) pinch: the note swings to hang from the fingertip (rotation -12 -> +22 deg about the grabbed corner, 6 f, E.o3). f456 (15.200) the glove carries it DOWN and LEFT, passing under his chin, to the 5 pm row (8 f, E.io) and hooks the corner over the rail at (244, 1016) on f464 (15.467); the glove returns to the bar (8 f), flips back and grips (grip squeeze 0.12) by f472. f464-f496 the note swings from its hook like a pendulum (+-14 deg, damped; swing ends at f472, f480, f488, f496: period one beat, ends on 8ths); his eyes follow it (dx +-12 art px, 2-frame lag) and his head sways +-2 deg in sync. f496 (16.533) on the last swing the note snaps flat and FLIPS (scaleX 1 -> 0 -> 1 over 8 f, a paper flip): on the way back it is a clean app card on the 5 pm row, 'Dentist \u00b7 5:00 pm' (480x48 at x 280), landing f504 (16.800) with a 2-frame squash. f508 (16.933) HE LEAVES, the app's own move: the launch's pull (ms 560 -> 900) over f508-f518 (head rises 0.47 ART behind the bar with the sway and squash; gloves let go f512/f513); the bar springs short (f518-f522, 2 damped cycles); then the come-back at 1.5x speed: gloves back over the bar f522/f523, pinch f529, suck f531, the bar pulled in to its middle and GONE at f536 (17.867). f536-f544 ochre ink dashes climb the rail from the Dentist card's top to the 4:30 mark (bottom to top, 8 f) and f540-f550 'Leave by 4:30' writes in Geist 500 ochre at x 280 on the 4:30 half-row (left-to-right wipe). f544 (18.133) headline line 1 'Your day' writes into the vacated space (6 f); f552 (18.400) line 2 'planned for you'; 'planned' Caveat f554-f560; the ochre underline brushes f560-f568 (18.667-18.933). f568-f571 hold (read). f571-f576 EXIT (varied): the day card flips like a page, scaleX 1 -> 0 about its centre line (E.i2, 5 f); the trip tray completes the flip 0 -> 1 at f576-f582.",
+   "text": "On the card: Fri;  4 pm  5 pm  6 pm  7 pm  8 pm;  Dinner with Mom \u00b7 8:00 pm;  the note 'dentist / Friday 5 pm' (Caveat) becomes 'Dentist \u00b7 5:00 pm' (Geist);  Leave by 4:30 (ochre)   Headline: Your day / planned for you",
+   "text_style": "'Fri' Geist 600 44 px (0.041 W) #5C5C5C; times Geist 500 44 px #5C5C5C; cards Geist 500 46 px ink; 'Leave by 4:30' Geist 500 44 px #8F6A1F; the note Caveat 700 52 px ink, two lines. Headline Geist 900 96 px (0.089 W) ink, left x 72, baselines 370 and 480; 'planned' Caveat 700 110 px ink; underline-8f6a1f.png via underline() (wide 1.12, thick to >= 22 px), 8 px under the baseline.",
+   "handcrafted": [
+    "hang layers (hang-face/eyes/bar/hands-1632) with the new `reach` glove option, and the launch's pull + come-back played from f508 with `speed` 1.5 on the come-back",
+    "torn-note seed 91 + live Caveat, 330x130",
+    "ink-dashes ochre (new)",
+    "hatch.png shadow at one scale, clipped",
+    "day card (canvas, in the look of screens/plan.pop.png)",
+    "underline-8f6a1f.png (store/out/art/)"
+   ],
+   "sound": [
+    {
+     "at": 13.867,
+     "kind": "land",
+     "note": "gain 0.5 with a short whoosh up: the card arrives (f416)"
+    },
+    {
+     "at": 14.133,
+     "kind": "whoosh",
+     "note": "dur 0.3, down, gain 0.4 + 'land' 0.4 at f433: he drops in (f424)"
+    },
+    {
+     "at": 14.667,
+     "kind": "whoosh",
+     "note": "dur 0.2, up, gain 0.3: the glove lets go and reaches (f440); a soft paper peel 'tick' 0.25 at the pinch f448"
+    },
+    {
+     "at": 15.467,
+     "kind": "land",
+     "note": "gain 0.5: the corner hooks the rail (f464; the existing 'land', 540 -> 270 Hz, is this sound)"
+    },
+    {
+     "at": 15.733,
+     "kind": "tick",
+     "note": "gain 0.2 at each swing end (f472, f480, f488, f496)"
+    },
+    {
+     "at": 16.8,
+     "kind": "notify",
+     "note": "gain 0.35 + 'land' 0.4 on the flip to the clean card (f504)"
+    },
+    {
+     "at": 16.933,
+     "kind": "whoosh",
+     "note": "dur 0.35, up, gain 0.45: he pulls up (f508); 'land' 0.3 x2 as the gloves come back (f522/f523); 'click' 0.3 pinch (f529); 'whoosh' 0.2 down 0.3 for the suck to f536"
+    },
+    {
+     "at": 18,
+     "kind": "write",
+     "note": "gain 0.4: the leave-by line writes (f540), after the bar is gone"
+    },
+    {
+     "at": 18.667,
+     "kind": "bell",
+     "note": "PLAN'S NOTE F#4 369.99 Hz, dur 1.2, gain 0.4, on the beat (f560) with the ochre underline; brush 'shh' under it"
+    },
+    {
+     "at": 13.867,
+     "kind": "pulse",
+     "note": "half-time thumps f416, f448, f480, f512, f544"
+    },
+    {
+     "at": 19.033,
+     "kind": "open",
+     "note": "gain 0.5: the page flips (f571)"
+    }
+   ],
+   "psychology": "RHYME AND HUMOUR: he hangs the note the way he hangs himself, a visual pun the viewer gets without a word; dropping in upside down makes the rhyme literal, and leaving with the app's own pull-up-and-take-the-bar move makes the icon's animation a character habit. NOVELTY INSIDE REPETITION: a new edge, a new pose, and the icon gets one more exposure mid-film. THE EYE-FOLLOW GAG: eyes tracking a pendulum is one of animation's most reliable laughs because the viewer's own eyes do the same thing; the swings end on the 8ths, so the body counts them. ANTICIPATION: the swing delays the payoff by two beats and makes the snap-to-type feel earned. VON RESTORFF: ochre arrives only once the clay bar is gone, so the one-colour tag is clean. PROCESSING FLUENCY: handwriting literally turns into a clean plan, the entire feature in one transform; the headline arrives after the deed, as a caption the viewer already believes.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the day card x 800-1800, y 420-980 with rows 100 px apart (4 pm 470 ... 8 pm 870) and 'Fri' at (840, 440); he drops in at hang(x=957, y=-135, size=685) (scale 0.42): bar top 40, head x 1040-1559, y 106-375; the note lies right of his head at centre (1740, 300) (a 180 px sideways reach, outside the eyes); the glove carries it down-left to the rail at (1070, 570); the headline writes in the left column at f544 as usual (no space conflict in landscape); he exits upward the same way and the bar is pulled in and gone."
+  },
+  {
+   "t0": 19.2,
+   "t1": 23.467,
+   "name": "Travel: one sweep, one place, you press pay",
+   "visual": "The stage card is a white tray x 72-940, y 850-1270 scattered with the trip scraps, now wearing their words, all crooked: the train ticket 'Lisbon \u00b7 3 days' (dashed perforation), the ink sun with its cloud, the stay card 'Stay \u00b7 12 min to the wedding', the packing scrap (Caveat 'charger / gift / swimsuit'), two blank scraps. bot-starry peeks up at x 540, w 600, star-eyed: he loves a trip; a SEA sparkle blinks beside his head at (870, 600). The heap at the bottom edge is down to one item, the ring card. He sweeps everything into one card, then reaches for the 'Open to book' pill, stops short, and slides it to you instead. This beat's colour: sea #3E6E8E (the sparkle, a short underline under '12 min', the headline underline).",
+   "motion": "f576-f582 the tray flips in (the second half of the page flip). f584 (19.467) he pops up as bot-starry (E.back(1.35), 9 f). f588 the sea sparkle beside his head: 2 f on, 2 off, 2 on (two rotations). f592 (19.733) THE SWEEP: both glove sprites lift off the ledge and slide inward along the card's top edge toward the centre (12 f, E.io); as they close, each scrap slides to the centre and stacks, each starting one 16th after the last (8 f slides, E.io, rotations settling to 0): sun f592 -> lands f600, packing f596 -> f604, stay f600 -> f608, ticket f604 -> f612, the blanks slipping under; at each touchdown the scrap's handwritten or ink words crossfade (4 f) into their Geist row: handwriting becomes type; the packing scrap folds under the stack and is gone (packed). Gloves back on the ledge by f612. f616 (20.533) the stack snaps into one tidy trip card (760x300 centred in the tray; a 1.03 squash, 3 f): title 'Lisbon \u00b7 3 days'; rows 'Evening train \u00b7 2 seats'; 'Stay \u00b7 12 min to the wedding'; 'Sun, 21\u00b0' with the ink sun now small (60 px) at the row's end. f616-f622 '12 min' gets a short sea brush underline (underline-3e6e8e scaled uniformly to the two words via underline(), thick). f624 (20.800) the black pill 'Open to book' slides in at the tray's bottom (y 1170-1250; 8 f, E.o3). f628 his face goes down toward it (+6 px). f632 (21.067) the right glove reaches for the pill (8 f arc). f640 (21.333) it STOPS 60 px short with a 2-frame shudder (+-3 px). f642 face swap to bot-shy inside a 2-frame dip; he looks at you. f644 (21.467) the glove slides the pill 90 px toward the bottom edge, toward the viewer (to y 1260-1340), scaling it 1 -> 1.12 as if offering it (9 f, E.io), then returns to the ledge (8 f). f656 (21.867) headline line 1 'Your trip, sorted'; f664 (22.133) line 2 'you press pay'; 'you' Caveat f668-f674; the sea underline f672-f680 (22.400-22.667). f680-f696 hold (read, one beat). f696 (23.200) he ducks (6 f); f696-f704 EXIT (varied): the tray slides off LEFT (E.i3 8 f) as the ring card pushes in from the right (f700-f708): travel is lateral.",
+   "text": "Scraps: Lisbon \u00b7 3 days;  charger / gift / swimsuit;  Stay \u00b7 12 min to the wedding  ->  Card: Lisbon \u00b7 3 days;  Evening train \u00b7 2 seats;  Stay \u00b7 12 min to the wedding;  Sun, 21\u00b0   Pill: Open to book   Headline: Your trip, sorted / you press pay",
+   "text_style": "Card title Geist 600 52 px (0.048 W) ink; rows Geist 500 46 px ink; the scraps' words Caveat 700 52 px ink before they become type; pill Geist 600 44 px white on ink, radius 999, 360x80. Headline Geist 900 96 px ink, left x 72, baselines 370 and 480 ('Your trip, sorted' ~800 px, ends near x 872, clear of the rail); 'you' Caveat 700 110 px ink; underline-3e6e8e.png via underline() with wide 1.3 and thick to >= 22 px ('you' is three letters). No price, no amount, nothing that looks like a payment anywhere.",
+   "handcrafted": [
+    "bot-starry-nohands -> bot-shy-nohands + peek-glove-L/R (peek-reach; shy's ledge measured in the same renderArt run)",
+    "sparkle-sea, two frames (new)",
+    "ticket card with ink-dashes ink",
+    "ink-sun (big, then small)",
+    "torn-note seed 92 (packing) + blanks",
+    "trip card (canvas, in the layout of screens/travel.png)",
+    "underline-3e6e8e.png (store/out/art/), full under 'you' and short under '12 min', both uniform scale",
+    "hatch.png shadow at one scale, clipped"
+   ],
+   "sound": [
+    {
+     "at": 19.2,
+     "kind": "open",
+     "note": "gain 0.5 + 'land' 0.4 at f582: the tray flips in (f576)"
+    },
+    {
+     "at": 19.467,
+     "kind": "notify",
+     "note": "gain 0.5 on the starry pop (f584)"
+    },
+    {
+     "at": 19.6,
+     "kind": "bell",
+     "note": "1760 Hz, dur 0.15, gain 0.2: the sparkle (f588)"
+    },
+    {
+     "at": 19.733,
+     "kind": "whoosh",
+     "note": "dur 0.4, up, gain 0.4 under four 'land' ticks on f600, f604, f608, f612 (gains 0.3 -> 0.5) as the scraps stack (f592)"
+    },
+    {
+     "at": 20.533,
+     "kind": "land",
+     "note": "gain 0.6: the card snaps tidy (f616)"
+    },
+    {
+     "at": 20.8,
+     "kind": "click",
+     "note": "gain 0.4: the pill lands (f624)"
+    },
+    {
+     "at": 21.067,
+     "kind": "whoosh",
+     "note": "dur 0.2, up, gain 0.3: the reach (f632)"
+    },
+    {
+     "at": 21.333,
+     "kind": "stop",
+     "note": "the brand's two-note 880 -> 659 Hz, gain 0.4, on the beat: the hand stops short (f640)"
+    },
+    {
+     "at": 21.467,
+     "kind": "whoosh",
+     "note": "dur 0.3, down, gain 0.25: the soft slide toward you (f644)"
+    },
+    {
+     "at": 22.4,
+     "kind": "bell",
+     "note": "TRAVEL'S NOTE A4 440 Hz, dur 1.2, gain 0.4, on the beat (f672) with the sea underline; brush 'shh' under it"
+    },
+    {
+     "at": 19.2,
+     "kind": "pulse",
+     "note": "half-time thumps f576, f608, f640, f672, f704"
+    },
+    {
+     "at": 23.2,
+     "kind": "whoosh",
+     "note": "dur 0.25, down, gain 0.4: the tray slides off left (f696)"
+    }
+   ],
+   "psychology": "ORDER FROM CHAOS: the brain finds tidying deeply satisfying, and a 0.8 s 'everything clicks into place' is a dopamine beat (the reason organising videos travel); the handwriting becoming type says 'spoken becomes sorted', not only tidied, and the shapes are the very scraps from the pile, now readable. TRUST THROUGH RESTRAINT: a hand that stops short says 'you press pay' more convincingly than any sentence, because the brain infers character from action; reach, stop, glance is also a classic comic beat. LIKEABILITY: the shy face right after a hero move reads as competence plus humility. PROGRESS CUE: the heap at the bottom is down to one item.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the tray at x 800-1800, y 330-980; he pops at x 1300, w 560; the sweep closes toward x 1300; the pill at the card's bottom slides toward the frame's bottom edge; the headline in the left column; the exit slides the tray off the right edge while the ring card pushes in from the left (lateral either way; keep the direction consistent with the next card's entry)."
+  },
+  {
+   "t0": 23.467,
+   "t1": 26.133,
+   "name": "Code: a safe copy, a tick, the flick comes back",
+   "visual": "The stage card is the ring card from the pile, now a code file: header 'cart/total.ts' (Geist Mono 500 44 px ink), three lines of grey code (Geist Mono 44 px #6B6B6B): 'function total(items) {' / '  return items.length' / '}'. Line 2 is ringed by the wide loose ink ring (ring-ink-wide at its own ratio) with the small eyeless ink beetle sitting on the ring's top-right: a faceted ink blob with six dip-pen legs, no eyes. bot-curious peeks at x 540, w 600. The heap at the bottom edge is now EMPTY: clean paper, the loop from 2 s closed. This beat's colour: moss #4F7A3A, on the tick now and the filled Yes later (plus the underline); the tape is paper grey.",
+   "motion": "f700-f708 the code card pushes in from the right (E.o3) to x 72-940, y 850-1270. f712 (23.733) he pops up (E.back(1.35), 9 f). f716 he looks at the beetle (face +6 px toward it). f720 (24.000) the beetle's legs twitch (frame A/B swap, 2 f each, twice); no staring hold. f728 (24.267) THE COPY: the right glove pinches the card's top-right corner and PEELS: a duplicate card slides out from under the first, offset +18 px right and +18 px down (10 f, E.o3), with a paper-grey tape strip (#ECE9E3, 220x56, rotated -4 deg) across its top edge reading 'copy' in Caveat ink; the original dims to 80% behind it. f744 (24.800) on the copy, the ring scribble fades (6 f) and line 2 re-writes itself in ink (left-to-right wipe 9 f): '  return sum(items)'. f760 (25.333) a moss ink tick draws (two strokes in pen order, 4 f) and 'Tests pass' writes beside it under the code (9 f wipe). f768 (25.600) THE FLICK (callback): the glove flicks the beetle off the original card; it tumbles off the frame's top-right (12 f, 400 deg, legs flailing A/B, E.i2): gone. The glove is back on the ledge by f780.",
+   "text": "cart/total.ts;  function total(items) {  /  return items.length  /  }  ->  return sum(items);  tape: copy;  Tests pass",
+   "text_style": "Geist Mono 500 44 px (0.041 W) ink for the header; Geist Mono 400 44 px #6B6B6B for the code and 'Tests pass'; the fixed line in ink; 'copy' Caveat 700 52 px ink on the grey tape. No headline yet.",
+   "handcrafted": [
+    "bot-curious-nohands + peek-glove-R (peek-reach)",
+    "ring-ink-wide (new) as the bug's scribble, uniform scale",
+    "beetle frames A/B, eyeless (new)",
+    "tape-grey (new: tape.png recoloured #ECE9E3 via source-in, drawn opaque; or the tape recipe re-run in #ECE9E3)",
+    "ink-tick moss (new)",
+    "code card x2 (canvas, in the style of screens/live.png)",
+    "hatch.png shadow at one scale, clipped"
+   ],
+   "sound": [
+    {
+     "at": 23.467,
+     "kind": "whoosh",
+     "note": "dur 0.25, up, gain 0.4 + 'land' 0.4 at f708: the code card pushes in (f704)"
+    },
+    {
+     "at": 23.733,
+     "kind": "open",
+     "note": "gain 0.5: he pops (f712)"
+    },
+    {
+     "at": 24,
+     "kind": "tick",
+     "note": "gain 0.15 x2: the legs twitch (f720, f724)"
+    },
+    {
+     "at": 24.267,
+     "kind": "whoosh",
+     "note": "dur 0.3, up, gain 0.35 + 'land' 0.4 at f736: the paper peel (f728)"
+    },
+    {
+     "at": 24.8,
+     "kind": "write",
+     "note": "gain 0.4: the line re-writes (f744)"
+    },
+    {
+     "at": 25.333,
+     "kind": "key",
+     "note": "gain 0.5 + 'land' 0.35: the tick and 'Tests pass' (f760)"
+    },
+    {
+     "at": 25.6,
+     "kind": "whoosh",
+     "note": "dur 0.25, up, gain 0.5: the flick, again (f768)"
+    },
+    {
+     "at": 24.533,
+     "kind": "pulse",
+     "note": "the half-time pulse's LAST thump (f736, b46) before the question; nothing at f768 (b48)"
+    }
+   ],
+   "psychology": "CALLBACK HUMOUR: the flick returns, and a running gag pays double the second time because the viewer predicts it a frame early and is rewarded for being right (two uses only; a third would be one too many). PROGRESS CUE: the heap at the bottom is gone, so the Zeigarnik loop opened at 2 s closes exactly as the last episode begins. PROCESSING FLUENCY: copy, fix, one tick, no jargon beyond a file name; 'items.length' to 'sum(items)' is a fix anyone can see is a fix (it counted instead of adding), and the bug is an eyeless ink blob so the viewer never feels a creature is being flicked.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the code card pushes in from the left to x 800-1800, y 330-980; the copy peels toward the bottom-right; he peeks at x 1300; the beetle flies off the top-right of the frame."
+  },
+  {
+   "t0": 26.133,
+   "t1": 28.8,
+   "name": "Code: Go live? He waits. You say yes.",
+   "visual": "A question card rises from behind the copy card and settles over its middle (where a phone's chrome never reaches): a wobbling dip-pen ink frame (760x300 at x 126-886, y 905-1205) on white with 'Go live?' and two hand-drawn pills, 'Yes' and 'Not yet'. He waits, eyes big, and takes one slow visible breath toward the Yes; the pulse is gone; only the drone and the heartbeat. A full beat of nothing. Then the tap on Yes, his bounce, the headline with 'yes' handwritten and a moss underline.",
+   "motion": "f784 (26.133) the question card rises from behind the copy card and settles over its middle (9 f, E.back(1.3)) and the PULSE IS ABSENT (the last thump was f736). f788 he looks at you, eyes wide, and INHALES: the face rises 8 px and scales 1.05 -> 1.08 about the ledge across f788-f816, with peek()'s `lean` tilting him 2 deg toward Yes over the same span (the sound-off cue for the held breath, visible on a 390 px phone). HOLD otherwise; at f800 (26.667) one 'blink': the whole face dips 20 px for 2 f and returns. f816 (27.200) ON THE BEAT: a tap-ring blooms on 'Yes' (8 f, scale 0.6 -> 1.2, fading) and the pill fills moss #4F7A3A with 'Yes' in white in 3 f; the breath releases (scale back to 1.05, lean to 0 over 4 f); the pulse returns (half-time). f820 face swap to bot-happy inside a 2-frame dip; a bounce (y -28 px, E.back(1.5), 10 f). f820 (26.800) headline line 1 'Nothing goes live'; f828 (27.067) line 2 'till you say yes'; 'yes' Caveat f832-f838; the moss underline brushes f840-f848 (28.000-28.267). f848-f856 hold. f856 (28.533) he ducks (6 f); f856-f864 EXIT (varied): the cards FALL out of the bottom of the frame (E.i2, 8 f, rotating -4 deg). Nothing rises: the page is clean.",
+   "text": "Go live?   pills: Yes \u00b7 Not yet   Headline: Nothing goes live / till you say yes",
+   "text_style": "'Go live?' Geist 600 56 px (0.052 W) ink, left inside the frame; pills Geist 600 44 px ink in dip-pen outlines 240x84, the tapped Yes white on moss. Headline Geist 900 96 px (0.089 W) ink, left x 72, baselines 370 and 480 ('Nothing goes live' ~854 px at 96, ends near x 926, inside the rail line); 'yes' Caveat 700 110 px ink; underline-4f7a3a (regenerated moss) via underline() with wide 1.3 and thick to >= 22 px ('yes' is three letters), 8 px under the baseline.",
+   "handcrafted": [
+    "bot-curious-nohands -> bot-happy-nohands (peek-reach faces)",
+    "dip-pen frame + dip-pen pills (new)",
+    "tap-ring (new)",
+    "underline-4f7a3a (new: the store underline recipe in #4F7A3A)",
+    "question card (canvas inside the dip-pen frame)"
+   ],
+   "sound": [
+    {
+     "at": 26.133,
+     "kind": "open",
+     "note": "gain 0.5: the question rises (f784); NO pulse from f736 to f816"
+    },
+    {
+     "at": 26.133,
+     "kind": "heart",
+     "note": "gain 0.6 at f784 and f816: the heartbeat (with its 150/140 Hz body) is the only rhythm; the drone holds"
+    },
+    {
+     "at": 26.667,
+     "kind": "click",
+     "note": "gain 0.3 on the blink-dip (f800)"
+    },
+    {
+     "at": 27.2,
+     "kind": "click",
+     "note": "gain 0.7 + 'land' 0.5: the tap on Yes (f816); the half-time pulse resumes (f816, f848)"
+    },
+    {
+     "at": 26.8,
+     "kind": "notify",
+     "note": "gain 0.35 on the bounce (f820), with 'tick' 0.3 per headline line (f820, f828) and 'write' 0.4 for 'yes' (f832)"
+    },
+    {
+     "at": 28,
+     "kind": "bell",
+     "note": "CODE BOT'S NOTE B4 493.88 Hz, dur 1.2, gain 0.4, with the moss underline (f840); brush 'shh' under it"
+    },
+    {
+     "at": 28.533,
+     "kind": "whoosh",
+     "note": "dur 0.3, down, gain 0.4: the cards fall away (f856)"
+    }
+   ],
+   "psychology": "ANTICIPATION AND THE HELD BREATH: dropping the pulse for two beats makes the wait physical, a heartbeat alone is suspense, and a visible slow inhale toward the Yes carries the same wait for a muted phone. AGENCY: the on-beat tap is read by the viewer's brain as its own decision, so 'you stay in charge' is felt rather than stated; 'Go live? Yes / Not yet' is readable by anyone in a second. RELIEF: the breath releases and the pulse returns on the yes; his bounce is the reward. THESIS PLACEMENT: the most important line of the film lands at the moment of highest attention, on a clean page.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the question card rises over the copy card's middle at x 1000-1760, y 500-800; the headline writes in the left column; the cards fall out of the bottom of the frame the same way."
+  },
+  {
+   "t0": 28.8,
+   "t1": 32.533,
+   "name": "The team (and one slot that is yours)",
+   "visual": "A clean white page. At the bottom, the four done cards are a tidy deck (stacked with 14 px offsets, the top card's edge at y 1150, the deck running to the frame's bottom). The hero rises first, big, behind the deck's edge in the centre as bot-hello, glove raised, and in that raised glove he holds a tiny torn note. Then, one per 8th, four dotted bot heads pop up from behind the deck edge in front of him, each in its own colour, with its name on the deck below; when Plan pops, the hero tips the note onto Plan's head and Plan takes it (ask any bot, the right one takes it). A fifth slot at the end: a pencil-dashed grey ring with 'yours' written under it. The headline, big: 'Your team / of bots' with 'bots' handwritten and the icon's clay underline. The first and only time the four colours share a frame, and the first time the full chord sounds.",
+   "motion": "f864 (28.800) the deck slides in from the bottom (E.o3, 9 f) and the hero rises behind its edge: peek(bot-hello, ledge 425, x 540, y 1150, w 520), E.back(1.3), 10 f; his face stands clear from the eyes up (head top ~884); the small heads will occlude his gloves and chin; the tiny note (90x34, torn-note alpha, blank) sits in the raised glove. Heads pop from behind the deck edge on the 8ths, each 128 px (translateY +140 -> 0, E.back(1.4), 8 f, then a +-3 deg wobble for 9 f), with its name setting in 2 f later on the deck card at baseline 1230: f872 (29.067) head-keybot x 200 'Keybot'; f880 (29.333) head-plan x 370 'Plan'; f888 head-travel x 540 'Travel' (right under his eyes); f896 head-code x 710 'Code bot'; f904 (30.133) the 'yours' slot at x 880: a pencil-dashed grey ring (r 64) draws itself in pen order (8 f) and 'yours' writes beneath (Caveat). THE HAND-OFF: f880-f888, as Plan pops, the raised glove tips -25 deg (4 f) and the tiny note slides down a short arc onto Plan's head and tucks behind it (8 f, E.io); Plan's head bobs +4 px on arrival; the glove comes back up empty. His face follows each pop (translate 6 px toward it over 4 f, back on the next): the eye-follow gag paying off on the team. f912 (30.400) the headline writes in big: line 1 'Your team' f912-f918; line 2 'of bots' f920-f926; 'bots' Caveat f924-f932; the clay underline brushes f936-f944 (31.200-31.467). f936-f952 his raised glove waves twice (+-12 deg about the wrist). f944 (31.467) the four heads turn to him (each translates 6 px toward the centre, 4 f). f948 he looks at you; f952 the heads bob 6 px in order on 16ths (f952, f956, f960, f964: a little wave). f960 everyone ducks on 16ths in reverse order: code f960, travel f964, plan f968, keybot f972, the 'yours' ring fades with code, the hero last at f974 (E.i2, 5 f each); f966-f974 the headline wipes out to the left; f968-f976 the deck slides off the bottom (E.i3). At f976 nothing is on the page but the clay dot that the next beat opens on.",
+   "text": "Keybot \u00b7 Plan \u00b7 Travel \u00b7 Code bot \u00b7 yours   Headline: Your team / of bots",
+   "text_style": "Names Geist 500 44 px (0.041 W) ink, centred under each head; 'yours' Caveat 600 52 px #6B6B6B. Headline Geist 900 120 px (0.111 W), ink, left x 72, baselines y 640 and 778; 'bots' Caveat 700 138 px ink on the same baseline; underline-c9683f.png (the icon's clay: no one bot owns this line) via underline() (wide 1.12, thick), 8 px under the baseline. The five slots end at x 944: clear of the Reels rail at 950.",
+   "handcrafted": [
+    "bot-hello-nohands + peek-glove-raised (new: the raised glove as its own sprite so it can tip and wave)",
+    "tiny torn note (torn-note alpha at 90x34) for the hand-off",
+    "head-keybot.png, head-plan.png, head-travel.png, head-code.png (TAILZU-BACKEND/tulmi/blip/bots/, 144 px)",
+    "pencil-ring grey (new) + live Caveat 'yours'",
+    "underline-c9683f.png (store/out/art/)",
+    "done deck (canvas cards, the four done cards stacked)",
+    "hatch.png shadow at one scale, clipped"
+   ],
+   "sound": [
+    {
+     "at": 28.8,
+     "kind": "pulse",
+     "note": "FULL-TIME again on every beat f864, f880, f896, f912, f928, f944 (last), gain 0.35: the team arrives on every 8th over it"
+    },
+    {
+     "at": 28.8,
+     "kind": "notify",
+     "note": "gain 0.5: the hero rises (f864)"
+    },
+    {
+     "at": 29.067,
+     "kind": "bell",
+     "note": "D4 293.66 (Keybot) dur 1.0 gain 0.35, with a soft 'land' as the head pops (f872)"
+    },
+    {
+     "at": 29.333,
+     "kind": "bell",
+     "note": "F#4 369.99 (Plan) (f880), with a 'tick' 0.25 as the note lands on Plan's head (f888)"
+    },
+    {
+     "at": 29.6,
+     "kind": "bell",
+     "note": "A4 440 (Travel) (f888)"
+    },
+    {
+     "at": 29.867,
+     "kind": "bell",
+     "note": "B4 493.88 (Code bot) (f896)"
+    },
+    {
+     "at": 30.133,
+     "kind": "bell",
+     "note": "E5 659.25, dur 0.6, gain 0.3: a single higher ping, a question mark in sound, for 'yours' (f904)"
+    },
+    {
+     "at": 30.4,
+     "kind": "tick",
+     "note": "gain 0.3 per headline line (f912, f920); 'write' 0.4 at f924 for 'bots'"
+    },
+    {
+     "at": 31.2,
+     "kind": "chord",
+     "note": "THE FULL CHORD for the first time (f936): bells D4, F#4, A4, B4 and the hero's D5 587.33 struck together (dur 1.6, gain 0.3 each) over a pad at 146.83 Hz (dur 1.6, attack 0.3, gain 0.4), with the brush 'shh' of the clay underline"
+    },
+    {
+     "at": 31.733,
+     "kind": "tick",
+     "note": "four tiny ticks on the bobs (f952, f956, f960, f964) and on the ducks"
+    },
+    {
+     "at": 31.733,
+     "kind": "drone",
+     "note": "the drone fades out f952-f984 (31.733-32.800), its last breath running under the clay dot of the next beat"
+    }
+   ],
+   "psychology": "SURPRISE AND REFRAMING: the team was there all along, and the brain enjoys re-reading the whole film in one hit ('each great at one thing'); naming the bots once here, not four times earlier, keeps the reveal a reveal. ENSEMBLE REVEAL: a row of faces turning to the hero makes him the leader of something, and the hand-off of one note to the right bot shows 'ask any bot' without a word. MERE EXPOSURE: the bot shape five times over. OPEN SLOT: a pencil-dashed 'yours' shows 'make your own bot' and 'the team can grow' with no claim and no words. RHYTHM: two arrivals per beat on the 8ths is the most satisfying cadence; the chord completing as the four colours share a frame gives the colour structure a sound-on twin.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: the deck's top edge at y 760; the hero rises behind it at x 1300, w 520 (head top ~492); the five slots along the edge at x 900, 1100, 1300, 1500, 1700 (pitch 200), names at baseline 840; the hand-off from the hero's glove to Plan at x 1100; the headline at left, x 96, baselines 560 and 698."
+  },
+  {
+   "t0": 32.533,
+   "t1": 36.267,
+   "name": "The return, and the mark painted",
+   "visual": "The deck has just left and the page is white except one clay dot at the bar's left end, which appears as the deck leaves and holds one beat while the drone breathes out under it. Then the clay bar paints itself across the upper third in one dry-brushed stroke from the dot, already in the bar's own faceted silhouette. Two gloves slap onto it. He swings down from behind it into the hang with his eyes shut, settles, and only then opens his eyes on you. Under him the mark paints itself in three strokes: the X's two slashes, then the 0 closing on the loudest beat of the film. The hero transform is the opening's: hang(x=132, y=100, size=816): bar y 308-392 (mid 350), bar x 205-874, head y 387-707, eyes (447, 479) and (630, 507), gloves y 351-433.",
+   "motion": "f976 (32.533) the clay dot (clay-dot, 36 px) appears in one frame at (223, 350) as the deck's last edge leaves the bottom; it holds to f992 (one beat) over the drone's tail. f992-f1008 (33.067-33.600) the bar dry-brushes left to right from the dot: brush-bar-stroke (the dry-brush hatch already clipped by hang-bar-1632's own alpha, so the stroke has the bar's facets from the first frame) revealed by a left-to-right clip whose edge is the strip's own alpha threshold (E.o3), so the paint arrives ragged; f1008-f1011 crossfade 3 f to hang-bar-1632 drawn by hang() at its exact place. f1016 (33.867) the left glove drops onto the bar from above (4 f, E.o3; grip squeeze 0.12 for 3 f; the bar sags 0.9 u); f1020 (34.000) the right glove, the same; f1020-f1032 the gloves grip and the bar settles: a breath before the drop. f1032-f1048 (34.400-34.933) he swings down from behind the bar into the hang: head dy from -0.47 ART to 0 with E.back(1.06) (6% overshoot past rest, then settle), sway +4 -> 0 deg damped, squash 1.04 on arrival; the bar dips 1.6 u and springs back (the launch's barDy mirrored); his EYES ARE SHUT the whole way down (blink 1). f1048 (34.933) he settles. f1056 (35.200) EYES OPEN on us: blink 1 -> 0 as the eyes layer scales sy 0.9 -> 1.03 -> 1.0 over 3 f: a separate beat after the landing. f1060 (35.333) X slash 1 paints: mark-x0-ink region-masked (the X lives within x 30-730 of the 1583 px PNG; the 0 within x 790-1570), slash 1 revealed along its stroke top-left to bottom-right by a diagonal wipe, 6 f. f1068 (35.600) X slash 2, top-right to bottom-left, 6 f. f1072-f1088 (35.733-36.267) the 0 is painted around by an angular (conic) mask from 12 o'clock clockwise about the ring's centre, 16 f, E.io, its leading edge ragged. f1088 (36.267) the 0 CLOSES: a one-frame press of the whole mark (scale 1.03 -> 1.0) and 3-5 seeded ink specks (2-5 px, 6-8-point polygons) thrown off the closing point within 40 px, which persist. The mark sits left-aligned at x 72, 460 px wide (glyph region ~460x278), y 740-1018.",
+   "text": "X0",
+   "text_style": "The painted mark (mark-x0-ink.png), ink, left at x 72, 460 px wide (0.426 W). No type in this beat.",
+   "handcrafted": [
+    "clay-dot (new; also the bar's own material)",
+    "brush-bar-stroke (new) pre-clipped by hang-bar-1632's alpha, crossfading into hang-bar-1632",
+    "hang-hands-1632 (the launch's glove() mirrored: the drop-on and grip)",
+    "hang-face/eyes/blink-1632 (head() mirrored for the swing-down via the new `drop` option; blink held shut)",
+    "mark-x0-ink.png (components/) revealed by region and stroke masks",
+    "ink-specks (code)",
+    "paper.png"
+   ],
+   "sound": [
+    {
+     "at": 32.533,
+     "kind": "tick",
+     "note": "gain 0.25: the dot appears (f976) over the drone's fading tail (gone by f984); then 8 f of silence over the dot"
+    },
+    {
+     "at": 33.067,
+     "kind": "whoosh",
+     "note": "dur 0.5, down, gain 0.5: the brush 'shhk' of the bar painting itself (f992)"
+    },
+    {
+     "at": 33.867,
+     "kind": "land",
+     "note": "gain 0.5 at f1016 and f1020: the gloves slap on"
+    },
+    {
+     "at": 34.4,
+     "kind": "whoosh",
+     "note": "dur 0.4, down, gain 0.4: the swing down (f1032)"
+    },
+    {
+     "at": 34.933,
+     "kind": "boom",
+     "note": "gain 0.3, f0 62 -> 36 with its 110 -> 90 Hz body, dur 1.0: he settles (f1048; soft, the big one is the 0)"
+    },
+    {
+     "at": 35.2,
+     "kind": "listen",
+     "note": "gain 0.3: the eyes open on you (f1056)"
+    },
+    {
+     "at": 35.333,
+     "kind": "write",
+     "note": "gain 0.4 + 'land' 0.4 at f1068: the two slashes (f1060, f1068)"
+    },
+    {
+     "at": 35.733,
+     "kind": "whoosh",
+     "note": "dur 0.5, up, gain 0.35: the brush going round the 0 (f1072)"
+    },
+    {
+     "at": 36.267,
+     "kind": "boom",
+     "note": "THE BIG ONE (f1088): gain 0.8, f0 62 -> 36 under a 110 -> 90 Hz body (dur 0.6) and a hard noise front so it lands on a phone, dur 1.6, exactly as the 0 closes; with it the final chord: chord f 146.83 (D3) dur 3.0 gain 0.6 plus bells D4, F#4, A4, B4, D5 dur 2.5 gain 0.25 each"
+    }
+   ],
+   "psychology": "ANTICIPATION: a dot that holds a beat while the drone breathes out, so the return is anticipated rather than announced and the page never reads as 'the video ended'. MERE EXPOSURE AND RECOGNITION: the exact icon the viewer will meet in the store appears at the moment of maximum goodwill, built back in front of them: bar, gloves, bot. EMOTIONAL RESOLUTION: the hero goes home to his bar; eyes shut through the fall and opening on you afterwards makes the eye contact its own beat. COMPLETION ON THE LOUDEST BEAT: the brain was watching a shape being drawn; the ring closing as the boom lands is a stronger button than a slam, and the mark is the brand's own hand. CONTRAST: ink specks make the mark feel pressed into paper.",
+   "portrait_vs_landscape": "9:16 as above. 16:9 (the Play feature-graphic layout): he hangs left-centre at hang(x=70, y=-100, size=979): bar y 150-251, head y 244-629, eyes (449, 355) and (667, 388); the dot and the bar stroke start at (188, 200); the mark paints at the right column, x 1000, 460 px wide, y 300-578."
+  },
+  {
+   "t0": 36.267,
+   "t1": 39.467,
+   "name": "Coming soon, and the wink",
+   "visual": "The end card: the bot hanging from his bar in the icon pose (the opening's exact transform), the painted X0 under him at the left margin, 'Your team of bots' under that, then a hand-drawn dip-pen stamp frame, tilted, holding 'Coming soon' and 'x0bot.com'. White everywhere else; nothing below y 1280 (the Reels caption block, the TikTok bottom and the Shorts bar all live under 1400). Then the last expressive thing on screen: he looks at the frame, back at you, and winks. The last 20 frames hold dead still with his eyes open, looking at you, which loops straight back into his eyes shut at frame 0 at the same size and place.",
+   "motion": "f1096 (36.533) 'Your team of bots' writes in (left-to-right wipe 9 f). f1112 (37.067) the 'Coming soon' stamp frame presses in: the dip-pen frame (560x150, rotated -3 deg, at x 72, y 1125-1275) with both lines inside appears at scale 1.08 and settles to 1.0 over 4 f (E.o5), the paper under it brightening for one frame. f1128 (37.600) one blink (2 f). f1136 (37.867) his gaze drops to the frame (eyes dy +14 art px, 8 f, E.io); f1148 back to you (6 f). f1152 (38.400) THE WINK: lid-L (the left oval of hang-blink-1632 cut as its own layer) slides over his left eye over 4 f with a -3 deg head sway, holds 4 f; the right eye stays open; f1160-f1164 the lid lifts and the sway returns to 0. f1164-f1184 DEAD STILL: nothing moves, not the bob, not the line boil (frozen on seed A, the seed of frame 0); the sound is gone by f1168 (38.933) and the last 16 f are silent. Poster frame for the store: f1168.",
+   "text": "X0 / Your team of bots / Coming soon / x0bot.com",
+   "text_style": "'Your team of bots' Geist 600, 60 px (0.056 W), ink, left x 72, baseline 1095. Inside the frame: 'Coming soon' Geist 700 52 px (0.048 W) ink, baseline 1190; 'x0bot.com' Geist 500 46 px (0.043 W) #5C5C5C, baseline 1248; both left at x 104, rotated -3 deg with the frame. No handwritten word here (the mark is the handmade thing). Lowest ink y ~1280.",
+   "handcrafted": [
+    "hang layers (hang-face/eyes/bar/hands-1632)",
+    "lid-L (new: the left oval of hang-blink-1632 cut on its own) for the wink",
+    "dip-pen frame, stamp variant with a fainter double-struck pass (new)",
+    "mark-x0-ink.png + its ink specks",
+    "paper.png"
+   ],
+   "sound": [
+    {
+     "at": 36.533,
+     "kind": "write",
+     "note": "gain 0.35: the line writes under the ringing chord (f1096)"
+    },
+    {
+     "at": 37.067,
+     "kind": "land",
+     "note": "gain 0.4 + 'click' 0.3: the stamp frame presses (f1112)"
+    },
+    {
+     "at": 37.6,
+     "kind": "click",
+     "note": "gain 0.25 on the blink (f1128)"
+    },
+    {
+     "at": 38.4,
+     "kind": "bell",
+     "note": "D5 587.33 Hz, dur 0.5, gain 0.35, with a tick: the wink (f1152); it is gone by f1167"
+    },
+    {
+     "at": 38.4,
+     "kind": "chord",
+     "note": "the final chord's 2.5 s tail from f1088 decays to nothing by f1163; no voice, no fade on the picture"
+    },
+    {
+     "at": 38.933,
+     "kind": "silence",
+     "note": "the last 16 f (f1168-f1184) are silent and nothing moves, so the Reels loop back to the sleeping bot at frame 0 is a quiet cut, and a joke"
+    }
+   ],
+   "psychology": "PEAK-END RULE: the last three seconds are the boom and the chord resolving, the name, the place to go, eye contact, and a wink, with the wink landing one second before the end so it becomes the memory. SCARCITY AND NOVELTY: 'Coming soon' as a physical, hand-drawn stamp with a url and no date is an open loop the viewer can close only by visiting. EYE CONTACT AT THE EXIT AND A SEAMLESS LOOP: the end card with his eyes open cuts to his eyes shut at frame 0 at the same size, so the loop itself becomes a joke (he was asleep; now he is awake and looking at you). STILLNESS AND SILENCE at the end read as confidence.",
+   "portrait_vs_landscape": "9:16 as above. 16:9: he hangs left-centre at hang(70, -100, 979); the right column carries the mark (x 1000, y 300-578), 'Your team of bots' (x 1000, baseline 690) and the stamp frame with both lines (x 1000, y 740-890): the feature graphic, alive. Same timing."
+  }
+ ],
+ "components": [
+  {
+   "name": "paper (the white cotton ground)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/components/paper.png (2048 square, opaque). X0.cover() it at alpha 0.9 over #FFFFFF every frame; it is the static base layer under everything, so even plain canvas cards sit on real tooth. One crop per aspect, never tiled. No vignette on top of it (the paper recipe sets its own to 0 on purpose)."
+  },
+  {
+   "name": "hang-head-1632, hang-bar-1632, hang-hands-1632, hang-blink-1632",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/hero/ (identical to store/out/art/). Measured alpha bounds in the 1632 frame: bar x 147-1485, y 416-585; head x 198-1433, y 574-1215; gloves L x 369-585 y 503-666, R x 1049-1266 y 505-663; lids L x 526-733 y 618-895, R x 889-1108 y 662-970. Drawn by X0.hang(ctx, L, x, y, size, t, o) where size = 1632 * scale."
+  },
+  {
+   "name": "hang-face-1632 + hang-eyes-1632 (the eye rig)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/hero/hang-face-1632.png and hang-eyes-1632.png (hero.mjs). Eyes box 536-1096 x 630-958; left eye 536-726 x 630-887 (centre 631, 758), right eye 895-1096 x 668-958 (centre 995, 813). engine.js hang() already takes o.eyes {dx, dy, sx, sy} in art px (544 square; 1 art px = 3 px at 1632) and o.blink. Do NOT rebuild the rig; ADD eyes.each: when set, the sx/sy squeeze is applied per eye about its own centre with two clipped draws (L x 536-725, R x 895-1095), so the sleeping slits at frame 0 stay in their sockets."
+  },
+  {
+   "name": "lid-L / lid-R (the wink)",
+   "exists": false,
+   "source_or_how": "Split hang-blink-1632.png at x 811 (between the lid bounds 733 and 889) into two 1632-frame RGBA PNGs with the other half transparent. Draw lid-L exactly as hang() draws L.blink, sliding on over 4 f and off over 4 f with a -3 deg sway: one eye closes, the other stays open; it reads as a wink even upside down. Also usable for a half-lid narrow."
+  },
+  {
+   "name": "bot-curious, bot-happy, bot-shy, bot-starry, bot-hello, bot-wink",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/bot-<pose>.png (~830x486) with ledges in store/out/art/art.json (curious 428.18, happy 426.18, hello 425.18, starry 425.18, wink 427.18; shy has NO entry and is 830x473, so its ledge is measured in the -nohands run below, never assumed). Drawn by X0.peek(ctx, im, ledge, x, y, w, rise, o); o.lean exists and is used for the Go live inhale."
+  },
+  {
+   "name": "peek-reach: glove-less faces + glove sprites (BUILD FIRST, DAY ONE)",
+   "exists": false,
+   "source_or_how": "store/art.mjs bot() builds the spec from handdrawn-v2 bot.js, whose hands loop is `for (const s of B.hands || [-1, 1])`: an empty array draws no gloves. Add `hands: []` to the bot spec and render bot-curious/happy/shy/starry/hello again IN ONE renderArt RUN (same seed 3131, same poses) -> bot-<pose>-nohands.png; the run returns every ledge, including shy's, so all five faces share measured ledges and no swap jumps. Glove sprites: render the same pose with hands [1] and with hands []; the pixel difference (alpha or colour differs) is the right glove with its ink line, exactly; trim to ~150x110 px at the 829-px face scale and record its anchor (fingertip row = the ledge y, centre x) relative to the face; hands [-1] the same for the left; hello's raised glove the same way (peek-glove-raised, anchored at the wrist) so it can tip the tiny note and wave. The engineer draws the face, then each glove sprite at its anchor; a reach moves the sprite along a quadratic arc rotating -20 deg; a flick snaps +25 deg over 3 f. Fallback within the first hour if the diff fringes: cut the glove by colour (cream + its ink line) from the full PNG and fill the hole with the shell ink sampled 20 px away. If both fail, downgrade the glove gags (flick, sweep, peel, hand-off) to face-dip + object-flies before building anything else on them."
+  },
+  {
+   "name": "hang() additions (code, engine.js)",
+   "exists": false,
+   "source_or_how": "Small options on X0.hang: (1) `grip` 0..0.22, the launch's own glove squash (y-scale 1-grip about BAR.y1) for the still; (2) `reach` {side, dx, dy, rot, flip}: draws that glove half translated along the arc, flipped (scaleY -1 about its centre) and rotated, with its fingertip anchor at (GLOVES[side].cx, BAR.y1) in art px (the Plan hang-up at f440); (3) `drop` k 0..1: head dy from -0.47*ART to 0 with E.back(1.06), sway +4 -> 0 damped, squash 1.04 on arrival, barDy mirrored (the return at f1032); (4) `from` ms and `speed`: play the launch timeline from a given ms with the come-back segment (1400 -> 2120) at 1.5x (the Plan exit at f508); (5) `eyes.each` per-eye squeeze (above). No holdAt and no barOffset: the bar is never left behind or carried; the full launch plays at f176 and the only persistent bar is painted at f992."
+  },
+  {
+   "name": "underline-0a0a0a, underline-a9573a, underline-8f6a1f, underline-3e6e8e, underline-c9683f",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/underline-<hex>.png (724x55 RGBA). Drawn through engine underline(ctx, im, word, k, o): o.wide 1.12 (its default) for words of four letters or more, 1.3 for 'up', 'you', 'yes'; o.thick chosen so the drawn height is >= 22 px at 1080 wide (a brush mark, not a sliver); 8 px under the baseline; revealed left to right by a clip whose edge is the PNG's own alpha threshold (ragged), 8 f E.o3. Never scaled non-uniformly beyond thick's deliberate height boost."
+  },
+  {
+   "name": "underline-4f7a3a (Code bot's moss underline)",
+   "exists": false,
+   "source_or_how": "underline-2f5d50.png is #2F5D50, the old moss, and is never drawn. Regenerate with store/art.mjs renderArt(browser, [{ name: 'underline-4f7a3a', kind: 'underline', seed: 7, color: '#4F7A3A' }], outDir) (mark('underline') takes a colour) -> 724x55 beside the others. Fallback: draw underline-2f5d50.png then fillRect #4F7A3A with globalCompositeOperation 'source-in'. head-code.png and swash-moss.png are exactly #4F7A3A; the tick and the Yes fill use the same constant."
+  },
+  {
+   "name": "head-keybot, head-plan, head-travel, head-code (dotted bot heads)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-BACKEND/tulmi/blip/bots/head-<bot>.png (144 px; exactly #A9573A, #8F6A1F, #3E6E8E, #4F7A3A). Drawn at 128 px, only in the team row (f864-f976)."
+  },
+  {
+   "name": "listen-dots (Keybot's listening mark)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/components/listen-dots.png (806x788, the icon's clay #C9683F). For its one appearance (f256-f296) recolour to Keybot's #A9573A via source-in and draw as three 26 px dots at the scrawl column's top-left (700, 400), blooming 1-2-3 on each spoken word; fades over 4 f when the listening ends."
+  },
+  {
+   "name": "mark-x0-ink (the painted X0)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/components/mark-x0-ink.png (1583x958; components.json box 99.5-891 x 260.5-739.5 of 1000). Region masks: the X within x 30-730 of the PNG, the 0 within x 790-1570. Stroke reveals: slash 1 a diagonal clip travelling top-left to bottom-right (6 f), slash 2 top-right to bottom-left (6 f), the 0 an angular (conic) clip from 12 o'clock clockwise about the ring's centre (16 f, E.io). Drawn 460 px wide at x 72, y 740-1018. The Geist stamp recipe is deleted."
+  },
+  {
+   "name": "ring-ink-wide (the bug's scribble)",
+   "exists": false,
+   "source_or_how": "components/ring-ink.png (974x534) is a round ring; squashing it to 700x200 thins the line vertically and fattens it horizontally, so it is never scaled that way. Paint a WIDE ring in components.jobs.mjs: M.outline(G.ellipse 330x90, { amp 4, over 0.12, w 7, jit 0.3, drift 6 }) in ink via art.mark tooth 0.4, ~1000x300 RGBA, drawn at uniform scale 700 wide around code line 2; fades 6 f at f744 on the copy."
+  },
+  {
+   "name": "hatch (pencil shadow)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/components/hatch.png (744x384, graphite). Drawn under every card, scrap and note at alpha 0.5, offset (+6, +9), at ONE scale (its native 744 px = 744 u) clipped to the item's rounded rect, tiled where an item is wider: line angle and density are the same under every item, so it is one light, and never a Gaussian blur."
+  },
+  {
+   "name": "tape-grey ('copy')",
+   "exists": false,
+   "source_or_how": "components/tape.png (762x266) is beige #EFE3C8, too close to cream and not a brand colour; recolour it to paper grey #ECE9E3 via source-in and draw opaque, 220x56, rotated -4 deg (or re-run the tape recipe in components.jobs.mjs with color '#ECE9E3'). 'copy' in Caveat 700 52 px ink is live canvas on top. The tape carries no moss: moss is the tick and the Yes only."
+  },
+  {
+   "name": "torn-note (3 word-bearing seeds + 3 blank tones)",
+   "exists": false,
+   "source_or_how": "components.jobs.mjs recipe: G.rrect(500, 500, 760, 260, 10) -> G.wobble(closed, amp 9, wl 22, noise) plus 2-3 notches (10-20 consecutive points pushed inward 12-25 units); fill via art.mark(tone, { tooth: 0.25, soft: 0.3 }); a fibre rim G.offset(+4) filled at opacity 0.5 in a lighter tone; a faint M.hatch (p 0.12, gap 6) clipped to a 12 px band along the bottom. Seeds 91 (the dentist note, drawn 330x130), 92 (packing), 93 (spare) in #FBF8F2; blanks seeds 94-96 in #FBFAF7, #ECE9E3, #D9D5CD at 380x220; the tiny hand-off note is seed 91's alpha at 90x34. Lifted to RGBA by lift.mjs. Words are live Caveat on top, never baked, so the Hinglish/English/Devanagari swap is a string."
+  },
+  {
+   "name": "strike-ink (the strike-through at f168)",
+   "exists": false,
+   "source_or_how": "M.ink along G.wobble(G.line([0, 40], [1000, 40]), false, 4, 90, noise) with w 22, jit 0.3, taper [40, 110], profile k -> 1 + 0.35 sin(pi k) (fat middle), p 0.95, ink, deposited with tooth 0.5 so the start runs dry; RGBA 1000x80. Revealed left to right by its own alpha threshold. Fallback: components/swash-ink.png scaled uniformly to 1000 wide."
+  },
+  {
+   "name": "brush-bar-stroke (the bar painting itself)",
+   "exists": false,
+   "source_or_how": "A 1700x240 RGBA strip at the 1632 bar's scale: M.hatch along angle 0, gap 3, w 9, p 0.95, pjit 0.3, ragged 60, wave 1.5, in #C9683F via art.mark({ tooth: 0.6, paper: 'coarse', soft: 0.3 }), then CLIPPED BY hang-bar-1632's own alpha (destination-in) so the stroke already has the bar's faceted silhouette; multiply the right 25% by a gain ramp so the stroke runs dry. Animated by a left-to-right clip whose edge is the strip's own alpha threshold (16 f, E.o3), then a 3-frame crossfade to hang-bar-1632 drawn by hang() at its exact place: no silhouette pop."
+  },
+  {
+   "name": "clay-dot (the bar's seed; the bar's own material)",
+   "exists": false,
+   "source_or_how": "G.ellipse r 16 wobbled (amp 2.5) resampled to 9 facets in #C9683F via art.mark({ tooth: 0.3 }); 48x48 RGBA; drawn at 36 px at the bar's left end (223, 350) at f976 and held one beat."
+  },
+  {
+   "name": "ink-sun",
+   "exists": false,
+   "source_or_how": "M.outline(G.ellipse r 60, { amp 3, over 0.1, w 7 }) plus eight M.ink rays (taper [6, 20], w 8, jit 0.3) in ink, with a small cloud of three wobbled ellipses beside it; 220x180 RGBA. Big in the heap and the tray, small (60 px) at the end of the trip card's weather row."
+  },
+  {
+   "name": "ink-dashes (ink and ochre)",
+   "exists": false,
+   "source_or_how": "A row of ten M.ink segments w 5 with ragged ends (taper [4, 4], jit 0.4) via art.mark tooth 0.35; 300x20 RGBA in #0A0A0A (the ticket's perforation) and #8F6A1F (the leave-by line climbing the rail, revealed bottom to top over 8 f, only after the clay bar is gone)."
+  },
+  {
+   "name": "ink-comma, ink-dot, ink-tick (moss)",
+   "exists": false,
+   "source_or_how": "ink-comma: M.ink along a short G.cubic hook, w 16 tapering to 4 (taper [6, 30], jit 0.25). ink-dot: G.ellipse r 14 wobbled amp 2, filled. ink-tick: two G.line strokes (short down, long up) with w 14, taper [10, 40], a small overshoot at the join, in #4F7A3A at 96 px, with path lengths kept so it draws in pen order over 4 f. All via art.mark with tooth 0.35 for a slightly dry edge; RGBA."
+  },
+  {
+   "name": "beetle frames A/B (eyeless)",
+   "exists": false,
+   "source_or_how": "A 56 px faceted ink blob (G.ellipse 56x40 wobbled amp 3, resampled to 11 points, facet len 12 jit 1.5) with six M.ink legs w 4 tapered; frame B rotates the legs +-12 deg. NO eyes (cream is the bot's); it is a bug, not a character. Sits on the ring from f128, twitches at f720, is flicked off at f768."
+  },
+  {
+   "name": "dip-pen frame, dip-pen pills, stamp frame",
+   "exists": false,
+   "source_or_how": "M.outline of G.rrect(cx, cy, 760, 300, 28) and of 240x84 pills (r 42) with amp 2.4, wl 60, w 5, over 0.04, drift 5, start 0.12 (the pen begins top-left and overshoots at the close) in ink via art.mark tooth 0.35; the Yes pill also gets a flat moss fill (#4F7A3A, tooth 0.3) as a second layer for the tap. The 'Coming soon' stamp variant: G.rrect 560x150 r 20 with a second fainter pass offset (3, 2) units at p 0.35 (double-struck), tooth 0.5. RGBA with path lengths kept for draw-on."
+  },
+  {
+   "name": "tap-ring",
+   "exists": false,
+   "source_or_how": "M.outline(G.ellipse r 60, { amp 3, over 0.1, w 6, jit 0.3 }) in ink, 150x150 RGBA; shown 8 f scaling 0.6 -> 1.2 and fading, centred on the tapped target (the send circle at f368, Yes at f816)."
+  },
+  {
+   "name": "sparkle-sea",
+   "exists": false,
+   "source_or_how": "M.sparkle(cx, cy, 40, rot, 0.26) filled #3E6E8E via art.mark tooth 0.2; two frames (rot 0 and 22 deg) swapped every 2 f for 6 f beside the starry face. Sea, never cream."
+  },
+  {
+   "name": "pencil-ring ('yours')",
+   "exists": false,
+   "source_or_how": "G.ellipse r 64 split into 9 arcs with 8 px gaps, each stroked with M.ink w 5, p 0.55, tooth 0.75 so it reads as pencil, in #7A7A7A; 150x150 RGBA with arc order kept, drawn in pen order over 8 f. 'yours' beneath is live Caveat 600 52 px #6B6B6B (Caveat 600 and 700 are the two weights in fonts/; there is no 500)."
+  },
+  {
+   "name": "ink-specks",
+   "exists": false,
+   "source_or_how": "Procedural, seeded, in the page: on the 0's close at f1088, 3-5 dots of 2-5 px (6-8-point polygons with 20% radius jitter) within 40 px of the closing point, #0A0A0A at alpha 0.9; they persist to the end. Nothing else depends on them."
+  },
+  {
+   "name": "speech-scrawl",
+   "exists": false,
+   "source_or_how": "Code, not an asset: Caveat 700, 68 px, #5C5C5C (big and dark enough that its ~31 px x-height survives a 390 px phone), drawn glyph by glyph with seeded jitter (+-1.5 px y, +-1 deg), one word every 4 f (English 6 f), each word a 3-frame clip-rect write-on, ragged left, two words per line at most in the column x 700-1040, y 420-840; the per-word boxes are kept so 'umm' can be masked by the torn-note alpha and flown off as a scrap. The Devanagari variant uses Kalam Devanagari 400 if added to fonts/ (OFL, same family as the loaded Latin Kalam), else Noto Sans Devanagari 400 with the same jitter."
+  },
+  {
+   "name": "line boil (the whole film painted, not slid)",
+   "exists": false,
+   "source_or_how": "Deterministic re-renders with two alternate seeds: hero.mjs for the hang layers (face, eyes, bar, hands, blink) and renderArt for the peek faces, the glove sprites and every components.jobs.mjs recipe, seeds A (the current), B, C, with boil amplitude kept under 3 px at 1632 so the measured bounds and the eye rig anchors (taken from seed A) hold; cycle A/B/C every 4 f (7.5 fps) by frame index, the same for every layer. Frame 0 is seed A; the boil is frozen on seed A from the wink's lift (f1164) to the end so the last 20 frames are identical and the loop cut lands on seed A. If a hero seed moves the bounds by more than 4 px, boil only the components and the peek faces. Costs two render runs and one modulo; it is the biggest handcrafted upgrade available and uses only the existing generators."
+  },
+  {
+   "name": "app cards (chat with a two-line pill, day, trip, code x2, question, done deck)",
+   "exists": false,
+   "source_or_how": "Canvas-drawn in the app's look: white, 2 px #E6E6E6 hairline, radius 28, Geist 500 text at >= 44 px, hatch shadow at one scale, clipped. All stage cards in 9:16 sit at x 72-940 (left edge on the type margin, right edge clear of the Reels rail), y 850-1270 (the day card to 1280), inside the safe box y 270-1400 with every readable word above 1250. screens/keybot.png (Mom's bubble 'Dinner at 8, everyone home?' at 7:28 pm is real), screens/plan.pop.png, screens/travel.png and screens/live.png are layout references only: cropping them would put their text under 44 px. The chat's input pill is two lines tall (120 px) because 'Thoda late ho raha hoon, start kar do.' measures ~793 px at 46 px and a single line holds ~700. Pills: ink, radius 999, white Geist 600; outlined pills are the dip-pen component. engine bubble() is given the card face (Geist 500), not its Bricolage default."
+  },
+  {
+   "name": "heap physics + eye tracking (code)",
+   "exists": false,
+   "source_or_how": "Each item enters 18 f before its landing time (all landings on the frame grid) at v0 1600 px/s under g 2400 px/s^2 (1390 px in 0.6 s), tumbling linearly to its landing angle, lands with a 2-frame squash 1.06/0.94 and jostles the items under it 6 px for 3 f. In 9:16 the pieces fall in the column x 600-1070 and are drawn BEHIND the bot (layer 5), so no drop ever covers an eye. Gaze: the current item's centre -> eyes {dx, dy} art px clamped to +-16, with a 2-frame lag; the peek faces 'gaze' by translating the whole face +-6 px."
+  },
+  {
+   "name": "platform chrome overlays + cover PNGs (QA and delivery)",
+   "exists": false,
+   "source_or_how": "Three 1080x1920 RGBA overlays traced from current Reels, Shorts and TikTok UI (caption + audio row, right rail x > 950 from y ~1000, top chrome to ~270, TikTok's ~550 px bottom block) switchable in --stills; every still is checked under all three. Covers are separate PNGs, not video frames: cover-feed.png = f36 (eyes open, the card dropping in) and cover-store.png = f1168 (the end card), exported by the same page at 1080x1920 and 1920x1080."
+  },
+  {
+   "name": "engine.js (hang, peek, card, screen, wipe, camera, bubble, text/layout/underline, grain)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/engine.js. Launch numbers match launchCore.ts: gather 420-560, pull 560-900, let-go 690/740 (+140 ms), spring 900-1250, come-back 1400/1450 (+200 ms), pinch 1730, suck 1810, gone 2120. peek() has lean; underline() has wide (default 1.12), thick, below. Easing families used here: E.o3 (ease-out cubic), E.io (smoothstep in-out), E.back(k) (back-out overshoot), E.i2/E.i3 (ease-in quad/cubic), E.o5 (ease-out quint), E.snap. The vignette is not used."
+  },
+  {
+   "name": "fonts",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/fonts/: Geist (variable; 900 for headlines, 500/600/700 for cards and the end card), Caveat 700 and 600 only (the handwritten word, the scrawl, the notes; 'yours' and 'copy' at 600/700, never 500), Geist Mono 400/500 (the code card), Noto Sans Devanagari 400 (the Devanagari alternate's typed text). To add: Kalam Devanagari 400 for the Devanagari scrawl (optional; Noto with jitter is the fallback)."
+  },
+  {
+   "name": "sound.mjs (existing cue kinds)",
+   "exists": true,
+   "source_or_how": "/home/user/TAILZU-FRONTEND/tools/media/trailer/sound.mjs: drone, pad, heart, riser, boom (f0, f1), pulse, tick, click, key, open, whoosh (dur, up), listen, stop, land (540 -> 270 Hz: this IS the note-hooks-the-rail sound; no 'tock' kind is added), send, notify, write, bell (f, dur), chord (f, dur), sample. The page exports window.__cues() as [{ at, kind, gain, dur, f, up }] generated from frame times (at = f / 30)."
+  },
+  {
+   "name": "sound extensions (sound.mjs)",
+   "exists": false,
+   "source_or_how": "Two new kinds: paper-thud = noise(0.08 s, alpha 0.08, a 0.002, tau 0.03) + tone(70, 0.1, 0.002, 0.03) + tone(190, 0.05, 0.001, 0.02) at gain 0.5 (a soft paper landing with a knock a phone can hear); boing = tone(180, 0.25, 0.003, 0.08, glide 1.45) (the bar springing). PHONE BODIES on the existing low kinds: pulse = its 70 Hz thump + a woody knock tone(220, 0.06, 0.001, 0.02, glide 0.82) + a noise transient (0.02 s, alpha 0.3) at -4 dB; heart = its 58/52 Hz pair + tone(150, 0.12) and tone(140, 0.1) at -6 dB; boom = its f0 -> f1 sub + a body tone(110, 0.5-0.6, glide 0.82) + a noise front (0.04 s, alpha 0.15) 3 dB louder than before; drone = 55 Hz + partials at 165 Hz (-14 dB) and 220 Hz (-18 dB). The bot bells are the existing 'bell' kind at D4 293.66, F#4 369.99, A4 440, B4 493.88, hero D5 587.33, 'yours' E5 659.25. MIX PASS: audition the whole render through a 300 Hz high-pass (the phone-speaker proxy) and confirm the beat, the half-time structure, the hole at f736-f816 and the two booms all read; master to -14 LUFS integrated, -1 dBTP; then play it muted and loud on a real 390 px phone before locking any gag that depends on the beat. No voice in v1 (a TTS 'sample' line ducked -6 dB remains possible later; the film must read with it off)."
+  }
+ ],
+ "sound_design": "Everything is the brand's own synth (sound.mjs), no licensed music, no voice, and every low cue now has a body above 130 Hz so the rhythm exists on a phone speaker, with the sub kept for headphones; the mix is auditioned through a 300 Hz high-pass and mastered to -14 LUFS / -1 dBTP. THE BED: no bed for the first 2.1 s (the hook is pure picture); one soft paper rustle on the eye snap at f10 so sound-on viewers know the audio is alive; two near-silent paper thuds at f48 and f64; a 55 Hz drone with quiet 165/220 Hz partials fades in at f64 and holds under the whole middle, fading out f952-f984 so its last breath runs under the clay dot. THE BEAT: 112.5 BPM, BEAT = 16 frames at 30 fps, so every 8th (8 f) and 16th (4 f) is a whole frame and every cut, pop, underline and bell lands on the grid the WAV is cut to. The pulse (a 70 Hz thump with a woody 220 -> 180 Hz knock and a noise click) is FULL-TIME only where the picture is dense: f64-f112 (under the accelerando of paper thuds, gains 0.3 -> 0.7, with a 56 bpm heartbeat and a riser ending on the ring card's landing and a boom at f128) and f864-f944 (the team arriving, two per beat on the 8ths). Under the four episodes it is HALF-TIME (one thump per two beats, f256 to f736) so soft paper sounds breathe; the 8th-note texture comes from the action itself (keys per landed word with one HOLE at f324 where 'late' should be, 'land' ticks per stacked scrap, swing-end ticks on the pendulum). KEY MOMENTS: the launch whoosh and the boing of the bar (f180, f190), then the gloves coming back, the pinch click and the suck whoosh with only the drone and the heartbeat under the faceless stage (f205-f227); the flick whoosh twice (f304, f768, a callback the ear predicts); the 'land' of the note hooking the rail (f464); the brand's 'stop' two-note as the hand stops short, on the beat (f640); and THE HOLE: from f736 the pulse is absent for five beats under 'Go live?', the heartbeat alone at f784 and f816, the tap at f816 bringing the pulse back. THE CHORD STRUCTURE: each bot has one note, struck the moment its colour arrives on its underline: Keybot D4 (f384), Plan F#4 (f560), Travel A4 (f672), Code bot B4 (f840): the chord is one note short all film. In the team row the four notes return one per head (f872-f896) with a single higher E5 ping for 'yours' (f904), and at f936, with the clay underline, the full chord rings for the first time (D4 F#4 A4 B4 and the hero's D5 over a D3 pad). THE RETURN: a tick for the dot over the drone's tail (f976), eight silent frames, the brush 'shhk' of the bar painting itself (f992); two glove slaps (f1016, f1020); a soft boom as he settles (f1048); the listen bell as his eyes open (f1056); 'write' and 'land' for the two slashes; a rising whoosh round the 0; and THE STING at f1088: the big boom (sub 62 -> 36 under a 110 -> 90 Hz body and a hard noise front, gain 0.8) exactly as the 0 closes, with the final chord (D3 pad plus the five bells, dur 2.5-3.0). Then only small sounds (the write of the line, the stamp's press, a blink click) and the wink's short D5 bell at f1152; everything has decayed by f1167 and the last 16 frames are silent, so the loop back to the sleeping bot is a quiet cut.",
+ "why_it_works": "It is a story, not a feature list, and the story has one shape the brain already loves: a small creature faces too much, handles it with charm one piece at a time, and goes home. Every product truth is carried by an action rather than a claim (a filler word flicked off a spoken sentence, a word that arrives late, a note hung on 5 pm by a bot who hangs upside down himself, scraps swept into one card as handwriting becomes type, a hand that stops short of 'Open to book', a question he waits on with the beat gone, a note handed to the right bot), so the viewer infers what the app does the way they infer character in a Pixar short: by watching hands and eyes. The hook works mute because it is pure picture: a still, breathing, hand-painted white frame in a feed of moving footage, two big eyes snapping open upside down at a third of a second, something falling at one second with the eyes following it, and nothing ever crossing those eyes because the pile builds behind him. From there the structure is a steady 112.5 bpm cut to whole frames, with one colour per episode on a white page, so each shot is one idea read in a glance on a phone; every readable word sits inside the Reels, Shorts and TikTok safe box and above 1250, and the pulse that carries the rhythm has a body a phone speaker can reproduce, so the one place it drops out, the 'Go live?' wait, is a physical event rather than a missing texture. The critique's fixes make the spine stronger without bloating it: the launch move plays in full twice (the gloves come back and pull the bar in), so the icon's animation becomes a character habit instead of a continuity error; 'Say it' and three listen dots make the voice visible; the heap is wordless so the headline owns the frame; the code fix is one anyone can see is a fix; moss is one colour on two things that say the same sentence; the breath before the yes is visible; the brush marks are never squashed; the hero returns at the exact size and place he left, so the loop is true; and the whole film boils like paint. The opening pile is a Zeigarnik loop the viewer watches shut item by item (the heap below the stage card goes 3, 2, 1, 0), the copy is plain and true to the build with every word at 44 px or more, and the last three seconds are the best three: the boom and chord resolving, the name, the url in a hand-drawn stamp, eye contact, a wink, then stillness and silence that loop straight back into the sleeping bot at frame 0.",
+ "build_notes": "GRID. The timeline is authored in FRAMES. BPM 112.5 so that BEAT = 16 f at 30 fps, 8th = 8 f, 16th = 4 f; t = f / 30. Beat anchors (beat -> frame -> s): b0 f0 0.000 | b4 f64 2.133 | b8 f128 4.267 | b11 f176 5.867 | b16 f256 8.533 | b23 f368 12.267 | b26 f416 13.867 | b36 f576 19.200 | b44 f704 23.467 | b49 f784 26.133 | b54 f864 28.800 | b61 f976 32.533 | b68 f1088 36.267 | b74 f1184 39.467 (end). Every event above is a frame number; window.__cues() is generated from the same frame table (at = f / 30), so the picture and the WAV cannot drift. Duration 74 beats = 1184 f = 39.467 s. Write trailer.html's timeline as beat and 16th indices against const BEAT_F = 16 so the grid is one number; intra-beat choreography (arcs, flips, squashes) is in frames and stays.\n\nCANVAS AND UNITS. 1080x1920 primary, 1920x1080 secondary, both from one timeline; sizes in u (one px at the 1080 short side) as engine.js already does; `portrait` switches the composition where the two differ (every beat lists both). Deterministic: everything is a pure function of f; seeded rng for jitter, specks, scrawl, boil index.\n\nLAYER ORDER (back to front), every frame: 1 #FFFFFF fill; 2 paper.png cover at 0.9; 3 camera transform (only f64-f176: 1.00 -> 0.85 about (540, 560), E.io, then held; hard cut to 1.0 at f256); 4 the stage card(s) with hatch shadows under them; 5 the heap / scraps / tray items / the falling pieces (each with its hatch shadow, offset +6, +9, one light): in 9:16 the opening pieces fall and heap HERE, behind the bot, so no drop crosses an eye; 6 the bot: hang() (head behind the bar, bar, gloves) or peek() (face, then glove sprites); 7 flying objects that must pass in front of him: the 'umm' scrap, the beetle, the swinging note, the tiny hand-off note; 8 headline block (Geist lines, Caveat word, underline PNG with its ragged reveal) and the strike; 9 grain 0.03, static-seeded; NO vignette (it greys white paper and the paper recipe sets its own to 0 on purpose). Z exceptions: the question card at f784 sits above the code cards; in the team row the heads are in FRONT of the hero (they occlude his gloves and chin by design).\n\nHERO TRANSFORMS (from the measured 1632 bounds; never from memory). ONE transform opens and closes the film so the loop is true: hang(132, 100, 816) -> bar y 308-392 (mid 350), bar x 205-874, head x 231-848, y 387-707, eyes (447, 479) and (630, 507), gloves y 351-433. Plan drop-in: hang(100, 92, 816) -> bar y 300-384, head x 199-816, y 379-699, eyes (415, 471) and (598, 499), right glove anchor (678, 384). 16:9: opening and end hang(70, -100, 979) -> bar y 150-251, head x 189-930, y 244-629, eyes (449, 355) and (667, 388); Plan hang(957, -135, 685). The hang() return (barTop, barMid, mid) positions the clay dot and the glove slaps.\n\nLAUNCH REUSE. Up-and-over at f176: t_launch = (f - 176) * 1000/30 + 420 ms, unclamped: gather, pull (let-go f184/f186), spring, come-back f205/f207, pinch f215, suck f218, gone f227; he pops from the heap at f228. Plan exit at f508: the pull segment 560 -> 900 over f508-f518, a 4-frame short spring, then the come-back segment 1400 -> 2120 at 1.5x (gloves back f522/f523, pinch f529, suck f531, gone f536) via the new `from`/`speed` options. Return at f1032: new `drop` option (head dy -0.47*ART -> 0 with E.back(1.06), sway +4 -> 0 damped, squash 1.04, barDy mirrored); blink held 1 until f1056. Glove slaps f1016/f1020: draw each glove half from y -80 to 0 (E.o3, 4 f) with grip 0.12 for 3 f and the bar sagging 0.9 u. No holdAt, no barOffset: the bar is never left behind or lifted away; the only persistent bar is the painted one.\n\nEASING FAMILIES. Entrances and landings: E.o3; travel and sweeps: E.io; pops: E.back(1.3-1.4) over 8-10 f; exits: E.i2/E.i3 over 5-8 f; presses: E.o5 over 4 f; 'late' slide: E.back(1.7) 6 f. Face swaps between peek PNGs are hard cuts: ALWAYS hide them inside a 2-frame 20 px dip behind the card edge. Blinks on the hang are 2 f of eyes sy 0.08 (keep the face layer); the sleeping slits are eyes sy 0.08 per eye about its own centre (eyes.each), never the blink layer, so the face reads as a face at frame 0. Breathing bob runs from frame 0 (period 64 f) and stops only at the comic hold (f144-f160) and the final stillness (f1164-).\n\nPROCEDURAL VS PNG. PNG (pre-rendered by lift.mjs from components.jobs.mjs recipes, or existing), each in seeds A/B/C for the boil: paper (static, one seed), hero layers, peek faces (+ the nohands set and glove sprites), underlines (+ the regenerated moss one), dotted heads (static), mark-x0-ink, ring-ink-wide, hatch, tape (recoloured grey), listen-dots (recoloured Keybot clay), torn-note x6, strike-ink, brush-bar-stroke (pre-clipped by the bar's alpha), clay-dot, ink-sun, ink-dashes x2, ink-comma, ink-dot, ink-tick, beetle A/B, dip-pen frame/pills/stamp, tap-ring, sparkle-sea x2, pencil-ring. Procedural in the page: all cards and their type, the scrawl, the heap physics, eye tracking, the pendulum, the paper flips (scaleX about the centre line), stroke reveals (clip rects, diagonal clips, the conic clip for the 0, alpha-threshold ragged edges: draw the PNG into an offscreen, threshold its alpha at the current x, destination-in), ink specks, grain. Pre-render once per aspect: the paper crop. The ragged-edge reveal for underlines and the bar stroke: offscreen mask = the PNG's alpha where (x < edge + 34*fbm(y/40)); then destination-in on the layer. Brush PNGs are NEVER scaled non-uniformly (the only deliberate exception is underline()'s thick); hatch is drawn at one scale and clipped or tiled.\n\nBUILD ORDER (critical path). Day one, before any beat: (1) peek-reach (nohands faces for curious/happy/shy/starry/hello in one renderArt run, so every ledge is measured, + glove sprites via the hands [] diff, + the raised glove) and decide its fallback within the hour; six gags depend on it. (2) hang() additions (grip, reach, drop, from/speed, eyes.each) and lid-L. (3) underline-4f7a3a regenerated; one MOSS constant #4F7A3A for the tick and the Yes fill; tape and listen-dots recolours. (4) The frame-grid timeline skeleton with every cut, so the sound cue list exists before the gags; render the sound through the 300 Hz high-pass proxy and fix the pulse/heart/boom bodies before any gag that depends on the beat is animated. (5) The three chrome overlays for --stills. Then the components recipes (seed A first, B/C for the boil last), then beats in order, rendering --range per beat.\n\nTYPE SYSTEM. One headline system: Geist 900 left at x 72, two lines, no full stop, line pitch 1.15x; episode headlines 96 px (Caveat word 110 px) at baselines 370 and 480 (so line 2's descenders end near 510, 50 px above a peeking head top at ~560); the pile-up headline 120 px (Caveat 138) at baselines 1040/1178; the payoff 120 px at baselines 640/778; the Caveat word on the Geist baseline, its underline through underline() with wide 1.12 (1.3 for 'up', 'you', 'yes') and thick to >= 22 px tall, 8 px under the baseline. Readability floor: every real word >= 44 px at 1080 wide in Geist; handwriting bigger because Caveat's x-height is ~0.45 em (scrawl 68 px #5C5C5C, notes 52 px ink, 'yours'/'copy' 52 px); greys no lighter than #6B6B6B and only on Geist Mono code, 'Tests pass' and 'yours'; nothing is ever a bitmap crop of a screen; the code card has three lines at 44 px. Widest lines at 96 px: 'Nothing goes live' ~854 px (ends x 926), 'Your trip, sorted' ~800 px, both inside x 72-950.\n\nSAFE AREAS (9:16). The safe box is y 270-1400 and x <= 950 below y 1000 (Reels' caption + audio row covers ~420-480 px at the bottom and its rail sits at x > 950 from y ~1000; TikTok covers ~550 px at the bottom; Shorts ~340; Meta's Reels ad spec reserves the top 14% and bottom 35%). Rules: all readable words, every pill, the Go live? card, the team names, the 'yours' slot and the Coming soon / x0bot.com stamp sit at y <= 1280, with the thesis and CTA lines at or above 1250; stage cards at x 72-940, y 850-1270 (day card to 1280); the hook card's text at y 1070-1200; the heap's visible tail below the stage cards (y 1270-1400) is the progress cue and is inside the box; the Plan bar at y 300 is under the 270 line; the end card's lowest ink is ~1280; the pile-up headline at baselines 1040/1178 is inside. --stills renders every checked frame under the Reels, Shorts and TikTok overlays. The poster frame for feeds is f36 (eyes open, the card dropping in behind his bar); for the store, f1168 (the end card). Never frame 0. Both are exported as separate cover PNGs.\n\nASPECTS AND CUT-DOWNS. v1 ships 9:16 (Reels, Shorts, TikTok) and 16:9 (the site, embeds, the Play feature graphic); 16:9 is NOT a pre-roll cut (the product is not named until f912), so if a skippable pre-roll is ever wanted it is a separate cut that opens on the end card's bar and mark. 4:5 and 1:1 are not crops of either master (the headline block and the stage card cannot both survive a crop); if needed they are a third composition later. Cut-downs by beat index, so the grid makes them cheap: the 15 s mid cut (28 beats, 14.93 s) = hook b0-b4 + Keybot b16-b26 + Go live b49-b54 + the mark and end b65-b74 (the hero already on his bar, eyes shut, opening at b66); the 6 s bumper (11 beats, 5.87 s) = the return b61-b68 + end b68-b72 (dot, bar, swing-in, mark, 'Your team of bots', 'Coming soon').\n\nCOPY. The primary cut is Hinglish ('umm thoda late ho raha hoon start kar do' -> 'Thoda late ho raha hoon, / start kar do.' in the two-line pill); the English alternate is a string swap with identical frame timing (6 words at 6 f; the 'late' hole and late landing as listed); the Devanagari alternate ('\u0909\u092e\u094d\u092e \u0925\u094b\u0921\u093c\u093e \u0932\u0947\u091f \u0939\u094b \u0930\u0939\u093e \u0939\u0942\u0901 \u0936\u0941\u0930\u0942 \u0915\u0930 \u0926\u094b' -> '\u0925\u094b\u0921\u093c\u093e \u0932\u0947\u091f \u0939\u094b \u0930\u0939\u093e \u0939\u0942\u0901, / \u0936\u0941\u0930\u0942 \u0915\u0930 \u0926\u094b\u0964') uses the Hinglish timing with Noto Sans Devanagari 400 for the typed text and Kalam Devanagari 400 (to add) or Noto for the scrawl. Store rules enforced: no prices or amounts anywhere ('Open to book' is the only button; no money on screen), no other companies' or apps' names (Lisbon is a city; 'Stay \u00b7 12 min to the wedding' names no business), no 'best' or rankings, nothing the app does not do, no exclamation marks, Mom's bubble text and time are the real screen's.\n\nSOUND EXPORT. window.__cues() returns every cue with at/kind/gain/dur/f/up from the frame table; add paper-thud and boing to sound.mjs (no tock: 'land' is that sound) and the phone bodies to pulse, heart, boom and drone; the bot bells are 'bell' with f. Pulse plan exactly: full-time f64, f80, f96, f112 and f864-f944 on every beat; half-time every two beats f256-f736; none f128-f256, f736-f816 (the hole), and after f944; the drone f64 to f984; silence over the dot f984-f992 and over the end f1168-f1184. The final chord's tail must be gone by f1167; the picture never fades. Master -14 LUFS integrated, -1 dBTP; audition through a 300 Hz high-pass and on a real phone, muted and loud.\n\nQA. Render --stills and check: frame 0 reads as a sleeping, breathing face (two cream slits in their sockets), not a blob, at hang(132, 100, 816); the eyes open by f16; the first landing is f48 and the card's text is at y 1070-1200; at f36 both eyes are clear of every piece; every cut frame is a multiple of 16; the 'late' hole is visible for one 16th (f324-f327); the heap tail below the stage card goes 3, 2, 1, 0 across the episodes; the bar is on screen only f0-f227, f424-f536 and f976-end; moss is one hex in every moss pixel and no moss touches the tape; no cream outside eyes and gloves; no colour in any frame but the frame's one bot colour plus clay (except the team row); the X0's 0 closes on f1088 with the boom; every readable word passes all three chrome overlays; the boil cycles A/B/C every 4 f and is frozen on A from f1164; the last 20 frames are identical; the last frame cut to frame 0 looks like the same bot, same size, same place, closing his eyes."
+}

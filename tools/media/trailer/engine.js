@@ -76,7 +76,7 @@ window.X0 = (() => {
       @font-face{font-family:Devanagari;font-weight:400;src:${F("noto-sans-devanagari-devanagari-400-normal.woff2")} format("woff2")}
     `;
     const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
-    const faces = ["800 40px Geist", "500 40px Geist", "700 40px Caveat", "600 40px Caveat", "500 40px Bricolage", "800 40px Bricolage", "400 40px GeistMono", "400 40px Newsreader", "italic 400 40px Newsreader", "400 40px Kalam", "400 40px Devanagari"];
+    const faces = ["900 40px Geist", "800 40px Geist", "600 40px Geist", "500 40px Geist", "700 40px Caveat", "600 40px Caveat", "400 40px Bricolage", "500 40px Bricolage", "600 40px Bricolage", "800 40px Bricolage", "400 40px GeistMono", "500 40px GeistMono", "400 40px Newsreader", "italic 400 40px Newsreader", "400 40px Kalam", "400 40px Devanagari"];
     await Promise.all(faces.map((f) => document.fonts.load(f, "X0 Bot your team देखो")));
     await document.fonts.ready;
   }
@@ -243,29 +243,58 @@ window.X0 = (() => {
    * together), sway (degrees, the head), alpha. Returns the bar's top edge and the grip in screen px.
    */
   function hang(ctx, L, x, y, size, t = null, o = {}) {
-    const s = size / ART, tm = t == null ? 0 : t;
-    if (tm >= GONE_AT + 1) return { barTop: y + (BAR_TOP) * s, barMid: y + BAR_MID * s, mid: x + MID * s };
-    const bar = barDy(tm), hd = head(tm), WIDE = 60;
+    const s = size / ART, tm = t == null ? 0 : t, show = { head: true, bar: true, hands: true, ...(o.show || {}) };
+    const at = (ax, ay) => ({ x: x + ax * s, y: y + ay * s });
+    const geo = (bar) => ({ barTop: y + (BAR_TOP + bar) * s, barMid: y + (BAR_MID + bar) * s, barBottom: y + (BAR.y1 + bar) * s, mid: x + MID * s, barX0: x + BAR.x0 * s, barX1: x + BAR.x1 * s,
+      gloves: GLOVES.map((g) => at(g.cx, GLOVE_CY + bar)), eyes: [at(EYE_L.cx, EYE_L.cy + bar), at(EYE_R.cx, EYE_R.cy + bar)], s });
+    if (tm >= GONE_AT + 1 && o.drop == null) return geo(0);
+    let bar = barDy(tm), hd = head(tm);
+    const WIDE = 60;
+    if (o.drop != null) {   // the return: he swings down from behind the bar into the hang, overshooting a touch, the bar dipping as he lands
+      const k = clamp(o.drop), land = K(k, 0.72, 1);
+      hd = { dy: -(1 - E.back(1.06)(k)) * ART * 0.47, sway: 4 * (1 - k) * Math.cos(k * Math.PI * 1.5), sq: 1 + 0.04 * E.bump(land), shut: 0, shown: 1 };
+      bar = 1.6 * P * E.bump(land);
+    }
+    if (o.barDy) bar += o.barDy;
     ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
     if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
     const bob = o.bob ?? 0;
     // his head, behind the bar: only below the bar's top edge, which rides the bar
-    if (hd.shown > 0) {
+    if (show.head && hd.shown > 0) {
       ctx.save(); ctx.globalAlpha *= hd.shown;
       ctx.beginPath(); ctx.rect(-WIDE, BAR_TOP + bar, ART + 2 * WIDE, ART * 1.5); ctx.clip();
-      ctx.translate(0, bar); ctx.translate(MID, BAR_TOP); ctx.rotate(deg(hd.sway + (o.sway ?? 0))); ctx.scale(1, hd.sq); ctx.translate(0, hd.dy + bob); ctx.translate(-MID, -BAR_TOP);
+      ctx.translate(0, bar); ctx.translate(MID, BAR_TOP); ctx.rotate(deg(hd.sway + (o.sway ?? 0))); ctx.scale(1, hd.sq * (o.sq ?? 1)); ctx.translate(0, hd.dy + bob); ctx.translate(-MID, -BAR_TOP);
       if (o.eyes && L.face && L.eyes) {
-        // his eyes as their own layer: moved by (dx, dy) art px (a look), squeezed by sy (a squint), about their centre
+        // his eyes as their own layer: moved by (dx, dy) art px (a look), squeezed by sx, sy (a squint), about their
+        // centre; or each eye on its own (`each: [{ sx, sy, dx, dy }, { ... }]`, about its own centre: the sleeping slits)
         ctx.drawImage(L.face, 0, 0, ART, ART);
-        const e = o.eyes, ex = EYES.cx + (e.dx ?? 0), ey = EYES.cy + (e.dy ?? 0);
-        ctx.save(); ctx.translate(ex, ey); ctx.scale(e.sx ?? 1, e.sy ?? 1); ctx.translate(-EYES.cx, -EYES.cy); ctx.drawImage(L.eyes, 0, 0, ART, ART); ctx.restore();
+        const e = o.eyes;
+        if (e.each) {
+          [EYE_L, EYE_R].forEach((E_, i) => {
+            const q = e.each[i] || {}; ctx.save();
+            ctx.beginPath(); ctx.rect(i ? SPLIT : -WIDE, 0, i ? ART + WIDE - SPLIT : SPLIT + WIDE, ART * 1.5); ctx.clip();
+            ctx.translate(E_.cx + (q.dx ?? 0) + (e.dx ?? 0), E_.cy + (q.dy ?? 0) + (e.dy ?? 0)); ctx.scale(q.sx ?? 1, q.sy ?? 1); ctx.translate(-E_.cx, -E_.cy);
+            ctx.drawImage(L.eyes, 0, 0, ART, ART); ctx.restore();
+          });
+        } else {
+          const ex = EYES.cx + (e.dx ?? 0), ey = EYES.cy + (e.dy ?? 0);
+          ctx.save(); ctx.translate(ex, ey); ctx.scale(e.sx ?? 1, e.sy ?? 1); ctx.translate(-EYES.cx, -EYES.cy); ctx.drawImage(L.eyes, 0, 0, ART, ART); ctx.restore();
+        }
       } else ctx.drawImage(L.head, 0, 0, ART, ART);
       const shut = Math.max(hd.shut, o.blink ?? 0);
-      if (shut > 0) { ctx.globalAlpha *= shut; ctx.drawImage(L.blink, 0, 0, ART, ART); }
+      if (shut > 0) { ctx.save(); ctx.globalAlpha *= shut; ctx.drawImage(L.blink, 0, 0, ART, ART); ctx.restore(); }
+      // one lid at a time (the wink): each slides down over its eye to k
+      if (o.lids && L.lidL && L.lidR) [L.lidL, L.lidR].forEach((lid, i) => {
+        const k = clamp(o.lids[i] ?? 0); if (k <= 0) return;
+        const E_ = i ? EYE_R : EYE_L; ctx.save();
+        ctx.beginPath(); ctx.rect(E_.x0 - 6, E_.y0 - 6, E_.x1 - E_.x0 + 12, E_.y1 - E_.y0 + 12); ctx.clip();
+        ctx.translate(0, -(1 - E.o3(k)) * (E_.y1 - E_.y0 + 8)); ctx.drawImage(lid, 0, 0, ART, ART); ctx.restore();
+      });
       ctx.restore();
     }
     // the bar: whole until it pinches, then in strips pulled in to the middle
-    if (tm < PINCH_AT) { ctx.save(); ctx.translate(0, bar); ctx.drawImage(L.bar, 0, 0, ART, ART); ctx.restore(); }
+    if (!show.bar) { /* nothing: the page paints it */ }
+    else if (tm < PINCH_AT) { ctx.save(); ctx.translate(0, bar); if (o.barAlpha != null) ctx.globalAlpha *= clamp(o.barAlpha); ctx.drawImage(L.bar, 0, 0, ART, ART); ctx.restore(); }
     else {
       const barH = BAR.y1 - BAR.y0, sw = (BAR.x1 - BAR.x0) / STRIPS;
       for (let i = 0; i < STRIPS; i++) {
@@ -276,21 +305,156 @@ window.X0 = (() => {
       }
     }
     // his gloves, in front, each its own half
-    for (const side of [0, 1]) {
+    if (show.hands) for (const side of [0, 1]) {
       const g = glove(side, tm); if (g.shown <= 0) continue;
+      const r = o.reach && o.reach[side];
+      if (r && r.hide) continue;
       ctx.save(); ctx.globalAlpha *= g.shown; ctx.translate(0, bar);
-      ctx.beginPath(); ctx.rect(side * MID, BAR_TOP + g.edge, MID, ART * 1.5); ctx.clip();
       const cx = GLOVES[side].cx;
-      ctx.translate(cx, BAR_MID); ctx.translate(g.gx, g.lift); ctx.rotate(deg(g.turn)); ctx.scale(g.size, g.size); ctx.translate(-cx, -BAR_MID);
-      ctx.translate(0, BAR_MID); ctx.scale(1, g.flip); ctx.translate(0, -BAR_MID);
-      ctx.translate(0, BAR.y1); ctx.scale(1, 1 - g.grip); ctx.translate(0, -BAR.y1);
-      ctx.drawImage(L.hands, 0, g.dy + (tm < COME_BACK[side] ? bob : 0), ART, ART);
+      if (r) {
+        // this glove has let go: carried by (dx, dy) art px, turned by rot degrees about its centre, flipped (fingers
+        // down) if asked, and squeezed by grip. The clip to its own half of the hands layer travels WITH it.
+        ctx.translate(cx + (r.dx ?? 0), GLOVE_CY + (r.dy ?? 0)); ctx.rotate(deg(r.rot ?? 0)); if (r.flip) ctx.scale(1, -1); ctx.scale(r.scale ?? 1, r.scale ?? 1); ctx.translate(-cx, -GLOVE_CY);
+        ctx.beginPath(); ctx.rect(side * MID, -ART, MID, ART * 3); ctx.clip();
+        if (r.grip) { ctx.translate(0, BAR.y1); ctx.scale(1, 1 - r.grip); ctx.translate(0, -BAR.y1); }
+        ctx.drawImage(L.hands, 0, 0, ART, ART);
+      } else {
+        ctx.beginPath(); ctx.rect(side * MID, BAR_TOP + g.edge, MID, ART * 1.5); ctx.clip();
+        ctx.translate(cx, BAR_MID); ctx.translate(g.gx, g.lift); ctx.rotate(deg(g.turn)); ctx.scale(g.size, g.size); ctx.translate(-cx, -BAR_MID);
+        ctx.translate(0, BAR_MID); ctx.scale(1, g.flip); ctx.translate(0, -BAR_MID);
+        ctx.translate(0, BAR.y1); ctx.scale(1, 1 - g.grip - (o.grip ?? 0)); ctx.translate(0, -BAR.y1);
+        ctx.drawImage(L.hands, 0, g.dy + (tm < COME_BACK[side] ? bob : 0), ART, ART);
+      }
       ctx.restore();
     }
     ctx.restore();
-    return { barTop: y + (BAR_TOP + bar) * s, barMid: y + (BAR_MID + bar) * s, barBottom: y + (BAR.y1 + bar) * s, mid: x + MID * s, barX0: x + BAR.x0 * s, barX1: x + BAR.x1 * s };
+    return geo(bar);
   }
-  hang.LAUNCH_MS = LAUNCH_MS; hang.GONE_AT = GONE_AT; hang.BAR = BAR; hang.ART = ART; hang.BAR_TOP = BAR_TOP;
+  /** The glove's centre y and the two eyes' boxes in the art (hero/bounds.json at 1632, over 3). */
+  const GLOVE_CY = (503 + 666) / 2 / 3, SPLIT = 811 / 3;
+  const EYE_L = { x0: 536 / 3, y0: 630 / 3, x1: 726 / 3, y1: 887 / 3, cx: 631 / 3, cy: 758 / 3 }, EYE_R = { x0: 895 / 3, y0: 668 / 3, x1: 1096 / 3, y1: 958 / 3, cx: 995 / 3, cy: 813 / 3 };
+  hang.LAUNCH_MS = LAUNCH_MS; hang.GONE_AT = GONE_AT; hang.BAR = BAR; hang.ART = ART; hang.BAR_TOP = BAR_TOP; hang.BAR_MID = BAR_MID; hang.MID = MID; hang.GLOVES = GLOVES; hang.GLOVE_CY = GLOVE_CY;
+  hang.PINCH_AT = PINCH_AT; hang.SUCK_AT = SUCK_AT; hang.COME_BACK = COME_BACK; hang.LET_GO = LET_GO; hang.EYES = { L: EYE_L, R: EYE_R, c: EYES };
+
+  /**
+   * The peek rig: a peeking face WITHOUT its gloves (peek/bot-<pose>-nohands.png) and its two gloves as sprites
+   * (peek/glove-L.png, glove-R.png), laid together from peek.json's frame positions, so a glove can let go.
+   *   peekRig(ctx, R, pose, x, y, w, rise, o): R = { img: { "bot-curious-nohands": Image, "glove-L": Image, ... }, meta: peek.json }
+   *   x, y: where the face's centre meets the edge (the ledge line); w: the face's width; rise 0..1 as peek().
+   *   o.dy / o.dx: the face slides (a glance); o.lean: radians about the edge; o.scale: about the edge (a breath);
+   *   o.gloves: [{ dx, dy, rot, flip, hide, scale }, { ... }] in face px (at w), each about its own centre; o.alpha.
+   * Returns the gloves' resting centres in screen px, and the face's box.
+   */
+  function peekRig(ctx, R, pose, x, y, w, rise = 1, o = {}) {
+    const fm = R.meta[`bot-${pose}-nohands`], face = R.img[`bot-${pose}-nohands`];
+    if (!fm || !face) throw new Error("peekRig: no face " + pose);
+    const s = w / fm.w, h = fm.h * s, up = fm.ledge * s, r = clamp(rise), sc = o.scale ?? 1;
+    const parts = ["glove-L", "glove-R"].map((n, i) => {
+      const gm = R.meta[n]; const g = o.gloves && o.gloves[i] || {};
+      // the glove's frame position relative to the face's frame position, in face px
+      const gx = (gm.x0 - fm.x0) * s, gy = (gm.y0 - fm.y0) * s, gw = gm.w * s, gh = gm.h * s;
+      return { img: R.img[n], x: -w / 2 + gx, y: -up + gy, w: gw, h: gh, cx: -w / 2 + gx + gw / 2, cy: -up + gy + gh / 2, g };
+    });
+    ctx.save();
+    if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
+    ctx.translate(x, y); if (o.lean) ctx.rotate(o.lean); if (sc !== 1) ctx.scale(sc, sc);
+    // the face: only what is above the edge (y = 0 here) shows, whatever the rise and the glance
+    ctx.save(); ctx.beginPath(); ctx.rect(-w, -3 * h, 2 * w, 3 * h); ctx.clip();
+    ctx.translate(o.dx ?? 0, (o.dy ?? 0) + (1 - r) * (up + 6));
+    ctx.drawImage(face, -w / 2, -up, w, h); ctx.restore();
+    ctx.translate(o.dx ?? 0, (o.dy ?? 0) + (1 - r) * (up + 6));
+    // the gloves, in front, once he is up (fading in over the last of the rise), each where its frame puts it unless it has let go
+    if (r > 0.6) for (const p of parts) {
+      if (p.g.hide) continue;
+      ctx.save(); ctx.globalAlpha *= K(r, 0.6, 1);
+      ctx.translate(p.cx + (p.g.dx ?? 0), p.cy + (p.g.dy ?? 0)); ctx.rotate(p.g.rot ?? 0); if (p.g.flip) ctx.scale(1, -1); if (p.g.scale) ctx.scale(p.g.scale, p.g.scale);
+      ctx.drawImage(p.img, -p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+    }
+    ctx.restore();
+    return { gloves: parts.map((p) => ({ x: x + p.cx * sc, y: y + p.cy * sc, w: p.w, h: p.h })), top: y - up * sc, w, h, up };
+  }
+
+  // ------------------------------------------------------------------------------------------------ brush reveals and shadows
+  /** Smooth 1D noise in -1..1 from a seed and a position (for ragged edges). */
+  function noise1(v, seed = 0) {
+    const i = Math.floor(v), f = v - i, a = hash(i * 7 + seed * 131) * 2 - 1, b = hash((i + 1) * 7 + seed * 131) * 2 - 1, u = f * f * (3 - 2 * f);
+    return a + (b - a) * u;
+  }
+  const scratch = [];
+  function offscreen(w, h) {
+    w = Math.ceil(w); h = Math.ceil(h);
+    let cv = scratch.pop(); if (!cv) cv = document.createElement("canvas");
+    cv.width = w; cv.height = h;   // always set: this clears the pixels AND the context's state (clips, transforms, alpha) left by the last user
+    return cv;
+  }
+  const release = (cv) => { if (scratch.length < 6) scratch.push(cv); };
+  /**
+   * A brush mark revealed as a hand would leave it: `k` 0..1 along `dir` ("x" left to right, "-x", "y" top down, "-y",
+   * "conic" clockwise from 12 o'clock about the centre, "diag" top-left to bottom-right), with a ragged leading edge
+   * (`rag` px of noise). The image is drawn at (x, y, w, h); `o.rot` turns it about its centre first.
+   */
+  function reveal(ctx, im, x, y, w, h, k, dir = "x", o = {}) {
+    k = clamp(k); if (k <= 0) return;
+    const rag = o.rag ?? Math.max(6, h * 0.5), pad = rag + 8, cw = w + 2 * pad, ch = h + 2 * pad;
+    const cv = offscreen(cw, ch), c = cv.getContext("2d");
+    c.save(); c.translate(pad, pad);
+    if (o.rot) { c.translate(w / 2, h / 2); c.rotate(o.rot); c.translate(-w / 2, -h / 2); }
+    c.drawImage(im, 0, 0, w, h); c.restore();
+    if (k < 1) {
+      c.save(); c.globalCompositeOperation = "destination-in"; c.fillStyle = "#000"; c.beginPath();
+      const seed = o.seed ?? 3, per = o.period ?? 40;
+      if (dir === "x" || dir === "-x") {
+        const edge = pad + (dir === "x" ? w * k : w * (1 - k));
+        if (dir === "x") { c.moveTo(-2, -2); for (let yy = -2; yy <= ch + 2; yy += 3) c.lineTo(edge + rag * noise1(yy / per, seed), yy); c.lineTo(-2, ch + 2); }
+        else { c.moveTo(cw + 2, -2); for (let yy = -2; yy <= ch + 2; yy += 3) c.lineTo(edge - rag * noise1(yy / per, seed), yy); c.lineTo(cw + 2, ch + 2); }
+      } else if (dir === "y" || dir === "-y") {
+        const edge = pad + (dir === "y" ? h * k : h * (1 - k));
+        if (dir === "y") { c.moveTo(-2, -2); for (let xx = -2; xx <= cw + 2; xx += 3) c.lineTo(xx, edge + rag * noise1(xx / per, seed)); c.lineTo(cw + 2, -2); }
+        else { c.moveTo(-2, ch + 2); for (let xx = -2; xx <= cw + 2; xx += 3) c.lineTo(xx, edge - rag * noise1(xx / per, seed)); c.lineTo(cw + 2, ch + 2); }
+      } else if (dir === "diag" || dir === "-diag") {
+        // a line sweeping from one corner to the other; the edge travels along the diagonal
+        const dx = dir === "diag" ? 1 : -1, len = (w + h), e = len * k;
+        c.moveTo(dx > 0 ? -2 : cw + 2, -2);
+        for (let yy = -2; yy <= ch + 2; yy += 3) { const xx = dx > 0 ? pad + e - (yy - pad) + rag * noise1(yy / per, seed) : pad + w - e + (yy - pad) - rag * noise1(yy / per, seed); c.lineTo(xx, yy); }
+        c.lineTo(dx > 0 ? -2 : cw + 2, ch + 2);
+      } else if (dir === "conic") {
+        const cx = pad + w / 2, cy = pad + h / 2, Rr = Math.hypot(cw, ch), a1 = -Math.PI / 2 + k * Math.PI * 2;
+        c.moveTo(cx, cy);
+        for (let a = -Math.PI / 2; a <= a1; a += 0.02) { const rr = Rr; c.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+        // a ragged leading edge: the last ray jitters along its length
+        for (let rr = Rr; rr >= 0; rr -= 6) { const j = (rag / Math.max(rr, 1)) * noise1(rr / per, seed) * 0.5; c.lineTo(cx + Math.cos(a1 + j) * rr, cy + Math.sin(a1 + j) * rr); }
+        c.closePath();
+      }
+      c.fill(); c.restore();
+    }
+    ctx.save(); if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
+    ctx.drawImage(cv, x - pad, y - pad); ctx.restore(); release(cv);
+  }
+  /** The pencil shadow under a card or scrap: the hatch at ONE scale, clipped to the shape's rounded rect, offset (+6, +9). */
+  function hatchShadow(ctx, hatch, x, y, w, h, r, u = 1, o = {}) {
+    ctx.save(); ctx.globalAlpha *= o.alpha ?? 0.5;
+    const dx = (o.dx ?? 6) * u, dy = (o.dy ?? 9) * u;
+    ctx.translate(x + dx, y + dy); if (o.rot) { ctx.translate(w / 2, h / 2); ctx.rotate(o.rot); ctx.translate(-w / 2, -h / 2); }
+    rrect(ctx, 0, 0, w, h, r); ctx.clip();
+    const tw = hatch.width * u, th = hatch.height * u;
+    for (let yy = -th * 0.3; yy < h; yy += th * 0.92) for (let xx = -tw * 0.3; xx < w; xx += tw * 0.92) ctx.drawImage(hatch, xx, yy, tw, th);
+    ctx.restore();
+  }
+  /** An image recoloured flat (its alpha kept), cached by colour. */
+  const tinted = new Map();
+  function tint(im, color) {
+    const key = im.src + "|" + color; if (tinted.has(key)) return tinted.get(key);
+    const cv = document.createElement("canvas"); cv.width = im.width; cv.height = im.height;
+    const c = cv.getContext("2d"); c.drawImage(im, 0, 0); c.globalCompositeOperation = "source-in"; c.fillStyle = color; c.fillRect(0, 0, cv.width, cv.height);
+    tinted.set(key, cv); return cv;
+  }
+  /** One image clipped by another's alpha (destination-in), both drawn to the same box; cached by the pair. */
+  function clipBy(im, mask, w, h) {
+    const key = im.src + "|" + mask.src + "|" + w + "x" + h; if (tinted.has(key)) return tinted.get(key);
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    const c = cv.getContext("2d"); c.drawImage(im, 0, 0, w, h); c.globalCompositeOperation = "destination-in"; c.drawImage(mask, 0, 0, w, h);
+    tinted.set(key, cv); return cv;
+  }
 
   /**
    * The bot peeking over an edge (store/out/art/bot-<pose>.png, `ledge` = the y in the PNG that sits on the edge):
@@ -372,5 +536,5 @@ window.X0 = (() => {
   /** Breath: a slow 1-centred swell. */
   const breathe = (t, period = 3.2, amp = 0.012) => 1 + Math.sin(t * Math.PI * 2 / period) * amp;
 
-  return { clamp, K, lerp, E, rng, hash, C, load, fonts, img, cover, rrect, grain, vignette, font, width, layout, drawLine, underline, text, hang, peek, card, screen, wipe, camera, wrap, bubble, safe, beat, breathe, deg };
+  return { clamp, K, lerp, E, rng, hash, noise1, C, load, fonts, img, cover, rrect, grain, vignette, font, width, layout, drawLine, underline, text, hang, peek, peekRig, reveal, hatchShadow, tint, clipBy, offscreen, release, card, screen, wipe, camera, wrap, bubble, safe, beat, breathe, deg };
 })();

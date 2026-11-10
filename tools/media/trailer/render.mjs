@@ -41,7 +41,8 @@ const range = opt("range", null)?.split(",").map(Number) ?? null;
 const poster = opt("poster", null);
 fs.mkdirSync(out, { recursive: true });
 
-const url = pathToFileURL(path.join(here, "trailer.html")).href;
+const url = pathToFileURL(path.resolve(opt("page", path.join(here, "trailer.html")))).href;   // --page another film's html
+const NAME = opt("name", path.basename(opt("page", "x0-trailer.html"), ".html").replace(/^trailer$/, "x0-trailer"));
 // The page's pictures are file: URLs, which would taint the canvas and bar toDataURL; this flag makes them its own.
 const browser = await chromium.launch({ args: ["--no-sandbox", "--allow-file-access-from-files"] });
 
@@ -51,7 +52,7 @@ for (const ratio of ratios) {
   await page.route("**/*", (r) => r.request().url().startsWith("file:") ? r.continue() : r.abort());
   page.on("pageerror", (e) => { console.error(`${ratio}: page error:`, e.message); process.exitCode = 1; });
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.error(`${ratio}: ${m.type()}: ${m.text()}`); });
-  await page.goto(`${url}?w=${W}&h=${H}`);
+  await page.goto(`${url}?w=${W}&h=${H}${opt("query", "") ? "&" + opt("query", "") : ""}`);   // --query "hud=1&chrome=all"
   await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
   const duration = await page.evaluate(() => window.TRAILER.duration);
   const tag = `${ratio}${SCALE !== 1 ? `-${Math.round(W)}w` : ""}`;
@@ -79,7 +80,7 @@ for (const ratio of ratios) {
       await grab(t0 + i / FPS, path.join(dir, `f${String(i).padStart(5, "0")}.png`));
       if (i && i % 150 === 0) console.error(`${tag}: ${i}/${n} frames, ${((Date.now() - started) / 1000).toFixed(0)} s`);
     }
-    const file = `x0-trailer-${tag}${range ? `-${t0}-${t1}s` : ""}.mp4`, video = path.join(out, file);
+    const file = `${NAME}-${tag}${range ? `-${t0}-${t1}s` : ""}.mp4`, video = path.join(out, file);
     const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", path.join(dir, "f%05d.png"),
       "-c:v", "libx264", "-profile:v", "high", "-level", "4.2", "-pix_fmt", "yuv420p", "-crf", CRF, "-preset", "slow",
       "-movflags", "+faststart", "-an", video]);
@@ -91,7 +92,7 @@ for (const ratio of ratios) {
       sounds = cues.length;
       if (cues.length) {
         const wav = path.join(out, "." + file + ".wav"), mute = path.join(out, "." + file);
-        fs.writeFileSync(wav, renderSound(cues, t1 - t0, { base: here }));
+        fs.writeFileSync(wav, renderSound(cues, t1 - t0, { base: path.dirname(fileURLToPath(url)) }));   // samples are named relative to the page
         fs.renameSync(video, mute);
         const m = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-i", mute, "-i", wav, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-shortest", "-movflags", "+faststart", video]);
         fs.rmSync(mute, { force: true }); fs.rmSync(wav, { force: true });

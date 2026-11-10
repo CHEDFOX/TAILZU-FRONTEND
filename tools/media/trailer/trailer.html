@@ -1,46 +1,13 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>X0 Bot · trailer (engine smoke test)</title>
+<title>X0 Bot · The Pile-Up (the pre-launch trailer)</title>
 <style>html,body{margin:0;background:#888}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script src="engine.js"></script>
-<script>
-(async () => {
-  const q = new URLSearchParams(location.search);
-  const W = +(q.get("w") || 1080), H = +(q.get("h") || 1920), portrait = H > W, u = Math.min(W, H) / 1080;
-  const cv = document.getElementById("c"); cv.width = W; cv.height = H;
-  const ctx = cv.getContext("2d");
-  const { C, E, K, clamp } = X0;
-  await X0.fonts();
-  const A = await X0.load({
-    paper: "components/paper.jpg",
-    head: "hero/hang-head-1632.png", bar: "hero/hang-bar-1632.png", hands: "hero/hang-hands-1632.png", blink: "hero/hang-blink-1632.png", face: "hero/hang-face-1632.png", eyes: "hero/hang-eyes-1632.png",
-    peek: "../store/out/art/bot-curious.png", ul: "../store/out/art/underline-c9683f.png", team: "../store/out/screens/team.png", swash: "components/swash-clay.png",
-  });
-  const PEEK_LEDGE = 428;
-  window.TRAILER = { duration: 4 };
-
-  window.__frame = (t) => {
-    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
-    ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
-    X0.cover(ctx, A.paper, 0, 0, W, H, { alpha: 0.9 });
-    // the hero, hanging, eyes looking about, then at you
-    const size = (portrait ? 0.9 : 0.5) * Math.min(W, H);
-    const x = W / 2 - size / 2, y = portrait ? H * 0.08 : H * 0.02;
-    const look = t < 2 ? { dx: Math.sin(t * 2.1) * 14, dy: Math.cos(t * 1.3) * 6 } : { dx: 0, dy: 0 };
-    X0.hang(ctx, A, x, y, size, null, { eyes: look, blink: t > 2.0 && t < 2.12 ? 1 : 0, bob: Math.sin(t * 2.2) * 6 * u });
-    // a card with a real screen in it, the bot rising over its edge
-    const cw = portrait ? W * 0.72 : W * 0.3, ch = cw * 1.1, cx = portrait ? W * 0.14 : W * 0.62, cy = portrait ? H * 0.5 : H * 0.3;
-    X0.card(ctx, cx, cy, cw, ch, 40 * u);
-    X0.screen(ctx, A.team, cx + 24 * u, cy + 24 * u, cw - 48 * u, ch - 48 * u, 28 * u, { scroll: 180 * E.io(K(t, 1, 3)) });
-    X0.peek(ctx, A.peek, PEEK_LEDGE, cx + cw * 0.72, cy, 360 * u, E.back(1.3)(K(t, 0.6, 1.3)));
-    // a chat bubble with Bricolage, and a swash wiped on under a word
-    X0.bubble(ctx, "Running late, start without me.", cx + 30 * u, cy + ch + 40 * u, cw - 60 * u, 34 * u, true);
-    X0.wipe(ctx, A.swash, cx, cy + ch + 150 * u, cw, cw * A.swash.height / A.swash.width, E.o3(K(t, 2.2, 2.9)), "x");
-    X0.text(ctx, "Coming soon · x0bot.com", W / 2, portrait ? H * 0.9 : H * 0.92, X0.font(500, 40 * u, "GeistMono"), C.grey, "center", { spacing: 2 });
-    X0.vignette(ctx, W, H, 0.1); X0.grain(ctx, W, H, t, 0.06);
-  };
-  window.__cues = () => [{ at: 0, kind: "drone", dur: 4, f: 55 }];
-  window.__ready = true;
-})();
-</script>
+<script src="film/main.js"></script>
+<script src="film/common.js"></script>
+<script src="film/beats-hook.js"></script>
+<script src="film/beats-keybot-plan.js"></script>
+<script src="film/beats-travel-code.js"></script>
+<script src="film/beats-team-end.js"></script>
+<script>FILM.start().catch((e) => { console.error(e); document.title = "ERROR: " + e.message; });</script>

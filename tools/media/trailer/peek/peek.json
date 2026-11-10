@@ -1,0 +1,133 @@
+{
+ "bot-curious-nohands": {
+  "file": "bot-curious-nohands.png",
+  "w": 829,
+  "h": 433,
+  "x0": 157,
+  "y0": 305,
+  "frame": 1024,
+  "ledge": 428.18399999999997
+ },
+ "bot-curious": {
+  "file": "bot-curious.png",
+  "w": 829,
+  "h": 486,
+  "x0": 157,
+  "y0": 305,
+  "frame": 1024,
+  "ledge": 428.18399999999997
+ },
+ "bot-happy-nohands": {
+  "file": "bot-happy-nohands.png",
+  "w": 832,
+  "h": 431,
+  "x0": 59,
+  "y0": 307,
+  "frame": 1024,
+  "ledge": 426.18399999999997
+ },
+ "bot-happy": {
+  "file": "bot-happy.png",
+  "w": 832,
+  "h": 487,
+  "x0": 59,
+  "y0": 307,
+  "frame": 1024,
+  "ledge": 426.18399999999997
+ },
+ "bot-wink-nohands": {
+  "file": "bot-wink-nohands.png",
+  "w": 831,
+  "h": 432,
+  "x0": 141,
+  "y0": 306,
+  "frame": 1024,
+  "ledge": 427.18399999999997
+ },
+ "bot-wink": {
+  "file": "bot-wink.png",
+  "w": 831,
+  "h": 485,
+  "x0": 141,
+  "y0": 306,
+  "frame": 1024,
+  "ledge": 427.18399999999997
+ },
+ "bot-shy-nohands": {
+  "file": "bot-shy-nohands.png",
+  "w": 830,
+  "h": 420,
+  "x0": 47,
+  "y0": 318,
+  "frame": 1024,
+  "ledge": 415.18399999999997
+ },
+ "bot-shy": {
+  "file": "bot-shy.png",
+  "w": 830,
+  "h": 473,
+  "x0": 47,
+  "y0": 318,
+  "frame": 1024,
+  "ledge": 415.18399999999997
+ },
+ "bot-starry-nohands": {
+  "file": "bot-starry-nohands.png",
+  "w": 834,
+  "h": 430,
+  "x0": 117,
+  "y0": 308,
+  "frame": 1024,
+  "ledge": 425.18399999999997
+ },
+ "bot-starry": {
+  "file": "bot-starry.png",
+  "w": 834,
+  "h": 483,
+  "x0": 117,
+  "y0": 308,
+  "frame": 1024,
+  "ledge": 425.18399999999997
+ },
+ "bot-hello-nohands": {
+  "file": "bot-hello-nohands.png",
+  "w": 833,
+  "h": 430,
+  "x0": 125,
+  "y0": 308,
+  "frame": 1024,
+  "ledge": 425.18399999999997
+ },
+ "bot-hello": {
+  "file": "bot-hello.png",
+  "w": 833,
+  "h": 483,
+  "x0": 125,
+  "y0": 308,
+  "frame": 1024,
+  "ledge": 425.18399999999997
+ },
+ "glove-L": {
+  "file": "glove-L.png",
+  "w": 162,
+  "h": 125,
+  "x0": 272,
+  "y0": 666,
+  "frame": 1024,
+  "ledge": 67.18399999999997
+ },
+ "glove-R": {
+  "file": "glove-R.png",
+  "w": 163,
+  "h": 125,
+  "x0": 710,
+  "y0": 666,
+  "frame": 1024,
+  "ledge": 67.18399999999997
+ },
+ "underline-4f7a3a": {
+  "file": "underline-4f7a3a.png",
+  "w": 724,
+  "h": 51
+ }
+}
