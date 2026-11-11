@@ -1,4 +1,5 @@
-/** Text: the server's copy, set in its type role, with relative times and store prices filled in. */
+/** Text: the server's copy, set in its type role, with relative times, a call's running time and store prices filled in. */
+import { useEffect, useState } from "react";
 import { Text, type TextStyle } from "react-native";
 import { useStorePrice } from "../../billing/storePrice";
 import type { Node, ThemeTokens } from "../types";
@@ -7,6 +8,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { typeRole, fontSlot } from "../theme/typeRole";
 import type { CompProps } from "./props";
 import { tightRoom } from "./tightText";
+import { elapsedText } from "./elapsedCore";
 
 /**
  * Copy renders EXACTLY as the backend wrote it. This used to Title-Case every
@@ -79,14 +81,33 @@ function humanTime(iso: string): string {
   });
 }
 
+/**
+ * The clock, read again every second while `on` (a call's "0:12" counting up), and not at all otherwise. Always called, so a
+ * Text whose format changes keeps its hooks in order.
+ */
+function useNow(on: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!on) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [on]);
+  return now;
+}
+
 export const TextC = ({ node, props, style }: CompProps) => {
   const theme = useTheme();
   const raw = staticText(node, props.content ?? "");
+  // A call's running time (BOT_CALL_CAPABILITY): the content is when it was answered.
+  const elapsed = props.format === "elapsed";
+  const now = useNow(elapsed);
   // `format` lets the backend hand over a machine value and ask for the human
   // one, instead of shipping a pre-formatted string it cannot localise or
   // place in the reader's timezone.
   const shown =
-    props.format === "relative" && typeof raw === "string" ? humanTime(raw)
+    elapsed ? elapsedText(raw, now)
+    : props.format === "relative" && typeof raw === "string" ? humanTime(raw)
     : props.format === "datetime" && typeof raw === "string" && Number.isFinite(Date.parse(raw))
       ? new Date(raw).toLocaleString(undefined, {
           dateStyle: String(props.dateStyle ?? K.str("ui.Text.dateStyle", "medium")) as "medium",

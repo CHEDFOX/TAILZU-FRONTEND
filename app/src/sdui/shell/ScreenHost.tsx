@@ -8,6 +8,7 @@ import { useSoundsState } from "../../media/sounds";
 import type { Ctx, NavApi } from "../actions";
 import { leaveMedia } from "../../media/media";
 import { leaveVoice } from "../voice/voiceLive";
+import { leaveSpeech } from "../voice/speech";
 import type { ScreenResponse } from "../types";
 import { num } from "../knobs";
 import { useOfflineState } from "../offline/offline";
@@ -30,9 +31,10 @@ export function ScreenHost({
   // A quiet live reload of the same screen keeps its Store (live.ts); a screen arriving afresh gets a new one.
   const store = useMemo(() => keptStore(screen) ?? new Store(screen.state ?? {}), [screen]);
   useEffect(() => liveShowing(screen, store), [screen, store]);
-  // Leaving a screen stops its sound, throws away its recording and stops its upload (media.ts), and ends its voice session
-  // (voiceLive.ts). A quiet live reload keeps the Store, and so the session: a voice chat lives through the feed updating.
-  useEffect(() => () => { leaveMedia(store); leaveVoice(store); }, [store]);
+  // Leaving a screen stops its sound, throws away its recording and stops its upload (media.ts), ends its voice session
+  // (voiceLive.ts) and stops the words its call was saying (speech.ts). A quiet live reload keeps the Store, and so the session:
+  // a voice chat lives through the feed updating.
+  useEffect(() => () => { leaveMedia(store); leaveVoice(store); leaveSpeech(store); }, [store]);
   // Memoised, because it is the identity every RenderNode in the tree reads.
   // Rebuilt each render, it made a single parent re-render — a toast, a
   // foreground bootstrap, a loading flag — walk and re-render the WHOLE screen,
