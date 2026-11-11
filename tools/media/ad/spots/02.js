@@ -56,7 +56,7 @@
     { id: "a", t0: 0, t1: T.b0, src: (t) => 0.9 * Math.min(t, T.fzA), m: { b: 0.9, c: 1.04, s: 1.0 }, zoom: (t) => 1 + 0.03 * fr(t, 0, T.fzA) },
     { id: "b", t0: T.b0, t1: T.c0, src: (t) => Math.min(t, T.fzB) - T.b0 + 0.1, m: { b: 0.69, c: 2.0, s: 0.5, wm: 0.3, sep: 0.28 }, zoom: (t) => 1.02 + 0.06 * fr(t, T.b0, T.fzB - T.b0) },
     { id: "c", t0: T.c0, t1: T.d0, src: (t) => t - T.c0 + 0.2, m: { b: 0.5, c: 1.3, s: 1.05 }, zoom: (t) => 1.04 + 0.03 * fr(t, T.c0, 3) },
-    { id: "d", t0: T.d0, t1: T.e0, src: (t) => (t - T.d0) * 1.25, m: { b: 0.85, c: 1.05, s: 0.4 }, zoom: (t) => 1.02 + 0.02 * fr(t, T.d0, 2.5) },
+    { id: "d", t0: T.d0, t1: T.e0, src: (t) => (t - T.d0) * 1.25, m: { b: 0.8, c: 1.05, s: 0.4 }, zoom: (t) => 1.02 + 0.02 * fr(t, T.d0, 2.5) },
     { id: "e", t0: T.e0, t1: T.f0, src: (t) => 0.9 * (t - T.e0), m: { b: 2.1, c: 0.96, s: 0.8, toe: true, blur: 2.5 }, zoom: (t) => 1.03 + 0.03 * fr(t, T.e0, T.f0 - T.e0) },
     { id: "f", t0: T.f0, t1: T.end + 1, src: null, m: { b: 1.22, c: 1.06, s: 0.9, wm: 0.08 }, zoom: (t) => 1 + 0.06 * towerP(t) },
   ];
