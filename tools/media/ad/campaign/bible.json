@@ -344,8 +344,8 @@
      "stock_query": "",
      "visual": "THE TEAM PORTRAIT. The hero hangs top centre. At 0.5h five places in a row, symmetric. Dotted heads pop into places 1, 2, 4, 5 on four bells, every 0.9 s on the narrator's nouns: Keybot clay #A9573A at 11.2, Plan ochre #8F6A1F at 12.1, Travel sea #3E6E8E at 13.0, Code bot moss #4F7A3A at 13.9. The centre place stays empty; the hero's eyes look down at it from 14.3. A grey pencil outline of a head draws itself there 14.8-15.8. The hero looks back to camera at 16.3.",
      "motion": "Pops with a 3-frame overshoot; pencil line draws at writing speed.",
-     "overlay": "Small ink labels (0.035w) typed under each head: 'Keybot / writes', 'Plan / remembers', 'Travel / finds', 'Code bot / ships', and under the outline 'Yours / in one sentence'.",
-     "vo": "A team. Keybot writes. Plan remembers. Travel finds. Code bot ships. And one you make yourself.",
+     "overlay": "Small ink labels (0.035w) typed under each head: 'Keybot / writes', 'Plan / remembers', 'Travel / finds', 'Code bot / builds', and under the outline 'Yours / in one sentence'.",
+     "vo": "A team. Keybot writes. Plan remembers. Travel finds. Code bot builds. And one you make yourself.",
      "sound": "Silence but the narrator; four bells in the bots' notes on the pops; a soft grey bell and a pencil scratch on the outline."
     },
     {
@@ -815,7 +815,7 @@
      "stock_query": "",
      "visual": "From the left the four heads slide in as a row at 0.5h with the centre place empty (the seat the roster film left open), verbs small beneath, four bells; Coach glides from below into the centre. The hero lowers in from the top on his bar, looks along the row to the new one, nods once.",
      "motion": "Row slides in with ease-out; Coach glides over 8 frames; hero ease-in, nod 10 frames.",
-     "overlay": "Labels 0.035w in the roster's order: 'Keybot / writes', 'Plan / remembers', 'Coach / reminds', 'Travel / finds', 'Code bot / ships'.",
+     "overlay": "Labels 0.035w in the roster's order: 'Keybot / writes', 'Plan / remembers', 'Coach / reminds', 'Travel / finds', 'Code bot / builds'.",
      "vo": "",
      "sound": "Clay, ochre, sea, moss bells; a creak for the bar."
     },
@@ -885,7 +885,7 @@
      "stock_query": "",
      "visual": "Freeze on the clearest raised-hand frame nearest 4.0 (slip the freeze up to 0.3 s so 'paisa?' lands on it). Cold: saturation down a third, cooler, grain up. At 4.4 the hero swings down from the top edge on his clay bar; his eyes slide to the fox, then to us; he nods slowly, upside down. At 5.4 a card tapes onto the frame beside the fox's hand (if the gesture lets the paw rest on a spot, tape the card there so his hand sits by 'only you press this').",
      "motion": "Freeze; cold grade 6 frames; pendulum in; tape rip.",
-     "overlay": "Card 0.7w, centred at 0.5h: Travel's sea head and 'Travel'; ink Geist 0.045w: 'Pune, Fri 17:40' / 'Seat 23, window'; a hand-drawn button 'Pay' with a smaller outline 'Not now' beside it; under them ink 0.035w: 'only you press this'. At 7.4 a line writes on a white strip at 0.64h in ink Geist 0.04w: 'Bots ask before they book, pay or message anyone.'",
+     "overlay": "Card 0.7w, centred at 0.5h: Travel's sea head and 'Travel'; ink Geist 0.045w: 'Pune, Fri 17:40' / 'Seat 23, window'; a hand-drawn button 'Pay' with a smaller outline 'Not now' beside it; under them ink 0.035w: 'only you press this'. At 7.4 a line writes on a white strip at 0.64h in ink Geist 0.04w: 'Bots find and ask. / Only you pay.'",
      "vo": "",
      "sound": "Clock stops; a low drone in A; a swing creak; tape rip; sea bell; a quiet pen line."
     },
@@ -907,7 +907,7 @@
      "stock_query": "",
      "visual": "Freeze on the last frame of take B and this freeze stays WARM (warmth up one notch) because he agreed. The hero lifts out of the top of frame (the launch move).",
      "motion": "Freeze; hero exits up over 8 frames; write-on 13.0-14.0; underline 14.2-14.6.",
-     "overlay": "White heavy Geist 0.08w (14 and 13 characters), two lines, baseline 0.76h: 'Uncle is right' / 'You press pay'; 'pay' in Caveat with a clay #C9683F underline. Small white Geist 0.035w above the headline (0.60h): 'Nothing is booked, paid or sent till you say yes.' / 'You always press pay.'",
+     "overlay": "White heavy Geist 0.08w (14 and 13 characters), two lines, baseline 0.76h: 'Uncle is right' / 'You press pay'; 'pay' in Caveat with a clay #C9683F underline. Small white Geist 0.035w above the headline (0.60h): 'Nothing is booked or paid till you say yes.' / 'You always press pay.'",
      "vo": "",
      "sound": "The clock keeps ticking under one warm chord."
     },

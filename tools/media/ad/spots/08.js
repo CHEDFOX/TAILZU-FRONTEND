@@ -54,7 +54,7 @@
     { key: "keybot", seat: 0, name: "Keybot", verb: "writes", above: false, note: 293.66 },
     { key: "plan", seat: 1, name: "Plan", verb: "remembers", above: true, note: 369.99 },
     { key: "travel", seat: 3, name: "Travel", verb: "finds", above: true, note: 440 },
-    { key: "code", seat: 4, name: "Code bot", verb: "ships", above: false, note: 493.88 },
+    { key: "code", seat: 4, name: "Code bot", verb: "builds", above: false, note: 493.88 },
   ];
   TEAM.forEach((b, j) => { b.hop = T.row + F(12) + j * F(3); });   // the row slides in as one; then each bot hops once, on its bell, in roster order
   const LABEL = { name: X0.font(600, 38), verb: X0.font(400, 38) };  // 0.035w, ink
