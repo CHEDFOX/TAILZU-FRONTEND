@@ -207,13 +207,17 @@ window.AD = (() => {
   /** The painted X0 in three strokes: the X's two slashes, then the 0 round (narrowed to a digit). */
   function markPaint(S, mx, my, mw, s1, s2, s3) {
     const { ctx, A } = S, mh = mw * A.mark.height / A.mark.width;
-    const region = (x0, x1, k, dir, squeeze = 1) => {
+    // Each stroke is the slice of the mark from SOURCE x s0 to x1 (clipped after the squeeze, in the art's own space),
+    // squeezed about the middle of x0..x1. Clipping before the squeeze let the tip of the X's right arm (source
+    // 0.436-0.457) through the 0's stroke as a thin sliver at 0.52-0.536; the X's ink ends at 0.457 and the 0's starts
+    // at 0.503, so the 0 is cut from 0.48.
+    const region = (x0, x1, k, dir, squeeze = 1, s0 = x0) => {
       if (k <= 0) return; const cvs = X0.offscreen(mw, mh), c2 = cvs.getContext("2d");
-      c2.beginPath(); c2.rect(mw * x0, 0, mw * (x1 - x0), mh); c2.clip();
-      const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0); c2.drawImage(A.mark, 0, 0, mw, mh);
+      const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0);
+      c2.beginPath(); c2.rect(mw * s0, 0, mw * (x1 - s0), mh); c2.clip(); c2.drawImage(A.mark, 0, 0, mw, mh);
       X0.reveal(ctx, cvs, mx, my, mw, mh, k, dir, { rag: 10, seed: 7 }); X0.release(cvs);
     };
-    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);
+    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74, 0.48);
     return mh;
   }
   /** The campaign end card from t0 (4.9 s): the white sheet slides up, the hero on his bar, the mark, the line, the stamp (address first), a wink, stillness. */
