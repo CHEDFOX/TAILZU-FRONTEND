@@ -66,7 +66,7 @@
   // tint is a multiply over the graded frame (cooler where R and G sit under B); sat is the grade's saturation.
   const LOOK = {
     a: { zoom: 1.04, dy: 38, bright: 0.66, con: 1.26, sat: 0.57, tint: [222, 233, 249] },    // daylight: a heavy dark grade
-    b: { zoom: 1.16, dy: -150, bright: 1.6, con: 1.14, sat: 0.5, tint: [122, 190, 255] },  // the fingertip and the piece lifted clear of the card
+    b: { zoom: 1.16, dy: -150, bright: 1.48, con: 1.14, sat: 0.66, tint: [134, 196, 255] },  // the fingertip and the piece lifted clear of the card
     c: { zoom: 1.0, dy: 0, bright: 1.14, con: 1.12, sat: 0.5, tint: [194, 222, 255] },     // the hold: the (degraded) train fills the frame
     c2: { zoom: 1.0, dy: 0, bright: 1.42, con: 1.12, sat: 0.55, tint: [146, 199, 255] },      // the platform and its brown tiles, once the train has gone
     e: { zoom: 1.0, dy: -40, bright: 0.76, con: 1.22, sat: 0.5, tint: [203, 226, 255] },    // the feet clear of the card; the sun pulled down
@@ -102,31 +102,44 @@
     return scratch;
   }
 
-  /** Folder a: the wordmark patches left light chips and notches along her leg's outer edge (frames 44-51). Row by row
-   *  over the patch, the leg's outer edge (where her dark tights meet the light wall) is found, smoothed over the rows
-   *  (a running max, so a notch is filled to the silhouette), and every light pixel inside it is set to the fabric. */
+  /** Folder a: the wordmark patches left light chips and notches along her leg's outer edge (frames 44-51). Over each
+   *  patch's box, the leg's outer edge (where her dark tights meet the light wall) is found row by row, a line is fitted
+   *  through it (outliers out), and every light, cool pixel inside that line is set to the fabric: so a notch is filled
+   *  to the silhouette and a chip goes dark, while her warm hand passing over the leg is left alone. */
+  const patchBox = new Map();
+  function boxOf(patch) {
+    if (patchBox.has(patch)) return patchBox.get(patch);
+    const c = canvas(), cx = c.getContext("2d", { willReadFrequently: true }); cx.drawImage(patch, 0, 0, 1080, 1920);
+    const d = cx.getImageData(500, 300, 320, 480).data; let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let y = 0; y < 480; y++) for (let x = 0; x < 320; x++) if (d[(y * 320 + x) * 4 + 3] > 8) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const box = x1 < 0 ? null : { x0: 500 + x0, y0: 300 + y0, x1: 500 + x1, y1: 300 + y1 };
+    patchBox.set(patch, box); return box;
+  }
   function legEdge(c, patch) {
-    const x0 = 560, x1 = 780, y0 = 380, y1 = 700, w = x1 - x0, h = y1 - y0, id = c.getImageData(x0, y0, w, h), d = id.data;
+    const bx = boxOf(patch); if (!bx) return;
+    const x0 = bx.x0 - 16, x1 = Math.min(1080, bx.x1 + 40), y0 = bx.y0 - 10, y1 = bx.y1 + 10, w = x1 - x0, h = y1 - y0, id = c.getImageData(x0, y0, w, h), d = id.data;
     const lum = (i) => 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-    const edge = new Int16Array(h).fill(-1), fab = [];
+    // (raw frame values, before the grade: her tights about 80, the chips about 165, the wall about 245)
+    const ys = [], es = [], fab = [];
     for (let y = 0; y < h; y++) {
-      // the leg's outer edge: the rightmost x that ends a run of 10 dark pixels, with light wall right of it
       let run = 0, best = -1;
-      for (let x = 0; x < w; x++) { const L = lum((y * w + x) * 4); if (L < 70) { run++; if (run >= 10) best = x; } else run = 0; }
-      if (best > 0 && best < w - 8) { let light = 0; for (let k = 3; k <= 8; k++) if (lum((y * w + best + k) * 4) > 105) light++; if (light >= 4) { edge[y] = best; const i = (y * w + best - 6) * 4; fab.push([d[i], d[i + 1], d[i + 2]]); } }
+      for (let x = 0; x < w; x++) { const L = lum((y * w + x) * 4); if (L < 120) { run++; if (run >= 10) best = x; } else run = 0; }
+      if (best > 0 && best < w - 8) { let light = 0; for (let k = 2; k <= 7; k++) if (lum((y * w + best + k) * 4) > 125) light++; if (light >= 4) { ys.push(y); es.push(best); const i = (y * w + best - 8) * 4; fab.push([d[i], d[i + 1], d[i + 2]]); } }
     }
-    if (fab.length < 20) return;
+    if (ys.length < 12) return;
+    // a line x = a + b y through the outer edge, refitted without the rows more than 4 px inside it (the notches, the chips)
+    const fit = (keep) => { let n = 0, sy = 0, sx = 0, syy = 0, sxy = 0; ys.forEach((y, i) => { if (!keep(i)) return; n++; sy += y; sx += es[i]; syy += y * y; sxy += y * es[i]; }); const bb = (n * sxy - sy * sx) / (n * syy - sy * sy || 1); return { a: (sx - bb * sy) / n, b: bb }; };
+    let L1 = fit(() => true); for (let r = 0; r < 2; r++) { const L2 = fit((i) => es[i] > L1.a + L1.b * ys[i] - 4); if (isFinite(L2.a)) L1 = L2; }
     fab.sort((p, q) => (p[0] + p[1] + p[2]) - (q[0] + q[1] + q[2])); const [fr_, fg, fb] = fab[fab.length >> 1];
-    const sm = new Int16Array(h).fill(-1);
-    for (let y = 0; y < h; y++) { if (edge[y] < 0) continue; let m = edge[y], n = 0; for (let k = -7; k <= 7; k++) { const e = edge[y + k]; if (e > 0 && Math.abs(e - edge[y]) < 26) { m = Math.max(m, e); n++; } } if (n >= 6) sm[y] = m; }
-    for (let y = 0; y < h; y++) {
-      const e = sm[y]; if (e < 0) continue;
-      for (let x = Math.max(0, e - 30); x <= Math.min(w - 1, e + 1); x++) {
-        const i = (y * w + x) * 4, L = lum(i); if (L < 72) continue;
-        const a = x <= e - 1 ? 1 : 0.5;   // the outermost pixel half, so the silhouette keeps a soft edge
-        d[i] = lerp(d[i], fr_, a); d[i + 1] = lerp(d[i + 1], fg, a); d[i + 2] = lerp(d[i + 2], fb, a);
+    // only the rows where the leg's edge was seen (a sleeve crossing the leg has none): from the seen edge out to the line
+    ys.forEach((y, j) => {
+      const e = Math.round(L1.a + L1.b * y); if (e < 4 || e >= w || es[j] > e + 2) return;
+      for (let x = Math.max(0, es[j] - 2); x <= e; x++) {
+        const i = (y * w + x) * 4; if (lum(i) < 110 || d[i] - d[i + 2] > 12) continue;   // tights already, or warm (her hand)
+        const k = x < e ? 1 : 0.5;
+        d[i] = lerp(d[i], fr_, k); d[i + 1] = lerp(d[i + 1], fg, k); d[i + 2] = lerp(d[i + 2], fb, k);
       }
-    }
+    });
     c.putImageData(id, x0, y0);
   }
 
@@ -143,18 +156,25 @@
     w: key([[1.44, 66], [1.5, 58], [1.597, 48], [1.694, 42], [1.865, 34], [2.04, 28], [2.29, 24], [2.54, 20], [2.8, 18]]), from: 1.42, to: 2.85 };
   // the far wall in one-point perspective: its rows run to a vanishing point far left of the frame
   const VP = { x: -194, y: 894 };
-  const POSTER = [[500, 796], [682, 790], [686, 1058], [503, 1022]];                 // the poster, 8 px over its frame line
+  const POSTER = [[500, 796], [682, 790], [686, 1056], [503, 1016]];                 // the poster, 8 px over its frame line, down to the pit
   const LETTERS = [[688, 764], [1084, 708], [1084, 798], [688, 834]];                 // the station name high on the wall
 
   /** A polygon filled on a 2d context. */
   function poly(c, pts) { c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); }
-  /** `src` drawn into `dst` through a feathered polygon mask: c.transform maps src pixels to where they land. */
-  function cloneInto(dst, src, pts, xf, feather) {
-    const tmp = canvas(), t = tmp.getContext("2d");
-    t.save(); t.setTransform(...xf); t.drawImage(src, 0, 0); t.restore();
+  /** `src` drawn into `dst` through a feathered polygon mask: c.transform maps src pixels to where they land; `fix`
+   *  may adjust the transformed pixels before the mask. */
+  function cloneInto(dst, src, pts, xf, feather, fix, filter = "none") {
+    const tmp = canvas(), t = tmp.getContext("2d", { willReadFrequently: !!fix });
+    t.save(); t.setTransform(...xf); t.filter = filter; t.drawImage(src, 0, 0); t.restore();
+    if (fix) fix(t);
     const m = canvas(), mc = m.getContext("2d"); mc.filter = `blur(${feather}px)`; mc.fillStyle = "#fff"; poly(mc, pts); mc.fill();
     t.globalCompositeOperation = "destination-in"; t.drawImage(m, 0, 0);
     dst.drawImage(tmp, 0, 0);
+  }
+  /** Mean luminance of a box on a 2d context. */
+  function meanLum(c, x, y, w, h) {
+    const d = c.getImageData(x, y, w, h).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    return s / (d.length / 4);
   }
   /** The far wall without its poster or its station name, built once from a frame after the train has gone (src 4.0):
    *  the poster is replaced by the plain tiles left of it, scaled about the vanishing point (so the rows and the tile size
@@ -163,9 +183,7 @@
   let plate = null;
   function wallPlate(S) {
     if (plate) return plate;
-    const raw = S.foot("c", 4.0); plate = canvas(); const p = plate.getContext("2d"); p.drawImage(raw, 0, 0, 1080, 1920);
-    const k = 1.25;                                                                    // source = VP + (dest - VP) * 0.8: the tiles at x 365-505
-    cloneInto(p, plate, POSTER.map(([x, y], i) => [x + (i === 0 || i === 3 ? -6 : 6), y + (i < 2 ? -6 : 6)]), [k, 0, 0, k, VP.x * (1 - k), VP.y * (1 - k)], 5);
+    const raw = S.foot("c", 4.0); plate = canvas(); const p = plate.getContext("2d", { willReadFrequently: true }); p.drawImage(raw, 0, 0, 1080, 1920);
     // the name: two tile rows down at x 690, more to the right (the rows open out away from the vanishing point)
     const sk = 56 / (690 - VP.x), band = canvas(), b = band.getContext("2d");
     b.drawImage(plate, 0, 0);
@@ -174,6 +192,35 @@
     const seg = canvas(), sc = seg.getContext("2d"); sc.drawImage(band, 0, 0);
     cloneInto(sc, band, [[764, 700], [906, 680], [906, 830], [764, 845]], [1, 0, 0, 1, -130, 18], 6);
     cloneInto(p, seg, LETTERS, [1, 0, 0, 1, 0, 0], 5);
+    // the poster: its left half from the tiles left of it (x 370-450, scaled up about the vanishing point by 1.22), its
+    // right half from the (now nameless) tiles right of the white pattern (x 880-1020, scaled down by 1.37), so the rows
+    // and the tile size carry on; each half lifted or lowered to the wall beside it
+    const top = (x) => 790 - 6 * (x - 494) / 194, bot = (x) => 1028 + 36 * (x - 497) / 195;
+    const half = (x0, x1, k, ref, own, filter) => {
+      const target = meanLum(p, ref, 830, 18, 160);
+      cloneInto(p, plate, [[x0, top(x0)], [x1, top(x1)], [x1, bot(x1)], [x0, bot(x0)]], [k, 0, 0, k, VP.x * (1 - k), VP.y * (1 - k)], 8, (t) => {
+        const g = clamp(target / meanLum(t, own, 830, 18, 160), 0.7, 1.4), id = t.getImageData(x0 - 12, 770, x1 - x0 + 24, 310), d = id.data;
+        for (let i = 0; i < d.length; i += 4) { d[i] *= g; d[i + 1] *= g; d[i + 2] *= g; }
+        t.putImageData(id, x0 - 12, 770);
+      }, filter);
+    };
+    half(494, 608, 1.22, 476, 500, "contrast(1.12)");
+    half(582, 692, 1 / 1.37, 698, 668, "none");
+    // the wall's foot carried straight across (the track pit below it), then one exposure ramp over the whole patch from
+    // the wall left of it to the wall right of it, column by column (smoothed over 31 px), weighted by the patch's mask
+    const foot = (x) => 1000 + 0.227 * (x - 480), pit = p.getImageData(470, 1040, 20, 20).data; let pr = 0, pg = 0, pb = 0;
+    for (let i = 0; i < pit.length; i += 4) { pr += pit[i]; pg += pit[i + 1]; pb += pit[i + 2]; }
+    p.save(); p.filter = "blur(2px)"; p.fillStyle = `rgb(${(pr / 400) | 0},${(pg / 400) | 0},${(pb / 400) | 0})`; poly(p, [[486, foot(486) + 1], [700, foot(700) + 1], [700, 1100], [486, 1100]]); p.fill(); p.restore();
+    const L0 = meanLum(p, 466, 830, 22, 150), L1 = meanLum(p, 700, 830, 22, 170), bx = 470, bw = 240, by = 770, bh = 300;
+    const mk = canvas(), mkc = mk.getContext("2d", { willReadFrequently: true }); mkc.filter = "blur(5px)"; mkc.fillStyle = "#fff"; poly(mkc, [[494, top(494)], [692, top(692)], [692, foot(692)], [494, foot(494)]]); mkc.fill();
+    const ma = mkc.getImageData(bx, by, bw, bh).data, id = p.getImageData(bx, by, bw, bh), d = id.data, col = new Float32Array(bw);
+    for (let x = 0; x < bw; x++) { let sum = 0, n = 0; for (let y = 60; y < 220; y++) { const i = (y * bw + x) * 4; sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; n++; } col[x] = sum / n; }
+    for (let x = 0; x < bw; x++) {
+      let sum = 0, n = 0; for (let k = -15; k <= 15; k++) { const q = x + k; if (q >= 0 && q < bw) { sum += col[q]; n++; } }
+      const g = clamp(lerp(L0, L1, clamp((bx + x - 494) / 198)) / (sum / n), 0.6, 1.6);
+      for (let y = 0; y < bh; y++) { const i = (y * bw + x) * 4, a = ma[i + 3] / 255, gg = lerp(1, g, a); d[i] *= gg; d[i + 1] *= gg; d[i + 2] *= gg; }
+    }
+    p.putImageData(id, bx, by);
     return plate;
   }
   function cleanC(S, c, src) {
@@ -185,7 +232,9 @@
       t.filter = "blur(4px)"; t.fillStyle = "#fff"; poly(t, POSTER.map(([x, y], i) => [x + (i === 0 || i === 3 ? -6 : 6), y + (i < 2 ? -6 : 6)])); t.fill(); poly(t, LETTERS); t.fill();
       t.filter = "none"; t.globalCompositeOperation = "source-in"; t.drawImage(pl, 0, 0);
       t.globalCompositeOperation = "destination-in"; t.fillStyle = g; t.fillRect(0, 0, 1080, 1920);
-      c.drawImage(tmp, 0, 0);
+      // the camera's exposure drifts as the lit train leaves: the plate is matched to the live wall right of the train
+      const rx = Math.max(Math.round(edge) + 20, 724), gain = rx < 1020 ? clamp(meanLum(c, rx, 850, 1060 - rx, 150) / meanLum(pl.getContext("2d"), rx, 850, 1060 - rx, 150), 0.6, 1.4) : 1;
+      c.save(); c.filter = `brightness(${gain.toFixed(3)})`; c.drawImage(tmp, 0, 0); c.restore();
     }
     // the red LED clock over the tunnel mouth: down into the dark
     c.save(); c.filter = "blur(12px)"; c.fillStyle = "rgba(12,10,10,0.96)"; c.fillRect(70, 758, 250, 62); c.restore();
@@ -299,8 +348,9 @@
   }
 
   // ------------------------------------------------------------------------------------------------ the question card
-  // Centred at 0.63h, under the hero and the grid (the bottom of the frame was empty paper); 'It waits.' lands at 0.76h.
-  const Q = { headF: X0.font(900, 76), yesF: X0.font(500, 48), notF: X0.font(500, 44), waitF: X0.font(500, 44), handF: X0.font(700, 128, "Caveat"), stampF: X0.font(800, 70), cy: 1210 };
+  // Centred at 0.63h, under the hero and the grid (the bottom of the frame was empty paper); 'It waits.' (ink Geist
+  // 0.035w, the bible's size and the system's floor for a line that carries a claim) lands at 0.76h.
+  const Q = { headF: X0.font(900, 76), yesF: X0.font(500, 48), notF: X0.font(500, 44), waitF: X0.font(500, 38), handF: X0.font(700, 128, "Caveat"), stampF: X0.font(800, 70), cy: 1210 };
   function qGeom(S) {
     if (S._q) return S._q;
     const ctx = S.ctx, yesW = 0.3 * 1080, yesH = 112, notW = 236, notH = 84, gap = 30;

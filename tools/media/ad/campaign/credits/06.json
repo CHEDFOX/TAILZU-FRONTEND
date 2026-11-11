@@ -1,0 +1,85 @@
+{
+ "spot": "06",
+ "title": "The Hold",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "06 The Hold, pair 1",
+   "source": "mixkit 588",
+   "page": "https://mixkit.co/free-stock-video/?q=sprinter%20start%20slow%20motion",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "6.5-9.7, 9.7-10.8",
+   "marks": "The athlete's face is fully frontal and recognisable (Mixkit stock model, covered by the Mixkit licence). There is a small round emblem on the white stadium wall at the left, outside the crop. No logos on her clothing or shoes are visible at this size. To lose the face, the only option is a lower-body crop (y 0.45-1.0), which is soft after upscaling, so not recommended."
+  },
+  {
+   "for": "06 The Hold, pair 1",
+   "source": "mixkit 15158",
+   "page": "https://mixkit.co/free-stock-video/?q=sprinter",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-1.8, 1.8-3.7",
+   "marks": "none (face too small and backlit to identify; no visible logos)"
+  },
+  {
+   "for": "06, pair 2",
+   "source": "mixkit 5338",
+   "page": "https://mixkit.co/free-stock-video/?q=chess%20hand%20piece",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "3.6-6.7",
+   "marks": "none (only fingers and the back of a hand, no face, no branding)"
+  },
+  {
+   "for": "06, pair 2",
+   "source": "mixkit 5339",
+   "page": "https://mixkit.co/free-stock-video/?q=chess%20player%20hand",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "4.0-9.0",
+   "marks": "none (only fingers, no face, no branding)"
+  },
+  {
+   "for": "06, pair 3 (also runs at 0.5x under the headline)",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-blue-subway-departing-5836",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "8.5-12.5, 0.0-4.0",
+   "marks": "(1) A magenta advertising poster on the far tiled wall appears from about 10.3 s at roughly x 0.45-0.63, y 0.40-0.53 of the frame (static camera). Blur it or grade it down with a soft mask. (2) Faint station lettering on the far wall and a small red LED clock over the tunnel mouth at top-left (about x 0.03-0.2, y 0.36-0.40): darken them in the grade. (3) Passengers show through the lit windows from 0 to 9.5 s, small and motion-blurred but more readable at 0.5x. The 8.5-12.5 stretch has almost none; only use 0-4 s if they stay soft. (4) Car number '555' stencilled on the car sides around 2.5 s and 7 s. No watermark."
+  },
+  {
+   "for": "06, pair 3 (also runs at 0.5x under the headline)",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-subway-departure-1310",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "9.0-11.8",
+   "marks": "A passenger looks out of a door window at 0-1.5 s (recognisable face): never use before 2 s. US flag decals and MTA route/number signs on the car sides around 3.5, 6.0, 8.0 and 9.5 s (the 9.5 s flag is near the top of the crop): mask it or start at 9.8 s. No watermark."
+  },
+  {
+   "for": "06, pair 4",
+   "source": "archive",
+   "page": "https://archive.org/details/gov.archives.arc.28759",
+   "licence": "Public domain / CC0 (US Army film via National Archives, US government work, item licence http://creativecommons.org/publicdomain/zero/1.0/). CAUTION: the diving segment is followed by a 'News of the Day, Copyright 1954' end card (59-64 s), so the underlying newsreel may carry its own copyright. Check it before broadcast.",
+   "stretches_s": "25.5-28.0, 32.4-34.5, 46.1-47.5",
+   "marks": "None inside 25.5-28.0 (no lettering, insignia or faces). Things to avoid elsewhere in the reel: title supers 'OLYMPIC CHAMP IN SUPER-DIVING' (about 11-15 s), 'THE END / NEWS OF THE DAY / Copyright 1954' (about 59-64 s) and 'Ace Diving!' (about 65-69 s); close-ups of Sammy Lee, a named and recognisable person (11-17 s and 37-40 s, plus about 52-58 s); crowd close-ups (17-19 s and 47-49 s). Processing: deinterlace (yadif), scale 720x480 to 640x480 (square pixels), then crop to 9:16. Crop fractions are of the displayed 4:3 frame."
+  },
+  {
+   "for": "06, pair 4",
+   "source": "archive",
+   "page": "https://archive.org/details/gov.archives.arc.28759",
+   "licence": "Public domain / CC0 (US Army film via National Archives). Same caution: the 'Ace Diving!' segment may be newsreel footage carrying its own copyright. Check it before broadcast.",
+   "stretches_s": "89.5-91.5",
+   "marks": "Her face is in frame but soft and interlaced at this size, and she is unnamed, so it is not a recognisable likeness. Keep the grain, don't sharpen. The 'Ace Diving!' super ends about 68 s and is not in this stretch. The edge of a building or tower intrudes at top-right (x > 0.85), outside the crop. Deinterlace and scale to 640x480 as for the first choice."
+  },
+  {
+   "for": "06, pair 4 (as built)",
+   "source": "mixkit 23078",
+   "page": "https://mixkit.co/free-stock-video/ (Mixkit id 23078)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "legs and feet on the edge only",
+   "marks": "The fixer replaced the archive diver with this clip (footage-06-e); only legs and feet are shown. The archive item above was not used in the final cut."
+  }
+ ],
+ "footage_used": [
+  "Sprinter (hold 1 at 1.0x, release 1): Mixkit 588, clip.mp4, 8.2-10.6 s, crop 0.47,0,0.316,1, 24 fps. Page: https://mixkit.co/free-stock-video/?q=sprinter%20start%20slow%20motion. Licence: Mixkit licence, free for commercial use, no attribution required. The clothing wordmark is painted out (06-mask patches plus the new leg-edge pass).",
+  "Chess hand (hold 2 at 1.0x, release 2): Mixkit 5338, clip.mp4, 3.5-6.5 s, crop 0.66,0,0.316,1, 24 fps. Page: https://mixkit.co/free-stock-video/?q=chess%20hand%20piece. Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Night train (hold 3 at 0.5x, release 4, headline shot at 0.5x): Coverr 'blue subway departing' 5836, 8.4-12.6 s, native 9:16, interpolated to 72 fps. Page: https://coverr.co/videos/coverr-blue-subway-departing-5836. Licence: Coverr licence, free for commercial use, no attribution required. Livery graded out; cab emblem and car number painted out; wall poster, station name and LED clock removed or darkened.",
+  "Feet on a pool's edge (hold 4 at 1.0x, release 3): Mixkit 23078, 23078-720.mp4 (https://assets.mixkit.co/videos/23078/23078-720.mp4), 0-3.6 s, crop 0.405,0,0.3164,1, 25 fps, no interpolation, in footage-06-e. Page: https://mixkit.co/free-stock-video/?q=jumping%20into%20pool. Licence: Mixkit licence, free for commercial use, no attribution required. It replaces the Internet Archive diver (NARA 111-LC-46063, use restriction 'Copyright: Restricted - Possibly'), which is no longer used."
+ ]
+}
