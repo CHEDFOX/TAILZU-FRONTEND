@@ -1,0 +1,62 @@
+{
+ "spot": "03",
+ "title": "Great at One Thing",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "03 Great at One Thing, portrait 1",
+   "source": "mixkit (asset 42467)",
+   "page": "https://mixkit.co/free-stock-video/?q=hands%20kneading%20dough",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "6.0-11.0, 0.8-1.6",
+   "marks": "None. The forearms are tattooed (no lettering). The baker's apron at the top edge has an abstract blue and white print with no text. No faces. Early frames (0-5s) have heavy motion blur, so use 6-11s, or 0.8-1.6s for the dough alone without hands."
+  },
+  {
+   "for": "03 Great at One Thing, portrait 1",
+   "source": "mixkit (asset 15808)",
+   "page": "https://mixkit.co/free-stock-video/?q=dough%20top%20view",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "3.0-12.0, 18.0-27.0",
+   "marks": "None (no logos or text). A person's head enters at the bottom edge near the end (about 42s or later), so avoid the last 4s. The props at the top of the crop can be pushed down with a dark top gradient under the white type."
+  },
+  {
+   "for": "03, portrait 2",
+   "source": "mixkit (asset 32085)",
+   "page": "https://mixkit.co/free-stock-video/?q=pottery%20wheel",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "5.0-13.5, 0.0-4.0",
+   "marks": "none"
+  },
+  {
+   "for": "03, portrait 2",
+   "source": "mixkit (asset 9999)",
+   "page": "https://mixkit.co/free-stock-video/?q=ceramic%20clay%20hands",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "8.0-24.0, 27.0-30.0",
+   "marks": "None (no logos or faces). The potter wears a ring, which is fine."
+  },
+  {
+   "for": "03, portrait 3",
+   "source": "mixkit (asset 43243)",
+   "page": "https://mixkit.co/free-stock-video/?q=barber",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "7.0-11.5, 1.0-6.5",
+   "marks": "The cape has a large white print reading 'PEDRO NAVAJAS Barbería Guadalajara' at y 0.62-0.89; the crop (top edge to y 0.6) cuts it out completely. Keep the crop's bottom edge at or above 0.6 so the crown at the top of the print stays out. There is a partial emblem on a blue shirt at the far left (x < 0.1, around 0s), also outside the crop. The client's face is recognisable throughout, and the barber's face is too during 1-7s; both are Mixkit stock models covered by the Mixkit licence. During 7-11.5s the barber's head has left the frame and only the client and the clipper remain."
+  },
+  {
+   "for": "03, portrait 3",
+   "source": "mixkit (asset 43240)",
+   "page": "https://mixkit.co/free-stock-video/?q=barber%20haircut",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-2.3",
+   "marks": "From 2.5s the cape shows a large white 'PEDRO NAVAJAS Barbería Guadalajara' logo at x 0.30-0.75, y 0.36-0.56. Either use only 0.0-2.3s, or after that crush the white print to black with a soft-edged mask (white line art on a black cape, so it disappears easily). The barber's shirt has a small chest emblem at about x 0.75, y 0.15 from about 3s on; blur it or leave it unreadable. Faces of the client and the barber are recognisable (Mixkit stock models)."
+  }
+ ],
+ "footage_used": [
+  "Bread (shot 1): Mixkit asset 42468, hands kneading dough (a fist pressed into dough). Page https://mixkit.co/free-stock-video/?q=hands%20kneading%20dough. Licence: Mixkit licence, free for commercial use, no attribution required. Prepped 3.95-5.2 s, crop 0.29,0,0.316,1, 30 fps, no interpolation, into /home/user/TAILZU-FRONTEND/tools/media/ad/footage-03-a/. Played from 4.15 s at 0.75x.",
+  "Clay (shot 2): Mixkit asset 32085, overhead pottery wheel. Page https://mixkit.co/free-stock-video/?q=pottery%20wheel. Licence: Mixkit licence, free for commercial use, no attribution required. 10.9-12.6 s, crop 0.37,0,0.316,1, in /home/user/TAILZU-FRONTEND/tools/media/ad/footage-03-b/ (unchanged).",
+  "Hair (shot 3): Mixkit asset 43243, barber with the client facing camera. Page https://mixkit.co/free-stock-video/?q=barber. Licence: Mixkit licence, free for commercial use, no attribution required. 7.3-9.0 s, crop 0.3,0,0.6,0.6 (the cape print is cut out), in /home/user/TAILZU-FRONTEND/tools/media/ad/footage-03-c/ (unchanged).",
+  "Clip 2, the dancer (the campaign's own footage, /home/user/TAILZU-FRONTEND/tools/media/ad/footage-dance/): 4.6-6.5 s at real speed. Frames 325-485 are in /home/user/TAILZU-FRONTEND/tools/media/ad/footage-03-d/ with the corner mark patched; the top edge is now feathered into black.",
+  "Clip 1, the cook (the campaign's own footage, /home/user/TAILZU-FRONTEND/tools/media/ad/footage/): 0.0-1.8 s at real speed, then frozen at 1.8 s. Frames 1-140 are in /home/user/TAILZU-FRONTEND/tools/media/ad/footage-03-e/ (unchanged)."
+ ]
+}
