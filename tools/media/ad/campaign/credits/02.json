@@ -1,0 +1,111 @@
+{
+ "spot": "02",
+ "title": "Pahunch gaye?",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "02 Pahunch gaye?, shot 1 (also the Plan freeze)",
+   "source": "mixkit",
+   "page": "https://mixkit.co/free-stock-video/?q=motorbike%20traffic%20night (Mixkit id 6754)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-8.0, 12.5-19.0",
+   "marks": "A small maker badge on the nearest scooter's front fairing (about x0.27,y0.74 of the frame). The suggested crop starts at x0.30 and leaves it out; if you shift left, blur it. Shop signs in the background are fully out of focus and cannot be read. No faces."
+  },
+  {
+   "for": "02 Pahunch gaye?, shot 1 (also the Plan freeze)",
+   "source": "mixkit",
+   "page": "https://mixkit.co/free-stock-video/?q=rainy%20street%20traffic%20night (Mixkit id 4331)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-7.0",
+   "marks": "Yellow NYC taxi livery and roof signs, plus small number plates on cars passing at the top edge. At x0.40 the crop leaves out the black car whose badge and plate show at left. Blur any plate that can be read and grade the yellow down. Pedestrians appear from the knees down only, so no faces."
+  },
+  {
+   "for": "02, shot 3 (also the Travel freeze)",
+   "source": "mixkit",
+   "page": "https://mixkit.co/free-stock-video/?q=airplane%20window%20sunset (Mixkit id 4204)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-10.0, 20.0-28.0",
+   "marks": "There is no airline mark. A small technical placard (the stencilled 'do not step' kind) sits on the wing surface at about x0.80-0.95, y0.52-0.58. The suggested crop (x0.28-0.60) leaves it out."
+  },
+  {
+   "for": "02, shot 3 (also the Travel freeze)",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-soaring-above-the-clouds-and-mountains",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-12.0",
+   "marks": "No airline marks. The cabin window frame shows at the top-left corner, and a vertical reflection streak on the glass sits at about x0.45-0.48, y0-0.18. The x0.12 crop leaves out the streak but cuts the wingtip at x0.56. If you want the wingtip in, use x0.26 and paint out or grade down the streak."
+  },
+  {
+   "for": "02, shot 5",
+   "source": "mixkit",
+   "page": "https://mixkit.co/free-stock-video/?q=rainy%20window (Mixkit id 2846)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-6.0, 8.0-20.0",
+   "marks": "none (all background shapes are out of focus; no signs, plates or faces)"
+  },
+  {
+   "for": "02, shot 5",
+   "source": "mixkit",
+   "page": "https://mixkit.co/free-stock-video/?q=rainy%20window (Mixkit id 14730)",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-9.0, 12.5-16.0",
+   "marks": "none (background is fully out of focus; some blurred figures pass in the later frames but none can be identified)"
+  },
+  {
+   "for": "02, shot 6",
+   "source": "mixkit 42037",
+   "page": "https://mixkit.co/free-stock-video/?q=car%20window%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "3.0-7.5, 9.0-12.9",
+   "marks": "none. Everything outside the glass is motion-blurred, and a blurred blue lit sign near 3.5 s cannot be read. Avoid 0-2.9 s and about 7.8-8.6 s, where tunnel lights blow the window out to white."
+  },
+  {
+   "for": "02, shot 6",
+   "source": "mixkit 42035",
+   "page": "https://mixkit.co/free-stock-video/?q=car%20window%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-3.0, 4.6-8.0",
+   "marks": "none. No sign can be read through the zoom blur. Avoid about 3.2-4.5 s, where a tunnel blows out to white."
+  },
+  {
+   "for": "02, shot 7",
+   "source": "mixkit 39532",
+   "page": "https://mixkit.co/free-stock-video/?q=back%20seat",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "6.5-13.0, 13.5-18.5",
+   "marks": "An adult woman lit by her phone sits in the left half of the frame, and her face would need a release. Keep the crop at x >= 0.58 so neither her face nor her hair enters it. There are no logos or lettering."
+  },
+  {
+   "for": "02, shot 7",
+   "source": "mixkit 42037",
+   "page": "https://mixkit.co/free-stock-video/?q=car%20window%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "4.0-7.0, 9.0-12.5",
+   "marks": "none"
+  },
+  {
+   "for": "02, shot 8 (also the warm headline freeze)",
+   "source": "mixkit 40734",
+   "page": "https://mixkit.co/free-stock-video/?q=window%20at%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "6.0-10.2",
+   "marks": "none. No signage or logos appear on the towers in this stretch."
+  },
+  {
+   "for": "02, shot 8 (also the warm headline freeze)",
+   "source": "mixkit 4340",
+   "page": "https://mixkit.co/free-stock-video/?q=car%20window%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "5.5-8.4",
+   "marks": "A bright white lit billboard sits top right (around x 0.70-0.80, y 0.05-0.15), and a floodlit stadium shows at the top in 0-4 s. Use only 5.5 s onward, and keep x <= 0.40 so the crop leaves the billboard out."
+  }
+ ],
+ "footage_used": [
+  "Shots 1-2, 0-5 s (and the Plan freeze): Mixkit 6754, night traffic from the kerb, src 12.6-16.2, crop x0.30, 30 fps, played at 0.9x. Page: https://mixkit.co/free-stock-video/?q=motorbike%20traffic%20night (Mixkit id 6754). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shots 3-4, 5-9.5 s (and the Travel freeze): Mixkit 4204, airliner wing at dusk, src 0-3, crop x0.28, 30 fps. Page: https://mixkit.co/free-stock-video/?q=airplane%20window%20sunset (Mixkit id 4204). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shot 5, 9.5-12.5 s: Mixkit 2846, rain on glass with amber light, src 0-3.4, crop x0.22, 30 fps. Page: https://mixkit.co/free-stock-video/?q=rainy%20window (Mixkit id 2846). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shot 6, 12.5-15 s: Mixkit 42037, rear side window of a car at night, re-prepped from src 5.06-8.20, crop x0.42, on its own 24 fps frames played one per output frame (1.25x), clear of both exposure flashes. Page: https://mixkit.co/free-stock-video/?q=car%20window%20night (Mixkit id 42037). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shot 7, 15-17.4 s (fallback, no sleeping face found): Mixkit 39532, dark back seat, src 6.5-8.66 at 0.9x, crop x0.60 so the passenger's face stays out of frame, lifted with a gamma toe. Page: https://mixkit.co/free-stock-video/?q=back%20seat (Mixkit id 39532). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shots 8-9, 17.4-25.5 s (and the warm headline freeze): Mixkit 40734, residential towers at night. footage-02-f was re-prepped from src 5.297-9.05 as a contained strip x0.08-0.69 on its own 24 fps frames. footage-02-g (src 8.9-9.9, strip x0.03-0.63, interpolated to 72 fps) is unchanged and used only for the ramp to 20%. The tower is locked by a per-frame tracking table, and the window light-up is done in the page. Page: https://mixkit.co/free-stock-video/?q=window%20at%20night (Mixkit id 40734). Licence: Mixkit licence, free for commercial use, no attribution required."
+ ]
+}
