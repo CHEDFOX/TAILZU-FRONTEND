@@ -38,8 +38,11 @@
   const LIFT = 120;
 
   // ---------------------------------------------------------------------------- the Code thesis, carried over from the golive beat
-  /** The golive headline as beats-travel-code.js sets it (its headFit: 96 in 9:16; in 16:9 the widest line fitted to the left column,
-   *  x 96 .. the stage card), redrawn here from f864 so the thesis holds while the deck slides in, then wiped left over f896-f904. */
+  /** The golive headline, redrawn here from f864 so the thesis holds while the deck slides in and the first three heads pop, then
+   *  wiped left over f896-f904 (gone before 'Your team' writes at f912). beats-travel-code.js exposes its own drawer as
+   *  FILM.goliveHeadline(S, f, out), which is used when present so the redraw is the same call; the local copy below (same
+   *  lines, hand word, colour, frames and fit: 96 in 9:16; in 16:9 the widest line fitted to the left column, x 96 .. the stage
+   *  card) is the fallback. */
   const GOLIVE = { lines: ["Nothing goes live", "till you say yes"], hand: { line: 1, word: "yes" }, at: { l1: 820, l2: 828, hand: 832, ul: 840 }, out: { f: 896, n: 8 } };
   function headFit(S, lines, hand) {
     return memo(S, "head|" + lines.join("|"), () => {
@@ -55,7 +58,11 @@
       return { size, handSize: hs };
     });
   }
-  const goliveCarry = (S, f) => { if (f >= GOLIVE.out.f + GOLIVE.out.n) return; CM.headline(S, f, { ...GOLIVE, ul: S.A["ul-code"], ...headFit(S, GOLIVE.lines, GOLIVE.hand) }); };
+  const goliveCarry = (S, f) => {
+    if (f >= GOLIVE.out.f + GOLIVE.out.n) return;
+    if (typeof FILM.goliveHeadline === "function") FILM.goliveHeadline(S, f, GOLIVE.out);
+    else CM.headline(S, f, { ...GOLIVE, ul: S.A["ul-code"], ...headFit(S, GOLIVE.lines, GOLIVE.hand) });
+  };
 
   function teamGeo(S) {
     const { L } = S, t = L.team;
@@ -117,30 +124,50 @@
     return { dx, dy, rot };
   }
   /**
+   * His shell under the face, for a face `w` wide centred on cx with its ledge at screen y `ledge`, down to `bottom`. The
+   * bot-hello sprite is cut flat at its ledge (row 424 is its last opaque row), so lifted above the deck it needs the rest of
+   * him: the sticker's white rim and the shell ink straight down from the sprite's own edges at that row (x 68-768 and
+   * 80-754 of 833), and the face plate (x 288-600 at the ledge, still curving in) closed with a rounded bottom a few rows
+   * lower, so it reads as his face ending, not a column of plate running down behind the heads. Drawn AFTER the face, from
+   * just inside its last opaque row: the sprite's row 425 is a faint grey anti-aliased rim (alpha ~55) that would otherwise
+   * show as a light hairline across him at the ledge.
+   */
+  function heroBody(S, cx, ledge, bottom, w) {
+    const { ctx, R } = S, fm = R.meta["bot-hello-nohands"], s = w / fm.w, x0 = cx - w / 2;
+    const X = (sx) => x0 + sx * s, Y = (sy) => ledge + (sy - fm.ledge) * s, yl = Y(424.3);
+    if (bottom <= yl) return;
+    ctx.save();
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(X(68), yl, (80 - 68) * s, bottom - yl); ctx.fillRect(X(754), yl, (768 - 754) * s, bottom - yl);   // the rim, beside the shell only (under it, its anti-aliased top row would show through)
+    ctx.fillStyle = "#151311"; ctx.fillRect(X(80), yl, (754 - 80) * s, bottom - yl);
+    ctx.fillStyle = "#2C2825"; ctx.beginPath(); ctx.moveTo(X(289), Y(423.5));
+    ctx.quadraticCurveTo(X(306), Y(430), X(332), Y(434)); ctx.lineTo(X(548), Y(438)); ctx.quadraticCurveTo(X(586), Y(434), X(599), Y(423.5));
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  /**
    * The hero in the team row: bot-hello (no gloves) rising behind the deck's edge, clipped at the edge, with his face's ledge
-   * LIFT px above the deck so his eyes stand clear of the heads; under the face his shell continues to the deck edge (the
-   * sprite is cut flat at its ledge: its last opaque rows stretched down, inside the same clip). His right glove hangs over
-   * the deck edge itself; his left glove is raised beside his cheek (the glove sprite, fingers up, turned about its wrist for
-   * the wave). The rise and the duck travel the whole way (up + LIFT), so he is fully below the edge at r = 0. The heads are
-   * drawn after (they occlude his chin and gloves by design).
+   * LIFT px above the deck so his eyes stand clear of the heads; under the face his shell continues to the deck edge
+   * (heroBody). His right glove hangs over the deck edge itself; his left glove is raised beside his cheek (the glove sprite,
+   * fingers up, turned about its wrist for the wave). The rise and the duck travel the whole way (up + LIFT), so he is fully
+   * below the edge at r = 0. The heads are drawn after (they occlude his chin and gloves by design).
    */
   function teamHero(S, f, top) {
     const { ctx, R } = S, g = teamGeo(S), r = heroRise(f); if (r <= 0) return null;
-    const rig = rigGloves(S, "hello", g.heroX, top, g.heroW), fol = faceFollow(S, f), fm = R.meta["bot-hello-nohands"], face = R.img["bot-hello-nohands"];
-    const travel = rig.up + 6 + LIFT, over = Math.max(0, r - 1) * travel, riseOff = (1 - Math.min(1, r)) * travel - over;
-    const ledgeY = top - LIFT;
+    const rig = rigGloves(S, "hello", g.heroX, top, g.heroW), fol = faceFollow(S, f), rr = Math.min(1, r);
+    const travel = rig.up + 6 + LIFT, over = Math.max(0, r - 1) * travel, riseOff = (1 - rr) * travel - over;
+    const ledge = top - LIFT + riseOff + fol.dy;   // the face's ledge line on screen at f
     ctx.save(); ctx.beginPath(); ctx.rect(0, -20, g.W, top + 20); ctx.clip();   // behind the deck's edge
-    // peekRig adds its own (1 - r) * (up + 6) to dy, so the extra LIFT share of the travel goes in here
-    X0.peekRig(ctx, R, "hello", g.heroX, ledgeY, g.heroW, Math.min(1, r), { dx: fol.dx, dy: fol.dy - over + (1 - Math.min(1, r)) * LIFT, gloves: [{ hide: true }, { hide: true }] });
-    const y0 = ledgeY + riseOff + fol.dy - 1, rows = 4;   // the shell under the face: the sprite's last 4 opaque rows, down to the clip
-    if (top + 20 > y0) ctx.drawImage(face, 0, Math.floor(fm.ledge) - rows, fm.w, rows, g.heroX - g.heroW / 2 + fol.dx, y0, g.heroW, top + 20 - y0);
+    // peekRig clips the face at the y it is given: give it the deck edge (not the face's ledge, or the follow's dy opens a
+    // seam between face and shell) and put the lift in dy (peekRig adds its own (1 - r) * (up + 6); the LIFT share is added here)
+    X0.peekRig(ctx, R, "hello", g.heroX, top, g.heroW, rr, { dx: fol.dx, dy: fol.dy - over - LIFT + (1 - rr) * LIFT, gloves: [{ hide: true }, { hide: true }] });
+    heroBody(S, g.heroX + fol.dx, ledge, top + 2, g.heroW);
     ctx.restore();
     const a = K(r, 0.6, 1);
     if (a <= 0) return { rig, fol, over, top, r, a };
     // the right glove hanging over the deck edge, in front of the deck
     const gR = rig.gloves[1]; ctx.save(); ctx.globalAlpha *= a; ctx.drawImage(gR.img, gR.cx - gR.w / 2 + fol.dx, gR.cy - gR.h / 2 + fol.dy - over, gR.w, gR.h); ctx.restore();
     // the raised left glove: its wrist beside his left cheek, fingers up, riding the face
-    const gL = rig.gloves[0], wrist = { x: g.heroX - g.heroW / 2 - 18 + fol.dx, y: ledgeY - 112 + riseOff + fol.dy };
+    const gL = rig.gloves[0], wrist = { x: g.heroX - g.heroW / 2 - 18 + fol.dx, y: ledge - 112 };
     ctx.save(); ctx.beginPath(); ctx.rect(0, -20, g.W, top + 20); ctx.clip(); ctx.globalAlpha *= a;
     ctx.translate(wrist.x, wrist.y); ctx.rotate(waveRot(f)); ctx.scale(1, -1); ctx.drawImage(gL.img, -gL.w / 2, 0, gL.w, gL.h);
     ctx.restore();

@@ -311,13 +311,17 @@
     ctx.restore();
   }
   /** The question card: a white card inside the dip-pen frame (laid out 760 wide at the PNG's own ratio) over the copy
-   *  card's middle; 'Go live?' and the two dip-pen pills. 16:9: full size, mid-card, code peeking above and below. 9:16:
-   *  the whole frame at 0.9 (uniform, so the hand-drawn stroke keeps its proportions), centred in the COPY's body between
-   *  its header hairline and its bottom edge (~28 px of air to each, a sliver of greyed code around it as in 16:9). */
+   *  card's middle; 'Go live?' and the two dip-pen pills. 16:9: full size, mid-card, 20 px lower than v1 so its top
+   *  stroke (y ~532) clears the descenders of the copy's line 1 (~518) instead of running through its parens, code
+   *  peeking above and below. 9:16: the whole frame at 0.9 (uniform, so the hand-drawn stroke keeps its proportions),
+   *  centred in the COPY's body between its header hairline and its bottom edge: top stroke y ~984 (~38 px under the
+   *  hairline), bottom stroke ~1248 (~40 px above the card's edge), which hides the 'Tests pass' row whole and leaves
+   *  only the tops of line 1's tallest glyphs and the moss tick peeking. (At 0.9 the frame cannot hide line 1 AND the
+   *  tests row: raising it to clear line 1 leaves half of 'Tests pass' showing under it, which reads worse.) */
   function qBox(S) {
     return memo(S, "q", () => {
       const st = stage(S), g = codeGeo(S), fr_ = S.A["pen-frame"], w = 760, h = w * fr_.height / fr_.width;
-      return S.portrait ? { cx: st.cx + 18, cy: (g.header + 27 + 18 + g.y + g.h + 18) / 2, w, h, s: 0.9 } : { cx: 1380, cy: 660, w, h, s: 1 };
+      return S.portrait ? { cx: st.cx + 18, cy: (g.header + 27 + 18 + g.y + g.h + 18) / 2, w, h, s: 0.9 } : { cx: 1380, cy: 680, w, h, s: 1 };
     });
   }
   function qPills(S) { const q = qBox(S), A = S.A, pw = 240, ph = pw * A["pen-pill"].height / A["pen-pill"].width, x0 = q.cx - q.w / 2, y0 = q.cy - q.h / 2; const yes = { cx: x0 + 56 + pw / 2, cy: y0 + 176 + ph / 2 }; return { pw, ph, yes, not: { cx: yes.cx + pw + 28, cy: yes.cy }, x0, y0 }; }
