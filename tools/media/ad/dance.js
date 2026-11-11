@@ -23,7 +23,7 @@
   await X0.fonts();
 
   // ------------------------------------------------------------------------------------------------ assets
-  const FOOT_N = +(q.get("frames") || 726), FOOT_FPS = 72, FOOT_DIR = q.get("footage") || "footage-dance/";
+  const FOOT_N = +(q.get("frames") || 721), FOOT_FPS = 72, FOOT_DIR = q.get("footage") || "footage-dance/";
   const man = {
     paper: "components/paper.jpg", mark: "components/mark-x0-ink.png", stamp: "components/pen-stamp.png",
     head: "hero/hang-head-1632.png", bar: "hero/hang-bar-1632.png", hands: "hero/hang-hands-1632.png", blink: "hero/hang-blink-1632.png",
