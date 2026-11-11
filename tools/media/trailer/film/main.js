@@ -9,6 +9,9 @@
  * the beat that owns the frame, then the grain. A beat draws everything visible in its frames, including what persists
  * from before (the heap, a headline), through the pure-function helpers in common.js.
  *
+ * The beats' frame numbers are SOURCE frames: the shell's CUTS list (the edit) trims whole beats out of the source timeline
+ * before a frame is drawn, and moves the cues with it. Today one beat is cut, f240-f256, so 'Say it' lands at 8.0 s.
+ *
  * S, the scene handed to a beat: { ctx, W, H, u, portrait, L (this cut's layout), A (assets), R (the peek rig), f, t, cam }.
  */
 window.FILM = (() => {
@@ -59,6 +62,22 @@ window.FILM = (() => {
     },
   };
 
+  /** The edit: SOURCE frames cut from the drawn timeline. [a, b) never shows, and everything after it plays b - a frames
+   *  earlier, so the beats keep their own frame numbers and only the clock and the cues are remapped. [240, 256): the hook's
+   *  risen peek holds 22 f instead of 38 and 'Say it' lands at f240 (8.0 s, was 8.53). The film keeps DURATION_F by holding
+   *  the last source frame at the end, where the end card is already still (its grain freezes at f1164). */
+  const CUTS = [[240, 256]];
+  function srcF(f) { let s = f; for (const [a, b] of CUTS) if (s >= a) s += b - a; return Math.min(s, DURATION_F - 1); }
+  /** A cue in source seconds to film seconds: after a cut it moves earlier, inside one it is dropped, and a sound that
+   *  runs across one (the drone) is shortened by it so it still ends where its beat now ends. */
+  function cutCue(c) {
+    let at = c.at, dur = c.dur;
+    for (let i = CUTS.length - 1; i >= 0; i--) {
+      const ta = CUTS[i][0] / FPS, tb = CUTS[i][1] / FPS;
+      if (at >= tb) at -= tb - ta; else if (at >= ta) return null; else if (dur != null && at + dur > tb) dur -= tb - ta;
+    }
+    return { ...c, at: +at.toFixed(4), ...(dur != null ? { dur } : {}) };
+  }
   /** The camera: 1.00 -> 0.85 about L.cam over f64-f128 (E.io), held to f255, then 1.0 (a hard cut). */
   function camera(f) { if (f < 64 || f >= 256) return 1; return 1 - 0.15 * X0.E.io(X0.K(f, 64, 128)); }
 
@@ -101,7 +120,7 @@ window.FILM = (() => {
     window.TRAILER = { duration: DURATION_F / FPS, frames: DURATION_F, fps: FPS, layout: L, scene: S };
 
     window.__frame = (t) => {
-      const f = Math.round(t * FPS); S.f = f; S.t = f / FPS; S.cam = camera(f);
+      const out = Math.round(t * FPS), f = srcF(out); S.f = f; S.out = out; S.t = f / FPS; S.cam = camera(f);
       ctx.setTransform(u, 0, 0, u, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
       // 1 the white, 2 the paper (one crop per cut, never tiled)
       ctx.fillStyle = X0.C.paper; ctx.fillRect(0, 0, W / u, H / u);
@@ -124,8 +143,7 @@ window.FILM = (() => {
       const push = (c) => { if (!c) return; if (c.at != null) { out.push({ ...c, at: +c.at.toFixed(4) }); return; } const { f, ...rest } = c; out.push({ ...rest, at: +(f / FPS).toFixed(4) }); };
       rhythm().forEach(push);
       for (const b of beats) if (b.cues) for (const c of b.cues(S)) push(c);
-      out.sort((a, c) => a.at - c.at);
-      return out;
+      return out.map(cutCue).filter(Boolean).sort((a, c) => a.at - c.at);
     };
     window.__ready = true;
   }
@@ -159,7 +177,7 @@ window.FILM = (() => {
   }
   function hud(S, b) {
     const { ctx, u } = S; ctx.save(); ctx.setTransform(u, 0, 0, u, 0, 0);
-    X0.text(ctx, `f${S.f}  b${(S.f / BEAT_F).toFixed(2)}  ${S.t.toFixed(3)}s  ${b ? b.name : "-"}  cam ${S.cam.toFixed(3)}`, 16, S.H / u - 16, X0.font(500, 22, "GeistMono"), "#c03030");
+    X0.text(ctx, `f${S.out}${S.out !== S.f ? ` (src f${S.f})` : ""}  b${(S.f / BEAT_F).toFixed(2)}  ${S.t.toFixed(3)}s  ${b ? b.name : "-"}  cam ${S.cam.toFixed(3)}`, 16, S.H / u - 16, X0.font(500, 22, "GeistMono"), "#c03030");
     ctx.restore();
   }
 

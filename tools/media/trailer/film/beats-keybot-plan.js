@@ -132,12 +132,13 @@
     // a clean grey sliver at the card's edge, no glyph bottoms)
     const ks = f >= 368 ? E.o3(fr(f, 368, 11)) : 0, scroll = (S.portrait ? 160 : 70) * ks, top = g.y + (S.portrait ? 28 : 90);
     const b = CM.bubble(S, ["Dinner at 8,", "everyone home?"], g.x + 28, top - scroll, 44), timeY = top + b.h + 46 - scroll;
-    X0.text(ctx, "7:28 pm", g.x + 32, timeY, X0.font(500, 44), C.grey);
-    // the input pill: two lines tall, hairline, the black send circle with its arrow
+    // 9:16: the time fades out as it scrolls (f366-f374): scrolled 160 it lands under his left glove for the whole
+    // look-at-you hold (f376-f412), and the sent bubble carries the beat
+    const timeA = S.portrait ? 1 - fr(f, 366, 8) : 1;
+    if (timeA > 0) { ctx.save(); ctx.globalAlpha *= timeA; X0.text(ctx, "7:28 pm", g.x + 32, timeY, X0.font(500, 44), C.grey); ctx.restore(); }
+    // the input pill: two lines tall, hairline, the black send circle with its arrow (the one shared control)
     const p = g.pill; ctx.strokeStyle = C.line; ctx.lineWidth = 2; X0.rrect(ctx, p.x, p.y, p.w, p.h, 40); ctx.stroke();
-    ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(g.send.cx, g.send.cy, g.send.r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath();
-    ctx.moveTo(g.send.cx, g.send.cy + 16); ctx.lineTo(g.send.cx, g.send.cy - 16); ctx.moveTo(g.send.cx - 13, g.send.cy - 3); ctx.lineTo(g.send.cx, g.send.cy - 16); ctx.lineTo(g.send.cx + 13, g.send.cy - 3); ctx.stroke();
+    CM.sendButton(S, g.send.cx, g.send.cy, 2 * g.send.r);
     // the typed words (they slide up out of the pill with the send)
     if (ks < 1) {
       ctx.save(); X0.rrect(ctx, p.x + 2, p.y + 2, p.w - 4, p.h - 4, 38); ctx.clip(); ctx.globalAlpha *= 1 - ks; ctx.translate(0, -70 * ks);
@@ -314,7 +315,8 @@
   /** The heap's tail under the stage card (3 items) with the dentist note resting on top, tucked under the card, until it
    *  lifts off at f408. */
   function keybotTail(S, f) {
-    const { ctx, L } = S; CM.heapTail(S, 3, { dx: tailDx(S) });
+    // 16:9: the tail's corner is clean from the moment the note flies out (only a bare arc of the ring would stay)
+    const { ctx, L } = S; if (S.portrait || f < 410) CM.heapTail(S, 3, { dx: tailDx(S) });
     if (f < 408) { const p = tailNote(S); ctx.save(); ctx.globalAlpha *= 0.9; CM.dentistNote(S, p.x, p.y, 330, D(-10)); ctx.restore(); }
   }
   /** The note lifting off the heap and flying up-right to where he will hang next (f408-f416, E.o3). Its first two frames
@@ -473,8 +475,8 @@
    * from the bar's edge across the fingers, growing with the wrap (1 = the whole glove in front, as hang() holds it), so
    * there is no z-order pop; then the pinch and the suck as hang() has them (the close to the middle, the wring, the shrink).
    */
-  function comeBackGloves(S, t, pass) {
-    const { ctx, A, L } = S, T = L.heroPlan, s = T.size / HANG.ART, { ART, MID, BAR, BAR_MID, GLOVES } = HANG;
+  function comeBackGloves(S, t, pass, which = "heroPlan") {
+    const { ctx, A, L } = S, T = L[which], s = T.size / HANG.ART, { ART, MID, BAR, BAR_MID, GLOVES } = HANG;
     const bar = HANG.COME_BACK.reduce((k, c, side) => k + Math.sin(K(t, c + CB.MS - 20, c + CB.MS + 70) * Math.PI) * (side ? -0.9 : 0.9), 0) * 4;   // hang()'s grab dip
     const ink = X0.tint(A.hands, C.ink), r = 3 / s;
     // the wrap's clip edge snapped to a device pixel: the glove is nine draws (the ink ring and the cream), and a fractional
@@ -535,6 +537,7 @@
   }
   /** The hero through Plan: the drop-in (f424), the look at the note, the reach (his right glove free f440-f472), the
    *  eye-follow and head sway with the pendulum, the look at the clean card, the launch exit from f488. Returns hang()'s geometry. */
+  FILM.comeBackGloves = comeBackGloves;   // the hook's launch (beats-hook.js) comes back the same way, on its own hero
   function planHero(S, f) {
     if (f < 424) return null;
     const t = planClock(f), drop = -700 * (1 - E.back(1.2)(fr(f, 424, 9)));
@@ -581,7 +584,7 @@
     }
     ctx.restore(); ctx.restore();
   }
-  const OCHRE_AT = 520;   // the frame the bar is gone (planClock reaches GONE_AT): the earliest 'Your day' can write, since the bar (y 300-384 in 9:16) crosses its baseline
+  const OCHRE_AT = 512;   // the ochre writes on the card while the bar is sucked out at the top (it is gone at f520), so it is done before 'planned for you' writes at f528 and the two write-ons never start together
   /** 'Your day' the frame the bar is gone, 'planned for you' on the beat after, the ochre underline brushed by f544 (the
    *  pulse), so the finished line holds f544-f571 (27 f) before the page flip and to f576 (32 f) before the cut: the same
    *  band as Keybot's and Travel's holds. It used to finish at f568 and hold 8 f. */
@@ -592,7 +595,8 @@
     name: "plan", f0: 416, f1: 576,
     draw(S, f) {
       const landDy = f < 424 ? 1100 * (1 - E.o3(fr(f, 416, 8))) : 0, sx = f >= 571 ? 1 - E.i2(fr(f, 571, 5)) : 1;
-      CM.heapTail(S, 2, { dx: tailDx(S) });
+      // no heap tail from here on, in either cut: the 540 px day card would cover its whole band in 9:16, and in 16:9 it
+      // showed only a bare arc of the ring. The ring and its beetle come back on the code card.
       dayCard(S, f, landDy, sx);
       const st = noteState(S, f);
       // the note: behind him while it rests half tucked behind his ear and as it comes out; in front once it is clear of his chin

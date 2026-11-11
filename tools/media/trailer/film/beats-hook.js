@@ -212,8 +212,15 @@
     name: "launch", f0: 176, f1: 256,
     draw(S, f) {
       CM.drawHeap(S, f, { ringRot: wobble(f) });
-      if (f < F.pop) CM.hero(S, "hero", tLaunch(f), hangOpts(S, f));
-      else peekFromHeap(S, f);
+      if (f < F.pop) {
+        // the come-back (f194-f208) as Plan's: opaque gloves with their ink line, sliding out from behind the bar and
+        // wrapping it (beats-keybot-plan.js comeBackGloves), not hang()'s faded fly-in
+        const t = tLaunch(f), H = X0.hang, cb = typeof FILM.comeBackGloves === "function" && t >= H.COME_BACK[0] && t < H.GONE_AT;
+        const o = hangOpts(S, f); if (cb) o.reach = [{ hide: true }, { hide: true }];
+        if (cb) FILM.comeBackGloves(S, t, "behind", "hero");
+        CM.hero(S, "hero", t, o);
+        if (cb) FILM.comeBackGloves(S, t, "front", "hero");
+      } else peekFromHeap(S, f);
       headline(S, f);   // the struck words hold to the cut
     },
     cues() {

@@ -186,17 +186,6 @@
     const p = pillState(S, f); if (p.alpha > 0) CM.pill(S, "Open to book", p.cx, p.cy, p.w, p.h, { alpha: p.alpha, scale: p.scale });
     ctx.restore();
   }
-  /** The heap's tail with its INK dimmed to (1 - 0.4 k) while its paper stays opaque: drawn off screen at full strength,
-   *  then a white veil laid on its own pixels only (source-atop) and the result composited back. (A plain alpha on the
-   *  tail let the card's hatch shadow through its face, which read as lined paper.) */
-  function dimmedTail(S, n, dx, k) {
-    if (k <= 0) { CM.heapTail(S, n, { dx }); return; }
-    const { ctx, u } = S, oc = X0.offscreen(S.W, S.H), c2 = oc.getContext("2d");
-    c2.setTransform(u, 0, 0, u, 0, 0);
-    CM.heapTail({ ...S, ctx: c2 }, n, { dx });
-    c2.setTransform(1, 0, 0, 1, 0, 0); c2.globalCompositeOperation = "source-atop"; c2.globalAlpha = 0.4 * clamp(k); c2.fillStyle = "#FFFFFF"; c2.fillRect(0, 0, oc.width, oc.height);
-    ctx.drawImage(oc, 0, 0, S.W / u, S.H / u); X0.release(oc);
-  }
   /** The sea sparkle beside his head: 2 f on (A), 2 off, 2 on (B), from f588. */
   function sparkle(S, f) {
     if (f < 588 || f >= 594 || (f >= 590 && f < 592)) return;
@@ -287,9 +276,13 @@
     ctx.save(); ctx.translate(x - g.x, y - g.y); if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
     CM.stageCard(S, g.x, g.y, g.w, g.h);
     ctx.save(); X0.rrect(ctx, g.x, g.y, g.w, g.h, 28); ctx.clip();
-    X0.text(ctx, "cart/total.ts", g.textX, g.header, monoHead(), C.ink);
+    // the file name is short ('cart.ts', not 'cart/total.ts') so that in 9:16 it ends left of the peek's left glove, whose
+    // fingertips hang over the card's top edge at x ~315-430: the longer name ran under them for 4.5 s
+    X0.text(ctx, "cart.ts", g.textX, g.header, monoHead(), C.ink);
     ctx.fillStyle = C.line; ctx.fillRect(g.x + 24, g.header + 26, g.w - 48, 2);
     const mono = X0.font(400, 44, "GeistMono"), fix = o.fix ?? 0;
+    // the body (code, ring, tests) can fade under the question frame, as a dialog dims what is behind it: the header stays
+    ctx.save(); ctx.globalAlpha *= clamp(o.body ?? 1);
     X0.text(ctx, "function total(items) {", g.textX, g.lines[0], mono, GREY2);
     if (fix < 1) X0.text(ctx, "  return items.length", g.textX, g.lines[1], mono, GREY2, "left", { alpha: 1 - fix });
     if (o.fixF0 != null) CM.wipeText(S, f, "  return sum(items)", g.textX, g.lines[1], o.fixF0, mono, C.ink, 9);
@@ -300,6 +293,7 @@
       X0.reveal(ctx, im, t.x, t.top, t.tick, th, E.o3(fr(f, 760, 4)), "x", { rag: 8, seed: 6 });
       CM.wipeText(S, f, "Tests pass", t.x + t.tick + 28, t.base, 760, mono, GREY2, 9);
     }
+    ctx.restore();
     ctx.restore();
     if (o.tape > 0) {   // the paper-grey tape across the top edge, 'copy' written on it by hand
       const tp = A["tape-grey"], tw = 220, th = tw * tp.height / tp.width, cx = g.x + g.w * 0.6, cy = g.y + 2;   // right of the header
@@ -359,7 +353,10 @@
     const { ctx } = S, st = stage(S), m = cardsMove(S, f), peel = peelK(f);
     ctx.save(); applyMove(ctx, st, m);
     codeCard(S, f, st.x, st.y, { alpha: 1 - 0.2 * peel });
-    if (f >= 728) codeCard(S, f, st.x + 18 * peel, st.y + 18 * peel, { ring: f >= 744 ? 1 - fr(f, 744, 6) : 1, fix: f >= 748 ? fr(f, 748, 6) : 0, fixF0: f >= 748 ? 748 : null, tests: true, tape: peel });
+    // 9:16: the copy's body fades out as the question frame pops (f784-f790): the frame fills the card body there, and its
+    // strokes would otherwise slice line 1 and the 'Tests pass' row for the whole decision (16:9 sets the frame beside the card)
+    const body = S.portrait ? 1 - E.o3(fr(f, 784, 6)) : 1;
+    if (f >= 728) codeCard(S, f, st.x + 18 * peel, st.y + 18 * peel, { ring: f >= 744 ? 1 - fr(f, 744, 6) : 1, fix: f >= 748 ? fr(f, 748, 6) : 0, fixF0: f >= 748 ? 748 : null, tests: true, tape: peel, body });
     questionCard(S, f);
     ctx.restore();
   }
@@ -449,10 +446,8 @@
     draw(S, f) {
       const st = stage(S), sx = f < 582 ? E.o2(fr(f, 576, 6)) : 1, out = f >= 696 ? E.i3(fr(f, 696, 8)) : 0;
       const trayDx = (S.portrait ? -(st.x + st.w + 60) : (S.L.W - st.x + 60)) * out;   // off left in 9:16, off right in 16:9
-      // the last item, the ring card, under the tray's bottom edge: receding to 60 % as the pill arrives over it (f624), slipping
-      // off as the code card comes (f696). 9:16 only: in 16:9 the tail's corner showed a bare black arc of the ring with no card
-      // edge (an ink smudge, not a cue), so the landscape cut carries the beat on the stage card alone
-      if (S.portrait) dimmedTail(S, 1, 900 * E.i2(fr(f, 696, 8)), E.o3(fr(f, 624, 8)));
+      // no heap tail under the tray (one rule in both cuts: the tail only in Keybot), so 'Open to book' sits on clean paper;
+      // the ring card comes back as the code card
       if (f >= 700) { codeCards(S, f); }
       tray(S, f, trayDx, sx);
       travelPeek(S, f, trayDx);
