@@ -1,0 +1,44 @@
+{
+ "spot": "08",
+ "title": "In One Sentence",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "08 In One Sentence, shot 1",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-man-tying-his-shoelaces-5259",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "0.5-1.4",
+   "marks": "The shoe has a white chevron/check-like side stripe that may read as a brand mark. Darken or paint it out with a tracked mask, or let the dark grade crush it. No faces. The trouser legs need to be crushed to black."
+  },
+  {
+   "for": "08 In One Sentence, shot 1",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-old-man-entering-his-apartment-9667",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "12.0-15.2",
+   "marks": "None in this stretch. Before about 11.5 s a masked older man walks to camera and his face is visible, so do not use anything earlier than 11.8 s."
+  },
+  {
+   "for": "08, shot 7",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-running-as-the-sunsets-6949",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "9.0-15.8 (small figure); 4.0-15.8 if the runner should be seen pulling away",
+   "marks": "No logos or faces: the runner is in silhouette, back to camera. Two tiny distant people sit on the horizon near the left of the crop (around x 0.40 of the full frame, at about 8 s). Nudge the crop right to 0.40, or paint them out."
+  },
+  {
+   "for": "08, shot 7",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-running-up-a-road-on-a-mountain-6724",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "3.0-15.0",
+   "marks": "None. The yellow-black roadside barrier chevrons are generic. The runner is tiny and from behind, so not recognisable."
+  }
+ ],
+ "footage_used": [
+  "Shot 1 (0-1.2), doorway: Coverr 'coverr-old-man-entering-his-apartment-9667', 12.0-13.6 s (the empty tail, nobody in frame), one frame held at 0.6 s into the prep, crop 0.15,0,0.316,1, https://coverr.co/videos/coverr-old-man-entering-his-apartment-9667. Coverr licence: free for commercial use, no attribution required.",
+  "Shots 1-2 (0-8.4), the shoe: Coverr 'coverr-man-tying-his-shoelaces-5259', the frame at 1.28 s (prepped 0.4-1.4 s), crop 0,0,0.5,1, letterboxed. It is held for the close-up (punched in 115%) and keyed out as the pair of shoes on the hallway floor in shot 1. https://coverr.co/videos/coverr-man-tying-his-shoelaces-5259. Coverr licence: free for commercial use, no attribution required.",
+  "Shot 7 (17.5-19.97), runner at dawn: Coverr 'coverr-running-as-the-sunsets-6949', 13.3-15.77 s at real speed, crop 0.30,0,0.5,1, letterboxed and opened to full height. Two far walkers removed with a sheared, feathered clone patch. https://coverr.co/videos/coverr-running-as-the-sunsets-6949. Coverr licence: free for commercial use, no attribution required."
+ ]
+}
