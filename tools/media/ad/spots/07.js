@@ -23,7 +23,7 @@
  * smooth at 30): footage-07-a Mixkit 17450 (34.4-37.8 s, crop 0.46,0,0.316,1, 25 fps); footage-07-b Moonwalk One reel 1,
  * Apollo 11 on pad 39A before dawn (reel 477.1-479.4 s, crop 0.398,0,0.2594,0.82: above the S-IC lettering);
  * footage-07-c Moonwalk One reel 2, the firing room (reel 396.43-397.7 s, crop 0.466,0,0.2875,0.909); footage-07-e
- * Moonwalk One reel 2, the engines lighting (reel 51.45-52.8 s, crop 0.38,0,0.275,0.87); footage-07-d Moonwalk One
+ * Moonwalk One reel 1, the first fire in the flame trench (reel 1014.3-1015.7 s, crop 0.665,0.05,0.275,0.87); footage-07-d Moonwalk One
  * reel 2, the climb (reel 161-164.8 s, crop 0.39,0.13,0.275,0.87). One grade: contrast up, colour down (the hands' cold
  * blue at -40 %, the archive taken to brand greys), two degrees cool, soft vignette, heavy fine grain, thin ink bars on
  * all footage. Sound: sound.mjs kinds plus spots/07-sfx/*.wav (made by spots/07-sound.mjs). No voice. Drone and chord in E.
@@ -55,7 +55,7 @@
     a: { dir: "../footage-07-a/", frames: 85, fps: 25 },
     b: { dir: "../footage-07-b/", frames: 57, fps: 23.976 },
     c: { dir: "../footage-07-c/", frames: 31, fps: 23.976 },
-    e: { dir: "../footage-07-e/", frames: 32, fps: 23.976 },
+    e: { dir: "../footage-07-e/", frames: 34, fps: 23.976 },
     d: { dir: "../footage-07-d/", frames: 91, fps: 23.976 },
   };
   // a: 1.0x (frame 69 hovering at 2.0, the last key on 76-78, the lift on 79 at 2.4), then the lift stepped into frame 80
@@ -63,7 +63,7 @@
   // b: 0.91x (the bible's 10 % slower) from frame 3 to frame 38, held there from 5.4: the freeze lands on a real frame
   const mapB = AD.map([[T.b0, 2 / 23.976], [T.fz2, 37 / 23.976]]);
   const mapC = AD.map([[T.c0, 0], [T.e0, T.e0 - T.c0]]);                                     // 1.0x: binoculars up
-  const mapE = AD.map([[T.e0, 0.25], [T.d0, 0.25 + (T.d0 - T.e0) * 0.75]]);                  // 0.75x: the engines light
+  const mapE = AD.map([[T.e0, 0.65], [T.d0, 0.65 + (T.d0 - T.e0) * 0.75]]);                  // 0.75x: the engines light
   const mapD = AD.map([[T.d0, 1 / 23.976], [T.end0 + 1, 1 / 23.976 + (T.end0 + 1 - T.d0) * 0.75]]);   // 0.75x
   let blendCv = null;
   /** The frame at a source time: "mix" the two neighbours by the fraction (a 24/25 fps clip runs even at 30, and a slowed
@@ -114,7 +114,7 @@
     cards.forEach((c) => { c.w = cardW; c.x = Math.round((1080 - cardW) / 2); c.y = Math.round(960 - c.h / 2); });
     // the tiles: the same cards scaled so their line is 44 px (the name drawn larger to stay 44 px too), askew at the top right
     const tileS = 44 / cardSize;
-    const tiles = [{ cy: 300, rot: -0.045, left: 584 }, { cy: 512, rot: 0.035, left: 572 }];
+    const tiles = [{ cy: 300, rot: -0.045, left: 558 }, { cy: 512, rot: 0.035, left: 548 }];
     tiles.forEach((tl) => { tl.cx = Math.round(tl.left + (cardW * tileS) / 2); tl.s = tileS; });
     // the big card: head and name, "Go live?" heavy at 0.07w cap height, the dip-pen Yes (0.3w) and Not now, two ink lines at 44 px
     const askSize = Math.round(0.07 * 1080 / cap), askF = X0.font(900, askSize), lineF = X0.font(400, 44);
@@ -131,9 +131,9 @@
     const stamp = { w: Math.round(0.3 * 1080) }; stamp.h = Math.round(stamp.w * S.A.stamp.height / S.A.stamp.width * 1.25);
     stamp.cx = big.x + big.w - big.pad - stamp.w / 2 + 6; stamp.dy = big.headY + 50;
     if (stamp.cx + stamp.w / 2 > RIGHT) bad.push(`stamp past 0.88w (${(stamp.cx + stamp.w / 2).toFixed(0)})`);
-    // the hero: over the Yes button (40 px to its left, clear of the tiles), his head clear of the card
+    // the hero: over the Yes button (52 px to its left, clear of the tiles), his head clear of the card
     const hs = 500, s = hs / 544, yesCx = big.x + big.pad + yesW / 2;
-    const hero = { size: hs, s, x: Math.round(yesCx - 271 * s) - 40, y: Math.round(big.y - 84 - 405 * s) };
+    const hero = { size: hs, s, x: Math.round(yesCx - 271 * s) - 52, y: Math.round(big.y - 84 - 405 * s) };
     hero.eye = { x: hero.x + 271 * s, y: hero.y + 262 * s };
     // the handwritten yes (0.09w Caveat) across the printed Yes
     const handF = X0.font(700, 150, "Caveat"), handW = X0.width(ctx, "yes", handF);
@@ -324,13 +324,13 @@
       } else if (t < T.e0) {
         const sc = mapC(t);
         // levels for the room: its flat, lifted print brought to the pad's and the climb's black and white points
-        grade(S, footFrame(S, "c", sc), { sat: 0.12, contrast: 1.42, bright: 0.98 * flicker(t), pre: 0.9 });
+        grade(S, footFrame(S, "c", sc), { sat: 0.12, contrast: 1.42, bright: 1.2 * flicker(t), pre: 0.9 });
         AD.bars(S, BAR_H);
         X0.grain(ctx, 1080, 1920, t, 0.11, 1);
         info = `C src ${sc.toFixed(2)}`;
       } else if (t < T.d0) {
         const se = mapE(t);
-        grade(S, footFrame(S, "e", se), { sat: 0.12, contrast: 1.25, bright: 0.95 * flicker(t) });
+        grade(S, footFrame(S, "e", se), { sat: 0.05, contrast: 1.35, pre: 2.2, bright: 1.0 * flicker(t) });
         AD.bars(S, BAR_H);
         X0.grain(ctx, 1080, 1920, t, 0.11, 1);
         info = `E src ${se.toFixed(2)}`;
