@@ -8,6 +8,11 @@
  *   --ratio 9x16|16x9|both   which cut (default both): 1080 x 1920 and 1920 x 1080
  *   --scale 0.5              draw smaller (a quick look); the file name says so
  *   --stills                 write a few frames and a contact sheet instead of a film (--at 0.5,2,4 picks the seconds)
+ *   --every 1                with --stills: a still on every second (or every s seconds) from 0, named sNNN.png in
+ *                            stills-<tag>/ so sNNN is EXACTLY t = (N - 1) s, frame 30 (N - 1); with --query hud=1 the
+ *                            source frame number and timecode are burned top-left of each still (and so of the sheet).
+ *                            Review note: the v1 review sheets were grabbed from the mp4 with ffmpeg's fps=1, which keeps
+ *                            the LAST frame rounding to each second, so every v1 still was +14 frames (0.47 s) late.
  *   --range 3,9              render only these seconds (a look at one beat)
  *   --fps 30  --crf 17       the film's frame rate and quality
  *   --silent                 no sound track
@@ -37,6 +42,8 @@ const RATIOS = { "9x16": [1080, 1920], "16x9": [1920, 1080] };
 const ratios = opt("ratio", "both") === "both" ? Object.keys(RATIOS) : [opt("ratio")];
 const SCALE = Number(opt("scale", "1")), FPS = Number(opt("fps", "30")), CRF = opt("crf", "17");
 const stills = has("stills"), silent = has("silent");
+const every = opt("every", null) != null ? Number(opt("every")) : null;
+const burn = /(^|&)hud=1(&|$)/.test(opt("query", ""));   // with the page's hud on, the stills carry their frame number top-left
 const range = opt("range", null)?.split(",").map(Number) ?? null;
 const poster = opt("poster", null);
 fs.mkdirSync(out, { recursive: true });
@@ -56,18 +63,37 @@ for (const ratio of ratios) {
   await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
   const duration = await page.evaluate(() => window.TRAILER.duration);
   const tag = `${ratio}${SCALE !== 1 ? `-${Math.round(W)}w` : ""}`;
-  const grab = async (t, file) => {
+  const grab = async (t, file, label = false) => {
     await page.evaluate((t) => window.__frame(t), t);
+    if (label) {   // the source frame number and timecode, top-left, in a white box (a still that documents itself)
+      const f = Math.round(t * FPS), tc = `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}.${String(f % FPS).padStart(2, "0")}`;
+      await page.evaluate(([txt, sc]) => {
+        const c = document.querySelector("canvas").getContext("2d"), fs_ = Math.max(20, Math.round(40 * sc)), pad = Math.round(16 * sc);
+        c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = "source-over";
+        c.font = `500 ${fs_}px GeistMono, monospace`; c.textBaseline = "middle"; c.textAlign = "left";
+        const w = c.measureText(txt).width; c.fillStyle = "rgba(255,255,255,0.8)"; c.fillRect(pad, pad, w + fs_, fs_ * 1.4);
+        c.fillStyle = "#000"; c.fillText(txt, pad + fs_ / 2, pad + fs_ * 0.7); c.restore();
+      }, [`f${f}  ${tc}`, SCALE]);
+    }
     const data = await page.evaluate(() => document.querySelector("canvas").toDataURL("image/png"));
     fs.writeFileSync(file, Buffer.from(data.slice(data.indexOf(",") + 1), "base64"));
   };
 
-  if (stills) {
+  if (stills && every != null) {
+    // a still on every `every` seconds from 0: stills-<tag>/sNNN.png is exactly t = (N - 1) * every, frame round(30 t)
+    const dir = path.join(out, `stills-${tag}`); fs.mkdirSync(dir, { recursive: true });
+    const files = [];
+    for (let n = 0; n * every < duration; n++) {
+      const t = +(n * every).toFixed(4), f = path.join(dir, `s${String(n + 1).padStart(3, "0")}.png`); await grab(t, f, burn); files.push(f);
+    }
+    sheet(files, path.join(out, `sheet-${tag}.png`), ratio === "9x16" ? 6 : 3);
+    console.log(`${tag}: ${files.length} stills on the ${every === 1 ? "second" : every + " s"} in stills-${tag}/ (sNNN = ${every === 1 ? "N - 1 s" : "(N - 1) x " + every + " s"}, f = ${Math.round(FPS * every)} (N - 1))${burn ? ", frame numbers burned" : ""}, sheet-${tag}.png`);
+  } else if (stills) {
     const dir = path.join(out, "stills"); fs.mkdirSync(dir, { recursive: true });
     const at = opt("at", null)?.split(",").map(Number) ?? Array.from({ length: 12 }, (_, i) => +((i + 0.5) * duration / 12).toFixed(2));
     const files = [];
     for (const t of at.filter((x) => x >= 0 && x < duration)) {
-      const f = path.join(dir, `${tag}-${t.toFixed(2)}s.png`); await grab(t, f); files.push(f);
+      const f = path.join(dir, `${tag}-${t.toFixed(2)}s.png`); await grab(t, f, burn); files.push(f);
     }
     sheet(files, path.join(out, `sheet-${tag}.png`), ratio === "9x16" ? 6 : 3);
     console.log(`${tag}: ${files.length} stills, sheet-${tag}.png`);

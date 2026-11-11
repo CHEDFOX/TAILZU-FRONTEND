@@ -173,6 +173,7 @@ window.X0 = (() => {
     ctx.save(); ctx.translate(x, y); ctx.rotate(o.rot ?? -0.012);
     ctx.beginPath(); ctx.rect(-4, -h, w * clamp(k) + 4, h * 2.2); ctx.clip();
     if (o.alpha != null) ctx.globalAlpha *= o.alpha;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(im, 0, 0, w, h); ctx.restore();
   }
   /** Plain text at a point (baseline), with font and colour; `align` left/center/right. */
@@ -332,7 +333,7 @@ window.X0 = (() => {
   }
   /** The glove's centre y and the two eyes' boxes in the art (hero/bounds.json at 1632, over 3). */
   const GLOVE_CY = (503 + 666) / 2 / 3, SPLIT = 811 / 3;
-  const EYE_L = { x0: 536 / 3, y0: 630 / 3, x1: 726 / 3, y1: 887 / 3, cx: 631 / 3, cy: 758 / 3 }, EYE_R = { x0: 895 / 3, y0: 668 / 3, x1: 1096 / 3, y1: 958 / 3, cx: 995 / 3, cy: 813 / 3 };
+  const EYE_L = { x0: 536 / 3, y0: 630 / 3, x1: 726 / 3, y1: 887 / 3, cx: 631 / 3, cy: 758 / 3 }, EYE_R = { x0: 895 / 3, y0: 668 / 3, x1: 1094 / 3, y1: 958 / 3, cx: 994.5 / 3, cy: 813 / 3 };
   hang.LAUNCH_MS = LAUNCH_MS; hang.GONE_AT = GONE_AT; hang.BAR = BAR; hang.ART = ART; hang.BAR_TOP = BAR_TOP; hang.BAR_MID = BAR_MID; hang.MID = MID; hang.GLOVES = GLOVES; hang.GLOVE_CY = GLOVE_CY;
   hang.PINCH_AT = PINCH_AT; hang.SUCK_AT = SUCK_AT; hang.COME_BACK = COME_BACK; hang.LET_GO = LET_GO; hang.EYES = { L: EYE_L, R: EYE_R, c: EYES };
 
@@ -399,6 +400,7 @@ window.X0 = (() => {
     const cv = offscreen(cw, ch), c = cv.getContext("2d");
     c.save(); c.translate(pad, pad);
     if (o.rot) { c.translate(w / 2, h / 2); c.rotate(o.rot); c.translate(-w / 2, -h / 2); }
+    c.imageSmoothingQuality = "high";   // the 724-px brush marks are drawn at 90-250 px: a plain bilinear downscale keeps their grain as moire
     c.drawImage(im, 0, 0, w, h); c.restore();
     if (k < 1) {
       c.save(); c.globalCompositeOperation = "destination-in"; c.fillStyle = "#000"; c.beginPath();

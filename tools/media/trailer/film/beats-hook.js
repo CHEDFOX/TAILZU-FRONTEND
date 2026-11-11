@@ -3,8 +3,10 @@
  * One hero transform (L.hero) opens the film: he hangs asleep, breathing, eyes two cream slits; the eyes snap open at
  * f10; the first thing falls at f30 and lands at f48; by f128 a wordless heap towers at the right behind him while the
  * headline 'It all / piles up' writes bottom-left; he looks, holds, blinks, narrows, strikes the words out at f168;
- * then the app's own launch motion plays in full (gather, pull, let-go, spring, come-back, pinch, suck, gone at f227)
- * and he pops from behind the heap's top card at f228, glances up at where his bar was, then at you.
+ * then the app's own launch motion plays whole but tight (the Plan exit's recipe: gather f176-f180 and pull f180-f190 at
+ * the app's own speed, a 4 f spring, the come-back at 1.5x: gloves f194/f195, pinch f201, suck f203-f208, gone f208) and
+ * he pops from behind the heap's top card at f209, is up by f218 and holds on you to the cut, with a blink-dip or two.
+ * (The page has no face only f186-f209, 0.75 s; the bar alone, doing nothing a phone can see, only f190-f194.)
  *
  * Everything is a pure function of the frame. The heap (its table, physics and items) lives in common.js so the
  * episodes can show its tail; this file owns the eyes, the gaze, the headline timings, the launch clock and the peek.
@@ -24,10 +26,20 @@
     ring: 128,           // the last landing
     lookHeap: 128, lookYou: 136, hold: 144, blink: 160, narrow: 164, strike: 168, tilt: 175,
     launch: 176,         // t_launch = 420 ms here
-    gone: 227, pop: 228, glanceUp: 240, glanceBack: 248,
+    gone: 208, pop: 209, peekBlink: [226, 244],   // the peek's blink-dips (the second falls after the cut if it moves to f240)
   };
-  /** The launch clock: the engine's own timeline from 420 ms (the gather) at f176, unclamped. */
-  const tLaunch = (f) => (f - F.launch) * 1000 / 30 + 420;
+  /**
+   * The launch clock (ms of the engine's launch motion), the Plan exit's recipe: the gather f176-f180 (420 -> 560) and
+   * the pull f180-f190 (560 -> 900) at the app's own speed (let-go f184/f186), a short spring f190-f194 (900 -> 1250),
+   * then the come-back at 1.5x f194-f208 (1400 -> 2120: gloves back f194/f195, pinch f201, suck f203, gone f208).
+   */
+  function tLaunch(f) {
+    if (f < F.launch + 4) return 420 + (f - F.launch) * 35;
+    if (f < F.launch + 14) return 560 + (f - F.launch - 4) * 34;
+    if (f < F.launch + 18) return 900 + (f - F.launch - 14) * 87.5;
+    if (f < F.gone) return 1400 + (f - F.launch - 18) * (720 / 14);
+    return X0.hang.GONE_AT + 10;
+  }
 
   // ------------------------------------------------------------------------------------------------ the eyes
   /** The eye snap, frame by frame from f10: slits to open with a 1.06 overshoot on the 4th frame. */
@@ -118,28 +130,29 @@
   const noteK = (f) => E.o3(fr(f, F.note - CM.FALL_F, 12));
 
   // ------------------------------------------------------------------------------------------------ the peek
-  /** The ring card's wobble (radians) as he pops from behind it: +-2 deg over 4 f from f228. */
+  /** The ring card's wobble (radians) as he pops from behind it: +-2 deg over 4 f from f209. */
   function wobble(f) { if (f < F.pop || f >= F.pop + 4) return 0; const k = fr(f, F.pop, 4); return deg(2) * Math.cos(k * Math.PI * 2) * (1 - k * 0.5); }
   /**
    * Bot-curious rising behind the heap's top card: the gloves slide up from behind its top edge first (fingers folding
-   * over it), then the face pops (E.back 1.35, 9 f). The rig rides the card's tilt so the gloves grip its real edge.
+   * over it) while the face pops (E.back 1.35, 9 f from f209: up by f218). The rig rides the card's tilt so the gloves
+   * grip its real edge. Through the hold he blinks the way a peeking face blinks in this film (Travel's blink-dip): the
+   * whole rig drops 20 px behind the card for 2 f. (The old 6 px glance did not survive phone scale and is gone.)
    */
   function peekFromHeap(S, f) {
     const { ctx, R } = S;
     const ring = CM.heap(S, F.ring).find((it) => it.id === "ring"), half = CM.ITEM.ring.h / 2;
     const ex = ring.x + Math.sin(ring.rot) * half, ey = ring.y - Math.cos(ring.rot) * half;   // the top edge's middle
     const w = 440, fm = R.meta["bot-curious-nohands"], s = w / fm.w, faceH = fm.h * s;
-    const rise = f < F.pop + 1 ? 0 : E.back(1.35)(fr(f, F.pop + 1, 9));
-    // the glance: the whole face slides 6 px up (and a little left, toward where his bar was) at f240, back at f248
-    const glance = f < F.glanceUp ? 0 : f < F.glanceBack ? E.io(fr(f, F.glanceUp, 6)) : 1 - E.io(fr(f, F.glanceBack, 6));
+    const rise = f < F.pop ? 0 : E.back(1.35)(fr(f, F.pop, 9));
+    const dip = F.peekBlink.some((b) => f >= b && f < b + 2) ? 20 : 0;
     ctx.save(); ctx.translate(ex, ey); ctx.rotate(ring.rot);
-    if (rise > 0) X0.peekRig(ctx, R, "curious", 0, 0, w, rise, { dx: -(S.portrait ? 3 : 6) * glance, dy: -6 * glance, gloves: [{ hide: true }, { hide: true }] });
+    if (rise > 0) X0.peekRig(ctx, R, "curious", 0, 0, w, rise, { dy: dip, gloves: [{ hide: true }, { hide: true }] });
     ["glove-L", "glove-R"].forEach((n, i) => {
       const gm = R.meta[n], im = R.img[n];
       const gx = -w / 2 + (gm.x0 - fm.x0) * s, gy = -fm.ledge * s + (gm.y0 - fm.y0) * s, gw = gm.w * s, gh = gm.h * s, below = gh - gm.ledge * s;
       const up = E.o3(fr(f, F.pop + i, 4)), over = up >= 1 ? fr(f, F.pop + 4 + i, 2) : 0;
       ctx.save(); ctx.beginPath(); ctx.rect(-w, -3 * faceH, 2 * w, 3 * faceH + over * (below + 2)); ctx.clip();
-      ctx.drawImage(im, gx, gy + (1 - up) * 60, gw, gh); ctx.restore();
+      ctx.drawImage(im, gx, gy + (1 - up) * 60 + dip, gw, gh); ctx.restore();
     });
     ctx.restore();
   }
@@ -204,14 +217,15 @@
       headline(S, f);   // the struck words hold to the cut
     },
     cues() {
+      const L = F.launch;   // the cues ride the launch clock above: pull f180, spring f190, gloves f194/f195, pinch f201, suck f203
       return [
-        { f: 180, kind: "whoosh", dur: 0.35, up: true, gain: 0.5 },
-        { f: 190, kind: "boing", gain: 0.4 },
-        { f: 205, kind: "land", gain: 0.3 }, { f: 207, kind: "land", gain: 0.3 },
-        { f: 215, kind: "click", gain: 0.35 },
-        { f: 218, kind: "whoosh", dur: 0.3, up: false, gain: 0.35 },
+        { f: L + 4, kind: "whoosh", dur: 0.35, up: true, gain: 0.5 },
+        { f: L + 14, kind: "boing", gain: 0.4 },
+        { f: L + 18, kind: "land", gain: 0.3 }, { f: L + 19, kind: "land", gain: 0.3 },
+        { f: L + 25, kind: "click", gain: 0.35 },
+        { f: L + 27, kind: "whoosh", dur: 0.3, up: false, gain: 0.35 },
         { f: F.pop, kind: "open", gain: 0.6 }, { f: F.pop, kind: "land", gain: 0.5 },
-        { f: F.glanceUp, kind: "tick", gain: 0.2 },
+        ...F.peekBlink.filter((b) => b < 256).map((b) => ({ f: b, kind: "tick", gain: 0.15 })),
       ];
     },
   });

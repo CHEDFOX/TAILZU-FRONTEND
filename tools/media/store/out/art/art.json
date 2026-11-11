@@ -25,7 +25,7 @@
   "bot-starry": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/bot-starry.png",
    "w": 834,
-   "h": 483,
+   "h": 484,
    "ledge": 425.18399999999997,
    "anchor": null
   },
@@ -34,6 +34,13 @@
    "w": 831,
    "h": 485,
    "ledge": 427.18399999999997,
+   "anchor": null
+  },
+  "bot-shy": {
+   "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/bot-shy.png",
+   "w": 830,
+   "h": 473,
+   "ledge": 415.18399999999997,
    "anchor": null
   },
   "underline-c9683f": {
@@ -45,7 +52,7 @@
   },
   "arrow-c9683f": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-c9683f.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [
@@ -62,7 +69,7 @@
   },
   "arrow-0a0a0a": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-0a0a0a.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [
@@ -79,7 +86,7 @@
   },
   "arrow-a9573a": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-a9573a.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [
@@ -96,7 +103,7 @@
   },
   "arrow-8f6a1f": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-8f6a1f.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [
@@ -113,7 +120,7 @@
   },
   "arrow-3e6e8e": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-3e6e8e.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [
@@ -130,7 +137,7 @@
   },
   "arrow-2f5d50": {
    "file": "/home/user/TAILZU-FRONTEND/tools/media/store/out/art/arrow-2f5d50.png",
-   "w": 263,
+   "w": 264,
    "h": 728,
    "ledge": null,
    "anchor": [

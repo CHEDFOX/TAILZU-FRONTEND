@@ -53,15 +53,38 @@ window.CM = (() => {
       }
     });
     if (o.strike && f >= o.strike.f) {
-      const line = lines[o.strike.line ?? 1], k = E.o3(fr(f, o.strike.f, 8)), w = line.w * 1.06, h = w * o.strike.img.height / o.strike.img.width;
-      X0.reveal(ctx, o.strike.img, line.x - line.w * 0.03, base[o.strike.line ?? 1] - size * 0.36 - h / 2, w, h, k, "x", { rot: -0.035, rag: 10, seed: 5 });
+      // The strike runs through the WHOLE line, Geist word and hand word alike: centred between the Geist x-height centre
+      // (base - 0.36 em) and the Caveat body centre (base - 0.15 hand-em) when the line has a hand word, nearly flat
+      // (-1.3 deg) so its right end does not climb off the lower-sitting hand word, 12 % wider than the line with its start
+      // pulled left so the stroke's baked right taper lands past the hand word, and 1.3x thick (thickness only).
+      const li = o.strike.line ?? 1, line = lines[li], k = E.o3(fr(f, o.strike.f, 8)), hw = line.words.find((w) => w.hand);
+      const w = line.w * 1.12, h = w * o.strike.img.height / o.strike.img.width * 1.3, cy = base[li] - (hw ? (size * 0.36 + hs * 0.15) / 2 : size * 0.36);
+      X0.reveal(ctx, o.strike.img, line.x - line.w * 0.045, cy - h / 2, w, h, k, "x", { rot: -0.022, rag: 10, seed: 5 });
     }
     ctx.restore();
     return lines;
   }
-  /** The brush underline under a hand word, at least 22 px tall, a little wider than the word, brushed in with a ragged edge. */
+  /**
+   * The brush underline under a hand word: at least 22 px of INK tall, a little wider than the word, brushed in with a
+   * ragged edge. The floor is about the ink, not the image box: the brush assets carry ink in only ~64 % of their rows
+   * (the stroke wobbles inside the box), so a 22 px box gave 14 px of ink under every word. inkShare() measures each
+   * asset once (the median per-column ink height over its height) and the box is sized so the ink itself is >= 22 px.
+   */
+  const inkShares = new Map();
+  function inkShare(img) {
+    let v = inkShares.get(img); if (v != null) return v;
+    v = 0.64;
+    try {
+      const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+      const c = cv.getContext("2d", { willReadFrequently: true }); c.drawImage(img, 0, 0);
+      const d = c.getImageData(0, 0, img.width, img.height).data, cols = [];
+      for (let x = 0; x < img.width; x++) { let n = 0; for (let y = 0; y < img.height; y++) if (d[(y * img.width + x) * 4 + 3] > 100) n++; if (n) cols.push(n); }
+      if (cols.length) { cols.sort((a, b) => a - b); v = clamp(cols[cols.length >> 1] / img.height, 0.2, 1); }
+    } catch (e) { /* a tainted canvas: keep the estimate */ }
+    inkShares.set(img, v); return v;
+  }
   function underline(S, word, img, k, size) {
-    const { ctx } = S, wide = word.text.length <= 3 ? 1.3 : 1.12, w = word.w * wide, h = Math.max(22, w * img.height / img.width * 1.15);
+    const { ctx } = S, wide = word.text.length <= 3 ? 1.3 : 1.12, w = word.w * wide, h = Math.max(22 / inkShare(img), w * img.height / img.width * 1.15);
     X0.reveal(ctx, img, word.x - (w - word.w) / 2, word.y + size * 0.1, w, h, k, "x", { rot: -0.012, rag: 9, seed: 2 });
   }
   /** Plain Geist text that wipes on left to right over n frames from f0. */
@@ -104,6 +127,19 @@ window.CM = (() => {
     lines.forEach((l, i) => X0.text(ctx, l, bx + pad, y + pad * 0.55 + size * 0.95 + i * lh, f, mine ? "#FFFFFF" : C.ink));
     ctx.restore(); return { w: bw, h: bh, x: bx };
   }
+  /**
+   * The app's send control, the same on every card: an ink disc `d` across with the white up-arrow. The arrow's stem,
+   * head and stroke scale with the disc (the stage card's is 88 px with a 4 px stroke; a small disc keeps a 2.5 px
+   * stroke so the arrow survives phone scale). Every composer in the film draws its send circle through this.
+   */
+  function sendButton(S, cx, cy, d = 88, o = {}) {
+    const { ctx } = S, k = d / 88;
+    ctx.save(); if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
+    ctx.fillStyle = o.fill ?? C.ink; ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = o.arrow ?? "#FFFFFF"; ctx.lineWidth = Math.max(2.5, 4 * k); ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath();
+    ctx.moveTo(cx, cy + 16 * k); ctx.lineTo(cx, cy - 16 * k); ctx.moveTo(cx - 13 * k, cy - 3 * k); ctx.lineTo(cx, cy - 16 * k); ctx.lineTo(cx + 13 * k, cy - 3 * k); ctx.stroke();
+    ctx.restore();
+  }
   /** A black pill button with white Geist 600 text, centred at (cx, cy). */
   function pill(S, text, cx, cy, w, h, o = {}) {
     const { ctx } = S; ctx.save(); if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
@@ -130,24 +166,34 @@ window.CM = (() => {
    */
   // Resting offsets from L.heap.land for each cut: p (9:16: the column x 600-1070, the heap's top near y 920) and
   // l (16:9: x 1150-1900, the top near y 450); a0 -> a1 the tumble (degrees). The ring card lands last, on top.
+  // The first three landings keep Mom's words readable through the headline: the dentist note lands on the card's input
+  // pill / send-circle corner (its raised right end stays below the bubble), the first scrap drops onto the note and the
+  // pill (lower right of the card, not the bubble), and the ticket sits above the bubble; the pile then buries the card
+  // from f112 (blank2, stay, the ring card), after the title has written. The same card-relative anchors in both cuts.
+  // (16:9: the whole heap sits 90 px higher than L.heap.land so the chat card's pill and torn edge land clear of an embed's
+  // control bar: card centre y 810, pill bottom ~945, shadow <= 995.)
   const HEAP = [
     // (9:16: the chat card sits 40 px left of L.heap.land so Mom's words end before the Reels rail at x 950)
-    { id: "chat",    land: 48,  p: [-40, 0],     l: [0, 0],        a0: 18,  a1: -6 },
-    { id: "note",    land: 64,  p: [-10, -80],   l: [30, -80],     a0: 30,  a1: -12 },
-    { id: "blank1",  land: 80,  p: [-90, -50],   l: [-60, -90],    a0: -20, a1: 7 },
-    { id: "ticket",  land: 96,  p: [105, -110],  l: [170, -170],   a0: 25,  a1: -9 },
-    { id: "sun",     land: 104, p: [-200, -330], l: [-230, -400],  a0: 40,  a1: 10 },
-    { id: "blank2",  land: 112, p: [90, -20],    l: [240, -280],   a0: -30, a1: -5 },
-    { id: "stay",    land: 116, p: [110, -140],  l: [100, -10],    a0: 15,  a1: 4, pa1: 18 },   // askew in 9:16: it shows past the ring card
-    { id: "packing", land: 120, p: [90, -300],   l: [280, -380],   a0: -25, a1: 12 },
-    { id: "blank3",  land: 124, p: [135, -215],  l: [-100, -380],  a0: 20,  a1: -8 },
-    { id: "ring",    land: 128, p: [-10, -205],  l: [50, -300],    a0: -15, a1: 3 },
+    { id: "chat",    land: 48,  p: [-40, 0],     l: [0, -90],      a0: 18,  a1: -6 },
+    { id: "note",    land: 64,  p: [40, 100],    l: [80, 10],      a0: 30,  a1: -9 },
+    { id: "blank1",  land: 80,  p: [20, 130],    l: [60, 20],      a0: -20, a1: -5 },
+    { id: "ticket",  land: 96,  p: [105, -240],  l: [145, -330],   a0: 25,  a1: -3 },
+    { id: "sun",     land: 104, p: [-200, -330], l: [-230, -490],  a0: 40,  a1: 10 },
+    { id: "blank2",  land: 112, p: [90, -20],    l: [240, -370],   a0: -30, a1: -5 },
+    { id: "stay",    land: 116, p: [110, -140],  l: [100, -100],   a0: 15,  a1: 4, pa1: 18 },   // askew in 9:16: it shows past the ring card
+    { id: "packing", land: 120, p: [90, -300],   l: [280, -470],   a0: -25, a1: 12 },
+    { id: "blank3",  land: 124, p: [135, -215],  l: [-100, -470],  a0: 20,  a1: -8 },
+    { id: "ring",    land: 128, p: [-10, -205],  l: [50, -390],    a0: -15, a1: 3 },
   ];
   /** The items' drawn sizes (px at u 1): the cards' boxes, the scraps' widths. */
   const ITEM = {
     chat: { w: 460, h: 300 }, note: { w: 330 }, blank1: { w: 380 }, blank2: { w: 360 }, blank3: { w: 390 }, packing: { w: 300 },
     ticket: { w: 420, h: 200 }, stay: { w: 420, h: 120 }, sun: { w: 220 }, ring: { w: 480, h: 270 },
   };
+  /** The scrap items' component images (their heights come from the image's ratio). */
+  const SCRAP = { note: "scrap-note", blank1: "scrap-blank-1", blank2: "scrap-blank-2", blank3: "scrap-blank-3", packing: "scrap-packing", sun: "ink-sun" };
+  /** An item's drawn box (px at u 1): the cards' boxes, the scraps' widths with heights from their images. */
+  function itemBox(S, id) { const I = ITEM[id], im = SCRAP[id] && S.A[SCRAP[id]]; return { w: I.w, h: I.h ?? (im ? I.w * im.height / im.width : 0) }; }
   /** The heap at frame f: every item that has entered, with its centre, angle, squash and jostle. */
   function heap(S, f) {
     const { L } = S, base = L.heap.land, out = [];
@@ -176,10 +222,11 @@ window.CM = (() => {
     ctx.fillStyle = C.surface; X0.rrect(ctx, bx, by, bw, bh, size * 0.8); ctx.fill();
     lines.forEach((l, i) => X0.text(ctx, l, bx + pad, by + size * 0.45 + size * 0.95 + i * lh, fnt, C.ink));
     X0.text(ctx, "7:28 pm", x + 28 * k, by + bh + 40 * k, fnt, C.grey);
-    // the empty input pill with the send circle
-    const ph = 50 * k, py = y + h - ph - 18 * k;
+    // the empty input pill with the send circle: the same control as the stage card's (sendButton), scaled from the pill's
+    // height but never under 44 px, so the arrow still reads at phone scale (a 37 px bare disc read as a blob)
+    const ph = 58 * k, py = y + h - ph - 18 * k;
     ctx.strokeStyle = C.line; ctx.lineWidth = 2; X0.rrect(ctx, x + 24 * k, py, w - 48 * k, ph, ph / 2); ctx.stroke();
-    ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(x + w - 24 * k - ph / 2, py + ph / 2, ph * 0.38, 0, Math.PI * 2); ctx.fill();
+    sendButton(S, x + w - 24 * k - ph / 2, py + ph / 2, Math.max(44, ph * 0.73));
     ctx.restore();
   }
   /** The torn dentist note with its handwriting: centred, `w` wide, turned by rot; `k` writes the words on (1 = all). */
@@ -209,11 +256,14 @@ window.CM = (() => {
       case "stay": stageCard(S, -I.w / 2, -I.h / 2, I.w, I.h, { r: 22 }); break;
       case "sun": { const s = A["ink-sun"], sh = I.w * s.height / s.width; ctx.drawImage(s, -I.w / 2, -sh / 2, I.w, sh); break; }
       case "ring": {     // the ring card: the wide loose ring across its middle, the eyeless beetle on the ring's top-right
-        stageCard(S, -I.w / 2, -I.h / 2, I.w, I.h, { r: 24 });
-        const r = A["ring-ink-wide"], rw = 420, rh = rw * r.height / r.width; ctx.drawImage(r, -rw / 2, -rh / 2, rw, rh);
+        // o.tail = { h, ring, ringDy }: the heap tail's shorter box (its blank lower paper trimmed), the ring scaled by
+        // `ring` and moved down `ringDy` into the visible band; the beetle keeps its size and rides the ring
+        const T = o.tail, ch = T ? T.h : I.h, rs = T ? T.ring : 1, rdy = T ? T.ringDy : 0;
+        stageCard(S, -I.w / 2, -ch / 2, I.w, ch, { r: 24 });
+        const r = A["ring-ink-wide"], rw = 420 * rs, rh = rw * r.height / r.width; ctx.drawImage(r, -rw / 2, rdy - rh / 2, rw, rh);
         const b = A[o.beetleB ? "beetle-b" : "beetle-a"], bw = 56, bh = bw * b.height / b.width, bx = rw * 0.32;
         const ringY = -rh / 2 * Math.sqrt(Math.max(0, 1 - Math.pow((bx + bw / 2) / (rw / 2), 2)));   // the ring's top edge under the beetle
-        ctx.drawImage(b, bx, ringY - bh * 0.92, bw, bh);
+        ctx.drawImage(b, bx, rdy + ringY - bh * 0.92, bw, bh);
         break;
       }
     }
@@ -223,16 +273,28 @@ window.CM = (() => {
   function drawHeap(S, f, o = {}) { for (const it of heap(S, f)) drawHeapItem(S, it, o); }
   /**
    * The heap's tail under a stage card during the episodes: the top `n` items of the finished heap, peeking up from
-   * below the card's bottom edge (y = L.heap.tailY) at 90 % opacity, clipped to the frame.
+   * below the card's bottom edge (y = L.heap.tailY), opaque (a face at 90 % let its own hatch shadow through and read as
+   * lined paper), clipped to the frame. In 9:16 nothing in the tail reaches below tailY + TAIL_BAND (y 1390, above the
+   * 1400 safe line): the ring card is drawn as a shorter box there (its blank lower paper trimmed; the loop at 0.75 and
+   * the beetle moved down into the visible band, the beetle full size), and the scraps sit higher so only their torn
+   * lower edges show. In 16:9 the frame's edge crops the tail, as designed, and the slots are as they were.
    */
   const TAIL_SLOT = { ring: { fx: 0.72, dy: 0, rot: -3 }, blank3: { fx: 0.45, dy: 8, rot: 5 }, packing: { fx: 0.24, dy: 16, rot: -8 } };
+  const TAIL_BAND = 120, TAIL_RING = { h: 150, ring: 0.75, ringDy: 22 };
   function heapTail(S, n, o = {}) {
-    if (n <= 0) return; const { ctx, L } = S, items = heap(S, 128).slice(-n);
-    ctx.save(); ctx.globalAlpha *= o.alpha ?? 0.9;
-    ctx.beginPath(); ctx.rect(0, L.heap.tailY, L.W, L.H - L.heap.tailY); ctx.clip();
+    if (n <= 0) return; const { ctx, L } = S, items = heap(S, 128).slice(-n), tailY = L.heap.tailY;
+    ctx.save(); if (o.alpha != null) ctx.globalAlpha *= clamp(o.alpha);
+    ctx.beginPath(); ctx.rect(0, tailY, L.W, L.H - tailY); ctx.clip();
     // each item has ONE slot whatever n is, so the ring card keeps its spot as the tail shrinks 3 -> 2 -> 1 across the cuts
-    items.forEach((it, i) => { const s = TAIL_SLOT[it.id] || { fx: 0.3 + 0.2 * i, dy: i * 10, rot: 0 };
-      drawHeapItem(S, { ...it, x: L.stage.x + L.stage.w * s.fx + (o.dx ?? 0), y: L.heap.tailY + 90 + s.dy + (o.dy ?? 0), rot: X0.deg(s.rot), sx: 1, sy: 1 }); });
+    items.forEach((it, i) => {
+      const s = TAIL_SLOT[it.id] || { fx: 0.3 + 0.2 * i, dy: i * 10, rot: 0 };
+      let y = tailY + 90 + s.dy, rot = s.rot, tail = null;
+      if (S.portrait) {   // the item's lowest corner (and its 9 px hatch shadow) at or above tailY + TAIL_BAND
+        if (it.id === "ring") { tail = TAIL_RING; rot = 0; y = tailY + TAIL_BAND - 11 - tail.h / 2; }
+        else { const { w, h } = itemBox(S, it.id), a = Math.abs(X0.deg(rot)); y = tailY + TAIL_BAND - 6 - (h / 2 * Math.cos(a) + w / 2 * Math.sin(a)); }
+      }
+      drawHeapItem(S, { ...it, x: L.stage.x + L.stage.w * s.fx + (o.dx ?? 0), y: y + (o.dy ?? 0), rot: X0.deg(rot), sx: 1, sy: 1 }, { tail });
+    });
     ctx.restore();
   }
 
@@ -257,5 +319,5 @@ window.CM = (() => {
   /** A quadratic arc from a to b bulging toward c, at k. */
   const arc = (a, c, b, k) => { const u = 1 - k; return [u * u * a[0] + 2 * u * k * c[0] + k * k * b[0], u * u * a[1] + 2 * u * k * c[1] + k * k * b[1]]; };
 
-  return { fr, FALL_F, fallY, squash, tumble, pop, headline, underline, wipeText, scrawl, stageCard, bubble, pill, scrapAt, HEAP, ITEM, heap, chatCard, dentistNote, drawHeapItem, drawHeap, heapTail, hero, gazeAt, bob, flip, tapRing, arc };
+  return { fr, FALL_F, fallY, squash, tumble, pop, headline, underline, wipeText, scrawl, stageCard, bubble, pill, sendButton, scrapAt, HEAP, ITEM, SCRAP, itemBox, heap, chatCard, dentistNote, drawHeapItem, drawHeap, heapTail, TAIL_BAND, hero, gazeAt, bob, flip, tapRing, arc };
 })();
