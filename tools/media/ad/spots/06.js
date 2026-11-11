@@ -65,10 +65,18 @@
   // Each source framed, exposed and white-balanced into the one grade: mid-tones at R-B about -6 to -12, chroma 13-18.
   // tint is a multiply over the graded frame (cooler where R and G sit under B); sat is the grade's saturation.
   const LOOK = {
-    a: { zoom: 1.04, dy: 38, bright: 0.66, con: 1.26, sat: 0.6, tint: [224, 233, 247] },    // daylight: a heavy dark grade
-    b: { zoom: 1.16, dy: -150, bright: 1.12, con: 1.14, sat: 0.42, tint: [178, 222, 255] }, // the fingertip and the piece lifted clear of the card
-    c: { zoom: 1.0, dy: 0, bright: 1.2, con: 1.12, sat: 0.36, tint: [190, 222, 255] },
-    e: { zoom: 1.0, dy: -40, bright: 0.72, con: 1.22, sat: 0.4, tint: [236, 236, 250] },    // the feet clear of the card; the sun pulled down
+    a: { zoom: 1.04, dy: 38, bright: 0.66, con: 1.26, sat: 0.57, tint: [222, 233, 249] },    // daylight: a heavy dark grade
+    b: { zoom: 1.16, dy: -150, bright: 1.6, con: 1.14, sat: 0.5, tint: [122, 190, 255] },  // the fingertip and the piece lifted clear of the card
+    c: { zoom: 1.0, dy: 0, bright: 1.14, con: 1.12, sat: 0.5, tint: [194, 222, 255] },     // the hold: the (degraded) train fills the frame
+    c2: { zoom: 1.0, dy: 0, bright: 1.42, con: 1.12, sat: 0.55, tint: [146, 199, 255] },      // the platform and its brown tiles, once the train has gone
+    e: { zoom: 1.0, dy: -40, bright: 0.76, con: 1.22, sat: 0.5, tint: [203, 226, 255] },    // the feet clear of the card; the sun pulled down
+  };
+  /** Folder c white-balances from the train to the platform as the train pulls out (src 1.3 to 2.0), so the mid-tones
+   *  stay put while the frame's content turns from grey car to brown wall. */
+  const look = (key, src) => {
+    if (key !== "c") return LOOK[key];
+    const k = E.io(clamp((src - 1.3) / 0.9)), a = LOOK.c, b = LOOK.c2, m = (p, q) => lerp(p, q, k);
+    return { zoom: 1, dy: 0, bright: m(a.bright, b.bright), con: a.con, sat: m(a.sat, b.sat), tint: a.tint.map((v, i) => m(v, b.tint[i])) };
   };
 
   /** The clothing wordmark on her left thigh in the release (folder a, frames 42-51): painted out by RGBA patches made
@@ -219,7 +227,7 @@
   /** The one grade: contrast up, saturation down (a third more gone in a cold freeze), each clip's white balance, cooler
    *  and darker when cold, a soft vignette. */
   function film(S, key, src, cold = 0) {
-    const L = LOOK[key], ctx = S.ctx;
+    const L = look(key, src), ctx = S.ctx;
     AD.film(S, clean(S, key, src), { zoom: L.zoom, dy: L.dy, vig: 0.4 + 0.08 * cold,
       grade: `contrast(${(L.con * (1 + 0.05 * cold)).toFixed(3)}) saturate(${(L.sat * (1 - cold / 3)).toFixed(3)}) brightness(${(L.bright * (1 - 0.07 * cold)).toFixed(3)})` });
     ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = `rgb(${Math.round(L.tint[0] - 16 * cold)},${Math.round(L.tint[1] - 6 * cold)},${L.tint[2]})`; ctx.fillRect(0, 0, 1080, 1920); ctx.restore();
