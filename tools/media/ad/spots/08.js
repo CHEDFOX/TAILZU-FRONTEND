@@ -10,9 +10,12 @@
  * first note tapes on, typed: Tonight / Tomorrow. Hard cut to a runner at dawn, small, from behind: 'Your own bot /
  * in a sentence', 'a' by hand, the clay underline under 'a sentence'. The campaign's end card; the hero winks.
  *
- * Footage (prep.mjs, real speed, no interpolation; one warm-grey grade for all three):
- *   ../footage-08-a/  Coverr 9667, 12.0-13.6 s, the empty hallway and open door (30 fps)
- *   ../footage-08-b/  Coverr 5259, 0.4-1.4 s, the shoe, letterboxed (--fit contain) so the whole shoe fits; one frame held
+ * Footage (prep.mjs, real speed, no interpolation; one warm-grey grade for all three: contrast up, colour down, and a
+ * "color" layer that puts every shot on the same low-chroma warm grey, the lamp's pool and the dawn horizon left warm):
+ *   ../footage-08-a/  Coverr 9667, 12.0-13.6 s, the empty hallway and open door (30 fps); one frame held (locked), and
+ *                     the shoe below keyed out and laid twice on the corridor floor outside the door: shoes by the door
+ *   ../footage-08-b/  Coverr 5259, 0.4-1.4 s, the shoe, letterboxed (--fit contain) so the whole shoe fits; one frame held,
+ *                     punched in 115 % on the laces
  *   ../footage-08-g/  Coverr 6949, 13.2-15.8 s, the runner on the salt flat at dawn, letterboxed wide (--fit contain) and
  *                     opened to full height (its sky and ground carried out) so the figure stays small; two far walkers
  *                     on the horizon covered with the ground beside them (30 fps)
@@ -163,8 +166,8 @@
       tone(S, wg(0.35));
       AD.scrim(S, 0, 460, 0.55);
       // the floor runs out into the dark below the shoe (the letterboxed frame's edge is never seen), so her words sit on black-brown
-      const g = ctx.createLinearGradient(0, 1100, 0, 1330); g.addColorStop(0, "rgba(6,5,4,0)"); g.addColorStop(1, "rgba(6,5,4,1)");
-      ctx.fillStyle = g; ctx.fillRect(0, 1100, 1080, 231); ctx.fillStyle = "rgb(6,5,4)"; ctx.fillRect(0, 1330, 1080, 600);
+      const g = ctx.createLinearGradient(0, 1050, 0, 1300); g.addColorStop(0, "rgba(6,5,4,0)"); g.addColorStop(0.45, "rgba(6,5,4,0.62)"); g.addColorStop(1, "rgba(6,5,4,1)");
+      ctx.fillStyle = g; ctx.fillRect(0, 1050, 1080, 281); ctx.fillStyle = "rgb(6,5,4)"; ctx.fillRect(0, 1330, 1080, 600);
     }
     X0.vignette(ctx, 1080, 1920, 0.32);
   }

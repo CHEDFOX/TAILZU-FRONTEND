@@ -7,8 +7,8 @@
  * draws itself there; the headline (Each great at / one thing) with the one small line he says; a wink; the end card.
  *
  * Footage (one grade: contrast up, saturation -34 %, fine grain, soft vignette; a cold freeze on the cook):
- *   ../footage-03-a/  bread   Mixkit 42468, 3.95-5.2 s, crop 0.29,0,0.316,1 (30 fps, no interpolation), played at 0.8x
- *                     (the sharpest press of the fist in the kneading clips; zoomed 1.06 and lifted so the fingers clear the tag)
+ *   ../footage-03-a/  bread   Mixkit 42468, 3.95-5.2 s, crop 0.29,0,0.316,1 (30 fps, no interpolation), played from 4.15 s at 0.75x
+ *                     (the sharpest press of the fist in the kneading clips; it lifts, blurred, into the first whip)
  *   ../footage-03-b/  clay    Mixkit 32085, 10.9-12.6 s, crop 0.37,0,0.316,1
  *   ../footage-03-c/  hair    Mixkit 43243, 7.3-9.0 s, crop 0.3,0,0.6,0.6 (the cape's print is below the crop)
  *   ../footage-03-d/  clip 2 (the dancer), its frames 325-485 = 4.5-6.72 s (72 fps); its corner mark patched as dance.js does
@@ -43,7 +43,7 @@
 
   // ------------------------------------------------------------------------------------------------ the shots
   const SHOTS = [
-    { foot: "a", a: 0, b: 1.3, src0: 0.0, speed: 0.8, zoom: 1.06, dy: -90, trim: 0.95, tag: "Great at bread" },   // the fist's fingers end above the tag
+    { foot: "a", a: 0, b: 1.3, src0: 0.2, speed: 0.75, trim: 0.95, tag: "Great at bread" },   // the press held sharp for 1 s at 0.75x (no slower without interpolation); the fingers end above the tag
     { foot: "b", a: 1.3, b: 2.6, src0: 0.15, trim: 0.88, tag: "Great at clay" },
     { foot: "c", a: 2.6, b: 3.9, src0: 0.15, trim: 1.06, tag: "Great at hair", tagY: 0.2 },   // on the wall above his hair, never on his face
     { foot: "d", a: 3.9, b: 5.8, src0: 0.1, trim: 1.0, tag: "Great at this", tagY: 0.2, patch: true, dy: 70, feather: 60 },   // the tag on the dark stage under the bulbs; set 70 px down so its lights clear the mount, its top edge feathered into black   // clip 2 from 4.6 s; the lights come on 0.4 s in
@@ -239,14 +239,14 @@
     const scale = 1 + 0.5 * (t < g2 ? E.io(fr(t, g0, g1 - g0)) : 1 - E.io(fr(t, g2, g3 - g2)));   // 1.5x as it reaches, so it reads on a phone
     return { x, y, r, grip, scale, gx0, gy0, g0, g2, g3, g4 };
   }
-  /** Two or three short ink speed lines left along the glove's path (behind it, fading), during the reach and the flick. */
+  /** Three short speed lines left along the glove's path (behind it, fading), during the reach and the flick: cream like the glove, as they cross dark footage. */
   function speedLines(S, t) {
     const T = S.T, now = reachAt(T, t); if (!now || t > now.g2 + F(5)) return;
     const a = 0.85 * (1 - fr(t, now.g2, F(5))); if (a <= 0) return;
     const P = (tt) => { const q = reachAt(T, tt); return q ? [now.gx0 + q.x, now.gy0 + q.y] : [now.gx0, now.gy0]; };
     const p1 = P(t - F(1.2)), p0 = P(t - F(4)), dx = p1[0] - p0[0], dy = p1[1] - p0[1], len = Math.hypot(dx, dy); if (len < 30) return;
     const nx = -dy / len, ny = dx / len, { ctx } = S;
-    ctx.save(); ctx.globalAlpha *= a; ctx.strokeStyle = C.ink; ctx.lineCap = "round"; ctx.lineWidth = 4;
+    ctx.save(); ctx.globalAlpha *= a; ctx.strokeStyle = "rgba(250,244,230,0.95)"; ctx.shadowColor = "rgba(0,0,0,0.6)"; ctx.shadowBlur = 6; ctx.lineCap = "round"; ctx.lineWidth = 5;
     [[-20, 0.75], [0, 1], [20, 0.55]].forEach(([off, f]) => { ctx.beginPath(); ctx.moveTo(p1[0] + nx * off, p1[1] + ny * off); ctx.lineTo(p1[0] - dx * f + nx * off, p1[1] - dy * f + ny * off); ctx.stroke(); });
     ctx.restore();
   }
