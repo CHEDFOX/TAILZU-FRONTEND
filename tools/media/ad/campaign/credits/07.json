@@ -1,0 +1,98 @@
+{
+ "spot": "07",
+ "title": "Go Live",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "07 Go Live, shot 1 (the opening and hold 1)",
+   "source": "Mixkit, asset 17450 (https://assets.mixkit.co/videos/17450/17450-720.mp4; the 1080 file returns 403, so 720p is the largest)",
+   "page": "https://mixkit.co/free-stock-video/?q=typing%20at%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "26.0-40.0 (typing, hands lift away 37.0-38.2, empty lit keys 38.2-40.0), 2.0-12.0 (alternative typing section for the opening)",
+   "marks": "none. Key legends are not legible at this angle and focus. The laptop screen edge at the far left falls outside the crop."
+  },
+  {
+   "for": "07 Go Live, shot 1 (the opening and hold 1)",
+   "source": "Mixkit, asset 39841",
+   "page": "https://mixkit.co/free-stock-video/?q=typing%20at%20night",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-4.8",
+   "marks": "White Apple-style keyboard with no logo visible. The out-of-focus white monitor edge at the right is inside the crop only at its edge. The camera tilts up to a recognisable face from about 5.3s, so cut before 5.0s."
+  },
+  {
+   "for": "07, hold 2",
+   "source": "Internet Archive, NASA collection: STS-123 Post Flight Presentation (Narrated), JSC2115. The 720x480 original was fetched in place of the 360x240 copy.",
+   "page": "https://archive.org/details/Sts-123PostFlightPresentation-Narrated",
+   "licence": "NASA, US government work, public domain",
+   "stretches_s": "58.7-61.8",
+   "marks": "No legible insignia or 'UNITED STATES' lettering at this resolution. The orbiter's flag and wing logo are a few unreadable pixels; soften them lightly if a sharpening pass brings them out. A dissolve from the suit room runs to about 58.6s and the hallway cut comes at 61.95s, so stay inside 58.7-61.8."
+  },
+  {
+   "for": "07, hold 2",
+   "source": "Internet Archive, NASA collection: ARES 1-X Rollout. The 1282x720 HQ original was fetched in place of the 416x240 copy.",
+   "page": "https://archive.org/details/Ares1-xRollout",
+   "licence": "NASA, US government work, public domain",
+   "stretches_s": "121.6-128.4",
+   "marks": "The red 'USA' lettering on the booster is not readable at this distance, and there is no insignia. The red beacon and ground lights at the left fall outside the crop. A dissolve to a dusk shot starts at about 128.7s, so end by 128.4. Avoid 116-121s, a closer shot where the red 'USA' letters show."
+  },
+  {
+   "for": "07, hold 2",
+   "source": "Internet Archive, NASA collection: STS-124 Space Shuttle Discovery Rollout (640x480 is the largest file)",
+   "page": "https://archive.org/details/NASAKennedy-p8xx6u7ddL0",
+   "licence": "NASA, US government work, public domain",
+   "stretches_s": "17.2-21.8",
+   "marks": "A small NASA meatball on the orbiter's left wing, about 5px at source and about 20px at output; blur or clone it out. 'United States' is not legible in this wide shot. Do not use 22.0s onward: the close-ups show 'United States' and the NASA logo large. The NASA title cards are in the clip's opening, outside the stretch."
+  },
+  {
+   "for": "07, release part one",
+   "source": "archive (Moonwalk One, 1970 NASA-commissioned Apollo 11 film, Reel 2; 1080p stretch cut from the item's 1920x1080 ProRes master, reel time 395-405 s)",
+   "page": "https://archive.org/details/MoonwalkOneReel02",
+   "licence": "Public Domain Mark 1.0 (http://creativecommons.org/publicdomain/mark/1.0/)",
+   "stretches_s": "1.5-8.4 (the rise and the point are at 1.5-5.5; cut at 8.4, where the next shot starts)",
+   "marks": "There are faces of real 1969 firing-room staff. The pointing controller at x 0.55-0.62 is recognisable, so keep him out with the crop given. The background people are small, mostly turned away or behind binoculars, and the foreground heads are out-of-focus backs. NASA/Apollo badges on the shirt pockets (x 0.60-0.70) are out of the crop. Console labels at the far left are tiny and unreadable at film resolution; if any read after the punch-in, add a light blur at x 0-0.08, y 0.35-0.55. There are no logos inside the crop."
+  },
+  {
+   "for": "07, release part one",
+   "source": "archive (Moonwalk One, Reel 1; 1080p stretch cut from the 1920x1080 ProRes master, reel time 956-970 s, minutes before the Apollo 11 launch)",
+   "page": "https://archive.org/details/MoonwalkOneReel01",
+   "licence": "Public Domain Mark 1.0 (http://creativecommons.org/publicdomain/mark/1.0/)",
+   "stretches_s": "9.0-12.0 (wide sweep across the console rows; one figure stands up in the centre), 4.5-8.0 (rows seen from behind)",
+   "marks": "In the 4.5-8.0 stretch the bottom row of shirt backs carries North American Rockwell logos and 'Boeing' lettering (y > 0.78), so use the 0.76-high crop given. Console labels everywhere are tiny and unreadable. In 9.0-12.0, check the bottom 15% for shirt-back logos and crop or blur them if any read. There are no recognisable faces (people are small or seen from behind)."
+  },
+  {
+   "for": "07, release part two",
+   "source": "archive (Moonwalk One, Reel 2; Apollo 11 Saturn V climb, 1080p stretch cut from the 1920x1080 ProRes master, reel time 158-178 s)",
+   "page": "https://archive.org/details/MoonwalkOneReel02",
+   "licence": "Public Domain Mark 1.0 (http://creativecommons.org/publicdomain/mark/1.0/)",
+   "stretches_s": "3.0-9.0 (rocket largest, full flame; the shot starts at 3.0 after the shading-eyes cutaway); 9.0-19.0 is the rocket shrinking into the sky",
+   "marks": "none. The rocket is too small for its USA/UNITED STATES lettering to resolve, there are no insignia and no faces. Light film grain, and a faint vignette at the frame edges, which the crop removes."
+  },
+  {
+   "for": "07, release part two",
+   "source": "archive (NASA 'Apollo 16 MM Launch Views', high-speed engineering camera reel; 852x480 h.264 file fetched from the item, the largest practical derivative)",
+   "page": "https://archive.org/details/APOLLO16MMLAUNCHVIEWS",
+   "licence": "NASA item: US government work, public domain (archive.org collection nasa)",
+   "stretches_s": "1136.0-1166.0 (climb on full flame, rocket in the upper half, deep blue sky); alternative 1750.0-1767.0 (pinker sky, the whole rocket visible with sky above the nose); ignition: 1057.0-1064.0 (wide shot, fireball bursting at the pad)",
+   "marks": "1136-1166 and 1750-1767 show no legible lettering at this resolution (only the black roll-pattern squares). In 1750-1767 there are film-edge damage specks at the left edge (x < 0.15), outside the crop. The ignition stretch 1057-1064 shows a vertical red 'USA' on the first stage at about x 0.46-0.50, y 0.68-0.82: blur or cover it with a matched white patch, or set the type over it."
+  },
+  {
+   "for": "07, release part two",
+   "source": "archive (Moonwalk One, Reel 2; Apollo 11 ignition seen from the flame trench, 1080p stretch cut from the ProRes master, reel time 119-129 s)",
+   "page": "https://archive.org/details/MoonwalkOneReel02",
+   "licence": "Public Domain Mark 1.0 (http://creativecommons.org/publicdomain/mark/1.0/)",
+   "stretches_s": "1.5-8.5 (fire fills the frame; the brightest bursts are around 2.5-4.5 and 6.5-7.5); avoid 0-1.5 (pale smoke) and 8.6 onward (cut to spectators)",
+   "marks": "none: no lettering, insignia or people. Some dust and scratches on the film, which a dark grade hides."
+  }
+ ],
+ "footage_used": [
+  "Shot 1 and hold 1 (0-3.8 s): Mixkit asset 17450, a night typing close-up (https://assets.mixkit.co/videos/17450/17450-720.mp4). Clip 34.4-37.8 s, 1.0x and blended, the last 0.2 s stepped, frozen at 2.6; crop 0.46,0,0.316,1, 25 fps. Page: https://mixkit.co/free-stock-video/?q=typing%20at%20night. Licence: Mixkit licence, free for commercial use, no attribution.",
+  "Hold 2 (3.8-6.5 s): Internet Archive, Moonwalk One Reel 1 (1970 NASA-commissioned Apollo 11 film), cut at 1080p from the ProRes master: the Saturn V on pad 39A before dawn, floodlit, venting. Reel 477.1-478.6 s at 0.91x with a 100-108% push-in, frozen at 5.4; crop 0.398,0,0.2594,0.82, above the S-IC 'USA'. Page: https://archive.org/details/MoonwalkOneReel01. Licence: Public Domain Mark 1.0 (http://creativecommons.org/publicdomain/mark/1.0/).",
+  "Release part one (13.0-14.0 s): Internet Archive, Moonwalk One Reel 2, 1080p cut from the ProRes master (original-395-405.mp4): the KSC firing room, binoculars up, the rows standing at the windows. Reel 396.43-397.43 s at 1.0x, blended; crop 0.466,0,0.2875,0.909 (about 110%). Page: https://archive.org/details/MoonwalkOneReel02. Licence: Public Domain Mark 1.0.",
+  "Ignition (14.0-14.7 s): Internet Archive, Moonwalk One Reel 1, 1080p cut from the ProRes master: the first fire blooming in the flame trench. Reel about 1014.95-1015.48 s at 0.75x, blended; crop 0.665,0.05,0.275,0.87 (115%). Page: https://archive.org/details/MoonwalkOneReel01. Licence: Public Domain Mark 1.0.",
+  "Release part two (14.7-18.5 s): Internet Archive, Moonwalk One Reel 2, 1080p cut from the ProRes master (original-158-178.mp4): the Apollo 11 Saturn V climbing. Reel 161.04-164.3 s at 0.75x, blended; crop 0.39,0.13,0.275,0.87. Page: https://archive.org/details/MoonwalkOneReel02. Licence: Public Domain Mark 1.0."
+ ],
+ "clearance": [
+  "Moonwalk One (1970) is marked Public Domain Mark 1.0 on archive.org by its uploader. It was commissioned by NASA but made by a private studio (Francis Thompson Inc., dir. Theo Kamecke) and later restored and re-released commercially, so its public-domain status should be confirmed before paid use. NASA-produced alternatives were found for the pad (STS-123 JSC2115, Ares 1-X rollout) and the climb (Apollo 16 MM Launch Views).",
+  "The firing-room shot (13.0-14.0 s) shows identifiable 1969 KSC staff, one with his lower face visible under binoculars; get a publicity-rights view or swap the shot."
+ ]
+}
