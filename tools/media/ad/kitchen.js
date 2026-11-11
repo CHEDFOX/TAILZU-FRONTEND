@@ -196,14 +196,16 @@
   /** The painted mark drawn in three strokes, with the 0 narrowed to a digit's proportions. */
   function paintMark(mx, my, mw, s1, s2, s3) {
     const mh = mw * A.mark.height / A.mark.width;
-    const region = (x0, x1, k, dir, squeeze = 1) => {
+    // each stroke is the art's slice from SOURCE x s0 to x1, clipped after the squeeze (as adkit.js markPaint): clipping
+    // before it let the X's right arm tip through the narrowed 0 as a thin sliver
+    const region = (x0, x1, k, dir, squeeze = 1, s0 = x0) => {
       if (k <= 0) return; const cvs = X0.offscreen(mw, mh), c2 = cvs.getContext("2d");
-      c2.beginPath(); c2.rect(mw * x0, 0, mw * (x1 - x0), mh); c2.clip();
-      const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0); c2.drawImage(A.mark, 0, 0, mw, mh);
+      const cx = mw * (x0 + x1) / 2; c2.translate(cx, 0); c2.scale(squeeze, 1); c2.translate(-cx, 0);
+      c2.beginPath(); c2.rect(mw * s0, 0, mw * (x1 - s0), mh); c2.clip(); c2.drawImage(A.mark, 0, 0, mw, mh);
       X0.reveal(ctx, cvs, mx, my, mw, mh, k, dir, { rag: 10, seed: 7 }); X0.release(cvs);
     };
-    // the X ends at ~0.48 of the picture (its bars' end caps), the 0 begins at ~0.51: the X's region runs to 0.495 so no tip is cut, the 0's from 0.52 so the X's tip, squeezed inward, stays out of it
-    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74);
+    // the X ends at ~0.48 of the picture (its bars' end caps), the 0 begins at ~0.51: the X's region runs to 0.495 so no tip is cut, the 0 is cut from source 0.48 and squeezed about the middle of 0.52-1
+    region(0, 0.495, E.o3(s1), "diag"); if (s2 > 0) region(0, 0.495, E.o3(s2), "-diag"); region(0.52, 1, s3, "conic", 0.74, 0.48);
     return mh;
   }
   /** The end: a white sheet slides up over the kitchen; the hero on his bar, the mark painting itself, the line, the stamp with the address first. */
