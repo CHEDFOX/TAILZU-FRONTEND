@@ -1,0 +1,51 @@
+{
+ "spot": "05",
+ "title": "Leave at 4:40",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "05 Leave at 4:40, shot 1",
+   "source": "mixkit (id 21812)",
+   "page": "https://mixkit.co/free-stock-video/?q=lock",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "8.5-16.0, 0.0-2.0",
+   "marks": "None (no lettering or logos). A person in a yellow and blue dress walks through between 2.0 and 8.0 s, so keep out of that range."
+  },
+  {
+   "for": "05 Leave at 4:40, shot 1",
+   "source": "mixkit (id 15064)",
+   "page": "https://mixkit.co/free-stock-video/?q=house%20keys",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "20.0-26.5",
+   "marks": "No logos; the tablet screen is blank. A seated person (torso and hands, out of focus) fills the background before about 20 s. In the stretch only a sliver of their sleeve shows at the far left edge (x < 0.04), and the crop drops it. Sticky notes at the far left are also outside the crop."
+  },
+  {
+   "for": "05, shot 2",
+   "source": "mixkit (id 1622)",
+   "page": "https://mixkit.co/free-stock-video/?q=train%20station",
+   "licence": "Mixkit licence: free for commercial use, no attribution required",
+   "stretches_s": "11.5-16.0, 1.0-7.0",
+   "marks": "No readable livery in the departure stretch (dark side and rear of the cars). On arrival (about 3-6 s) the cab's destination LED is readable: blur it or grade it down if that part is used. The station clock on the wall has no lettering."
+  },
+  {
+   "for": "05, shot 2",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-blue-subway-departing-5836",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "9.5-14.0",
+   "marks": "Before about 9.5 s the cars carry a distinctive blue and yellow metro livery (no lettering, but recognisable), so start at 9.5 or later and desaturate. In the stretch a pink and purple advert poster with text sits on the right-hand wall (around x 0.55-0.65, y 0.38-0.48 of the frame) and red LED signs sit on the back wall (around y 0.37): blur or grade both out."
+  },
+  {
+   "for": "05, shot 2",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-train-arriving-2362",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-12.0",
+   "marks": "People are tiny and faceless from this height. The red and white coaches on the left track are outside the crop, and no lettering on the train is readable at this distance. Lift nothing; grade the white roofs down."
+  }
+ ],
+ "footage_used": [
+  "Shot 1, door with keys in the lock: Mixkit clip 21812, used 8.6-14.2 s, crop 0.52,0,0.316,1, 24 fps (footage-05-a). Page: https://mixkit.co/free-stock-video/?q=lock (file https://assets.mixkit.co/videos/21812/21812-720.mp4). Licence: Mixkit licence, free for commercial use, no attribution required.",
+  "Shot 2, underground platform with a train pulling out: Mixkit clip 1622, crop 0.28,0,0.316,1, played from clip 6.383 s, ramping 0.25x to 1x over 3 s and then real time to about 15.9 s. It is motion-interpolated at the crop's native size: footage-05-c at 120 fps (clip frames 151 onward) and footage-05-d at 30 fps (frame 194 to the end). Page: https://mixkit.co/free-stock-video/?q=train%20station (file https://assets.mixkit.co/videos/1622/1622-1080.mp4). Licence: Mixkit licence, free for commercial use, no attribution required."
+ ]
+}
