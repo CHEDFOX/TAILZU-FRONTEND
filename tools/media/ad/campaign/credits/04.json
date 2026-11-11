@@ -1,0 +1,27 @@
+{
+ "spot": "04",
+ "title": "Khaana khaya?",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders: public domain (archive.org Prelinger / Public Domain Mark / CC0 / NASA) or the Coverr and Mixkit free licences (commercial use, no attribution required). Lettering, liveries and marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "04 Khaana khaya?, shot A",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-male-hands-typing-on-a-smartphone-3876",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-9.5",
+   "marks": "No face, no maker's logo: the phone is side-on with its front facing camera, only tiny red dots on the side buttons, which you can desaturate if needed. Past about 10 s the right hand moves in and covers the frame, so end the stretch by 9.5 s."
+  },
+  {
+   "for": "04 Khaana khaya?, shot A",
+   "source": "coverr",
+   "page": "https://coverr.co/videos/coverr-old-man-on-phone-at-dinner-table-6027",
+   "licence": "Coverr licence: free for commercial use, no attribution required",
+   "stretches_s": "0.0-12.3",
+   "marks": "The face is visible in the full frame but fully excluded by the given crop. Never widen it, and do not move it up or right, or the hair and face come in at the top right. A black wristwatch sits at the right edge, mostly cut off; no legible brand. The phone back is black, with no visible logo at this size."
+  }
+ ],
+ "footage_used": [
+  "Shot A/B (0-13 s), stock: Coverr 'Male hands typing on a smartphone' (coverr-male-hands-typing-on-a-smartphone-3876), page https://coverr.co/videos/coverr-male-hands-typing-on-a-smartphone-3876, licence: Coverr licence, free for commercial use, no attribution required. Source 3.95-4.85 s, crop 0.30,0,0.316,1 (only the holding hand and the phone; the typing hand is out of frame), interpolated to 72 fps in footage-04-b/ (64 frames). It plays source 4.03-4.70 s as a near-still hold (about 0.05x) with frame blending.",
+  "Shot D (13.0-15.8 s): our own clip 1, the cook (footage/, 358 frames at 72 fps), source 0.2-2.24 s at 0.85x (his walk-in to the stove). Campaign footage, no stock licence. The wall sockets are covered with a clone patch of the wall beside them."
+ ]
+}
