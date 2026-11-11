@@ -26,7 +26,7 @@ window.FILM = (() => {
       stage: { x: 72, y: 850, w: 868, h: 420 },   // the episodes' stage card (the day card runs to 1280)
       textX: 72, headBase: [370, 480], headSize: 96, handSize: 110,
       pileHead: { base: [1040, 1178], size: 120, hand: 138 },
-      payoffHead: { base: [640, 778], size: 120, hand: 138 },
+      payoffHead: { base: [560, 698], size: 120, hand: 138 },   // the 'bots' underline (bottom ~748) clear of the team hero's dome (~790; his face sits LIFT 120 above the deck)
       cam: { cx: 540, cy: 560 },
       heap: { x0: 600, x1: 1070, land: { x: 840, y: 1200 }, noteLand: { x: 870, y: 1120 }, topY: 920, tailY: 1270 },
       hookCard: { w: 460, h: 300 },
@@ -34,7 +34,7 @@ window.FILM = (() => {
       side: { x: 700, y: 400, w: 340 },           // the listen dots and the scrawl, beside his head
       planNote: { x: 900, y: 585 },
       team: { deckTop: 1150, heroX: 540, heroW: 520, slots: [200, 370, 540, 710, 880], head: 128, nameBase: 1230 },
-      mark: { x: 72, y: 740, w: 460 }, endLine: { x: 72, base: 1095, size: 60 }, stamp: { x: 72, y: 1125, w: 560, h: 150 },
+      mark: { x: 260, y: 740, w: 460 }, endLine: { x: 260, base: 1095, size: 60 }, stamp: { x: 260, y: 1125, w: 560, h: 150 },   // the block (260-820) centred under the hero (540)
       dot: { x: 223, y: 350 },
       safeBottom: 1280,
     },

@@ -1,10 +1,12 @@
-/* BEATS 11-13: THE TEAM (f864-f976), THE RETURN AND THE MARK PAINTED (f976-f1088), COMING SOON AND THE WINK (f1088-f1184).
+/* BEATS 11-13: THE TEAM (f864-f984), THE RETURN AND THE MARK PAINTED (f984-f1088), COMING SOON AND THE WINK (f1088-f1184).
  *
- *   team    the done cards slide in as a tidy deck at the bottom; the hero rises behind its edge (bot-hello) with a tiny torn
- *           note in his raised glove; four dotted heads pop up in front of him on the 8ths, each with its name, and as Plan
- *           pops the glove tips and the note slides onto Plan's head; a pencil-dashed 'yours' slot; 'Your team / of bots'
- *           with the icon's clay underline; the wave, the heads turning to him, the little bob wave, the ducks, the exit.
- *   return  one clay dot holds a beat; the bar dry-brushes itself from the dot in its own silhouette; two gloves slap on;
+ *   team    the Code thesis ('Nothing goes live / till you say yes') stays on the page from the beat before and wipes out
+ *           left over f896-f904; the done cards slide in as a tidy deck at the bottom; the hero rises behind its edge
+ *           (bot-hello) with his face LIFT px above the deck so his eyes stand clear of the heads, his shell continuing down
+ *           to the edge, one glove raised beside his cheek; four dotted heads pop up in front of him on the 8ths, each with
+ *           its name; a pencil-dashed 'yours' slot; 'Your team / of bots' with the icon's clay underline; the wave, the
+ *           heads turning to him, the little bob wave, the ducks, the exit (over f976-f984).
+ *   return  one clay dot holds an 8th; the bar dry-brushes itself from the dot in its own silhouette; two gloves slap on;
  *           he swings down from behind it eyes shut, settles, opens his eyes on you; the X0 mark paints in three strokes,
  *           the 0 closing on the loudest beat with a press and ink specks.
  *   end     the end card: the hero at the opening's transform, the mark, 'Your team of bots', the dip-pen stamp frame with
@@ -27,31 +29,54 @@
 
   // ================================================================================================ BEAT 11: the team
   const TF = {
-    in: 864, pops: [872, 880, 888, 896, 904], tip: 880, land: 888,
+    in: 864, pops: [872, 880, 888, 896, 904],
     l1: 912, l2: 920, hand: 924, ul: 936, wave: 936, turn: 944, you: 948,
-    bobs: [952, 956, 960, 964], ducks: [972, 968, 964, 960], ringOut: 960, heroDuck: 972, headOut: 966, deckOut: 968,
+    bobs: [952, 956, 960, 964], ducks: [980, 976, 972, 968], ringOut: 968, heroDuck: 980, headOut: 974, deckOut: 976,
   };
   const NAMES = ["Keybot", "Plan", "Travel", "Code bot"], HEADS = ["head-keybot", "head-plan", "head-travel", "head-code"], NAME_DX = [-4, 0, -10, 10];
-  const NOTE_W = 90, NOTE_H = 90 * 530 / 1279;
+  /** The face's ledge sits this far above the deck edge: his eyes (16 px above the sprite's ledge) then clear the heads' antenna tips. */
+  const LIFT = 120;
+
+  // ---------------------------------------------------------------------------- the Code thesis, carried over from the golive beat
+  /** The golive headline as beats-travel-code.js sets it (its headFit: 96 in 9:16; in 16:9 the widest line fitted to the left column,
+   *  x 96 .. the stage card), redrawn here from f864 so the thesis holds while the deck slides in, then wiped left over f896-f904. */
+  const GOLIVE = { lines: ["Nothing goes live", "till you say yes"], hand: { line: 1, word: "yes" }, at: { l1: 820, l2: 828, hand: 832, ul: 840 }, out: { f: 896, n: 8 } };
+  function headFit(S, lines, hand) {
+    return memo(S, "head|" + lines.join("|"), () => {
+      const { ctx, L } = S; let size = L.headSize, hs = L.handSize;
+      if (!S.portrait) {
+        const maxW = L.stage.x - 28 - L.textX; let w = 0;
+        lines.forEach((text, i) => {
+          const words = text.split(" ").map((t) => (i === hand.line && t === hand.word ? { text: t, hand: true, handWeight: 700, scale: hs / size } : { text: t }));
+          w = Math.max(w, X0.layout(ctx, words, { x: 0, y: 0, size, weight: 900, gap: 0.24 }).w);
+        });
+        if (w > maxW) { size = Math.floor(size * maxW / w); hs = Math.round(size * L.handSize / L.headSize); }
+      }
+      return { size, handSize: hs };
+    });
+  }
+  const goliveCarry = (S, f) => { if (f >= GOLIVE.out.f + GOLIVE.out.n) return; CM.headline(S, f, { ...GOLIVE, ul: S.A["ul-code"], ...headFit(S, GOLIVE.lines, GOLIVE.hand) }); };
 
   function teamGeo(S) {
-    const { L } = S, t = L.team, p = S.portrait;
-    const deckX = p ? L.textX : t.slots[0] - 120, deckW = p ? 936 : t.slots[4] + 120 - deckX;
+    const { L } = S, t = L.team;
+    // the deck's top card has every other card's geometry: the stage card's left edge, its right edge at the copy card's (+17)
+    const deckX = L.stage.x, deckW = L.stage.w + 17;
     return { ...t, deckX, deckW, top: t.deckTop, H: L.H, W: L.W };
   }
-  /** The deck's top edge at f: in from the bottom (E.o3, 9 f) at f864; off the bottom (E.i3, 8 f) from f968. Everyone rides it. */
+  /** The deck's top edge at f: in from the bottom (E.o3, 9 f) at f864; off the bottom (E.i3, 8 f) from f976. Everyone rides it. */
   function deckTop(S, f) {
     const g = teamGeo(S);
     if (f < TF.in + 9) return g.top + (g.H + 60 - g.top) * (1 - E.o3(fr(f, TF.in, 9)));
     if (f >= TF.deckOut) return g.top + (g.H + 80 - g.top) * E.i3(fr(f, TF.deckOut, 8));
     return g.top;
   }
-  /** The four done cards as a tidy deck: stacked with 14 px offsets, the top card's edge at `top`, running off the bottom. */
+  /** The four done cards as a tidy deck: stacked with 14 px offsets, the top card's edge at `top`, running off the bottom.
+   *  One pencil shadow for the whole deck (the back-most card's); the front cards are white edges with hairlines between. */
   function drawDeck(S, top) {
     const g = teamGeo(S); if (top >= g.H) return;
-    for (let i = 3; i >= 0; i--) CM.stageCard(S, g.deckX + 14 * i, top + 14 * i, g.deckW, g.H + 140 - top, { r: 28 });
+    for (let i = 3; i >= 0; i--) CM.stageCard(S, g.deckX + 14 * i, top + 14 * i, g.deckW, g.H + 140 - top, { r: 28, shadow: i === 3 ? 0.5 : 0 });
   }
-  /** His rise behind the deck's edge: E.back(1.3) over 10 f from f864 (> 1 is the overshoot); the duck at f972 (E.i2, 4 f). */
+  /** His rise behind the deck's edge: E.back(1.3) over 10 f from f864 (> 1 is the overshoot); the duck at f980 (E.i2, 4 f). */
   function heroRise(f) {
     if (f < TF.in) return 0;
     let r = E.back(1.3)(fr(f, TF.in, 10));
@@ -74,73 +99,52 @@
     if (f >= TF.you) dy -= 4 * E.o3(fr(f, TF.you, 4));
     return { dx, dy };
   }
-  /** The raised glove's turn about its wrist (radians; `sign` tips it toward Plan) and where the tiny note is. */
-  function handoff(f, sign) {
-    let rot = 0;
-    if (f >= TF.tip && f < TF.land) rot = D(25) * sign * E.o3(fr(f, TF.tip, 4));
-    else if (f >= TF.land && f < TF.land + 6) rot = D(25) * sign * (1 - E.io(fr(f, TF.land, 6)));
-    if (f >= TF.wave && f < TF.wave + 16) { const k = fr(f, TF.wave, 16); rot += D(12) * Math.sin(k * Math.PI * 4) * Math.pow(Math.sin(Math.PI * k), 0.3); }
-    const note = f < TF.tip ? { where: "hand" } : f < TF.land ? { where: "fly", k: E.io(fr(f, TF.tip, 8)) } : { where: "plan", k: E.o3(fr(f, TF.land, 3)) };
-    return { rot, note };
+  /** The raised glove's wave about its wrist (radians): two swings over 16 f from f936, eased in and out. */
+  function waveRot(f) {
+    if (f < TF.wave || f >= TF.wave + 16) return 0;
+    const k = fr(f, TF.wave, 16); return D(12) * Math.sin(k * Math.PI * 4) * Math.pow(Math.sin(Math.PI * k), 0.3);
   }
-  /** One dotted head's offsets at f: the pop (+140 -> 0, E.back 1.4, 8 f), the wobble, Plan's bob as the note lands, the turn to
-   *  him at f944, the little bob wave on 16ths, the duck (E.i2, 5 f, behind the deck). Null before its pop. */
+  /** One dotted head's offsets at f: the pop (+140 -> 0, E.back 1.4, 8 f), the wobble, the turn to him at f944, the little bob
+   *  wave on 16ths, the duck (E.i2, 5 f, behind the deck). Null before its pop. */
   function headState(S, f, i) {
     const g = teamGeo(S), fp = TF.pops[i]; if (f < fp) return null;
     let dy = 140 * (1 - E.back(1.4)(fr(f, fp, 8))), dx = 0, rot = 0;
     if (f >= fp + 8 && f < fp + 17) { const k = fr(f, fp + 8, 9); rot = D(3) * Math.sin(k * Math.PI * 4) * (1 - k); }
-    if (i === 1 && f >= TF.land && f < TF.land + 3) dy += 4 * E.bump(fr(f, TF.land, 3));
     if (f >= TF.turn) { const d = g.slots[i] - g.heroX, k = E.io(fr(f, TF.turn, 4)); if (Math.abs(d) > 40) dx = -6 * Math.sign(d) * k; else dy -= 4 * k; }
     const fb = TF.bobs[i], fd = TF.ducks[i];
     if (fb < fd && f >= fb && f < fb + 4) dy -= 6 * E.bump(fr(f, fb, 4));
     if (f >= fd) dy += 140 * E.i2(fr(f, fd, 5));
     return { dx, dy, rot };
   }
-  /** The tiny blank torn note (scrap-tiny's alpha at 90 px), centred, turned. */
-  function tinyNote(S, cx, cy, rot, alpha = 1) {
-    const { ctx, A } = S; ctx.save(); ctx.globalAlpha *= clamp(alpha); ctx.translate(cx, cy); ctx.rotate(rot);
-    X0.hatchShadow(ctx, A.hatch, -NOTE_W / 2 + 4, -NOTE_H / 2 + 3, NOTE_W - 8, NOTE_H - 6, 6, 1, { alpha: 0.3, dx: 3, dy: 4 });
-    ctx.drawImage(A["scrap-tiny"], -NOTE_W / 2, -NOTE_H / 2, NOTE_W, NOTE_H); ctx.restore();
-  }
   /**
-   * The hero in the team row: bot-hello (no gloves) rising behind the deck's edge, clipped at the edge; his right glove hanging
-   * over it; his left glove raised beside his cheek (the glove sprite, fingers up, turned about its wrist) with the tiny note
-   * in its fingers until the hand-off. The heads are drawn after (they occlude his chin and gloves by design).
+   * The hero in the team row: bot-hello (no gloves) rising behind the deck's edge, clipped at the edge, with his face's ledge
+   * LIFT px above the deck so his eyes stand clear of the heads; under the face his shell continues to the deck edge (the
+   * sprite is cut flat at its ledge: its last opaque rows stretched down, inside the same clip). His right glove hangs over
+   * the deck edge itself; his left glove is raised beside his cheek (the glove sprite, fingers up, turned about its wrist for
+   * the wave). The rise and the duck travel the whole way (up + LIFT), so he is fully below the edge at r = 0. The heads are
+   * drawn after (they occlude his chin and gloves by design).
    */
   function teamHero(S, f, top) {
     const { ctx, R } = S, g = teamGeo(S), r = heroRise(f); if (r <= 0) return null;
-    const rig = rigGloves(S, "hello", g.heroX, top, g.heroW), fol = faceFollow(S, f);
-    const over = Math.max(0, r - 1) * (rig.up + 6), riseOff = (1 - Math.min(1, r)) * (rig.up + 6) - over;
+    const rig = rigGloves(S, "hello", g.heroX, top, g.heroW), fol = faceFollow(S, f), fm = R.meta["bot-hello-nohands"], face = R.img["bot-hello-nohands"];
+    const travel = rig.up + 6 + LIFT, over = Math.max(0, r - 1) * travel, riseOff = (1 - Math.min(1, r)) * travel - over;
+    const ledgeY = top - LIFT;
     ctx.save(); ctx.beginPath(); ctx.rect(0, -20, g.W, top + 20); ctx.clip();   // behind the deck's edge
-    X0.peekRig(ctx, R, "hello", g.heroX, top, g.heroW, Math.min(1, r), { dx: fol.dx, dy: fol.dy - over, gloves: [{ hide: true }, { hide: true }] });
+    // peekRig adds its own (1 - r) * (up + 6) to dy, so the extra LIFT share of the travel goes in here
+    X0.peekRig(ctx, R, "hello", g.heroX, ledgeY, g.heroW, Math.min(1, r), { dx: fol.dx, dy: fol.dy - over + (1 - Math.min(1, r)) * LIFT, gloves: [{ hide: true }, { hide: true }] });
+    const y0 = ledgeY + riseOff + fol.dy - 1, rows = 4;   // the shell under the face: the sprite's last 4 opaque rows, down to the clip
+    if (top + 20 > y0) ctx.drawImage(face, 0, Math.floor(fm.ledge) - rows, fm.w, rows, g.heroX - g.heroW / 2 + fol.dx, y0, g.heroW, top + 20 - y0);
     ctx.restore();
     const a = K(r, 0.6, 1);
-    // the right glove hanging over the edge, in front of the deck
-    if (a > 0) { const gR = rig.gloves[1]; ctx.save(); ctx.globalAlpha *= a; ctx.drawImage(gR.img, gR.cx - gR.w / 2 + fol.dx, gR.cy - gR.h / 2 + fol.dy - over, gR.w, gR.h); ctx.restore(); }
-    // the raised left glove: its wrist beside his left cheek, fingers up; the note in its fingers
-    const gL = rig.gloves[0], wrist = { x: g.heroX - g.heroW / 2 - 18 + fol.dx, y: top - 112 + riseOff + fol.dy };
-    const sign = Math.sign(g.slots[1] - wrist.x) || 1, ho = handoff(f, sign);
-    const local = (lx, ly) => [wrist.x + lx * Math.cos(ho.rot) - ly * Math.sin(ho.rot), wrist.y + lx * Math.sin(ho.rot) + ly * Math.cos(ho.rot)];
-    const tip = local(0, -gL.h), held = local(2 * sign, -gL.h + 8);
-    if (a > 0) {
-      ctx.save(); ctx.beginPath(); ctx.rect(0, -20, g.W, top + 20); ctx.clip(); ctx.globalAlpha *= a;
-      if (ho.note.where === "hand") tinyNote(S, held[0], held[1], ho.rot + 0.15 * sign);
-      ctx.translate(wrist.x, wrist.y); ctx.rotate(ho.rot); ctx.scale(1, -1); ctx.drawImage(gL.img, -gL.w / 2, 0, gL.w, gL.h);
-      ctx.restore();
-    }
-    return { rig, fol, over, top, r, tip, held, sign, note: ho.note, a };
-  }
-  /** Where the tiny note rests on Plan's head: tucked behind its top edge, a corner showing. */
-  function planNoteRest(S, f, top) {
-    const g = teamGeo(S), hs = headState(S, f, 1) || { dx: 0, dy: 0 };
-    return { x: g.slots[1] + 26 + hs.dx, y: top - g.head + 6 + hs.dy, rot: -0.32 };
-  }
-  /** The flying note (f880-f888): a short arc from the tipping glove's fingers to Plan's head, in front of everyone. */
-  function flyingNote(S, f, hero, top) {
-    if (!hero || hero.note.where !== "fly") return;
-    const k = hero.note.k, from = hero.held, to = planNoteRest(S, TF.land, top), tt = [to.x - 4, to.y - 14];
-    const p = CM.arc(from, [(from[0] + tt[0]) / 2 + 10 * hero.sign, Math.min(from[1], tt[1]) - 30], tt, k);
-    tinyNote(S, p[0], p[1], lerp(0.15 * hero.sign, to.rot, k), hero.a);
+    if (a <= 0) return { rig, fol, over, top, r, a };
+    // the right glove hanging over the deck edge, in front of the deck
+    const gR = rig.gloves[1]; ctx.save(); ctx.globalAlpha *= a; ctx.drawImage(gR.img, gR.cx - gR.w / 2 + fol.dx, gR.cy - gR.h / 2 + fol.dy - over, gR.w, gR.h); ctx.restore();
+    // the raised left glove: its wrist beside his left cheek, fingers up, riding the face
+    const gL = rig.gloves[0], wrist = { x: g.heroX - g.heroW / 2 - 18 + fol.dx, y: ledgeY - 112 + riseOff + fol.dy };
+    ctx.save(); ctx.beginPath(); ctx.rect(0, -20, g.W, top + 20); ctx.clip(); ctx.globalAlpha *= a;
+    ctx.translate(wrist.x, wrist.y); ctx.rotate(waveRot(f)); ctx.scale(1, -1); ctx.drawImage(gL.img, -gL.w / 2, 0, gL.w, gL.h);
+    ctx.restore();
+    return { rig, fol, over, top, r, a };
   }
   /** The four heads (in front of him, behind the deck's edge while they rise), their names setting in 2 f later on the deck. */
   function heads(S, f, top) {
@@ -172,27 +176,25 @@
   const teamHeadline = (S, f) => { const P = S.L.payoffHead; return CM.headline(S, f, { lines: ["Your team", "of bots"], hand: { line: 1, word: "bots" }, ul: S.A["ul-bar"], at: { l1: TF.l1, l2: TF.l2, hand: TF.hand, ul: TF.ul }, size: P.size, handSize: P.hand, base: P.base, x: S.L.textX, out: { f: TF.headOut, n: 8 } }); };
 
   FILM.register({
-    name: "team", f0: 864, f1: 976,
+    name: "team", f0: 864, f1: 984,
     draw(S, f) {
       const top = deckTop(S, f);
       drawDeck(S, top);
-      const hero = teamHero(S, f, top);
-      if (hero && hero.note.where === "plan") { const p = planNoteRest(S, f, top); tinyNote(S, p.x, p.y - 12 * (1 - hero.note.k), p.rot, hero.a); }
+      teamHero(S, f, top);
       heads(S, f, top);
       yoursSlot(S, f, top);
-      flyingNote(S, f, hero, top);
       teamHeadline(S, f);
+      goliveCarry(S, f);   // the thesis from the beat before, held over the deck's arrival, wiped left f896-f904
     },
     cues() {
       const c = [{ f: TF.in, kind: "notify", gain: 0.5 }, { f: TF.in, kind: "whoosh", dur: 0.3, up: true, gain: 0.3 }];
       const bells = [293.66, 369.99, 440, 493.88];
       TF.pops.slice(0, 4).forEach((f, i) => c.push({ at: f / 30, kind: "bell", f: bells[i], dur: 1.0, gain: 0.35 }, { f, kind: "land", gain: 0.3 }));
-      c.push({ f: TF.land, kind: "tick", gain: 0.25 });
       c.push({ at: TF.pops[4] / 30, kind: "bell", f: 659.25, dur: 0.6, gain: 0.3 });
       c.push({ f: TF.l1, kind: "tick", gain: 0.3 }, { f: TF.l2, kind: "tick", gain: 0.3 }, { f: TF.hand, kind: "write", gain: 0.4 });
       for (const hz of [...bells, 587.33]) c.push({ at: TF.ul / 30, kind: "bell", f: hz, dur: 1.6, gain: 0.3 });
       c.push({ at: TF.ul / 30, kind: "pad", f: 146.83, dur: 1.6, a: 0.3, r: 0.6, gain: 0.4 }, { f: TF.ul, kind: "whoosh", dur: 0.3, up: false, gain: 0.25 });
-      for (const f of TF.bobs) if (f !== 964) c.push({ f, kind: "tick", gain: 0.15 });
+      TF.bobs.forEach((f, i) => { if (f < TF.ducks[i]) c.push({ f, kind: "tick", gain: 0.15 }); });   // a tick per bob that happens (headState's rule)
       for (const f of TF.ducks) c.push({ f, kind: "tick", gain: 0.12 });
       c.push({ f: TF.deckOut, kind: "whoosh", dur: 0.3, up: false, gain: 0.3 });
       return c;
@@ -200,7 +202,7 @@
   });
 
   // ================================================================================================ BEAT 12: the return
-  const RF = { dot: 976, stroke: 992, bar: 1008, slapL: 1016, slapR: 1020, drop: 1032, settle: 1048, eyes: 1056, x1: 1060, x2: 1068, zero: 1072, close: 1088 };
+  const RF = { dot: 984, stroke: 992, bar: 1008, slapL: 1016, slapR: 1020, drop: 1032, settle: 1048, eyes: 1056, x1: 1060, x2: 1068, zero: 1072, close: 1088 };
 
   /** The bar's dry-brush stroke already cut to the bar's silhouette, in the hero's frame: an offscreen the bar's box (plus a
    *  margin), the stroke laid along the bar and clipped by hang-bar's own alpha, its right quarter running dry. Cached per cut. */
@@ -250,13 +252,21 @@
     return memo(S, "mark", () => {
       const im = S.A["mark-x0-ink"], { w, h, sc } = MARK, P = (p) => [p[0] * sc, p[1] * sc];
       // the two strokes' centre lines, measured from the PNG (x = 62 + 0.675 y and x = 708 - 0.69 y); slash 1 alone is the X inside a
-      // band a little wider than its ~95 px half-stroke, cut clean along a tighter band where stroke 2 crosses it (stroke 2 covers that later)
+      // band a little wider than its ~95 px half-stroke, with stroke 2's ink erased where it crosses (stroke 2 covers that later).
+      // The erase follows slash 1's own measured ink edges (~102 px on its screen-left side, ~93 on its right) inside a band just
+      // wider than slash 2's ~86 px half-stroke, so the crossing section keeps the same ragged silhouette as the arms above and
+      // below it and no clip edge crosses an ink margin (a flat 88 px cut left a notch and a hairline for the 10 f slash 1 is alone).
       const S1 = [P([89, 40]), P([669, 900])], S2 = [P([680, 40]), P([87, 900])];
-      const b1 = band(S1[0], S1[1], 118 * sc, 70 * sc), b2 = band(S2[0], S2[1], 118 * sc, 70 * sc);
+      const b1 = band(S1[0], S1[1], 118 * sc, 70 * sc), b2 = band(S2[0], S2[1], 118 * sc, 70 * sc), b2t = band(S2[0], S2[1], 92 * sc, 70 * sc);
       const mk = (cw, ch) => { const cv = document.createElement("canvas"); cv.width = Math.ceil(cw); cv.height = Math.ceil(ch); return cv; };
-      const x1 = mk(w, h), c1 = x1.getContext("2d"); c1.beginPath(); c1.rect(0, 0, MARK.xEnd * sc, h); c1.clip(); poly(c1, b1); c1.clip(); c1.drawImage(im, 0, 0, w, h);
-      c1.globalCompositeOperation = "destination-out"; poly(c1, b2); c1.clip();
-      for (const side of [1, -1]) { poly(c1, halfPlane(S1[0], S1[1], 88 * sc, side)); c1.fill(); }
+      // (the erase runs with the b1 clip lifted: an anti-aliased clip edge applied to both the draw and the erase leaves a
+      // partial-alpha hairline along b1 where slash 2's ink crosses it; without b1 nothing is beyond it to protect)
+      const x1 = mk(w, h), c1 = x1.getContext("2d");
+      c1.save(); c1.beginPath(); c1.rect(0, 0, MARK.xEnd * sc, h); c1.clip(); poly(c1, b1); c1.clip(); c1.drawImage(im, 0, 0, w, h); c1.restore();
+      c1.save(); c1.globalCompositeOperation = "destination-out"; poly(c1, b2t); c1.clip();
+      poly(c1, halfPlane(S1[0], S1[1], 102 * sc, 1)); c1.fill();    // +1: the screen-left edge of slash 1
+      poly(c1, halfPlane(S1[0], S1[1], 93 * sc, -1)); c1.fill();
+      c1.restore();
       const x2 = mk(w, h), c2 = x2.getContext("2d"); c2.beginPath(); c2.rect(0, 0, MARK.xEnd * sc, h); c2.clip(); c2.drawImage(im, 0, 0, w, h);
       const z = MARK.zero, zx0 = z.x0 * sc, zy = z.y0 * sc, zw0 = (z.x1 - z.x0) * sc, zh = (z.y1 - z.y0) * sc, zeroFull = mk(zw0, zh); zeroFull.getContext("2d").drawImage(im, -zx0, -zy, w, h);
       // the 0 is a digit, not an O: narrowed to 0.74 of its painted width about its own centre (the marks' brief: "a short x and a tall 0")
@@ -292,10 +302,10 @@
   }
 
   FILM.register({
-    name: "return", f0: 976, f1: 1088,
+    name: "return", f0: 984, f1: 1088,
     draw(S, f) {
       const { ctx, A, L } = S;
-      // the clay dot at the bar's left end, held one beat, then under the stroke
+      // the clay dot at the bar's left end, held an 8th (the frame the deck clears), then under the stroke
       if (f < RF.bar) X0.img(ctx, A["clay-dot"], L.dot.x, L.dot.y, 36);
       // the bar: hang() draws its own from f1008 (the stroke fades over it for 3 f)
       returnHero(S, f);
@@ -347,7 +357,12 @@
     if (f === EF.stamp) { ctx.save(); ctx.globalAlpha *= 0.7; ctx.fillStyle = "#FFFFFF"; X0.rrect(ctx, cx - w / 2 + 8, cy - h / 2 + 8, w - 16, h - 16, 24); ctx.fill(); ctx.restore(); }
     ctx.drawImage(im, cx - w / 2, cy - h / 2, w, h);
     X0.text(ctx, "Coming soon", st.x + 32, st.y + 65, X0.font(700, 52), C.ink);
-    X0.text(ctx, "x0bot.com", st.x + 32, st.y + 123, X0.font(500, 46), C.grey);
+    // the url, in ink a half-step under 'Coming soon', with Geist's SLASHED zero (stylistic set ss09; the "zero" feature does
+    // nothing in Geist): canvas text takes font features from the canvas ELEMENT's style, and X0.text re-assigns ctx.font, which
+    // is what makes the toggled setting take effect for this one run; restored right after so nothing else is affected
+    const cv = ctx.canvas, prevFF = cv.style.fontFeatureSettings; cv.style.fontFeatureSettings = '"ss09"';
+    X0.text(ctx, "x0bot.com", st.x + 32, st.y + 123, X0.font(600, 52), C.ink);
+    cv.style.fontFeatureSettings = prevFF;
     ctx.restore();
   }
 
