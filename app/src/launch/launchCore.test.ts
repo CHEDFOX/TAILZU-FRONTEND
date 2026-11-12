@@ -159,3 +159,13 @@ test("the feelers stand above the bar, so they go as he starts up: shown at rest
   assert.equal(feelersShown(FEELERS_OUT[1]), 0);
   assert.ok(FEELERS_OUT[1] < 900, "before the head goes");
 });
+
+test("the splash is the launch's layers stacked at rest, feelers and all: one picture, so the motion carries on from it", () => {
+  for (const f of ["splash", "head", "bar", "hands", "blink", "feelerL1", "feelerL2", "feelerR1", "feelerR2"]) {
+    const png = read(`../../assets/launch/${f}.png`);
+    assert.equal(png.readUInt32BE(16), 544, `${f}.png is 544 wide`);
+    assert.equal(png.readUInt32BE(20), 544, `${f}.png is 544 high`);
+  }
+  const curtain = read("./LaunchCurtain.tsx").toString();
+  for (const f of ["feelerL1", "feelerL2", "feelerR1", "feelerR2"]) assert.match(curtain, new RegExp(`assets/launch/${f}\\.png`));
+});

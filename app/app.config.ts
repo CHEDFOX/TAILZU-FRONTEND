@@ -462,9 +462,10 @@ const config: ExpoConfig = {
     // plugins added the contacts, calendars and reminders strings, and
     // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
     "expo-video",
-    // Splash / launch screen: the app icon's bot, small, hanging from a piece of
-    // its clay bar, dead centre on white: the Bots app's own paper, so the
-    // launch ends on the app's ground. ONE asset, both platforms.
+    // Splash / launch screen: the app icon's Blip, small, in ink, hanging upside
+    // down from a piece of bar by his robot hands, shades on, his feelers
+    // hanging from the top of his head; dead centre on white: the Bots app's own
+    // paper, so the launch ends on the app's ground. ONE asset, both platforms.
     //
     // From API 31 Android's splash is the SYSTEM one: a colour and a centred
     // icon, masked to a circle 192 dp across. There is no full-bleed option, so
@@ -473,10 +474,10 @@ const config: ExpoConfig = {
     // same picture at the same size.
     //
     // THE LAUNCH ANIMATION STARTS FROM THIS FRAME. src/launch/LaunchCurtain draws
-    // the same art (assets/launch: drawn with the icon's own code by
-    // tools/media/brand/x0-icon/curious-hang/launch.mjs) at the same size on the
-    // same ground, lifts this splash from under it, and the bot pulls himself
-    // up over his bar and is gone, hands and all; then his hands come back and
+    // the same art (assets/launch: drawn by tools/media/brand/blip-icon/launch/
+    // gen.mjs, this splash being its layers stacked at rest) at the same size on
+    // the same ground, lifts this splash from under it, and Blip pulls himself
+    // up over his bar, feelers swinging, and is gone, hands and all; then his hands come back and
     // grab the bar's middle, one from above and one from below, and the bar is
     // pulled in to them as they twist.
     // imageWidth and backgroundColor here are SPLASH_PT and GROUND in

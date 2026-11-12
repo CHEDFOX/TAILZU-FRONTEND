@@ -2,10 +2,12 @@
  * THE LAUNCH: the native splash, then the bot pulls himself up over his bar and is gone, hands and all; his hands come
  * back and grip the bar, and it is pulled in to its middle with them; and the app is there.
  *
- * The native splash (app.config.ts, expo-splash-screen) is the app icon's bot, small, hanging from a piece of its clay
- * bar, centred on white: the Bots app's own paper, so the end of the launch is already the app's ground.
+ * The native splash (app.config.ts, expo-splash-screen) is the app icon's Blip, small, in ink: hanging upside down from
+ * a piece of bar by his robot hands, his shades on, his feelers hanging from the top of his head (at the bottom),
+ * centred on white: the Bots app's own paper, so the end of the launch is already the app's ground. His feelers swing
+ * with physics as he moves (feelerTrack, below).
  * LaunchCurtain draws that same picture in the same place from the same art (assets/launch, cut by
- * tools/media/brand/x0-icon/curious-hang/launch.mjs), lifts the native splash from under it, and plays the motion
+ * tools/media/brand/blip-icon/launch/gen.mjs), lifts the native splash from under it, and plays the motion
  * below. It lets go once the motion is over and the app has a screen (SduiApp calls liftLaunch()), whichever is later.
  *
  * Every moving part is a function of t, the ms since the motion began, sampled into keys for Animated.interpolate:
@@ -44,7 +46,7 @@ export const FADE_MS = 220;
 export const STRIPS = 48;
 
 // The beats (t, ms):
-//   0      the splash, still · 200 a blink
+//   0      the splash, still · 200 a glint across his shades (where the old bot blinked)
 //   420    he gathers: a small dip, the bar giving under him · 560 he pulls himself up, quick out and slow in, a little
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
