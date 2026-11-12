@@ -10,7 +10,7 @@
 //   feelerL1.svg feelerL2.svg feelerR1.svg feelerR2.svg
 //                    each feeler's two links, drawn HANGING STRAIGHT DOWN from their pivots (the root; the joint, with
 //                    the first link hanging straight down), so the app turns each about its pivot
-//   splash.svg       head, feelers at rest, bar, hands: the native splash and the motion's first frame
+//   splash.svg       feelers at rest, head, bar, hands: the native splash and the motion's first frame
 // and, with --app, <app>/src/launch/feelerArt.ts: the feelers' pivots, lengths, rest angles and physics, from here.
 // Render each with ../kit/png.mjs at 544.
 import fs from "node:fs";
@@ -32,22 +32,22 @@ const inVisor = (x, y, m = 0) => x > V.x0 - m && x < V.x1 + m && y > V.y0 - m &&
 const visorPath = () => { const v = V; return `M${v.x0} ${v.y0 + 4}Q${v.x0} ${v.y0 - 3} ${v.x0 + 15} ${v.y0 - 2}H${v.x1 - 15}Q${v.x1} ${v.y0 - 3} ${v.x1} ${v.y0 + 4}V${v.y1 - 5}Q${v.x1 - 3} ${v.y1 + 17} ${v.x1 - 40} ${v.y1 + 20}Q0 ${v.y1 + 31} ${v.x0 + 40} ${v.y1 + 20}Q${v.x0 + 3} ${v.y1 + 17} ${v.x0} ${v.y1 - 5}Z`; };
 
 // ---------------------------------------------------------------- the feelers: where they grow, how they hang
-// Roots on the head's upper sides (in the head's own frame, before the cock), so the feelers hang off them below the
-// bar: the launch clips everything above the bar's top edge, which is how he vanishes over it.
-const ROOTS = { L: sup(Math.PI + 0.42, 4), R: sup(-0.42, 4) };
-const L1 = 34, L2 = 32;                    // link lengths, art px
+// Roots on his crown, as on the icon (in the head's own frame, before the cock). The crown is behind the bar, so the
+// feelers rise from behind it and stand above it; the app draws them behind the bar but outside the head's clip.
+const ROOTS = { L: sup(-2.02, 10), R: sup(-1.13, 10) };
+const L1 = { L: 44, R: 60 }, L2 = { L: 40, R: 62 };   // link lengths, art px: the right one is the long one, as on the icon
 // Physics, in points and seconds (launchCore.ts reads these): gravity, each link's spring toward its rest angle (per
 // s^2, as an angular frequency squared), and damping (per s). Angles are CSS rotations of a link drawn hanging down:
 // +ve turns it toward the LEFT, so the left feeler rests at +ve angles and the right at -ve.
-const PHYS = { g: 2600, k1: 420, k2: 300, c1: 7, c2: 9 };
-const REST = { L: { a1: 62, a2: 34 }, R: { a1: -62, a2: -34 } };   // link 1 from straight down; link 2 relative to link 1
+const PHYS = { g: 2600, k1: 600, k2: 470, c1: 4.5, c2: 5.5 };   // springy enough to stand up against gravity, and wobble
+const REST = { L: { a1: 160, a2: -10 }, R: { a1: -186, a2: 34 } };   // link 1 from straight down (180 = straight up); link 2 relative to link 1
 // The rest pose under gravity (where the springs and gravity balance), by Newton: k (r - a) = (g / L) sin a, per link.
 function settle(r, k, L) { let a = r; for (let i = 0; i < 40; i++) { const f = k * (r - a) - (PHYS.g / L) * Math.sin(a), df = -k - (PHYS.g / L) * Math.cos(a); a -= f / df; } return a; }
 const EQ = {};
 for (const s of ["L", "R"]) {
   // link 1 rests at REST + the head's cock (it grows from the cocked head; the app turns it inside the head's own frame,
   // which carries only the head's sway); link 2 rests relative to link 1. Gravity pulls both toward straight down.
-  const a1 = settle(rad(REST[s].a1 + TILT), PHYS.k1, L1 * U), w1 = a1, a2w = settle(w1 + rad(REST[s].a2), PHYS.k2, L2 * U);
+  const a1 = settle(rad(REST[s].a1 + TILT), PHYS.k1, L1[s] * U), w1 = a1, a2w = settle(w1 + rad(REST[s].a2), PHYS.k2, L2[s] * U);
   EQ[s] = { a1: a1 * 180 / Math.PI, a2: (a2w - w1) * 180 / Math.PI };
 }
 // a link: a tapering tube hanging straight down from (x, y), round at both ends; the second link ends in a teardrop
@@ -64,18 +64,18 @@ const root = { L: toArt(ROOTS.L), R: toArt(ROOTS.R) };
 const feelerSvgs = {};
 for (const s of ["L", "R"]) {
   const [x, y] = root[s];
-  feelerSvgs[`feeler${s}1.svg`] = link(x, y, L1, 11, 6.5, 0) + `<circle cx="${f1(x)}" cy="${f1(y)}" r="8" fill="${INK}"/>`;   // a socket where it grows
-  feelerSvgs[`feeler${s}2.svg`] = link(x, y + L1, L2, 6.5, 3.6, 7.5);
+  feelerSvgs[`feeler${s}1.svg`] = link(x, y, L1[s], 12, 7, 0);
+  feelerSvgs[`feeler${s}2.svg`] = link(x, y + L1[s], L2[s], 7, 3.8, 8.5);
 }
 const feelersAtRest = ["L", "R"].map((s) => {
   const [x, y] = root[s], e = EQ[s];
-  return `<g transform="rotate(${f1(e.a1)} ${f1(x)} ${f1(y)})">${feelerSvgs[`feeler${s}1.svg`]}<g transform="rotate(${f1(e.a2)} ${f1(x)} ${f1(y + L1)})">${feelerSvgs[`feeler${s}2.svg`]}</g></g>`;
+  return `<g transform="rotate(${f1(e.a1)} ${f1(x)} ${f1(y)})">${feelerSvgs[`feeler${s}1.svg`]}<g transform="rotate(${f1(e.a2)} ${f1(x)} ${f1(y + L1[s])})">${feelerSvgs[`feeler${s}2.svg`]}</g></g>`;
 }).join("");
 
 // ---------------------------------------------------------------- the head's dots: a hex grid, sized by a lit dome
 const C = 12.6, row = C * 0.866, dots = [];
 const Lv = [-0.32, -0.42, 0.85], Ln = Math.hypot(...Lv);
-const nearRoot = (x, y) => ["L", "R"].some((s) => Math.hypot(x - ROOTS[s][0], y - ROOTS[s][1]) < 13);
+const nearRoot = () => false;
 for (let j = -Math.ceil(H.ry / row); j <= Math.ceil(H.ry / row); j++) for (let i = -Math.ceil(H.rx / C) - 1; i <= Math.ceil(H.rx / C) + 1; i++) {
   const x = i * C + ((j & 1) ? C / 2 : 0), y = j * row, nx = x / H.rx, ny = y / H.ry, q = 1 - nx * nx - ny * ny; if (q <= 0) continue;
   const light = Math.max(0, (nx * Lv[0] + ny * Lv[1] + Math.sqrt(q) * Lv[2]) / Ln);

@@ -203,8 +203,8 @@ export function degKeys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step
 // --- the feelers ---------------------------------------------------------------------------------------------------
 
 /**
- * BLIP'S FEELERS hang from his head and swing with physics. Each is two links: the first hangs from its root on the
- * head, the second from the first one's end. Each link is a pendulum on a moving pivot, with gravity, a spring toward
+ * BLIP'S FEELERS stand on his head, as on the icon, and move with physics. Each is two links: the first grows from its
+ * root on his crown (behind the bar: they rise from behind it and stand above it), the second from the first one's end. Each link is a pendulum on a moving pivot, with gravity, a spring toward
  * its rest angle (relative to the head for the first, to the first for the second) and damping:
  *
  *   L a'' = -(g - Ay) sin a + Ax cos a  +  L k (rest - a)  -  L c a'
@@ -232,9 +232,9 @@ let feelCache: FeelerAngles[] | null = null;
 /** The feelers' angles every 10 ms from 0 to 900 (his head is gone after): local, as the views turn them (degrees). */
 export function feelerTrack(): FeelerAngles[] {
   if (feelCache) return feelCache;
-  const rad = Math.PI / 180, { g, k1, k2, c1, c2 } = FA.phys, L1 = FA.L1 * U, L2 = FA.L2 * U, out: FeelerAngles[] = [];
+  const rad = Math.PI / 180, { g, k1, k2, c1, c2 } = FA.phys, out: FeelerAngles[] = [];
   const sides = (["L", "R"] as const).map((s) => ({
-    root: FA.roots[s], rest1: (FA.rest[s].a1 + FA.tilt) * rad, rest2: FA.rest[s].a2 * rad,
+    root: FA.roots[s], L1: FA.L1[s] * U, L2: FA.L2[s] * U, rest1: (FA.rest[s].a1 + FA.tilt) * rad, rest2: FA.rest[s].a2 * rad,
     a1: FA.eq[s].a1 * rad, v1: 0, a2: (FA.eq[s].a1 + FA.eq[s].a2) * rad, v2: 0,
   }));
   const dt = FEEL_DT / 1000, h = 1;   // s; the finite-difference step for the root's acceleration, ms
@@ -244,10 +244,10 @@ export function feelerTrack(): FeelerAngles[] {
       const p0 = headPoint(S.root[0], S.root[1], t - h), p1 = headPoint(S.root[0], S.root[1], t), p2 = headPoint(S.root[0], S.root[1], t + h);
       const hs = h / 1000, ax = (p2[0] - 2 * p1[0] + p0[0]) / (hs * hs), ay = (p2[1] - 2 * p1[1] + p0[1]) / (hs * hs);
       // link 1 (world angle a1; its rest rides the head's sway)
-      const acc1 = (-(g - ay) * Math.sin(S.a1) + ax * Math.cos(S.a1)) / L1 + k1 * (sway + S.rest1 - S.a1) - c1 * S.v1;
+      const acc1 = (-(g - ay) * Math.sin(S.a1) + ax * Math.cos(S.a1)) / S.L1 + k1 * (sway + S.rest1 - S.a1) - c1 * S.v1;
       // link 1's end: the second link's pivot, and its acceleration
-      const jx = ax + L1 * (Math.sin(S.a1) * S.v1 * S.v1 - Math.cos(S.a1) * acc1), jy = ay + L1 * (-Math.cos(S.a1) * S.v1 * S.v1 - Math.sin(S.a1) * acc1);
-      const acc2 = (-(g - jy) * Math.sin(S.a2) + jx * Math.cos(S.a2)) / L2 + k2 * (S.a1 + S.rest2 - S.a2) - c2 * S.v2;
+      const jx = ax + S.L1 * (Math.sin(S.a1) * S.v1 * S.v1 - Math.cos(S.a1) * acc1), jy = ay + S.L1 * (-Math.cos(S.a1) * S.v1 * S.v1 - Math.sin(S.a1) * acc1);
+      const acc2 = (-(g - jy) * Math.sin(S.a2) + jx * Math.cos(S.a2)) / S.L2 + k2 * (S.a1 + S.rest2 - S.a2) - c2 * S.v2;
       S.v1 += acc1 * dt; S.a1 += S.v1 * dt; S.v2 += acc2 * dt; S.a2 += S.v2 * dt;
     }
     if (t % 10 === 0) {
@@ -258,6 +258,14 @@ export function feelerTrack(): FeelerAngles[] {
   feelCache = out;
   return out;
 }
+
+/**
+ * How much of the feelers shows at t. They stand above the bar, outside the clip that hides his head as it goes up
+ * behind it, so they go as he starts up: faded out over the first of his rise (FEELERS_OUT), never left standing over
+ * an empty bar.
+ */
+export const FEELERS_OUT = [600, 680] as const;
+export function feelersShown(t: number): number { return head(t).shown * (1 - K(t, FEELERS_OUT[0], FEELERS_OUT[1])); }
 
 /** One feeler angle at t (degrees), from the track: the views' keys. */
 export function feeler(which: keyof FeelerAngles, t: number): number {
