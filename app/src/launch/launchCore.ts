@@ -213,8 +213,8 @@ export function degKeys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step
  * where a is the link's angle as a CSS rotation of it hanging straight down (+ve swings it left) and (Ax, Ay) is its
  * pivot's acceleration (y down: a pivot rising faster makes the link hang heavier, one slowing makes it lighter). The first link's pivot is the root, carried by the head's motion (head(t): its rise, sway and
  * squash, and the bar's dip under him); the second's is the first one's end. Integrated once in 1 ms steps from the
- * rest pose the splash is drawn in (FEELER_ART.eq), sampled every 10 ms for the native driver like everything else.
- * The geometry and the numbers come from the art's generator (feelerArt.ts).
+ * rest the splash is drawn in, sampled every 10 ms for the native driver like everything else. The feelers are the
+ * icon's own, cut in two and drawn at rest; the geometry and the numbers come from the art's generator (feelerArt.ts).
  */
 export interface FeelerAngles { l1: number; l2: number; r1: number; r2: number }
 
@@ -230,30 +230,44 @@ export function headPoint(x: number, y: number, t: number): [number, number] {
 }
 
 let feelCache: FeelerAngles[] | null = null;
-/** The feelers' angles every 10 ms from 0 to 900 (his head is gone after): local, as the views turn them (degrees). */
+/**
+ * The feelers' turns every 10 ms from 0 to 900 (his head is gone after), in degrees, as the views apply them: each
+ * piece's turn about its pivot AWAY FROM ITS DRAWN REST (so 0 is the art as drawn): l1 the left's first piece inside
+ * the head, l2 its second piece inside the first; r1, r2 the right's.
+ *
+ * The springs' rests are worked out so that rest under gravity is the drawn shape: for a piece at angle a,
+ * k (r - a) = (g / L) sin a, so r = a + (g / (L k)) sin a.
+ */
 export function feelerTrack(): FeelerAngles[] {
   if (feelCache) return feelCache;
   const rad = Math.PI / 180, { g, k1, k2, c1, c2 } = FA.phys, out: FeelerAngles[] = [];
-  const sides = (["L", "R"] as const).map((s) => ({
-    root: FA.roots[s], L1: FA.L1[s] * U, L2: FA.L2[s] * U, rest1: (FA.rest[s].a1 + FA.tilt) * rad, rest2: FA.rest[s].a2 * rad,
-    a1: FA.eq[s].a1 * rad, v1: 0, a2: (FA.eq[s].a1 + FA.eq[s].a2) * rad, v2: 0,
-  }));
+  const sides = (["L", "R"] as const).map((s) => {
+    const L1 = FA.L1[s] * U, L2 = FA.L2[s] * U, e1 = FA.rest[s].a1 * rad, e2 = FA.rest[s].a2 * rad;
+    return {
+      root: FA.roots[s], L1, L2, e1, e2,
+      rest1: e1 + (g / (L1 * k1)) * Math.sin(e1), rest2: e2 - e1 + (g / (L2 * k2)) * Math.sin(e2),
+      a1: e1, v1: 0, a2: e2, v2: 0,
+    };
+  });
   const dt = FEEL_DT / 1000, h = 1;   // s; the finite-difference step for the root's acceleration, ms
   for (let t = 0; t <= 900; t += FEEL_DT) {
     const sway = head(t).sway * rad;
     for (const S of sides) {
       const p0 = headPoint(S.root[0], S.root[1], t - h), p1 = headPoint(S.root[0], S.root[1], t), p2 = headPoint(S.root[0], S.root[1], t + h);
       const hs = h / 1000, ax = (p2[0] - 2 * p1[0] + p0[0]) / (hs * hs), ay = (p2[1] - 2 * p1[1] + p0[1]) / (hs * hs);
-      // link 1 (world angle a1; its rest rides the head's sway)
+      // the first piece (its world angle a1; its spring's rest rides the head's sway)
       const acc1 = (-(g - ay) * Math.sin(S.a1) + ax * Math.cos(S.a1)) / S.L1 + k1 * (sway + S.rest1 - S.a1) - c1 * S.v1;
-      // link 1's end: the second link's pivot, and its acceleration
+      // the first piece's end: the second's pivot, and its acceleration
       const jx = ax + S.L1 * (Math.sin(S.a1) * S.v1 * S.v1 - Math.cos(S.a1) * acc1), jy = ay + S.L1 * (-Math.cos(S.a1) * S.v1 * S.v1 - Math.sin(S.a1) * acc1);
       const acc2 = (-(g - jy) * Math.sin(S.a2) + jx * Math.cos(S.a2)) / S.L2 + k2 * (S.a1 + S.rest2 - S.a2) - c2 * S.v2;
       S.v1 += acc1 * dt; S.a1 += S.v1 * dt; S.v2 += acc2 * dt; S.a2 += S.v2 * dt;
     }
     if (t % 10 === 0) {
       const [L, R] = sides, d = 180 / Math.PI;
-      out.push({ l1: (L.a1 - sway) * d, l2: (L.a2 - L.a1) * d, r1: (R.a1 - sway) * d, r2: (R.a2 - R.a1) * d });
+      out.push({
+        l1: (L.a1 - sway - L.e1) * d, l2: (L.a2 - L.a1 - (L.e2 - L.e1)) * d,
+        r1: (R.a1 - sway - R.e1) * d, r2: (R.a2 - R.a1 - (R.e2 - R.e1)) * d,
+      });
     }
   }
   feelCache = out;

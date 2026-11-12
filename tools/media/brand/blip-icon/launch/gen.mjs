@@ -31,46 +31,51 @@ const V = { x0: -104, x1: 104, y0: -34, y1: 15 };
 const inVisor = (x, y, m = 0) => x > V.x0 - m && x < V.x1 + m && y > V.y0 - m && y < V.y1 + m + (1 - (x / V.x1) ** 2) * 13;
 const visorPath = () => { const v = V; return `M${v.x0} ${v.y0 + 4}Q${v.x0} ${v.y0 - 3} ${v.x0 + 15} ${v.y0 - 2}H${v.x1 - 15}Q${v.x1} ${v.y0 - 3} ${v.x1} ${v.y0 + 4}V${v.y1 - 5}Q${v.x1 - 3} ${v.y1 + 17} ${v.x1 - 40} ${v.y1 + 20}Q0 ${v.y1 + 31} ${v.x0 + 40} ${v.y1 + 20}Q${v.x0 + 3} ${v.y1 + 17} ${v.x0} ${v.y1 - 5}Z`; };
 
-// ---------------------------------------------------------------- the feelers: where they grow, how they hang
-// He hangs upside down, so the top of his head is at the BOTTOM of the picture, and his feelers hang down from there,
-// splayed out (in the head's own frame, before the cock). They are part of the head: they go up behind the bar with it.
-const ROOTS = { L: sup(Math.PI / 2 + 0.5, 12), R: sup(Math.PI / 2 - 0.5, 12) };
-const L1 = { L: 54, R: 58 }, L2 = { L: 50, R: 54 };   // link lengths, art px
-// Physics, in points and seconds (launchCore.ts reads these): gravity, each link's spring toward its rest angle (per
-// s^2, as an angular frequency squared), and damping (per s). Angles are CSS rotations of a link drawn hanging down:
-// +ve turns it toward the LEFT, so the left feeler rests at +ve angles and the right at -ve.
-const PHYS = { g: 2600, k1: 110, k2: 70, c1: 3.2, c2: 3.6 };   // gravity does most of it: soft springs keep them splayed, light damping lets them swing   // springy enough to stand up against gravity, and wobble
-const REST = { L: { a1: 50, a2: 6 }, R: { a1: -54, a2: -6 } };   // link 1 from straight down (180 = straight up); link 2 relative to link 1
-// The rest pose under gravity (where the springs and gravity balance), by Newton: k (r - a) = (g / L) sin a, per link.
-function settle(r, k, L) { let a = r; for (let i = 0; i < 40; i++) { const f = k * (r - a) - (PHYS.g / L) * Math.sin(a), df = -k - (PHYS.g / L) * Math.cos(a); a -= f / df; } return a; }
-const EQ = {};
-for (const s of ["L", "R"]) {
-  // link 1 rests at REST + the head's cock (it grows from the cocked head; the app turns it inside the head's own frame,
-  // which carries only the head's sway); link 2 rests relative to link 1. Gravity pulls both toward straight down.
-  const a1 = settle(rad(REST[s].a1 + TILT), PHYS.k1, L1[s] * U), w1 = a1, a2w = settle(w1 + rad(REST[s].a2), PHYS.k2, L2[s] * U);
-  EQ[s] = { a1: a1 * 180 / Math.PI, a2: (a2w - w1) * 180 / Math.PI };
-}
-// a link: a tapering tube hanging straight down from (x, y), round at both ends; the second link ends in a teardrop
-function link(x, y, len, w0, w1, tip) {
-  const NN = 40, pts = [];
-  for (let i = 0; i <= NN; i++) { const t = i / NN, w = (w0 + (w1 - w0) * t) / 2; pts.push([x + w, y + len * t]); }
-  const left = pts.map(([px, py]) => [2 * x - px, py]).reverse();
-  let o = `<path d="${pts.concat(left).map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("")}Z" fill="${INK}"/>`;
-  o += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(w0 / 2)}" fill="${INK}"/><circle cx="${f1(x)}" cy="${f1(y + len)}" r="${f1(w1 / 2)}" fill="${INK}"/>`;
-  if (tip) o += `<ellipse cx="${f1(x)}" cy="${f1(y + len + tip * 0.75)}" rx="${f1(tip)}" ry="${f1(tip * 1.3)}" fill="${INK}"/>`;
+// ---------------------------------------------------------------- the feelers: the icon's, hanging, with physics
+// The icon's own feelers (cool/gen.mjs, mono: a flared root, a smooth taper, a teardrop tip; the left short with an S,
+// the right long, arching, its tip curling back) hung upside down: he hangs upside down, so the top of his head is the
+// bottom of the picture and they hang from there. Each is cut in two along its own curve and drawn in its resting
+// shape; the app turns each piece about its pivot (the root; the cut) by how far the physics has moved it from rest.
+// The springs are set so that rest under gravity IS the icon's shape (launchCore.ts works them out from eq).
+const SC = H.rx / 344 * 1.12;   // the icon's head is 344 wide (half), this one 150; a touch longer, to hold the icon's proportion
+// Upside down is the icon turned half round: each feeler's root goes to the opposite side of the head, its shape turns
+// with it. So the icon's long arching feeler hangs on the LEFT here, the short S on the right.
+const ROOTS = { L: sup(-1.13 + Math.PI, 10), R: sup(-2.02 + Math.PI, 10) };
+const CURVES = {
+  L: (b) => [b, [b[0] - 8 * SC, b[1] + 132 * SC], [b[0] - 150 * SC, b[1] + 206 * SC], [b[0] - 166 * SC, b[1] + 138 * SC]],
+  R: (b) => [b, [b[0] + 2 * SC, b[1] + 64 * SC], [b[0] + 66 * SC, b[1] + 74 * SC], [b[0] + 58 * SC, b[1] + 136 * SC]],
+};
+const WID = { L: { w0: 32 * SC * 1.15, w1: 8 * SC * 1.15, tip: 16 * SC * 1.1 }, R: { w0: 30 * SC * 1.15, w1: 9 * SC * 1.15, tip: 15 * SC * 1.1 } };
+const CUT = { L: 0.46, R: 0.5 };            // where each is cut in two, as a fraction of its curve
+// Physics, in points and seconds (launchCore.ts reads these): gravity, each piece's spring (per s^2) and damping (per s).
+// Gravity does most of it; soft springs hold the shape, light damping lets them swing.
+const PHYS = { g: 2600, k1: 140, k2: 110, c1: 3.4, c2: 3.8 };
+const cub = (P, t) => { const u = 1 - t; return [0, 1].map((i) => u * u * u * P[0][i] + 3 * u * u * t * P[1][i] + 3 * u * t * t * P[2][i] + t * t * t * P[3][i]); };
+/** One piece of a feeler (t0 to t1 of its curve), in the art's frame, at rest: a filled outline, round where it is cut. */
+function piece(P, w, t0, t1, tip) {
+  const NN = 120, pts = [], nm = [];
+  for (let i = 0; i <= NN; i++) pts.push(cub(P, t0 + (t1 - t0) * i / NN));
+  for (let i = 0; i <= NN; i++) { const a = pts[Math.max(0, i - 1)], c = pts[Math.min(NN, i + 1)], dx = c[0] - a[0], dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1; nm.push([-dy / l, dx / l]); }
+  const W = (i) => { const t = t0 + (t1 - t0) * i / NN; return (w.w1 + (w.w0 - w.w1) * Math.pow(1 - t, 2.2)) / 2; };
+  const sd = (g) => pts.map((p, i) => [p[0] + nm[i][0] * W(i) * g, p[1] + nm[i][1] * W(i) * g]);
+  let o = `<path d="${sd(1).concat(sd(-1).reverse()).map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("")}Z" fill="${INK}"/>`;
+  o += `<circle cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(W(0))}" fill="${INK}"/><circle cx="${f1(pts[NN][0])}" cy="${f1(pts[NN][1])}" r="${f1(W(NN))}" fill="${INK}"/>`;
+  if (tip) {
+    const e = pts[NN], pv = pts[NN - 10], ang = Math.atan2(e[1] - pv[1], e[0] - pv[0]), cx = e[0] + Math.cos(ang) * w.tip * 0.55, cy = e[1] + Math.sin(ang) * w.tip * 0.55;
+    o += `<ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(w.tip * 1.3)}" ry="${f1(w.tip)}" transform="rotate(${f1(ang * 180 / Math.PI)} ${f1(cx)} ${f1(cy)})" fill="${INK}"/>`;
+  }
   return o;
 }
-const root = { L: toArt(ROOTS.L), R: toArt(ROOTS.R) };
-const feelerSvgs = {};
+const cssAngle = (a, b) => Math.atan2(-(b[0] - a[0]), b[1] - a[1]) * 180 / Math.PI;   // a piece's chord as a CSS turn of "straight down"
+const feelerSvgs = {}, geo = {};
 for (const s of ["L", "R"]) {
-  const [x, y] = root[s];
-  feelerSvgs[`feeler${s}1.svg`] = link(x, y, L1[s], 12, 7, 0);
-  feelerSvgs[`feeler${s}2.svg`] = link(x, y + L1[s], L2[s], 7, 3.8, 8.5);
+  const P = CURVES[s](ROOTS[s]).map(toArt);   // into the art's frame (the head is cocked)
+  const j = cub(P, CUT[s]), e = cub(P, 1);
+  feelerSvgs[`feeler${s}1.svg`] = piece(P, WID[s], 0, CUT[s], false);
+  feelerSvgs[`feeler${s}2.svg`] = piece(P, WID[s], CUT[s], 1, true);
+  geo[s] = { root: P[0], joint: j, tip: e, L1: Math.hypot(j[0] - P[0][0], j[1] - P[0][1]), L2: Math.hypot(e[0] - j[0], e[1] - j[1]), a1: cssAngle(P[0], j), a2: cssAngle(j, e) };
 }
-const feelersAtRest = ["L", "R"].map((s) => {
-  const [x, y] = root[s], e = EQ[s];
-  return `<g transform="rotate(${f1(e.a1)} ${f1(x)} ${f1(y)})">${feelerSvgs[`feeler${s}1.svg`]}<g transform="rotate(${f1(e.a2)} ${f1(x)} ${f1(y + L1[s])})">${feelerSvgs[`feeler${s}2.svg`]}</g></g>`;
-}).join("");
+const feelersAtRest = Object.values(feelerSvgs).join("");
 
 // ---------------------------------------------------------------- the head's dots: a hex grid, sized by a lit dome
 const C = 12.6, row = C * 0.866, dots = [];
@@ -127,17 +132,22 @@ const files = {
 };
 for (const [k, v] of Object.entries(feelerSvgs)) files[k] = svg(v);
 for (const [k, v] of Object.entries(files)) fs.writeFileSync(path.join(OUT, k), v);
-const art = { roots: { L: root.L.map((v) => +v.toFixed(2)), R: root.R.map((v) => +v.toFixed(2)) }, L1, L2, rest: REST, tilt: TILT, phys: PHYS,
-  eq: { L: { a1: +EQ.L.a1.toFixed(3), a2: +EQ.L.a2.toFixed(3) }, R: { a1: +EQ.R.a1.toFixed(3), a2: +EQ.R.a2.toFixed(3) } } };
+const r2 = (p) => p.map((v) => +v.toFixed(2));
+const art = {
+  roots: { L: r2(geo.L.root), R: r2(geo.R.root) }, joints: { L: r2(geo.L.joint), R: r2(geo.R.joint) },
+  L1: { L: +geo.L.L1.toFixed(2), R: +geo.R.L1.toFixed(2) }, L2: { L: +geo.L.L2.toFixed(2), R: +geo.R.L2.toFixed(2) },
+  rest: { L: { a1: +geo.L.a1.toFixed(3), a2: +geo.L.a2.toFixed(3) }, R: { a1: +geo.R.a1.toFixed(3), a2: +geo.R.a2.toFixed(3) } },
+  phys: PHYS,
+};
 if (APP) {
   fs.writeFileSync(path.join(APP, "src/launch/feelerArt.ts"), `/**
  * GENERATED by tools/media/brand/blip-icon/launch/gen.mjs: do not edit; change the generator and run it again.
- * Blip's feelers in the launch art (assets/launch/feeler*.png): each link's pivot (art px, the 544 frame), length (art
- * px), rest angle (degrees, a CSS rotation of the link drawn hanging down: link 1 from straight down, relative to the
- * head; link 2 relative to link 1), the head's cock in the art, the physics (points, seconds), and the rest pose under
- * gravity the splash is drawn in (eq), which the motion starts from.
+ * Blip's feelers in the launch art (assets/launch/feeler*.png): the icon's feelers, hung from the top of his upside-down
+ * head, each cut in two and drawn at rest. Per side: the pivots (root, and the cut between the pieces: art px in the
+ * 544 frame), each piece's chord length (art px), each chord's angle at rest (degrees, as a CSS turn of "straight down",
+ * in the art's frame), and the physics (points, seconds). The app turns each piece by how far it is from rest.
  */
 export const FEELER_ART = ${JSON.stringify(art, null, 2)} as const;
 `);
 }
-console.log(Object.keys(files).join(" "), dots.length, "dots; rest", JSON.stringify(art.eq));
+console.log(Object.keys(files).join(" "), dots.length, "dots; rest", JSON.stringify(art.rest));
