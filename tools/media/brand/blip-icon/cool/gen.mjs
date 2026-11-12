@@ -151,4 +151,4 @@ ${glow(R.tip)}`}
   fs.writeFileSync(path.join(OUT, `${kind}.svg`), svg);
   return svg.length;
 }
-for (const k of ["shades", "look", "mono"]) console.log(k, build(k), "bytes");
+for (const k of ["shades", "look"]) console.log(k, build(k), "bytes");
