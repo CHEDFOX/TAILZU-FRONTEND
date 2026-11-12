@@ -9,7 +9,7 @@ import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { bool, list } from "../sdui/knobs";
-import { categoriesSignature, cleanCategories, type Category } from "./categoriesCore";
+import { categoriesSignature, cleanCategories, latestOnly, type Category } from "./categoriesCore";
 
 const SIG_KEY = "x0.push.categoriesSig";
 const IDS_KEY = "x0.push.categoryIds";
@@ -24,37 +24,39 @@ export function currentCategories(): Category[] {
   ]));
 }
 
-let busy: Promise<void> | null = null;
-
-/** Register the server's categories with the system when they changed since the last time. Never throws. */
+/**
+ * Register the server's categories with the system when they changed since the last time. Never throws. Asked again while a
+ * registration is still running (a newer bootstrap landed meanwhile), it runs once more when that one ends, with the knobs then
+ * in force (categoriesCore.latestOnly), so the newest list is the one registered.
+ */
 export function registerNotificationCategories(): Promise<void> {
   if (Platform.OS !== "ios" && Platform.OS !== "android") return Promise.resolve();
-  if (busy) return busy;
-  busy = (async () => {
-    try {
-      const cats = currentCategories();
-      const sig = categoriesSignature(cats);
-      if ((await AsyncStorage.getItem(SIG_KEY).catch(() => null)) === sig) return;
-      const before = JSON.parse((await AsyncStorage.getItem(IDS_KEY).catch(() => null)) ?? "[]") as unknown;
-      for (const c of cats) {
-        await Notifications.setNotificationCategoryAsync(c.id, c.actions.map((a) => ({
-          identifier: a.id,
-          buttonTitle: a.title,
-          ...(a.input ? { textInput: { submitButtonTitle: a.input.send, placeholder: a.input.placeholder } } : {}),
-          options: { opensAppToForeground: a.foreground || !!a.open, isDestructive: a.destructive, isAuthenticationRequired: a.auth },
-        })), c.previewPlaceholder ? { previewPlaceholder: c.previewPlaceholder } : undefined).catch(() => undefined);
-      }
-      // A category the server no longer lists goes, so its buttons stop appearing on pushes that still name it.
-      const now = new Set(cats.map((c) => c.id));
-      for (const id of Array.isArray(before) ? before : []) {
-        if (typeof id === "string" && !now.has(id)) await Notifications.deleteNotificationCategoryAsync(id).catch(() => false);
-      }
-      await AsyncStorage.multiSet([[SIG_KEY, sig], [IDS_KEY, JSON.stringify([...now])]]).catch(() => {});
-    } catch {
-      // the buttons are a convenience: a push still opens the app
-    } finally {
-      busy = null;
+  return registerLatest();
+}
+
+const registerLatest = latestOnly(registerOnce);
+
+async function registerOnce(): Promise<void> {
+  try {
+    const cats = currentCategories();
+    const sig = categoriesSignature(cats);
+    if ((await AsyncStorage.getItem(SIG_KEY).catch(() => null)) === sig) return;
+    const before = JSON.parse((await AsyncStorage.getItem(IDS_KEY).catch(() => null)) ?? "[]") as unknown;
+    for (const c of cats) {
+      await Notifications.setNotificationCategoryAsync(c.id, c.actions.map((a) => ({
+        identifier: a.id,
+        buttonTitle: a.title,
+        ...(a.input ? { textInput: { submitButtonTitle: a.input.send, placeholder: a.input.placeholder } } : {}),
+        options: { opensAppToForeground: a.foreground || !!a.open, isDestructive: a.destructive, isAuthenticationRequired: a.auth },
+      })), c.previewPlaceholder ? { previewPlaceholder: c.previewPlaceholder } : undefined).catch(() => undefined);
     }
-  })();
-  return busy;
+    // A category the server no longer lists goes, so its buttons stop appearing on pushes that still name it.
+    const now = new Set(cats.map((c) => c.id));
+    for (const id of Array.isArray(before) ? before : []) {
+      if (typeof id === "string" && !now.has(id)) await Notifications.deleteNotificationCategoryAsync(id).catch(() => false);
+    }
+    await AsyncStorage.multiSet([[SIG_KEY, sig], [IDS_KEY, JSON.stringify([...now])]]).catch(() => {});
+  } catch {
+    // the buttons are a convenience: a push still opens the app
+  }
 }

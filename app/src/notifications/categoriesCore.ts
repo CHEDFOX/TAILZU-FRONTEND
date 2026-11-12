@@ -158,9 +158,85 @@ export function stillOwed(list: Owed[], now: number, maxAgeMs: number, maxTries:
   return list.filter((o) => now - o.at < maxAgeMs && o.tries < maxTries);
 }
 
-/** Whether a failed answer is worth trying again: the network or the server's trouble, not a refusal. */
-export function retryable(status: number | undefined): boolean {
-  return status === undefined || status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+/**
+ * Whether a failed answer is worth trying again: the network or the server's trouble, not a refusal. A 409 "in_progress" is not a
+ * refusal either: it is this same press (the same key, pressKey) still being answered by a second copy of it (Android hands a press
+ * to the background task and to a running app alike), so trying again later gets that copy's answer instead of "Couldn't do that".
+ */
+export function retryable(status: number | undefined, code?: string): boolean {
+  return status === undefined || status === 0 || status === 408 || status === 425 || status === 429 || status >= 500
+    || (status === 409 && code === "in_progress");
+}
+
+/**
+ * A press's idempotency key: the push and the button, so the same press handled twice is one answer. Null without a push id.
+ * It is built from the push's own data.pushId (every server push carries its push_log id), NOT the notification's identifier: a
+ * follow's pushes share one collapse id, and iOS makes a remote notification's identifier its collapse id, so two different
+ * pushes (Later on climb 1, Later on climb 2) would get one key and the act door would answer the second with the first's reply.
+ *
+ * "p" + the push id with every character outside [A-Za-z0-9_.:-] taken out, ":", the button; at most 120 long (the act door's
+ * key rule). Null when the id part is shorter than 8 (or there is no button). A very long id is cut, never the button, so two
+ * buttons of one push are always two keys.
+ */
+export function pressKey(pushId: unknown, actionId: string): string | null {
+  const id = (typeof pushId === "string" ? pushId : "").replace(/[^A-Za-z0-9_.:-]/g, "");
+  const button = (typeof actionId === "string" ? actionId : "").replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 40);
+  if (id.length < 8 || !button) return null;
+  return `p${id.slice(0, 120 - 2 - button.length)}:${button}`;
+}
+
+/**
+ * The key a press is answered under: the push and the button (pressKey) for a plain button, so a press handled twice, or retried
+ * later, is one answer; a fresh one for a button with words typed (two replies are two messages) or a push with no id.
+ */
+export function answerKey(a: CategoryAction, data: Obj, fresh: () => string): string {
+  if (a.input) return fresh();
+  return pressKey(data.pushId, a.id) ?? fresh();
+}
+
+/**
+ * What push.ts remembers so one tap or press is acted on once in this run of the app (the launch tap and the listener can both
+ * hand it over): the notification, the push and the button. The notification's identifier alone is not enough: every push of a
+ * follow shares one collapse id ("follow-<id>"), which iOS makes the identifier (and Android's tag likewise), so without the push
+ * id the second push's Later, or a tap to open it, would be taken for the first one's and dropped. "" without an identifier
+ * (nothing to tell them apart by: acted on every time, as before).
+ */
+/**
+ * The push cap this JavaScript sends with its token (push.ts): it remembers taps by push id too (tapSeenKey), so the server may give a
+ * follow's pushes one collapse id. A phone on older JavaScript never says it, so the server never collapses its pushes (its taps are
+ * remembered by notification id alone, and a shared id would drop the second push's press).
+ */
+export const TAP_SEEN_CAP = "PushTapSeen";
+
+export function tapSeenKey(identifier: unknown, data: unknown, actionIdentifier: unknown): string {
+  const id = typeof identifier === "string" ? identifier : "";
+  if (!id) return "";
+  const pushId = isObj(data) && typeof data.pushId === "string" ? data.pushId : "";
+  return `${id}:${pushId}:${typeof actionIdentifier === "string" ? actionIdentifier : ""}`;
+}
+
+/**
+ * One job run at a time, and never a newer request lost: asked while it runs, it runs once more when it ends (however many asked
+ * meanwhile), so the last run always sees what was newest. Every caller gets the promise of the run in progress. categories.ts
+ * registers the buttons this way: a bootstrap that lands while the last one's buttons are still being registered is registered too.
+ */
+export function latestOnly(job: () => Promise<void>): () => Promise<void> {
+  let running: Promise<void> | null = null;
+  let again = false;
+  return () => {
+    if (running) { again = true; return running; }
+    running = (async () => {
+      try {
+        do {
+          again = false;
+          try { await job(); } catch { /* the next ask tries again */ }
+        } while (again);
+      } finally {
+        running = null;
+      }
+    })();
+    return running;
+  };
 }
 
 /**

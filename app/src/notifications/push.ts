@@ -17,7 +17,7 @@ import Constants from "expo-constants";
 import { APP_VERSION, callEndpoint } from "../sdui/client";
 import { bool, list, str, txt } from "../sdui/knobs";
 import { handleNotificationAction } from "./actions";
-import { pressedButton } from "./categoriesCore";
+import { TAP_SEEN_CAP, pressedButton, tapSeenKey } from "./categoriesCore";
 import { binaryFeatures } from "../device/binary";
 import { pushCaps } from "../device/binaryCore";
 import { dismissCall, makeCallChannels } from "./calls";
@@ -143,9 +143,10 @@ export async function registerForPushToken(): Promise<string | null> {
         // Sensitive entitlement is signed in, so the server marks a leave-by or a bill due today time-sensitive only for a phone
         // that has it. This JavaScript's (callsCore.ts callCaps): "BotCall", it takes Plan Ease's calls (always on iOS; on
         // Android only with its call channels usable), and "BotRingtone", the iPhone has the ringtone where iOS plays it, so the
-        // server may name it. Every launch sends them, so a phone updated from the store or by an update says so on its first
-        // launch. A server that does not read one drops it.
-        caps: [...pushCaps(binaryFeatures()), ...callCaps(Platform.OS, { ringtone: ring, channels })],
+        // server may name it. "PushTapSeen" (categoriesCore.ts TAP_SEEN_CAP): this JavaScript tells two pushes that share one
+        // notification id apart, so the server may give a follow's pushes one collapse id. Every launch sends them, so a phone
+        // updated from the store or by an update says so on its first launch. A server that does not read one drops it.
+        caps: [...pushCaps(binaryFeatures()), ...callCaps(Platform.OS, { ringtone: ring, channels }), TAP_SEEN_CAP],
       });
       lastToken = token;
     } catch { /* silent — retry on next boot / call */ }
@@ -160,14 +161,14 @@ export async function registerForPushToken(): Promise<string | null> {
 const handledTaps = new Set<string>();
 
 function onTap(res: Notifications.NotificationResponse, handler: (data: any) => void) {
-  const id = res?.notification?.request?.identifier;
-  // Once per notification AND button: a tap and a press on its Reply are two things.
-  const seen = id ? `${id}:${res?.actionIdentifier ?? ""}` : "";
+  const data = res?.notification?.request?.content?.data ?? {};
+  // Once per notification, push AND button: a tap and a press on its Reply are two things, and so are two pushes that share one
+  // identifier (a follow's, whose collapse id iOS makes the identifier), categoriesCore.tapSeenKey.
+  const seen = tapSeenKey(res?.notification?.request?.identifier, data, res?.actionIdentifier);
   if (seen) {
     if (handledTaps.has(seen)) return;
     handledTaps.add(seen);
   }
-  const data = res?.notification?.request?.content?.data ?? {};
   // A call's notification, tapped or pressed (Answer, Not now, Call back): every notification of that call goes, so a late
   // Answer leaves no missed call behind it (calls.ts).
   const callId = callOf(data);

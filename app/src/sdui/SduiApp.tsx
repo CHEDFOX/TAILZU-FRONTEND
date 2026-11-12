@@ -23,6 +23,7 @@ import AuthGateScreen from "../auth/AuthGateScreen";
 import { consumeKeyboardRecordRequest } from "../../modules/tulmi-bridge";
 import { useEdgeSwipeBack, resolveEdgeSwipe } from "./shell/gestures";
 import { refreshQuickAccess } from "../widgets/quickAccess";
+import { registerNotificationCategories } from "../notifications/categories";
 import { useShareIn } from "../share/useShareIn";
 import { LaunchStill } from "../launch/LaunchCurtain";
 import type { NavItem, Toast } from "./shell/types";
@@ -250,6 +251,12 @@ export default function SduiApp() {
   useEffect(() => {
     if (phase === "ready") refreshQuickAccess();
   }, [phase, boot]);
+
+  // A bootstrap in hand: the server's notification buttons registered (cheap: skipped when their signature is unchanged). The
+  // boot loader does it on a cold start and a sign-in; this also catches the bootstraps fetched on coming to the front and on a
+  // language change, so a new category (a follow's Done / Later / Can't) is there without waiting for the next cold start.
+  // (Effects run after the render that called setKnobs(boot), so currentCategories() reads the new list.)
+  useEffect(() => { if (boot) void registerNotificationCategories().catch(() => undefined); }, [boot]);
 
   // The Flow Session armed as soon as the flags allow (hooks/useFlowArming).
   const armIfAllowed = useFlowArming({ phase, boot });
