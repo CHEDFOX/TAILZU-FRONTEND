@@ -14,6 +14,8 @@
  * Nothing here imports React Native, so the numbers are tested on their own (launchCore.test.ts).
  */
 
+import { FEELER_ART } from "./feelerArt.ts";
+
 /** The ground. The NATIVE splash's colour (app.config.ts), so it is a constant: a server value could only break the join. */
 export const GROUND = "#FFFFFF";
 
@@ -196,6 +198,71 @@ export function keys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step = 
 export function degKeys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step = 10): { inputRange: number[]; outputRange: string[] } {
   const k = keys(f, from, to, step);
   return { inputRange: k.inputRange, outputRange: k.outputRange.map((v) => `${v}deg`) };
+}
+
+// --- the feelers ---------------------------------------------------------------------------------------------------
+
+/**
+ * BLIP'S FEELERS hang from his head and swing with physics. Each is two links: the first hangs from its root on the
+ * head, the second from the first one's end. Each link is a pendulum on a moving pivot, with gravity, a spring toward
+ * its rest angle (relative to the head for the first, to the first for the second) and damping:
+ *
+ *   L a'' = -(g - Ay) sin a + Ax cos a  +  L k (rest - a)  -  L c a'
+ *
+ * where a is the link's angle as a CSS rotation of it hanging straight down (+ve swings it left) and (Ax, Ay) is its
+ * pivot's acceleration (y down: a pivot rising faster makes the link hang heavier, one slowing makes it lighter). The first link's pivot is the root, carried by the head's motion (head(t): its rise, sway and
+ * squash, and the bar's dip under him); the second's is the first one's end. Integrated once in 1 ms steps from the
+ * rest pose the splash is drawn in (FEELER_ART.eq), sampled every 10 ms for the native driver like everything else.
+ * The geometry and the numbers come from the art's generator (feelerArt.ts).
+ */
+export interface FeelerAngles { l1: number; l2: number; r1: number; r2: number }
+
+const FA = FEELER_ART;
+const FEEL_DT = 1;   // ms
+
+/** Where a point of the head's art (544 px frame) is at t, in points from the art's top left. */
+export function headPoint(x: number, y: number, t: number): [number, number] {
+  const tt = Math.max(0, t), h = head(tt), bar = barDy(Math.min(tt, PINCH_AT));
+  const cx = SPLASH_PT / 2, px = x * U, py = y * U - BAR_TOP + h.dy;   // the head piece's frame: origin at the bar's top, x across the art
+  const sy = py * h.sq, a = h.sway * Math.PI / 180;
+  return [cx + (px - cx) * Math.cos(a) - sy * Math.sin(a), (px - cx) * Math.sin(a) + sy * Math.cos(a) + BAR_TOP + bar];
+}
+
+let feelCache: FeelerAngles[] | null = null;
+/** The feelers' angles every 10 ms from 0 to 900 (his head is gone after): local, as the views turn them (degrees). */
+export function feelerTrack(): FeelerAngles[] {
+  if (feelCache) return feelCache;
+  const rad = Math.PI / 180, { g, k1, k2, c1, c2 } = FA.phys, L1 = FA.L1 * U, L2 = FA.L2 * U, out: FeelerAngles[] = [];
+  const sides = (["L", "R"] as const).map((s) => ({
+    root: FA.roots[s], rest1: (FA.rest[s].a1 + FA.tilt) * rad, rest2: FA.rest[s].a2 * rad,
+    a1: FA.eq[s].a1 * rad, v1: 0, a2: (FA.eq[s].a1 + FA.eq[s].a2) * rad, v2: 0,
+  }));
+  const dt = FEEL_DT / 1000, h = 1;   // s; the finite-difference step for the root's acceleration, ms
+  for (let t = 0; t <= 900; t += FEEL_DT) {
+    const sway = head(t).sway * rad;
+    for (const S of sides) {
+      const p0 = headPoint(S.root[0], S.root[1], t - h), p1 = headPoint(S.root[0], S.root[1], t), p2 = headPoint(S.root[0], S.root[1], t + h);
+      const hs = h / 1000, ax = (p2[0] - 2 * p1[0] + p0[0]) / (hs * hs), ay = (p2[1] - 2 * p1[1] + p0[1]) / (hs * hs);
+      // link 1 (world angle a1; its rest rides the head's sway)
+      const acc1 = (-(g - ay) * Math.sin(S.a1) + ax * Math.cos(S.a1)) / L1 + k1 * (sway + S.rest1 - S.a1) - c1 * S.v1;
+      // link 1's end: the second link's pivot, and its acceleration
+      const jx = ax + L1 * (Math.sin(S.a1) * S.v1 * S.v1 - Math.cos(S.a1) * acc1), jy = ay + L1 * (-Math.cos(S.a1) * S.v1 * S.v1 - Math.sin(S.a1) * acc1);
+      const acc2 = (-(g - jy) * Math.sin(S.a2) + jx * Math.cos(S.a2)) / L2 + k2 * (S.a1 + S.rest2 - S.a2) - c2 * S.v2;
+      S.v1 += acc1 * dt; S.a1 += S.v1 * dt; S.v2 += acc2 * dt; S.a2 += S.v2 * dt;
+    }
+    if (t % 10 === 0) {
+      const [L, R] = sides, d = 180 / Math.PI;
+      out.push({ l1: (L.a1 - sway) * d, l2: (L.a2 - L.a1) * d, r1: (R.a1 - sway) * d, r2: (R.a2 - R.a1) * d });
+    }
+  }
+  feelCache = out;
+  return out;
+}
+
+/** One feeler angle at t (degrees), from the track: the views' keys. */
+export function feeler(which: keyof FeelerAngles, t: number): number {
+  const tr = feelerTrack(), i = Math.max(0, Math.min(tr.length - 1, Math.round(t / 10)));
+  return tr[i][which];
 }
 
 // --- the lift -----------------------------------------------------------------------------------------------------

@@ -135,3 +135,19 @@ test("the lift is once, and reaches whoever is waiting, before or after", () => 
   off();
   assert.deepEqual([early, late, never, isLifted()], [1, 1, 0, true]);
 });
+
+test("Blip's feelers: they start at rest (the splash's pose), swing when he moves, stay in reach, and settle", async () => {
+  const { feelerTrack, feeler } = await import("./launchCore.ts");
+  const { FEELER_ART } = await import("./feelerArt.ts");
+  const tr = feelerTrack();
+  assert.equal(tr.length, 91);
+  // the first frame is the splash: the rest pose the art is drawn in
+  assert.ok(Math.abs(tr[0].l1 - FEELER_ART.eq.L.a1) < 0.5 && Math.abs(tr[0].r1 - FEELER_ART.eq.R.a1) < 0.5);
+  assert.ok(Math.abs(tr[0].l2 - FEELER_ART.eq.L.a2) < 0.5 && Math.abs(tr[0].r2 - FEELER_ART.eq.R.a2) < 0.5);
+  // still while he is still (the first 400 ms: only a blink), then they swing as he gathers and pulls
+  for (let t = 0; t <= 400; t += 10) assert.ok(Math.abs(feeler("l1", t) - tr[0].l1) < 1, `l1 at ${t}`);
+  const swing = Math.max(...tr.slice(42, 90).map((a) => Math.abs(a.l1 - tr[0].l1)));
+  assert.ok(swing > 8, `the left feeler swings as he pulls up (${swing.toFixed(1)} deg)`);
+  // never wild: every angle stays within a half turn of rest
+  for (const a of tr) for (const k of ["l1", "l2", "r1", "r2"] as const) assert.ok(Math.abs(a[k] - tr[0][k]) < 150, `${k} ${a[k]}`);
+});
