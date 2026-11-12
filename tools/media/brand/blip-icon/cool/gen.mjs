@@ -84,16 +84,15 @@ function build(kind) {
     // the antennae: thin solid white stems with a gentle curve, from the crown; the left short with a small ball, the
     // right longer, sweeping out, with a glowing orb. The ears: three tight dots each, close to the head.
     let out = "";
-    const stem = (t0, len, bend, ang) => {
-      const b0 = head(t0, -8), tip = [b0[0] + Math.cos(ang) * len, b0[1] + Math.sin(ang) * len];
-      const mx = (b0[0] + tip[0]) / 2, my = (b0[1] + tip[1]) / 2, nx = -Math.sin(ang), ny = Math.cos(ang);
-      const c = [mx + nx * bend, my + ny * bend];
-      return { d: `M${f1(b0[0])} ${f1(b0[1])}Q${f1(c[0])} ${f1(c[1])} ${f1(tip[0])} ${f1(tip[1])}`, tip, base: b0 };
-    };
-    const Ls = stem(-2.0, 118, 10, -1.92), Rs = stem(-1.13, 214, -26, -1.08);
-    for (const st of [Ls, Rs]) out += `<path d="${st.d}" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>`;
-    out += `<circle cx="${f1(Ls.tip[0])}" cy="${f1(Ls.tip[1])}" r="16" fill="#FFFFFF"/>`;
-    out += `<circle cx="${f1(Rs.tip[0])}" cy="${f1(Rs.tip[1])}" r="74" fill="url(#${P}glow)"/><circle cx="${f1(Rs.tip[0])}" cy="${f1(Rs.tip[1])}" r="21" fill="#FFFFFF"/>`;
+    // the left: short, straight, a slight lean, a solid ball. The right: long, up, then a sharp elbow out to the side and
+    // a small open ring for a tip (Blip's bent antenna, made odd enough to know him by at a glance). No glow.
+    const L0 = head(-2.0, -8), Lt = [L0[0] - 30, L0[1] - 112];
+    out += `<path d="M${f1(L0[0])} ${f1(L0[1])}L${f1(Lt[0])} ${f1(Lt[1])}" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>`;
+    out += `<circle cx="${f1(Lt[0])}" cy="${f1(Lt[1])}" r="17" fill="#FFFFFF"/>`;
+    const R0 = head(-1.14, -8), elbow = [R0[0] + 22, R0[1] - 150], R1 = [elbow[0] + 92, elbow[1] - 22], ringR = 17;
+    const dx = R1[0] - elbow[0], dy = R1[1] - elbow[1], dl = Math.hypot(dx, dy), end = [R1[0] - dx / dl * ringR, R1[1] - dy / dl * ringR];
+    out += `<path d="M${f1(R0[0])} ${f1(R0[1])}Q${f1(R0[0] + 2)} ${f1(R0[1] - 90)} ${f1(elbow[0])} ${f1(elbow[1])}L${f1(end[0])} ${f1(end[1])}" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>`;
+    out += `<circle cx="${f1(R1[0])}" cy="${f1(R1[1])}" r="${ringR}" fill="none" stroke="#FFFFFF" stroke-width="10"/>`;
     for (const side of [-1, 1]) for (const dy of [-22, 4, 30]) out += `<circle cx="${f1(side * (H.rx + 20))}" cy="${f1(dy - 6)}" r="8" fill="#FFFFFF" opacity="${side < 0 ? 0.95 : 0.8}"/>`;
     return out;
   }
