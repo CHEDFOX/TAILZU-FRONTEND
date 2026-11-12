@@ -1,7 +1,8 @@
 // The COOL Blip icon: Blip's own head (the super-ellipse dotted head with the ink sticker edge, the ears, the two
 // antennae, the green light) in two cool takes.   node gen.mjs [outDir]  ->  shades.svg  look.svg
 //   shades: a single wraparound visor across his one eye, a glint on it, a smirk; on the brand's clay.
-//   mono:   the shades in white on black, no mouth.
+//   mono:   the shades in white on black: no mouth, no outline; the dots alone draw him, and his antennae and ears
+//           are dots too.
 //   look:   his big eye half-lidded and glancing aside, one brow up, a smirk; on ink, with a green rim light.
 // 1000 x 1000, full bleed, self-contained (no images, text or styles); every id carries a prefix unique to its file.
 import fs from "node:fs";
@@ -14,7 +15,7 @@ const INK = "#0E0D0C", CREAM = "#F4EADB", CLAY = "#C9683F", LIGHT = "#5CF08A";
 function build(kind) {
   const P = kind[0] + "c-", mono = kind === "mono", shades = kind === "shades" || mono;
   const FG = mono ? "#FFFFFF" : CREAM, LT = mono ? "#FFFFFF" : LIGHT, STALK = mono ? "#FFFFFF" : INK;
-  const H = { x: 500, y: 590, rx: 318, ry: 286, n: 2.3 };   // a touch bigger than the refined head: the face is the icon
+  const H = mono ? { x: 500, y: 600, rx: 344, ry: 310, n: 2.3 } : { x: 500, y: 590, rx: 318, ry: 286, n: 2.3 };   // a touch bigger than the refined head: the face is the icon
   const tilt = kind === "look" ? -0.06 : 0.035;
   const hasMouth = !mono;
   const head = (t, off = 0) => {
@@ -35,7 +36,7 @@ function build(kind) {
   const C = 27, dots = [];
   for (let gy = -H.ry; gy <= H.ry; gy += C) for (let gx = -H.rx; gx <= H.rx; gx += C) {
     const x = gx + ((Math.round(gy / C) & 1) ? C / 2 : 0), y = gy;
-    if (!inHead(x, y, 30)) continue;
+    if (!inHead(x, y, mono ? 16 : 30)) continue;
     if (eye && hyp(x - eye.x, y - eye.y) < eye.r + 26) continue;
     if (inVisor(x, y, 18)) continue;
     if (hasMouth && nearMouth(x, y, 26)) continue;
@@ -55,7 +56,7 @@ function build(kind) {
   let ground, rim = "", edge;
   if (mono) {
     ground = `<radialGradient id="${P}g" cx="0.5" cy="0.4" r="0.8"><stop offset="0" stop-color="#1A1A1A"/><stop offset="1" stop-color="#000000"/></radialGradient><rect width="1000" height="1000" fill="url(#${P}g)"/>`;
-    edge = `<path d="${headPath(26)}" fill="#FFFFFF"/>`;   // the white die-cut edge
+    edge = "";   // no outline: the dots alone draw him
   } else if (kind === "shades") {
     ground = `<radialGradient id="${P}g" cx="0.42" cy="0.36" r="0.8"><stop offset="0" stop-color="#DE7D52"/><stop offset="0.7" stop-color="${CLAY}"/><stop offset="1" stop-color="#9E4F31"/></radialGradient><rect width="1000" height="1000" fill="url(#${P}g)"/>`;
     edge = `<path d="${headPath(34)}" fill="${CREAM}"/>`;   // the die-cut paper edge, so the ink head lifts off the clay
@@ -65,6 +66,19 @@ function build(kind) {
     rim = `<path d="${headPath(10)}" fill="none" stroke="${LIGHT}" stroke-opacity="0.55" stroke-width="7" stroke-dasharray="560 2000" stroke-dashoffset="-1180" filter="url(#${P}blur)"/>`;
   }
   const glow = (p) => `<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="70" fill="url(#${P}glow)"/><circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="27" fill="${LT}"/><circle cx="${f1(p[0] - 8)}" cy="${f1(p[1] - 9)}" r="8" fill="#FFFFFF" opacity="0.85"/>`;
+  function monoParts() {
+    const dot = (x, y, r, o = 1) => `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r)}" fill="#FFFFFF"${o < 1 ? ` opacity="${o}"` : ""}/>`;
+    let out = "";
+    for (const side of [-1, 1]) {
+      const base = head(side < 0 ? -2.02 : -1.12, -26), ang = side < 0 ? -1.86 : -1.18, step = 30;
+      for (let k = 1; k <= 3; k++) out += dot(base[0] + Math.cos(ang) * step * k, base[1] + Math.sin(ang) * step * k, 8.5);
+      const tx = base[0] + Math.cos(ang) * step * 4.4, ty = base[1] + Math.sin(ang) * step * 4.4;
+      if (side > 0) out += `<circle cx="${f1(tx)}" cy="${f1(ty)}" r="62" fill="url(#${P}glow)"/>`;
+      out += dot(tx, ty, side > 0 ? 21 : 16);
+    }
+    for (const side of [-1, 1]) for (const dy of [-34, -6, 22, 50]) out += dot(side * (H.rx + 26), dy - 8, 8.5, 0.9);
+    return out;
+  }
   let face = "";
   if (eye) {
     face += `<circle cx="${eye.x}" cy="${eye.y}" r="${eye.r}" fill="${INK}"/><circle cx="${eye.x}" cy="${eye.y}" r="${eye.r - 20}" fill="#FBF7F0"/>`;
@@ -75,25 +89,25 @@ function build(kind) {
   }
   if (visor) {
     const v = visor, d = `M${v.x0} ${v.y0 + 6}Q${v.x0} ${v.y0 - 6} ${v.x0 + 30} ${v.y0 - 4}H${v.x1 - 30}Q${v.x1} ${v.y0 - 6} ${v.x1} ${v.y0 + 6}V${v.y1 - 10}Q${v.x1 - 6} ${v.y1 + 34} ${v.x1 - 80} ${v.y1 + 40}Q0 ${v.y1 + 62} ${v.x0 + 80} ${v.y1 + 40}Q${v.x0 + 6} ${v.y1 + 34} ${v.x0} ${v.y1 - 10}Z`;
-    face += `<linearGradient id="${P}vis" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A2A30"/><stop offset="0.55" stop-color="#0B0B0D"/><stop offset="1" stop-color="#000000"/></linearGradient>`;
-    face += `<path d="${d}" fill="url(#${P}vis)" stroke="${mono ? "#FFFFFF" : INK}" stroke-width="${mono ? 9 : 14}"/>`;
-    face += `<clipPath id="${P}vc"><path d="${d}"/></clipPath><g clip-path="url(#${P}vc)" opacity="0.9"><path d="M-120 120L20 -160H90L-50 120Z" fill="#FFFFFF" opacity="0.22"/><path d="M-30 120L110 -160H136L-4 120Z" fill="#FFFFFF" opacity="0.16"/><path d="M${v.x0} ${v.y0 + 18}H${v.x1}" stroke="${LT}" stroke-opacity="${mono ? 0.2 : 0.35}" stroke-width="5"/></g>`;
-    face += `<path d="M${v.x0 + 40} ${v.y0 + 14}H${v.x1 - 40}" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="6" stroke-linecap="round"/>`;
+    face += mono ? `<linearGradient id="${P}vis" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#141416"/><stop offset="1" stop-color="#000000"/></linearGradient>` : `<linearGradient id="${P}vis" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A2A30"/><stop offset="0.55" stop-color="#0B0B0D"/><stop offset="1" stop-color="#000000"/></linearGradient>`;
+    face += (mono ? `<path d="${d}" fill="url(#${P}vis)"/>` : `<path d="${d}" fill="url(#${P}vis)" stroke="${INK}" stroke-width="14"/>`);
+    face += `<clipPath id="${P}vc"><path d="${d}"/></clipPath><g clip-path="url(#${P}vc)" opacity="0.9"><path d="M-120 120L20 -160H90L-50 120Z" fill="#FFFFFF" opacity="0.22"/><path d="M-30 120L110 -160H136L-4 120Z" fill="#FFFFFF" opacity="0.16"/>${mono ? "" : `<path d="M${v.x0} ${v.y0 + 18}H${v.x1}" stroke="${LT}" stroke-opacity="0.35" stroke-width="5"/>`}</g>`;
+    if (!mono) face += `<path d="M${v.x0 + 40} ${v.y0 + 14}H${v.x1 - 40}" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="6" stroke-linecap="round"/>`;
   }
   if (hasMouth) face += `<path d="${mouthPath}" fill="none" stroke="${CREAM}" stroke-width="22" stroke-linecap="round"/>`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
 <defs><radialGradient id="${P}glow"><stop offset="0" stop-color="${LT}" stop-opacity="${mono ? 0.55 : 0.75}"/><stop offset="1" stop-color="${LT}" stop-opacity="0"/></radialGradient><filter id="${P}blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"/></filter><filter id="${P}shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000" flood-opacity="0.35"/></filter></defs>
 ${ground}
 <g transform="translate(${H.x} ${H.y}) rotate(${f1(tilt * 180 / Math.PI)})">
-<g filter="url(#${P}shadow)">${edge}
+${mono ? monoParts() : `<g filter="url(#${P}shadow)">${edge}
 <path d="${L.d}" fill="none" stroke="${STALK}" stroke-width="22" stroke-linecap="round"/><path d="${R.d}" fill="none" stroke="${STALK}" stroke-width="22" stroke-linecap="round"/>
 ${ear(-1)}${ear(1)}
-<path d="${headPath(0)}" fill="${INK}"/></g>
+<path d="${headPath(0)}" fill="${INK}"/></g>`}
 <path d="${dotPath}" fill="${FG}"/>
 ${face}
 ${rim}
-<circle cx="${f1(L.tip[0])}" cy="${f1(L.tip[1])}" r="24" fill="${STALK}"/>${mono ? "" : `<circle cx="${f1(L.tip[0] - 6)}" cy="${f1(L.tip[1] - 7)}" r="7" fill="${CREAM}" opacity="0.7"/>`}
-${glow(R.tip)}
+${mono ? "" : `<circle cx="${f1(L.tip[0])}" cy="${f1(L.tip[1])}" r="24" fill="${STALK}"/><circle cx="${f1(L.tip[0] - 6)}" cy="${f1(L.tip[1] - 7)}" r="7" fill="${CREAM}" opacity="0.7"/>
+${glow(R.tip)}`}
 </g></svg>`;
   fs.writeFileSync(path.join(OUT, `${kind}.svg`), svg);
   return svg.length;
