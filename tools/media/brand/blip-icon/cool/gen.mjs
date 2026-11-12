@@ -16,7 +16,7 @@ function build(kind) {
   const P = kind[0] + "c-", mono = kind === "mono", shades = kind === "shades" || mono;
   const FG = mono ? "#FFFFFF" : CREAM, LT = mono ? "#FFFFFF" : LIGHT, STALK = mono ? "#FFFFFF" : INK;
   const H = mono ? { x: 500, y: 600, rx: 344, ry: 310, n: 2.3 } : { x: 500, y: 590, rx: 318, ry: 286, n: 2.3 };   // a touch bigger than the refined head: the face is the icon
-  const tilt = kind === "look" ? -0.06 : 0.035;
+  const tilt = kind === "look" ? -0.06 : mono ? 0 : 0.035;
   const hasMouth = !mono;
   const head = (t, off = 0) => {
     const c = Math.cos(t), s = Math.sin(t), e = 2 / H.n;
@@ -34,7 +34,21 @@ function build(kind) {
   const nearBrow = (x, y, m) => kind === "look" && hyp(x - 30, y + 186) < 150 && Math.abs(hyp(x - 30, y + 30) - 190) < m && y < -120;
   // the dots: whole dots on a square grid, sized by a soft light from the top left; dropped (never clipped) near the edge or a feature
   const C = 27, dots = [];
-  for (let gy = -H.ry; gy <= H.ry; gy += C) for (let gx = -H.rx; gx <= H.rx; gx += C) {
+  if (mono) {
+    const Lv = [-0.32, -0.42, 0.85], Ln = Math.hypot(...Lv), Lx = Lv[0] / Ln, Ly = Lv[1] / Ln, Lz = Lv[2] / Ln;
+    const row = C * 0.866;
+    for (let j = -Math.ceil(H.ry / row); j <= Math.ceil(H.ry / row); j++) for (let i = -Math.ceil(H.rx / C) - 1; i <= Math.ceil(H.rx / C) + 1; i++) {
+      const x = i * C + ((j & 1) ? C / 2 : 0), y = j * row;
+      const nx = x / H.rx, ny = y / H.ry, q = 1 - nx * nx - ny * ny; if (q <= 0) continue;
+      const nz = Math.sqrt(q), shade = 0.3 + 0.7 * Math.max(0, nx * Lx + ny * Ly + nz * Lz);   // a soft fill so the far side holds
+      const r = 3.6 + 7.0 * Math.pow(shade, 1.1);
+      if (!inHead(x, y, r + 6)) continue;
+      if (inVisor(x, y, 14 + r * 0.5)) continue;
+      if (r < 3.8) continue;
+      dots.push([x, y, r]);
+    }
+  }
+  for (let gy = mono ? 1e9 : -H.ry; gy <= H.ry; gy += C) for (let gx = -H.rx; gx <= H.rx; gx += C) {
     const x = gx + ((Math.round(gy / C) & 1) ? C / 2 : 0), y = gy;
     if (!inHead(x, y, mono ? 16 : 30)) continue;
     if (eye && hyp(x - eye.x, y - eye.y) < eye.r + 26) continue;
@@ -67,16 +81,20 @@ function build(kind) {
   }
   const glow = (p) => `<circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="70" fill="url(#${P}glow)"/><circle cx="${f1(p[0])}" cy="${f1(p[1])}" r="27" fill="${LT}"/><circle cx="${f1(p[0] - 8)}" cy="${f1(p[1] - 9)}" r="8" fill="#FFFFFF" opacity="0.85"/>`;
   function monoParts() {
-    const dot = (x, y, r, o = 1) => `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r)}" fill="#FFFFFF"${o < 1 ? ` opacity="${o}"` : ""}/>`;
+    // the antennae: thin solid white stems with a gentle curve, from the crown; the left short with a small ball, the
+    // right longer, sweeping out, with a glowing orb. The ears: three tight dots each, close to the head.
     let out = "";
-    for (const side of [-1, 1]) {
-      const base = head(side < 0 ? -2.02 : -1.12, -26), ang = side < 0 ? -1.86 : -1.18, step = 30;
-      for (let k = 1; k <= 3; k++) out += dot(base[0] + Math.cos(ang) * step * k, base[1] + Math.sin(ang) * step * k, 8.5);
-      const tx = base[0] + Math.cos(ang) * step * 4.4, ty = base[1] + Math.sin(ang) * step * 4.4;
-      if (side > 0) out += `<circle cx="${f1(tx)}" cy="${f1(ty)}" r="62" fill="url(#${P}glow)"/>`;
-      out += dot(tx, ty, side > 0 ? 21 : 16);
-    }
-    for (const side of [-1, 1]) for (const dy of [-34, -6, 22, 50]) out += dot(side * (H.rx + 26), dy - 8, 8.5, 0.9);
+    const stem = (t0, len, bend, ang) => {
+      const b0 = head(t0, -8), tip = [b0[0] + Math.cos(ang) * len, b0[1] + Math.sin(ang) * len];
+      const mx = (b0[0] + tip[0]) / 2, my = (b0[1] + tip[1]) / 2, nx = -Math.sin(ang), ny = Math.cos(ang);
+      const c = [mx + nx * bend, my + ny * bend];
+      return { d: `M${f1(b0[0])} ${f1(b0[1])}Q${f1(c[0])} ${f1(c[1])} ${f1(tip[0])} ${f1(tip[1])}`, tip, base: b0 };
+    };
+    const Ls = stem(-2.0, 118, 10, -1.92), Rs = stem(-1.13, 214, -26, -1.08);
+    for (const st of [Ls, Rs]) out += `<path d="${st.d}" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>`;
+    out += `<circle cx="${f1(Ls.tip[0])}" cy="${f1(Ls.tip[1])}" r="16" fill="#FFFFFF"/>`;
+    out += `<circle cx="${f1(Rs.tip[0])}" cy="${f1(Rs.tip[1])}" r="74" fill="url(#${P}glow)"/><circle cx="${f1(Rs.tip[0])}" cy="${f1(Rs.tip[1])}" r="21" fill="#FFFFFF"/>`;
+    for (const side of [-1, 1]) for (const dy of [-22, 4, 30]) out += `<circle cx="${f1(side * (H.rx + 20))}" cy="${f1(dy - 6)}" r="8" fill="#FFFFFF" opacity="${side < 0 ? 0.95 : 0.8}"/>`;
     return out;
   }
   let face = "";
