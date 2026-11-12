@@ -51,28 +51,39 @@ const CUT = { L: 0.46, R: 0.5 };            // where each is cut in two, as a fr
 // Gravity does most of it; soft springs hold the shape, light damping lets them swing.
 const PHYS = { g: 2600, k1: 140, k2: 110, c1: 3.4, c2: 3.8 };
 const cub = (P, t) => { const u = 1 - t; return [0, 1].map((i) => u * u * u * P[0][i] + 3 * u * u * t * P[1][i] + 3 * u * t * t * P[2][i] + t * t * t * P[3][i]); };
-/** One piece of a feeler (t0 to t1 of its curve), in the art's frame, at rest: a filled outline, round where it is cut. */
-function piece(P, w, t0, t1, tip) {
-  const NN = 120, pts = [], nm = [];
-  for (let i = 0; i <= NN; i++) pts.push(cub(P, t0 + (t1 - t0) * i / NN));
+/** The whole feeler at rest, as the icon draws it (one outline along the curve, a round root, a teardrop tip). */
+function wholeFeeler(P, w) {
+  const NN = 240, pts = [], nm = [];
+  for (let i = 0; i <= NN; i++) pts.push(cub(P, i / NN));
   for (let i = 0; i <= NN; i++) { const a = pts[Math.max(0, i - 1)], c = pts[Math.min(NN, i + 1)], dx = c[0] - a[0], dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1; nm.push([-dy / l, dx / l]); }
-  const W = (i) => { const t = t0 + (t1 - t0) * i / NN; return (w.w1 + (w.w0 - w.w1) * Math.pow(1 - t, 2.2)) / 2; };
+  const W = (i) => (w.w1 + (w.w0 - w.w1) * Math.pow(1 - i / NN, 2.2)) / 2;
   const sd = (g) => pts.map((p, i) => [p[0] + nm[i][0] * W(i) * g, p[1] + nm[i][1] * W(i) * g]);
   let o = `<path d="${sd(1).concat(sd(-1).reverse()).map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("")}Z" fill="${INK}"/>`;
-  o += `<circle cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(W(0))}" fill="${INK}"/><circle cx="${f1(pts[NN][0])}" cy="${f1(pts[NN][1])}" r="${f1(W(NN))}" fill="${INK}"/>`;
-  if (tip) {
-    const e = pts[NN], pv = pts[NN - 10], ang = Math.atan2(e[1] - pv[1], e[0] - pv[0]), cx = e[0] + Math.cos(ang) * w.tip * 0.55, cy = e[1] + Math.sin(ang) * w.tip * 0.55;
-    o += `<ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(w.tip * 1.3)}" ry="${f1(w.tip)}" transform="rotate(${f1(ang * 180 / Math.PI)} ${f1(cx)} ${f1(cy)})" fill="${INK}"/>`;
-  }
-  return o;
+  o += `<circle cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(W(0))}" fill="${INK}"/>`;
+  const e = pts[NN], pv = pts[NN - 10], ang = Math.atan2(e[1] - pv[1], e[0] - pv[0]), cx = e[0] + Math.cos(ang) * w.tip * 0.55, cy = e[1] + Math.sin(ang) * w.tip * 0.55;
+  o += `<ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(w.tip * 1.3)}" ry="${f1(w.tip)}" transform="rotate(${f1(ang * 180 / Math.PI)} ${f1(cx)} ${f1(cy)})" fill="${INK}"/>`;
+  return { body: o, width: (t) => (w.w1 + (w.w0 - w.w1) * Math.pow(1 - t, 2.2)) / 2 };
+}
+/**
+ * One piece of a feeler: the whole feeler, clipped to one side of a cut straight across the stalk at t (the line
+ * through the curve's point there, square to it), with a round cap at the cut so the two pieces stay one feeler as
+ * they bend.
+ */
+function piece(P, w, t, side, id) {
+  const j = cub(P, t), a = cub(P, Math.max(0, t - 0.01)), c = cub(P, Math.min(1, t + 0.01)), l = Math.hypot(c[0] - a[0], c[1] - a[1]) || 1;
+  const tx = (c[0] - a[0]) / l, ty = (c[1] - a[1]) / l, nx = -ty, ny = tx, R = 400, sg = side === "root" ? -1 : 1;
+  const poly = [[j[0] + nx * R, j[1] + ny * R], [j[0] - nx * R, j[1] - ny * R], [j[0] - nx * R + sg * tx * R, j[1] - ny * R + sg * ty * R], [j[0] + nx * R + sg * tx * R, j[1] + ny * R + sg * ty * R]];
+  const F = wholeFeeler(P, w);
+  return `<defs><clipPath id="${id}"><path d="${poly.map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("")}Z"/></clipPath></defs>`
+    + `<g clip-path="url(#${id})">${F.body}</g><circle cx="${f1(j[0])}" cy="${f1(j[1])}" r="${f1(F.width(t))}" fill="${INK}"/>`;
 }
 const cssAngle = (a, b) => Math.atan2(-(b[0] - a[0]), b[1] - a[1]) * 180 / Math.PI;   // a piece's chord as a CSS turn of "straight down"
 const feelerSvgs = {}, geo = {};
 for (const s of ["L", "R"]) {
   const P = CURVES[s](ROOTS[s]).map(toArt);   // into the art's frame (the head is cocked)
   const j = cub(P, CUT[s]), e = cub(P, 1);
-  feelerSvgs[`feeler${s}1.svg`] = piece(P, WID[s], 0, CUT[s], false);
-  feelerSvgs[`feeler${s}2.svg`] = piece(P, WID[s], CUT[s], 1, true);
+  feelerSvgs[`feeler${s}1.svg`] = piece(P, WID[s], CUT[s], "root", `c${s}1`);
+  feelerSvgs[`feeler${s}2.svg`] = piece(P, WID[s], CUT[s], "tip", `c${s}2`);
   geo[s] = { root: P[0], joint: j, tip: e, L1: Math.hypot(j[0] - P[0][0], j[1] - P[0][1]), L2: Math.hypot(e[0] - j[0], e[1] - j[1]), a1: cssAngle(P[0], j), a2: cssAngle(j, e) };
 }
 const feelersAtRest = Object.values(feelerSvgs).join("");
