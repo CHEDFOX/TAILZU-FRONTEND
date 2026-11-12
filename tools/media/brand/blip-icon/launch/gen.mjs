@@ -19,7 +19,10 @@ const here = path.dirname(new URL(import.meta.url).pathname);
 const args = process.argv.slice(2), OUT = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--app") || here;
 const APP = args.includes("--app") ? args[args.indexOf("--app") + 1] : null;
 const f1 = (v) => (Math.round(v * 10) / 10).toString(), rad = (d) => d * Math.PI / 180;
-const INK = "#0E0D0C", N = 544, U = 136 / 544;
+// --dark: white on black, as the app icon (cool/mono.svg): the figure in white, the hands in black with white line work,
+// the shades still dark. Written to <outDir> as usual; the app's ground would be black (launchCore GROUND, the splash's).
+const DARK = args.includes("--dark");
+const INK = DARK ? "#FFFFFF" : "#0E0D0C", PAPER = DARK ? "#0A0A0A" : "#FFFFFF", SHADE = DARK ? "#3C3C3C" : "#C9C9C9", N = 544, U = 136 / 544;
 const BAR = { x0: 48, y0: 138, x1: 495, y1: 195 };
 const GL = [{ cx: 159, half: 36 }, { cx: 385.5, half: 36.5 }];
 const H = { x: 272, y: 284, rx: 150, ry: 122, n: 2.3 }, TILT = 6;   // the head, cocked as the old bot's was
@@ -95,7 +98,7 @@ const nearRoot = () => false;
 for (let j = -Math.ceil(H.ry / row); j <= Math.ceil(H.ry / row); j++) for (let i = -Math.ceil(H.rx / C) - 1; i <= Math.ceil(H.rx / C) + 1; i++) {
   const x = i * C + ((j & 1) ? C / 2 : 0), y = j * row, nx = x / H.rx, ny = y / H.ry, q = 1 - nx * nx - ny * ny; if (q <= 0) continue;
   const light = Math.max(0, (nx * Lv[0] + ny * Lv[1] + Math.sqrt(q) * Lv[2]) / Ln);
-  const r = 1.9 + 3.5 * Math.pow(0.3 + 0.7 * (1 - light * 0.75), 1.1);
+  const r = DARK ? 1.9 + 3.6 * Math.pow(0.3 + 0.7 * light, 1.1) : 1.9 + 3.5 * Math.pow(0.3 + 0.7 * (1 - light * 0.75), 1.1);
   if (!inHead(x, y, r + 3) || inVisor(x, y, 7 + r * 0.5) || nearRoot(x, y) || r < 2) continue;
   dots.push([x, y, r]);
 }
@@ -112,22 +115,22 @@ const barBody = `<rect x="${BAR.x0}" y="${BAR.y0}" width="${BAR.x1 - BAR.x0}" he
 // rounded) lies against the bar's face; round joints between. A squared palm with a seam and a bolt; a wrist joint.
 // White with an ink line and a grey shade on the side away from the light, so they read on the ink bar and the white.
 function hand(cx, half) {
-  const w = half * 2 - 10, x0 = cx - w / 2, edge = BAR.y1, ln = `stroke="${INK}" stroke-width="3" stroke-linejoin="round"`;
-  const fw = w * 0.27, gap = (w - 3 * fw) / 2, SH = "#C9C9C9";
+  const w = half * 2 - 10, x0 = cx - w / 2, edge = BAR.y1, ln = `stroke="${INK}" stroke-width="3" stroke-linejoin="round"`, FILL = PAPER;
+  const fw = w * 0.27, gap = (w - 3 * fw) / 2, SH = SHADE;
   let o = "";
   // the palm (below the bar), its shade, its seam and bolt
   const py = edge - 2, ph = 19;
-  o += `<rect x="${f1(x0 - 1)}" y="${f1(py)}" width="${f1(w + 2)}" height="${ph}" rx="7" fill="#FFFFFF" ${ln}/>`;
+  o += `<rect x="${f1(x0 - 1)}" y="${f1(py)}" width="${f1(w + 2)}" height="${ph}" rx="7" fill="${FILL}" ${ln}/>`;
   o += `<path d="M${f1(x0 + w * 0.62)} ${f1(py + 1.6)}H${f1(x0 + w - 6)}Q${f1(x0 + w + 0.5)} ${f1(py + 1.6)} ${f1(x0 + w + 0.5)} ${f1(py + 8)}V${f1(py + ph - 6)}Q${f1(x0 + w + 0.5)} ${f1(py + ph - 1.6)} ${f1(x0 + w - 6)} ${f1(py + ph - 1.6)}H${f1(x0 + w * 0.62)}Z" fill="${SH}"/>`;
   o += `<line x1="${f1(x0 + 6)}" y1="${f1(py + ph * 0.55)}" x2="${f1(x0 + w * 0.45)}" y2="${f1(py + ph * 0.55)}" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>`;
   o += `<circle cx="${f1(x0 + w * 0.72)}" cy="${f1(py + ph * 0.5)}" r="2.6" fill="${INK}"/>`;
   // the wrist: a short neck and a ball
-  o += `<rect x="${f1(cx - 7)}" y="${f1(py + ph - 1)}" width="14" height="7" rx="2" fill="#FFFFFF" ${ln}/><circle cx="${f1(cx)}" cy="${f1(py + ph + 9)}" r="5" fill="#FFFFFF" ${ln}/>`;
+  o += `<rect x="${f1(cx - 7)}" y="${f1(py + ph - 1)}" width="14" height="7" rx="2" fill="${FILL}" ${ln}/><circle cx="${f1(cx)}" cy="${f1(py + ph + 9)}" r="5" fill="${FILL}" ${ln}/>`;
   // the fingers, over the bar's lower edge
   for (let k = 0; k < 3; k++) {
     const fx = x0 + k * (fw + gap), up = k === 1 ? 3 : 0, kn = edge + 1, j = edge - 11 - up, tip = edge - 23 - up;
-    o += `<rect x="${f1(fx)}" y="${f1(j)}" width="${f1(fw)}" height="${f1(kn - j)}" rx="2.5" fill="#FFFFFF" ${ln}/>`;          // the first segment
-    o += `<rect x="${f1(fx + 0.5)}" y="${f1(tip)}" width="${f1(fw - 1)}" height="${f1(j - tip + 2)}" rx="${f1(fw / 2 - 0.5)}" fill="#FFFFFF" ${ln}/>`;   // the tip
+    o += `<rect x="${f1(fx)}" y="${f1(j)}" width="${f1(fw)}" height="${f1(kn - j)}" rx="2.5" fill="${FILL}" ${ln}/>`;          // the first segment
+    o += `<rect x="${f1(fx + 0.5)}" y="${f1(tip)}" width="${f1(fw - 1)}" height="${f1(j - tip + 2)}" rx="${f1(fw / 2 - 0.5)}" fill="${FILL}" ${ln}/>`;   // the tip
     o += `<rect x="${f1(fx + fw * 0.62)}" y="${f1(tip + 4)}" width="${f1(fw * 0.26)}" height="${f1(kn - tip - 6)}" rx="1.5" fill="${SH}"/>`;   // shade
     o += `<circle cx="${f1(fx + fw / 2)}" cy="${f1(j + 1)}" r="2.1" fill="${INK}"/>`;                                          // the joint
   }
