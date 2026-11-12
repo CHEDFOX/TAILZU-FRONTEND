@@ -412,13 +412,13 @@ const config: ExpoConfig = {
     // Android masks the icon into whatever shape the launcher wants (circle,
     // squircle, teardrop) and shows only the middle 72/108 of the canvas.
     //
-    // adaptive-icon.png is the whole painted icon (icon.png) at 70% of the
-    // canvas, a touch larger than the 66.7% that shows, so every mask lands on
-    // the art. Its corners are masked away, as on iOS. adaptive-icon-background.png
-    // carries the icon's clay bar and cream ground on past the art's edge, so the
-    // launcher's parallax and press animations never show a seam or a strip of
-    // flat colour. Both come from tools/media/brand/x0-icon/curious-hang.
-    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#F4F0E8" },
+    // The icon is Blip in shades, white dots on black (tools/media/brand/blip-icon/cool:
+    // mono.svg, drawn by gen.mjs). adaptive-icon.png is the figure alone on
+    // transparent at 64% about the centre, so the circle and squircle masks both
+    // keep his feelers; adaptive-icon-background.png is the black ground, so the
+    // launcher's parallax and press animations never show a seam. icon.png is the
+    // whole icon, opaque, for iOS and the stores.
+    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#0A0A0A" },
     intentFilters: [
       {
         action: "VIEW",
