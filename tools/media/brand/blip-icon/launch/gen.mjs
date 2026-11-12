@@ -10,7 +10,7 @@
 //   feelerL1.svg feelerL2.svg feelerR1.svg feelerR2.svg
 //                    each feeler's two links, drawn HANGING STRAIGHT DOWN from their pivots (the root; the joint, with
 //                    the first link hanging straight down), so the app turns each about its pivot
-//   splash.svg       feelers at rest, head, bar, hands: the native splash and the motion's first frame
+//   splash.svg       feelers at rest (behind the head), head, bar, hands: the native splash and the motion's first frame
 // and, with --app, <app>/src/launch/feelerArt.ts: the feelers' pivots, lengths, rest angles and physics, from here.
 // Render each with ../kit/png.mjs at 544.
 import fs from "node:fs";
@@ -32,15 +32,15 @@ const inVisor = (x, y, m = 0) => x > V.x0 - m && x < V.x1 + m && y > V.y0 - m &&
 const visorPath = () => { const v = V; return `M${v.x0} ${v.y0 + 4}Q${v.x0} ${v.y0 - 3} ${v.x0 + 15} ${v.y0 - 2}H${v.x1 - 15}Q${v.x1} ${v.y0 - 3} ${v.x1} ${v.y0 + 4}V${v.y1 - 5}Q${v.x1 - 3} ${v.y1 + 17} ${v.x1 - 40} ${v.y1 + 20}Q0 ${v.y1 + 31} ${v.x0 + 40} ${v.y1 + 20}Q${v.x0 + 3} ${v.y1 + 17} ${v.x0} ${v.y1 - 5}Z`; };
 
 // ---------------------------------------------------------------- the feelers: where they grow, how they hang
-// Roots on his crown, as on the icon (in the head's own frame, before the cock). The crown is behind the bar, so the
-// feelers rise from behind it and stand above it; the app draws them behind the bar but outside the head's clip.
-const ROOTS = { L: sup(-2.02, 10), R: sup(-1.13, 10) };
-const L1 = { L: 44, R: 60 }, L2 = { L: 40, R: 62 };   // link lengths, art px: the right one is the long one, as on the icon
+// He hangs upside down, so the top of his head is at the BOTTOM of the picture, and his feelers hang down from there,
+// splayed out (in the head's own frame, before the cock). They are part of the head: they go up behind the bar with it.
+const ROOTS = { L: sup(Math.PI / 2 + 0.5, 12), R: sup(Math.PI / 2 - 0.5, 12) };
+const L1 = { L: 54, R: 58 }, L2 = { L: 50, R: 54 };   // link lengths, art px
 // Physics, in points and seconds (launchCore.ts reads these): gravity, each link's spring toward its rest angle (per
 // s^2, as an angular frequency squared), and damping (per s). Angles are CSS rotations of a link drawn hanging down:
 // +ve turns it toward the LEFT, so the left feeler rests at +ve angles and the right at -ve.
-const PHYS = { g: 2600, k1: 600, k2: 470, c1: 4.5, c2: 5.5 };   // springy enough to stand up against gravity, and wobble
-const REST = { L: { a1: 160, a2: -10 }, R: { a1: -186, a2: 34 } };   // link 1 from straight down (180 = straight up); link 2 relative to link 1
+const PHYS = { g: 2600, k1: 110, k2: 70, c1: 3.2, c2: 3.6 };   // gravity does most of it: soft springs keep them splayed, light damping lets them swing   // springy enough to stand up against gravity, and wobble
+const REST = { L: { a1: 50, a2: 6 }, R: { a1: -54, a2: -6 } };   // link 1 from straight down (180 = straight up); link 2 relative to link 1
 // The rest pose under gravity (where the springs and gravity balance), by Newton: k (r - a) = (g / L) sin a, per link.
 function settle(r, k, L) { let a = r; for (let i = 0; i < 40; i++) { const f = k * (r - a) - (PHYS.g / L) * Math.sin(a), df = -k - (PHYS.g / L) * Math.cos(a); a -= f / df; } return a; }
 const EQ = {};

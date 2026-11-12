@@ -203,8 +203,9 @@ export function degKeys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step
 // --- the feelers ---------------------------------------------------------------------------------------------------
 
 /**
- * BLIP'S FEELERS stand on his head, as on the icon, and move with physics. Each is two links: the first grows from its
- * root on his crown (behind the bar: they rise from behind it and stand above it), the second from the first one's end. Each link is a pendulum on a moving pivot, with gravity, a spring toward
+ * BLIP'S FEELERS hang from the top of his head (he hangs upside down, so that is the bottom of the picture) and swing
+ * with physics. Each is two links: the first hangs from its root on his head, the second from the first one's end. They
+ * are part of the head: inside its clip, they go up behind the bar with it. Each link is a pendulum on a moving pivot, with gravity, a spring toward
  * its rest angle (relative to the head for the first, to the first for the second) and damping:
  *
  *   L a'' = -(g - Ay) sin a + Ax cos a  +  L k (rest - a)  -  L c a'
@@ -260,11 +261,11 @@ export function feelerTrack(): FeelerAngles[] {
 }
 
 /**
- * How much of the feelers shows at t. They stand above the bar, outside the clip that hides his head as it goes up
- * behind it, so they go as he starts up: faded out over the first of his rise (FEELERS_OUT), never left standing over
- * an empty bar.
+ * How much of the feelers shows at t. They hang below his head, so at the top of his climb their tips still trail
+ * below the bar when the rest of him is behind it: they fade out over the end of the rise (FEELERS_OUT), before the
+ * head goes at 900.
  */
-export const FEELERS_OUT = [600, 680] as const;
+export const FEELERS_OUT = [790, 880] as const;
 export function feelersShown(t: number): number { return head(t).shown * (1 - K(t, FEELERS_OUT[0], FEELERS_OUT[1])); }
 
 /** One feeler angle at t (degrees), from the track: the views' keys. */
