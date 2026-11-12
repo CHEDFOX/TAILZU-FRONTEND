@@ -34,6 +34,7 @@ function build(kind) {
   const nearBrow = (x, y, m) => kind === "look" && hyp(x - 30, y + 186) < 150 && Math.abs(hyp(x - 30, y + 30) - 190) < m && y < -120;
   // the dots: whole dots on a square grid, sized by a soft light from the top left; dropped (never clipped) near the edge or a feature
   const C = 27, dots = [];
+  const RL = head(-2.0, -30), RR = head(-1.14, -30), nearRoot = (x, y) => mono && (Math.hypot(x - RL[0], y - RL[1]) < 30 || Math.hypot(x - RR[0], y - RR[1]) < 32);
   if (mono) {
     const Lv = [-0.32, -0.42, 0.85], Ln = Math.hypot(...Lv), Lx = Lv[0] / Ln, Ly = Lv[1] / Ln, Lz = Lv[2] / Ln;
     const row = C * 0.866;
@@ -43,7 +44,7 @@ function build(kind) {
       const nz = Math.sqrt(q), shade = 0.3 + 0.7 * Math.max(0, nx * Lx + ny * Ly + nz * Lz);   // a soft fill so the far side holds
       const r = 3.6 + 7.0 * Math.pow(shade, 1.1);
       if (!inHead(x, y, r + 6)) continue;
-      if (inVisor(x, y, 14 + r * 0.5)) continue;
+      if (inVisor(x, y, 14 + r * 0.5) || nearRoot(x, y)) continue;
       if (r < 3.8) continue;
       dots.push([x, y, r]);
     }
@@ -84,37 +85,23 @@ function build(kind) {
     // the antennae: thin solid white stems with a gentle curve, from the crown; the left short with a small ball, the
     // right longer, sweeping out, with a glowing orb. The ears: three tight dots each, close to the head.
     let out = "";
-    // the antennae as living feelers: a tapering tube along a cubic curve (thick where it grows out of the head, fine at
-    // the end), shaded for volume with the light from the top left like the dots, ribbed with fine segment rings, and a
-    // glossy bulb at the tip, like a snail's eye-stalk. The left is short with an S and a droop; the right is longer and
-    // arches out, its tip curling down. No glow.
+    // the antennae: flat white living feelers, flared at a rounded root where they grow out of the head, tapering to a
+    // fine stalk, a teardrop tip; the left short with an S, the right longer, arching out, its tip curling down. No glow.
     const cub = (p0, p1, p2, p3, t) => { const u = 1 - t; return [0, 1].map((i) => u * u * u * p0[i] + 3 * u * u * t * p1[i] + 3 * u * t * t * p2[i] + t * t * t * p3[i]); };
-    const feeler = (id, pts, w0, w1, bulb) => {
-      const N = 60, P_ = [], Nm = [];
-      for (let i = 0; i <= N; i++) P_.push(cub(...pts, i / N));
-      for (let i = 0; i <= N; i++) { const a = P_[Math.max(0, i - 1)], c = P_[Math.min(N, i + 1)], dx = c[0] - a[0], dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1; Nm.push([-dy / l, dx / l]); }
-      const W = (i) => { const t = i / N; return (w0 + (w1 - w0) * Math.pow(t, 0.8)) / 2 * (1 + 0.18 * Math.exp(-((t - 0.08) ** 2) / 0.003)); };   // a swelling at the root
-      const side = (sgn, k = 1) => P_.map((p, i) => [p[0] + Nm[i][0] * W(i) * sgn * k, p[1] + Nm[i][1] * W(i) * sgn * k]);
-      const outline = side(1).concat(side(-1).reverse());
-      const shadowSide = Nm[Math.floor(N / 2)][0] > 0 ? -1 : 1;   // the half facing away from the top-left light
-      const path = (ps) => ps.map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("") + "Z";
-      let o = `<ellipse cx="${f1(P_[0][0])}" cy="${f1(P_[0][1] + W(0) * 0.25)}" rx="${f1(W(0) * 1.25)}" ry="${f1(W(0) * 0.8)}" fill="#E9E9E9"/>`;   // the root, a soft swelling it grows from
-      o += `<path d="${path(outline)}" fill="#F3F3F3"/>`;
-      o += `<path d="${path(side(shadowSide).concat(side(shadowSide, 0.1).reverse()))}" fill="#9C9C9C" opacity="0.55"/>`;   // the shade along one side
-      o += `<path d="${path(side(-shadowSide, 0.85).concat(side(-shadowSide, 0.45).reverse()))}" fill="#FFFFFF"/>`;          // a bright line on the lit side
-      for (let i = 5; i < N - 3; i += 5) {   // the segment rings
-        const p = P_[i], n = Nm[i], w = W(i);
-        o += `<path d="M${f1(p[0] + n[0] * w)} ${f1(p[1] + n[1] * w)}Q${f1(p[0] - n[1] * w * 0.5)} ${f1(p[1] + n[0] * w * 0.5)} ${f1(p[0] - n[0] * w)} ${f1(p[1] - n[1] * w)}" fill="none" stroke="#5A5A5A" stroke-width="${f1(Math.max(1.6, w * 0.22))}" stroke-opacity="0.55"/>`;
-      }
-      const tip = P_[N], tn = Nm[N], ang = Math.atan2(tip[1] - P_[N - 3][1], tip[0] - P_[N - 3][0]) * 180 / Math.PI;
-      o += `<radialGradient id="${P}${id}b" cx="0.36" cy="0.34" r="0.75"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.6" stop-color="#E6E6E6"/><stop offset="1" stop-color="#8E8E8E"/></radialGradient>`;
-      o += `<ellipse cx="${f1(tip[0])}" cy="${f1(tip[1])}" rx="${bulb * 1.18}" ry="${bulb}" transform="rotate(${f1(ang)} ${f1(tip[0])} ${f1(tip[1])})" fill="url(#${P}${id}b)"/>`;
-      o += `<circle cx="${f1(tip[0] - bulb * 0.35)}" cy="${f1(tip[1] - bulb * 0.4)}" r="${f1(bulb * 0.28)}" fill="#FFFFFF"/>`;
+    const feeler = (pts, w0, w1, tipR) => {
+      const N = 240, Pp = [], Nm = [];
+      for (let i = 0; i <= N; i++) Pp.push(cub(...pts, i / N));
+      for (let i = 0; i <= N; i++) { const a = Pp[Math.max(0, i - 1)], c = Pp[Math.min(N, i + 1)], dx = c[0] - a[0], dy = c[1] - a[1], l = Math.hypot(dx, dy) || 1; Nm.push([-dy / l, dx / l]); }
+      const W = (i) => (w1 + (w0 - w1) * Math.pow(1 - i / N, 2.2)) / 2;
+      const sd = (sg) => Pp.map((p, i) => [p[0] + Nm[i][0] * W(i) * sg, p[1] + Nm[i][1] * W(i) * sg]);
+      let o = `<path d="${sd(1).concat(sd(-1).reverse()).map((q, i) => (i ? "L" : "M") + f1(q[0]) + " " + f1(q[1])).join("")}Z" fill="#FFFFFF"/>`;
+      o += `<circle cx="${f1(Pp[0][0])}" cy="${f1(Pp[0][1])}" r="${f1(W(0))}" fill="#FFFFFF"/>`;
+      const tip = Pp[N], prev = Pp[N - 10], ang = Math.atan2(tip[1] - prev[1], tip[0] - prev[0]), cx = tip[0] + Math.cos(ang) * tipR * 0.55, cy = tip[1] + Math.sin(ang) * tipR * 0.55;
+      o += `<ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(tipR * 1.3)}" ry="${f1(tipR)}" transform="rotate(${f1(ang * 180 / Math.PI)} ${f1(cx)} ${f1(cy)})" fill="#FFFFFF"/>`;
       return o;
     };
-    const L0 = head(-2.0, -30), R0 = head(-1.14, -30);
-    out += feeler("l", [L0, [L0[0] - 4, L0[1] - 60], [L0[0] - 62, L0[1] - 70], [L0[0] - 54, L0[1] - 128]], 24, 9, 17);
-    out += feeler("r", [R0, [R0[0] + 6, R0[1] - 120], [R0[0] + 140, R0[1] - 190], [R0[0] + 150, R0[1] - 132]], 26, 8, 19);
+    out += feeler([RL, [RL[0] - 2, RL[1] - 64], [RL[0] - 66, RL[1] - 74], [RL[0] - 58, RL[1] - 136]], 30, 9, 15);
+    out += feeler([RR, [RR[0] + 8, RR[1] - 132], [RR[0] + 150, RR[1] - 206], [RR[0] + 166, RR[1] - 138]], 32, 8, 16);
     for (const side of [-1, 1]) for (const dy of [-22, 4, 30]) out += `<circle cx="${f1(side * (H.rx + 20))}" cy="${f1(dy - 6)}" r="8" fill="#FFFFFF" opacity="${side < 0 ? 0.95 : 0.8}"/>`;
     return out;
   }
@@ -151,4 +138,4 @@ ${glow(R.tip)}`}
   fs.writeFileSync(path.join(OUT, `${kind}.svg`), svg);
   return svg.length;
 }
-for (const k of ["shades", "look"]) console.log(k, build(k), "bytes");
+for (const k of ["shades", "look", "mono"]) console.log(k, build(k), "bytes");

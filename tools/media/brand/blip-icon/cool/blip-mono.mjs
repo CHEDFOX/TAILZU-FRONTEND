@@ -1,4 +1,4 @@
-// The white-on-black Blip in shades, drawn on its own (gen.mjs keeps the earlier takes).   node blip-mono.mjs [outDir]
+// An alternative white-on-black Blip (mono-rings.svg): the face on contour rings. The chosen mono.svg is gen.mjs's.   node blip-mono.mjs [outDir]
 // The head is drawn only by white dots laid on rings that follow its outline (so the silhouette and the shades' edge are
 // smooth), each dot sized by soft shading of a dome lit from the top left. The shades are one wraparound lens, deep black,
 // with two fine glints and a faint sheen. The antennae are flat white living feelers in the same graphic language: grown
@@ -84,5 +84,5 @@ ${feelers}
 <path d="M-18 60L106 -170" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="3.5" stroke-linecap="round"/>
 </g>
 </g></svg>`;
-fs.writeFileSync(path.join(OUT, "mono.svg"), svg);
-console.log("mono.svg", svg.length, "bytes,", dots.length, "dots");
+fs.writeFileSync(path.join(OUT, "mono-rings.svg"), svg);
+console.log("mono-rings.svg", svg.length, "bytes,", dots.length, "dots");
