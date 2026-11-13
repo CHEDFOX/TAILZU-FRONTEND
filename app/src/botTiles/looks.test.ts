@@ -463,32 +463,34 @@ test("the store: the build's starter, a kept copy when newer, the server's when 
   let kept: string | null = null, fetched = 0;
   const server: Record<string, unknown> = {};
   const io = { read: async () => kept, write: async (s: string) => { kept = s; }, fetch: async (path: string) => { fetched++; return server[path]; } };
-  const v2 = { ...(STARTER as object), v: 2 };
+  // Versions counted from the starter's own (it moves on whenever genStarter copies a newer catalog in).
+  const B = (STARTER as { v: number }).v, N = B + 1;
+  const next = { ...(STARTER as object), v: N };
   const s = new LooksStore(STARTER, io);
-  assert.strictEqual(s.current.v, 1);
+  assert.strictEqual(s.current.v, B);
   let told = 0;
   s.subscribe(() => { told++; });
-  assert.strictEqual(readFlag({ v: 2, url: "https://elsewhere.example/x" }), null, "only the API's own paths");
-  server["/v1/bots/looks?v=2"] = v2;
-  assert.ok(await s.sync({ v: 2, url: "/v1/bots/looks?v=2" }));
-  assert.strictEqual(s.current.v, 2);
+  assert.strictEqual(readFlag({ v: N, url: "https://elsewhere.example/x" }), null, "only the API's own paths");
+  server[`/v1/bots/looks?v=${N}`] = next;
+  assert.ok(await s.sync({ v: N, url: `/v1/bots/looks?v=${N}` }));
+  assert.strictEqual(s.current.v, N);
   assert.strictEqual(told, 1);
-  assert.ok(kept && JSON.parse(kept).v === 2, "kept for the next start");
-  assert.ok(!(await s.sync({ v: 2, url: "/v1/bots/looks?v=2" })), "the same version: nothing to do");
+  assert.ok(kept && JSON.parse(kept).v === N, "kept for the next start");
+  assert.ok(!(await s.sync({ v: N, url: `/v1/bots/looks?v=${N}` })), "the same version: nothing to do");
   assert.strictEqual(fetched, 1);
   // The next start: the kept copy wins over the starter.
   const again = new LooksStore(STARTER, io);
   await again.restore();
-  assert.strictEqual(again.current.v, 2);
-  // Taken back on the server: down to 1.
-  server["/v1/bots/looks?v=1"] = STARTER;
-  assert.ok(await again.sync({ v: 1, url: "/v1/bots/looks?v=1" }));
-  assert.strictEqual(again.current.v, 1);
+  assert.strictEqual(again.current.v, N);
+  // Taken back on the server: down to the starter's.
+  server[`/v1/bots/looks?v=${B}`] = STARTER;
+  assert.ok(await again.sync({ v: B, url: `/v1/bots/looks?v=${B}` }));
+  assert.strictEqual(again.current.v, B);
   // A broken one is refused; what is here stays.
-  server["/v1/bots/looks?v=3"] = { ...(STARTER as object), v: 3, moments: { bad: { dur: -1, tracks: [] } } };
-  assert.ok(!(await again.sync({ v: 3, url: "/v1/bots/looks?v=3" })));
-  assert.strictEqual(again.current.v, 1);
+  server[`/v1/bots/looks?v=${B + 2}`] = { ...(STARTER as object), v: B + 2, moments: { bad: { dur: -1, tracks: [] } } };
+  assert.ok(!(await again.sync({ v: B + 2, url: `/v1/bots/looks?v=${B + 2}` })));
+  assert.strictEqual(again.current.v, B);
   // A version that is not what the flag said is refused too.
-  server["/v1/bots/looks?v=4"] = v2;
-  assert.ok(!(await again.sync({ v: 4, url: "/v1/bots/looks?v=4" })));
+  server[`/v1/bots/looks?v=${B + 3}`] = next;
+  assert.ok(!(await again.sync({ v: B + 3, url: `/v1/bots/looks?v=${B + 3}` })));
 });
