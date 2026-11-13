@@ -147,7 +147,12 @@ const config: ExpoConfig = {
   // BUMPED for 8.8: its splash is white (the Bots app's paper) where 8.7's is
   // cream, and its launch curtain is drawn on white. An update for 8.8 on an
   // 8.7 binary would lay a white curtain over a cream splash, a visible flash.
-  runtimeVersion: "tailzu-2026-10-x0-88",
+  //
+  // BUMPED (Nov 2026) for the new Blip: the native splash and the app icon are
+  // new art, and the launch curtain draws the new Blip (with his feelers) from
+  // that splash's frame. An update carrying the new curtain on a binary with
+  // the old splash would jump from the old bot to Blip at launch.
+  runtimeVersion: "tailzu-2026-11-x0-blip",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the
