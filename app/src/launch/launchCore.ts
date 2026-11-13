@@ -2,10 +2,12 @@
  * THE LAUNCH: the native splash, then the bot pulls himself up over his bar and is gone, hands and all; his hands come
  * back and grip the bar, and it is pulled in to its middle with them; and the app is there.
  *
- * The native splash (app.config.ts, expo-splash-screen) is the app icon's bot, small, hanging from a piece of its clay
- * bar, centred on white: the Bots app's own paper, so the end of the launch is already the app's ground.
+ * The native splash (app.config.ts, expo-splash-screen) is the app icon's Blip, small, in ink: hanging upside down from
+ * a piece of bar by his robot hands, his shades on, his feelers hanging from the top of his head (at the bottom),
+ * centred on white: the Bots app's own paper, so the end of the launch is already the app's ground. His feelers swing
+ * with physics as he moves (feelerTrack, below).
  * LaunchCurtain draws that same picture in the same place from the same art (assets/launch, cut by
- * tools/media/brand/x0-icon/curious-hang/launch.mjs), lifts the native splash from under it, and plays the motion
+ * tools/media/brand/blip-icon/launch/gen.mjs), lifts the native splash from under it, and plays the motion
  * below. It lets go once the motion is over and the app has a screen (SduiApp calls liftLaunch()), whichever is later.
  *
  * Every moving part is a function of t, the ms since the motion began, sampled into keys for Animated.interpolate:
@@ -13,6 +15,8 @@
  *
  * Nothing here imports React Native, so the numbers are tested on their own (launchCore.test.ts).
  */
+
+import { FEELER_ART } from "./feelerArt.ts";
 
 /** The ground. The NATIVE splash's colour (app.config.ts), so it is a constant: a server value could only break the join. */
 export const GROUND = "#FFFFFF";
@@ -42,7 +46,7 @@ export const FADE_MS = 220;
 export const STRIPS = 48;
 
 // The beats (t, ms):
-//   0      the splash, still · 200 a blink
+//   0      the splash, still · 200 a glint across his shades (where the old bot blinked)
 //   420    he gathers: a small dip, the bar giving under him · 560 he pulls himself up, quick out and slow in, a little
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
@@ -196,6 +200,94 @@ export function keys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step = 
 export function degKeys(f: (t: number) => number, from = 0, to = LAUNCH_MS, step = 10): { inputRange: number[]; outputRange: string[] } {
   const k = keys(f, from, to, step);
   return { inputRange: k.inputRange, outputRange: k.outputRange.map((v) => `${v}deg`) };
+}
+
+// --- the feelers ---------------------------------------------------------------------------------------------------
+
+/**
+ * BLIP'S FEELERS hang from the top of his head (he hangs upside down, so that is the bottom of the picture) and swing
+ * with physics. Each is two links: the first hangs from its root on his head, the second from the first one's end. They
+ * are part of the head: inside its clip, they go up behind the bar with it. Each link is a pendulum on a moving pivot, with gravity, a spring toward
+ * its rest angle (relative to the head for the first, to the first for the second) and damping:
+ *
+ *   L a'' = -(g - Ay) sin a + Ax cos a  +  L k (rest - a)  -  L c a'
+ *
+ * where a is the link's angle as a CSS rotation of it hanging straight down (+ve swings it left) and (Ax, Ay) is its
+ * pivot's acceleration (y down: a pivot rising faster makes the link hang heavier, one slowing makes it lighter). The first link's pivot is the root, carried by the head's motion (head(t): its rise, sway and
+ * squash, and the bar's dip under him); the second's is the first one's end. Integrated once in 1 ms steps from the
+ * rest the splash is drawn in, sampled every 10 ms for the native driver like everything else. The feelers are the
+ * icon's own, cut in two and drawn at rest; the geometry and the numbers come from the art's generator (feelerArt.ts).
+ */
+export interface FeelerAngles { l1: number; l2: number; r1: number; r2: number }
+
+const FA = FEELER_ART;
+const FEEL_DT = 1;   // ms
+
+/** Where a point of the head's art (544 px frame) is at t, in points from the art's top left. */
+export function headPoint(x: number, y: number, t: number): [number, number] {
+  const tt = Math.max(0, t), h = head(tt), bar = barDy(Math.min(tt, PINCH_AT));
+  const cx = SPLASH_PT / 2, px = x * U, py = y * U - BAR_TOP + h.dy;   // the head piece's frame: origin at the bar's top, x across the art
+  const sy = py * h.sq, a = h.sway * Math.PI / 180;
+  return [cx + (px - cx) * Math.cos(a) - sy * Math.sin(a), (px - cx) * Math.sin(a) + sy * Math.cos(a) + BAR_TOP + bar];
+}
+
+let feelCache: FeelerAngles[] | null = null;
+/**
+ * The feelers' turns every 10 ms from 0 to 900 (his head is gone after), in degrees, as the views apply them: each
+ * piece's turn about its pivot AWAY FROM ITS DRAWN REST (so 0 is the art as drawn): l1 the left's first piece inside
+ * the head, l2 its second piece inside the first; r1, r2 the right's.
+ *
+ * The springs' rests are worked out so that rest under gravity is the drawn shape: for a piece at angle a,
+ * k (r - a) = (g / L) sin a, so r = a + (g / (L k)) sin a.
+ */
+export function feelerTrack(): FeelerAngles[] {
+  if (feelCache) return feelCache;
+  const rad = Math.PI / 180, { g, k1, k2, c1, c2 } = FA.phys, out: FeelerAngles[] = [];
+  const sides = (["L", "R"] as const).map((s) => {
+    const L1 = FA.L1[s] * U, L2 = FA.L2[s] * U, e1 = FA.rest[s].a1 * rad, e2 = FA.rest[s].a2 * rad;
+    return {
+      root: FA.roots[s], L1, L2, e1, e2,
+      rest1: e1 + (g / (L1 * k1)) * Math.sin(e1), rest2: e2 - e1 + (g / (L2 * k2)) * Math.sin(e2),
+      a1: e1, v1: 0, a2: e2, v2: 0,
+    };
+  });
+  const dt = FEEL_DT / 1000, h = 1;   // s; the finite-difference step for the root's acceleration, ms
+  for (let t = 0; t <= 900; t += FEEL_DT) {
+    const sway = head(t).sway * rad;
+    for (const S of sides) {
+      const p0 = headPoint(S.root[0], S.root[1], t - h), p1 = headPoint(S.root[0], S.root[1], t), p2 = headPoint(S.root[0], S.root[1], t + h);
+      const hs = h / 1000, ax = (p2[0] - 2 * p1[0] + p0[0]) / (hs * hs), ay = (p2[1] - 2 * p1[1] + p0[1]) / (hs * hs);
+      // the first piece (its world angle a1; its spring's rest rides the head's sway)
+      const acc1 = (-(g - ay) * Math.sin(S.a1) + ax * Math.cos(S.a1)) / S.L1 + k1 * (sway + S.rest1 - S.a1) - c1 * S.v1;
+      // the first piece's end: the second's pivot, and its acceleration
+      const jx = ax + S.L1 * (Math.sin(S.a1) * S.v1 * S.v1 - Math.cos(S.a1) * acc1), jy = ay + S.L1 * (-Math.cos(S.a1) * S.v1 * S.v1 - Math.sin(S.a1) * acc1);
+      const acc2 = (-(g - jy) * Math.sin(S.a2) + jx * Math.cos(S.a2)) / S.L2 + k2 * (S.a1 + S.rest2 - S.a2) - c2 * S.v2;
+      S.v1 += acc1 * dt; S.a1 += S.v1 * dt; S.v2 += acc2 * dt; S.a2 += S.v2 * dt;
+    }
+    if (t % 10 === 0) {
+      const [L, R] = sides, d = 180 / Math.PI;
+      out.push({
+        l1: (L.a1 - sway - L.e1) * d, l2: (L.a2 - L.a1 - (L.e2 - L.e1)) * d,
+        r1: (R.a1 - sway - R.e1) * d, r2: (R.a2 - R.a1 - (R.e2 - R.e1)) * d,
+      });
+    }
+  }
+  feelCache = out;
+  return out;
+}
+
+/**
+ * How much of the feelers shows at t. They hang below his head, so at the top of his climb their tips still trail
+ * below the bar when the rest of him is behind it: they fade out over the end of the rise (FEELERS_OUT), before the
+ * head goes at 900.
+ */
+export const FEELERS_OUT = [790, 880] as const;
+export function feelersShown(t: number): number { return head(t).shown * (1 - K(t, FEELERS_OUT[0], FEELERS_OUT[1])); }
+
+/** One feeler angle at t (degrees), from the track: the views' keys. */
+export function feeler(which: keyof FeelerAngles, t: number): number {
+  const tr = feelerTrack(), i = Math.max(0, Math.min(tr.length - 1, Math.round(t / 10)));
+  return tr[i][which];
 }
 
 // --- the lift -----------------------------------------------------------------------------------------------------

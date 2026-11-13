@@ -55,11 +55,16 @@
     /** Cut a closed outline into short, slightly uneven straight facets (a flat brush, or cut paper):
      * corners every len (+-40%), each nudged off the line by up to jit. */
     const facet = (pts, o) => {
-      const P = G.resample(pts, 1, true), out = [];
-      for (let i = 0; i < P.length; i += Math.max(2, Math.round((o.len ?? 30) * (0.6 + 0.8 * r())))) {
+      const P = G.resample(pts, 1, true), out = [], len = o.len ?? 30;
+      let last = 0;
+      for (let i = 0; i < P.length; i += Math.max(2, Math.round(len * (0.6 + 0.8 * r())))) {
         const [x, y] = P[i], q = P[(i + 1) % P.length], tx = q[0] - x, ty = q[1] - y, tl = Math.hypot(tx, ty) || 1, d = r.pm(o.jit ?? 3);
-        out.push([x - (ty / tl) * d, y + (tx / tl) * d]);
+        out.push([x - (ty / tl) * d, y + (tx / tl) * d]); last = i;
       }
+      // the seam: when the walk's last corner lands within half a facet of the first, their two independent nudges
+      // make a little ledge where the outline closes (the icon's left eye had one at 3 o'clock). Dropped after the
+      // loop, so the rng's sequence, and every other corner, is unchanged.
+      if (out.length > 3 && P.length - last < len * 0.5) out.pop();
       return out;
     };
     const fill = (pts, f) => {
@@ -241,7 +246,12 @@
         const a = e.arc, rx = (a.rx ?? 0.44) * w, ry = (a.ry ?? 0.3) * h, yc = y + (a.dy ?? 0.08) * h, o = a.open ?? 0.06, rt = (a.rot || 0) * s;
         line(W(G.arc(x, yc, rx, ry, Math.PI * (1 + o) + rt, Math.PI * (2 - o) + rt, 70)), { color: eyeCol, w: a.w ?? 40, taper: [14, 14], amp: 0.3, jit: 0.04, within: visor || undefined, profile: (t) => 0.72 + 0.4 * Math.sin(Math.PI * t) });
       }
-      const shape = e.arc ? null : W(eyePts(x, y, w, h, e)), open = !e.arc && !(e.cheek > 0.5) && !(e.lid && e.lid[0] > 0.55);
+      if (e.star) { // a star-struck eye: the house four-point sparkle (M.sparkle), a touch taller than wide, cut and filled like the open eye
+        const a = e.star, R = (a.r ?? 0.5) * h, asp = a.aspect ?? 1.1, rt = (a.rot ?? 0) * s;
+        const pts = M.sparkle(0, 0, R, rt, a.pinch ?? 0.3).map(([px, py]) => [x + px, y + py * asp]);
+        fill(W(pts), { ...st.eye, color: eyeCol, within: visor || undefined });
+      }
+      const shape = e.arc || e.star ? null : W(eyePts(x, y, w, h, e)), open = !e.arc && !e.star && !(e.cheek > 0.5) && !(e.lid && e.lid[0] > 0.55);
       if (!ink && st.eyeHalo && open) glow(Wp(x, y), Math.max(w, h) * 0.85, st.eyeHalo.color || PAL.glow, st.eyeHalo.opacity ?? 0.2, { within: visor, mid: 0.45, midA: 0.35 });
       if (shape) fill(shape, { ...st.eye, color: eyeCol, within: visor || undefined });
       if (e.catch !== false && open && st.catchlight) {

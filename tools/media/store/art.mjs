@@ -29,7 +29,7 @@ export const POSES = {
   happy: { tilt: -0.1, eyes: [{ arc: { w: 44, rx: 0.5, ry: 0.32 } }, { arc: { w: 44, rx: 0.5, ry: 0.32 } }] },   // a happy squint
   wink: { tilt: 0.12, look: [8, -6], eyes: [{ arc: { w: 42, rx: 0.48, ry: 0.3, rot: 0.06 } }, { hs: 1.04, ws: 1.02 }] },
   shy: { tilt: -0.14, rise: 116, look: [-28, -2], eyes: [{ hs: 0.94, ws: 0.94 }, { hs: 0.94, ws: 0.94 }] },  // peeks lower, glances away
-  starry: { tilt: 0.06, look: [0, -10], eyes: [{ hs: 1.14, ws: 1.08 }, { hs: 1.08, ws: 1.04 }] },             // wide eyes
+  starry: { tilt: 0.06, look: [0, -10], eyes: [{ star: { r: 0.5, rot: 0.06, pinch: 0.3 } }, { star: { r: 0.5, rot: 0.06, pinch: 0.3 } }] },   // star-struck: the house four-point sparkle for eyes (rot is mirrored per side)
   hello: { tilt: 0.08, look: [-6, -8] },                                     // a straight, friendly look
 };
 
@@ -49,32 +49,38 @@ window.X0ART = (() => {
   const CLAY = __CLAY__;
   const base = HD.VERSIONS.find((v) => v.id === "3-curious");
 
-  /** Draw fn(art, bg) on black and on white, matte the two, trim, and return a PNG data URL. */
+  /** Draw fn(art, bg) on black and on white, matte the two, average down by a whole number, trim, and return a PNG data URL.
+   *  The averaging is by an integer factor SS = round(N / out) (so out is the size asked for, give or take rounding:
+   *  1024 -> 768 averages 1 x 1 and stays 1024; 2048 -> 1024 averages 2 x 2), each output pixel divided by the pixels
+   *  it really holds, the way trailer/lift.mjs does. A fractional factor binned with floor() and a constant 1/(f*f)
+   *  weight used to put a hard period-3 lattice through every mark (bins of 1 source pixel came out at alpha 143,
+   *  bins of 2 or 4 at 255): the gingham in the store's underlines. (No backticks in here: this is a template string.) */
   function lift(N, seed, out, draw, ledgeY, anchor) {
     const P = [];
     for (const bg of ["#000000", "#FFFFFF"]) { const art = new Art(N, seed); draw(art, bg); P.push(art.rgb); }
-    const [B, Wt] = P, f = N / out, rgba = new Float32Array(out * out * 4);
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const [B, Wt] = P, SS = Math.max(1, Math.round(N / out));
+    out = Math.floor(N / SS);
+    const rgba = new Float32Array(out * out * 4), cnt = new Float32Array(out * out);
+    for (let y = 0; y < out * SS; y++) for (let x = 0; x < out * SS; x++) {
       const i = (y * N + x) * 3;
       let a = 1 - ((Wt[i] - B[i]) + (Wt[i + 1] - B[i + 1]) + (Wt[i + 2] - B[i + 2])) / 3;
       a = Math.max(0, Math.min(1, a));
-      const o = ((Math.floor(y / f) * out) + Math.floor(x / f)) * 4;
+      const p = ((y / SS) | 0) * out + ((x / SS) | 0), o = p * 4;
       // premultiplied: black-pass colour is colour x alpha
-      rgba[o] += Math.min(1, B[i]); rgba[o + 1] += Math.min(1, B[i + 1]); rgba[o + 2] += Math.min(1, B[i + 2]); rgba[o + 3] += a;
+      rgba[o] += Math.min(1, B[i]); rgba[o + 1] += Math.min(1, B[i + 1]); rgba[o + 2] += Math.min(1, B[i + 2]); rgba[o + 3] += a; cnt[p]++;
     }
-    const k = 1 / (f * f);
     let x0 = out, y0 = out, x1 = -1, y1 = -1;
     for (let y = 0; y < out; y++) for (let x = 0; x < out; x++) {
-      const o = (y * out + x) * 4; if (rgba[o + 3] * k > 0.01) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      const p = y * out + x; if (rgba[p * 4 + 3] / cnt[p] > 0.01) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
     }
     x0 = Math.max(0, x0 - 4); y0 = Math.max(0, y0 - 4); x1 = Math.min(out - 1, x1 + 4); y1 = Math.min(out - 1, y1 + 4);
     const w = x1 - x0 + 1, h = y1 - y0 + 1, cv = document.createElement("canvas"); cv.width = w; cv.height = h;
     const ctx = cv.getContext("2d"), img = ctx.createImageData(w, h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const o = ((y + y0) * out + (x + x0)) * 4, q = (y * w + x) * 4, a = rgba[o + 3] * k;
+      const p = (y + y0) * out + (x + x0), o = p * 4, q = (y * w + x) * 4, a = rgba[o + 3] / cnt[p];
       if (a <= 0.002) continue;
-      img.data[q] = Math.round(Math.min(1, rgba[o] * k / a) * 255); img.data[q + 1] = Math.round(Math.min(1, rgba[o + 1] * k / a) * 255);
-      img.data[q + 2] = Math.round(Math.min(1, rgba[o + 2] * k / a) * 255); img.data[q + 3] = Math.round(a * 255);
+      img.data[q] = Math.round(Math.min(1, rgba[o] / rgba[o + 3]) * 255); img.data[q + 1] = Math.round(Math.min(1, rgba[o + 1] / rgba[o + 3]) * 255);
+      img.data[q + 2] = Math.round(Math.min(1, rgba[o + 2] / rgba[o + 3]) * 255); img.data[q + 3] = Math.round(a * 255);
     }
     ctx.putImageData(img, 0, 0);
     return { png: cv.toDataURL("image/png"), w, h, ledge: ledgeY === undefined ? null : (ledgeY * out) / 1000 - y0,
@@ -113,7 +119,8 @@ window.X0ART = (() => {
   function mark(kind, seed, out, color) {
     const INKC = color || CLAY;
     const TIP = [770, 900];
-    return lift(1024, seed, out, (art, bg) => {
+    // drawn at twice the output so the lift averages 2 x 2 exactly (an underline comes out ~724 x 55, as before)
+    return lift(out * 2, seed, out, (art, bg) => {
       art.paper({ color: bg, mottle: 0, grain: 0, warm: 0, vignette: 0 });
       const n = art.noise, r = art.r;
       const ink = (pts, w, taper) => art.mark(INKC, { tooth: 0.14, soft: 0.25, paper: "fine" }, (c) =>

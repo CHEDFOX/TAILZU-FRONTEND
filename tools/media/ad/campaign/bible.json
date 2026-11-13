@@ -1,0 +1,1234 @@
+{
+ "campaign": "One idea holds ten films: X0 Bot is a someone, not a screen. Having a team was once the luxury of the man with a secretary, a booking clerk and a switchboard; now it is anyone with a phone, and the team has manners: it does the finding, the writing, the remembering and the shipping, then stops, looks at you, and waits for your yes. Every film is a person's life on real footage (what they SAY is handwriting on their word times), interrupted by paper (what the bots DID arrives taped on, in type), closed by a two-line headline with one handwritten word and one brush underline, and sealed by the same end card. The ten run as a funnel. Awareness: He had a team (the idea, through torn paper onto old films), Pahunch gaye? (the India heart: love as logistics, now opening on a scooter so the train belongs to Plan's film), Great at One Thing (the roster, with the first glimpse of a bot you make yourself). Consideration: Khaana khaya? (Keybot, Hinglish first; Keybot writes, she sends), Leave at 4:40 (Plan: the train arrives as she reaches it), The Hold (Travel, four held things and the pause before pay), Go Live (Code bot, rebuilt as its own shape: hands lift off a keyboard, two holds, the room stands before the rocket goes; it shares only the wait, the written yes and the stamp with The Hold), In One Sentence (make your own bot; the new head takes the centre seat the roster left open). Trust: Uncle is right (India's sceptic wins and we agree), The Witness (the deposition: they ask first, data not for sale). Count-In's hero sweep is the hinge of Great at One Thing; Talk Messy's punctuation thuds and kept-name underline live in Khaana khaya?. The Hold and Go Live are siblings in sea and moss by device, not by cut; Uncle is right and The Witness are the fox's two appearances, split by market. Cut-downs the builders make from these assets: Who Presses Pay (15 s, from The Witness: Q 'And who presses pay?' on black, the fox's hold, his extra recorded line 'You do', black, 'You do' / 'always' in white with a clay underline under 'always', end card) and Face Down (6 s: the phone face down at morning, sourced in the footage list, into the end card). Every line of type in every film is measured against the system's character limits and safe area before paper is drawn.",
+ "spots": [
+  {
+   "id": "01",
+   "title": "He had a team",
+   "director": "The Trickster (Jonze, Gondry): paper worlds inside real ones; the painted bot wandering into other people's footage; one in-camera trick that explains the product better than a sentence.",
+   "job": "Awareness, manifesto, global: the whole idea (a team, each great at one thing, now for anyone).",
+   "duration_s": 24,
+   "logline": "Through a hole torn in white paper we watch old films of the office that once ran one man's life; a painted bot hangs in every room and a card names the bot that does that job now. He had a team. Now you do.",
+   "insight": "Having someone was always the luxury. The person with a team got their life back while everyone else carried their day in their head. People do not want a smarter phone; they want a someone.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 1.2,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "White cotton paper, faint grain, full frame. A rough tear opens from the centre over 0.6 s into a 4:3 window, 0.9w wide, its top at 0.22h; paper margins above (to 0.22h) and below (from 0.72h) stay for the whole film.",
+     "motion": "Rough-edged mask wipe from centre, ease-out; the paper never moves.",
+     "overlay": "None.",
+     "vo": "",
+     "sound": "A paper tear. A dry hat tick at 96 bpm (a projector gate) from 1.0 with a low drone in D. VO line 1 starts at 1.0 under the tear."
+    },
+    {
+     "t0": 1.2,
+     "t1": 3.8,
+     "source": "stock",
+     "stock_query": "Prelinger dictation stenographer, secretary takes dictation 1950s, office practice film; an executive dictating, a woman writing on a pad; punch in 110-120% and mask any company lettering",
+     "visual": "Inside the window: black-and-white archive, scratches and flicker kept, graded to brand greys (no sepia), light vignette. At 1.4 two cream gloves grab the torn top edge and the hero swings down into the old room, upside down, flat painted black; big cream eyes blink once, then follow the pencil.",
+     "motion": "Archive slowed 10% with held frames; hero pendulum settles in two swings.",
+     "overlay": "At 2.6 the first of four 0.2w white cards tapes into the lower paper margin (row centred at 0.78h, left to right): Keybot's dotted head in clay #A9573A above 'Keybot' in ink Geist 0.035w.",
+     "vo": "He had someone to write it down.",
+     "sound": "Soft knock as the gloves grab; tape slap and the clay bell at 2.6; projector tick; far reverberant bells very faint under the whole archive bed."
+    },
+    {
+     "t0": 3.8,
+     "t1": 6.2,
+     "source": "stock",
+     "stock_query": "Prelinger appointment book, office calendar 1950s, secretary desk calendar; a hand writes a name into a time slot, a wall clock",
+     "visual": "Hard cut inside the window only; the paper and the hanging hero do not cut; the room changes behind him. His eyes track the hand.",
+     "motion": "Locked; archive slowed 10%.",
+     "overlay": "Second 0.2w card at 5.0 beside the first: Plan's ochre #8F6A1F head above 'Plan'.",
+     "vo": "Someone to keep his day.",
+     "sound": "Tape slap, ochre bell, tick."
+    },
+    {
+     "t0": 6.2,
+     "t1": 8.8,
+     "source": "stock",
+     "stock_query": "Prelinger passenger train 1950s, railroad station ticket window, travelogue steam train platform; a ticket window or a train pulling out; no readable railroad name (punch in or mask)",
+     "visual": "Window cuts to the station; the hero's eyes go wide at the train.",
+     "motion": "Locked.",
+     "overlay": "Third card at 7.5: Travel's sea #3E6E8E head above 'Travel'.",
+     "vo": "Someone to book his train.",
+     "sound": "Tape slap, sea bell, a far whistle if the ambience kit has one."
+    },
+    {
+     "t0": 8.8,
+     "t1": 11.2,
+     "source": "stock",
+     "stock_query": "Prelinger business meeting 1950s, conference room board meeting film; men round a table, one writing the minutes",
+     "visual": "Window cuts to the boardroom; the hero looks at the man writing.",
+     "motion": "Locked.",
+     "overlay": "Fourth card at 9.8: an ink dotted head above 'Notes'. The row of four is now complete across the lower margin.",
+     "vo": "Someone to take the notes.",
+     "sound": "Tape slap, a low ink bell."
+    },
+    {
+     "t0": 11.2,
+     "t1": 13.8,
+     "source": "stock",
+     "stock_query": "telephone switchboard operator 1940s, Prelinger telephone operator, long distance operator film; cords plugged into a board; mask any telephone-company mark",
+     "visual": "Window cuts to the switchboard operator plugging cords.",
+     "motion": "Locked.",
+     "overlay": "At 12.4 a 0.6w white strip tapes in beneath the four cards (centred at 0.88h... no: at 0.86h, inside the paper margin, above the bottom safe line only because it is paper, not footage, and reads as a tag): five small heads in a row (clay, ochre, sea, moss, ink) and 'Ask any bot' in ink Geist 0.045w. If the strip crowds the margin, drop the four cards to 0.76h first.",
+     "vo": "And someone to put him through.",
+     "sound": "Tape slap, all five bells quickly in a row."
+    },
+    {
+     "t0": 13.8,
+     "t1": 15.5,
+     "source": "stock",
+     "stock_query": "(same operator clip)",
+     "visual": "Freeze on the operator mid-plug. The window goes cold: full desaturate, vignette deepens, flicker stops. The hero turns his eyes slowly to camera.",
+     "motion": "Freeze; cold grade over 6 frames.",
+     "overlay": "Cards and strip stay.",
+     "vo": "",
+     "sound": "Tick stops; the far bells stop; a thin drone only."
+    },
+    {
+     "t0": 15.5,
+     "t1": 19,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "The frozen film stays below as evidence. On the white paper above the window the headline slams in ink.",
+     "motion": "Two slams (scale 1.08 to 1.00 in 3 frames) at 15.7 and 16.6; brush underline left to right 16.9-17.4.",
+     "overlay": "Heavy ink Geist 0.085w cap (13 characters, the 0.085w tier), two lines centred in the top margin (0.12h-0.21h): 'He had a team' / 'Now you do'; 'team' in Caveat; clay #C9683F brush underline under 'team'.",
+     "vo": "He had a team. Now you do.",
+     "sound": "Two booms; brush swish; the drone opens to a fifth."
+    },
+    {
+     "t0": 19,
+     "t1": 19.5,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "The hero lets go of the torn edge (the launch move) and drops out of the bottom of frame 19.0-19.4.",
+     "motion": "Fast drop, ease-in.",
+     "overlay": "Headline holds.",
+     "vo": "",
+     "sound": "Whoosh."
+    },
+    {
+     "t0": 19.5,
+     "t1": 24,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD, fixed: the white sheet slides up with the hero already on his bar (his drop became his arrival off-screen); X0 in three strokes; 'Your team of bots'; stamp.",
+     "motion": "Standard.",
+     "overlay": "Standard end card.",
+     "vo": "",
+     "sound": "Standard end card sound; final chord in D."
+    }
+   ],
+   "vo_voice": "en-IN male (Prabhat), warm, unhurried, as if reading museum labels aloud; rate -5%. Line 1 starts at 1.0 so it clears line 2 at 3.8; every line is checked against its window before build.",
+   "score": "96 bpm dry hat tick like a projector gate; drone in D under the archive; bells per bot on each card, all five on the 'Ask any bot' strip; far reverberant bells faint across the bed; everything stops at the freeze but the drone; two booms on the headline; final chord in D major.",
+   "end_card": "Standard, unchanged: he drops out at 19.0-19.4 and the sheet slides up at 19.5 with him already on his bar. (If a landing is ever wanted, build it once as a shared variant, not here.)",
+   "why_cinema": "Old film inside a hole torn in paper, with a living painted thing hanging in it, is an image before it is an argument. The room changes five times and he never cuts; the team builds itself as a row of small cards; the freeze goes cold and the headline lands on paper above the evidence."
+  },
+  {
+   "id": "02",
+   "title": "Pahunch gaye?",
+   "director": "The Humanist (Zoya Akhtar, Ray): everyday India, Hinglish as spoken, the small observed gesture, dignity first.",
+   "job": "Awareness, India first: love as logistics; Plan and Travel shown in passing.",
+   "duration_s": 30,
+   "logline": "Every Indian journey ends with the same two-word message. A film of arrivals, one question written over each, and two paper cards that quietly show who got them there.",
+   "insight": "In India, 'I love you' is sent as 'Pahunch gaye?' The family runs on arrivals and someone is always waiting for the haan. A team that handles leaving-times and tickets is, in the end, in the business of letting you say yes.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 3,
+     "source": "stock",
+     "stock_query": "scooter night city rain, motorbike traffic night lights; tail lights smearing in light rain, from the pavement or behind",
+     "visual": "A scooter in night traffic, light rain. Thin ink letterbox bars on every footage shot; heavy fine grain; one warm-grey grade so six strangers' clips cut like one roll.",
+     "motion": "As shot, or 80%.",
+     "overlay": "At 0.4 'Pahunch gaye?' writes in white Caveat 0.09w, centred at 0.70h, on her word times. At 2.0 the reply types beneath (0.76h) in white Geist 0.05w, one letter per frame: 'Haan.'",
+     "vo": "Pahunch gaye?",
+     "sound": "A low drone in G from 0.4 that never leaves; pen scratch per word; typewriter tick per letter."
+    },
+    {
+     "t0": 3,
+     "t1": 5,
+     "source": "stock",
+     "stock_query": "(same scooter clip)",
+     "visual": "Freeze. Cold: saturation down a third, two degrees cooler, grain up. A white card tapes on at a slight angle, centred at 0.5h.",
+     "motion": "Freeze; cold grade in 6 frames; tape rip.",
+     "overlay": "Card 0.7w (sized to its longest line plus 0.04w padding): Plan's ochre head and 'Plan' small; ink Geist 0.045w: 'Dinner at Nani's, 9 pm' / 'leave by 8:10'.",
+     "vo": "",
+     "sound": "Pulse (96 bpm rail joints with hat clicks, started at 3.0 under the freeze) cuts at the tape; tape rip; ochre bell."
+    },
+    {
+     "t0": 5,
+     "t1": 7.5,
+     "source": "stock",
+     "stock_query": "airplane window wing sunset, plane wing clouds from window",
+     "visual": "Unfreeze straight into an aeroplane window at dusk, the wing, cloud.",
+     "motion": "As shot.",
+     "overlay": "Handwriting 'Landed?' (unvoiced cadence: 0.3 s per word, 0.5 s before the reply); reply types 'Haan Papa.' one letter per frame.",
+     "vo": "",
+     "sound": "Pulse returns."
+    },
+    {
+     "t0": 7.5,
+     "t1": 9.5,
+     "source": "stock",
+     "stock_query": "(same aeroplane clip)",
+     "visual": "Freeze, cold; second card tapes on.",
+     "motion": "Freeze; tape rip.",
+     "overlay": "Card 0.7w: Travel's sea head, 'Travel'; ink Geist 0.045w: 'Seat 22A' / 'Pack a jacket, 11° there'.",
+     "vo": "",
+     "sound": "Pulse cuts; tape rip; sea bell."
+    },
+    {
+     "t0": 9.5,
+     "t1": 12.5,
+     "source": "stock",
+     "stock_query": "rain on window bus night city, train window rain lights; city sliding past in bokeh",
+     "visual": "Rain on a bus or train window.",
+     "motion": "As shot.",
+     "overlay": "Handwriting 'Pahunch gayi beta?' (0.3 s per word); reply 'Bas 10 minute.'",
+     "vo": "",
+     "sound": "Pulse returns."
+    },
+    {
+     "t0": 12.5,
+     "t1": 15,
+     "source": "stock",
+     "stock_query": "taxi window night city from inside, passenger view night streets, auto rickshaw night street lights; a street sliding past from a back seat",
+     "visual": "A city street from inside a taxi or auto at night.",
+     "motion": "As shot.",
+     "overlay": "Handwriting 'Reached?'; reply 'Yes yes.'",
+     "vo": "",
+     "sound": "Pulse continues."
+    },
+    {
+     "t0": 15,
+     "t1": 18,
+     "source": "stock",
+     "stock_query": "child sleeping car night, kid asleep back seat streetlights",
+     "visual": "A child asleep in the back seat, streetlights crossing the face. Nothing is written. The one person who does not have to answer.",
+     "motion": "As shot, maybe 90%.",
+     "overlay": "None.",
+     "vo": "",
+     "sound": "Hats stop; pulse fades; drone alone."
+    },
+    {
+     "t0": 18,
+     "t1": 21,
+     "source": "stock",
+     "stock_query": "apartment building night window light turns on, city apartment windows night; fallback door opening home night, hand unlocking door",
+     "visual": "A window in a dark block lights up.",
+     "motion": "As shot.",
+     "overlay": "At 18.6 'Pahunch gaye.' writes larger (0.12w), white Caveat, centred at 0.5h, no question mark. No reply types.",
+     "vo": "Pahunch gaye.",
+     "sound": "A riser resolves into one warm chord at 20.0."
+    },
+    {
+     "t0": 21,
+     "t1": 25.5,
+     "source": "stock",
+     "stock_query": "(same window clip)",
+     "visual": "Speed ramps to 20% and freezes at 22.0; this freeze stays WARM.",
+     "motion": "Ramp then freeze.",
+     "overlay": "White heavy Geist 0.085w (13 characters), two lines, baseline at 0.76h: 'Pahunch gaye?' / 'Haan'; 'Haan' in Caveat with a clay #C9683F brush underline. Above the headline (0.60h), small white Geist 0.035w: 'Reached? Yes' / 'Plan knows when to leave. Travel keeps the tickets.'",
+     "vo": "",
+     "sound": "Ochre and sea bells over the chord."
+    },
+    {
+     "t0": 25.5,
+     "t1": 30,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard; the chord carries over."
+    }
+   ],
+   "vo_voice": "en-IN female (Neerja), soft, rate -15%; only two lines, start and end. Unvoiced handwriting runs on the fixed cadence (0.3 s per word, 0.5 s before the typed reply).",
+   "score": "Drone in G throughout; 96 bpm rail-joint pulse with hat clicks from 3.0; pulse cuts on each cold freeze; ochre and sea bells; riser into one warm G major chord at 20.0; final chord.",
+   "end_card": "Standard.",
+   "why_cinema": "A refrain film you read: the same handwritten question in a mother's hand over six arrivals, a typed reply from a different person each time, and one shot with no words at all. The last question loses its question mark and the headline answers with one handwritten word."
+  },
+  {
+   "id": "03",
+   "title": "Great at One Thing",
+   "director": "The Symmetrist: every frame centred and level, mounted on white paper with a dip-pen rule; tags; a dry narrator; the joke is the point.",
+   "job": "Awareness: the roster, each bot by colour and verb, and the first sight of a bot you make yourself.",
+   "duration_s": 24.7,
+   "logline": "A deadpan census of people great at one thing ends on a man great at dinner and less great at everything after it; the bot swings in, sweeps the rest off the page, and the team takes it.",
+   "insight": "Nobody is great at everything and the people we admire never tried to be. A team is not your life done for you; it is keeping the one thing you are good at and handing off the rest without apology.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 1.3,
+     "source": "stock",
+     "stock_query": "hands kneading dough overhead, baker kneading bread top view; dough dead centre",
+     "visual": "Footage full-bleed inside a 36 px white paper mount with a hairline ink rule, like a mounted photograph. Centred, level.",
+     "motion": "Locked.",
+     "overlay": "Tag slaps at 0.74h centre: a paper scrap with two bits of tape, ink Geist 0.045w: 'Great at bread'.",
+     "vo": "Nobody is great at everything.",
+     "sound": "Light pulse at 120 bpm with hats; boom on the tag."
+    },
+    {
+     "t0": 1.3,
+     "t1": 2.6,
+     "source": "stock",
+     "stock_query": "potter wheel hands close up, pottery throwing clay; the pot centred",
+     "visual": "Whip-wipe (5 frames) to the potter.",
+     "motion": "Outgoing slides left, incoming from right.",
+     "overlay": "Tag: 'Great at clay'.",
+     "vo": "",
+     "sound": "Paper swish; boom."
+    },
+    {
+     "t0": 2.6,
+     "t1": 3.9,
+     "source": "stock",
+     "stock_query": "barber haircut front view, barbershop shave close up; any single skill works (tailor, violinist, calligrapher) with the tag changed",
+     "visual": "Whip-wipe to the barber, client facing camera.",
+     "motion": "Locked.",
+     "overlay": "Tag: 'Great at hair'.",
+     "vo": "Some people are great at one thing.",
+     "sound": "Swish; boom."
+    },
+    {
+     "t0": 3.9,
+     "t1": 5.4,
+     "source": "clip2",
+     "stock_query": "",
+     "visual": "Clip 2 from 4.6 to 6.1 s: the white-haired dancer mid-move; the string of lights comes on about 0.4 s in.",
+     "motion": "As shot.",
+     "overlay": "Tag slaps as the lights come on: 'Great at this'.",
+     "vo": "",
+     "sound": "Swish; boom on the lights. VO 'He is great at dinner' starts at 5.2 under the tail of this shot."
+    },
+    {
+     "t0": 5.4,
+     "t1": 7.2,
+     "source": "clip1",
+     "stock_query": "",
+     "visual": "Clip 1 from 0.0 to 1.8 s: the man cooking at night, back to us, steam under the hood light.",
+     "motion": "Locked.",
+     "overlay": "Tag: 'Great at dinner'.",
+     "vo": "He is great at dinner.",
+     "sound": "Swish; boom; the hood hum under."
+    },
+    {
+     "t0": 7.2,
+     "t1": 9.2,
+     "source": "clip1",
+     "stock_query": "",
+     "visual": "Freeze at clip 1.8 s. The frame goes cold. Four more tags slap on, stacked straight above the first, 0.4 s apart.",
+     "motion": "Freeze; cold grade in 6 frames.",
+     "overlay": "Tags, ink Geist 0.04w: 'Less great at typing' / 'Less great at plans' / 'Less great at trips' / 'Less great at code'.",
+     "vo": "Less so at the rest.",
+     "sound": "Pulse stops; only the hood hum; four dry smaller booms."
+    },
+    {
+     "t0": 9.2,
+     "t1": 10.4,
+     "source": "clip1",
+     "stock_query": "",
+     "visual": "The hero swings down from the top edge over the frozen cook, upside down, cream gloves on his clay bar, settles in one swing, looks at the stack. One glove lets go and flicks: the five tags and the grey frozen frame loosen into paper scraps and slide off the bottom, leaving plain white paper. He re-grips; the bar is now the top of the page.",
+     "motion": "Pendulum in; flick at 9.9; scraps fall with ease-in over 0.4 s; mount margin dissolves into the page.",
+     "overlay": "None new.",
+     "vo": "",
+     "sound": "Wooden creak; one tiny bell; paper rustle as the scraps go."
+    },
+    {
+     "t0": 10.4,
+     "t1": 17,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "THE TEAM PORTRAIT. The hero hangs top centre. At 0.5h five places in a row, symmetric. Dotted heads pop into places 1, 2, 4, 5 on four bells, every 0.9 s on the narrator's nouns: Keybot clay #A9573A at 11.2, Plan ochre #8F6A1F at 12.1, Travel sea #3E6E8E at 13.0, Code bot moss #4F7A3A at 13.9. The centre place stays empty; the hero's eyes look down at it from 14.3. A grey pencil outline of a head draws itself there 14.8-15.8. The hero looks back to camera at 16.3.",
+     "motion": "Pops with a 3-frame overshoot; pencil line draws at writing speed.",
+     "overlay": "Small ink labels (0.035w) typed under each head: 'Keybot / writes', 'Plan / remembers', 'Travel / finds', 'Code bot / builds', and under the outline 'Yours / in one sentence'.",
+     "vo": "A team. Keybot writes. Plan remembers. Travel finds. Code bot builds. And one you make yourself.",
+     "sound": "Silence but the narrator; four bells in the bots' notes on the pops; a soft grey bell and a pencil scratch on the outline."
+    },
+    {
+     "t0": 17,
+     "t1": 20.2,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "Headline beneath the row (baseline 0.76h). It is read, not spoken. At 17.6 the narrator says the one small line as it types in. The hero winks at 19.6.",
+     "motion": "Write-on 17.0-17.6; brush underline left to right 18.0-18.4; small line types 17.6-18.4.",
+     "overlay": "Heavy ink Geist 0.085w (13 characters), two lines centred: 'Each great at' / 'one thing'; 'one' in Caveat with a clay #C9683F underline. Small ink Geist 0.035w above the headline (0.62h): 'None of them can cook.'",
+     "vo": "None of them can cook.",
+     "sound": "Warm final chord from 17.0; a tiny tock on the wink."
+    },
+    {
+     "t0": 20.2,
+     "t1": 24.7,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard."
+    }
+   ],
+   "vo_voice": "en-IN male (Prabhat), measured, dry documentarian, rate 0.9; kind, never smug. Lines fitted to windows: 'He is great at dinner' from 5.2; the portrait line is 16 words across 10.4-16.3; the headline is not read aloud.",
+   "score": "120 bpm light pulse with hats to 7.2; boom on every tag; paper swish on wipes; pulse dead at the freeze, hood hum only; creak and tiny bell for the swing; paper rustle for the sweep; four bot bells plus a grey one; warm chord from 17.0 in C major; final chord.",
+   "end_card": "Standard.",
+   "why_cinema": "Five portraits, a turn, and a physical event: the painted bot arrives over a real frozen man and sweeps his failings off the page, then the team assembles under him in colour and type, with one seat left for you."
+  },
+  {
+   "id": "04",
+   "title": "Khaana khaya?",
+   "director": "The Humanist: Hinglish as spoken, fillers and all; two kitchens, one cut; the spoken word is handwriting, the written word is type; Keybot writes, she sends.",
+   "job": "Keybot: filler out, punctuation in, names kept; Hindi and Hinglish first.",
+   "duration_s": 24,
+   "logline": "A mother in Jaipur speaks to her phone the way she speaks, woh and all. Her son in Bengaluru, cooking alone at the same minute, reads it as she meant it.",
+   "insight": "Maa does not type: the keyboard is small, in the wrong script and slower than her mouth. Keybot lets her speak and hands her writing: her words, her names, her commas, the fillers brushed off like crumbs from a table. She presses send.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 0.8,
+     "source": "stock",
+     "stock_query": "elderly hands holding smartphone, grandmother hands phone table close up, senior woman hands texting; hands only, no face, no maker's logo, a steel glass in frame helps",
+     "visual": "An older woman's hands holding a phone in both hands at a kitchen table, close, no face. Warm grade, soft contrast, fine grain.",
+     "motion": "Locked.",
+     "overlay": "Small white Geist 0.03w at 0.12h, left: 'Jaipur · 9:47 pm' types in at 0.3.",
+     "vo": "",
+     "sound": "Ceiling fan, kitchen room tone, a far cooker whistle."
+    },
+    {
+     "t0": 0.8,
+     "t1": 11,
+     "source": "stock",
+     "stock_query": "(same hands clip, looped or slowed)",
+     "visual": "The hands hold the phone; nothing else moves. Her words write in a three-line window at 0.56h-0.74h as she says them, fillers included, her pauses as short gaps; when a fourth line begins, the top line slides up and fades (she is speaking; the screen is not a transcript).",
+     "motion": "Locked; window scroll 6 frames, ease-out.",
+     "overlay": "White Caveat 0.065w, word by word on her word times: 'Beta... khaana khaya? Woh... Papa bol rahe the, Sunday aa rahe ho na. Bunty ka phone aaya tha. Kha lena.'",
+     "vo": "Beta... khaana khaya? Woh... Papa bol rahe the, Sunday aa rahe ho na. Bunty ka phone aaya tha. Kha lena.",
+     "sound": "Her voice only; a pen scratch per word."
+    },
+    {
+     "t0": 11,
+     "t1": 13,
+     "source": "stock",
+     "stock_query": "(same hands clip)",
+     "visual": "She stops. One clay bell at 11.0. The hero's gloves grip the top edge and he lowers in, flat painted black against the warm kitchen, eyes on the sentence (the full sentence re-flows into the window at 0.06w for this beat). His glove flicks 'Woh' at 11.4: it peels like a sticker and drops out of the bottom. The words slide together; punctuation stamps in with ink thuds (comma after 'Beta' 11.8, question mark after 'na' 12.0, full stop after 'tha' 12.2); a short clay brush underline paints under 'Bunty' at 12.4 (the name kept); at 12.8 the handwriting snaps to white Geist type in one frame and a small paper tick marked 'ready' appears beside it. He nods once. Nothing is sent on screen.",
+     "motion": "Peel tumbles with ease-in; slide together over 8 frames; stamps on a 0.2 s grid.",
+     "overlay": "Settled type, white Geist 0.055w, three lines: 'Beta, khaana khaya? Papa bol rahe the, Sunday aa rahe ho na? Bunty ka phone aaya tha. Kha lena.' Clay #A9573A underline under 'Bunty'. Tiny ink-outline tick with 'ready' in 0.03w.",
+     "vo": "",
+     "sound": "Clay bell; one paper peel and a tiny landing; three ink thuds; brush dab; a soft paper tap on the snap."
+    },
+    {
+     "t0": 13,
+     "t1": 15.4,
+     "source": "clip1",
+     "stock_query": "",
+     "visual": "HARD CUT. Clip 1: the man cooking at night, back to camera, steam under the hood light. No freeze, no tape: at 13.6 a white paper card slides straight up from the bottom and stops centred at 0.5h while the steam keeps rising and his shoulder keeps working.",
+     "motion": "Card slides up over 10 frames, ease-out.",
+     "overlay": "Small white Geist 0.03w at 0.12h, left: 'Bengaluru · 9:48 pm'. Card 0.8w: Keybot's clay head and 'Keybot' small; the settled message in ink Geist 0.045w, three lines. No translation on the card. Optional viewer subtitle in plain white Geist 0.03w at 0.78h on the footage, outside the card: 'Did you eat, beta? Papa asks, are you coming Sunday? Bunty called. Eat.' (drop it for India placements).",
+     "vo": "",
+     "sound": "The hood hum, a little louder; a paper slide."
+    },
+    {
+     "t0": 15.4,
+     "t1": 19.5,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "The card rises and widens until the paper is the whole page. The headline writes on.",
+     "motion": "Card scales to full over 12 frames; write-on 16.0-17.0; brush underline 17.2-17.6.",
+     "overlay": "Heavy ink Geist 0.075w (named exception: 15 characters), two lines, baseline 0.70h: 'Maa ne bola' / 'Keybot ne likha'; 'bola' in Caveat with a clay #A9573A underline. Small grey Geist 0.035w above the headline (0.56h): 'Speak in any app. Keybot writes. You send.' / 'Hindi, Hinglish and 50+ languages.'",
+     "vo": "",
+     "sound": "Fan and hood blend into a low warm drone in F; the clay bell once more at 17.6; a final chord."
+    },
+    {
+     "t0": 19.5,
+     "t1": 24,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the hero winks.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard."
+    }
+   ],
+   "vo_voice": "en-IN female (Neerja), gentle, rate -10%; 20 words across 0.8-11.0 with short '...' gaps (0.4 s). Test Roman Hinglish first; fallback hi-IN female (Swara) fed Devanagari with the same word count so word times map one to one.",
+   "score": "No pulse. Room beds (fan, cooker, hood) carried as the bed; one clay bell at 11.0 and 17.6; three ink thuds; a low warm drone in F from 15.4; final chord F major.",
+   "end_card": "Standard; the hero winks.",
+   "why_cinema": "You read a mother's voice note in her own rhythm, then watch a small painted creature pick the crumb off her sentence and the punctuation land, and a cut carries it 1,500 km through steam to a son who keeps cooking. The headline does what the product does: the spoken word is handwritten, the written word is type."
+  },
+  {
+   "id": "05",
+   "title": "Leave at 4:40",
+   "director": "The Minimalist: no screen ever shown; one line of type placed late; one event, a hard cut; the frames vast and the holds honest.",
+   "job": "Plan: your calendar and to-dos; when to leave.",
+   "duration_s": 20,
+   "logline": "A coat by a door, one small note taped to the frame, and a person who walks, not runs, to a train that arrives as she reaches it.",
+   "insight": "Being on time is not a skill, it is a quiet mind. Plan does one unglamorous thing here, it tells you when to leave, and we show what that buys: a walk.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 5,
+     "source": "stock",
+     "stock_query": "coat hanging on hook by door, keys on table by front door, hallway front door interior light; a still life, nobody",
+     "visual": "A front door from inside, a coat on a hook, keys, afternoon light from a side window. Warm, low contrast, fine grain. At 0.4 a white card tapes in, centred at 0.62h, at a slight angle with one strip of tape.",
+     "motion": "Locked. Tape at 0.4; handwriting word by word 0.7-1.7; typed line with ticks 2.0-3.2; hold to 5.0.",
+     "overlay": "Card 0.5w: Plan's ochre #8F6A1F head and 'Plan' in small Geist; line 1 in ink Caveat 0.05w, what she told Plan: 'Dentist Fri 5 pm'; line 2 in ink Geist 0.045w typed letter by letter, what Plan did: 'leave by 4:40'.",
+     "vo": "",
+     "sound": "A room; a distant street; a drone in A, low; Plan's bell once at 0.3, close and soft; a soft tape sound; pen scratch on the handwritten words; a typewriter tick per typed letter. No pulse anywhere in this film."
+    },
+    {
+     "t0": 5,
+     "t1": 15.5,
+     "source": "stock",
+     "stock_query": "train arriving platform golden hour wide, metro arriving doors open, commuter boarding train calm, railway platform high angle; one person walking calmly, the train pulls in and the doors open, no readable livery",
+     "visual": "HARD CUT, the event. A railway platform wide and high, golden hour, full 9:16 so the figure is small; one person walking, not running. The train pulls in from 10.5, brakes at 11.5, the doors open at 12.5 as the figure reaches them, she steps through 13.5-14.5, the doors close at 15.0. Warm, contrast up, saturation down a quarter, grain; the vignette deepened on the lower third so the type reads. If the clip is short, cut once at 9.0 to a second angle, or to the figure stepping through open doors. If only a departing train can be sourced, the platform must be empty (she is aboard) and the shot-1 card is echoed small (0.25w) at 0.14h.",
+     "motion": "Locked; the train's own motion.",
+     "overlay": "White heavy Geist 0.085w (13 characters), two lines, baseline 0.76h, placed over the platform's shadow side, writes on 11.0-13.0: 'You knew' / 'when to leave'; 'when' in Caveat; ochre #8F6A1F brush underline 13.2-13.7.",
+     "vo": "",
+     "sound": "Platform air; the drone opens to a fifth on the cut; a low rumble of arrival from 10.5; a brake sigh at 11.5; a door chime, no words, at 12.5."
+    },
+    {
+     "t0": 15.5,
+     "t1": 20,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the sheet slides up into silence.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Everything stops but the paper slide; then the standard end card sound."
+    }
+   ],
+   "vo_voice": "None.",
+   "score": "No pulse. Drone in A, single note opening to a fifth on the cut; one ochre bell; arrival rumble; brake sigh; door chime; final chord A major.",
+   "end_card": "Standard, arriving as the loudest thing in the film.",
+   "why_cinema": "Two frames and one cut. The card says in five words what she said and what Plan did; the platform shows what it bought: a small figure walking in a huge frame while the train comes to her. The line names it late and once."
+  },
+  {
+   "id": "06",
+   "title": "The Hold",
+   "director": "The Precisionist (Fincher): the camera never gets excited, the cut does; a clock under everything; tension held one beat past comfort and released by the smallest sound.",
+   "job": "Travel, and the value: it finds, you always press pay.",
+   "duration_s": 26.3,
+   "logline": "A sprinter, a chess hand, a train, a diver, all held a frame before they go. A bot finds the whole trip and then waits, looking at you, until a hand writes yes.",
+   "insight": "Trust is built by watching something that could act, and doesn't. The most expensive second in anyone's day is the one before 'pay'. If a bot can hold that second with everything ready and nothing taken, it can be trusted with the rest.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 0.3,
+     "source": "black",
+     "stock_query": "",
+     "visual": "Black, 0.3 s only.",
+     "motion": "None.",
+     "overlay": "None.",
+     "vo": "",
+     "sound": "A wall clock at 60 bpm begins, dry and close; it runs to the stamp."
+    },
+    {
+     "t0": 0.3,
+     "t1": 2.3,
+     "source": "stock",
+     "stock_query": "sprinter starting blocks set position close up, athlete start blocks track; set, hips up, still",
+     "visual": "HOLD 1: a sprinter in the blocks, set, perfectly still. All stock graded identically: saturation -40%, contrast up, cool, heavy grain, vignette, thin ink letterbox bars. Freeze at 1.7.",
+     "motion": "Slow or still; freeze.",
+     "overlay": "At 1.8 a white card (0.6w, sized to its longest line plus 0.04w) tapes on at 0.5h: Travel's sea #3E6E8E head in the corner; ink Geist 0.045w: 'Flights found'.",
+     "vo": "",
+     "sound": "Stadium hush and one breath, dead on the freeze; tape rip."
+    },
+    {
+     "t0": 2.3,
+     "t1": 4.3,
+     "source": "stock",
+     "stock_query": "chess hand hovering piece close up, chess player hand hesitates",
+     "visual": "HOLD 2: a hand above a chess piece, not touching it. Freeze at 3.7.",
+     "motion": "Freeze.",
+     "overlay": "Card 0.6w at 3.8: 'Stay found'.",
+     "vo": "",
+     "sound": "Quiet room, a chair creak; dead on freeze; tape rip."
+    },
+    {
+     "t0": 4.3,
+     "t1": 6.3,
+     "source": "stock",
+     "stock_query": "train doors open platform night, empty metro platform train waiting; doors open, nobody boards",
+     "visual": "HOLD 3: a train at a night platform, doors open. Freeze at 5.7.",
+     "motion": "Freeze.",
+     "overlay": "Card 0.6w at 5.8: 'Weather checked'.",
+     "vo": "",
+     "sound": "Platform hum and a far two-note tone, no words; dead on freeze; tape rip."
+    },
+    {
+     "t0": 6.3,
+     "t1": 8.3,
+     "source": "stock",
+     "stock_query": "diver standing on platform edge, high dive platform toes edge; Internet Archive 1930s sports newsreel as fallback",
+     "visual": "HOLD 4: a diver on a high platform edge, toes over, still. Freeze at 7.7.",
+     "motion": "Freeze.",
+     "overlay": "Card 0.6w at 7.8: 'Packing list made'.",
+     "vo": "",
+     "sound": "Wind and water far below; dead on freeze; tape rip."
+    },
+    {
+     "t0": 8.3,
+     "t1": 8.8,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "Cut to white paper. The four cards tile small (0.3w each) across the top band at 0.16h, askew, taped. A fifth, larger card slides up to centre.",
+     "motion": "Slide up 10 frames.",
+     "overlay": "Card 0.8w centred at 0.5h: Travel's sea head top-left; ink heavy Geist 0.07w on two lines: 'Pay for' / '2 tickets?'; beneath, a dip-pen rectangle button 'Yes' (0.3w) and beside it a smaller outline 'Not now'. Nothing else.",
+     "vo": "",
+     "sound": "Silence but the clock."
+    },
+    {
+     "t0": 8.8,
+     "t1": 13.8,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "THE WAIT, five seconds. The hero lowers in from the top on his clay bar 8.8-9.3, upside down. 9.8 he looks down at the button. 10.5 he looks up at us. 11.3 blink. 12.9 blink. He swings a few pixels. He never touches the card.",
+     "motion": "Ease-in lower; micro-swing 2 px at 0.4 Hz.",
+     "overlay": "At 11.7 an ink Geist 0.035w line writes on over 0.3 s under the button: 'It waits.'",
+     "vo": "",
+     "sound": "Clock; a low drone on G creeps in from 9.3 (-32 to -20 dB); a thin high sine joins at 11.3."
+    },
+    {
+     "t0": 13.8,
+     "t1": 14.8,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "A handwritten 'yes' in ink Caveat writes across the 'Yes' button left to right 13.8-14.5; the hero's eyes follow the pen. At 14.5 a hand-drawn ink stamp 'Paid' slams onto the card at a slight angle. The hero's eyes widen one frame, then settle.",
+     "motion": "Pen write-on; stamp scale 1.3 to 1.0 in 2 frames.",
+     "overlay": "'yes' Caveat 0.09w; stamp 'Paid' 0.3w.",
+     "vo": "",
+     "sound": "Pen on paper; a dry thunk with a sub hit; the clock stops; the drone cuts dead."
+    },
+    {
+     "t0": 14.8,
+     "t1": 16.3,
+     "source": "stock",
+     "stock_query": "sprinter start explosive slow motion; chess piece move click close up; diver jumps platform slow motion; train doors closing departing night platform (the same four sources, their releases)",
+     "visual": "RELEASE: four hard cuts, 0.37 s each, the four subjects unfrozen and at speed: the sprinter leaves the blocks, the hand sets the piece down, the diver leaves the platform, the doors close and the train pulls away.",
+     "motion": "Hard cuts; full speed.",
+     "overlay": "None.",
+     "vo": "",
+     "sound": "One boom at 14.8; a 1.5 s riser; each cut its own 0.37 s: spikes on track, a piece click, a splash, a door chime and the pull of a train."
+    },
+    {
+     "t0": 16.3,
+     "t1": 21.8,
+     "source": "stock",
+     "stock_query": "(same departing train)",
+     "visual": "The train keeps pulling away at 0.5x, lights streaking down the frame. A 40% ink gradient behind the lower third if its luminance is above 60% grey.",
+     "motion": "0.5x.",
+     "overlay": "White heavy Geist 0.08w (13 characters), two lines, baseline 0.76h: 'It finds' slams 16.6 / 'You press pay' slams 17.0; 'You' in Caveat 17.2-17.8; sea #3E6E8E underline 17.8-18.1.",
+     "vo": "",
+     "sound": "Train hum fades; two slams; brush stroke; one Travel bell at 18.1."
+    },
+    {
+     "t0": 21.8,
+     "t1": 26.3,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the hero looks and waits, no wink.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard; final chord."
+    }
+   ],
+   "vo_voice": "None.",
+   "score": "Clock at 60 bpm as the whole bed to 14.5; four ambiences cut hard; tape rips; drone on G rising from 9.3, high sine from 11.3; stamp thunk with sub; boom and riser for the release; one sea bell; final chord G major.",
+   "end_card": "Standard; the hero looks and waits instead of winking.",
+   "why_cinema": "Built to be mute: four things ready that do not go, four cards, a question, a button, and a creature that looks at the button and then at you and does not touch it. Then a hand writes yes, a stamp says Paid, and the whole held world moves at once."
+  },
+  {
+   "id": "07",
+   "title": "Go Live",
+   "director": "The Precisionist, second film, its own shape: it opens on the hands, not on black; two holds, not four; the room stands before the rocket goes; one slam. It shares with The Hold only the wait, the written yes and the stamp.",
+   "job": "Code bot: a safe copy, tests, asks when it needs you; nothing goes live till you say yes. The computer platform seen.",
+   "duration_s": 22,
+   "logline": "Hands lift off a keyboard at night and a clock starts. A rocket sits venting on its pad. The bot has done the work on a copy, proved it, and waits for one handwritten yes; then a room stands up and the rocket goes.",
+   "insight": "The fear of letting software ship is the fear of a thing acting while you look away. A bot that does the dangerous part on a copy, proves it, and then holds at T-minus until you say go is a bot you can hand the keys to.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 2.6,
+     "source": "stock",
+     "stock_query": "hands typing laptop keyboard night close up, programmer hands keyboard dark; screen out of frame or out of focus, nothing readable, no logo; the hands stop and lift",
+     "visual": "Hands on a laptop keyboard at night, lit from the screen, typing. Cold grade: saturation -40%, contrast up, heavy grain, vignette, thin ink letterbox bars. At 2.0 they stop; at 2.4 they lift away; FREEZE at 2.6 on the lifted hands.",
+     "motion": "As shot; freeze.",
+     "overlay": "None until the freeze.",
+     "vo": "",
+     "sound": "Key clicks, then nothing. A wall clock at 60 bpm starts at 2.4, the instant the hands lift, and runs to the stamp."
+    },
+    {
+     "t0": 2.6,
+     "t1": 4.4,
+     "source": "stock",
+     "stock_query": "(same hands clip, frozen)",
+     "visual": "HOLD 1: the frozen hands. A white card tapes on at 0.5h.",
+     "motion": "Tape rip at 2.8.",
+     "overlay": "Card 0.6w: Code bot's moss #4F7A3A head and 'Code bot' small; ink Geist 0.045w: 'Safe copy made'.",
+     "vo": "",
+     "sound": "Tape rip; moss bell; clock."
+    },
+    {
+     "t0": 4.4,
+     "t1": 6.8,
+     "source": "stock",
+     "stock_query": "NASA rocket on launch pad night floodlit, Saturn V pad vapour venting, rocket pad before launch (Internet Archive); punch in 110-120% and choose frames without insignia or lettering",
+     "visual": "HOLD 2: archive, the rocket on the pad at night, floodlit, venting vapour; monochrome, heavy grain, scratches kept, graded to brand greys. Freeze at 6.0.",
+     "motion": "Slowed 10%; freeze.",
+     "overlay": "Card 0.6w at 6.1: 'Tests passed'.",
+     "vo": "",
+     "sound": "Wind and a vent hiss; dead on freeze; tape rip; clock."
+    },
+    {
+     "t0": 6.8,
+     "t1": 7.3,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "Cut to white paper. The two cards tile small (0.3w) at 0.16h, askew. A larger card slides up to centre.",
+     "motion": "Slide up 10 frames.",
+     "overlay": "Card 0.8w at 0.5h: Code bot's moss head top-left; ink heavy Geist 0.07w: 'Go live?'; a dip-pen rectangle 'Yes' (0.3w) and beside it a smaller outline 'Not now'. Under the buttons, ink Geist 0.035w: 'It asked one thing. You answered.'",
+     "vo": "",
+     "sound": "Silence but the clock."
+    },
+    {
+     "t0": 7.3,
+     "t1": 12.3,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "THE WAIT. The hero lowers in on his clay bar 7.3-7.8. 8.3 he looks down at the button. 9.0 he looks at us. 9.8 blink. 11.4 blink. A few pixels of swing. He never touches the card.",
+     "motion": "Ease-in; micro-swing.",
+     "overlay": "At 9.9 an ink Geist 0.035w line writes on over 0.3 s under the card's small line: 'Nothing is live.'",
+     "vo": "",
+     "sound": "Clock; a drone on E creeps in from 8.0; a thin high sine from 10.0."
+    },
+    {
+     "t0": 12.3,
+     "t1": 13.3,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "A handwritten 'yes' in ink Caveat writes across 'Yes' 12.3-13.0; the hero's eyes follow the pen. At 13.0 a hand-drawn stamp 'Live' in moss ink slams onto the card. His eyes widen one frame.",
+     "motion": "Write-on; stamp 1.3 to 1.0 in 2 frames.",
+     "overlay": "'yes' Caveat 0.09w; stamp 'Live' 0.3w in moss #4F7A3A.",
+     "vo": "",
+     "sound": "Pen on paper; a dry thunk with a sub hit; the clock stops; the drone cuts."
+    },
+    {
+     "t0": 13.3,
+     "t1": 14.3,
+     "source": "stock",
+     "stock_query": "NASA launch control room 1960s, Apollo firing room consoles, mission control film (Internet Archive); the moment the room stands; punch in and mask insignia",
+     "visual": "RELEASE, part one: hard cut to the control room, men rising from their consoles, archive at 1.0x, brand greys.",
+     "motion": "Hard cut; 1.0x.",
+     "overlay": "None.",
+     "vo": "",
+     "sound": "One boom at 13.3; a room of chairs; a riser begins."
+    },
+    {
+     "t0": 14.3,
+     "t1": 17.5,
+     "source": "stock",
+     "stock_query": "NASA liftoff ignition Saturn V, Apollo launch slow motion, rocket launch night (Internet Archive); frames without 'UNITED STATES' lettering or insignia, punch in 110-120%",
+     "visual": "RELEASE, part two: ignition at 0.75x, the rocket framed in the upper half, exhaust kept below 0.6h; a 40% ink gradient over the lower third so white type reads on the exhaust.",
+     "motion": "Hard cut; 0.75x.",
+     "overlay": "White heavy Geist 0.09w (11 and 12 characters), two lines, baseline 0.76h, ONE slam at 15.0 for both lines: 'You say yes' / 'It goes live'; 'yes' in Caveat 15.3-15.8; moss #4F7A3A underline 15.8-16.1. Small white Geist 0.035w above the headline (0.60h) at 16.3: 'A safe copy. The tests. A question when it needs you.'",
+     "vo": "",
+     "sound": "A long low rumble; one slam; brush stroke; one moss bell at 16.1."
+    },
+    {
+     "t0": 17.5,
+     "t1": 22,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the hero looks and waits, no wink.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard; final chord."
+    }
+   ],
+   "vo_voice": "None.",
+   "score": "Key clicks, then a clock at 60 bpm from 2.4 to 13.0; two ambiences cut hard on the freezes; tape rips and one moss bell; drone on E from 8.0, high sine from 10.0; stamp thunk with sub; boom, chairs, rumble and riser for the release; final chord E major.",
+   "end_card": "Standard; the hero looks and waits.",
+   "why_cinema": "A countdown that never counts: the hands come off the keys and the clock begins; the pad is held at T-minus; the only thing that can start the engines is a pen. When the room stands and the rocket goes, the viewer pressed the button."
+  },
+  {
+   "id": "08",
+   "title": "In One Sentence",
+   "director": "The Symmetrist's paper and the Trickster's hands: a sentence becomes a creature, the creature takes the centre seat, the row is now five.",
+   "job": "Make your own bot; the team grows.",
+   "duration_s": 24,
+   "logline": "Running shoes by a door at night. A woman says what she wishes someone would do for her, in one sentence. On paper a new head draws itself, takes the empty centre seat beside the team, and leaves her a note for the morning.",
+   "insight": "The bot people most want is the one nobody built for them. Asking for it should cost one plain sentence, and getting it should feel like a new face at the table, not a form.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 1.2,
+     "source": "stock",
+     "stock_query": "running shoes by front door night, sneakers hallway lamp light, trainers by door; shoes with loose laces, nobody, no visible brand mark",
+     "visual": "Running shoes by a front door, laces loose, a hall lamp. The frame opens near-dark; at 0.3 the lamp clicks on (a brightness ramp over 4 frames with a warm mask around the lamp). Warm-grey grade, fine grain, vignette.",
+     "motion": "Locked; brightness ramp at 0.3.",
+     "overlay": "Small white Geist 0.03w at 0.12h, left, types at 0.6: '10:52 pm'.",
+     "vo": "",
+     "sound": "A lamp switch click at 0.3; a quiet hallway; a fridge hum; a low drone in E."
+    },
+    {
+     "t0": 1.2,
+     "t1": 8.4,
+     "source": "stock",
+     "stock_query": "(same shoes clip)",
+     "visual": "Nothing moves but the type. Her sentence writes itself as she says it.",
+     "motion": "Locked.",
+     "overlay": "White Caveat 0.06w, word by word on her word times, four lines between 0.58h and 0.78h: 'A bot that plans my workouts around my calendar and reminds me the night before.'",
+     "vo": "A bot that plans my workouts around my calendar... and reminds me the night before.",
+     "sound": "Her voice from 1.2; pen scratch per word."
+    },
+    {
+     "t0": 8.4,
+     "t1": 9,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "The handwriting lifts off the footage and the frame becomes white paper; the sentence settles at the top in ink.",
+     "motion": "Lift and settle over 12 frames, ease-out.",
+     "overlay": "The same sentence in ink Caveat 0.06w, 0.8w wide, four lines, top band from 0.14h; a hairline dip-pen rule beneath it.",
+     "vo": "",
+     "sound": "Paper slide; a nib scratch for the rule."
+    },
+    {
+     "t0": 9,
+     "t1": 12,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "Below the rule, centre: a pencil outline of a dotted head draws itself over 1.2 s, fills ink, and two cream eyes open (a small cousin of the hero). A label types beneath.",
+     "motion": "Pencil at writing speed; fill over 6 frames; eyes open with a 2-frame squash.",
+     "overlay": "Label, small ink Geist 0.035w: 'Coach / yours'.",
+     "vo": "",
+     "sound": "Pencil scratch; a soft grey bell; a tiny squeak on the blink."
+    },
+    {
+     "t0": 12,
+     "t1": 14.5,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "From the left the four heads slide in as a row at 0.5h with the centre place empty (the seat the roster film left open), verbs small beneath, four bells; Coach glides from below into the centre. The hero lowers in from the top on his bar, looks along the row to the new one, nods once.",
+     "motion": "Row slides in with ease-out; Coach glides over 8 frames; hero ease-in, nod 10 frames.",
+     "overlay": "Labels 0.035w in the roster's order: 'Keybot / writes', 'Plan / remembers', 'Coach / reminds', 'Travel / finds', 'Code bot / builds'.",
+     "vo": "",
+     "sound": "Clay, ochre, sea, moss bells; a creak for the bar."
+    },
+    {
+     "t0": 14.5,
+     "t1": 17.5,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "A card tapes on under the row at 0.68h: the new bot's first note, the night before.",
+     "motion": "Tape rip; write-on.",
+     "overlay": "Card 0.7w: the ink head and 'Coach' small; ink Geist 0.045w: 'Tonight: shoes by the door' / 'Tomorrow 7:00, before your 9:00'.",
+     "vo": "",
+     "sound": "Tape rip; the grey bell; the drone opens."
+    },
+    {
+     "t0": 17.5,
+     "t1": 19.5,
+     "source": "stock",
+     "stock_query": "runner dawn empty road wide shot, jogging sunrise road from behind, morning run quiet street; one small figure, wide frame",
+     "visual": "HARD CUT to a runner at dawn on an empty road, from behind, small in a wide frame. Same warm-grey grade, warmth rising; ink gradient behind the lower third if the sky there is above 60% grey.",
+     "motion": "As shot, or 80%.",
+     "overlay": "White heavy Geist 0.08w (12 and 13 characters), two lines, baseline 0.76h: 'Your own bot' slams 17.7 / 'in a sentence' slams 18.1; 'a' in Caveat 18.3-18.6; clay #C9683F underline under 'a sentence' 18.6-19.0.",
+     "vo": "",
+     "sound": "Morning air, footfalls far; two soft slams; brush stroke; the drone resolves."
+    },
+    {
+     "t0": 19.5,
+     "t1": 24,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the hero winks.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard; final chord."
+    }
+   ],
+   "vo_voice": "en-IN female (Neerja), young register, plain and a little tired, rate -5%; one sentence of 15 words across 1.2-8.4.",
+   "score": "No pulse. Drone in E; a lamp click; pen and pencil scratches; a grey bell for the new bot, the four bot bells for the row; tape rip; two soft slams; final chord E major.",
+   "end_card": "Standard.",
+   "why_cinema": "A wish becomes a face. We watch a sentence turn into a creature with eyes, watch it take the centre seat the roster film left open, and watch it leave a note for the morning before we see the morning. The team grows on screen; the headline says how little it cost."
+  },
+  {
+   "id": "09",
+   "title": "Uncle is right",
+   "director": "The Humanist: the family's sceptic uncle, a dubbed-interview look Indian viewers know, and a brand that stops the film to agree with him.",
+   "job": "Value, India: you stay in charge; you always press pay. The fox's first appearance.",
+   "duration_s": 22,
+   "logline": "A retired professor who happens to be a fox says the one thing every Indian family's sceptic says about machines and money. The brand stops the film and agrees with him on paper.",
+   "insight": "Every Indian family has an uncle who trusts no machine with money, and he has usually been right. Trust is won by leaving your hand on the wallet. 'You always press pay' is that uncle's rule made into a product, and the most honest thing to say to him is: sahi hai.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 4,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Clip 3 take A (0.0-4.0): the fox in the cream sweater in the armchair, the library warm behind him, talking to camera. Thin ink letterbox bars; documentary grade, blacks lifted a touch, fine grain.",
+     "motion": "Locked.",
+     "overlay": "At 0.3 a lower-third fades in at 0.70h, left, small white Geist 0.03w with a thin clay rule above: 'Prof. Lomri (retd.)' / 'Keeps his own wallet'. His words in white Caveat 0.065w on his word times at 0.76h: 'Bots? Let them find my train. But paisa?'",
+     "vo": "Bots? Let them find my train. But paisa?",
+     "sound": "Wood-room tone; a clock at 60 bpm; pen scratch per word."
+    },
+    {
+     "t0": 4,
+     "t1": 9.2,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Freeze on the clearest raised-hand frame nearest 4.0 (slip the freeze up to 0.3 s so 'paisa?' lands on it). Cold: saturation down a third, cooler, grain up. At 4.4 the hero swings down from the top edge on his clay bar; his eyes slide to the fox, then to us; he nods slowly, upside down. At 5.4 a card tapes onto the frame beside the fox's hand (if the gesture lets the paw rest on a spot, tape the card there so his hand sits by 'only you press this').",
+     "motion": "Freeze; cold grade 6 frames; pendulum in; tape rip.",
+     "overlay": "Card 0.7w, centred at 0.5h: Travel's sea head and 'Travel'; ink Geist 0.045w: 'Pune, Fri 17:40' / 'Seat 23, window'; a hand-drawn button 'Pay' with a smaller outline 'Not now' beside it; under them ink 0.035w: 'only you press this'. At 7.4 a line writes on a white strip at 0.64h in ink Geist 0.04w: 'Bots find and ask. / Only you pay.'",
+     "vo": "",
+     "sound": "Clock stops; a low drone in A; a swing creak; tape rip; sea bell; a quiet pen line."
+    },
+    {
+     "t0": 9.2,
+     "t1": 12.7,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Unfreeze into take B (3.8-7.3): colour returns, the clock resumes; the fox gestures and settles. The hero, still hanging at the top, blinks once on 'Sahi hai'.",
+     "motion": "Locked.",
+     "overlay": "White Caveat subtitles at 0.76h on word times: 'Hmm.' (9.5) then 'Sahi hai.' (11.0).",
+     "vo": "Hmm. Sahi hai.",
+     "sound": "Clock resumes; his two words almost dry."
+    },
+    {
+     "t0": 12.7,
+     "t1": 17.5,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Freeze on the last frame of take B and this freeze stays WARM (warmth up one notch) because he agreed. The hero lifts out of the top of frame (the launch move).",
+     "motion": "Freeze; hero exits up over 8 frames; write-on 13.0-14.0; underline 14.2-14.6.",
+     "overlay": "White heavy Geist 0.08w (14 and 13 characters), two lines, baseline 0.76h: 'Uncle is right' / 'You press pay'; 'pay' in Caveat with a clay #C9683F underline. Small white Geist 0.035w above the headline (0.60h): 'Nothing is booked or paid till you say yes.' / 'You always press pay.'",
+     "vo": "",
+     "sound": "The clock keeps ticking under one warm chord."
+    },
+    {
+     "t0": 17.5,
+     "t1": 22,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "Standard."
+    }
+   ],
+   "vo_voice": "en-IN male (Prabhat), rate -10%, measured, an elder's cadence, never comic; 8 words in 4.0 s. Test Prabhat on 'paisa' and 'Sahi hai' first; fallback hi-IN male (Madhur) fed Devanagari for the Hindi words with a matched word count so the word times map one to one. No lip sync attempted; the dubbed-interview look is the choice.",
+   "score": "Clock at 60 bpm as the pulse, stopped on the cold freeze and resumed on the unfreeze; a low drone in A under the freeze; sea bell; one warm A major chord under the headline; final chord.",
+   "end_card": "Standard.",
+   "why_cinema": "A talking head stopped mid-gesture, a bot nodding in agreement with the sceptic, a ticket with a button marked for his hand only; then the film warms because he said yes. He wins, and the brand is the one agreeing."
+  },
+  {
+   "id": "10",
+   "title": "The Witness",
+   "director": "The Precisionist: a deposition. Questions as type on black, answers as handwriting under a witness; the clock never stops until the end card.",
+   "job": "Trust, global: what X0 Bot is, defined by what it refuses to do (they ask first; data not for sale). The fox's second appearance.",
+   "duration_s": 30,
+   "logline": "A fox is cross-examined about his bots. He answers in as few words as possible and wins the room with what they will not do.",
+   "insight": "Nobody believes a brand describing itself; everybody leans in when someone answers for it under pressure. The real fear about bots is not that they fail but that they act, so the product is best introduced by a witness who lists what it does and then, under hostile questioning, what it did without him: nothing.",
+   "shots": [
+    {
+     "t0": 0,
+     "t1": 1.2,
+     "source": "black",
+     "stock_query": "optional 0.6 s insert: reel to reel tape recorder close up, cassette recorder record button; black is correct without it",
+     "visual": "Black. At 0.4 the first question slams in.",
+     "motion": "One-frame slam.",
+     "overlay": "A small grey 'Q' above white heavy Geist 0.06w, left-aligned at 0.08w, baseline 0.72h, two lines max: 'What are they?'",
+     "vo": "",
+     "sound": "A tape-start click, thin hiss; a wall clock at 60 bpm from 0.3 to the end card; a soft typewriter-carriage click on the slam."
+    },
+    {
+     "t0": 1.2,
+     "t1": 4.6,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "WITNESS: clip 3 segment 0.0-3.4 at 1.0x, framing 100%. Deposition grade: saturation -30%, contrast +20%, blacks crushed so the panelling goes to ink, warmth kept only in his face and sweater, heavy vignette, grain. A tiny grey running timecode (00:41:07 style) at 0.12h left on every witness shot.",
+     "motion": "Locked.",
+     "overlay": "His answer in white Caveat 0.06w under his chest (0.70h), word by word: 'Bots. A team. Each great at one thing.'",
+     "vo": "Bots. A team. Each great at one thing.",
+     "sound": "Library room tone (radiator, far street), cut hard to hiss on every question card; pen scratch per word."
+    },
+    {
+     "t0": 4.6,
+     "t1": 8.6,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Q2 on black 0.8 s, then clip 3 segment 3.4-6.6, punch-in 108%. On each noun a dotted head appears in a row at 0.78h: clay, ochre, sea, moss, ink (Notes). The row is the only colour in the film and it stays.",
+     "motion": "Slam; locked.",
+     "overlay": "Q: 'Which things?' A: 'Writes. Plans. Trips. Code. Notes.'",
+     "vo": "Writes. Plans. Trips. Code. Notes.",
+     "sound": "Carriage click; a bell per head in its own note, the fifth a low ink bell."
+    },
+    {
+     "t0": 8.6,
+     "t1": 11.4,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Q3 on black 0.8 s, then clip 3 segment 6.3-7.3 at 0.5x, 100%. On the clip's gesture one head in the row lifts ten pixels and settles.",
+     "motion": "Slam; 0.5x.",
+     "overlay": "Q: 'Which one do you ask?' A: 'Any.'",
+     "vo": "Any.",
+     "sound": "Carriage click."
+    },
+    {
+     "t0": 11.4,
+     "t1": 13.8,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Q4 on black 0.8 s, then clip 3 segment 1.0-1.5 at 1.0x, punch-in 115%, FREEZE at 12.7 and hold 1.1 s. 'No.' sits alone under him. Two clock ticks in the hold.",
+     "motion": "Slam; freeze.",
+     "overlay": "Q: 'They act without you?' A: 'No.'",
+     "vo": "No.",
+     "sound": "Carriage click; the clock, nothing else."
+    },
+    {
+     "t0": 13.8,
+     "t1": 16.6,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "The deposition speeds up (the accelerando): Q5 on black 0.6 s, then clip 3 segment 2.0-4.2 at 100% (a different frame from Q1's start, so no gesture repeats from the same frame).",
+     "motion": "Slam; locked.",
+     "overlay": "Q: 'Never?' A: 'They ask. I say yes.'",
+     "vo": "They ask. I say yes.",
+     "sound": "Carriage click; a low drone on C creeps in under 'ask' (-30 dB rising)."
+    },
+    {
+     "t0": 16.6,
+     "t1": 19.1,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Q6 on black 0.5 s, then clip 3 segment 4.8-6.8 at 115% (alternating punch-in against Q2's 108% on the overlapping frames).",
+     "motion": "Slam; locked.",
+     "overlay": "Q: 'Who buys your data?' A: 'No one. Not for sale.'",
+     "vo": "No one. Not for sale.",
+     "sound": "Carriage click; drone rising to -18 dB."
+    },
+    {
+     "t0": 19.1,
+     "t1": 22,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Q7 on black 0.4 s, then clip 3 segment 5.8-7.3 at 0.6x (2.5 s), 108%. 'I don't.' A 0.5 s beat, one tick. 'I don't have to.' On 'to' the frame FREEZES and goes cold over 0.3 s: saturation to zero, the warmth drains out of his face. The drone cuts. Only the clock.",
+     "motion": "Slam; 0.6x; freeze; cold grade.",
+     "overlay": "Q: 'Why trust them?' A: 'I don't.' then 'I don't have to.'",
+     "vo": "I don't. I don't have to.",
+     "sound": "Carriage click; the drone cuts dead on 'to'; clock."
+    },
+    {
+     "t0": 22,
+     "t1": 25.5,
+     "source": "clip3",
+     "stock_query": "",
+     "visual": "Over the cold frozen witness the headline. The fox does not move. The clock ticks.",
+     "motion": "Two slams at 22.2 and 22.6; Caveat write-on 22.8-23.3; underline 23.3-23.6.",
+     "overlay": "White heavy Geist 0.09w (8 and 10 characters), two lines, baseline 0.76h: 'They ask' / 'You decide'; 'You' in Caveat with a clay #C9683F underline.",
+     "vo": "",
+     "sound": "Two dry slams (a ruler on a desk); a brush stroke; clock."
+    },
+    {
+     "t0": 25.5,
+     "t1": 30,
+     "source": "paper",
+     "stock_query": "",
+     "visual": "END CARD; the hero looks and waits, no wink.",
+     "motion": "Standard.",
+     "overlay": "Standard.",
+     "vo": "",
+     "sound": "The clock stops as the sheet slides up; standard end card; final chord."
+    }
+   ],
+   "vo_voice": "en-GB male (Ryan), rate -5%, slow, dry, slightly bored, a 0.4 s room reverb, de-essed; the questioner has no voice. Every answer re-timed to the new word times. In the same session record the cut-down's extra line: 'You do.'",
+   "score": "No music until 14.9. Tape hiss; clock at 60 bpm throughout; room tone cut hard to hiss on every card; carriage clicks; four bot bells and one low ink bell on the heads; drone on C from 14.9 cut dead at 21.8; two ruler slams; final chord C major.",
+   "end_card": "Standard; the hero looks and waits. Also the source of the 15 s cut-down 'Who Presses Pay': Q 'And who presses pay?' on black, his hold, his recorded 'You do', black, then 'You do' / 'always' in white heavy Geist with 'always' in Caveat and a clay underline, end card.",
+   "why_cinema": "A text film disguised as a talking head: every question is type on black, every answer is handwriting under a creature who has nothing to hide, the team assembles in colour as he names it, and the lone 'No.' held in a freeze is the hinge a thumb stops on. Then the warmth drains out of him and the type lands."
+  }
+ ],
+ "footage_list": [
+  {
+   "for": "01 He had a team, archive A",
+   "query": "Prelinger dictation stenographer; secretary takes dictation 1950s; office practice film; Take a Letter",
+   "must": "4:3 black-and-white, an executive dictating and someone writing on a pad; scratches kept; punch in 110-120% or mask any company lettering",
+   "fallback": "A man at a dictation machine (1950s office)"
+  },
+  {
+   "for": "01, archive B",
+   "query": "Prelinger appointment book; office calendar 1950s; secretary desk calendar schedule",
+   "must": "A hand writing into a time slot, a clock visible if possible",
+   "fallback": "Any desk diary or wall calendar in a Prelinger office film"
+  },
+  {
+   "for": "01, archive C",
+   "query": "Prelinger passenger train 1950s; railroad station ticket window; travelogue steam train platform; travel agent 1950s",
+   "must": "A ticket window, a porter, or a train pulling out; no readable railroad name (punch in or mask); flag any clip that cannot be cleared",
+   "fallback": "Any public-domain train leaving a platform"
+  },
+  {
+   "for": "01, archive D",
+   "query": "Prelinger business meeting 1950s; conference room board meeting film; office conference",
+   "must": "People round a table, one writing",
+   "fallback": "A classroom with someone taking notes"
+  },
+  {
+   "for": "01, archive E (also the freeze frame)",
+   "query": "telephone switchboard operator 1940s; Prelinger telephone operator; long distance operator film",
+   "must": "Cords being plugged into a board, operator in headset; telephone-company marks masked or out of frame",
+   "fallback": "A telephone exchange or a hand on a rotary dial"
+  },
+  {
+   "for": "02 Pahunch gaye?, shot 1 (also the Plan freeze)",
+   "query": "scooter night city rain; motorbike traffic night lights",
+   "must": "Tail lights smearing, light rain, night, from the pavement or behind",
+   "fallback": "Night traffic from a pavement"
+  },
+  {
+   "for": "02, shot 3 (also the Travel freeze)",
+   "query": "airplane window wing sunset; plane wing clouds from window",
+   "must": "The wing, cloud, dusk colour, no airline mark on the wing",
+   "fallback": "A plane window with cloud by day, graded warm"
+  },
+  {
+   "for": "02, shot 5",
+   "query": "rain on window bus night city; train window rain lights",
+   "must": "Rain on glass, city lights in bokeh beyond",
+   "fallback": "Rain on any window at night"
+  },
+  {
+   "for": "02, shot 6",
+   "query": "taxi window night city from inside; passenger view night streets; auto rickshaw night street lights",
+   "must": "A street sliding past from a back seat at night, no readable signs",
+   "fallback": "Any night street from a moving vehicle"
+  },
+  {
+   "for": "02, shot 7",
+   "query": "child sleeping car night; kid asleep back seat streetlights",
+   "must": "A child asleep in a back seat, streetlights crossing the face",
+   "fallback": "A dark car interior with passing lights and no child; the pause still reads"
+  },
+  {
+   "for": "02, shot 8 (also the warm headline freeze)",
+   "query": "apartment building night window light turns on; city apartment windows night",
+   "must": "One window lights up in a dark block",
+   "fallback": "A front door opening into a lit hallway, or a hand turning a key"
+  },
+  {
+   "for": "03 Great at One Thing, portrait 1",
+   "query": "hands kneading dough overhead; baker kneading bread top view",
+   "must": "Overhead, dough centred, clean",
+   "fallback": "Hands rolling chapati"
+  },
+  {
+   "for": "03, portrait 2",
+   "query": "potter wheel hands close up; pottery throwing clay",
+   "must": "The pot dead centre",
+   "fallback": "Any single-skill hands (tailor, calligrapher) with the tag changed to match"
+  },
+  {
+   "for": "03, portrait 3",
+   "query": "barber haircut front view; barbershop shave close up",
+   "must": "Client facing camera, mirror symmetry if possible",
+   "fallback": "A violinist or a tailor, tag 'Great at strings' or 'Great at seams'"
+  },
+  {
+   "for": "04 Khaana khaya?, shot A",
+   "query": "elderly hands holding smartphone; grandmother hands phone table close up; senior woman hands texting",
+   "must": "Hands only, phone held in both hands at a table, no face, no visible maker's logo; a steel glass helps; at least 13 s or loopable",
+   "fallback": "Any older hands at a table with a phone, cropped tight and graded warm"
+  },
+  {
+   "for": "05 Leave at 4:40, shot 1",
+   "query": "coat hanging on hook by door; keys on table by front door; hallway front door interior light; entryway coat hook",
+   "must": "A still life, nobody, side light",
+   "fallback": "A door with keys on a hook"
+  },
+  {
+   "for": "05, shot 2",
+   "query": "train arriving platform golden hour wide; metro arriving doors open; commuter boarding train calm; railway platform high angle",
+   "must": "Wide and high, one person walking calmly, the train arrives and the doors open as they reach it; no readable railway livery (crop or grade it out); a shadow side for the type",
+   "fallback": "A departing train with an EMPTY platform (she is aboard), the shot-1 card echoed small; never a walker left on the platform as the train leaves"
+  },
+  {
+   "for": "06 The Hold, pair 1",
+   "query": "sprinter starting blocks set position close up; athlete start blocks track; sprinter start explosive slow motion",
+   "must": "Set and still, then the start; both from one clip if possible",
+   "fallback": "Drop the pair; three pairs still work"
+  },
+  {
+   "for": "06, pair 2",
+   "query": "chess hand hovering piece close up; chess player hand hesitates; chess piece move click close up",
+   "must": "A hand above a piece not touching it, then setting it down",
+   "fallback": "A hand above a light switch, then pressing it"
+  },
+  {
+   "for": "06, pair 3 (also runs at 0.5x under the headline)",
+   "query": "train doors open platform night; empty metro platform train waiting; train doors closing departing night platform",
+   "must": "Doors open and nobody boards, then doors close and the train pulls away; long enough for 5.5 s at 0.5x; lower third dark enough for white type or take the ink gradient",
+   "fallback": "Any night train departing; hold the doors-open frame as the freeze"
+  },
+  {
+   "for": "06, pair 4",
+   "query": "diver standing on platform edge; high dive platform toes edge; diver jumps platform slow motion; Internet Archive 1930s sports newsreel",
+   "must": "Still on the edge, then leaving it",
+   "fallback": "Drop the pair and fold 'Weather checked' onto the pay card as a small line"
+  },
+  {
+   "for": "07 Go Live, shot 1 (the opening and hold 1)",
+   "query": "hands typing laptop keyboard night close up; programmer hands keyboard dark; typing laptop keyboard close up",
+   "must": "Hands on keys lit by a screen, the screen out of frame or out of focus, nothing readable, no logo; the hands stop and lift away",
+   "fallback": "Hands closing a laptop lid"
+  },
+  {
+   "for": "07, hold 2",
+   "query": "NASA rocket on launch pad night floodlit; Saturn V pad vapour venting; rocket on pad before launch (Internet Archive)",
+   "must": "The rocket still on the pad, venting, floodlit, nothing moving; punch in 110-120% and choose frames without insignia or 'UNITED STATES' lettering",
+   "fallback": "A lighthouse at night, or a steam engine at a platform building pressure (Prelinger)"
+  },
+  {
+   "for": "07, release part one",
+   "query": "NASA launch control room 1960s; Apollo firing room consoles; mission control film (Internet Archive, public domain)",
+   "must": "The moment people stand from their consoles; insignia on consoles masked or out of frame",
+   "fallback": "Prelinger power plant control room; a hand on a lever"
+  },
+  {
+   "for": "07, release part two",
+   "query": "NASA liftoff ignition Saturn V; Apollo launch slow motion; rocket launch night (Internet Archive)",
+   "must": "Ignition and the climb, long enough for 3.2 s at 0.75x; frames without lettering or insignia, punch in 110-120%; the rocket in the upper half",
+   "fallback": "A steam train pulling out hard (Prelinger); the stamp still releases it"
+  },
+  {
+   "for": "08 In One Sentence, shot 1",
+   "query": "running shoes by front door night; sneakers hallway lamp light; trainers by door",
+   "must": "Shoes with loose laces, a lamp, nobody, no visible brand mark (angle or mask); a dark enough frame to fake the lamp coming on",
+   "fallback": "Any shoes by a door in low light, graded warm-grey"
+  },
+  {
+   "for": "08, shot 7",
+   "query": "runner dawn empty road wide shot; jogging sunrise road from behind; morning run quiet street",
+   "must": "One small figure from behind in a wide frame at dawn",
+   "fallback": "An empty road at dawn with no runner; the line still carries it"
+  },
+  {
+   "for": "10 The Witness, optional cold-open insert",
+   "query": "reel to reel tape recorder close up; cassette recorder record button press; Internet Archive tape recorder industrial film",
+   "must": "A recorder starting, 0.6 s",
+   "fallback": "Black, which is correct"
+  },
+  {
+   "for": "Cut-down 'Face Down' (6 s)",
+   "query": "phone face down on table morning light; smartphone face down wooden table; phone face down breakfast table",
+   "must": "A phone face down on a table in morning light, no logo visible, nobody",
+   "fallback": "A phone face down on any surface, graded warm; the end card follows"
+  }
+ ],
+ "system": "FORMAT: 9:16, 1080x1920, 30 fps; every spot ends on the fixed 4.5 s end card counted inside its length; every spot reads with the sound off from frame one (something moves or writes within the first 0.8 s). SAFE AREA: all type sits between 0.12h and 0.80h and left of 0.88w; headline baseline no lower than 0.78h; small lines go ABOVE the headline or beside a card, never below 0.80h; timestamps and timecodes at 0.12h; Q cards left-aligned at 0.08w. TYPE: headlines in heavy Geist (Geist Black), two lines, no full stop, one word in Caveat, one brush underline in the bot's own colour (Keybot clay #A9573A, Plan ochre #8F6A1F, Travel sea #3E6E8E, Code bot moss #4F7A3A) or the icon's clay #C9683F when no single bot owns the film; ink #0A0A0A on paper, white on footage. HEADLINE LENGTH: a line of up to 12 characters sets at 0.09w cap height; 13-14 characters at 0.08-0.085w; 15 characters only as a named exception at 0.075w (Khaana khaya?); nothing longer is written. Builders set the real font and measure every line against 1026 px (a 2.5% margin each side) before paper is drawn. Small lines in Geist regular 0.03-0.035w, grey on paper, white on footage; 0.035w is the floor for any line that carries a claim, and those lines are ink, not grey. LUMINANCE: measure the band behind any white type; above 60% grey, add a 40% ink gradient or a letterbox bar behind it, or move the type to the dark side of the frame. GRAMMAR: what a person SAYS is Caveat handwriting on the voice's word times with a pen scratch per word; unvoiced handwriting runs at 0.3 s per word with 0.5 s before a typed reply; what is SETTLED or what a bot DID is Geist type, typed with a tick per letter or slammed in one frame (scale 1.08 to 1.00 in 3 frames); a bot's card is never in Caveat except for the words a person told it. PAPER: white cotton paper with faint grain; taped cards are white, one or two tape strips, the bot's dotted head top-left with its name in small Geist, text in ink Geist 0.045w; every card is sized to its longest line plus 0.04w padding (card text may drop to 0.035w, never below, and a long line breaks in two); drawn buttons are dip-pen outlines ('Pay' or 'Yes') always with a smaller 'Not now' beside them, and only a hand writes on one, only in The Hold and Go Live, where a hand-drawn stamp then lands ('Paid', 'Live'); the painted X0 mark is three brush strokes; the dip-pen hairline rule and the 36 px mount belong to the Symmetrist films. FREEZE: the freeze that goes cold (saturation down a third, two degrees cooler, grain up, pulse out, over 6 frames) marks a problem or a pause; a freeze that stays warm marks agreement (Pahunch gaye, Uncle is right). GRADE: all footage in a spot shares one grade (contrast up, saturation -25 to -40%, fine grain, soft vignette); archive keeps its scratches and flicker and is graded to brand greys, never sepia; the Precisionist pair is cold and the fox deposition crushes blacks to ink. ARCHIVE AND MARKS: public-domain archive carries insignia (NASA, telephone companies, railroads); punch in 110-120%, mask or grade out lettering, choose frames without insignia, and flag any clip that cannot be cleared before cutting; phone, shoe and vehicle logos and railway liveries are cropped or masked. THE HERO: drawn alive, flat painted black, cream gloves, two big cream eyes, faceted edges; he hangs from his clay bar or from the top edge of someone else's footage, blinks, looks, nods; he touches text in exactly two films (the sweep in Great at One Thing, the flick in Khaana khaya) and never touches a card with a button; he winks only in Great at One Thing and on the end card, and on the end card he looks and waits instead in The Hold, Go Live and The Witness. The bots are dotted heads in their colours; Notes is ink; a user's own bot is a pencil outline that fills ink and sits in the centre seat (Great at One Thing leaves it open, In One Sentence fills it). FOOTAGE REUSE: clip 1's cook is the campaign's recurring man (Hands full, Great at One Thing, Khaana khaya); never run Great at One Thing and Khaana khaya in the same placement; in The Witness, alternate punch-ins (100/108/115%) between consecutive uses of overlapping fox segments and never start a repeated gesture on the same frame. SOUND FAMILY: a synthesised drone in one key per spot; a pulse (a wall clock at 60 bpm in the Precisionist pair and both fox films, hats or rail joints at 96-120 bpm elsewhere, none in the Minimalist, the Humanist kitchen and In One Sentence); one bell per bot in its own note (clay, ochre, sea, moss, a low ink bell for Notes, a soft grey bell for a made bot); tape rip for every card, pen scratch per handwritten word, typewriter tick per typed letter, paper slide, boom on slams, riser into releases, stamp thunk with a sub hit, a brush swish for every underline; neural voices via edge-tts (en-IN Prabhat for the documentarian and the uncle, en-IN Neerja for mothers and the maker, en-GB Ryan for the witness; Devanagari fallbacks hi-IN Swara and hi-IN Madhur with matched word counts), never more than one voice per film, never a word from a questioner; every VO line is timed against its window (about 2.1 words per second at -15%, 2.4 at -5%, plus 0.3 s per full stop) before build. END CARD (fixed, 4.5 s): the white sheet slides up with a paper whoosh over whatever is on screen; the hero already on his bar at 0.42w, upper third; the X0 mark (0.5w) drawn in three strokes on three low taps at +0.5, +1.0, +1.5; 'Your team of bots' in Geist 0.07w; the hand-drawn stamp 'Coming soon / x0bot.com' (0.45w, rotated -6°, bottom right) thuds at +3.5; the final chord opens at +0.5 and sustains in the spot's key. CUT-DOWNS: 'Who Presses Pay' (15 s) from The Witness with the extra recorded Ryan line 'You do' and a white headline 'You do' / 'always' with a clay underline under 'always'; 'Face Down' (6 s) from the sourced phone-face-down shot into the end card. COPY RULES, enforced on every word above: no prices, no other companies' or apps' names, no 'best' or rankings, no exclamation marks, nothing the app does not do (Keybot writes and the user sends, Keybot does not translate or send; bots find and ask, you press pay; Code bot works on a safe copy and nothing goes live till you say yes; a made bot plans and reminds), short plain words; 'Not for sale' to be confirmed with counsel before build; Prof. Lomri is a painted character, not a person."
+}

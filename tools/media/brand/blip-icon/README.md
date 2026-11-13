@@ -13,6 +13,7 @@ All of them are 1000x1000, full bleed and self-contained (no images, text or sty
 |---|---|---|---|
 | `refined/` | The dotted head from onboarding, made exactly: sleepy lid, brow, freckles, buck-tooth smile, both antennae. Whole dots sized by the light, and an ink sticker edge. | dark | paper |
 | `cute/` | Rounder head, glossy eye with two glints, pink dot blush. | warm cream | dark, with a cream die-cut edge |
+| `cool/` | Blip being cool: `shades.svg` (a wraparound visor with a glint, a smirk, on clay with a cream die-cut edge), `mono.svg` (white on black: the dotted head shaded as a lit dome, the black shades with their glints, dot ears, and flat white feelers flared at the root with a teardrop tip, the right one longer; `mono-rings.svg` from `node cool/blip-mono.mjs` is an alternative face on contour rings) and `look.svg` (the eye half-lidded and glancing aside, one brow up, a smirk, on ink with a green rim light). `node cool/gen.mjs`; `icon-*-1024.png` are the store exports, `sheet.png` the real sizes beside `refined/`. | clay / ink | - |
 
 `icon-1024.png` is the master exported for the stores (no corner mask; the OS adds it). `sheet.png` shows the family at home-screen sizes.
 

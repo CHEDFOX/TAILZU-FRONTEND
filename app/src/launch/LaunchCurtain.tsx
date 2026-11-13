@@ -19,8 +19,9 @@ import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, View } from "re
 import { num } from "../sdui/knobs";
 import {
   BAR, BAR_MID, BAR_TOP, COME_BACK, COME_BACK_MS, FADE_MS, GLOVES, GONE_AT, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SPLASH_PT,
-  STRIPS, SUCK_AT, U, barDy, degKeys, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
+  STRIPS, SUCK_AT, U, barDy, degKeys, feeler, feelersShown, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
 } from "./launchCore";
+import { FEELER_ART } from "./feelerArt";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const ART = {
@@ -29,7 +30,13 @@ const ART = {
   bar: require("../../assets/launch/bar.png"),
   hands: require("../../assets/launch/hands.png"),
   blink: require("../../assets/launch/blink.png"),
+  feelerL1: require("../../assets/launch/feelerL1.png"),
+  feelerL2: require("../../assets/launch/feelerL2.png"),
+  feelerR1: require("../../assets/launch/feelerR1.png"),
+  feelerR2: require("../../assets/launch/feelerR2.png"),
 };
+/** The art the motion waits for before it starts: head, blink, bar, a glove, and the four pieces of Blip's feelers. */
+const ART_TO_LOAD = 8;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const Z = SPLASH_PT;
@@ -44,6 +51,12 @@ const K = {
   bar: keys(barDy, 0, PINCH_AT),
   head: { dy: keys((t) => head(t).dy, 0, 900), sway: degKeys((t) => head(t).sway, 0, 900), sq: keys((t) => head(t).sq, 0, 900),
     shut: keys((t) => head(t).shut, 0, 700), shown: keys((t) => head(t).shown, 880, 900, 20) },
+  // Blip's feelers: each piece's turn from rest (the physics, launchCore feelerTrack), and how much of them shows
+  feelers: {
+    L: [degKeys((t) => feeler("l1", t), 0, 900), degKeys((t) => feeler("l2", t), 0, 900)],
+    R: [degKeys((t) => feeler("r1", t), 0, 900), degKeys((t) => feeler("r2", t), 0, 900)],
+    shown: keys(feelersShown, 0, 900),
+  },
   gloves: ([0, 1] as const).map((s) => {
     const k = (f: (g: ReturnType<typeof glove>) => number, from: number, to: number) => keys((t) => f(glove(s, t)), from, to);
     return {
@@ -98,7 +111,7 @@ export default function LaunchCurtain() {
       });
     });
   }).current;
-  const loaded = () => { if (++loads.current >= 4) start(); };
+  const loaded = () => { if (++loads.current >= ART_TO_LOAD) start(); };
 
   useEffect(() => {
     if (gone) return;
@@ -121,6 +134,21 @@ export default function LaunchCurtain() {
         <Animated.View style={[styles.below, { left: -WIDE, width: Z + 2 * WIDE, transform: [{ translateY: bar }] }]}>
           <Animated.View style={[styles.piece, { left: WIDE, opacity: at(K.head.shown), transformOrigin: "50% 0%",
             transform: [{ rotate: at(K.head.sway) }, { scaleY: at(K.head.sq) }, { translateY: at(K.head.dy) }] }]}>
+            {/* His feelers, behind his head: he hangs upside down, so they hang from the top of his head, at the bottom.
+                Each is two pieces drawn at rest, each turned about its pivot (the root; the cut) by the physics. */}
+            <Animated.View style={[styles.piece, { opacity: at(K.feelers.shown) }]}>
+              {(["L", "R"] as const).map((s) => {
+                const [rx, ry] = FEELER_ART.roots[s], [jx, jy] = FEELER_ART.joints[s];
+                return (
+                  <Animated.View key={s} style={[styles.piece, { transformOrigin: `${rx * U}px ${ry * U - BAR_TOP}px`, transform: [{ rotate: at(K.feelers[s][0]) }] }]}>
+                    <Image source={s === "L" ? ART.feelerL1 : ART.feelerR1} style={styles.lifted} onLoad={loaded} />
+                    <Animated.View style={[styles.piece, { transformOrigin: `${jx * U}px ${jy * U - BAR_TOP}px`, transform: [{ rotate: at(K.feelers[s][1]) }] }]}>
+                      <Image source={s === "L" ? ART.feelerL2 : ART.feelerR2} style={styles.lifted} onLoad={loaded} />
+                    </Animated.View>
+                  </Animated.View>
+                );
+              })}
+            </Animated.View>
             <Image source={ART.head} style={styles.lifted} onLoad={loaded} />
             <Animated.Image source={ART.blink} style={[styles.lifted, { opacity: at(K.head.shut) }]} onLoad={loaded} />
           </Animated.View>

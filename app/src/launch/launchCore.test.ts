@@ -135,3 +135,37 @@ test("the lift is once, and reaches whoever is waiting, before or after", () => 
   off();
   assert.deepEqual([early, late, never, isLifted()], [1, 1, 0, true]);
 });
+
+test("Blip's feelers: they start at rest (the splash's pose), swing when he moves, stay in reach, and settle", async () => {
+  const { feelerTrack, feeler } = await import("./launchCore.ts");
+  const { FEELER_ART } = await import("./feelerArt.ts");
+  const tr = feelerTrack();
+  assert.equal(tr.length, 91);
+  // the first frame is the splash: the feelers as drawn (no turn), and at rest under gravity there
+  void FEELER_ART;
+  for (const k of ["l1", "l2", "r1", "r2"] as const) assert.ok(Math.abs(tr[0][k]) < 0.05, `${k} ${tr[0][k]}`);
+  // still while he is still (the first 400 ms: only a blink), then they swing as he gathers and pulls
+  for (let t = 0; t <= 400; t += 10) assert.ok(Math.abs(feeler("l1", t) - tr[0].l1) < 1, `l1 at ${t}`);
+  const swing = Math.max(...tr.slice(42, 68).map((a) => Math.abs(a.l1 - tr[0].l1)));
+  assert.ok(swing > 3, `the left feeler swings as he pulls up (${swing.toFixed(1)} deg)`);
+  // never wild while they show: every angle stays within a half turn of rest
+  for (const a of tr.slice(0, 69)) for (const k of ["l1", "l2", "r1", "r2"] as const) assert.ok(Math.abs(a[k] - tr[0][k]) < 120, `${k} ${a[k]}`);
+});
+
+test("the feelers stand above the bar, so they go as he starts up: shown at rest, gone before his head is", async () => {
+  const { feelersShown, FEELERS_OUT } = await import("./launchCore.ts");
+  assert.equal(feelersShown(0), 1);
+  assert.equal(feelersShown(FEELERS_OUT[0]), 1);
+  assert.equal(feelersShown(FEELERS_OUT[1]), 0);
+  assert.ok(FEELERS_OUT[1] < 900, "before the head goes");
+});
+
+test("the splash is the launch's layers stacked at rest, feelers and all: one picture, so the motion carries on from it", () => {
+  for (const f of ["splash", "head", "bar", "hands", "blink", "feelerL1", "feelerL2", "feelerR1", "feelerR2"]) {
+    const png = read(`../../assets/launch/${f}.png`);
+    assert.equal(png.readUInt32BE(16), 544, `${f}.png is 544 wide`);
+    assert.equal(png.readUInt32BE(20), 544, `${f}.png is 544 high`);
+  }
+  const curtain = read("./LaunchCurtain.tsx").toString();
+  for (const f of ["feelerL1", "feelerL2", "feelerR1", "feelerR2"]) assert.match(curtain, new RegExp(`assets/launch/${f}\\.png`));
+});

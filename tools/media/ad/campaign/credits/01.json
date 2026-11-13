@@ -1,0 +1,97 @@
+{
+ "spot": "01",
+ "title": "He had a team",
+ "note": "Footage sources for this spot as picked and cleared by the footage finders. Every item is public domain (Prelinger / Public Domain Mark / CC0) on archive.org; lettering, heralds and company marks named under 'marks' were cut, cropped or masked in the build.",
+ "sources": [
+  {
+   "for": "01 He had a team, archive A",
+   "source": "Internet Archive / Prelinger: The Secretary's Day (Coronet, 1947)",
+   "page": "https://archive.org/details/Secretar1947",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "307.5-315.5, 359.5-362.5",
+   "marks": "No lettering in these two shots. The film opens with a CORONET / RCA title card (0-12s): do not use it. The president's door glass reads 'ARTHUR J. WILLIAMS PRESIDENT' in the wide office shots, which these crops avoid. Actors are in a 1947 public-domain film, so no release is needed."
+  },
+  {
+   "for": "01 He had a team, archive A",
+   "source": "Internet Archive / Prelinger: The Secretary's Day (Coronet, 1947)",
+   "page": "https://archive.org/details/Secretar1947",
+   "licence": "Public domain (Prelinger)",
+   "stretches_s": "351.0-358.5, 359.5-362.5, 291.0-307.0",
+   "marks": "No lettering in 351-362. The framed pictures behind are unreadable. No dictation machine shot turned up (searches for 'dictaphone dictating machine' and 'shorthand stenographer' returned nothing usable)."
+  },
+  {
+   "for": "01, archive B",
+   "source": "Internet Archive / Prelinger: The Secretary's Day (Coronet, 1947)",
+   "page": "https://archive.org/details/Secretar1947",
+   "licence": "Public domain (Prelinger)",
+   "stretches_s": "242.5-254.0, 145.5-152.3, 255.0-264.0",
+   "marks": "Diary pages are printed generic (day, month, 'APPOINTMENTS', hour numbers) with no brand. The wall clock face is plain with no maker's name visible. The wide clock shot at 265.5-271 has the door lettering 'ARTHUR J. WILLIAMS PRESIDENT': punch in 115% on the clock or mask the door glass."
+  },
+  {
+   "for": "01, archive B",
+   "source": "Internet Archive: Appointment With Disaster (1950s safety film)",
+   "page": "https://archive.org/details/AppointmentWithDisaster",
+   "licence": "Public Domain Mark 1.0 (creativecommons.org/publicdomain/mark/1.0)",
+   "stretches_s": "25.5-28.3, 28.5-30.8, 31.0-33.0",
+   "marks": "The wall clock has tiny maker's text under the 12, and the alarm clock has brand text on its dial. Both are illegible at 480x360, but blur them if they are punched in beyond 110%. The 'CITIES SERVICE' station later in the film (around 40-50s) must not be used. This item is not Prelinger: the uploader marked it Public Domain Mark."
+  },
+  {
+   "for": "01, archive C",
+   "source": "Internet Archive / Prelinger: The Passenger Train (EB Films, c.1940s)",
+   "page": "https://archive.org/details/passenger_train",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "43.5-54.0, 70.0-77.3, 648.0-650.5, 660.0-664.0",
+   "marks": "Hard stops are needed to keep railroad names out. Stop the platform shot at 77.3: from 77.5 the streamlined locomotive nose shows a railroad herald. Start the departure at 660, not 656: the observation car's drumhead carries the Santa Fe 'Super Chief' herald, readable at 658.5-659.5 and small after 660; blur it if it is punched in. Avoid 38-43, the wide hall with 'RAILROAD AND PULLMAN TICKETS' / 'TICKET OFFICE' signs ('Pullman' is a company name), and avoid 642-647, the 'LAMY' depot sign. Conductor cap badges are unreadable. Nothing here is uncleared: the item is Prelinger public domain. Only the heralds and signs need the cuts or blurs above."
+  },
+  {
+   "for": "01, archive C",
+   "source": "Internet Archive / Prelinger: Telegram for America (1956)",
+   "page": "https://archive.org/details/Telegram1956",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "669.0-684.0",
+   "marks": "The generic 'TICKETS' sign above the window is fine. Small posters on the counter are illegible. This is a Western Union sponsored film, and 'WESTERN UNION' signage appears in the next shot (from about 684): cut before 684. Skip 664-668.5, a teleprinter dissolve."
+  },
+  {
+   "for": "01, archive D",
+   "source": "Internet Archive (Prelinger Archives) - Story Without End, 1950",
+   "page": "https://archive.org/details/StoryWit1950",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "961.0-967.5",
+   "marks": "None in the stretch: no lettering, logos or insignia, only blinds, a table and papers. This is a Bell System / Western Electric film, but its title cards and the 'Western Electric' card come elsewhere in the film, not in this shot. The faces belong to actors in a public-domain 1950 film, the same as all the archive material in this campaign."
+  },
+  {
+   "for": "01, archive D",
+   "source": "Internet Archive (Prelinger Archives) - Speeding Speech, 1950",
+   "page": "https://archive.org/details/Speeding1950",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "435.0-437.8, 438.0-442.0, 448.5-451.0",
+   "marks": "None legible: the wall charts are generic diagrams. The film's Bell System / Western Electric title card is at 0-8 s, outside these stretches."
+  },
+  {
+   "for": "01, archive E (also the freeze frame)",
+   "source": "Internet Archive (Prelinger Archives) - Speeding Speech, 1950",
+   "page": "https://archive.org/details/Speeding1950",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "96.0-100.0, 113.0-120.0, 526.5-529.0 (freeze about 527.6), 538.0-543.5",
+   "marks": "No telephone-company lettering in these stretches; the 'A Bell System Film / Western Electric Recording' title card is at 0-8 s, so stay clear of it. In 113-120 s a small figurine-like emblem, possibly a Bell mark, sits on the board above the call-timer clock at about x 0.85-0.93, y 0.65-0.75; the crop at x 0.25-0.67 leaves it out. The jack labels in the close-up ('21', '112', '25') are plain position numbers, not branding. Avoid 524.5-526 s and 530.5-532 s, which are a full-face close-up of an operator. In the chosen stretches the operators are seen from behind or only as hands."
+  },
+  {
+   "for": "01, archive E (also the freeze frame)",
+   "source": "Internet Archive (Prelinger Archives) - Story Without End, 1950",
+   "page": "https://archive.org/details/StoryWit1950",
+   "licence": "Public domain (Prelinger, creativecommons.org/licenses/publicdomain)",
+   "stretches_s": "1052.0-1058.0, 939.0-941.5",
+   "marks": "No company lettering visible in 1052-1058 s. 'Bell Telephone Laboratories' signage appears at about 764-766 s and a 'Western Electric' card elsewhere in the film, so keep clear of those. The operator is shown in three-quarter profile from behind; she is an actor in a public-domain 1950 film."
+  }
+ ],
+ "footage_used": [
+  "Shot 2a, executive dictating (0-2.5 s): source 307.40-309.65 s of The Secretary's Day (Coronet, 1947), Internet Archive / Prelinger, https://archive.org/details/Secretar1947. Licence: public domain (creativecommons.org/licenses/publicdomain).",
+  "Shot 2b, secretary writing (2.5-3.8 s): source about 360.70-361.87 s of The Secretary's Day (Coronet, 1947), https://archive.org/details/Secretar1947. Licence: public domain (Prelinger).",
+  "Shot 3, diary and fountain pen (3.8-6.2 s): source 253.70-255.86 s of The Secretary's Day (Coronet, 1947), https://archive.org/details/Secretar1947. Licence: public domain (Prelinger).",
+  "Shot 4, train pulling out (6.2-8.8 s): source 660.40-662.74 s of The Passenger Train (EB Films, c.1940s), https://archive.org/details/passenger_train, with the drumhead herald blanked by a tracked fill. Licence: public domain (Prelinger).",
+  "Shot 5a, men round a meeting table (8.8-9.95 s): source 775.65-776.69 s of Story Without End (1950), Internet Archive / Prelinger, https://archive.org/details/StoryWit1950. Licence: public domain (creativecommons.org/licenses/publicdomain). Frames in footage-01-d1.",
+  "Shot 5b, a man's hand writing with a fountain pen (9.95-11.2 s): source 335.15-336.28 s of The Secretary's Day (Coronet, 1947), https://archive.org/details/Secretar1947, with the cheque's printed bank name blanked. Licence: public domain (Prelinger). Frames in footage-01-d2 (square-pixel progressive intermediate at 23.976 fps).",
+  "Shot 6a, operator in headset at the cord board (11.2-12.91 s): source 96.50-98.04 s of Speeding Speech (1950), https://archive.org/details/Speeding1950. Licence: public domain (Prelinger).",
+  "Shot 6b and the freeze, a hand seating a plug in a jack (12.91 s to the end card, frozen at source 527.64 s, frame s44): source 526.84-527.64 s of Speeding Speech (1950), https://archive.org/details/Speeding1950. Licence: public domain (Prelinger)."
+ ]
+}

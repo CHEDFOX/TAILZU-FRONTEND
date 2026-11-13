@@ -147,7 +147,12 @@ const config: ExpoConfig = {
   // BUMPED for 8.8: its splash is white (the Bots app's paper) where 8.7's is
   // cream, and its launch curtain is drawn on white. An update for 8.8 on an
   // 8.7 binary would lay a white curtain over a cream splash, a visible flash.
-  runtimeVersion: "tailzu-2026-10-x0-88",
+  //
+  // BUMPED (Nov 2026) for the new Blip: the native splash and the app icon are
+  // new art, and the launch curtain draws the new Blip (with his feelers) from
+  // that splash's frame. An update carrying the new curtain on a binary with
+  // the old splash would jump from the old bot to Blip at launch.
+  runtimeVersion: "tailzu-2026-11-x0-blip",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
   // faithfully and applied none of them — for a week, silently, with the
@@ -412,13 +417,13 @@ const config: ExpoConfig = {
     // Android masks the icon into whatever shape the launcher wants (circle,
     // squircle, teardrop) and shows only the middle 72/108 of the canvas.
     //
-    // adaptive-icon.png is the whole painted icon (icon.png) at 70% of the
-    // canvas, a touch larger than the 66.7% that shows, so every mask lands on
-    // the art. Its corners are masked away, as on iOS. adaptive-icon-background.png
-    // carries the icon's clay bar and cream ground on past the art's edge, so the
-    // launcher's parallax and press animations never show a seam or a strip of
-    // flat colour. Both come from tools/media/brand/x0-icon/curious-hang.
-    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#F4F0E8" },
+    // The icon is Blip in shades, white dots on black (tools/media/brand/blip-icon/cool:
+    // mono.svg, drawn by gen.mjs). adaptive-icon.png is the figure alone on
+    // transparent at 64% about the centre, so the circle and squircle masks both
+    // keep his feelers; adaptive-icon-background.png is the black ground, so the
+    // launcher's parallax and press animations never show a seam. icon.png is the
+    // whole icon, opaque, for iOS and the stores.
+    adaptiveIcon: { foregroundImage: "./assets/adaptive-icon.png", backgroundImage: "./assets/adaptive-icon-background.png", backgroundColor: "#0A0A0A" },
     intentFilters: [
       {
         action: "VIEW",
@@ -462,9 +467,10 @@ const config: ExpoConfig = {
     // plugins added the contacts, calendars and reminders strings, and
     // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
     "expo-video",
-    // Splash / launch screen: the app icon's bot, small, hanging from a piece of
-    // its clay bar, dead centre on white: the Bots app's own paper, so the
-    // launch ends on the app's ground. ONE asset, both platforms.
+    // Splash / launch screen: the app icon's Blip, small, in ink, hanging upside
+    // down from a piece of bar by his robot hands, shades on, his feelers
+    // hanging from the top of his head; dead centre on white: the Bots app's own
+    // paper, so the launch ends on the app's ground. ONE asset, both platforms.
     //
     // From API 31 Android's splash is the SYSTEM one: a colour and a centred
     // icon, masked to a circle 192 dp across. There is no full-bleed option, so
@@ -473,10 +479,10 @@ const config: ExpoConfig = {
     // same picture at the same size.
     //
     // THE LAUNCH ANIMATION STARTS FROM THIS FRAME. src/launch/LaunchCurtain draws
-    // the same art (assets/launch: drawn with the icon's own code by
-    // tools/media/brand/x0-icon/curious-hang/launch.mjs) at the same size on the
-    // same ground, lifts this splash from under it, and the bot pulls himself
-    // up over his bar and is gone, hands and all; then his hands come back and
+    // the same art (assets/launch: drawn by tools/media/brand/blip-icon/launch/
+    // gen.mjs, this splash being its layers stacked at rest) at the same size on
+    // the same ground, lifts this splash from under it, and Blip pulls himself
+    // up over his bar, feelers swinging, and is gone, hands and all; then his hands come back and
     // grab the bar's middle, one from above and one from below, and the bar is
     // pulled in to them as they twist.
     // imageWidth and backgroundColor here are SPLASH_PT and GROUND in
