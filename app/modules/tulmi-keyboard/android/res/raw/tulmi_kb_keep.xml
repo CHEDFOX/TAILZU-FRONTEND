@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  KEEP THE FONTS AND THEIR LICENCES.
+
+  KbSkin finds a face by name at runtime (resources.getIdentifier(name,
+  "font", packageName)), and nothing in code references the three OFL texts at
+  all. So if resource shrinking is ever switched on, it would strip all seven
+  files and the keyboard would quietly fall back to the system face — the same
+  silent failure iOS had before its fonts were bundled. The bridge keeps its
+  own getIdentifier drawables the same way (tailzu_widget_keep.xml).
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@font/geist_medium,@font/geist_semibold,@font/bricolage_grotesque_semibold,@font/doto_regular,@raw/ofl_*" />

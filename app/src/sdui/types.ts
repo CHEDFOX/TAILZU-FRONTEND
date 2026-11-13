@@ -395,6 +395,14 @@ export type BotTileKind = "code" | "keybot" | "plan" | "travel" | "notes" | "mak
  * BotTiles' `surprises`, and fetches the catalog the bootstrap's flag "bots.looks" ({ v, url }) names.
  */
 export const BOT_MOMENTS_CAPABILITY = "BotMoments";
+/**
+ * LOOKS FORMAT 2, SCENES (botTiles/scene.ts). A build that declares this also plays the catalog's `scenes`: drawn,
+ * formula-driven animation with springs, ropes and soft rings, reacting to taps, his voice, his own motion and the
+ * moment's events, and able to change the bot himself. The server then serves the format-2 projection
+ * (GET /v1/bots/looks?v=N&f=2) and the bootstrap's flag carries { v, f, url, off }; a build without it is served
+ * exactly what it is served today and plays each format-2 recipe's `fallback` act.
+ */
+export const BOT_MOMENTS2_CAPABILITY = "BotMoments2";
 /** A look: an avatar's id in the catalog, or a spec of its own (core.ts AvatarSpec; `extends` an id). */
 export type BotAvatarRef = string | Record<string, unknown>;
 export type BotMomentMode = "once" | "loop";

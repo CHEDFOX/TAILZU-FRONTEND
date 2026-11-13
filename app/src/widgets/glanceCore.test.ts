@@ -227,6 +227,64 @@ test("the Live Activity: started for a new job, updated on change, ended on its 
   assert.deepEqual(activityPlan(glance({ job: null }), null, NOW), { ops: [], memo: null });
 });
 
+// ------------------------------------------------------------------ the server-drawn look, on the glance and on the activity
+
+test("the glance keeps its server look, palette and vars, checked; a glance without them is exactly what it was", () => {
+  assert.equal("look" in glance(), false);
+  assert.equal("palette" in glance(), false);
+  assert.equal("vars" in glance(), false);
+  const g = glance({ look: { x0: "x0.dusk", board: "board.night", bots: "bots.night", "Bad Kind": "x" }, palette: "ink", vars: { moved: "3", since: "9" } });
+  assert.deepEqual(g.look, { x0: "x0.dusk", board: "board.night", bots: "bots.night" });
+  assert.equal(g.palette, "ink");
+  assert.deepEqual(g.vars, { moved: "3", since: "9" });
+  assert.deepEqual(glance({ look: { x0: "../escape" } }).look, undefined);
+});
+
+test("the activity: a private question carries the flag and no words", () => {
+  const hidden = activityState(glance({ needs: { count: 1, items: [{ ...(sample().needs as { items: object[] }).items[0], private: true }] } }))!;
+  assert.equal(hidden.private, true);
+  assert.equal(hidden.question, undefined);
+  assert.equal(activityState(glance())!.private, undefined);
+});
+
+test("the activity names its server design and carries vars ONLY with one, and today's body is untouched without", () => {
+  const plain = activityPlan(glance({ needs: { count: 0, items: [] } }), null, NOW);
+  assert.equal(plain.ops[0]!.state.look, undefined);
+  assert.equal(plain.ops[0]!.state.vars, undefined);
+
+  const withLook = activityPlan(glance({ needs: { count: 0, items: [] }, look: { bots: "bots.night" } }), null, NOW);
+  assert.equal(withLook.ops[0]!.state.look, "bots.night");
+  assert.deepEqual(withLook.ops[0]!.state.vars, { eta: "52", left: "2" });
+});
+
+test("vars counting minutes on is not a reason to update, but a design arriving is", () => {
+  const g1 = glance({ needs: { count: 0, items: [] }, look: { bots: "bots.night" } });
+  const first = activityPlan(g1, null, NOW);
+  const later = activityPlan(g1, first.memo, NOW + 5 * 60_000);
+  assert.deepEqual(later.ops, []);
+  const named = activityPlan(glance({ needs: { count: 0, items: [] }, look: { bots: "bots.night" } }), activityPlan(glance({ needs: { count: 0, items: [] } }), null, NOW).memo, NOW);
+  assert.deepEqual(named.ops.map((o) => o.op), ["update"]);
+});
+
+test("the activity's body is held to the cap: vars first, then the stage names, in every language", () => {
+  const long = "क".repeat(200);
+  const g = glance({
+    needs: { count: 0, items: [] }, look: { bots: "bots.night" },
+    job: { ...(sample().job as object), task: long, stageName: long, stages: Array.from({ length: 8 }, () => "क".repeat(60)) },
+  });
+  for (const op of activityPlan(g, null, NOW).ops) {
+    assert.ok(new TextEncoder().encode(JSON.stringify(op.state)).length <= 3584);
+  }
+});
+
+test("the done state keeps the design the job was running under", () => {
+  const running = activityPlan(glance({ needs: { count: 0, items: [] }, look: { bots: "bots.night" } }), null, NOW);
+  const lastDone = { id: "j1", bot: "code", botName: "Code bot", result: "Cart fix is ready", endedAt: NOW - 60_000, minutes: 58, pr: null, link: "tulmi://x" };
+  const ended = activityPlan(glance({ job: null, needs: { count: 0, items: [] }, lastDone, look: { bots: "bots.night" } }), running.memo, NOW);
+  assert.equal(ended.ops[0]!.state.look, "bots.night");
+  assert.equal(ended.ops[0]!.state.phase, "done");
+});
+
 // ------------------------------------------------------------------ steps: lines that take over at their own minute
 
 const MIN = 60_000;

@@ -19,7 +19,8 @@ import { evalCondition } from "../actions";
 import * as K from "../knobs";
 import { BotTile, BotTilesWorld, kindOf, type BotKind, type Moment } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Drawable, type Painter } from "../../botTiles/TileSurface";
-import { useLooks } from "../../botTiles/looks";
+import { noteScenes, useLooks } from "../../botTiles/looks";
+import { voiceLevel } from "../voice/voiceBus";
 
 const LINE = "#e6e6e6", PAPER = "#ffffff";
 
@@ -85,7 +86,7 @@ export const BotCrowd = (p: CompProps): React.ReactElement => (
   <Guard fallback={<Crowd {...p} bots={false} />}><Crowd {...p} bots /></Guard>
 );
 
-function Crowd({ props, ctx, children, bots }: CompProps & { bots: boolean }): React.ReactElement {
+function Crowd({ props, ctx, store, children, bots }: CompProps & { bots: boolean }): React.ReactElement {
   const reduced = useReducedMotion();
   const still = reduced === true;
   const life = String(props?.life || "crowd");
@@ -157,7 +158,12 @@ function Crowd({ props, ctx, children, bots }: CompProps & { bots: boolean }): R
 
   const host = useRef<View>(null);
   useTileLoop({
-    frame: (dt) => { world.step(dt); painter.current?.paint(scene); },
+    frame: (dt) => {
+      for (const t of world.tiles) if (t.scenesLive()) t.setLevel(voiceLevel(store));
+      world.step(dt);
+      for (const t of world.tiles) if (t.sceneBad.length || t.sceneSlow.length) noteScenes(t.sceneBad, t.sceneSlow);
+      painter.current?.paint(scene);
+    },
     still: () => painter.current?.paint(scene),
   }, bots && reduced === false && W > 0, host);
 

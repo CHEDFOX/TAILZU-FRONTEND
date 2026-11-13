@@ -108,8 +108,16 @@ final class TulmiHandoff: NSObject {
     var valueAllowed = CharacterSet.urlQueryAllowed
     valueAllowed.remove(charactersIn: "&=+#?")
     let host = hostApp.addingPercentEncoding(withAllowedCharacters: valueAllowed) ?? hostApp
-    let base = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
+    // The template is a server knob, so it only counts if it wears one of
+    // OUR schemes (SDUIRenderer.ownSchemes). Anything else falls back to the
+    // compiled tulmi://s/<screen> — a keyboard may open its own containing
+    // app and nothing else (App Review 4.4.1). The opener checks again at
+    // its own choke point; this keeps the hand-off working rather than
+    // silently doing nothing when a knob is wrong.
+    let knob = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
       .replacingOccurrences(of: "{screen}", with: screenId)
+    let safeScreen = screenId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screenId
+    let base = SDUIRenderer.ownSchemeURL(knob) != nil ? knob : "tulmi://s/\(safeScreen)"
     let urlString = base + (base.contains("?") ? "&" : "?") + "session=\(sessionId)&host=\(host)"
     if let url = URL(string: urlString) {
       _ = openURL(url)

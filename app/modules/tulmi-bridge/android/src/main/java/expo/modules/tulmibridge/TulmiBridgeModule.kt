@@ -81,6 +81,7 @@ class TulmiBridgeModule : Module() {
         .apply()
       TailzuQuick.requestUpdate(ctx)
       TailzuX0.requestUpdate(ctx)
+      TailzuX0Board.requestUpdate(ctx)
     }
 
     // THE X0 WIDGET'S GLANCE (TailzuX0Widget.kt): GET /v1/shell/glance?v=2
@@ -95,6 +96,8 @@ class TulmiBridgeModule : Module() {
       if (json.isEmpty()) e.remove(TailzuX0.KEY) else e.putString(TailzuX0.KEY, json)
       e.putLong(TailzuX0.WRITTEN_AT, System.currentTimeMillis()).apply()
       TailzuX0.requestUpdate(ctx)
+      // A board reads the same glance, so it redraws on the same write.
+      TailzuX0Board.requestUpdate(ctx)
     }
 
     // THE QUICK-ACCESS WIDGETS' ROWS (TailzuQuickWidgets.kt): GET
@@ -133,6 +136,99 @@ class TulmiBridgeModule : Module() {
       TailzuX0.requestUpdate(ctx)
     }
 
+    // ---------------------------------------------------------------- nlook: looks as data
+    //
+    // THE CATALOG THE WIDGETS DRAW FROM. The app fetched GET /v1/native/looks, cleaned every design on its own
+    // (src/native/looksCore.ts) and hands the result here as
+    //
+    //     { "index": { v, drawsFormat, palettes, designs, art, fonts }, "designs": { "<id>": <design> } }
+    //
+    // keyed by DESIGN ID on both platforms, which lands in a NEW version folder (files/nlook/v<N>/) before one small
+    // pointer file (files/nlook/current) is swapped by write-temp-then-rename. That rename is atomic for a file on
+    // Android; renaming a directory over a non-empty directory is not, which is why the pointer exists at all. A widget
+    // halfway through reading an old folder is never overwritten. Returns the folder's name, or "" when nothing was
+    // written — and "" is not an error, it is today's twelve layouts carrying on.
+    //
+    // The three sweeps (old version folders, the paint cache, the art and font channels) are QUEUED behind the redraw
+    // this call asks for, on the widgets' own serial queue: a sweep that ran here could delete a folder a widget was
+    // reading at that moment.
+    Function("setNativeLooks") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function ""
+      if (json.isEmpty()) {
+        TailzuWork.post { NLookStore.sweep(ctx) }
+        return@Function ""
+      }
+      val o = TailzuQuick.obj(json) ?: return@Function ""
+      val index = o.optJSONObject("index") ?: return@Function ""
+      val designs = HashMap<String, String>()
+      o.optJSONObject("designs")?.let { all ->
+        for (key in all.keys()) {
+          val design = all.optJSONObject(key) ?: continue
+          designs[key] = design.toString()
+        }
+      }
+      if (designs.isEmpty()) return@Function ""
+      val name = NLookStore.write(ctx, index.toString(), designs) ?: return@Function ""
+      TailzuX0.requestUpdate(ctx)
+      TailzuX0Board.requestUpdate(ctx)
+      TailzuWork.post {
+        NLookStore.sweep(ctx)
+        NLookPaint.sweep(ctx)
+        NLookFiles.sweep(ctx, NLookStore.index(ctx))
+      }
+      name
+    }
+
+    // WHICH CATALOG THIS PHONE HOLDS: the `v` of the index the pointer names, so the app can ask the server only for what
+    // it does not have. Null before any catalog has landed (src/native/looks.ts calls it when the binary has it).
+    Function("nativeLooksVersion") {
+      val ctx = appContext.reactContext ?: return@Function null
+      NLookStore.version(ctx)
+    }
+
+    // ONE ART FILE, BY CONTENT. The app downloaded it from our art host and checked its PNG magic bytes, its size and its
+    // sha256 before calling; this side checks the caps again and moves it into files/nlook/art/<sha>@<scale>.png, where a
+    // new sha is always a NEW FILE. Nothing a current index or a drawing widget reads is ever overwritten. Returns the
+    // path relative to files/, which is what the index maps an art key to, or "".
+    Function("writeNativeArt") { sha: String, scale: Int, path: String ->
+      val ctx = appContext.reactContext ?: return@Function ""
+      NLookFiles.art(ctx, sha, scale, path)
+    }
+
+    // ONE FONT FILE, BY CONTENT. Android WIDGETS cannot use it — setTypeface is not remotable, so a widget's faces come
+    // only from res/font — but the Tulmi IME in this same APK can (Typeface.createFromFile), so the hook is here and the
+    // file is kept the same way art is. Returns the path relative to files/, or "".
+    Function("writeNativeFont") { sha: String, path: String ->
+      val ctx = appContext.reactContext ?: return@Function ""
+      NLookFiles.font(ctx, sha, path)
+    }
+
+    // DESIGNS THIS PHONE SAW BREAK. Two strikes and a design is never drawn again here; the app reports these ids so the
+    // server stops naming them for this device.
+    Function("nativeLooksBad") {
+      val ctx = appContext.reactContext ?: return@Function emptyList<String>()
+      NLookStore.badIds(ctx)
+    }
+
+    // ---------------------------------------------------------------- "Bots at work", the Android notice
+    //
+    // The state of the running job, as the Live Activity's ContentState spells it (bot, botName, task, stage, of,
+    // stageName, stages, startedAt, phase, minutes, link, vars). The notice is a TEMPLATE FILL, not a canvas: Android 16
+    // Live Updates refuse custom layouts, so the look is the catalog's `liveupdate` design (bu.base) and this is only its
+    // data. Kept in prefs so the X0 tick can repost it with the minutes counted on, without waking JavaScript.
+    //
+    // Nothing is posted until the app calls this, and the app calls it only when the server's switch is on: the notice is
+    // dark in a build that carries it.
+    Function("setBotsUpdate") { json: String ->
+      val ctx = appContext.reactContext ?: return@Function
+      TailzuBotsUpdate.set(ctx, json)
+    }
+
+    // The job ended, or the person signed out: the notice goes, and its state with it.
+    Function("endBotsUpdate") {
+      appContext.reactContext?.let { TailzuBotsUpdate.end(it) }
+    }
+
     // THE APP ICON'S LONG-PRESS LIST (TailzuShortcuts.kt), as the server
     // lists it: dynamic shortcuts that open their link like any link.
     Function("setQuickActions") { json: String ->
@@ -152,7 +248,26 @@ class TulmiBridgeModule : Module() {
     // be a real conversation instead of turn by turn (callRealtime.ts). Time
     // Sensitive is iOS's alone; a leave-by already wakes an Android phone
     // through its high priority and channel.
-    Function("binaryFeatures") { listOf("glanceSteps", "realtimeCall") }
+    //   nativeLook   this build carries the nlook composer (NLook*.kt), so widget
+    //                LOOKS can be sent as data. Told as NativeLook1. RemoteViews
+    //                only gained setViewLayoutWidth/Height/Margin, a night-aware
+    //                setColorStateList and setViewOutlinePreferredRadius in API 31,
+    //                so an older phone is NOT told: it keeps today's 12 layouts.
+    //   keySkin      the Tulmi IME in this same APK draws key faces (prints, marks,
+    //                press effects, our fonts: KbKeyFace.kt). Told as KeySkin1, so
+    //                the Keybot skin picker shows only where a skin can be drawn.
+    //   liveUpdate   the ongoing "Bots at work" notice (TailzuBotsUpdate.kt). Told
+    //                as LiveUpdate1. On API 36 it is promoted to a status-bar chip;
+    //                below that it is an ordinary ongoing progress notification, so
+    //                every version gets something and none is told a lie.
+    //   widgetBoard  the spare "X0 Board" widget kind is in this build.
+    // A name is added here only in the same build as what it promises, and comes
+    // out again in the same commit if that item is cut.
+    Function("binaryFeatures") {
+      val names = mutableListOf("glanceSteps", "realtimeCall", "keySkin", "liveUpdate", "widgetBoard")
+      if (android.os.Build.VERSION.SDK_INT >= 31) names.add("nativeLook")
+      names.toList()
+    }
 
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being

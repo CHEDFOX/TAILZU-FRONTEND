@@ -48,12 +48,28 @@ internal object WidgetInk {
     else -> R.color.tailzu_widget_ink
   }
 
-  /** The palette's colours, both themes, read from the resources with the theme forced each way. */
-  class Palette(context: Context) {
+  /**
+   * The palette's colours, both themes.
+   *
+   * THE CATALOG FIRST. nlook's `palettes` is the one source the contract names for widget colour, so when the phone holds a
+   * catalog its roles win — for today's hand-written views as much as for a server design, which is what keeps the two
+   * looking like one app while looks roll out. Without a catalog (an old build, the switch off, before the first sync) the
+   * resources below answer exactly as they always did, so nothing changes for anyone who has not been sent one.
+   *
+   * A role the catalog's scheme leaves out resolves through nlook's own ROLE_FALLBACK (dim to meta, outline and hollow to
+   * line) before the resources are asked, so a short scheme never loses a colour.
+   */
+  class Palette(context: Context, private val catalog: NLookPalette? = null) {
     private val day = themed(context, false)
     private val night = themed(context, true)
 
     fun role(role: String): Ink {
+      catalog?.let { p ->
+        val wanted = if (role == "paper") "ground" else role
+        val light = p.light.role(wanted)?.let { hex(it) }
+        val dark = p.dark.role(wanted)?.let { hex(it) }
+        if (light != null && dark != null) return Ink(light, dark)
+      }
       val id = resource(role)
       return Ink(color(day, id, LIGHT[role] ?: LIGHT.getValue("ink")), color(night, id, DARK[role] ?: DARK.getValue("ink")))
     }

@@ -1905,6 +1905,9 @@ struct MotionProgram {
 final class TulmiMarkView: UIView {
   struct Shape {
     let id: String?; let kind: String; let n: [String: CGFloat]
+    /// `path` only: the `d` string, in the grammar nlook, the bots' looks and
+    /// the animation format share. Parsed by KBPath.swift, never here.
+    let d: String?
     let dash: [CGFloat]; let cap: String; let color: UIColor?
     let heights: [CGFloat]                 // bars: each bar's length across the line
     let swellThick: CGFloat, swellHeight: CGFloat   // bars: what a bar becomes under the bright cluster
@@ -2063,6 +2066,12 @@ final class TulmiMarkView: UIView {
       switch sh.kind {
       case "rect": c = CGPoint(x: (sh.n["x"] ?? 0) + (sh.n["w"] ?? 0) / 2, y: (sh.n["y"] ?? 0) + (sh.n["h"] ?? 0) / 2)
       case "circle": c = CGPoint(x: sh.n["cx"] ?? 0, y: sh.n["cy"] ?? 0)
+      // A path has no x1/y1/x2/y2, so the line branch below would give it
+      // (0, 0) and it would fly out of the artboard's corner. Its middle is
+      // the middle of the box around its points — the same box
+      // `layoutSubviews` already centres its layer on.
+      case "path":
+        c = sh.d.flatMap { KBPath.centre($0) } ?? CGPoint(x: CGFloat(C.x), y: CGFloat(C.y))
       default: c = CGPoint(x: ((sh.n["x1"] ?? 0) + (sh.n["x2"] ?? 0)) / 2, y: ((sh.n["y1"] ?? 0) + (sh.n["y2"] ?? 0)) / 2)
       }
       if sh.id == disperseSpec?.keep, sh.kind == "bars" || (sh.kind == "line" && !sh.dash.isEmpty) {
@@ -2397,6 +2406,13 @@ final class TulmiMarkView: UIView {
         c.v["w"] = Double(sh.n["w"] ?? 0); c.v["h"] = Double(sh.n["h"] ?? 0)
       case "circle":
         hx = Double(sh.n["cx"] ?? 0); hy = Double(sh.n["cy"] ?? 0); c.v["r"] = Double(sh.n["r"] ?? 0)
+      case "path":
+        // A path has no x1/y1/x2/y2, so the default branch below gave it the
+        // artboard's top-left corner as its home and the program moved it
+        // there. Its own box's centre, the same one tie() uses.
+        let p = sh.d.flatMap { KBPath.centre($0) } ?? CGPoint(x: viewBox.midX, y: viewBox.midY)
+        hx = Double(p.x); hy = Double(p.y)
+        c.v["width"] = Double(sh.n["width"] ?? 0)
       default:
         let x1 = Double(sh.n["x1"] ?? 0), y1 = Double(sh.n["y1"] ?? 0), x2 = Double(sh.n["x2"] ?? 0), y2 = Double(sh.n["y2"] ?? 0)
         hx = (x1 + x2) / 2; hy = (y1 + y2) / 2
@@ -2480,7 +2496,11 @@ final class TulmiMarkView: UIView {
       let ink = (tint ?? sh.color ?? UIColor.black).cgColor
       if let mx = pr["mix"] {
         let col = mixColor(ink, sig, MotionLang.eval(mx, c, pg.funcs))
-        if sh.kind == "line" || sh.kind == "bars" { l.strokeColor = col } else { l.fillColor = col }
+        // A stroked path is drawn with strokeColor and no fill, so setting
+        // fillColor both left its ink unchanged and filled an outline.
+        let stroked = sh.kind == "line" || sh.kind == "bars"
+          || (sh.kind == "path" && (sh.n["width"] ?? 0) > 0)
+        if stroked { l.strokeColor = col } else { l.fillColor = col }
         if let bars = progBars[i] { for (bl, _) in bars { bl.strokeColor = col } }
       }
       if sh.kind == "bars", let bars = progBars[i] {
@@ -2566,15 +2586,20 @@ final class TulmiMarkView: UIView {
     var out: [Shape] = []
     for item in raw {
       guard let o = item.asObject, let kind = o["kind"]?.asString,
-            ["rect", "line", "circle", "bars"].contains(kind) else { continue }
+            ["rect", "line", "circle", "bars", "path"].contains(kind) else { continue }
       var n: [String: CGFloat] = [:]
       for (k, v) in o { if let d = v.asCGFloat { n[k] = d } }
       let dash = o["dash"]?.asArray?.compactMap { $0.asCGFloat } ?? []
       let heights = o["heights"]?.asArray?.compactMap { $0.asCGFloat } ?? []
       if kind == "bars", heights.isEmpty { continue }
+      // `path` is the one new shape in this build. A `d` that is missing or
+      // over the cap drops THAT shape, never the mark around it.
+      let dStr = o["d"]?.asString
+      if kind == "path", dStr == nil || (dStr?.count ?? 0) > KBPath.maxDChars { continue }
+      if kind == "path", out.filter({ $0.kind == "path" }).count >= KBPath.maxPathsPerShape { continue }
       let swell = o["swell"]?.asObject
       let color = o["color"]?.asString.map { UIColor(tulmiHex: $0) }
-      out.append(Shape(id: o["id"]?.asString, kind: kind, n: n, dash: dash,
+      out.append(Shape(id: o["id"]?.asString, kind: kind, n: n, d: dStr, dash: dash,
                        cap: o["cap"]?.asString ?? "butt", color: color, heights: heights,
                        swellThick: swell?["thick"]?.asCGFloat ?? 1.5, swellHeight: swell?["height"]?.asCGFloat ?? 1.07))
     }
@@ -2637,6 +2662,29 @@ final class TulmiMarkView: UIView {
         l.strokeColor = color
         l.lineWidth = (sh.n["thick"] ?? 6) * s
         l.lineCap = .butt
+      case "path":
+        // The drawn print. KBPath fits the artboard the same way every other
+        // shape here is fitted, so a path sits where a rect would. A `d` the
+        // grammar refuses leaves this shape's layer empty — the mark still
+        // draws, and the layer stays in place so every index below (the
+        // dispersal's parts, the program's bars) still lines up with
+        // `shapes`.
+        if let d = sh.d, let cg = KBPath.path(d, viewBox: viewBox, in: bounds.size, circle: circle) {
+          let box = cg.boundingBoxOfPath
+          center = CGPoint(x: box.midX, y: box.midY)
+          var back = CGAffineTransform(translationX: -center.x, y: -center.y)
+          if let moved = cg.copy(using: &back) { p.append(UIBezierPath(cgPath: moved)) }
+        }
+        // A width strokes it; no width fills it, as the shape grammar says.
+        if let w = sh.n["width"], w > 0 {
+          l.fillColor = nil
+          l.strokeColor = color
+          l.lineWidth = w * s
+          l.lineCap = sh.cap == "round" ? .round : .butt
+          if !sh.dash.isEmpty { l.lineDashPattern = sh.dash.map { NSNumber(value: Double($0 * s)) } }
+        } else {
+          l.fillColor = color
+        }
       default:
         let a = CGPoint(x: o.x + (sh.n["x1"] ?? 0) * s, y: o.y + (sh.n["y1"] ?? 0) * s)
         let b = CGPoint(x: o.x + (sh.n["x2"] ?? 0) * s, y: o.y + (sh.n["y2"] ?? 0) * s)
@@ -2803,6 +2851,18 @@ final class TulmiMarkView: UIView {
             c.move(to: CGPoint(x: o.x + a.x * s, y: o.y + a.y * s))
             c.addLine(to: CGPoint(x: o.x + b.x * s, y: o.y + b.y * s))
             c.strokePath()
+          }
+        case "path":
+          guard let d = sh.d,
+                let cg = KBPath.path(d, viewBox: parsed.viewBox, in: size, circle: isCircle(spec))
+          else { continue }
+          c.addPath(cg)
+          if let w = sh.n["width"], w > 0 {
+            c.setLineWidth(w * s)
+            c.setLineCap(sh.cap == "round" ? .round : .butt)
+            c.strokePath()
+          } else {
+            c.fillPath()
           }
         default:
           c.setLineWidth((sh.n["width"] ?? 1) * s)
@@ -4080,6 +4140,10 @@ final class SDUIRenderer: NSObject {
     // Timed, because a layer switch (123 / ABC) rebuilds on touch-down: what
     // this costs is how late the first key of the new layer can type.
     let remountStart = CACurrentMediaTime()
+    // The old key views are about to go, and what their faces were spending
+    // goes with them: faced keys, animated keys and live image bytes all
+    // start again from zero for this tree (KBSkin.swift).
+    KBFaceBudget.beginPass()
     defer {
       let ms = (CACurrentMediaTime() - remountStart) * 1000
       KeyboardTelemetry.bump(.remountMs, by: Int(ms.rounded()))
@@ -4340,7 +4404,11 @@ final class SDUIRenderer: NSObject {
   /// keyboard releases both ends of a touch; sheets' shadows have paths; the
   /// 16 ms budget, rebuild cost and memory footprint are counted; open
   /// sheets and trays are let go when the keyboard hides or memory runs low.
-  static let buildStamp = "K44"
+  /// K45: key faces, the `path` mark, press effects, `fontFamily`, the
+  /// live-image budget, prefetch-only art and plain mode. The server reads
+  /// the can-list (X-Tulmi-Keyboard-Can) rather than doing arithmetic on this
+  /// — the stamp is still what proves which binary is running on a device.
+  static let buildStamp = "K45"
 
   /// The bundled brand mark.
   ///
@@ -4612,6 +4680,12 @@ final class SDUIRenderer: NSObject {
     }
     applyStyle(node: node, to: v)
     applyEffectIfChildlessBackdrop(node: node, view: v)
+    // WHAT THIS KEY PRINTS, and how it answers a press: props.face,
+    // style.press and style.fontFamily, all in KBKeyFace.swift. One call for
+    // every node, after the style so a face can restyle the title the style
+    // just set, and before the return accent so the accent still wins. In
+    // plain mode, and for every node without a face, it does nothing.
+    KBKeyFace.apply(node: node, to: v, tint: keyTextColor())
     // The return key's action accent (Go / Send / Search…) is applied AFTER
     // the node's style, or style.bg / style.fg would paint over it.
     if node.type == "ReturnKey" { applyReturnAccent(node: node, to: v) }
@@ -6266,7 +6340,11 @@ final class SDUIRenderer: NSObject {
     let fg = (node.style?["actionFg"]?.asString).map { UIColor(tulmiHex: $0) }
       ?? flagColor("kb.returnKey.actionFg", "#FFFFFF")
     btn.backgroundColor = accent
-    btn.setTitleColor(fg, for: .normal)
+    // The accent BACKGROUND always wins; the accent's ink does not bring
+    // back a title a face has stood down, or the key shows two legends.
+    if !KBKeyFace.titleIsStoodDown(btn) {
+      btn.setTitleColor(fg, for: .normal)
+    }
     objc_setAssociatedObject(btn, &Self.keyBaseColorKey, accent, .OBJC_ASSOCIATION_RETAIN)
   }
 
@@ -7479,10 +7557,15 @@ final class SDUIRenderer: NSObject {
     let hid = (objc_getAssociatedObject(btn, &Self.keyHapticIdKey) as? String) ?? btn.title(for: .normal)
     fireKeyHaptic(hid)
     showKeyCallout(for: btn)
+    // The skin's press effect, if this key has one: pop or glow, after the
+    // colour swap above and never in the way of the letter. Two layer
+    // properties and an animation; the next touch cancels it (KBPress.swift).
+    KBPress.begin(on: btn)
   }
 
   @objc private func keyTouchUp(_ btn: UIButton) {
     hideKeyCallout()
+    KBPress.end(on: btn)
     let base = (objc_getAssociatedObject(btn, &Self.keyBaseColorKey) as? UIColor) ?? keyBgColor()
     // Backend flag: kb.press.fadeMs (default 120) — release animation length.
     // 0 or negative → instant snap-back (native style is 60-120ms).
@@ -7810,6 +7893,10 @@ final class SDUIRenderer: NSObject {
     }
     // Start the download (only once per URL per session).
     if remoteImageInflight.contains(url) { return nil }
+    // THE ART HOST IS COMPILED IN. This path fetched whatever host a config
+    // named; TulmiImageLoader now holds the one allow-list and both loaders
+    // ask it. `sf:`, `asset:` and emoji need no network and are unaffected.
+    guard TulmiImageLoader.isAllowedMediaURL(url) else { return nil }
     guard let u = URL(string: url) else { return nil }
     remoteImageInflight.insert(url)
     URLSession.shared.dataTask(with: u) { [weak self] data, _, _ in
@@ -8178,8 +8265,9 @@ final class SDUIRenderer: NSObject {
     case .openSettings:
       // Tombstone with a well-known path the app routes to openSettings() on
       // foreground; the open brings the app there (kb.deepLink.settingsUrl).
+      // The flag is used only if it is one of our own schemes (4.4.1).
       writeDeepLinkTombstone(path: "openSettings")
-      openContainingApp(URL(string: flagString("kb.deepLink.settingsUrl", "tulmi://")))
+      openContainingApp(ownSchemeURL(flagString("kb.deepLink.settingsUrl", "tulmi://")) ?? appRootURL)
     case .haptic(let style):
       fireHaptic(style)
     case .sequence(let actions):
@@ -8209,8 +8297,12 @@ final class SDUIRenderer: NSObject {
       // app, not someone else's (App Review 4.4.1), and the tombstone carries
       // the URL there.
       writeDeepLinkTombstone(path: "openUrl?u=\(url)")
-      let schemes = Set(flagString("kb.deepLink.openUrlSchemes", "tulmi")
+      // The flag may NARROW the compiled set of our own schemes; it can no
+      // longer widen it. Before this, a flag naming someone else's scheme
+      // would have opened someone else's app from a key (4.4.1).
+      let flagged = Set(flagString("kb.deepLink.openUrlSchemes", "tulmi")
         .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+      let schemes = flagged.intersection(SDUIRenderer.ownSchemes)
       if let u = URL(string: url), let scheme = u.scheme?.lowercased(), schemes.contains(scheme) {
         openContainingApp(u)
       } else {
@@ -9456,16 +9548,54 @@ final class SDUIRenderer: NSObject {
     d?.set(Date().timeIntervalSince1970 * 1000, forKey: "tulmi.kb.pendingDeepLinkAt")
   }
 
+  /// THE APP'S OWN SCHEMES, COMPILED IN.
+  ///
+  /// A keyboard may open its own app and nothing else (App Review 4.4.1).
+  /// Until now that was enforced only by server flags — `settingsUrl`,
+  /// `rootUrl`, `urlTemplate` and `openUrlSchemes` — so a console value, or a
+  /// server that had been got at, could have sent a person into someone
+  /// else's app from a key press. This set is in the binary. A flag can
+  /// narrow it; nothing can widen it.
+  static let ownSchemes: Set<String> = ["tulmi"]
+
+  /// A URL only if it parses AND wears one of our own schemes. nil otherwise,
+  /// and every caller falls back to its compiled default.
+  ///
+  /// Static so the HOST can use the one check too — the keyboard's own
+  /// openApp-for-words, the Flow arm and the mic hand-off all build a URL
+  /// from the same server knob, and a second hand-rolled copy of this test
+  /// is how the lock gets widened by accident.
+  static func ownSchemeURL(_ raw: String?) -> URL? {
+    guard let raw = raw, !raw.isEmpty, let u = URL(string: raw),
+          let scheme = u.scheme?.lowercased(),
+          SDUIRenderer.ownSchemes.contains(scheme) else { return nil }
+    return u
+  }
+
+  /// True only for a URL wearing one of our own schemes — the choke-point
+  /// test the host applies right before it hands a URL to iOS.
+  static func isOwnSchemeURL(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased() else { return false }
+    return ownSchemes.contains(scheme)
+  }
+
+  private func ownSchemeURL(_ raw: String?) -> URL? { SDUIRenderer.ownSchemeURL(raw) }
+
+  /// The app root, however the flags are set.
+  private var appRootURL: URL? { URL(string: "tulmi://") }
+
   /// The app's URL for a screen: kb.deepLink.urlTemplate with "{screen}"
   /// replaced (the same template the host uses for the Flow arm); no screen
-  /// opens the app root, kb.deepLink.rootUrl.
+  /// opens the app root, kb.deepLink.rootUrl. Both are used ONLY if they
+  /// parse to one of our own schemes, else the compiled default.
   private func appURL(screen: String?) -> URL? {
     guard let s = screen, !s.isEmpty else {
-      return URL(string: flagString("kb.deepLink.rootUrl", "tulmi://"))
+      return ownSchemeURL(flagString("kb.deepLink.rootUrl", "tulmi://")) ?? appRootURL
     }
     let enc = s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
     let template = flagString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
-    return URL(string: template.replacingOccurrences(of: "{screen}", with: enc))
+    let built = template.replacingOccurrences(of: "{screen}", with: enc)
+    return ownSchemeURL(built) ?? appRootURL
   }
 
   /// Open the containing app through the host. kb.deepLink.openApp = false

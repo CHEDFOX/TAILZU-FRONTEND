@@ -165,3 +165,13 @@ export function tapOn(pending: number | null, now: number, hasDouble: boolean, m
 export function tapDue(pending: number | null, now: number, ms = STAGE.doubleTapMs): boolean {
   return pending != null && now - pending > ms;
 }
+
+/**
+ * A tap, in the STAGE's own pixels. React Native gives a Pressable the point in the touched view's coordinates, and
+ * his hit area is its own view, translated onto his body, so a tap on him arrives relative to that view's corner.
+ * A live scene's box is in the stage's pixels (the surface is the stage), so the corner is added back. `view`: where
+ * that view's top left sits in the stage (null for the stage's own Pressable, which is already there).
+ */
+export function tapInStage(x: number, y: number, view: { x: number; y: number } | null): { x: number; y: number } {
+  return { x: x + (view ? view.x : 0), y: y + (view ? view.y : 0) };
+}

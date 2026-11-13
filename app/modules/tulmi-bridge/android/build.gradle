@@ -26,4 +26,27 @@ android {
   defaultConfig {
     minSdkVersion 24
   }
+
+  // WHERE THE SHARED FIXTURES ARE. shared/native/fixtures lives in TAILZU-BACKEND and is the referee for all five
+  // sides, so the Kotlin tests read it WHERE IT IS rather than from a copy — a copy would be a third version of the
+  // truth with its own sync problem, and the app's own JS already reads the same files across the two checkouts.
+  // Five levels up from this folder is the directory that holds both checkouts. NLOOK_FIXTURES overrides it, which is
+  // what CI sets after it checks the backend out beside this one. With neither, NLookFixturesTest skips and says so.
+  testOptions {
+    unitTests.all {
+      systemProperty "nlook.fixtures",
+          (System.getenv("NLOOK_FIXTURES") ?: file("../../../../../TAILZU-BACKEND/shared/native/fixtures").absolutePath)
+    }
+  }
+}
+
+// JVM tests only (src/test), for the nlook planner. NLookPlan.kt is pure Kotlin on purpose — no android.*, no org.json —
+// so the rules that keep a widget alive (RemoteViews levels, views per size, Each copies, the link allow-list) can be
+// asserted without an emulator. Nothing here is on the app's own classpath.
+//
+// The same coordinates expo-modules-core already resolves for its own unit tests, so this adds no new artefact to the
+// build: junit for the runner, and the real org.json in place of the android.jar stub, whose methods throw.
+dependencies {
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20250517'
 }

@@ -134,7 +134,9 @@ def body(kids, **kw):
 
 
 def face(id_, size, **kw):
-    return img(id_, size, size, "@drawable/tailzu_x0_head_tailzu", scaleType="fitCenter", **kw)
+    """A card's bot. Every draw sets the bot's own picture (X0Ctx.face); what is here is only the empty disc under it, never
+    the mascot — a card shows the bot whose card it is, so a mascot in the XML would be the wrong bot for a blink."""
+    return img(id_, size, size, "@drawable/tailzu_widget_avatar", scaleType="fitCenter", **kw)
 
 
 def blip(w, h, **kw):

@@ -71,6 +71,8 @@ enum WidgetKinds {
   /// The universal X0 widget (glance v2).
   static let x0 = "space.tailzu.x0"
   static let people = "space.tailzu.people"
+  /// The spare kind: a board the person picks (X0Board.swift). A shipped kind can never be removed.
+  static let board = "space.tailzu.board"
 }
 
 /// What a button did to an item, until the app next writes the data it came from.

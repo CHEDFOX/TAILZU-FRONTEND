@@ -299,6 +299,22 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
         val pressedFill: Int = 0,
         /** kb.key.commitOnDown — types when the finger lands, in a row. */
         val downCommit: Boolean = false,
+        /**
+         * This key's PRINT (props.face), as one Drawable. The same object the
+         * view path layers under a Button's text, so a print cannot look
+         * different depending on whether drawn keys are on. Null = no face,
+         * which is every key today.
+         */
+        val face: android.graphics.drawable.Drawable? = null,
+        /** Whether the face replaces the key's own label rather than sitting
+         *  behind it (a fixed `label`, or face.layer == "instead"). */
+        val faceReplacesLabel: Boolean = false,
+        /** The face's own type on the key's own title, when the face has no
+         *  legend of its own — the view path's restyle, on this path. Null
+         *  is the plane's shared face, which is every key today. */
+        val typeface: android.graphics.Typeface? = null,
+        /** style.press, when it is `pop` or `glow`. Null = today's fade. */
+        val press: KbPress.Spec? = null,
     ) {
         /** Filled in by the plane at layout time. */
         val rect = RectF()
@@ -311,6 +327,22 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
          *  and when. 0 = not fading. */
         internal var fadeFrom = 0
         internal var fadeAt = 0L
+
+        /**
+         * style.press as a PRESSED STATE. A drawn row is ONE view, so there
+         * is no view to scale and no foreground to wash: the plane runs the
+         * effect itself from these three numbers.
+         *
+         *  pressDownAt  the finger landed (0 = it has gone). The level eases
+         *               up to 1 over `ms` and HOLDS while it is held.
+         *  pressUpAt    the finger left. The level falls to 0 over `ms`…
+         *  pressFrom    …from here: where it had got to at the lift, so a key
+         *               let go mid-press settles from where it is rather than
+         *               snapping to full first.
+         */
+        internal var pressDownAt = 0L
+        internal var pressUpAt = 0L
+        internal var pressFrom = 0f
     }
 
     /** Non-empty puts the plane in drawn mode. */
@@ -319,6 +351,9 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     /** Scratch for the painted (inset) rect. Reused because onDraw runs on
      *  every press and allocating there is how a keyboard starts stuttering. */
     private val painted = android.graphics.RectF()
+
+    /** Scratch for a popped key's grown rect, for the same reason. */
+    private val popped = android.graphics.RectF()
     private var pressedKey: DrawnKey? = null
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -338,6 +373,11 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
     private val pressedOverride = java.util.WeakHashMap<View, Int>()
 
     fun setPressedColor(v: View, color: Int) { pressedOverride[v] = color }
+
+    /** A built key's style.press, when it is `pop` or `glow`. */
+    private val pressSpecs = java.util.WeakHashMap<View, KbPress.Spec>()
+
+    fun setPressSpec(v: View, spec: KbPress.Spec) { pressSpecs[v] = spec }
 
     /**
      * kb.touch.vInsetPx — paint each key this far inside its row, top and
@@ -434,11 +474,26 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
             // height so every point still belongs to a key; only the pixels
             // move inward, which is what lets the gap between rows be owned by
             // the rows instead of by nobody.
-            val paintRect = if (drawnVInsetPx > 0f) {
+            var paintRect = if (drawnVInsetPx > 0f) {
                 painted.set(k.rect.left, k.rect.top + drawnVInsetPx,
                             k.rect.right, k.rect.bottom - drawnVInsetPx)
                 painted
             } else k.rect
+            // style.press as a pressed state: the cap grows and lifts while
+            // the finger is down, and settles when it goes. The effect is
+            // paint and nothing else — the character was committed before
+            // this frame was asked for, and the HIT rect is k.rect, which
+            // nothing here touches.
+            var pressK = 0f
+            if (k.press != null && (k.pressDownAt > 0L || k.pressUpAt > 0L)) {
+                pressK = KbPress.level(k.press, k.pressDownAt, k.pressUpAt, k.pressFrom, now)
+                if (KbPress.moving(k.press, k.pressDownAt, k.pressUpAt, now)) fading = true
+                else if (k.pressDownAt == 0L) { k.pressUpAt = 0L; pressK = 0f }
+            }
+            if (pressK > 0f && k.press != null && k.press.isPop) {
+                KbPress.popRect(k.press, paintRect, popped, pressK)
+                paintRect = popped
+            }
             if (shadowOn) {
                 paintShadow(canvas, paintRect.left, paintRect.top, paintRect.right, paintRect.bottom,
                     k.radiusPx, Color.alpha(k.fill))
@@ -453,14 +508,36 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 else -> k.fill
             }
             canvas.drawRoundRect(paintRect, k.radiusPx, k.radiusPx, fillPaint)
+            // style.press `glow`: a wash of the server's colour over the cap,
+            // under the print and the label.
+            if (pressK > 0f && k.press != null && k.press.isGlow) {
+                val wash = KbPress.glowColor(k.press, pressK)
+                if (wash != 0) {
+                    fillPaint.color = wash
+                    canvas.drawRoundRect(paintRect, k.radiusPx, k.radiusPx, fillPaint)
+                }
+            }
+            // THE PRINT. The same Drawable the view path layers under a
+            // Button's text, so a face looks the same whichever path drew it.
+            k.face?.let { f ->
+                f.setBounds(
+                    paintRect.left.toInt(), paintRect.top.toInt(),
+                    paintRect.right.toInt(), paintRect.bottom.toInt(),
+                )
+                f.draw(canvas)
+            }
             val g = k.glyph
             if (g != null) {
                 g(canvas, paintRect, textPaint)
                 continue
             }
-            if (k.label.isEmpty()) continue
+            if (k.label.isEmpty() || k.faceReplacesLabel) continue
             textPaint.color = k.textColor
             textPaint.textSize = k.textSizePx
+            // Per key, because a faced key may restyle its own title. The
+            // paint is shared across the row, so it is set every time rather
+            // than only when it changes.
+            textPaint.typeface = k.typeface
             // Centre on the text's own metrics, not on the font's line box —
             // otherwise descenders push every glyph visibly high in the key.
             val fm = textPaint.fontMetrics
@@ -481,8 +558,23 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 val c = getChildAt(i)
                 if (c.visibility != VISIBLE) continue
                 val s = shadowed[c] ?: continue
-                paintShadow(canvas, c.left.toFloat(), c.top.toFloat(), c.right.toFloat(), c.bottom.toFloat(),
-                    s[0], (s[1] * c.alpha).toInt())
+                // A key in the middle of a `pop` is DRAWN grown and lifted
+                // (KbPress.PopButton scales its own canvas), but its layout
+                // rect never moves — that is the whole point, because the hit
+                // tests read it. So the shadow has to be given the same
+                // treatment here, or it would sit still under a cap that
+                // moved. The drawn path gets this for free: it paints the
+                // shadow from the popped rect already.
+                var l = c.left.toFloat(); var t = c.top.toFloat()
+                var r = c.right.toFloat(); var b = c.bottom.toFloat()
+                val pb = c as? KbPress.PopButton
+                val ps = pb?.popSpec
+                if (pb != null && ps != null && pb.popLevel > 0f) {
+                    painted.set(l, t, r, b)
+                    KbPress.popRect(ps, painted, popped, pb.popLevel)
+                    l = popped.left; t = popped.top; r = popped.right; b = popped.bottom
+                }
+                paintShadow(canvas, l, t, r, b, s[0], (s[1] * c.alpha).toInt())
             }
         }
         super.dispatchDraw(canvas)
@@ -1593,7 +1685,27 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 // this out of the way of the radius pass in addChildWithStyle,
                 // which reads the background back as a GradientDrawable and
                 // would throw away anything else.
-                val gd = o.background as? android.graphics.drawable.GradientDrawable ?: return
+                // style.press pop / glow, on a built key: a PRESSED STATE,
+                // on at finger-down and off at lift, exactly as on iPhone.
+                //
+                // Nothing waits on this. Starting it is an animator start, so
+                // its first frame draws on the next vsync — after this
+                // handler has returned from the commit. The key View itself
+                // is never transformed; a `pop` key is a KbPress.PopButton
+                // and scales its own drawing, so the frames the rows and the
+                // grid hit-test against never move.
+                pressSpecs[o]?.let { if (pressed) KbPress.down(o, it) else KbPress.up(o, it) }
+                // A key with a PRINT has a LayerDrawable background — the cap,
+                // then the face — so the cap to tint is layer 0 and not the
+                // background itself. Without this a faced key would be the one
+                // key on the board that does not light up when you press it.
+                val bg = o.background
+                val gd = when (bg) {
+                    is android.graphics.drawable.GradientDrawable -> bg
+                    is android.graphics.drawable.LayerDrawable ->
+                        if (bg.numberOfLayers > 0) bg.getDrawable(0) as? android.graphics.drawable.GradientDrawable else null
+                    else -> null
+                } ?: return
                 if (pressed) {
                     fades.remove(o)?.cancel()
                     val fill = pressedOverride[o] ?: pressedFill
@@ -1620,9 +1732,26 @@ class TulmiKeyPlane(context: Context) : LinearLayout(context) {
                 // background state list and invalidating its own layer.
                 if (pressed) {
                     o.fadeAt = 0L
+                    // The pressed state goes ON here and comes off at the
+                    // lift, as on the view path. A key pressed again while it
+                    // was still settling starts from where it is.
+                    if (o.press != null && KbPress.motionOn(context)) {
+                        val now = SystemClock.uptimeMillis()
+                        val at = KbPress.level(o.press, 0L, o.pressUpAt, o.pressFrom, now)
+                        o.pressUpAt = 0L
+                        // Backdate the start so the level is continuous: the
+                        // cap does not jump back down and climb again.
+                        o.pressDownAt = now - (at * o.press.ms).toLong()
+                    }
                     pressedKey = o
                 } else if (pressedKey === o) {
                     pressedKey = null
+                    if (o.press != null && o.pressDownAt > 0L) {
+                        val now = SystemClock.uptimeMillis()
+                        o.pressFrom = KbPress.level(o.press, o.pressDownAt, 0L, 0f, now)
+                        o.pressDownAt = 0L
+                        o.pressUpAt = now
+                    }
                     val press = if (o.pressedFill != 0) o.pressedFill else pressedFill
                     if (pressFadeMs > 0L && press != 0) {
                         o.fadeFrom = press

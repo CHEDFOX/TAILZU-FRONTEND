@@ -1,6 +1,7 @@
 package com.tulmi.app.keyboard
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.BitmapDrawable
@@ -71,6 +72,7 @@ object TulmiImageLoader {
     fun purgeMemory() {
         memory.clear()
         order.clear()
+        purgeFaces()
     }
     private val inflight = ConcurrentHashMap.newKeySet<String>()
     private val io = Executors.newFixedThreadPool(2)
@@ -117,6 +119,13 @@ object TulmiImageLoader {
     // -- Fetch + decode -----------------------------------------------------
 
     private fun fetch(context: Context, url: String, onLoad: ((Drawable) -> Unit)?) {
+        // OUR HOSTS ONLY, COMPILED IN. [native/SPEC.md §4.1] Until now this
+        // fetched whatever URL a config named, which made every key a possible
+        // request to somebody else's server — a tracking pixel with a letter
+        // printed on it. `asset`, `sf` and `emoji` never reach here; they need
+        // no network. No config in the field uses a remote URL, so nothing
+        // that ships today changes.
+        if (!KbSafety.mayFetch(url)) return
         if (!inflight.add(url)) return
         io.execute {
             val bytes = downloadBytes(url)
@@ -147,6 +156,10 @@ object TulmiImageLoader {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = knobInt("kb.media.connectTimeoutMs", 5000)
             readTimeout = knobInt("kb.media.readTimeoutMs", 10000)
+            // Not followed here either. HttpURLConnection follows by default,
+            // so this older path would have handed the allow-list to whoever
+            // can set a Location header — the one hole download() had closed.
+            instanceFollowRedirects = false
         }
         try {
             val code = conn.responseCode
@@ -364,6 +377,175 @@ object TulmiImageLoader {
         } catch (_: Throwable) {
             /* best-effort — cache miss on next launch is fine */
         }
+    }
+
+    // -- Key faces ----------------------------------------------------------
+    //
+    // A key's print is not the mic art and must not be loaded like it.
+    // [native/SPEC.md §2.9 "Keyboard faces"; keyboardFace.ts KEY_FACE_LIMITS]
+    //
+    //   - It is fetched ONCE, in the batch that follows the config, never in
+    //     response to a key press. The renderer reads the cache and only the
+    //     cache, so no request this keyboard makes can be lined up against a
+    //     keystroke.
+    //   - It is decoded at the KEY's size, not at kb.images.maxEdgePx — that
+    //     knob is in POINTS and 256 of them is 768 px on a 3x phone, which is
+    //     2.3 MB of bitmap for a print 40 px wide.
+    //   - Animated raster is refused outright in format 1. Thirty animated
+    //     keys is a different class of cost from one mic key; motion in a
+    //     print is a `mark` with a `program`, which is geometry.
+    //   - Every decoded face is counted against the live-image budget, and a
+    //     key that would pass it draws its flat colour instead.
+
+    /** Decoded face prints, by url and the px they were decoded at. */
+    private val faces = ConcurrentHashMap<String, Bitmap>()
+
+    /**
+     * One file, fetched if it is not already on disk, with its size checked
+     * before anything is decoded. Called only from the manifest's batch.
+     */
+    fun prefetch(context: Context, url: String, maxBytes: Int): Boolean {
+        if (!KbSafety.mayFetch(url)) return false
+        val f = cacheFile(context, url)
+        if (f.exists() && f.length() in 1..maxBytes.toLong()) return false
+        val bytes = download(url, maxBytes) ?: return false
+        return try { f.writeBytes(bytes); true } catch (_: Throwable) { false }
+    }
+
+    /**
+     * The bytes at [url], or null — refused when the host is not ours, when
+     * the server declares more than [maxBytes], or when the body runs past
+     * that while it is being read. Blocking; callers are already off the main
+     * thread.
+     *
+     * Redirects are NOT followed. A redirect is a way out of the allow-list:
+     * the host we checked answers with a Location on a host we did not, and
+     * following it would hand the whole compiled gate back to whoever can set
+     * that header. Our own art is content-addressed and served directly.
+     */
+    fun download(url: String, maxBytes: Int): ByteArray? {
+        if (!KbSafety.mayFetch(url)) return null
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = knobInt("kb.media.connectTimeoutMs", 5000)
+                readTimeout = knobInt("kb.media.readTimeoutMs", 10000)
+                instanceFollowRedirects = false
+            }
+            try {
+                if (conn.responseCode !in 200..299) return null
+                if (conn.contentLength > maxBytes) return null
+                conn.inputStream.use { input ->
+                    val out = ByteArrayOutputStream()
+                    val buf = ByteArray(16 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        if (out.size() + n > maxBytes) return null
+                        out.write(buf, 0, n)
+                    }
+                    out.toByteArray()
+                }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * A key print, decoded at the key's own size, from the cache alone.
+     *
+     * Null means "draw the flat colour this session": the file never arrived,
+     * it is not a static PNG, or the budget is spent. None of those is worth a
+     * network round trip in the middle of someone typing.
+     */
+    fun faceBitmap(context: Context, url: String, maxPx: Int): Bitmap? {
+        val px = maxPx.coerceIn(1, 512)
+        val bmp = decodeFace(context, url, px) ?: return null
+        // THE BUDGET IS CLAIMED ON EVERY ATTACH, memo hits included. It counts
+        // what is attached to live key views, and resetBudgets() runs at the
+        // top of every build; claiming only on the decode meant that from the
+        // second build on, nothing was counted at all.
+        if (!KbSkin.claimImage(bmp.width.toLong() * bmp.height.toLong() * 4L)) return null
+        return bmp
+    }
+
+    /**
+     * Decode a fetched file into the memo WITHOUT claiming budget, on the
+     * batch thread. The build that follows then only reads the memo: without
+     * this, the first rebuild after a batch decodes up to 24 PNGs on the main
+     * thread. [H12-Q5]
+     */
+    fun warmFace(context: Context, url: String, maxPx: Int) {
+        try { decodeFace(context, url, maxPx.coerceIn(1, 512)) } catch (_: Throwable) {}
+    }
+
+    /** The decode itself, memoised per (file, px). No budget, no main-thread
+     *  assumption: both callers above are explicit about which they are. */
+    private fun decodeFace(context: Context, url: String, px: Int): Bitmap? {
+        val key = "$url|$px"
+        faces[key]?.let { return it }
+        val f = cacheFile(context, url)
+        if (!f.exists()) return null
+        return try {
+            val bytes = f.readBytes()
+            if (!isStaticPng(bytes)) return null
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val srcLong = maxOf(bounds.outWidth, bounds.outHeight)
+            if (srcLong <= 0) return null
+            var sample = 1
+            while (srcLong / (sample * 2) >= px) sample *= 2
+            val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+            var bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
+            val long = maxOf(bmp.width, bmp.height)
+            if (long > px) {
+                val s = px.toFloat() / long
+                bmp = android.graphics.Bitmap.createScaledBitmap(
+                    bmp, Math.round(bmp.width * s).coerceAtLeast(1), Math.round(bmp.height * s).coerceAtLeast(1), true,
+                )
+            }
+            faces[key] = bmp
+            bmp
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * A still PNG, and nothing else. An APNG announces itself with an `acTL`
+     * chunk before the first `IDAT`; a GIF or a WebP is not a PNG at all.
+     */
+    private fun isStaticPng(b: ByteArray): Boolean {
+        if (b.size < 8) return false
+        if (b[0] != 0x89.toByte() || b[1] != 'P'.code.toByte() ||
+            b[2] != 'N'.code.toByte() || b[3] != 'G'.code.toByte()
+        ) return false
+        var i = 8
+        while (i + 8 <= b.size) {
+            val len = ((b[i].toInt() and 0xff) shl 24) or ((b[i + 1].toInt() and 0xff) shl 16) or
+                ((b[i + 2].toInt() and 0xff) shl 8) or (b[i + 3].toInt() and 0xff)
+            if (len < 0) return false
+            val type = String(b, i + 4, 4, Charsets.US_ASCII)
+            if (type == "acTL") return false
+            if (type == "IDAT" || type == "IEND") return true
+            if (i + 12L + len > b.size) return false
+            i += 12 + len
+        }
+        return false
+    }
+
+    /**
+     * Every print goes when the skin does: a new skin is new files.
+     *
+     * Called from [KbSkin.arm] whenever the armed skin's sha changes, and from
+     * [purgeMemory] when the system asks for memory back. Those are the only
+     * two; the map is otherwise write-only, and nothing in it is counted by
+     * the live-image budget.
+     */
+    fun purgeFaces() {
+        faces.clear()
     }
 }
 

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  X0 BOARD in the widget picker (TailzuX0Board.kt): the spare kind whose contents its owner picks, so a new board is a
+  catalog change and not another store release.
+
+  widgetFeatures is reconfigurable|configuration_optional, and both halves matter. `reconfigurable` puts "Choose a board"
+  behind the launcher's own reconfigure gesture. `configuration_optional` means placing the widget does NOT open that
+  screen first: it draws the bundled default board straight away, which is what keeps the gallery line ("It starts with
+  what needs you and who's working") true from the first second. Both are read on API 31 and later, which is also the
+  floor nlook needs; below that this kind draws X0's own hand-written view, which needs only the glance.
+
+  updatePeriodMillis is 0, as X0's: the app asks for a redraw when it writes a glance or a catalog, and the widget itself
+  redraws on the X0 tick while a job runs. Nothing here asks the server anything.
+
+  The preview is X0's own 4x2 layout rather than a board's: a design is data and may not exist before the app has run,
+  while the picker reads this file before anything of ours has ever started.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:configure="expo.modules.tulmibridge.TailzuX0BoardConfigure"
+    android:description="@string/tailzu_x0_board_description"
+    android:initialLayout="@layout/tailzu_x0_medium_quiet"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:previewLayout="@layout/tailzu_x0_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:widgetFeatures="reconfigurable|configuration_optional" />

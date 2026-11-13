@@ -38,7 +38,8 @@ import type { BotTileSpec } from "../types";
 import { BotTile, TAP, gridWorld, kindOf, type BotKind, type BotMood, type Looks, type Moment } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
-import { useLooks } from "../../botTiles/looks";
+import { noteScenes, useLooks } from "../../botTiles/looks";
+import { voiceLevel } from "../voice/voiceBus";
 import * as K from "../knobs";
 
 const INK = "#0a0a0a", META = "#5c5c5c", LINE = "#e6e6e6", DASHED = "#c9c9c9", PAPER = "#ffffff";
@@ -92,7 +93,7 @@ export const BotTiles = (p: CompProps): React.ReactElement => (
   <Guard fallback={<Grid {...p} bots={false} />}><Grid {...p} bots /></Guard>
 );
 
-function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactElement {
+function Grid({ props, ctx, store, bots }: CompProps & { bots: boolean }): React.ReactElement {
   const grid: BotTileSpec[] = Array.isArray(props?.tiles) ? props.tiles : [];
   const strip: BotTileSpec | null = props?.strip && typeof props.strip === "object" ? (props.strip as BotTileSpec) : null;
   // The strip is the world's last bot: its index is grid.length.
@@ -159,7 +160,14 @@ function Grid({ props, ctx, bots }: CompProps & { bots: boolean }): React.ReactE
   }, [reduced, tw, world, paintAll]);
 
   useTileLoop({
-    frame: (dt) => { world.step(dt); paintAll(); },
+    frame: (dt) => {
+      // A live scene may read `level` and `talk`: his voice, only while one is playing (SPEC 3.6).
+      for (const t of world.tiles) if (t.scenesLive()) t.setLevel(voiceLevel(store));
+      world.step(dt);
+      // Home is where the idle surprises play, so this is where a slowed or broken scene is first seen (SPEC 3.9).
+      for (const t of world.tiles) if (t.sceneBad.length || t.sceneSlow.length) noteScenes(t.sceneBad, t.sceneSlow);
+      paintAll();
+    },
     still: paintAll,
   }, bots && reduced === false && tw > 0, host);
 

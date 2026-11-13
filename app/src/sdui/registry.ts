@@ -105,6 +105,12 @@ export const CORE_COMPONENTS = [
    */
   "BotMoments",
   /**
+   * NOT A COMPONENT — looks format 2, scenes (types.ts BOT_MOMENTS2_CAPABILITY): the animation language in
+   * botTiles/scene.ts, drawn by the same core. It is backed only by JS in this very bundle, so a constant here is
+   * the honest answer; the binary-feature rule (device/binaryCore.ts) is for names that need native code.
+   */
+  "BotMoments2",
+  /**
    * NOT A COMPONENT — callEndpoint's `stream` (askStream.ts): an answer's words and what the bot is doing, written into state
    * as they come over the live socket (topic ask:<id>), and the id the server's stop names.
    */

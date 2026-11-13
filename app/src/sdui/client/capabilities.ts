@@ -9,6 +9,7 @@ import { APP_VERSION } from "./version";
 import { isStreamAvailable } from "../../../modules/tulmi-stream";
 import { binaryFeatures } from "../../device/binary";
 import { featureCaps } from "../../device/binaryCore";
+import { looksReport } from "../../botTiles/looks";
 
 /**
  * Which JS bundle is actually running.
@@ -65,6 +66,9 @@ export function buildCapabilities() {
     // flag to flip: a constant, true of every bundle that has this line.
     googleWeb: true,
     components: declared(),
+    // The bots' catalog as this phone really has it (botTiles/looks.ts): its version and format, whether it
+    // compiled, and any scene that went wrong or was slowed. No person data; a few hundred bytes at most.
+    looks: looksReport(),
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
     device: {

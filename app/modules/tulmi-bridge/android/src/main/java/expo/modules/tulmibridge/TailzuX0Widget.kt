@@ -55,8 +55,10 @@ import kotlin.math.sqrt
  *
  * Everything drawn is the glance the app fetched and checked (src/widgets/glance.ts) and wrote to this app's `tulmi.widget`
  * SharedPreferences under `x0.glance` (setWidgetGlance); every word is the glance's `words` first, a string resource after.
- * The bots' faces are the files the app downloaded beside it (files/widget-faces/<face>.png), a built-in bot's bundled head until
- * then, else a disc in the bot's colour with its initial. Nothing here asks the server anything. Every tap opens a link of this
+ * EVERY CARD SHOWS THE BOT WHOSE CARD IT IS — the one working, the one asking, the one that finished, each tile's own: its
+ * dotted still as the app drew it, else the face file it downloaded (files/widget-faces/<face>.png), else a built-in bot's
+ * bundled head, else a disc in its colour with its initial (X0Faces). Blip is only in the quiet state, where there is no card,
+ * and beside the Ask bar as his own peek key. Nothing here asks the server anything. Every tap opens a link of this
  * app's (TailzuQuick.openIntent), except See the PR, which opens the pull request on github.com.
  *
  * Light and dark: the app's palette (WidgetInk; the widget theme's colours over it), colour only from the bots. Android 12+ is
@@ -81,17 +83,64 @@ class TailzuX0Widget : AppWidgetProvider() {
     TailzuX0.drawAll(context, appWidgetManager, intArrayOf(appWidgetId))
   }
 
+  /**
+   * EVERY DRAW GOES OFF THE MAIN THREAD, on the widgets' one serial queue (TailzuWork), under goAsync so the process
+   * stays alive while it runs.
+   *
+   * Not only the alarm. Most APPWIDGET_UPDATE broadcasts X0 gets are OURS, sent by TailzuQuick.requestUpdate on every
+   * glance sync, theme write, catalog write and answer — so they arrive on the app's main thread while the person is
+   * using the app, and with a design on they would read a file and paint bitmaps there. Serial because two draws must
+   * never overlap: the paint budget has one writer, the newest glance must land last, and a sweep must never delete a
+   * folder a draw is reading.
+   *
+   * Everything that is not a draw — DELETED, ENABLED, DISABLED — is cheap and still goes to super.onReceive inline.
+   */
   override fun onReceive(context: Context, intent: Intent) {
+    val app = context.applicationContext ?: context
     if (intent.action == TailzuX0.TICK || intent.action == TailzuX0.STEP) {
-      TailzuX0.drawAll(context)
+      TailzuWork.receive(goAsync()) {
+        TailzuX0.drawAll(app)
+        // A Board counts the same minutes and turns at the same doneMs, and its own provider has no alarm: it rides this
+        // one, which is what tailzu_x0_board_info.xml has always promised. X0's drawAll arms the alarm for both kinds.
+        TailzuX0Board.drawAll(app)
+        // The ongoing "Bots at work" notice counts minutes too, and it rides this same alarm rather than owning one:
+        // the phone is already awake for the widget, and a second inexact alarm would buy nothing (TailzuBotsUpdate).
+        TailzuBotsUpdate.post(app)
+      }
+      return
+    }
+    // The person swiped the "Bots at work" notice away. It stays away until the app sets a new state.
+    if (intent.action == TailzuX0.NOTICE_GONE) {
+      TailzuWork.receive(goAsync()) {
+        TailzuBotsUpdate.dismissed(app)
+        TailzuX0.arm(app, AppWidgetManager.getInstance(app), X0Doc.load(app), System.currentTimeMillis())
+      }
+      return
+    }
+    val ids = TailzuWork.widgetIds(intent)
+    val manager = if (ids == null) null else AppWidgetManager.getInstance(app)
+    if (ids != null && manager != null) {
+      // The same two calls AppWidgetProvider.onReceive would make, made on the queue instead of on this thread.
+      TailzuWork.receive(goAsync()) {
+        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED) {
+          onAppWidgetOptionsChanged(app, manager, ids[0], intent.extras?.getBundle(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS))
+        } else {
+          onUpdate(app, manager, ids)
+        }
+      }
       return
     }
     super.onReceive(context, intent)
   }
 
+  /**
+   * The last X0 came off the home screen. The alarms are not simply cancelled: a Board may still be placed, and the
+   * "Bots at work" notice may still be standing, and both of those count minutes on this same tick. `arm` works that out.
+   */
   override fun onDisabled(context: Context) {
-    TailzuX0.tick(context, false)
-    TailzuX0.step(context, null)
+    val app = context.applicationContext ?: context
+    val now = System.currentTimeMillis()
+    TailzuX0.arm(app, AppWidgetManager.getInstance(app), X0Doc.load(app, now), now)
   }
 }
 
@@ -107,6 +156,9 @@ object TailzuX0 {
   /** The redraw at the glance's next step (X0Steps), on an alarm of its own so it never moves the tick's. */
   internal const val STEP = "expo.modules.tulmibridge.X0_STEP"
 
+  /** The "Bots at work" notice's deleteIntent: the person swiped it away (TailzuBotsUpdate). */
+  internal const val NOTICE_GONE = "expo.modules.tulmibridge.X0_NOTICE_GONE"
+
   /** No ticking on a glance older than this: what it says of a running job is no longer worth counting on. */
   private const val TICK_FOR_MS = 3 * 3_600_000L
 
@@ -119,27 +171,69 @@ object TailzuX0 {
   internal fun drawAll(context: Context, manager: AppWidgetManager? = null, only: IntArray? = null) {
     try {
       val widgets = manager ?: AppWidgetManager.getInstance(context) ?: return
-      val ids = only ?: widgets.getAppWidgetIds(ComponentName(context, TailzuX0Widget::class.java)) ?: return
-      if (ids.isEmpty()) return
+      val ids = only ?: widgets.getAppWidgetIds(ComponentName(context, TailzuX0Widget::class.java)) ?: IntArray(0)
       val now = System.currentTimeMillis()
       val doc = X0Doc.load(context, now)
       for (id in ids) draw(context, widgets, id, doc)
-      tick(context, doc != null && ticks(doc, now))
-      step(context, doc?.nextStepAt)
+      // Always, even with no X0 placed: the alarms serve the Board and the notice as well, and this is where they are
+      // decided. With nothing at all to redraw, `arm` cancels them.
+      arm(context, widgets, doc, now)
     } catch (_: Throwable) {
       // A widget never stops the app.
     }
   }
 
+  /**
+   * THE TWO ALARMS, for EVERYTHING that counts minutes: X0, the X0 Board and the "Bots at work" notice. Each of the
+   * three used to decide this for itself, which left a Board frozen until the app wrote a glance and left the notice's
+   * minutes standing still on a phone with no X0 on its home screen. One place, asked by all of them.
+   */
+  internal fun arm(context: Context, widgets: AppWidgetManager?, doc: X0Doc?, now: Long) {
+    val placed = placed(context, widgets)
+    val notice = TailzuBotsUpdate.running(context)
+    tick(context, (placed && doc != null && ticks(doc, now)) || notice)
+    step(context, if (placed) doc?.nextStepAt else null)
+  }
+
+  /** Whether either widget kind is on a home screen. */
+  private fun placed(context: Context, widgets: AppWidgetManager?): Boolean = try {
+    val manager = widgets ?: AppWidgetManager.getInstance(context)
+    val x0 = manager?.getAppWidgetIds(ComponentName(context, TailzuX0Widget::class.java))?.size ?: 0
+    val board = manager?.getAppWidgetIds(ComponentName(context, TailzuX0BoardWidget::class.java))?.size ?: 0
+    x0 + board > 0
+  } catch (_: Throwable) {
+    false
+  }
+
+  /**
+   * One widget drawn and handed to the launcher, with the two fallbacks SPEC §3.7 asks for. The host's own errors — no
+   * memory for the bitmaps, a Binder transaction too large — arrive here as an exception from updateAppWidget, and
+   * there is nothing to read in them. So:
+   *   a design's views were refused   strike that design (two strikes and this phone never draws it again) and draw
+   *                                   today's own views, which cost one bitmap and have been accepted for years;
+   *   today's views were refused too  the plain layout as placed, rather than "can't load widget".
+   * Before this, a refused design fell straight to an EMPTY layout and took no strike, so the next TICK did it again.
+   */
   private fun draw(context: Context, manager: AppWidgetManager, id: Int, doc: X0Doc?) {
+    var design = ""
     try {
-      manager.updateAppWidget(id, views(context, doc, manager.getAppWidgetOptions(id), id))
+      val made = drawn(context, doc, manager.getAppWidgetOptions(id), id, true)
+      design = made.design
+      manager.updateAppWidget(id, made.views)
+      return
     } catch (_: Throwable) {
-      // No memory for a bitmap, or a host that refused it: the plain layout as placed rather than "can't load widget".
-      try {
-        manager.updateAppWidget(id, RemoteViews(context.packageName, R.layout.tailzu_x0_medium_quiet))
-      } catch (_: Throwable) {
+    }
+    try {
+      if (design.isNotEmpty()) {
+        NLookStore.strike(context, design)
+        manager.updateAppWidget(id, drawn(context, doc, manager.getAppWidgetOptions(id), id, false).views)
+        return
       }
+    } catch (_: Throwable) {
+    }
+    try {
+      manager.updateAppWidget(id, RemoteViews(context.packageName, R.layout.tailzu_x0_medium_quiet))
+    } catch (_: Throwable) {
     }
   }
 
@@ -200,18 +294,30 @@ object TailzuX0 {
     else -> MEDIUM
   }
 
-  private fun views(context: Context, doc: X0Doc?, options: Bundle?, id: Int): RemoteViews {
+  /** Today's hand-written views for a glance. Internal so the X0 Board kind can fall back to exactly this and nothing else. */
+  internal fun views(context: Context, doc: X0Doc?, options: Bundle?, id: Int): RemoteViews =
+    drawn(context, doc, options, id, true).views
+
+  /** What was drawn, and which design drew it ("" for today's own views). */
+  internal class Drawn(val views: RemoteViews, val design: String)
+
+  internal fun drawn(context: Context, doc: X0Doc?, options: Bundle?, id: Int, look: Boolean): Drawn {
     val c = X0Ctx(context, doc, id)
     if (Build.VERSION.SDK_INT >= 31) {
       val listed = listedSizes(options)
+      // A LOOK THE SERVER SENT, first (NLookRemote): the design the glance named, drawn from data this build already holds.
+      // Null for every reason there is — no design, an id this phone does not hold, a format too new, over a level or
+      // bitmap cap, a design this phone marked bad, or anything at all thrown on the way — and today's views below draw
+      // instead. Nothing about the twelve layouts changes, so an old build and a dark switch look the same.
+      if (look) NLookRemote.widget(c, listed, "x0")?.let { return Drawn(it.views, it.design) }
       // One layout per size the launcher may show, each drawn for exactly its size; the launcher shows the one that fits.
-      if (listed.size > 1) return RemoteViews(listed.associate { SizeF(it.w, it.h) to build(c, it) })
-      if (listed.size == 1) return build(c, listed[0])
+      if (listed.size > 1) return Drawn(RemoteViews(listed.associate { SizeF(it.w, it.h) to build(c, it) }), "")
+      if (listed.size == 1) return Drawn(build(c, listed[0]), "")
     }
     val (portrait, landscape) = extremes(options)
     val p = build(c, portrait)
-    if (portrait == landscape) return p
-    return RemoteViews(build(c, landscape), p)
+    if (portrait == landscape) return Drawn(p, "")
+    return Drawn(RemoteViews(build(c, landscape), p), "")
   }
 
   private fun build(c: X0Ctx, size: SizeDp): RemoteViews {
@@ -223,7 +329,7 @@ object TailzuX0 {
   }
 
   /** Android 12+: the sizes, in dp, the launcher may show this widget at. */
-  private fun listedSizes(options: Bundle?): List<SizeDp> {
+  internal fun listedSizes(options: Bundle?): List<SizeDp> {
     if (Build.VERSION.SDK_INT < 31 || options == null) return emptyList()
     val listed = try {
       @Suppress("DEPRECATION")
@@ -271,6 +377,12 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long, val
 
   class Done(val bot: String, val botName: String, val result: String, val endedAt: Long, val minutes: Int, val prNumber: Int,
              val prUrl: String, val link: String)
+
+  /**
+   * The glance exactly as the app wrote it. Only nlook's closed bind table reads it (NLookBind), so a server design can
+   * reach the same fields these typed ones do without a new native build for each one. Nothing else here touches it.
+   */
+  internal val raw: JSONObject = o
 
   val at: Long = num(o, "at")?.toLong() ?: 0L
   private val case: String = str(o, "case")
@@ -337,6 +449,31 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long, val
   /** The glance's word, or the fallback. */
   fun word(key: String, fallback: String): String = str(words, key).ifBlank { fallback }
 
+  /**
+   * The design the server named for a widget kind ("x0", "board"), for a build that said NativeLook1 and sent its `nl`.
+   * Null when it named none, which is the normal state while the look switch is off: today's views draw.
+   */
+  fun look(kind: String): String? = str(raw.optJSONObject("look"), kind).takeIf { it.isNotEmpty() }
+
+  /**
+   * THE BOARDS "X0 Board" OFFERS, as the server worded them. Names come down on the glance, already in this person's
+   * language and already filtered to what this phone can draw, because a design carries no gallery words and a widget
+   * may not invent any: a list built out of design ids would read "night" to a person who has never seen the catalog.
+   *
+   * A board with no name is not offered. An id IS offered even when this phone does not hold its design yet — X0's own
+   * hand-written view draws it meanwhile, exactly as it does on iPhone. With no list at all the picker shows only the
+   * bundled "Overview", which is the truth while the look switch is off.
+   */
+  val boards: List<Pair<String, String>> = objects(o.optJSONArray("boards")).mapNotNull { b ->
+    val id = str(b, "id")
+    val name = str(b, "name")
+    if (!BOARD.matches(id) || !id.startsWith("board.") || id == "board.base" || name.isEmpty()) return@mapNotNull null
+    Pair(id, name.take(40))
+  }.distinctBy { it.first }.take(12)
+
+  /** The free map the server fills beside `look` (bind.ts), the one way a design binds data this struct has no field for. */
+  fun vars(): JSONObject? = raw.optJSONObject("vars")
+
   fun bot(slug: String?): Bot? = if (slug.isNullOrEmpty()) null else bots.firstOrNull { it.slug == slug }
 
   /**
@@ -357,6 +494,9 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long, val
   companion object {
     private val ORDER = listOf("needs", "done", "working", "quiet")
     private val FACE = Regex("^[a-z0-9][a-z0-9_-]{0,47}$")
+
+    /** A design id, the same shape NLookStore reads: a board the glance names has to be one. */
+    private val BOARD = Regex("^[a-z0-9._-]{1,40}$")
 
     /** What setWidgetGlance last stored, as it reads at `now`, or nothing (never written, or signed out). Never throws. */
     fun load(context: Context, now: Long = System.currentTimeMillis()): X0Doc? = try {
@@ -382,10 +522,96 @@ internal class X0Doc private constructor(o: JSONObject, val writtenAt: Long, val
 
 // ====================================================================================================== one draw's context
 
-/** A bot's face: a bundled drawable (a built-in bot's head) or a bitmap (its downloaded face, or a disc with its initial). */
+/** A bot's face: a bundled drawable (a built-in bot's head) or a bitmap (its still, its downloaded face, or a disc). */
 internal sealed class Face {
   class Res(val id: Int) : Face()
   class Bmp(val bitmap: Bitmap) : Face()
+}
+
+/**
+ * THE PICTURE OF A BOT A CARD SHOWS, in one place because three surfaces draw it: X0 itself, the X0 Board and the "Bots at
+ * work" notice. Every card shows THE BOT WHOSE CARD IT IS — the one working, the one asking, the one that finished, each
+ * row's own — in this order:
+ *
+ *   1. its dotted still, as the app drew it from the bots' own looks into the art channel (files/nlook/art/...)
+ *   2. its face, as the app downloaded it (files/widget-faces/<face>.png)
+ *   3. a disc in its own colour with its initial
+ *
+ * Blip and the X0 mark are NOT in this list. They belong where there is no card at all: the quiet state, the Ask bar's peek
+ * key, the launcher icon, and the notice's small icon (which Android requires to be the app's own monochrome mark).
+ */
+internal object X0Faces {
+  /** A decoded picture's longest edge: the same cap the notice and the painter use, so a face costs the same everywhere. */
+  private const val MAX_PX = 256
+
+  /**
+   * The dotted still the app drew for this bot, at the moment asked for ("work" while it works, "rest" otherwise), else at
+   * any moment the art channel holds for it. Null before the app has drawn one — there is no still for a bot no design asks
+   * about, which is the normal state while the look switch is off.
+   */
+  fun still(context: Context, index: NLookIndex?, slug: String?, moment: String): Bitmap? {
+    val file = stillFile(context, index, slug, moment) ?: return null
+    return decode(file)
+  }
+
+  private fun stillFile(context: Context, index: NLookIndex?, slug: String?, moment: String): File? {
+    if (index == null || slug.isNullOrEmpty() || X0Doc.face(slug) == null) return null
+    val prefix = "bot:$slug."
+    // Sorted, so one bot draws the SAME still on every size and every redraw rather than flickering between moments.
+    val keys = index.art.keys.filter { it.startsWith(prefix) }.sorted()
+    if (keys.isEmpty()) return null
+    val key = keys.firstOrNull { it.startsWith(prefix + moment + "@") }
+      ?: keys.firstOrNull { it.startsWith(prefix + "rest@") }
+      ?: keys.first()
+    val relative = index.art[key] ?: return null
+    if (relative.contains("..")) return null
+    return File(context.filesDir, relative).takeIf { it.isFile && it.length() in 1..NLookLimits.ART_BYTES }
+  }
+
+  /** The face file the app downloaded for a bot, named by its face key. Null until it is there. */
+  fun face(context: Context, key: String?): Bitmap? {
+    val k = key?.let { X0Doc.face(it) } ?: return null
+    return decode(File(File(context.filesDir, "widget-faces"), "$k.png"))
+  }
+
+  /** A bot with no picture at all: a disc in its own colour, its initial over it. A face slot's size by default. */
+  fun disc(color: Int, name: String, px: Int = 96): Bitmap {
+    val b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+    val c = Canvas(b)
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+    c.drawCircle(px / 2f, px / 2f, px / 2f, fill)
+    val initial = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: ""
+    if (initial.isNotEmpty()) {
+      val p = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = if (fill.color == Color.WHITE) Color.BLACK else Color.WHITE
+        textSize = px * 0.46f
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+      }
+      val m = p.fontMetrics
+      c.drawText(initial, px / 2f, px / 2f - (m.ascent + m.descent) / 2f, p)
+    }
+    return b
+  }
+
+  /** A file off disk, sampled down to the face slot's size. Null for anything missing, too big or unreadable. */
+  fun decode(file: File): Bitmap? = try {
+    if (!file.isFile || file.length() > 2_000_000L) {
+      null
+    } else {
+      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      BitmapFactory.decodeFile(file.path, bounds)
+      if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+        null
+      } else {
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sample > MAX_PX) sample *= 2
+        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+      }
+    }
+  } catch (_: Throwable) {
+    null
+  }
 }
 
 /** What every size of one widget's draw shares: the glance, the colours, the faces (decoded once), the taps. */
@@ -395,7 +621,8 @@ internal class X0Ctx(val context: Context, val doc: X0Doc?, private val widgetId
   val night = WidgetInk.isNight(context)
   val density: Float = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
 
-  private val palette = WidgetInk.Palette(context)
+  // The catalog's palette when the phone holds one (it is THE source for widget colour), today's resources otherwise.
+  private val palette = WidgetInk.Palette(context, NLookStore.palette(context))
   private val theme = TailzuQuick.obj(TailzuQuick.prefs(context).getString(TailzuQuick.THEME_KEY, null))
   private val darks = listOf(theme?.optJSONObject("colors"))
   private val lights = listOf(theme?.optJSONObject("light"))
@@ -453,64 +680,36 @@ internal class X0Ctx(val context: Context, val doc: X0Doc?, private val widgetId
   // ---- faces
 
   private val faces = HashMap<String, Face>()
-  private val dir = File(context.filesDir, "widget-faces")
 
-  /** A bot's face: the downloaded file, else a built-in bot's bundled head, else a disc in its colour with its initial. */
+  /** The designs and the art channel this phone holds, for the bots' stills. Null below API 31 and before the first sync. */
+  private val looks = NLookStore.index(context)
+
+  /**
+   * THE BOT WHOSE CARD THIS IS, in the one order every card follows (X0Faces): its own dotted still, else its own
+   * downloaded face, else a built-in bot's bundled head, else a disc in its colour with its initial. Never Blip and never
+   * the app's mark — those belong to the quiet state and the launcher, where there is no card.
+   */
   fun face(slug: String?, key: String?, name: String): Face {
     val k = key?.let { X0Doc.face(it) }
-    val cacheKey = "${k ?: ""}|${slug ?: ""}|$name"
+    // A bot at work is drawn working; anything else is drawn at rest. The moment is the bot's own, not the widget's case,
+    // so a crew row and the lead can show the same bot doing the same thing.
+    val moment = if (doc?.bot(slug)?.working == true) "work" else "rest"
+    val cacheKey = "${k ?: ""}|${slug ?: ""}|$name|$moment"
     faces[cacheKey]?.let { return it }
-    val made = k?.let { decode(File(dir, "$it.png"))?.let { b -> Face.Bmp(b) } }
+    val made = X0Faces.still(context, looks, slug, moment)?.let { Face.Bmp(it) }
+      ?: X0Faces.face(context, k)?.let { Face.Bmp(it) }
       ?: k?.let { bundled(it) }
       ?: slug?.let { X0Doc.face(it) }?.let { bundled(it) }
-      ?: Face.Bmp(disc(slug, name))
+      ?: Face.Bmp(X0Faces.disc(botInk(slug).light, name))
     faces[cacheKey] = made
     return made
   }
 
+  /** A built-in bot's own head, shipped in the build. Keyed by that bot's face or slug, so it is never another bot's. */
   private fun bundled(key: String): Face? {
     @Suppress("DiscouragedApi")
     val id = context.resources.getIdentifier("tailzu_x0_head_" + key.replace('-', '_'), "drawable", context.packageName)
     return if (id != 0) Face.Res(id) else null
-  }
-
-  private fun decode(file: File): Bitmap? = try {
-    if (!file.isFile || file.length() > 2_000_000L) {
-      null
-    } else {
-      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-      BitmapFactory.decodeFile(file.path, bounds)
-      if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-        null
-      } else {
-        var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / sample > 256) sample *= 2
-        BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
-      }
-    }
-  } catch (_: Throwable) {
-    null
-  }
-
-  /** A bot without a picture: a disc in its colour (the ink for one without), its initial in white. */
-  private fun disc(slug: String?, name: String): Bitmap {
-    val px = 96
-    val b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
-    val c = Canvas(b)
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = botInk(slug).light }
-    c.drawCircle(px / 2f, px / 2f, px / 2f, fill)
-    val initial = name.trim().firstOrNull()?.uppercase(Locale.getDefault()) ?: ""
-    if (initial.isNotEmpty()) {
-      val p = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (fill.color == Color.WHITE) Color.BLACK else Color.WHITE
-        textSize = px * 0.46f
-        typeface = Typeface.DEFAULT_BOLD
-        textAlign = Paint.Align.CENTER
-      }
-      val m = p.fontMetrics
-      c.drawText(initial, px / 2f, px / 2f - (m.ascent + m.descent) / 2f, p)
-    }
-    return b
   }
 
   // ---- measuring
@@ -817,7 +1016,9 @@ internal class X0Fill(private val c: X0Ctx, private val v: Views, private val si
     val needsYou = c.word("needsYou", R.string.tailzu_x0_needs_you)
     val link = item?.link?.ifEmpty { null } ?: item?.decideLink?.ifEmpty { null } ?: bot?.link ?: d.home
 
-    face(R.id.tailzu_x0_face, slug, item?.face ?: bot?.face, name.ifEmpty { "X0" })
+    // The disc's initial is the ASKING BOT'S, never X0's: a bot the glance has no row for (it keeps eight) has no name
+    // here, and "X0" would put X0's own letter on another bot's card. No bot at all leaves the disc plain.
+    face(R.id.tailzu_x0_face, slug, item?.face ?: bot?.face, name.ifEmpty { slug ?: "" })
     v.text(R.id.tailzu_x0_name, name.ifEmpty { needsYou }, c.ink)
     v.tint(R.id.tailzu_x0_dot, c.ink)
     v.text(R.id.tailzu_x0_status, lowerFirst(needsYou), c.meta)
@@ -1009,7 +1210,8 @@ internal class X0Fill(private val c: X0Ctx, private val v: Views, private val si
     val name = last.botName.ifEmpty { bot?.name ?: "" }
     v.click(android.R.id.background, c.open(last.link, Slot.ROOT))
     v.click(R.id.tailzu_x0_card, c.open(last.link, Slot.CARD))
-    face(R.id.tailzu_x0_face, slug, bot?.face, name.ifEmpty { "X0" })
+    // The disc's initial is the FINISHING BOT'S, never X0's (see needs): its slug's letter when the glance has no row.
+    face(R.id.tailzu_x0_face, slug, bot?.face, name.ifEmpty { slug ?: "" })
     check()
     v.text(R.id.tailzu_x0_title, last.result.ifEmpty { c.word("done", R.string.tailzu_x0_done) }, c.ink)
     if (cls == TailzuX0.SMALL) v.lines(R.id.tailzu_x0_title, floor((size.h - 147f) / 19f).toInt().coerceIn(1, 3))

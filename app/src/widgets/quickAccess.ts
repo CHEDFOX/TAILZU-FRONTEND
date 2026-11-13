@@ -15,6 +15,7 @@ import { registerNotificationTask } from "../notifications/backgroundTask";
 import { registerNotificationCategories } from "../notifications/categories";
 import { flushOwedActions, forgetOwedActions } from "../notifications/actions";
 import { applyQuickActions } from "../quickActions/quickActions";
+import { forgetPushToStart } from "../notifications/pushToStart";
 import { forgetGlance, refreshGlance } from "./glance";
 import { forgetWidgets, refreshWidgetsNow, revokeWidgetToken } from "./now";
 
@@ -31,7 +32,9 @@ export function refreshQuickAccess(o: { force?: boolean } = {}): void {
 }
 
 export async function signingOut(): Promise<void> {
-  await revokeWidgetToken();
+  // Both server calls run side by side, while the session still exists. The start token's gets at most 3 s, so sign-out never waits on it.
+  const limit = new Promise<void>((r) => { setTimeout(r, 3000); });
+  await Promise.all([Promise.race([forgetPushToStart().catch(() => {}), limit]), revokeWidgetToken()]);
 }
 
 export function forgetQuickAccess(): void {

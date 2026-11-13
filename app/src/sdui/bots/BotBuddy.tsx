@@ -32,7 +32,8 @@ import { evalCondition } from "../actions";
 import { BotTile, kindOf, type BotKind, type BotMood, type BuddyAct } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
-import { useLooks } from "../../botTiles/looks";
+import { noteScenes, useLooks } from "../../botTiles/looks";
+import { voiceLevel } from "../voice/voiceBus";
 
 /** The bots of the pages, by life, for the life of the app. */
 const LIVES = new Map<string, BotTile>();
@@ -70,7 +71,7 @@ export const BotBuddy = (p: CompProps): React.ReactElement => (
   <Guard fallback={<View style={stageStyle(Number(p.props?.width) || 0, Number(p.props?.height) || 48)} />}><Buddy {...p} /></Guard>
 );
 
-function Buddy({ props, ctx }: CompProps): React.ReactElement {
+function Buddy({ props, ctx, store }: CompProps): React.ReactElement {
   const H = Number(props?.height) || 48;
   const fixedW = Number(props?.width) || 0;
   const [W, setW] = useState(fixedW);
@@ -156,7 +157,13 @@ function Buddy({ props, ctx }: CompProps): React.ReactElement {
   useEffect(() => { if (momentEnd) bot.deliverMoment(); }, [bot, momentEnd]);
 
   useTileLoop({
-    frame: (dt) => { bot.step(dt); painter.current?.paint(bot); if (carry && !fold.current && bot.carryDone()) folds(); },
+    frame: (dt) => {
+      if (bot.scenesLive()) bot.setLevel(voiceLevel(store));
+      bot.step(dt);
+      if (bot.sceneBad.length || bot.sceneSlow.length) noteScenes(bot.sceneBad, bot.sceneSlow);
+      painter.current?.paint(bot);
+      if (carry && !fold.current && bot.carryDone()) folds();
+    },
     still: () => painter.current?.paint(bot),
   }, reduced === false && W > 0 && !gone, host);
 

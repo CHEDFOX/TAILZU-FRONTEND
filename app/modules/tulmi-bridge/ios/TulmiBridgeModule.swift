@@ -17,8 +17,15 @@ public class TulmiBridgeModule: Module {
 
     // At launch: take down a Flow activity left by a session that died with
     // the last process, and listen for the activity's End button from here on.
-    // A Bots at work activity an earlier process started keeps handing its
-    // push token over (onBotsActivityPushToken).
+    //
+    // Only the two closures that forward a token to JavaScript are set up here.
+    // The Live Activity OBSERVERS start in the app delegate
+    // (TulmiShortcutsAppDelegate, TulmiShortcuts.swift), because this block runs
+    // once the JavaScript engine is up and again on every reload, which is too
+    // late for a cold background wake and twice too often for a `for await`
+    // loop. Whatever arrives before a listener is attached is in the App Group:
+    // JS reads it with botsActivityPushToken / botsActivityPushTokenInfo /
+    // botsActivityPushToStartToken on every start.
     OnCreate {
       FlowSessionManager.shared.adoptLaunch()
       #if canImport(ActivityKit)
@@ -26,7 +33,9 @@ public class TulmiBridgeModule: Module {
         BotsLiveActivity.shared.onPushToken = { [weak self] token, job in
           self?.sendEvent("onBotsActivityPushToken", ["token": token, "jobId": job])
         }
-        BotsLiveActivity.shared.adoptLaunch()
+        BotsLiveActivity.shared.onStartToken = { [weak self] token in
+          self?.sendEvent("onBotsActivityPushToStartToken", ["token": token])
+        }
       }
       #endif
     }
@@ -288,6 +297,22 @@ public class TulmiBridgeModule: Module {
       return nil
     }
 
+    // The same token WITH the job it belongs to: { token, jobId }, or null.
+    // Read it on every start and after every glance sync and register it,
+    // whether or not this app has a memo for that job — an activity the server
+    // pushed to start has no memo here, so its token would otherwise never be
+    // registered and the server could never move it on. Kept as a separate
+    // function because an older OTA bundle still calls botsActivityPushToken
+    // and expects a plain string back.
+    Function("botsActivityPushTokenInfo") { () -> [String: String]? in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) {
+        return BotsLiveActivity.shared.pushTokenInfo
+      }
+      #endif
+      return nil
+    }
+
     // THE WIDGET THEME. The colours and alphas the app writes on every
     // bootstrap (from widget.color.* / widget.alpha.*), kept in the App Group
     // as before; an empty string clears it (sign-out). The iOS widgets and
@@ -441,14 +466,83 @@ public class TulmiBridgeModule: Module {
     //                  real conversation instead of turn by turn; the server draws
     //                  the call screen's realtime mode only for a phone that says
     //                  this (src/sdui/voice/callRealtime.ts)
-    // A name is added here only in the same build as what it promises.
+    //   nativeLook     this build carries the nlook interpreter (targets/widgets/
+    //                  NLook/*), so widget and Live Activity LOOKS can be sent as
+    //                  data: layouts, words, pictures, palettes, fonts, the dotted
+    //                  bot as a still. Told as NativeLook1. The server sends a
+    //                  design only to a phone that says this; everything else keeps
+    //                  today's hand-written views
+    //   keySkin        the KEYBOARD in this same binary draws key faces (prints,
+    //                  marks, press effects, our fonts: targets/keyboard/KBKeyFace
+    //                  .swift). Told as KeySkin1, so the Keybot skin picker shows
+    //                  only on a build whose keyboard can draw a skin. The keyboard
+    //                  itself says the same thing in its X-Tulmi-Keyboard-Can header
+    //   activityPushStart  push-to-start tokens are registered here, so "Bots at
+    //                  work" can start on the Lock Screen while the app is shut.
+    //                  iOS 17.2 and later only: an older phone must not be sent a
+    //                  push-to-start, so this one is asked of the OS, not assumed
+    //   widgetBoard    the spare "X0 Board" widget kind is in this build, so the
+    //                  server may offer boards for it. A shipped widget kind can
+    //                  never be removed
+    // A name is added here only in the same build as what it promises. If an item
+    // is cut on the cut date, its name comes OUT of this list in the same commit:
+    // the server believes this list completely.
     Function("binaryFeatures") { () -> [String] in
-      ["timeSensitive", "glanceSteps", "realtimeCall"]
+      var names = ["timeSensitive", "glanceSteps", "realtimeCall", "nativeLook", "keySkin", "widgetBoard"]
+      if #available(iOS 17.2, *) { names.append("activityPushStart") }
+      return names
+    }
+
+    // SERVER DESIGNS (nlook). The widget extension has no network, so everything it draws must already be a file in the
+    // App Group. These three put the files there; nothing else does. Each checks again what the app already checked,
+    // because a file can be anything. See TulmiNativeLooks.swift for the write order that makes this safe while a widget
+    // may be drawing.
+    //
+    // `{ "index": { … }, "designs": { "<id>": { … } } }`, already cleaned by src/native/looksCore.ts. Answers with the
+    // version folder it wrote, or "" when nothing was written — in which case the last good version keeps drawing.
+    Function("setNativeLooks") { (json: String) -> String in
+      TulmiNativeLooks.setLooks(json)
+    }
+
+    // One art file, by content hash: nlook/art/<sha>@<scale>.png. The app downloaded it and checked its sha; this checks
+    // the PNG magic bytes and the size cap. A sha already on disk is the same bytes, so it is simply left alone.
+    Function("writeNativeArt") { (sha: String, scale: Int, path: String) -> Bool in
+      TulmiNativeLooks.writeArt(sha: sha, scale: scale, from: path)
+    }
+
+    // One hooked font: TTF or OTF, at most 300 KB, kept by content like art. The widget extension registers it into its
+    // own process at first draw (CTFontManagerRegisterFontsForURL), so there is no plist entry to add.
+    Function("writeNativeFont") { (sha: String, path: String) -> Bool in
+      TulmiNativeLooks.writeFont(sha: sha, from: path)
+    }
+
+    // The catalog version this phone actually holds, for the glance's `nl`. Read off the pointer, so it is the truth even
+    // after a write failed halfway.
+    Function("nativeLooksVersion") { () -> Int in
+      TulmiNativeLooks.heldVersion()
+    }
+
+    // Design ids a widget's crash marker struck twice. The app reports them so the server stops naming them for this
+    // phone, then clears them so the same ids are not sent again on every launch.
+    Function("nativeLookBadIds") { () -> [String] in
+      TulmiNativeLooks.badDesigns()
+    }
+
+    Function("clearNativeLookBadIds") {
+      TulmiNativeLooks.clearBadDesigns()
+    }
+
+    // The push-to-start token, readable at any time: it may have arrived before JS attached its listener.
+    Function("botsActivityPushToStartToken") { () -> String? in
+      #if canImport(ActivityKit)
+      if #available(iOS 16.2, *) { return BotsLiveActivity.shared.startToken }
+      #endif
+      return nil
     }
 
     // A quick action pressed while the app runs: JS is told, and consumes it.
-    // The Bots at work activity's push token, as iOS hands it over.
-    Events("onQuickAction", "onBotsActivityPushToken")
+    // The Bots at work activity's push token, and the push-to-START token, as iOS hands each of them over.
+    Events("onQuickAction", "onBotsActivityPushToken", "onBotsActivityPushToStartToken")
 
     OnStartObserving {
       TulmiShortcuts.onQueued = { [weak self] in self?.sendEvent("onQuickAction", [:]) }

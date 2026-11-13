@@ -175,6 +175,12 @@ jobs:
           fi
           echo "send=true" >> "$GITHUB_OUTPUT"
 
+      # Needs no npm install: without node_modules the package list comes from
+      # the lock and versions from package-lock.json.
+      - name: Runtime label matches native inputs
+        if: github.event_name == 'push'
+        run: node tools/ci/check-runtime.mjs
+
       - uses: actions/setup-node@v4
         if: steps.native.outputs.send != 'false'
         with:

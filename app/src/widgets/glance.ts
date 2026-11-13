@@ -17,8 +17,19 @@
  * widgets.glance.floorSec). Answers from the widget itself go through POST /v1/widgets/act on the widgets' own narrow token
  * (now.ts), the same as the quick-access widgets'.
  *
+ * THE SERVER-DRAWN LOOKS (native/looksCore.ts, native/looks.ts; the backend's docs/native-looks.md). A binary that carries the nlook
+ * interpreter (hasBinaryFeature "nativeLook") adds `&nl=<catalog version it HOLDS>&can=NativeLook1,...&platform=` to the request, and
+ * the answer may then name a design per widget kind (`look`, `palette`, `vars`), which the widget reads off the stored glance. The
+ * catalog itself is fetched by native/looks.js when the bootstrap says it moved, and a catalog written there triggers a new glance, so
+ * `nl` is only ever the truth. Before the widget's first draw of a glance the dotted-bot stills of the bots it shows are drawn too.
+ * LAUNCH DARK: with the server's switch off the glance has no `look`, and every widget draws the view compiled into its own build.
+ * The Live Activity's local updates carry the design the glance names for it (look.bots) with the free `vars`, held to 3.5 KB; on
+ * Android the same plan feeds the ongoing notice (notifications/botsNotice.ts); on iOS 17.2+ the push-to-start token is registered
+ * (notifications/pushToStart.ts), with `nl`.
+ *
  * Knobs: widgets.glance.enabled (the kill switch), widgets.glance.path, widgets.glance.floorSec, widgets.glance.faceTimeoutMs,
- * widgets.activity.enabled, widgets.activity.tokenPath, widgets.activity.doneSec.
+ * widgets.glance.stillsTimeoutMs, widgets.activity.enabled, widgets.activity.tokenPath, widgets.activity.doneSec,
+ * widgets.notice.enabled (off unless the server says), widgets.activity.pushStart, native.looks.enabled.
  */
 import { AppState, Platform, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -34,8 +45,13 @@ import {
   updateBotsActivity,
 } from "../../modules/tulmi-bridge";
 import { callEndpoint } from "../sdui/client";
-import { hasBinaryFeature } from "../device/binary";
+import { binaryFeatures, hasBinaryFeature } from "../device/binary";
+import { featureCaps } from "../device/binaryCore";
 import { bool, num, str } from "../sdui/knobs";
+import { glanceQuery } from "../native/looksCore";
+import { forgetNativeLooks, heldLooksVersion, onNativeLooksChanged, reportBadLooks, syncNativeLooks, syncNativeStills } from "../native/looks";
+import { forgetBotsNotice, syncBotsNotice } from "../notifications/botsNotice";
+import { forgetPushToStart, registerPushToStart, watchPushToStart } from "../notifications/pushToStart";
 import {
   activityPlan,
   cleanGlance,
@@ -140,10 +156,13 @@ async function syncFaces(g: NonNullable<ReturnType<typeof cleanGlance>>): Promis
 /** The activity's push token, registered once per job and token. */
 async function registerActivityToken(token: string | null, jobId: string | undefined): Promise<void> {
   if (!token || !jobId || !bool("widgets.activity.enabled", true)) return;
-  const key = `${jobId}:${token}`;
+  // `nl` is the catalog version this phone holds: the server names a design in a push only when its `since` is at or below it, so a
+  // push can never name a design the phone has not downloaded. Only a binary that draws native looks has one to say.
+  const nl = await heldLooksVersion();
+  const key = `${jobId}:${token}:${nl}`;
   if ((await AsyncStorage.getItem(ACTIVITY_TOKEN_KEY).catch(() => null)) === key) return;
   try {
-    await callEndpoint("POST", str("widgets.activity.tokenPath", "/v1/widgets/activity-token"), { jobId, token, platform: "ios" });
+    await callEndpoint("POST", str("widgets.activity.tokenPath", "/v1/widgets/activity-token"), { jobId, token, platform: "ios", ...(nl > 0 ? { nl } : {}) });
     await AsyncStorage.setItem(ACTIVITY_TOKEN_KEY, key).catch(() => {});
   } catch {
     // offline or an older server: tried again after the next glance
@@ -190,7 +209,10 @@ function watch(): void {
     addBotsActivityTokenListener((token, jobId) => {
       void readJson<ActivityMemo>(ACTIVITY_KEY).then((m) => registerActivityToken(token, jobId ?? m?.jobId));
     });
+    watchPushToStart();
   }
+  // A catalog or a still written: the glance says `nl` again, so the server may name what is now on the phone.
+  onNativeLooksChanged(() => { void refreshGlance({ force: true }); });
 }
 
 /**
@@ -218,14 +240,25 @@ export function refreshGlance(o: { force?: boolean; mode?: "due" | "soon" | "for
       // A binary whose widgets switch lines on their own asks for the steps that do it (device/binaryCore.ts glanceSteps); an
       // older one is sent lines worded to stay true until their time passes, as before.
       const steps = hasBinaryFeature("glanceSteps") ? "&steps=1" : "";
-      const g = cleanGlance(await callEndpoint("GET", `${str("widgets.glance.path", "/v1/shell/glance")}?v=2&tz=${tz}${steps}`), now);
+      // The catalog version this phone HOLDS and what it can draw, from a binary that carries the nlook interpreter only. The sync
+      // runs beside the request, never in front of it: a new catalog is written, then a new glance goes out with the new `nl`.
+      void syncNativeLooks();
+      const plat = ios() ? "ios" : "android";
+      const look = glanceQuery({ drawsNative: hasBinaryFeature("nativeLook"), held: await heldLooksVersion(), platform: plat, caps: featureCaps(binaryFeatures()) });
+      const g = cleanGlance(await callEndpoint("GET", `${str("widgets.glance.path", "/v1/shell/glance")}?v=2&tz=${tz}${steps}${look}`), now);
       if (!g || mine !== epoch) return;
       refreshAfterSec = g.refreshAfterSec;
       // The faces first, so the widget's first draw of this glance has them (each bounded: a slow picture never holds it).
       await syncFaces(g);
       if (mine !== epoch) return;
+      // Then the dotted-bot stills of the bots it shows, for a design that draws them (bounded the same way).
+      await withinMs(syncNativeStills(g), num("widgets.glance.stillsTimeoutMs", 6000));
+      if (mine !== epoch) return;
       setWidgetGlance(JSON.stringify(g));
       await syncActivity(g);
+      await syncBotsNotice(g);
+      void registerPushToStart();
+      void reportBadLooks();
     } catch {
       // offline, signed out, an older server: the widget keeps what it last had
       lastAt = 0;
@@ -240,7 +273,15 @@ export function refreshGlance(o: { force?: boolean; mode?: "due" | "soon" | "for
   return inFlight;
 }
 
-/** SIGN-OUT: nothing of the account stays in the widget, its faces or a Live Activity. */
+/** Wait for something, but never longer than `ms`: what it was doing carries on, and the glance goes out without it. */
+function withinMs(p: Promise<unknown>, ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, Math.max(0, ms));
+    p.then(() => { clearTimeout(t); resolve(); }, () => { clearTimeout(t); resolve(); });
+  });
+}
+
+/** SIGN-OUT: nothing of the account stays in the widget, its faces, its bots' stills, a Live Activity or the Android notice. */
 export function forgetGlance(): void {
   epoch++;
   again = false;
@@ -250,6 +291,10 @@ export function forgetGlance(): void {
   setWidgetGlance(null);
   // "" ends every Bots at work activity, whichever job it shows.
   if (ios()) endBotsActivity("");
+  // The server is told in signingOut() (quickAccess.ts), while the session is still the person's own; here only the local key goes.
+  void forgetPushToStart({ local: true });
+  forgetBotsNotice();
+  forgetNativeLooks();
   void (async () => {
     await AsyncStorage.multiRemove([ACTIVITY_KEY, ACTIVITY_TOKEN_KEY, FACES_KEY]).catch(() => {});
     try {

@@ -3,6 +3,7 @@ import WidgetKit
 
 // THE WIDGETS. One extension: X0, the universal widget (the whole app at a
 // glance: what needs you, what the bots are doing, and Ask — X0Widget.swift),
+// X0 Board, the spare kind whose contents are a choice (X0Board.swift),
 // From your people (PeopleWidget.swift), the running job as a Live Activity
 // ("Bots at work": BotsActivity.swift), the microphone session and setup as
 // Live Activities, and Dictate as a Control. (The Month and Needs you were
@@ -20,6 +21,7 @@ import WidgetKit
 struct TailzuWidgetBundle: WidgetBundle {
   var body: some Widget {
     X0GlanceWidget()
+    X0BoardWidget()
     PeopleWidget()
     BotsActivityWidget()
     FlowActivityWidget()
@@ -39,9 +41,11 @@ let x0Name = "X0"
 /// always dark; the Lock Screen's accessory widgets stay system-tinted. Colour
 /// belongs only to bots (BotInk).
 ///
-/// The server's old widget colour knobs (widget.color.* / widget.alpha.*, and
-/// the colours in widgets.look) are still written by the app but no longer
-/// read: the palette is native.
+/// The literals below are the fallback, not the source. `of(_:)` reads the
+/// nlook catalog's `ink` palette first and the widget theme the app writes
+/// (widget.color.* / widgets.look) second, so iOS and Android follow one knob
+/// again; with neither on the phone, these literals draw, and they are what
+/// the server already sends.
 struct X0Palette {
   let ground: Color
   let ink: Color
@@ -76,7 +80,71 @@ struct X0Palette {
     dim: Color(rgb: 0x8A8A8A), line: Color(rgb: 0x2C2C2C), surface: Color(rgb: 0x171717),
     outline: Color(rgb: 0x3D3D3D), hollow: Color(rgb: 0x4A4A4A), onDark: true)
 
-  static func of(_ scheme: ColorScheme) -> X0Palette { scheme == .dark ? dark : light }
+  /// THE SERVER'S PALETTE, READ AGAIN. iOS stopped reading the server's colours when the palette went native; Android never
+  /// did, so one knob could move the two apps apart. Now there is one source again, tried in order:
+  ///
+  ///   1. the nlook catalog's `ink` palette, which carries all ten roles and is THE source once a catalog is on the phone;
+  ///   2. the widget theme the app still writes on every bootstrap (`tulmi.widget.theme`, from widget.color.*): six roles,
+  ///      `colors` for dark and `light` for light, where `pale` is the ink;
+  ///   3. the literals below, which are what the server already sends, so nothing moves until someone changes a knob.
+  ///
+  /// Parsed once per version of the catalog, not per view: a widget render must not parse JSON per view, and a warm
+  /// extension must not keep a theme the app has since replaced (`NLookStore.forgetVersion` clears it).
+  static func of(_ scheme: ColorScheme) -> X0Palette {
+    let base = scheme == .dark ? dark : light
+    if let roles = NLookStore.index?.palettes["ink"]?.scheme(scheme) {
+      return X0Palette(
+        ground: roles.ground, ink: roles.ink, meta: roles.meta, dim: roles.dim, line: roles.line,
+        surface: roles.surface, outline: roles.outline, hollow: roles.hollow, onDark: base.onDark)
+    }
+    guard let sent = X0Palette.themed(scheme) else { return base }
+    return sent
+  }
+
+  private static let themeLock = NSLock()
+  private static var themeRead = false
+  private static var themeLight: X0Palette?
+  private static var themeDark: X0Palette?
+
+  /// The legacy widget theme, parsed once. Every role keeps the literal under it, so half a theme is half an answer rather
+  /// than a hole.
+  private static func themed(_ scheme: ColorScheme) -> X0Palette? {
+    themeLock.lock()
+    if !themeRead {
+      themeRead = true
+      if let raw = Shared.store?.string(forKey: "tulmi.widget.theme"), !raw.isEmpty,
+         let data = raw.data(using: .utf8),
+         let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+        themeDark = over(dark, (o["colors"] as? [String: Any]) ?? [:])
+        themeLight = over(light, (o["light"] as? [String: Any]) ?? [:])
+      }
+    }
+    let out = scheme == .dark ? themeDark : themeLight
+    themeLock.unlock()
+    return out
+  }
+
+  /// Read the legacy theme again at the next ask. Called when the catalog's version folder changes, which is the one
+  /// moment the app has rewritten what this process holds.
+  static func forgetTheme() {
+    themeLock.lock()
+    themeRead = false
+    themeDark = nil
+    themeLight = nil
+    themeLock.unlock()
+  }
+
+  /// The theme's six roles over a base palette. `pale` is what that knob calls the ink.
+  private static func over(_ base: X0Palette, _ o: [String: Any]) -> X0Palette {
+    func hex(_ k: String) -> Color? {
+      guard let s = o[k] as? String, !s.isEmpty else { return nil }
+      return Color(hex: s)
+    }
+    return X0Palette(
+      ground: hex("ground") ?? base.ground, ink: hex("pale") ?? base.ink, meta: hex("meta") ?? base.meta,
+      dim: base.dim, line: hex("line") ?? base.line, surface: hex("surface") ?? base.surface,
+      outline: base.outline, hollow: base.hollow, onDark: base.onDark)
+  }
 
   /// The Always-On Lock Screen dims everything it keeps to about half: there every word takes the ink, so nothing fades out
   /// (a Live Activity's banner reads `isLuminanceReduced`); the weights keep the hierarchy.

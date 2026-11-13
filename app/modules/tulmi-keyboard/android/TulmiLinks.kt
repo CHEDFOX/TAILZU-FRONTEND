@@ -18,21 +18,40 @@ import android.util.Log
  * An iOS keyboard cannot open anything itself: it leaves the app a note in the
  * App Group and asks the host to switch. An IME may start an Activity, so here
  * the open is the whole of it and there is no note to leave.
+ *
+ * THE 4.4.1 LOCK [native/SPEC.md §4.1, §6]. Every URL below now passes through
+ * [KbSafety], whose list of our own schemes is COMPILED IN. Before this, the
+ * only gate was kb.deepLink.openUrlSchemes — a pushed config could have added
+ * "mailto" or another app's scheme and a key would have opened it, which is
+ * exactly the "keyboard as a launcher for other apps" that App Review 4.4.1
+ * forbids. The knob survives: it can switch one of our own schemes off, and it
+ * can do nothing else.
  */
 object TulmiLinks {
+
+    /** kb.deepLink.openUrlSchemes, as a list. Narrows the compiled list. */
+    private fun serverSchemes(): List<String> =
+        knobString("kb.deepLink.openUrlSchemes", "tulmi").split(",")
 
     /**
      * The app's URL for a screen: kb.deepLink.urlTemplate with "{screen}"
      * replaced; no screen is the app root, kb.deepLink.rootUrl. A template the
      * console left blank keeps the default rather than opening nothing.
+     *
+     * The filled URL must be one of ours. A template that would make something
+     * else — a console typo, or a push trying to point a key away — costs that
+     * one setting and the default is used.
      */
     fun appUrl(screen: String?): String {
+        val schemes = serverSchemes()
         if (screen.isNullOrEmpty()) {
-            return knobString("kb.deepLink.rootUrl", "tulmi://").trim().ifEmpty { "tulmi://" }
+            return KbSafety.ownUrlOr(knobString("kb.deepLink.rootUrl", "tulmi://"), schemes, "tulmi://")
         }
         val template = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}").trim()
             .ifEmpty { "tulmi://s/{screen}" }
-        return template.replace("{screen}", Uri.encode(screen, "/"))
+        val filled = template.replace("{screen}", Uri.encode(screen, "/"))
+        // Checked AFTER filling, not before: the screen id is the server's too.
+        return KbSafety.ownUrlOr(filled, schemes, "tulmi://s/" + Uri.encode(screen, "/"))
     }
 
     /**
@@ -44,45 +63,38 @@ object TulmiLinks {
      */
     fun treeMayOpenApp(): Boolean = knobBool("kb.deepLink.openApp", true)
 
-    /** A URL on one of the app's own schemes (kb.deepLink.openUrlSchemes,
-     *  comma-separated, "tulmi" until a config says otherwise). */
-    fun isOwnScheme(url: String): Boolean {
-        val scheme = try { Uri.parse(url).scheme?.lowercase() } catch (_: Throwable) { null } ?: return false
-        return knobString("kb.deepLink.openUrlSchemes", "tulmi").split(",")
-            .map { it.trim().lowercase() }
-            .any { it.isNotEmpty() && it == scheme }
-    }
+    /** A URL on one of the app's own schemes: the compiled list, narrowed by
+     *  kb.deepLink.openUrlSchemes. */
+    fun isOwnScheme(url: String): Boolean = KbSafety.isOwnScheme(url, serverSchemes())
 
     /**
-     * Open a URL of the app's own. Pinned to this package first, so another
-     * app that also claims the scheme cannot take a link meant for Tailzu;
-     * only when nothing here answers (a server URL the app does not route) is
-     * it offered to whatever does.
+     * Open a URL of the app's own. Pinned to this package, so another app that
+     * also claims the scheme cannot take a link meant for Tailzu.
+     *
+     * It used to fall through to "whoever will answer" when nothing here did.
+     * It no longer does: a tulmi:// URL this app does not route is a mistake
+     * in a config, and handing it to another app that has registered our
+     * scheme is the one outcome worth refusing outright. Nothing happens
+     * instead, which is also what the key did before the config was wrong.
      */
     fun openOwn(context: Context, url: String): Boolean {
+        if (!isOwnScheme(url)) {
+            Log.w("TulmiLinks", "refused: not one of our schemes")
+            return false
+        }
         val uri = try { Uri.parse(url) } catch (_: Throwable) { return false }
         val pinned = Intent(Intent.ACTION_VIEW, uri)
             .setPackage(context.packageName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
+        return try {
             context.startActivity(pinned)
-            return true
+            true
         } catch (_: ActivityNotFoundException) {
-            // Fall through to an open anyone may answer.
+            false
         } catch (t: Throwable) {
             Log.w("TulmiLinks", "open failed: ${t.message}")
-            return false
+            false
         }
-        return openAny(context, url)
-    }
-
-    /** Open a URL with whatever handles it — a web link, say. */
-    fun openAny(context: Context, url: String): Boolean = try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (t: Throwable) {
-        Log.w("TulmiLinks", "open failed: ${t.message}")
-        false
     }
 
     /**
@@ -95,7 +107,9 @@ object TulmiLinks {
      * Any other URL is a screen of the app's own and is opened as one.
      */
     fun openSettings(context: Context): Boolean {
-        val url = knobString("kb.deepLink.settingsUrl", "tulmi://").trim()
+        // Ours, or the default — a settings key is never a way out to another
+        // app, whatever the console says.
+        val url = KbSafety.ownUrlOr(knobString("kb.deepLink.settingsUrl", "tulmi://"), serverSchemes(), "tulmi://")
         val uri = try { Uri.parse(url) } catch (_: Throwable) { null }
         val bareRoot = uri == null || url.isEmpty() ||
             (uri.host.isNullOrEmpty() && uri.path.isNullOrEmpty() && uri.query.isNullOrEmpty())

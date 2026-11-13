@@ -28,7 +28,8 @@ import { evalCondition } from "../actions";
 import { BotTile, type BotKind } from "../../botTiles/core";
 import { playMoment } from "../../media/sounds";
 import { TileSurface, useReducedMotion, useTileLoop, type Painter } from "../../botTiles/TileSurface";
-import { useLooks } from "../../botTiles/looks";
+import { noteScenes, useLooks } from "../../botTiles/looks";
+import { voiceLevel } from "../voice/voiceBus";
 import { Blur } from "../components/blur";
 const LINE = "#e6e6e6", PAPER = "#ffffff";
 const ONCE_KEY = "tz.botcard.once.";
@@ -53,7 +54,7 @@ export const BotCard = (p: CompProps): React.ReactElement => (
 
 type Phase = "wait" | "open" | "closing" | "gone";
 
-function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: boolean }): React.ReactElement | null {
+function Card({ node, props, ctx, store, children, fire, bots }: CompProps & { bots: boolean }): React.ReactElement | null {
   const overlay = !!props?.overlay;
   const stageH = Number(props?.stageHeight) || 128;
   const once = typeof props?.once === "string" ? props.once : "";
@@ -177,7 +178,12 @@ function Card({ node, props, ctx, children, fire, bots }: CompProps & { bots: bo
     if (reduced) painter.current?.paint(bot);
   }, [reduced, cardW, bot, phase]);
   useTileLoop({
-    frame: (dt) => { bot.step(dt); painter.current?.paint(bot); },
+    frame: (dt) => {
+      if (bot.scenesLive()) bot.setLevel(voiceLevel(store));
+      bot.step(dt);
+      if (bot.sceneBad.length || bot.sceneSlow.length) noteScenes(bot.sceneBad, bot.sceneSlow);
+      painter.current?.paint(bot);
+    },
     still: () => painter.current?.paint(bot),
   }, live && reduced === false, host);
 

@@ -29,7 +29,7 @@
  *     thinkWhen?, listenWhen?, thought?, label }, on: { onPress?, onDoubleTap?, onDismiss? }, children: [the thought's content] }
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { Animated, BackHandler, Easing, Keyboard, LayoutAnimation, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type GestureResponderEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
@@ -37,14 +37,14 @@ import * as K from "../knobs";
 import type { BotRoam, BotThoughtSpec, Condition } from "../types";
 import { BotTile, INK, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Drawable, type Painter } from "../../botTiles/TileSurface";
-import { useLooks } from "../../botTiles/looks";
+import { noteScenes, useLooks } from "../../botTiles/looks";
 import { Blur } from "../components/blur";
 import { DottedFrame } from "../components/dotted";
 import { FooterField } from "../components/Screen";
 import { voiceLevel } from "../voice/voiceBus";
 import { ThoughtContext, type ThoughtControl } from "./thought";
 import {
-  STAGE, grownHeight, keyboardLift, listenRect, lowLayout, pillBottom, pillBounds, pillRect, restHeight, squareRect, fullRect, stageAct, stageMode, tapOn,
+  STAGE, grownHeight, keyboardLift, listenRect, lowLayout, pillBottom, pillBounds, pillRect, restHeight, squareRect, fullRect, stageAct, stageMode, tapInStage, tapOn,
   walksLow,
   wideRect, type Rect, type StageMode, type Win,
 } from "./stageCore";
@@ -482,10 +482,26 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   }, [inlineBox, mode, dismiss]);
 
   // ---- taps on him
+  /** Where placeHit last put his hit area, in the stage's own pixels (an Animated value cannot be read back). */
+  const hitAt = useRef({ x: 0, y: 0 });
+  /**
+   * A tap that lands inside a live scene's box, on a scene that wants taps (looks format 2), goes to the scene
+   * instead of the stage's own press: the pond rings where it was touched. Everything else presses as before, and
+   * BotTiles never does this, because a tile's tap opens the bot's page.
+   */
+  const cueScene = useCallback((e: GestureResponderEvent | undefined, onHim = false): boolean => {
+    const n = e?.nativeEvent;
+    if (!n || typeof n.locationX !== "number") return false;
+    // locationX/Y are the TOUCHED view's own (stageCore.ts tapInStage): his hit area is its own view, translated
+    // onto his body, so its corner is added back. The scene's box is in the surface's pixels, and that is the stage.
+    const at = tapInStage(n.locationX, n.locationY, onHim ? hitAt.current : null);
+    try { return bot.cue("tap", at.x, at.y); } catch { return false; }
+  }, [bot]);
   const pending = useRef<number | null>(null);
   const waitT = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (waitT.current) clearTimeout(waitT.current); }, []);
-  const tapHim = useCallback(() => {
+  const tapHim = useCallback((e?: GestureResponderEvent) => {
+    if (cueScene(e, true)) return;
     const ms = K.num("ui.BotStage.doubleTapMs", 260);
     const r = tapOn(pending.current, nowMs(), hasDouble, ms);
     pending.current = r.pending;
@@ -497,8 +513,8 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       if (waitT.current) clearTimeout(waitT.current);
       waitT.current = setTimeout(() => { waitT.current = null; pending.current = null; fire("onPress"); }, ms);
     }
-  }, [hasDouble, fire]);
-  const tapStage = useCallback(() => fire("onPress"), [fire]);
+  }, [hasDouble, fire, cueScene]);
+  const tapStage = useCallback((e?: GestureResponderEvent) => { if (!cueScene(e)) fire("onPress"); }, [fire, cueScene]);
   const openBox = useCallback(() => { if (th) store.set(th.openPath, true); }, [th, store]);
 
   // ---- drawing: every frame he steps, the pill follows him, the hit area rides on him, the trail is drawn
@@ -515,6 +531,8 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
     const x = Math.max(0, Math.min(W - hw, bot.x[2]! - hw / 2));
     const y = Math.max(0, Math.min(stageHRef.current - hh, bot.crown().y));
     hit.setValue({ x, y });
+    hitAt.current.x = x;
+    hitAt.current.y = y;
     const gone = bot.isOut || bot.x[2]! < 0 || bot.x[2]! > W;
     hitOn.setValue(gone ? 0 : 1);
   };
@@ -595,7 +613,11 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
           bot.lookAt(c.x + c.w / 2 - sw.x, c.y + c.h / 2 - stageYNow.current);
         }
         bot.setLevel(voiceLevel(store));
+      } else if (bot.scenesLive()) {
+        // A live scene may read his voice (`level`, `talk`), so it is fed while one is playing too.
+        bot.setLevel(voiceLevel(store));
       }
+      if (bot.sceneBad.length || bot.sceneSlow.length) noteScenes(bot.sceneBad, bot.sceneSlow);
       placeHit();
       paintAll();
     },

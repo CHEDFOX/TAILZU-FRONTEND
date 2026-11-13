@@ -167,6 +167,23 @@ enum TulmiBackend {
     // veil's blur, for one, which only a build that raises the veil above the
     // keys can wear. An older build sends nothing and gets the safe answer.
     req.setValue(SDUIRenderer.buildStamp, forHTTPHeaderField: "X-Tulmi-Keyboard-Build")
+    // WHAT THIS BINARY CAN DRAW. KeySkin1 promises exactly: `face` on any
+    // key, the `path` mark shape, press fade / pop / glow, style.fontFamily
+    // and the font hook. The server gates its skin expansion on this list
+    // instead of doing arithmetic on the build stamp, so a build that cannot
+    // draw a skin is simply never sent one.
+    req.setValue("KeySkin1", forHTTPHeaderField: "X-Tulmi-Keyboard-Can")
+    // AND WHAT WENT WRONG. When the crash guard has struck twice on a
+    // skinned config, this names the skin and the server answers with the
+    // unskinned tree for this device.
+    if let bad = KBSkin.badSkinId {
+      req.setValue(bad, forHTTPHeaderField: "X-Tulmi-Keyboard-Bad")
+    }
+    // NOTHING ELSE. This request carries the platform, the build stamp, the
+    // two headers above, the language and the person's token — which is
+    // there so the server can apply their own skin pick. It has never
+    // carried typed text, the field, the host app or any timing, and the
+    // skin work does not add any.
     getWithRetry(req) { data, response, error in
       if let error = error { completion(.failure(error)); return }
       // Reject non-2xx BEFORE the caller caches the body. Previously the status
@@ -215,6 +232,9 @@ enum TulmiBackend {
     counters: [String: Int],
     windowMs: Int,
     build: String,
+    /// The skin these counters were collected under, or nil for the
+    /// unskinned tree. An id, never anything about what was typed.
+    skin: String? = nil,
     completion: @escaping (Bool) -> Void,
   ) {
     guard let url = endpoint(knobString("kb.endpoints.telemetry", "/v1/keyboard/telemetry")),
@@ -228,13 +248,15 @@ enum TulmiBackend {
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     authorize(&req)
     let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-    req.httpBody = try? JSONSerialization.data(withJSONObject: [
+    var body: [String: Any] = [
       "counters": counters,
       "windowMs": windowMs,
       "build": build,
       "appVersion": appVersion,
       "platform": "ios",
-    ])
+    ]
+    if let skin = skin, !skin.isEmpty { body["skin"] = skin }
+    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
     URLSession.shared.dataTask(with: req) { _, response, error in
       let ok = error == nil
         && (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } == true

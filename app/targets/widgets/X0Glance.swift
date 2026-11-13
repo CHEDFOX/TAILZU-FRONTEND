@@ -129,6 +129,13 @@ struct X0Glance {
   var homeURL: URL?
   var micURL: URL?
   var words: [String: String] = [:]
+  /// Which server design each widget kind draws: { "x0": "x0.dusk" }. Only sent to a build that says NativeLook1, and only
+  /// once the server's own switch is on, so a quiet glance means today's hand-written view.
+  var look: [String: String] = [:]
+  /// Which palette in the catalog its role colours resolve against. Empty: the design's own.
+  var paletteName = ""
+  /// The free map a design binds as {{vars.x}}. Sensitive by default: free strings cannot be classified.
+  var vars: [String: String] = [:]
 
   /// A line that takes over at its own minute: the bot's row line (when `bot` is set) and the Lock Screen's words (when sent),
   /// each until the next step that sets them.
@@ -210,6 +217,18 @@ struct X0Glance {
     words = o.obj("words").compactMapValues { v -> String? in
       guard let s = v as? String, !s.isEmpty else { return nil }
       return s
+    }
+    // The server design per widget kind, its palette and its free map. Clamped here as well as on the server and in the
+    // app's own clean, because this is a file and a file can be anything.
+    look = o.obj("look").compactMapValues { v -> String? in
+      guard let s = v as? String else { return nil }
+      return NLookDesign.safeId(s)
+    }
+    paletteName = NLookDesign.safeId(o.str("palette")) ?? ""
+    vars = [:]
+    for (k, v) in o.obj("vars").sorted(by: { $0.key < $1.key }) {
+      guard vars.count < 12, k.count <= 24, let s = v as? String, !s.isEmpty else { continue }
+      vars[k] = String(s.prefix(120))
     }
     steps = o.objs("steps").compactMap { st -> Step? in
       guard let at = st.num("at"), at.isFinite, at > 0 else { return nil }
@@ -405,6 +424,7 @@ struct X0Provider: TimelineProvider {
   func placeholder(in context: Context) -> X0Entry { X0Entry(date: Date(), glance: X0Glance.sample, states: [:]) }
 
   func getSnapshot(in context: Context, completion: @escaping (X0Entry) -> Void) {
+    NLookStore.checkMarker()
     let g = X0Glance.load()
     let shown: X0Glance? = g ?? (context.isPreview ? X0Glance.sample : nil)
     let now = Date()
@@ -417,6 +437,9 @@ struct X0Provider: TimelineProvider {
     // ticking clock: while one shows, one entry a minute until then (at most an hour of them), each as of its own minute.
     // The glance's steps add an entry at each of their minutes over the next day, so a leave-by and the next thing take over on
     // time even when the system holds back the next reload; each entry is drawn as the glance reads at its own date.
+    // A marker left by another launch means the last render died inside a design: two of those and it is marked bad and
+    // today's view comes back. Checked here, before anything is drawn, because this is the one call that always happens.
+    NLookStore.checkMarker()
     let g = X0Glance.load()
     let states = NowStates.all(since: g?.outcomesSince ?? 0)
     let start = Date()

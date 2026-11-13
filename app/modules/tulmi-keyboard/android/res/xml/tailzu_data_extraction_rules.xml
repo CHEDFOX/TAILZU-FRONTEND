@@ -16,8 +16,23 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="tulmi.xml" />
+        <!--
+          The crash guard's ledger, for the same reason as below: strikes
+          belong to one phone. Backup is off today, so this rule does nothing
+          yet — which is exactly why it is written now, while somebody
+          remembers, rather than on the day backup is switched on.
+        -->
+        <exclude domain="sharedpref" path="tulmi_kb_guard.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="tulmi.xml" />
+        <!--
+          The crash guard's ledger (KbGuard). Strikes are about one phone's
+          own deaths — its memory, its OEM's killer, its Android version — so
+          carrying them to a new phone would start that phone with a keyboard
+          already in plain mode, or already dropped to the bundled snapshot,
+          for a config that may be perfectly fine on it.
+        -->
+        <exclude domain="sharedpref" path="tulmi_kb_guard.xml" />
     </device-transfer>
 </data-extraction-rules>

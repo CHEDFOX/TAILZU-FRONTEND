@@ -1,4 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    The ongoing "Bots at work" notice (TailzuBotsUpdate.kt) asks Android 16 to
+    promote it to a Live Update with a status-bar chip. POST_PROMOTED_NOTIFICATIONS
+    is a NORMAL permission: it is granted at install, nothing is asked of the
+    person, and people can still turn the notice off per app. POST_NOTIFICATIONS
+    (the runtime one, which IS asked) is already declared by the app itself.
+    On Android 15 and below this permission does not exist and is ignored; the
+    notice is then an ordinary ongoing progress notification, which is the whole
+    of what those versions offer.
+    It is declared here, in this module's own manifest, because the notice is this
+    module's feature. It comes out in the same commit as liveUpdate if that item
+    is cut (OWNERSHIP.md, the cut rule).
+  -->
+  <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
   <application>
     <!--
       X0, the home-screen widget (TailzuX0Widget.kt): one entry in the picker,
@@ -20,6 +35,42 @@
           android:name="android.appwidget.provider"
           android:resource="@xml/tailzu_x0_info" />
     </receiver>
+
+    <!--
+      X0 Board (TailzuX0Board.kt): the spare kind whose contents its owner
+      picks, so a new board is a catalog change and not another store release.
+      Same rules as X0 — the app's own process, not exported, only the system
+      and this app's own alarms reach it. A shipped widget kind can never be
+      removed, which is why this entry and its words (H6) are the way they are.
+    -->
+    <receiver
+        android:name="expo.modules.tulmibridge.TailzuX0BoardWidget"
+        android:exported="false"
+        android:label="@string/tailzu_x0_board_label">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+      </intent-filter>
+      <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/tailzu_x0_board_info" />
+    </receiver>
+
+    <!--
+      "Choose a board". Exported, because the LAUNCHER starts it for its own
+      reconfigure gesture, and it is the one activity here that is. It is safe
+      to start from anywhere: it reads only the widget id the system hands it,
+      writes only this app's own pick for that widget, and shows nothing the
+      home screen does not already show.
+    -->
+    <activity
+        android:name="expo.modules.tulmibridge.TailzuX0BoardConfigure"
+        android:exported="true"
+        android:excludeFromRecents="true"
+        android:label="@string/tailzu_x0_board_choose">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+      </intent-filter>
+    </activity>
 
     <!--
       From your people (TailzuQuickWidgets.kt). Same rules: in the app's

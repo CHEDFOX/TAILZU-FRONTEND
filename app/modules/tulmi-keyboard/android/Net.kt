@@ -41,6 +41,37 @@ object Net {
      */
     const val BUILD_HEADER = "X-Tulmi-Keyboard-Build"
 
+    /**
+     * WHAT THIS KEYBOARD CAN DRAW. [native/SPEC.md §1.6 item 8, §3.5, §3.8;
+     * shared/types/keyboardFace.ts KEYBOARD_CAN_HEADER]
+     *
+     * The server gates its skin expansion on this instead of doing arithmetic
+     * on build stamps, so a capability can be added or cut without the backend
+     * learning a new number. KeySkin1 promises exactly: `face` on any key, the
+     * `path` mark shape, press fade / pop / glow, `style.fontFamily` and the
+     * font hook.
+     *
+     * THE CUT RULE: if key faces miss the device checklist, this constant
+     * empties out in the same commit that drops `keySkin` from binaryFeatures.
+     * A name here is a promise the server believes completely.
+     */
+    const val CAN_HEADER = "X-Tulmi-Keyboard-Can"
+    const val CAN_LIST = "KeySkin1"
+
+    /**
+     * The skin the crash guard has struck on, if any. The server answers a
+     * request carrying it with the UNSKINNED tree, so a phone that cannot draw
+     * a skin stops being sent one instead of drawing half of it for ever.
+     */
+    const val BAD_HEADER = "X-Tulmi-Keyboard-Bad"
+
+    /** Set from the guard's ledger on every [load]; "" when all is well. */
+    @Volatile private var badSkin = ""
+
+    /** The guard calls this the moment it strikes, so the very next config
+     *  request already carries it rather than the one after. */
+    fun setBadSkin(id: String) { badSkin = id.trim() }
+
     /** One client; each call sets its own deadline (see [call]). */
     private val client = OkHttpClient.Builder().build()
 
@@ -56,6 +87,11 @@ object Net {
         // old token, not leave it in place because the new value was empty.
         token = p.getString("tulmi.token", null)?.trim().orEmpty()
         pickedLanguage = p.getString("tulmi.language", null)?.trim().orEmpty()
+        badSkin = KbGuard.badSkin(context)
+        // The art allow-list has a debuggable-build-only branch, and only the
+        // APPLICATION's own flags can answer that. Read here because load()
+        // runs before anything this keyboard ever fetches.
+        KbSafety.noteApp(context)
     }
 
     /** The user token, exposed for the live streaming client (Stream.kt). Empty when signed out. */
@@ -76,6 +112,8 @@ object Net {
     fun authorize(b: Request.Builder): Request.Builder {
         if (token.isNotEmpty()) b.header("Authorization", "Bearer $token")
         b.header(BUILD_HEADER, SDUIRenderer.BUILD_STAMP)
+        b.header(CAN_HEADER, CAN_LIST)
+        if (badSkin.isNotEmpty()) b.header(BAD_HEADER, badSkin)
         return b
     }
 
@@ -83,6 +121,8 @@ object Net {
     fun authorize(conn: java.net.HttpURLConnection) {
         if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")
         conn.setRequestProperty(BUILD_HEADER, SDUIRenderer.BUILD_STAMP)
+        conn.setRequestProperty(CAN_HEADER, CAN_LIST)
+        if (badSkin.isNotEmpty()) conn.setRequestProperty(BAD_HEADER, badSkin)
     }
 
     /** A server timeout, given in seconds as on iOS, as milliseconds. */
@@ -304,12 +344,17 @@ object Net {
      * rather than dropping them; losing a batch to a flaky network would make
      * quiet periods indistinguishable from failing uploads.
      */
-    fun postTelemetry(counters: JSONObject, windowMs: Long, build: String) {
+    fun postTelemetry(counters: JSONObject, windowMs: Long, build: String, skin: String? = null) {
         val json = JSONObject()
             .put("counters", counters)
             .put("windowMs", windowMs)
             .put("build", build)
             .put("platform", "android")
+            // The skin that drew the WHOLE window, or absent. The server keeps
+            // it only if it names a skin it ships itself, so this stays a
+            // value from a closed set and the telemetry table stays free of
+            // free text. [H10-Q2]
+            .apply { if (!skin.isNullOrEmpty()) put("skin", skin) }
             .toString()
         val req = authorize(Request.Builder().url(baseUrl + path(knobString("kb.endpoints.telemetry", "/v1/keyboard/telemetry"), "/v1/keyboard/telemetry")))
             .post(json.toRequestBody("application/json".toMediaType()))

@@ -22,6 +22,7 @@ import ActivityKit
 // extension and the app). ActivityKit matches them by the type's name and its encoding, so the copies must stay identical.
 
 #if canImport(ActivityKit)
+// BEGIN BotsAtWorkAttributes
 @available(iOS 16.1, *)
 struct BotsAtWorkAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
@@ -55,6 +56,16 @@ struct BotsAtWorkAttributes: ActivityAttributes {
     var decideLink: String?
     /// done: how long the job took, in minutes (absent: counted from startedAt).
     var minutes: Int?
+    /// A private question, and a job that ended badly. The server has always sent both (tulmi/src/widgets/activity.ts) and
+    /// this side has always dropped them, because CodingKeys did not list them. It lists them now.
+    var `private`: Bool?
+    var failed: Bool?
+    /// The server design this activity draws, by id ("bots.night"). The design itself waits in the App Group, which the
+    /// activity's views can read, so a 4 KB push only has to NAME it. Unknown, missing or too new: today's own regions.
+    var look: String?
+    /// The one way a later design binds data this frozen struct has no field for (an ETA, a mood, a file count). At most
+    /// 12 keys of 24 characters, values of 120. Free strings nobody can classify, so they count as private words.
+    var vars: [String: String]?
 
     struct Choice: Codable, Hashable {
       var id: String
@@ -70,6 +81,7 @@ struct BotsAtWorkAttributes: ActivityAttributes {
     enum CodingKeys: String, CodingKey {
       case bot, botName, face, task, stage, of, stageName, stages, startedAt, phase, question, choices, result, pr, link
       case itemId, itemKind, decideLink, minutes
+      case `private`, failed, look, vars
     }
   }
 
@@ -107,8 +119,26 @@ extension BotsAtWorkAttributes.ContentState {
     itemKind = text(.itemKind)
     decideLink = text(.decideLink)
     minutes = whole(.minutes)
+    self.`private` = try? c.decodeIfPresent(Bool.self, forKey: .private)
+    failed = try? c.decodeIfPresent(Bool.self, forKey: .failed)
+    // A design id is [a-z0-9._-], 1 to 40 characters. Anything else is not an id, so it never names a file.
+    let wanted = text(.look) ?? ""
+    let idCharacters = Set("abcdefghijklmnopqrstuvwxyz0123456789._-")
+    let idOk = (1...40).contains(wanted.count) && wanted.allSatisfy({ idCharacters.contains($0) })
+    look = idOk ? wanted : nil
+    // Clamped here as well as on the server: a push is the one input nothing on this phone has checked.
+    if let sent = try? c.decodeIfPresent([String: String].self, forKey: .vars), !sent.isEmpty {
+      var kept: [String: String] = [:]
+      for key in sent.keys.sorted() where kept.count < 12 && key.count <= 24 {
+        kept[key] = String((sent[key] ?? "").prefix(120))
+      }
+      vars = kept.isEmpty ? nil : kept
+    } else {
+      vars = nil
+    }
   }
 }
+// END BotsAtWorkAttributes
 
 @available(iOS 16.2, *)
 final class BotsLiveActivity {
@@ -120,6 +150,9 @@ final class BotsLiveActivity {
   private let lock = NSLock()
   private var token: String?
   private var watched = Set<String>()
+  /// `observeStart` has already run in THIS process. The observers are `for await` loops over OS-wide sequences, so a
+  /// second call would hand every later token over twice.
+  private var observing = false
 
   /// The running activity's push token (hex), or nil. Read from any thread.
   var pushToken: String? {
@@ -132,11 +165,89 @@ final class BotsLiveActivity {
     return BotsLiveActivity.hex(data)
   }
 
+  /// Told when the push-to-start token arrives or changes (hex). The app registers it at
+  /// POST /v1/widgets/activity-start-token, so the server can start "Bots at work" while the app is shut.
+  var onStartToken: ((String?) -> Void)?
+
+  /// The push-to-start token this phone last had, kept in the App Group so the app can read it on any start, even one that
+  /// happened before JS attached a listener.
+  var startToken: String? {
+    let s = UserDefaults(suiteName: TulmiNativeLooks.appGroupName)?.string(forKey: BotsLiveActivity.startTokenKey)
+    return (s?.isEmpty == false) ? s : nil
+  }
+
+  private static let startTokenKey = "tulmi.activity.pushToStartToken"
+  private static let updateTokenKey = "tulmi.activity.pushToken"
+  private static let updateJobKey = "tulmi.activity.pushTokenJob"
+
+  /// The RUNNING activity's update token and the job it belongs to, kept in the App Group the moment iOS hands it over.
+  ///
+  /// Why it is stored rather than only sent as an event: with the observers starting at launch, the first token of an
+  /// activity the SERVER started arrives before the JavaScript bundle is up, so no listener hears it; and the app only
+  /// registers a token for a job it has a memo for, which a server-started job never has. Without this the server could
+  /// start the activity and then never be able to move it on — the exact case §1.3's device check covers.
+  var pushTokenInfo: [String: String]? {
+    let store = UserDefaults(suiteName: TulmiNativeLooks.appGroupName)
+    guard let token = store?.string(forKey: BotsLiveActivity.updateTokenKey), !token.isEmpty,
+          let job = store?.string(forKey: BotsLiveActivity.updateJobKey), !job.isEmpty else { return nil }
+    return ["token": token, "jobId": job]
+  }
+
+  /// Kept on every change and cleared when the last activity ends, so a stale token is never handed to the server.
+  private func storeUpdateToken(_ token: String?, job: String) {
+    let store = UserDefaults(suiteName: TulmiNativeLooks.appGroupName)
+    if let token, !token.isEmpty, !job.isEmpty {
+      store?.set(token, forKey: BotsLiveActivity.updateTokenKey)
+      store?.set(job, forKey: BotsLiveActivity.updateJobKey)
+    } else {
+      store?.removeObject(forKey: BotsLiveActivity.updateTokenKey)
+      store?.removeObject(forKey: BotsLiveActivity.updateJobKey)
+    }
+  }
+
   /// At launch: keep listening to an activity an earlier process started (its token may change while this one runs).
   func adoptLaunch() {
     onMain {
       for a in Activity<BotsAtWorkAttributes>.activities where a.activityState == .active {
         self.watch(a)
+      }
+    }
+  }
+
+  /// PUSH-TO-START. Two observers, both started once at launch and both long-lived:
+  ///
+  ///   • `pushToStartTokenUpdates` (iOS 17.2 and later) hands over the token the server pushes a START to. It arrives and
+  ///     changes on the OS's own schedule, so it is stored in the App Group the moment it appears, rather than waiting for
+  ///     JS to be listening. The app reads it on every start and registers whatever is new.
+  ///   • `activityUpdates` catches an activity the SERVER started while this app was shut. Nothing else would know about
+  ///     it, so without this its update token would never be watched and the server could never move it on.
+  ///
+  /// `adoptLaunch` stays: it covers an activity THIS app started in an earlier process, which activityUpdates does not
+  /// report because it was already running.
+  ///
+  /// Called from the app delegate's didFinishLaunching (TulmiShortcuts.swift), NOT from the module's OnCreate: OnCreate
+  /// runs once per JavaScript runtime, and this app rebuilds its runtime on reload. Once per process all the same, so a
+  /// second caller costs nothing.
+  func observeStart() {
+    lock.lock()
+    let already = observing
+    observing = true
+    lock.unlock()
+    guard !already else { return }
+
+    Task { [weak self] in
+      for await activity in Activity<BotsAtWorkAttributes>.activityUpdates {
+        guard let self else { return }
+        await MainActor.run { self.watch(activity) }
+      }
+    }
+    guard #available(iOS 17.2, *) else { return }
+    Task { [weak self] in
+      for await data in Activity<BotsAtWorkAttributes>.pushToStartTokenUpdates {
+        let hex = BotsLiveActivity.hex(data)
+        UserDefaults(suiteName: TulmiNativeLooks.appGroupName)?
+          .set(hex, forKey: BotsLiveActivity.startTokenKey)
+        DispatchQueue.main.async { self?.onStartToken?(hex) }
       }
     }
   }
@@ -221,6 +332,8 @@ final class BotsLiveActivity {
       for await data in a.pushTokenUpdates {
         let hex = BotsLiveActivity.hex(data)
         self?.setToken(hex)
+        // Stored first, told second: the event is lost if nothing is listening yet, the App Group is not.
+        self?.storeUpdateToken(hex, job: job)
         DispatchQueue.main.async { self?.onPushToken?(hex, job) }
       }
     }
@@ -231,6 +344,7 @@ final class BotsLiveActivity {
           self.watched.remove(a.id)
           if !Activity<BotsAtWorkAttributes>.activities.contains(where: { $0.activityState == .active }) {
             self.setToken(nil)
+            self.storeUpdateToken(nil, job: job)
             self.onPushToken?(nil, job)
           }
         }
@@ -285,6 +399,14 @@ final class BotsLiveActivity {
     s.choices = s.choices.map { Array($0.prefix(3)) }
     s.result = s.result.map { String($0.prefix(80)) }
     if s.startedAt <= 0 { s.startedAt = Date().timeIntervalSince1970 * 1000 }
+    // ActivityKit refuses an update over 4 KB SILENTLY, so this measures what will actually be encoded rather than guessing
+    // at it, and sheds the same things in the same order the server does: `vars` first, then the stage names.
+    if let encoded = try? JSONEncoder().encode(s), encoded.count > 3584 {
+      s.vars = nil
+      if let smaller = try? JSONEncoder().encode(s), smaller.count > 3584 {
+        s.stages = Array(s.stages.prefix(5).map { String($0.prefix(16)) })
+      }
+    }
     let after = (o["dismissAfterSec"] as? NSNumber)?.doubleValue ?? 0
     return Request(job: job, state: s, dismissAfter: after.isFinite ? min(900, max(0, after)) : 0)
   }

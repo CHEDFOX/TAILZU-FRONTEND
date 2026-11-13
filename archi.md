@@ -227,9 +227,58 @@ gets live calls. The store build's config is `app.config.ts` plus
 (one named libwebrtc on both phones, instead of the floating versions the library asks for), with `SYSTEM_ALERT_WINDOW`
 blocked. `runtimeVersion` is unchanged, following commit 63e40b4: new native code, gated on a binary feature.
 
-**The tile engine.** `src/botTiles/core.ts` is the living tiles' physics and drawing, shared with the desktop app:
-`node src/botTiles/genDesktop.mjs` writes `TAILZU-DESKTOP/botTiles.js` from it, and tests on both sides check the
-copy is current. `genStarter.mjs` copies the server's looks catalog into `starter.ts` (and the desktop) at release.
+**The tile engine.** `src/botTiles/core.ts` is the living tiles' physics and drawing, shared with the desktop app
+and now with the server: `node src/botTiles/genDesktop.mjs` writes `TAILZU-DESKTOP/botTiles.js` and
+`--server` writes `TAILZU-BACKEND/shared/bots/engines/f2.cjs` (the same bytes), and tests on all sides check the
+copy is current. `genStarter.mjs` copies the server's looks catalog into `starter.ts` (and the desktop) at release,
+cut down to the format this build plays.
+
+**Scenes: looks format 2** (`src/botTiles/scene.ts`, new). A scene is data the same core draws: layered shapes that
+morph, turn and scale; dot fields where every dot follows its own formula; springs; ropes and closed soft rings;
+groups that act as joints; repeats; keyframes; and live inputs (taps, his voice, his own motion, the moment's
+events). It can also fade, squash, turn or hide parts of the bot himself (`rig`). From here, a new animation this
+language can express is a server push, not a release.
+
+- `scene.ts` imports nothing: `core.ts` hands it the expression compiler (`XAPI`), so the dependency runs one way,
+  and `genDesktop.mjs` puts the two files into one generated module.
+- Every value is a number, an expression, keyframes or a spring — never code. Frames never parse and never allocate.
+- A per-dot formula is split three ways before it runs: the parts that read no dot run once a frame, the parts that
+  read only a dot's rest place run once a play, and only what is left runs per dot per frame. Half the dots are
+  brought up to date each frame and all of them are drawn.
+- A catalog that does not compile is refused whole (as today). A scene that misbehaves while playing — throws, goes
+  non-finite, does not fit, is too slow — is dropped alone, and the bot, the grid and the loop carry on. It is then
+  **dead for that play**: its track does not start it again, so a scene that throws every frame is built once, not
+  once a frame. If it dies before it has finished one frame, the moment plays its `fallback` act instead, so nobody
+  sees half a moment.
+- The governor times a whole frame, not a piece of one: the step and both draw passes go into one sample, one a
+  frame, in a 30-frame average against `SCENE_LIMITS.ms`. Over it the scene freezes at its `still` frame — its names
+  are not written again, so nothing is evaluated — and over it again it is dropped.
+- The screen's budgets (`liveScreen`, `opsScreen`, `dotsScreen`) are counted across every surface at once: a scene
+  that would take the screen over them never starts, and that bot plays the rig only. Nothing is reported, because
+  nothing is wrong with the scene.
+- A `part` element draws a catalog part: `core.ts` owns parts, so it hands the drawing to the run (`onPart`) when
+  the scene starts.
+- `TileCtx` gained five optional members (`bezierCurveTo`, `clip`, `dots`, `rotate`, `scale`). A host without them
+  still draws every scene: cubics become pairs of quadratics, a group's `clip` is skipped, and dots are drawn as
+  arcs at the same quantized radii. `SkiaCtx` has all five; `dots` is one `drawPoints` per group, with a pooled
+  point array. **Scenes themselves never use `rotate` or `scale`** — the core works out every transform itself, so
+  Skia and Canvas2D cannot drift apart over degrees, pivots or stroke widths. Only `rig` uses them, around the
+  bot's own drawing; a host without them draws him faded and hidden as asked, but not squashed or turned.
+- A `repeat` may hold a chain or a dot field. Each copy keeps its own rope; a repeated field keeps every copy's
+  dots in one buffer, copy by copy, so `j` hoists as a per-dot name like `i`. The budgets count the copies.
+- A chain's `len` is the whole rope's rest length, end to end (the perimeter when `closed`), so `n` changes how
+  fine it is, never how long.
+- `renderStill(ask, at, size, scheme)` draws one frame of any moment as PNG bytes on a CPU raster, for the widgets,
+  the Live Activities and the keyboard's prints (`src/native/botArt.ts` calls it). It reaches for Skia, the Skia 2D
+  context and `core.ts` at call time and returns null if any is missing, so the window and the server, which are
+  handed the same generated module, simply have no stills. `looks.ts` exports `currentLooks()` (awaits the kept
+  copy, for a silent-push wake) and `looksNow()` (this instant, with the server's switched-off moments).
+- `BotMoments2` is declared from JS in `src/sdui/registry.ts`, because the engine is backed only by JS in the same
+  bundle. The kept catalog moved to `tz.botLooks.f2` and is compared on (v, f), not v alone.
+- The bootstrap's capabilities carry `looks: { v, f, ok, why?, bad?, slow? }` so a push is never a silent no-op.
+  Every surface that plays moments feeds it and the voice level: BotTiles and BotCrowd as well as BotBuddy, BotCard
+  and BotStage. A tap on BotStage is moved into the stage's own pixels first (`stageCore.ts` `tapInStage`), because
+  his hit area is its own view translated onto his body.
 
 ## Contracts with the other repos
 

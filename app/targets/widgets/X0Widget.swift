@@ -63,7 +63,15 @@ struct X0View: View {
   @Environment(\.widgetFamily) private var family
   @Environment(\.colorScheme) private var scheme
   @Environment(\.showsWidgetContainerBackground) private var showsBackground
+  @Environment(\.widgetRenderingMode) private var renderMode
+  @Environment(\.isLuminanceReduced) private var reduced
+  @Environment(\.displayScale) private var displayScale
   let entry: X0Entry
+  /// Which widget kind this is drawing. The spare "X0 Board" kind reuses this whole view, so an empty board is never
+  /// empty: with no board chosen and no glance stored it draws X0's own native view for the size.
+  var kind: String = WidgetKinds.x0
+  /// The board the person picked, when this is the Board kind. It beats whatever the glance names for the kind.
+  var boardId: String? = nil
 
   private var p: X0Palette { X0Palette.of(scheme) }
   private var lead: X0Lead { entry.glance?.leading ?? .quiet }
@@ -74,14 +82,57 @@ struct X0View: View {
     X0Context(g: entry.glance, p: p, states: entry.states, now: entry.date, rim: p.onDark || !showsBackground)
   }
 
+  /// A SERVER DESIGN FIRST, today's hand-written view otherwise. "Otherwise" is every one of: no catalog, no design named
+  /// for this kind, no tree for this family, a format from a later build, or a design the crash marker marked bad. The
+  /// launch-dark switch needs nothing here: until the server turns it on it names no design, so this is always nil.
+  private var plan: NLookPlanned? {
+    NLookRoots.widget(
+      kind: kind, overrideId: boardId, glance: entry.glance, states: entry.states, now: entry.date, family: family,
+      scheme: scheme, mode: renderMode, reduced: reduced, standby: !showsBackground,
+      displaySize: X0View.boxOf(family), displayScale: displayScale, x0: c)
+  }
+
+  /// Roughly what the family is given, in points, so art is decoded at the size it is drawn and no larger. WidgetKit does
+  /// not hand the view its own `displaySize`, and the exact numbers differ by phone, so these are the common ones.
+  static func boxOf(_ family: WidgetFamily) -> CGSize {
+    switch family {
+    case .systemSmall: return CGSize(width: 158, height: 158)
+    case .systemLarge: return CGSize(width: 338, height: 354)
+    case .accessoryInline: return CGSize(width: 300, height: 20)
+    case .accessoryRectangular: return CGSize(width: 160, height: 72)
+    case .accessoryCircular: return CGSize(width: 72, height: 72)
+    default: return CGSize(width: 338, height: 158)
+    }
+  }
+
   var body: some View {
-    content
-      .containerBackground(isAccessory ? Color.clear : p.ground, for: .widget)
+    // Asked for ONCE per render: choosing a design also writes the crash marker, so two lookups would be two strikes.
+    let plan = self.plan
+    return content(plan)
+      .containerBackground(containerBG(plan), for: .widget)
       .widgetURL(tapURL)
   }
 
   @ViewBuilder
-  private var content: some View {
+  private func content(_ plan: NLookPlanned?) -> some View {
+    if let plan {
+      NLookRootView(plan: plan)
+    } else {
+      native
+    }
+  }
+
+  /// The widget's own background, which iOS drops in StandBy and on tinted and clear Home Screens. A design hands its
+  /// root's `bg` over here rather than painting it, and a root that names none is planned as `ground`, both decided in
+  /// one place (NLookRoots.widget). The `??` is only for a token that names no colour at all. No design leaves today's.
+  private func containerBG(_ plan: NLookPlanned?) -> Color {
+    guard !isAccessory else { return .clear }
+    guard let plan else { return p.ground }
+    return plan.containerBG ?? plan.ctx.scheme.ground
+  }
+
+  @ViewBuilder
+  private var native: some View {
     switch family {
     case .accessoryInline:
       X0Inline(c: c, lead: lead)

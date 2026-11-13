@@ -94,12 +94,59 @@ export class SkiaCtx implements Ctx2D {
   moveTo(x: number, y: number): void { this.path.moveTo(x, y); }
   lineTo(x: number, y: number): void { this.path.lineTo(x, y); }
   quadraticCurveTo(cx: number, cy: number, x: number, y: number): void { this.path.quadTo(cx, cy, x, y); }
+  /** A cubic: scenes (botTiles/scene.ts) draw with them; the figure never does. */
+  bezierCurveTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): void { this.path.cubicTo(c1x, c1y, c2x, c2y, x, y); }
   /** A circle (a whole turn) or an arc, clockwise as the canvas draws it (radians). */
   arc(x: number, y: number, r: number, a0: number, a1: number): void {
     const sweep = a1 - a0;
     if (sweep >= Math.PI * 2 - 1e-6) { this.path.addCircle(x, y, r); return; }
     this.path.arcToOval(Skia.XYWHRect(x - r, y - r, 2 * r, 2 * r), a0 * 180 / Math.PI, sweep * 180 / Math.PI, false);
   }
+  /**
+   * One dot group of a scene's dot field: n points, all the same radius and colour, as one drawPoints with round
+   * caps (a point with a round cap IS a dot, and one call draws a few hundred). The point objects are pooled and
+   * mutated, so a frame of dots allocates nothing.
+   */
+  dots(xy: Float32Array, n: number, radius: number, color: string): void {
+    if (n <= 0 || radius <= 0) return;
+    const pool = this.dotPool;
+    while (pool.length < n) pool.push({ x: 0, y: 0 });
+    for (let i = 0; i < n; i++) { const p = pool[i]!; p.x = xy[i * 2]!; p.y = xy[i * 2 + 1]!; }
+    const paint = this.dotPaint;
+    paint.setColor(col(color));
+    paint.setAlphaf(this.globalAlpha);
+    paint.setStrokeWidth(radius * 2);
+    this.canvas.drawPoints(PointMode.Points, this.dotsOf(n), paint);
+  }
+  /**
+   * The first n pooled points, as a list Skia can take. A field hands over up to fourteen groups of its own size
+   * each frame, so one list is kept per size instead of slicing a new one per group (they share the same point
+   * objects, which the loop above has just filled).
+   */
+  private dotsOf(n: number): Array<{ x: number; y: number }> {
+    if (n === this.dotPool.length) return this.dotPool;
+    let v = this.dotLists.get(n);
+    if (!v) {
+      if (this.dotLists.size > 64) this.dotLists.clear();
+      v = this.dotPool.slice(0, n);
+      this.dotLists.set(n, v);
+    }
+    return v;
+  }
+  private dotPool: Array<{ x: number; y: number }> = [];
+  private dotLists = new Map<number, Array<{ x: number; y: number }>>();
+  private dotPaintMade: SkPaint | null = null;
+  private get dotPaint(): SkPaint {
+    if (!this.dotPaintMade) {
+      const p = Skia.Paint();
+      p.setAntiAlias(true);
+      p.setStyle(PaintStyle.Stroke);
+      p.setStrokeCap(StrokeCap.Round);
+      this.dotPaintMade = p;
+    }
+    return this.dotPaintMade;
+  }
+
   /** Draw on another canvas (a new picture each frame) with the same paint and path. */
   retarget(canvas: SkCanvas): void { this.canvas = canvas; }
   clip(): void { this.canvas.clipPath(this.path.build(), ClipOp.Intersect, true); }

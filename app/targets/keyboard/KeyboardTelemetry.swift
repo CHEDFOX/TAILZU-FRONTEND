@@ -82,10 +82,27 @@ enum KeyboardTelemetry {
     case voiceChanged
     case memoryWarnings
     case coldStarts
+    // KEY FACES. Counters only, like everything else here, and the upload
+    // carries the skin's id beside them so a skin that regresses can be
+    // stopped. There is no per-key press counting, and nothing here can hold
+    // a key, a character or a time.
+    /// Faces drawn on keys in this window.
+    case facePainted
+    /// Faces refused: a budget (faced keys, live image bytes), art that was
+    /// not on the compiled host or not in the manifest, or a face that named
+    /// something a skin may never carry.
+    case faceDropped
+    /// Sessions drawn in plain mode after the crash guard struck on a skin.
+    case skinPlainSessions
   }
 
   private static let storeKey = "tulmi.kb.telemetry"
   private static let windowStartKey = "tulmi.kb.telemetry.start"
+  /// The skin these counters were collected under, and whether the window
+  /// saw more than one. Both live in the App Group beside the counters, so a
+  /// window that spans several keyboard sessions keeps its tag.
+  private static let windowSkinKey = "tulmi.kb.telemetry.skin"
+  private static let windowMixedKey = "tulmi.kb.telemetry.skinMixed"
   /// Persist at most this often. Typing bursts hundreds of events; writing
   /// each one would put a UserDefaults sync on the keystroke path. The
   /// server's (kb.telemetry.persistSec); 20s until a config arrives.
@@ -98,6 +115,10 @@ enum KeyboardTelemetry {
   private static var counters: [String: Int] = [:]
   private static var lastPersist: TimeInterval = 0
   private static var loaded = false
+  /// What is drawing right now, as the last `noteSkin` said it: a skin id, or
+  /// "" for no skin / plain mode. nil means nobody has said yet in this
+  /// process. Guarded by `lock`; read when a new window opens.
+  private static var drawing: String?
   private static let lock = NSLock()
 
   private static var store: UserDefaults? { UserDefaults(suiteName: TulmiFlow.appGroup) }
@@ -118,6 +139,82 @@ enum KeyboardTelemetry {
     lock.unlock()
     // Persist OUTSIDE the lock, and only on the throttle.
     if let snapshot = snapshot { persist(snapshot) }
+  }
+
+  // MARK: Which skin a window belongs to
+
+  /// Say which skin is about to draw. Called on the main thread from the
+  /// config path, never from the typing path — `KBSkin.current` is main-
+  /// thread state and the uploader runs in a URLSession completion, so the
+  /// tag is recorded HERE, when it is known to be true, rather than read at
+  /// upload time.
+  ///
+  /// A window is tagged only when every part of it ran under one skin:
+  ///   • nothing noted yet → this is the window's skin;
+  ///   • the same id again → nothing changes;
+  ///   • a different id, plain mode, or no skin at all → MIXED, and the
+  ///     window uploads with no tag.
+  ///
+  /// A wrong tag is worse than none. It is what would stop the wrong skin.
+  ///
+  /// It also remembers what is drawing for the NEXT window. Without that,
+  /// almost every window went up untagged: `commitUpload` clears the tag, and
+  /// the only thing that sets it again is this call — which runs from
+  /// `KBSkin.adopt`, i.e. on a cold start or when the config bytes change. A
+  /// refetch of identical bytes returns early, so after the first upload the
+  /// tag never came back and the window carried counters with no skin.
+  static func noteSkin(_ id: String?) {
+    guard let store = store else { return }
+    let tag = id ?? ""            // "" is "no skin", which is also no tag
+    // The whole body runs under the lock: a commit on the URLSession queue
+    // must not land in the middle of this read-modify-write.
+    lock.lock()
+    defer { lock.unlock() }
+    // Set on EVERY call, before any early return, so the next window knows
+    // what was drawing when it opened.
+    drawing = tag
+    if store.bool(forKey: windowMixedKey) { return }
+    guard store.object(forKey: windowSkinKey) != nil else {
+      // The first word on this window. If it already holds counters from
+      // before anyone said which skin was drawing, those frames were not
+      // this skin's, so a skin arriving now makes the window mixed. After
+      // this build is installed that happens only once: for the counters the
+      // previous build left behind, which can never have been skinned.
+      loadIfNeeded()
+      if counters.isEmpty || tag.isEmpty {
+        store.set(tag, forKey: windowSkinKey)
+      } else {
+        store.set(true, forKey: windowMixedKey)
+      }
+      return
+    }
+    if store.string(forKey: windowSkinKey) != tag { store.set(true, forKey: windowMixedKey) }
+  }
+
+  /// The tag for this window, or nil when there is none: no skin, more than
+  /// one, or plain mode.
+  private static func windowSkin() -> String? {
+    guard let store = store, !store.bool(forKey: windowMixedKey) else { return nil }
+    let id = store.string(forKey: windowSkinKey) ?? ""
+    return id.isEmpty ? nil : id
+  }
+
+  /// Open a window and carry the tag into it. What was drawing when the last
+  /// window closed is what is drawing when this one opens — nothing changed
+  /// at the commit. Only a process that has never been told (a fresh launch
+  /// before the config is applied) starts untagged.
+  private static func startNewWindow() {
+    lock.lock()
+    let carried = drawing
+    lock.unlock()
+    store?.set(Date().timeIntervalSince1970, forKey: windowStartKey)
+    if let carried = carried {
+      store?.set(carried, forKey: windowSkinKey)
+      store?.set(false, forKey: windowMixedKey)
+    } else {
+      store?.removeObject(forKey: windowSkinKey)
+      store?.set(false, forKey: windowMixedKey)
+    }
   }
 
   /// The extension's own memory as jetsam counts it (phys_footprint), in MB,
@@ -175,7 +272,11 @@ enum KeyboardTelemetry {
   ///
   /// The server can switch uploads off (kb.telemetry.enabled = false): then
   /// nothing is ever pending, and the counters simply stay on the phone.
-  static func pendingUpload() -> (counters: [String: Int], windowMs: Int)? {
+  /// The skin comes back WITH the counters, so the uploader never reads
+  /// `KBSkin` — which lives on the main thread — from a URLSession
+  /// completion, and never tags a window with whatever happens to be drawing
+  /// half an hour after it started.
+  static func pendingUpload() -> (counters: [String: Int], windowMs: Int, skin: String?)? {
     guard knobBool("kb.telemetry.enabled", true) else { return nil }
     lock.lock()
     loadIfNeeded()
@@ -186,7 +287,7 @@ enum KeyboardTelemetry {
     let now = Date().timeIntervalSince1970
     let start = store?.double(forKey: windowStartKey) ?? now
     guard now - start >= uploadInterval else { return nil }
-    return (snapshot, Int((now - start) * 1000))
+    return (snapshot, Int((now - start) * 1000), windowSkin())
   }
 
   /// Called after the backend accepted the payload: drop exactly what was
@@ -201,6 +302,8 @@ enum KeyboardTelemetry {
     let snapshot = counters
     lock.unlock()
     persist(snapshot)
-    store?.set(Date().timeIntervalSince1970, forKey: windowStartKey)
+    // A new window, tagged by what is drawing as this one opens. The commit
+    // itself changes nothing on screen, so the tag carries across it.
+    startNewWindow()
   }
 }

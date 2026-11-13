@@ -79,9 +79,11 @@ server's any more:
   stays crisp at 18–24 pt) — on every ground as it is, no tile. The whole dotted
   figure in his poses (`BlipRest`, `BlipWork`, `BlipYourTurn`, `BlipDone`,
   `BlipOops`, and `BlipListen` / `BlipThink` / `BlipLook` / `BlipSleep` kept for
-  later) is drawn where there is room: Bots at work's banner and expanded
-  island, and the X0 widget's quiet hours (`BlipRest`). The Ask key is Blip
-  peeking into the keyboard's dark round window (`BlipPeek`). Each @2x/@3x,
+  later) is drawn only where there is no card at all: the X0 widget's quiet
+  hours (`BlipRest`). Wherever a card is drawn — a question, a running job,
+  something finished, a row in a list — the picture is THAT CARD'S BOT, never
+  Blip and never the mark. The Ask key is Blip peeking into the keyboard's
+  dark round window (`BlipPeek`). Each @2x/@3x,
   `template-rendering-intent: original`; this folder is synced into the target
   whole, as the keyboard's catalog is. On a tinted or clear Home Screen (iOS
   18+) the art is drawn desaturated rather than flattened. Blip is X0 only: a
@@ -223,20 +225,23 @@ one bad field still lands. Declared in `_shared/BotsAtWork.swift` (the widget
 and the app) and once more in the bridge (`BotsLiveActivity.swift`); the
 copies must stay identical.
 
-- Blip tells the phase: working — `BlipWork`; needs — `BlipYourTurn` (hands
-  over his eye); done — `BlipDone` (thumbs up); a `failed` / `error` phase
-  would be `BlipOops`, `queued` / `idle` `BlipRest`. The bot doing the job is
-  his badge (its face, bottom right) and keeps its colour (the bar, 3/5).
-- Lock Screen banner (light, or dark in Dark Mode): working — Blip (56 pt),
+- The picture is THE JOB'S BOT, never Blip and never the mark: its dotted
+  still if the app left one on the phone (`NLookStore`, by `BotArtKey`, at the
+  phase's moment — `work`, `yourTurn`, `done`, `oops`, `rest`), else its face
+  (the App Group's `faces/<face>.png`, else a disc in its colour). Small
+  (22 pt: compact leading, minimal) it is the face alone, which still reads at
+  that size. The mark stands in for the one case with no bot at all (`bot`
+  empty). The phase is told by the words, the bar and the bot's own colour.
+- Lock Screen banner (light, or dark in Dark Mode): working — the bot (56 pt),
   task (two lines), "Code bot · Build, step 3 of 5", minutes, the bar with
-  names; needs — NEEDS YOU · BOT, the question, its answers and You decide;
-  done — "Done — tap to see the PR", "task · PR #131 · 58 min", every stage
-  filled, a check.
-- Dynamic Island (always black): compact — Blip's head and five tiny segments
-  (● 1 when it needs the person, ✓ Done when finished); minimal — Blip's
-  head; expanded — Blip in the pose with the badge, 3/5 (NEEDS YOU, or a
-  check), the task and its step and minutes, the bar (the question and its
-  answers, You decide; See the PR).
+  names; needs — the bot, NEEDS YOU · BOT, the question, its answers and You
+  decide; done — the bot, "Done — tap to see the PR", "task · PR #131 ·
+  58 min", every stage filled.
+- Dynamic Island (always black): compact — the bot's face and five tiny
+  segments (● 1 when it needs the person, Done when finished); minimal — the
+  bot's face; expanded — the bot (50 pt), 3/5 (NEEDS YOU, or Done), the task
+  and its step and minutes, the bar (the question and its answers, You decide;
+  See the PR).
 - Answers: `AnswerBotsActivityIntent`, a LiveActivityIntent (so it runs in
   the app's process, which iOS wakes for it): the activity goes back to work
   at once, the answer posts with the widgets' token, the X0 widget shows it

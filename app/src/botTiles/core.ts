@@ -27,6 +27,14 @@
  * Cheap on purpose (a mid Android draws four of these at 60 fps): typed arrays allocated once, no allocation in a
  * frame, a fixed 1/120 s step with the frame time clamped to 1/20 s, and drawing batched into a few paths.
  */
+import {
+  NBASE, SCENE_BASE, SCENE_LIMITS, SceneRun, compileScene,
+  B_BEAT, B_D, B_K, B_LEVEL, B_PX, B_RND, B_RND2, B_SIDE, B_T, B_TALK, B_TAPS, B_TAPT, B_TAPX, B_TAPY, B_TT, B_U, B_VX, B_W, B_X,
+  type Scene, type SceneDraw, type XApi,
+} from "./scene.ts";
+
+export { SCENE_LIMITS, SCENE_BASE } from "./scene.ts";
+export type { Scene, SceneCtx } from "./scene.ts";
 
 // ===================================================================== the public shapes
 
@@ -88,6 +96,16 @@ export interface TileCtx {
   arc(x: number, y: number, r: number, a0: number, a1: number): void;
   fill(): void;
   stroke(): void;
+  // Format 2 (scenes) asks for three more, all optional: a host without them still draws every scene, with cubics
+  // as pairs of quadratics, a group's `clip` ignored and dots drawn as arcs. The scene engine works out every
+  // transform itself, so `rotate` and `scale` are never needed.
+  bezierCurveTo?(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): void;
+  clip?(): void;
+  /** A scene's `rig` turns and squashes the bot himself about an anchor; scenes themselves need neither. */
+  rotate?(rad: number): void;
+  scale?(x: number, y: number): void;
+  /** One call per dot group: `xy` holds n points, all the same radius and colour. */
+  dots?(xy: Float32Array, n: number, radius: number, color: string): void;
 }
 
 export interface TileOptions {
@@ -107,6 +125,12 @@ export interface TileOptions {
 
 /** The tap: press, the other bots look, the others' words fade to fadeTo, and after holdMs the tile's action runs. */
 export const TAP = { holdMs: 1000, fadeTo: 0.35, fadeMs: 260, pressScale: 0.97, restoreMs: 1400 } as const;
+
+/** Milliseconds, for the governor. The host may hand a better clock to a tile (BotTile.clock). */
+const nowMs: () => number = typeof performance !== "undefined" && typeof performance.now === "function" ? () => performance.now() : () => Date.now();
+
+/** The groups a scene's `rig` may hide, as bits (scene.ts RIG_GROUPS, in that order). */
+const H_HEAD = 1, H_FACE = 2, H_ANT = 4, H_ARMS = 8, H_LEGS = 16, H_BODY = 32, H_WEAR = 64;
 
 /** The fixed step, and the longest frame that is simulated (a longer pause is not caught up). */
 export const STEP = 1 / 120;
@@ -160,7 +184,7 @@ const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
  */
 
 /** The looks format this core draws and plays; a catalog or a recipe that says a higher one is not played. */
-export const LOOKS_FORMAT = 1;
+export const LOOKS_FORMAT = 2;
 
 /** A colour in looks data: "$color" (the bot's own), "$paint" (the one its wearer or emitter gives), "ink", "paper", #rrggbb; an emitter may say "$any" (a palette colour per particle). */
 export type Paint = string;
@@ -224,6 +248,8 @@ export interface LooksSpec {
   v: number;
   format?: number;
   note?: string;
+  /** Format 2: the scenes moments play (scene.ts). A build that plays only format 1 never sees this section. */
+  scenes?: Record<string, unknown>;
   parts?: Record<string, PartSpec>;
   avatars?: Record<string, AvatarSpec>;
   moments?: Record<string, MomentSpec>;
@@ -413,6 +439,17 @@ function xrun(code: Float64Array, vars: Float64Array): number {
   }
   return s[0]!;
 }
+
+/**
+ * The expression language, handed to the scene engine (scene.ts): it compiles and runs the same bytecode, and the
+ * opcodes let it hoist the parts of a per-dot formula that do not change with the dot. The dependency runs one way:
+ * scene.ts imports nothing.
+ */
+export const XAPI: XApi = {
+  compile: xcompile,
+  run: xrun,
+  ops: { NUM: XO_NUM, VAR: XO_VAR, NEG: XO_NEG, NOT: XO_NOT, BIN: XO_BIN, TERN: XO_TERN, CALL: XO_CALL },
+};
 
 /** Check an expression the way a recipe's would be compiled (the server's checks and tests use this). `names`: as compileWith's. */
 export function checkExpression(src: string, names?: readonly string[]): string {
@@ -669,10 +706,12 @@ function mergeAvatar(base: AvatarSpec, over: AvatarSpec): AvatarSpec {
 
 const TRACK_KINDS: Record<string, number> = {
   walk: 1, crouch: 2, sit: 3, lean: 4, tilt: 5, arm: 6, look: 7, eyes: 8, mouth: 9, lid: 10, spin: 11, shake: 12, act: 13, prop: 14, emit: 15, face: 16,
-  hop: 20, kick: 21, fabric: 22, glow: 23, sound: 24, others: 25, event: 26, blink: 27,
+  hop: 20, kick: 21, fabric: 22, glow: 23, sound: 24, others: 25, event: 26, blink: 27, scene: 28,
 };
 const TK_WALK = 1, TK_CROUCH = 2, TK_SIT = 3, TK_LEAN = 4, TK_TILT = 5, TK_ARM = 6, TK_LOOK = 7, TK_EYES = 8, TK_MOUTH = 9, TK_LID = 10, TK_SPIN = 11, TK_SHAKE = 12, TK_ACT = 13, TK_PROP = 14, TK_EMIT = 15, TK_FACE = 16;
 const TK_HOP = 20, TK_KICK = 21, TK_FABRIC = 22, TK_GLOW = 23, TK_SOUND = 24, TK_OTHERS = 25, TK_EVENT = 26, TK_BLINK = 27;
+/** Format 2: a scene plays beside the rig, on an anchor, behind him or in front (scene.ts). */
+const TK_SCENE = 28;
 /** Each track's own fields (besides do, at, to, after, if, chance, note). x: an expression allowed. */
 export const TRACK_FIELDS: Record<string, Record<string, string>> = {
   walk: { x: "x", dx: "x", toward: "walk", gap: "x", speed: "x" },
@@ -690,6 +729,7 @@ export const TRACK_FIELDS: Record<string, Record<string, string>> = {
   face: { target: "face" },
   hop: { h: "x", dx: "x" }, kick: { part: "kick", vx: "x", vy: "x" }, fabric: { from: "anchor", x: "x", y: "x", v: "x", r: "x" },
   glow: { v: "x" }, sound: { name: "name" }, others: { play: "moment", n: "n", near: "n" }, event: { name: "name" }, blink: {},
+  scene: { scene: "scene", on: "anchor", x: "x", y: "x", scale: "x", back: "bool" },
 };
 export const TRACK_ENUMS: Record<string, string[]> = {
   hand: ["front", "back", "l", "r", "both"],
@@ -725,6 +765,8 @@ class Track {
   m = 0; m2 = -1;
   part: Part | null = null;
   parts: Part[] | null = null;
+  /** A scene track: the scene it plays (format 2). */
+  scene: Scene | null = null;
   paint = "$color";
   name = "";
   ref: Moment | null = null;
@@ -753,21 +795,27 @@ export class Moment {
   end: Track[] = [];
   endDur = 0;
   events: string[] = [];
+  /** Format 2: how many scene tracks it has (at most 2, SPEC 3.7). */
+  scenes = 0;
   constructor(id: string) { this.id = id; }
 }
 
 /** Compile one recipe's tracks; refs to other moments resolve through `all` (filled before). */
-function buildMoment(mo: Moment, spec: unknown, parts: Map<string, Part>, all: Map<string, Moment>, errs: string[]): void {
+function buildMoment(mo: Moment, spec: unknown, parts: Map<string, Part>, all: Map<string, Moment>, scenes: Map<string, Scene>, errs: string[]): void {
   const at = `moments.${mo.id}`;
   const n0 = errs.length;
   const fail = (msg: string) => { errs.push(`${at}${msg}`); };
   if (!isRec(spec)) { fail(": an object"); mo.ok = false; mo.why = "not an object"; return; }
   const sp = spec as unknown as MomentSpec;
-  for (const k of Object.keys(sp)) if (!["label", "note", "format", "dur", "mode", "loopFrom", "bpm", "still", "fallback", "react", "tracks", "end"].includes(k)) fail(`: unknown field ${k}`);
+  // The fallback act is read before anything else, so a recipe this build cannot play still says what to do instead.
+  const acts = ["play", "wave", "survey", "read", "settle", "think", "carry"];
+  mo.fallback = acts.includes(String(sp.fallback)) ? sp.fallback! : "play";
+  mo.label = String(sp.label ?? "");
+  // Then the format gate, before the unknown-field loop: a newer recipe is skipped, not reported as broken.
   if ((sp.format ?? 1) > LOOKS_FORMAT) { mo.ok = false; mo.why = `format ${sp.format}`; return; }
+  for (const k of Object.keys(sp)) if (!["label", "note", "format", "dur", "mode", "loopFrom", "bpm", "still", "fallback", "react", "tracks", "end"].includes(k)) fail(`: unknown field ${k}`);
   if (typeof sp.dur !== "number" || !(sp.dur > 0 && sp.dur <= MOMENT_LIMITS.dur)) fail(`.dur: seconds in (0, ${MOMENT_LIMITS.dur}]`);
   mo.dur = Number(sp.dur) || 1;
-  mo.label = String(sp.label ?? "");
   if (sp.mode != null && sp.mode !== "once" && sp.mode !== "loop") fail(".mode: once or loop");
   mo.loop = sp.mode === "loop";
   mo.loopFrom = typeof sp.loopFrom === "number" && sp.loopFrom >= 0 && sp.loopFrom < mo.dur ? sp.loopFrom : 0;
@@ -776,9 +824,9 @@ function buildMoment(mo: Moment, spec: unknown, parts: Map<string, Part>, all: M
   if (sp.bpm != null && mo.bpm !== sp.bpm) fail(".bpm: in (0, 300]");
   mo.still = typeof sp.still === "number" && sp.still >= 0 && sp.still <= mo.dur ? sp.still : 0;
   if (sp.still != null && mo.still !== sp.still) fail(".still: seconds in [0, dur]");
-  const acts = ["play", "wave", "survey", "read", "settle", "think", "carry"];
   if (sp.fallback != null && !acts.includes(sp.fallback)) fail(`.fallback: one of ${acts.join(", ")}`);
-  mo.fallback = acts.includes(String(sp.fallback)) ? sp.fallback! : "play";
+  // Every format-2 recipe must name one: on an older build that is all anybody sees (SPEC 2.5).
+  if ((sp.format ?? 1) > 1 && sp.fallback == null) fail(": a format-2 recipe declares `fallback`");
   mo.react = sp.react === true;
   // Event names: those fired (event tracks, emitters' onMiss) and those followed (after).
   const evOf = (name: unknown, where: string): number => {
@@ -811,7 +859,8 @@ function buildMoment(mo: Moment, spec: unknown, parts: Map<string, Part>, all: M
         return v;
       };
       tr.at = tnum("at", 0, 0, dur);
-      tr.inst = tr.k >= 20 || (tr.k === TK_EMIT && !(typeof raw.every === "number" && raw.every > 0));
+      // A scene runs over a span, as the posing tracks do, though its number is in the instant range.
+      tr.inst = (tr.k >= 20 && tr.k !== TK_SCENE) || (tr.k === TK_EMIT && !(typeof raw.every === "number" && raw.every > 0));
       tr.to = tnum("to", tr.k === TK_HOP ? Math.min(dur, tr.at + 0.35) : tr.inst ? tr.at : dur, tr.at, dur);
       if (raw.to != null && tr.inst && tr.k !== TK_HOP) errs.push(`${w}.to: ${kind} happens once, at "at"`);
       if (!tr.inst && raw.to != null && !(tr.to > tr.at)) errs.push(`${w}.to: after "at"`);
@@ -908,6 +957,20 @@ function buildMoment(mo: Moment, spec: unknown, parts: Map<string, Part>, all: M
           break;
         }
         case TK_EVENT: tr.ev = evOf(raw.name, `${w}.name`); fired.add(tr.ev); break;
+        case TK_SCENE: {
+          const id = String(raw.scene);
+          tr.scene = scenes.get(id) ?? null;
+          if (!tr.scene) errs.push(`${w}.scene: no scene "${id}"`);
+          else if (!tr.scene.ok) errs.push(`${w}.scene: "${id}" does not compile`);
+          tr.m = anchor("on", AN_GROUND);
+          tr.a = x("x", 0); tr.b = x("y", 0); tr.c = x("scale", 1);
+          tr.pop = raw.back === true;
+          if (++mo.scenes > SCENE_LIMITS.liveMoment) errs.push(`${w}: at most ${SCENE_LIMITS.liveMoment} scene tracks in a recipe`);
+          // A scene's own events are the moment's: it reads them, and its `emit` fires them.
+          for (const e of tr.scene?.events ?? []) { const i = evOf(e, `${w}.scene`); followed.push([i, `${w}.scene "${e}"`]); }
+          for (const e of tr.scene?.emitNames ?? []) { const i = evOf(e, `${w}.scene`); fired.add(i); }
+          break;
+        }
         default: break;
       }
       return tr;
@@ -929,6 +992,8 @@ export class Looks {
   parts = new Map<string, Part>();
   avatars = new Map<string, Avatar>();
   moments = new Map<string, Moment>();
+  /** Format 2: the scenes moments play. Empty on a catalog cut down to format 1. */
+  scenes = new Map<string, Scene>();
   kinds: Record<string, string> = {};
   errors: string[] = [];
   /** Inline avatars (a node's own spec), compiled once each. */
@@ -980,7 +1045,8 @@ export function compileLooks(spec: unknown): Looks {
   const errs = L.errors;
   if (!isRec(spec)) { errs.push("the catalog is an object"); return L; }
   const sp = spec as unknown as LooksSpec;
-  for (const k of Object.keys(sp)) if (!["v", "format", "note", "parts", "avatars", "moments", "kinds", "idle"].includes(k)) errs.push(`unknown field ${k}`);
+  // An unknown top-level section is IGNORED, not an error: a later format may add one, and this build reads the rest
+  // of the same file (SPEC 3.2, compile fix 2).
   if (typeof sp.v !== "number" || !(sp.v >= 1) || Math.floor(sp.v) !== sp.v) errs.push("v: a whole number from 1");
   L.v = Number(sp.v) || 0;
   if ((sp.format ?? 1) > LOOKS_FORMAT) { errs.push(`format ${sp.format}: newer than this build`); return L; }
@@ -1006,9 +1072,20 @@ export function compileLooks(spec: unknown): Looks {
     L.specs.set(id, s);
     if (errs.length === n0) L.avatars.set(id, a);
   }
+  // Scenes, before the moments that play them. One whose `format` is newer than this build is skipped, as a recipe is.
+  const scs = isRec(sp.scenes) ? (sp.scenes as Record<string, unknown>) : {};
+  if (sp.scenes != null && !isRec(sp.scenes)) errs.push("scenes: an object");
+  if (Object.keys(scs).length > SCENE_LIMITS.scenes) errs.push(`scenes: at most ${SCENE_LIMITS.scenes}`);
+  for (const [id, raw] of Object.entries(scs)) {
+    const f = isRec(raw) && typeof raw.format === "number" ? raw.format : 1;
+    if (f > LOOKS_FORMAT) continue;
+    if (f < 2) { errs.push(`scenes.${id}: format 2 or above`); continue; }
+    const sc = compileScene(id, raw, XAPI, (n) => ANCHORS.indexOf(n), (pid) => L.parts.get(pid) ?? null, errs);
+    if (sc.ok) L.scenes.set(id, sc);
+  }
   const moms = isRec(sp.moments) ? (sp.moments as Record<string, unknown>) : {};
   for (const id of Object.keys(moms)) L.moments.set(id, new Moment(id));
-  for (const id of Object.keys(moms)) buildMoment(L.moments.get(id)!, moms[id], L.parts, L.moments, errs);
+  for (const id of Object.keys(moms)) buildMoment(L.moments.get(id)!, moms[id], L.parts, L.moments, L.scenes, errs);
   if (sp.kinds != null) {
     if (!isRec(sp.kinds)) errs.push("kinds: an object");
     else for (const [k, a] of Object.entries(sp.kinds)) {
@@ -1315,6 +1392,38 @@ function drawPart(ctx: TileCtx, p: Part, ox: number, oy: number, fx: number, fy:
   }
 }
 
+/**
+ * THE SCREEN'S OWN BUDGETS (anim/SPEC.md 3.7): at most SCENE_LIMITS.liveScreen scenes, opsScreen expression ops and
+ * dotsScreen dots over every surface at once, however many grids and stages are mounted. Over them a scene does not
+ * start and its bot plays the rig only; the moment is not dropped and no fallback act takes over, because nothing
+ * is wrong with the scene itself.
+ *
+ * Only tiles with a live scene are counted. A tile stamps itself every frame it steps, so one whose surface went
+ * away mid-scene (a screen left while a moment played) is forgotten here instead of being held against the next
+ * scene forever.
+ */
+const SCREEN: BotTile[] = [];
+let SCREEN_TICK = 0;
+/** Stamps, not seconds: with one live surface at 60 fps this is about three seconds. */
+const SCREEN_GONE = 180;
+
+function screenJoin(t: BotTile): void { if (SCREEN.indexOf(t) < 0) SCREEN.push(t); }
+function screenLeave(t: BotTile): void { const i = SCREEN.indexOf(t); if (i >= 0) SCREEN.splice(i, 1); }
+
+/** Room on the screen for one more scene, beside everything every surface is already playing. */
+function screenRoom(t: BotTile, sc: Scene): boolean {
+  let live = 1, ops = sc.ops, dots = sc.dots;
+  for (let i = SCREEN.length - 1; i >= 0; i--) {
+    const o = SCREEN[i]!;
+    if (o !== t && SCREEN_TICK - o.scTick > SCREEN_GONE) { SCREEN.splice(i, 1); continue; }
+    for (const r of o.scRun) if (r) { live++; ops += r.scene.ops; dots += r.scene.dots; }
+  }
+  return live <= SCENE_LIMITS.liveScreen && ops <= SCENE_LIMITS.opsScreen && dots <= SCENE_LIMITS.dotsScreen;
+}
+
+/** Tests: the screen is empty again (every surface of the last one is gone). */
+export function resetScreenScenes(): void { SCREEN.length = 0; }
+
 export class BotTile {
   kind: BotKind;
   color: string;
@@ -1549,6 +1658,63 @@ export class BotTile {
   moThrow = new Uint16Array(MO_TRACKS);
   moEv = new Float64Array(MO_EVENTS);
   moVars = new Float64Array(MOMENT_VARS.length);
+
+  // ---- format 2: the scenes a moment plays (scene.ts)
+  /** At most SCENE_LIMITS.liveMoment live at once; each one's track, where it sits and how it is going. */
+  scRun: Array<SceneRun | null> = [null, null];
+  scTrack = new Int8Array(2).fill(-1);
+  scSeen = new Int32Array(2);
+  scOX = new Float64Array(2);
+  scOY = new Float64Array(2);
+  scS = new Float64Array(2);
+  scBack = new Uint8Array(2);
+  scT = new Float64Array(2);
+  scD = new Float64Array(2);
+  /** The governor: a rolling average of step, evaluation and draw, in milliseconds, and whether it has frozen. */
+  scMs = new Float64Array(2);
+  scFroze = new Uint8Array(2);
+  /** This frame's cost so far (step, then each draw pass): one sample a frame reaches the rolling average. */
+  scAcc = new Float64Array(2);
+  /** Frames a run has finished without dying: 0 says it never drew, so the moment's fallback act takes over. */
+  scFrames = new Int32Array(2);
+  /** Tracks whose scene went wrong this play: dead for the play, never started again on the next step (SPEC 3.4). */
+  scDead = new Uint8Array(MO_TRACKS);
+  /** When this tile last stepped its scenes, for the screen-wide tally (a surface that went away stops stamping). */
+  scTick = 0;
+  /**
+   * A scene's `part` element: the catalog part, drawn in the element's own frame. core.ts owns parts, so scene.ts
+   * hands the part back and this draws it. One function per tile, never one per frame.
+   */
+  scenePart = (ctx: TileCtx, part: unknown, ox: number, oy: number, fx: number, fy: number, dx: number, dy: number, paint: string, alpha: number): void => {
+    const p = part as Part | null;
+    if (!p) return;
+    // The frame carries the scale; drawPart wants unit axes and the scale apart, so its line widths are right.
+    const sc = Math.sqrt(Math.abs(fx * dy - fy * dx)) || 1;
+    drawPart(ctx, p, ox, oy, fx / sc, fy / sc, dx / sc, dy / sc, sc, this.kind === "make" ? this.makeColor : this.color, paint, alpha);
+  };
+  /** Every anchor's frame this step, for the scenes that hang on one. */
+  scAnch = new Float64Array(ANCHORS.length * 6);
+  scDraw: SceneDraw = { ox: 0, oy: 0, S: 30, mirror: 1, alpha: 1, color: "#000", ink: INK, paper: PAPER, anchors: null, allBack: false };
+  /** For the bootstrap's report (SPEC 3.9): scenes that went wrong, and scenes the governor slowed. */
+  sceneBad: string[] = [];
+  sceneSlow: string[] = [];
+  /** His voice: how long it has been over the talking line. */
+  talkFor = 0;
+  /** The last tap inside a live scene's box (BotStage only): where, how long ago, and how many this play. */
+  tapX = 0;
+  tapY = 0;
+  tapT = 99;
+  tapN = 0;
+  /** While a scene's `rig` says so: the bot's own look. */
+  hideMask = 0;
+  rigOn = false;
+  rigA = 1;
+  rigSx = 1;
+  rigSy = 1;
+  rigRot = 0;
+  rigAbout = AN_GROUND;
+  /** The governor's clock (milliseconds). The surface may hand in one that knows the real frame. */
+  clock: (() => number) | null = null;
   /** Moments' own random numbers (so his own play's sequence is the same whatever moments he plays). */
   mrand: () => number;
   /** The other bot a moment is with (his head, in this tile's space; NaN: none), and its index in the world. */
@@ -2206,13 +2372,16 @@ export class BotTile {
   /** Advance by a frame's time (seconds). Fixed steps inside; a long pause is clamped, not caught up. */
   step(dt: number): void {
     if (!this.placed || this.still) return;
-    this.acc += clamp(dt, 0, MAX_FRAME);
+    const h = clamp(dt, 0, MAX_FRAME);
+    this.acc += h;
     let k = 0;
     while (this.acc >= STEP && k < 8) {
       this.stepOnce(STEP);
       this.acc -= STEP;
       k++;
     }
+    // Scenes step once a frame, not once per physics step: a dot field then costs the same at any frame rate.
+    this.scenesStep(h);
   }
 
   stepOnce(h: number): void {
@@ -4017,6 +4186,7 @@ export class BotTile {
     this.moX0 = this.placed ? this.x[HIP]! : this.w / 2;
     this.moSide = this.faceSign;
     if (!react) this.partner = -1;
+    this.scenesStop();
     this.moReset(m.tracks);
     this.moEv.fill(NaN);
     this.cheerT = -1;
@@ -4046,6 +4216,9 @@ export class BotTile {
   momentDone(): boolean { return this.moDone; }
 
   moReset(tracks: Track[]): void {
+    // A fresh set of tracks (a new moment, or its `end`): no track is dead yet. A loop going round again is NOT
+    // a fresh set — a scene that went wrong stays dead for the whole play.
+    this.scDead.fill(0);
     for (let i = 0; i < MO_TRACKS; i++) {
       this.moFired[i] = 0; this.moNext[i] = 0; this.moThrow[i] = 0; this.moSlot[i] = -1;
       const tr = tracks[i];
@@ -4056,6 +4229,7 @@ export class BotTile {
 
   /** The moment is over; `again`: his brain picks what comes next now (false: the caller does). */
   moFinish(again = true): void {
+    this.scenesStop();
     this.mo = null;
     this.moDone = true;
     this.moEnding = false;
@@ -4094,9 +4268,12 @@ export class BotTile {
     this.goalX = NaN;
     const tracks = this.moEnding ? m.end : m.tracks;
     this.moStamp++;
-    for (let i = 0; i < tracks.length; i++) this.momentTrack(tracks[i]!, i, h);
-    // A prop whose track is over pops away.
+    // A scene that cannot start ends the moment mid-loop (its fallback act takes over): stop reading tracks then.
+    for (let i = 0; i < tracks.length && this.mo; i++) this.momentTrack(tracks[i]!, i, h);
+    if (!this.mo) return;
+    // A prop whose track is over pops away, and so does a scene whose track is over.
     for (let s = 0; s < WSLOTS; s++) if (this.wparts[s] && this.wlive[s] && this.wseen[s] !== this.moStamp) { this.wlive[s] = 0; this.wtrack[s] = -1; }
+    for (let s = 0; s < this.scRun.length; s++) if (this.scRun[s] && this.scSeen[s] !== this.moStamp) this.sceneDrop(s, "");
     if (this.wallL < 3) this.wallL = 3;
     if (this.wallR > this.w - 3) this.wallR = this.w - 3;
     void S;
@@ -4108,6 +4285,292 @@ export class BotTile {
     V[2] = this.moT; V[4] = m.bpm > 0 ? (this.moT * m.bpm) / 60 : 0; V[5] = this.moK; V[6] = f; V[7] = this.moRnd; V[8] = this.moRnd2;
     V[9] = this.w / S; V[10] = this.x[HIP]! / S;
     V[11] = this.peerX === this.peerX ? ((this.peerX - this.x[HEAD]!) * f) / S : 0;
+  }
+
+
+  // ------------------------------------------------------------------- format 2: scenes
+
+  /**
+   * A scene track, while it is live: find or start its run, place it, and say it was seen this step. The scene is
+   * stepped once a frame (scenesStep), not once per physics step, so a dot field costs the same at any frame rate.
+   */
+  sceneTrack(tr: Track, i: number, lt: number, span: number): void {
+    const sc = tr.scene;
+    if (!sc || !sc.ok) return;
+    // It already went wrong this play: dead is dead, or a scene that throws is built again every frame.
+    if (this.scDead[i]) return;
+    let s = -1;
+    for (let k = 0; k < this.scRun.length; k++) if (this.scTrack[k] === i) s = k;
+    if (s < 0) {
+      for (let k = 0; k < this.scRun.length; k++) if (this.scTrack[k] < 0) { s = k; break; }
+      if (s < 0) return;
+      // The screen's own budgets (SPEC 3.7): over them the others play the rig only, and this one does not start.
+      if (!screenRoom(this, sc)) return;
+      const run = new SceneRun(sc, Math.floor(this.moRnd * 1e6) + i);
+      run.api = XAPI;
+      run.onPart = this.scenePart;
+      this.scRun[s] = run;
+      this.scTrack[s] = i;
+      this.scMs[s] = 0;
+      this.scAcc[s] = 0;
+      this.scFrames[s] = 0;
+      this.scFroze[s] = 0;
+      this.tapT = 99;
+      this.tapN = 0;
+      screenJoin(this);
+    }
+    const S = this.S * clamp(this.xv(tr.c), 0.1, 4);
+    const a = this.anchor(tr.m);
+    const ox = a[0]! + (a[2]! * this.xv(tr.a) + a[4]! * this.xv(tr.b)) * this.S;
+    const oy = a[1]! + (a[3]! * this.xv(tr.a) + a[5]! * this.xv(tr.b)) * this.S;
+    if (!this.scenePlace(s, sc, ox, oy, S)) {
+      // It does not fit on this surface even after a nudge: nobody sees half a moment, so the act takes over.
+      this.sceneDrop(s, "fit");
+      this.sceneFallback();
+      return;
+    }
+    this.scS[s] = S;
+    this.scBack[s] = tr.pop ? 1 : 0;
+    this.scSeen[s] = this.moStamp;
+    this.scT[s] = lt;
+    this.scD[s] = span;
+  }
+
+  /**
+   * Where a scene's box sits: at its origin, moved inward by up to half a bot height when it crosses an edge (as his
+   * walks keep inside the walls). False: it still does not fit.
+   */
+  scenePlace(s: number, sc: Scene, ox: number, oy: number, S: number): boolean {
+    const halfW = (sc.bw / 2) * S, high = sc.bh * S, give = this.S * 0.5;
+    let x = ox, y = oy;
+    if (x - halfW < 0) x = Math.min(ox + give, halfW);
+    if (x + halfW > this.w) x = Math.max(ox - give, this.w - halfW);
+    if (y - high < 0) y = Math.min(oy + give, high);
+    if (y > this.h) y = Math.max(oy - give, this.h);
+    if (x - halfW < -0.5 || x + halfW > this.w + 0.5 || y - high < -0.5 || y > this.h + 0.5) return false;
+    this.scOX[s] = x;
+    this.scOY[s] = y;
+    return true;
+  }
+
+  /** A scene is over, or went wrong: its slot is freed. A reason makes it a report (SPEC 3.9). */
+  sceneDrop(s: number, why: string): void {
+    const run = this.scRun[s];
+    const tr = this.scTrack[s]!;
+    if (run && why) {
+      if (this.sceneBad.length < 4) this.sceneBad.push(`${run.scene.id}:${why}`);
+      // Dead for this play: the track never starts it again (it would otherwise be built afresh every frame).
+      if (tr >= 0) this.scDead[tr] = 1;
+    }
+    // It never finished a frame: nobody saw half a moment, so the fallback act takes over (SPEC 3.4).
+    const never = !!run && !!why && this.scFrames[s] === 0;
+    this.scRun[s] = null;
+    this.scTrack[s] = -1;
+    this.scFroze[s] = 0;
+    this.scAcc[s] = 0;
+    this.scFrames[s] = 0;
+    let any = false;
+    for (const r of this.scRun) if (r) any = true;
+    if (!any) {
+      this.rigOn = false; this.hideMask = 0; this.rigA = 1; this.rigSx = 1; this.rigSy = 1; this.rigRot = 0;
+      screenLeave(this);
+    }
+    // sceneFallback drops the rest with no reason, so this cannot come back round.
+    if (never) this.sceneFallback();
+  }
+
+  /** A scene that could not start: the moment stops and its fallback act plays instead. */
+  sceneFallback(): void {
+    const m = this.mo;
+    if (!m) return;
+    const act = m.fallback;
+    this.scenesStop();
+    this.moFinish(false);
+    this.setAct(act);
+  }
+
+  /** Every scene stops (a new moment, the end of one), and the next play starts with no track marked dead. */
+  scenesStop(): void {
+    for (let s = 0; s < this.scRun.length; s++) if (this.scRun[s]) this.sceneDrop(s, "");
+    this.scDead.fill(0);
+    this.tapT = 99;
+    this.tapN = 0;
+    screenLeave(this);
+  }
+
+  /** True while any scene is playing. */
+  scenesLive(): boolean {
+    for (const r of this.scRun) if (r) return true;
+    return false;
+  }
+
+  /**
+   * One frame of every live scene: its names, its step, the events it asked for, and the governor. Timed with the
+   * drawing, because the two together are what a frame costs.
+   */
+  scenesStep(dt: number): void {
+    // Stamped whether or not a scene is live, so the screen-wide tally can tell a gone surface from a quiet one.
+    this.scTick = ++SCREEN_TICK;
+    if (!this.scenesLive()) return;
+    const m = this.mo;
+    this.talkFor = this.level > 0.15 ? this.talkFor + dt : 0;
+    this.tapT = this.tapT < 98 ? this.tapT + dt : 99;
+    const clock = this.clock ?? nowMs;
+    this.sceneAnchors();
+    for (let s = 0; s < this.scRun.length; s++) {
+      const run = this.scRun[s];
+      if (!run) continue;
+      const t0 = clock();
+      // A frozen scene is its still frame and nothing more: its names are not written again, so every value it
+      // draws (keyframes over t, anything reading level or a tap) stays where settle() left it (SPEC 3.8).
+      if (!this.scFroze[s]) {
+        this.sceneNames(run, s);
+        run.step(dt);
+      }
+      // What the scene asked the moment to fire: an event track's `after` follows it from the next step.
+      if (run.fired.length && m) {
+        for (const name of run.fired) {
+          const e = m.events.indexOf(name);
+          if (e >= 0) this.moEv[e] = this.moT;
+        }
+        run.fired.length = 0;
+      }
+      if (run.dead) { this.sceneDrop(s, run.why); continue; }
+      if (run.rigOn) {
+        this.rigOn = true;
+        this.rigA = run.rigAlpha;
+        this.rigSx = run.rigSx;
+        this.rigSy = run.rigSy;
+        this.rigRot = run.rigRot;
+        this.rigAbout = run.rigAbout;
+        this.hideMask = run.rigHide;
+      }
+      // The step is only part of the frame: the two draw passes add to this, and the front pass hands it to the
+      // governor, so what it sees is the whole cost of the frame and not a third of it (SPEC 3.8).
+      this.scAcc[s] = clock() - t0;
+    }
+  }
+
+  /** The governor: over its threshold a scene freezes at its still frame, and over it again it is dropped. */
+  sceneTime(s: number, ms: number): void {
+    const run = this.scRun[s];
+    if (!run) return;
+    this.scMs[s] = this.scMs[s]! * (29 / 30) + ms / 30;
+    if (this.scMs[s]! <= SCENE_LIMITS.ms) return;
+    if (!this.scFroze[s]) {
+      this.scFroze[s] = 1;
+      this.scMs[s] = 0;
+      run.settle(run.scene.still);
+      if (this.sceneSlow.length < 4) this.sceneSlow.push(run.scene.id);
+      return;
+    }
+    this.sceneDrop(s, "slow");
+  }
+
+  /** Every anchor a live scene hangs on, this frame, in one table the scene engine reads. */
+  sceneAnchors(): void {
+    for (let s = 0; s < this.scRun.length; s++) {
+      const run = this.scRun[s];
+      if (!run) continue;
+      for (const code of run.scene.anchors) {
+        const a = this.anchor(code);
+        const q = code * 6;
+        for (let k = 0; k < 6; k++) this.scAnch[q + k] = a[k]!;
+      }
+    }
+  }
+
+  /** The names a scene reads this frame (SPEC 2.2), written into its own values. */
+  sceneNames(run: SceneRun, s: number): void {
+    const m = this.mo, V = run.vars, S = this.S, f = this.faceSign;
+    const span = this.scD[s]!;
+    V[B_T] = this.scT[s]!;
+    V[B_U] = span > 0 ? clamp(this.scT[s]! / span, 0, 1) : 1;
+    V[B_TT] = this.moT;
+    V[B_D] = span;
+    V[B_BEAT] = m && m.bpm > 0 ? (this.moT * m.bpm) / 60 : 0;
+    V[B_K] = this.moK;
+    V[B_SIDE] = f;
+    V[B_RND] = this.moRnd;
+    V[B_RND2] = this.moRnd2;
+    V[B_W] = this.w / S;
+    V[B_X] = this.x[HIP]! / S;
+    V[B_PX] = this.peerX === this.peerX ? ((this.peerX - this.x[HEAD]!) * f) / S : 0;
+    V[B_VX] = ((this.x[HIP]! - this.px[HIP]!) / STEP) / S;
+    V[B_LEVEL] = this.level;
+    V[B_TALK] = this.talkFor >= 0.15 ? 1 : 0;
+    V[B_TAPX] = this.tapX;
+    V[B_TAPY] = this.tapY;
+    V[B_TAPT] = this.tapT;
+    V[B_TAPS] = this.tapN;
+    const evs = run.scene.events;
+    for (let e = 0; e < evs.length; e++) {
+      const i = m ? m.events.indexOf(evs[e]!) : -1;
+      const at = i >= 0 ? this.moEv[i]! : NaN;
+      V[NBASE + e] = at === at ? this.moT - at : 99;
+    }
+  }
+
+  /**
+   * A tap on a stage (BotStage only). True: a live scene that wants taps took it, and the stage's own press does
+   * not run. Anything else is ignored, so a tile's tap still opens the bot's page.
+   */
+  cue(what: string, px: number, py: number): boolean {
+    if (what !== "tap") return false;
+    for (let s = 0; s < this.scRun.length; s++) {
+      const run = this.scRun[s];
+      if (!run || !run.scene.tap) continue;
+      const S = this.scS[s]!, halfW = (run.scene.bw / 2) * S, high = run.scene.bh * S;
+      const dx = px - this.scOX[s]!, dy = py - this.scOY[s]!;
+      if (Math.abs(dx) > halfW || dy > 0.5 * S || dy < -high) continue;
+      const mirror = run.scene.fixed ? 1 : this.faceSign;
+      this.tapX = (dx / S) * mirror;
+      this.tapY = dy / S;
+      this.tapT = 0;
+      this.tapN++;
+      return true;
+    }
+    return false;
+  }
+
+  /** What the bootstrap reports about this build's scenes (SPEC 3.9): nothing when all is well. */
+  looksReport(): { bad?: string[]; slow?: string[] } {
+    const out: { bad?: string[]; slow?: string[] } = {};
+    if (this.sceneBad.length) out.bad = this.sceneBad.slice(0, 4);
+    if (this.sceneSlow.length) out.slow = this.sceneSlow.slice(0, 4);
+    return out;
+  }
+
+  /** Every live scene, in one pass: behind the bot, or in front of him. */
+  drawScenes(ctx: TileCtx, alpha: number, back: boolean): void {
+    if (!this.scenesLive()) return;
+    const clock = this.clock ?? nowMs;
+    const d = this.scDraw;
+    d.anchors = this.scAnch;
+    d.color = this.kind === "make" ? this.makeColor : this.color;
+    d.ink = INK;
+    d.paper = PAPER;
+    for (let s = 0; s < this.scRun.length; s++) {
+      const run = this.scRun[s];
+      if (!run) continue;
+      const t0 = clock();
+      d.ox = this.scOX[s]!;
+      d.oy = this.scOY[s]!;
+      d.S = this.scS[s]!;
+      d.mirror = this.faceSign;
+      d.alpha = alpha;
+      d.allBack = this.scBack[s] === 1;
+      run.draw(ctx as unknown as Parameters<SceneRun["draw"]>[0], d, back);
+      this.scAcc[s] = this.scAcc[s]! + (clock() - t0);
+      if (run.dead) { this.sceneDrop(s, run.why); continue; }
+      // One sample a frame, after the front pass: step, evaluation and both draws together.
+      if (!back) {
+        this.scFrames[s] = this.scFrames[s]! + 1;
+        const ms = this.scAcc[s]!;
+        this.scAcc[s] = 0;
+        this.sceneTime(s, ms);
+      }
+    }
   }
 
   /** Reduce Motion's pose is being taken: only the tracks that hold a pose count. */
@@ -4186,6 +4649,7 @@ export class BotTile {
       case TK_EMIT:
         if (lt >= this.moNext[i]!) this.moNext[i] = lt + tr.every + (this.emit(tr, i) ? tr.pause : 0);
         break;
+      case TK_SCENE: this.sceneTrack(tr, i, lt, span); break;
       default: break;
     }
   }
@@ -4474,9 +4938,19 @@ export class BotTile {
     this.momentVars();
     this.posing = true;
     this.moStamp++;
-    for (let i = 0; i < m.tracks.length; i++) this.momentTrack(m.tracks[i]!, i, STEP);
+    for (let i = 0; i < m.tracks.length && this.mo; i++) this.momentTrack(m.tracks[i]!, i, STEP);
     this.posing = false;
     this.moT = T;
+    // Reduce Motion: a live scene draws its own still frame, with its physics settled (SPEC 3.8).
+    this.sceneAnchors();
+    for (let s = 0; s < this.scRun.length; s++) {
+      const run = this.scRun[s];
+      if (!run) continue;
+      this.sceneNames(run, s);
+      run.settle(run.scene.still);
+      run.fired.length = 0;
+      if (run.dead) this.sceneDrop(s, run.why);
+    }
   }
 
   // ------------------------------------------------------------------- Reduce Motion
@@ -4588,8 +5062,22 @@ export class BotTile {
     if (this.cloth > 0) this.fabric.draw(ctx, alpha * this.cloth);
     // On the floor, his toys are behind him; up in the air (a glyph, the plane), in front.
     this.drawProps(ctx, alpha, 0);
-    if (this.kind === "make") this.drawDust(ctx, alpha);
-    else this.drawBot(ctx, alpha, this.color);
+    this.drawScenes(ctx, alpha, true);
+    // A scene's `rig` turns, squashes and fades the bot himself, about one of his anchors.
+    const rig = this.rigOn && (this.rigA !== 1 || this.rigSx !== 1 || this.rigSy !== 1 || this.rigRot !== 0);
+    if (rig) {
+      ctx.save();
+      const a = this.anchor(this.rigAbout);
+      ctx.translate(a[0]!, a[1]!);
+      if (this.rigRot && ctx.rotate) ctx.rotate(this.rigRot);
+      if (ctx.scale) ctx.scale(this.rigSx, this.rigSy);
+      ctx.translate(-a[0]!, -a[1]!);
+    }
+    const ra = this.rigOn ? alpha * this.rigA : alpha;
+    if (this.kind === "make") this.drawDust(ctx, ra);
+    else this.drawBot(ctx, ra, this.color);
+    if (rig) ctx.restore();
+    this.drawScenes(ctx, alpha, false);
     this.drawProps(ctx, alpha, 1);
     if (this.stageCarry && this.held === 0) this.drawCarryArms(ctx, alpha);
     this.drawSparks(ctx, alpha);
@@ -4923,12 +5411,14 @@ export class BotTile {
   drawBot(ctx: TileCtx, alpha: number, col: string): void {
     const av = this.av, x = this.x, y = this.y, S = this.S, r = this.rH;
     const f = this.face >= 0 ? 1 : -1;
+    // A scene's `rig` may hide groups of him while it plays (scene.ts RIG_GROUPS); 0 is all of him, as always.
+    const hid = this.hideMask;
     // The body's frame: up from the hips, and across.
     let ux = x[NECK]! - x[HIP]!, uy = y[NECK]! - y[HIP]!;
     const ul = Math.sqrt(ux * ux + uy * uy) + 1e-6;
     ux /= ul; uy /= ul;
     const wx = -uy, wy = ux;
-    if (av.wearBack) this.drawWear(ctx, alpha, col, true);
+    if (av.wearBack && !(hid & H_WEAR)) this.drawWear(ctx, alpha, col, true);
     const pb = paintOf(av.pBody, col);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = pb;
@@ -4938,7 +5428,7 @@ export class BotTile {
     // Arms (behind the body): shoulder, elbow, hand.
     ctx.lineWidth = S * av.arm;
     ctx.beginPath();
-    for (let s = 0; s < 2; s++) {
+    for (let s = 0; s < 2 && !(hid & H_ARMS); s++) {
       const side = s ? 1 : -1, elb = s ? ELB_R : ELB_L, hand = s ? HAND_R : HAND_L;
       const sx = x[NECK]! + wx * side * 0.11 * S - ux * 0.05 * S, sy = y[NECK]! + wy * side * 0.11 * S - uy * 0.05 * S;
       ctx.moveTo(sx, sy);
@@ -4948,7 +5438,7 @@ export class BotTile {
     // Legs and feet.
     ctx.lineWidth = S * av.leg;
     ctx.beginPath();
-    for (let s = 0; s < 2; s++) {
+    for (let s = 0; s < 2 && !(hid & H_LEGS); s++) {
       const side = s ? 1 : -1, foot = s ? FOOT_R : FOOT_L;
       ctx.moveTo(x[HIP]! + wx * side * 0.07 * S + ux * 0.02 * S, y[HIP]! + wy * side * 0.07 * S + uy * 0.02 * S);
       ctx.lineTo(x[foot]!, y[foot]!);
@@ -4963,7 +5453,7 @@ export class BotTile {
     ctx.lineTo(x[HEAD]!, y[HEAD]!);
     ctx.stroke();
     const ang = this.headAngle(), c = Math.cos(ang), sn = Math.sin(ang);
-    if (av.antN > 0) {
+    if (av.antN > 0 && !(hid & H_ANT)) {
       ctx.lineWidth = S * av.antW;
       ctx.beginPath();
       for (let s = 0; s < av.antN; s++) {
@@ -4978,7 +5468,7 @@ export class BotTile {
     // The antennae's tips (a ball, a star), and his hands.
     ctx.beginPath();
     let first = true;
-    for (let s = 0; s < av.antN; s++) {
+    for (let s = 0; s < av.antN && !(hid & H_ANT); s++) {
       const tip = av.antTip[s]!, j2 = s ? ANT_B2 : ANT_A2, tr = S * av.antTipR[s]!, tx = x[j2]!, ty = y[j2]!;
       if (tip === 1) {
         if (!first) ctx.moveTo(tx + tr, ty);
@@ -4993,10 +5483,12 @@ export class BotTile {
         first = false;
       }
     }
-    ctx.moveTo(x[HAND_L]! + S * av.hand, y[HAND_L]!);
-    ctx.arc(x[HAND_L]!, y[HAND_L]!, S * av.hand, 0, TAU);
-    ctx.moveTo(x[HAND_R]! + S * av.hand, y[HAND_R]!);
-    ctx.arc(x[HAND_R]!, y[HAND_R]!, S * av.hand, 0, TAU);
+    if (!(hid & H_ARMS)) {
+      ctx.moveTo(x[HAND_L]! + S * av.hand, y[HAND_L]!);
+      ctx.arc(x[HAND_L]!, y[HAND_L]!, S * av.hand, 0, TAU);
+      ctx.moveTo(x[HAND_R]! + S * av.hand, y[HAND_R]!);
+      ctx.arc(x[HAND_R]!, y[HAND_R]!, S * av.hand, 0, TAU);
+    }
     ctx.fill();
     // The body: a sack, wider at the bottom, its corners rounded.
     const tl = av.bodyTop * S, bl = av.bodyBottom * S, rr = av.bodyRound * S;
@@ -5013,9 +5505,9 @@ export class BotTile {
     ctx.lineTo(ax + ux * rr, ay + uy * rr);
     ctx.quadraticCurveTo(ax, ay, ax + wx * rr, ay + wy * rr);
     ctx.closePath();
-    ctx.fill();
+    if (!(hid & H_BODY)) ctx.fill();
     // His ears, behind his head.
-    if (av.ears) {
+    if (av.ears && !(hid & H_HEAD)) {
       const pe = paintOf(av.pEars, col);
       if (pe !== pb) ctx.fillStyle = pe;
       this.drawEars(ctx, x[HEAD]!, y[HEAD]!, c, sn);
@@ -5026,18 +5518,18 @@ export class BotTile {
     if (av.head === 0 && av.headW === 1 && av.headH === 1) ctx.arc(x[HEAD]!, y[HEAD]!, r, 0, TAU);
     else if (av.head === 2) this.roundBox(ctx, x[HEAD]!, y[HEAD]!, r * av.headW, r * av.headH, r * av.headRound * Math.min(av.headW, av.headH), c, sn);
     else this.oval(ctx, x[HEAD]!, y[HEAD]!, r * av.headW, r * av.headH, c, sn);
-    ctx.fill();
+    if (!(hid & H_HEAD)) ctx.fill();
     this.fillNow = pb;
     // The perforations: light dots through the head and the body.
-    if (av.dots !== 2) {
+    if (av.dots !== 2 && !(hid & (H_HEAD | H_BODY))) {
       const pd = paintOf(av.pDots, col);
       ctx.fillStyle = pd;
       this.fillNow = pd;
       ctx.globalAlpha = alpha * av.dotA;
       this.dots(ctx, null, 1, 2);
     }
-    this.drawFace(ctx, alpha, col);
-    if (av.wearFront || this.wUsed > 0) this.drawWear(ctx, alpha, col, false);
+    if (!(hid & H_FACE)) this.drawFace(ctx, alpha, col);
+    if ((av.wearFront || this.wUsed > 0) && !(hid & H_WEAR)) this.drawWear(ctx, alpha, col, false);
     if (this.handOver) this.drawArmsOver(ctx, alpha, pb, this.handOver);
   }
 

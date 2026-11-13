@@ -53,3 +53,52 @@ test("names this JavaScript does not know, and non-strings, are dropped (a newer
 test("a platform that has none of them (the web) is told nothing", () => {
   assert.deepStrictEqual(cleanFeatures(["timeSensitive", "glanceSteps"], "web"), []);
 });
+
+test("an iPhone store build with the drawing code: looks, key faces, push-to-start and the spare board", () => {
+  const f = cleanFeatures(
+    ["timeSensitive", "glanceSteps", "realtimeCall", "nativeLook", "keySkin", "activityPushStart", "widgetBoard"], "ios");
+  assert.deepStrictEqual(f, [
+    "timeSensitive", "glanceSteps", "realtimeCall", "nativeLook", "keySkin", "activityPushStart", "widgetBoard",
+  ]);
+  assert.deepStrictEqual(featureCaps(f), [
+    "PushTimeSensitive", "GlanceSteps", "VoiceRealtime", "NativeLook1", "KeySkin1", "ActivityPushStart", "WidgetBoard1",
+  ]);
+  // Only Time Sensitive and NativeLook1 (the silent catalog nudge) change how a push is SENT.
+  assert.deepStrictEqual(pushCaps(f), ["PushTimeSensitive", "NativeLook1"]);
+});
+
+test("an Android build: the ongoing notice is its own, and push-to-start is not", () => {
+  const f = cleanFeatures(
+    ["glanceSteps", "realtimeCall", "nativeLook", "keySkin", "liveUpdate", "widgetBoard", "activityPushStart"], "android");
+  assert.deepStrictEqual(f, ["glanceSteps", "realtimeCall", "nativeLook", "keySkin", "liveUpdate", "widgetBoard"]);
+  assert.ok(featureCaps(f).includes("LiveUpdate1"));
+  // A Live Activity is iOS's: an Android binary that said push-to-start is still not told.
+  assert.ok(!featureCaps(f).includes("ActivityPushStart"));
+  // The notice is drawn from a data-only push, so the push token says LiveUpdate1 too: the server sends it to nothing else.
+  assert.deepStrictEqual(pushCaps(f), ["LiveUpdate1", "NativeLook1"]);
+  // An iPhone binary never says it, whatever its bridge answered.
+  assert.deepStrictEqual(pushCaps(cleanFeatures(["liveUpdate", "timeSensitive"], "ios")), ["PushTimeSensitive"]);
+  assert.deepStrictEqual(pushCaps(cleanFeatures(["liveUpdate"], "android")), ["LiveUpdate1"]);
+});
+
+test("the ongoing notice is Android's: an iPhone binary that said it is still not told", () => {
+  const f = cleanFeatures(["nativeLook", "liveUpdate"], "ios");
+  assert.deepStrictEqual(f, ["nativeLook"]);
+  assert.deepStrictEqual(featureCaps(f), ["NativeLook1"]);
+});
+
+test("an Android below API 31 says no nativeLook, so the server never names a design for it", () => {
+  // The bridge itself leaves the name out below API 31 (TulmiBridgeModule.kt); the phone keeps today's 12 layouts.
+  const f = cleanFeatures(["glanceSteps", "keySkin", "liveUpdate"], "android");
+  assert.ok(!f.includes("nativeLook"));
+  assert.ok(!featureCaps(f).includes("NativeLook1"));
+  // The keyboard's faces live in the same APK whatever the API level, so that one still stands.
+  assert.ok(featureCaps(f).includes("KeySkin1"));
+});
+
+test("an older binary says none of the new names, so an update written for them promises nothing", () => {
+  const f = cleanFeatures(["timeSensitive", "glanceSteps", "realtimeCall"], "ios");
+  for (const cap of ["NativeLook1", "KeySkin1", "ActivityPushStart", "LiveUpdate1", "WidgetBoard1"]) {
+    assert.ok(!featureCaps(f).includes(cap));
+  }
+});

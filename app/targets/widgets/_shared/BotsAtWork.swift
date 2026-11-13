@@ -14,6 +14,7 @@ import WidgetKit
 // The attributes are declared once more, byte for byte, in that bridge file. ActivityKit matches them by the type's name and
 // its encoding, so the copies must stay identical — and so must the JSON the app and the server send: these keys, as they are.
 
+// BEGIN BotsAtWorkAttributes
 @available(iOS 16.1, *)
 struct BotsAtWorkAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
@@ -47,6 +48,16 @@ struct BotsAtWorkAttributes: ActivityAttributes {
     var decideLink: String?
     /// done: how long the job took, in minutes (absent: counted from startedAt).
     var minutes: Int?
+    /// A private question, and a job that ended badly. The server has always sent both (tulmi/src/widgets/activity.ts) and
+    /// this side has always dropped them, because CodingKeys did not list them. It lists them now.
+    var `private`: Bool?
+    var failed: Bool?
+    /// The server design this activity draws, by id ("bots.night"). The design itself waits in the App Group, which the
+    /// activity's views can read, so a 4 KB push only has to NAME it. Unknown, missing or too new: today's own regions.
+    var look: String?
+    /// The one way a later design binds data this frozen struct has no field for (an ETA, a mood, a file count). At most
+    /// 12 keys of 24 characters, values of 120. Free strings nobody can classify, so they count as private words.
+    var vars: [String: String]?
 
     struct Choice: Codable, Hashable {
       var id: String
@@ -62,6 +73,7 @@ struct BotsAtWorkAttributes: ActivityAttributes {
     enum CodingKeys: String, CodingKey {
       case bot, botName, face, task, stage, of, stageName, stages, startedAt, phase, question, choices, result, pr, link
       case itemId, itemKind, decideLink, minutes
+      case `private`, failed, look, vars
     }
   }
 
@@ -99,9 +111,31 @@ extension BotsAtWorkAttributes.ContentState {
     itemKind = text(.itemKind)
     decideLink = text(.decideLink)
     minutes = whole(.minutes)
+    self.`private` = try? c.decodeIfPresent(Bool.self, forKey: .private)
+    failed = try? c.decodeIfPresent(Bool.self, forKey: .failed)
+    // A design id is [a-z0-9._-], 1 to 40 characters. Anything else is not an id, so it never names a file.
+    let wanted = text(.look) ?? ""
+    let idCharacters = Set("abcdefghijklmnopqrstuvwxyz0123456789._-")
+    let idOk = (1...40).contains(wanted.count) && wanted.allSatisfy({ idCharacters.contains($0) })
+    look = idOk ? wanted : nil
+    // Clamped here as well as on the server: a push is the one input nothing on this phone has checked.
+    if let sent = try? c.decodeIfPresent([String: String].self, forKey: .vars), !sent.isEmpty {
+      var kept: [String: String] = [:]
+      for key in sent.keys.sorted() where kept.count < 12 && key.count <= 24 {
+        kept[key] = String((sent[key] ?? "").prefix(120))
+      }
+      vars = kept.isEmpty ? nil : kept
+    } else {
+      vars = nil
+    }
   }
+}
+// END BotsAtWorkAttributes
 
-  /// The question answered: the job goes back to work.
+/// The question answered: the job goes back to work. The app's side only; outside the markers, so the two copies of the
+/// attributes stay byte for byte the same.
+@available(iOS 16.1, *)
+extension BotsAtWorkAttributes.ContentState {
   func answered() -> Self {
     var s = self
     s.phase = "working"

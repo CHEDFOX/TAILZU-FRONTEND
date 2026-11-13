@@ -67,12 +67,12 @@ const metaPlugin: [string, Record<string, unknown>][] =
 // sets NSMicrophoneUsageDescription and NSCameraUsageDescription itself, and what it is
 // given wins over what ios.infoPlist says — so both are named here, once, and handed to
 // the plugin below as well as written into infoPlist. Change one, change nothing else: a
-// camera string that drifts is a new App Review question about a camera this app only ever
-// opens when the person picks a photo.
+// camera string that drifts is a new App Review question. The camera opens only when the
+// person chooses to take a photo or video, or to scan a code.
 const MIC_USAGE =
   "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Plan Ease calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
 const CAMERA_USAGE =
-  "X0 Bot uses the camera when you choose to take a photo or video to give to a bot or send in a chat.";
+  "X0 Bot uses the camera when you take a photo or video, or scan a code, to give to a bot or send in a chat.";
 
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
@@ -114,55 +114,39 @@ const config: ExpoConfig = {
   // whoever `eas whoami` reports). Change this + EAS_PROJECT_ID together to move
   // the app to a different Expo account.
   owner: "xooteq",
-  // OTA updates (EAS Update). The fingerprint policy ties each update to the
-  // native build's fingerprint, so a JS-only OTA can never land on an
-  // incompatible binary (e.g. after a keyboard/permission/native change).
-  // A FIXED STRING, not a policy.
+  // OTA updates (EAS Update). runtimeVersion is a FIXED STRING, not a policy.
   //
-  // The fingerprint policy hashes the native project — and it hashes it on
-  // whichever machine runs the command. `eas build` computes it on EAS's
-  // Linux/macOS builders; `eas update` computes it on the publisher's laptop.
-  // The same commit produced d6ee7792 on the builder, 6d2ada59 on Windows and
-  // f6856889 on Linux, so every update published from the laptop was served to
-  // a runtime no build has ever reported. It uploaded successfully and reached
-  // nobody, which is indistinguishable from nothing happening.
+  // The fingerprint policy hashes the native project on whichever machine runs
+  // the command, and the same commit gave d6ee7792 on the EAS builder, 6d2ada59
+  // on Windows and f6856889 on Linux, so updates published from a laptop
+  // reached nobody. One string keeps every build on one update stream.
   //
-  // This exact value is what build 55 — the binary on the device — reports.
-  // Pinning it means updates reach that build without another round through
-  // the store, and every future build reports the same thing, so one string
-  // keeps them all on the same update stream.
+  // WHAT THE LABEL MEANS: "the native code JS can rely on". Same runtime = the
+  // same native code, or the same plus additions that JS detects before it uses
+  // them. Each bump cuts every installed phone off from future OTAs until it
+  // updates from the store, so bump ONLY when native code that already exists
+  // changes:
+  //   1. an Expo SDK or React Native upgrade;
+  //   2. the version of ANY already-installed native package changes, patch
+  //      bumps from `expo install --fix` included (Skia, Reanimated, worklets,
+  //      gesture-handler and every Expo module);
+  //   3. a native module or function is removed or renamed, or its native API
+  //      changes incompatibly;
+  //   4. a Reanimated static flag, or anything else about how an existing
+  //      package is compiled, changes.
   //
-  // The obligation it carries: nothing now stops JS that assumes new native
-  // code from reaching a build that lacks it. CHANGE THIS STRING whenever a
-  // release adds native capability — a module, a permission, keyboard-extension
-  // work — so older builds stop accepting updates written for the newer one.
-  // Any new value works; it only has to differ.
+  // NEVER bump for: the icon or splash (new art is a store build on the same
+  // runtime), a version or build number, store listing changes, a permission
+  // string or plist key that does not change a module's behaviour, an added
+  // native package or local module, an added function on an existing local
+  // module, or an added extension target. Reach additions only through
+  // src/device/natives.ts (optional require / typeof check), never assume them.
   //
-  // NOT bumped for 1.0.1, on purpose. That release adds a URL scheme, which
-  // is native — but the JavaScript CHECKS for the scheme rather than assuming
-  // it (AuthGateScreen, nativeReturns), so an update written for 1.0.1 is safe
-  // on the build before it. And that older build needs this very update: it
-  // is the one that cannot come back from Google without the web bridge the
-  // update carries. Bumping here would have cut it off from its own fix.
-  //
-  // BUMPED for the release after 1.0.1. It adds native capability on every
-  // side — three bridge functions and two new signatures, the widget
-  // extension with its Live Activity and Control, and the reworked keyboards
-  // — so an update written for it must never reach a binary without them.
-  //
-  // BUMPED again (Oct 2026) for the opposite reason: this release TAKES
-  // native modules out (expo-calendar, expo-contacts). An update published
-  // for the binary before it still imports them, and on a binary without
-  // them that import throws at launch, so the two must not share a runtime.
-  //
-  // BUMPED for 8.8: its splash is white (the Bots app's paper) where 8.7's is
-  // cream, and its launch curtain is drawn on white. An update for 8.8 on an
-  // 8.7 binary would lay a white curtain over a cream splash, a visible flash.
-  //
-  // BUMPED (Nov 2026) for the new Blip: the native splash and the app icon are
-  // new art, and the launch curtain draws the new Blip (with his feelers) from
-  // that splash's frame. An update carrying the new curtain on a binary with
-  // the old splash would jump from the old bot to Blip at launch.
+  // tools/ci/check-runtime.mjs compares the tree with app/native-inputs.lock
+  // and fails CI when existing native code changed without a new string here.
+  // After any native change or addition, refresh the lock:
+  //   node tools/ci/check-runtime.mjs --write
+  // Any new value works for a bump; it only has to differ.
   runtimeVersion: "tailzu-2026-11-x0-blip",
   // EVERY FIELD EXPLICIT. The url alone was here and the rest was left to
   // defaults, and the result was a store build that published updates
@@ -273,12 +257,42 @@ const config: ExpoConfig = {
       // notifications. This is the same mechanism Wispr Flow uses. The backing
       // code ships (FlowSessionManager.swift), so this declaration is honest
       // per Guideline 2.5.4.
-      UIBackgroundModes: ["audio"],
+      //
+      // "remote-notification" is the SILENT push that refreshes what the
+      // widgets and the Live Activity show. When the server publishes a new
+      // design catalog or a fresh glance, a content-available push wakes the
+      // app, it syncs (src/native/looks.ts, src/widgets/glance.ts) and reloads
+      // the timelines — otherwise a new look waits for the next time someone
+      // opens the app. It refreshes the app's OWN content and nothing else,
+      // which is what 2.5.4 asks. It is best effort and budgeted by iOS: never
+      // after a force-quit, seldom in Low Power Mode. No "fetch" or
+      // BGAppRefresh mode is added; iOS rarely runs those for an app people do
+      // not open daily.
+      UIBackgroundModes: ["audio", "remote-notification"],
       // The Flow session is a Live Activity while the background microphone
       // is armed: visible on the Lock Screen and in the Dynamic Island, and
       // stoppable from there. Drawn by the widget extension
       // (targets/widgets), driven by FlowSessionManager.
       NSSupportsLiveActivities: true,
+      // "Bots at work" moves stage by stage while a job runs, and the server
+      // pushes each step over APNs (tulmi/src/widgets/activity.ts). Without
+      // this key iOS budgets those updates hard and quietly drops the ones it
+      // does not like, so a job's last two or three stages simply never show.
+      // It is a plist key, so it can only be set in a build.
+      NSSupportsLiveActivitiesFrequentUpdates: true,
+      // FONTS: there is deliberately no UIAppFonts entry. The widget and
+      // keyboard extensions register their own faces at runtime with
+      // CTFontManagerRegisterFontsForURL(url, .process) — the bundled ones
+      // from Fonts/ in each target, and the ones the app hooks in later
+      // through the App Group (NLookStyle.swift registerOnce). That works
+      // inside an extension, needs no plist key, and avoids the question of
+      // whether @bacons/apple-targets would pass one through. A face that
+      // will not register falls back to the system one, so a design always
+      // draws. If the day-1 device check shows the widget extension refusing
+      // runtime registration, the fallback is a hand-written
+      // targets/widgets/Info.plist with UIAppFonts (the plugin leaves an
+      // existing Info.plist alone, which keeps the WidgetKit NSExtension
+      // keys) — not a key here.
       // Detect installed apps so share targets can prefer WhatsApp/Telegram/etc.
       LSApplicationQueriesSchemes: [
         "whatsapp",
@@ -301,6 +315,14 @@ const config: ExpoConfig = {
         "line",
         "wechat",
         "kakaotalk",
+        // UPI pay hand-off: lets the app tell "no UPI app" from a real open.
+        "upi",
+        "phonepe",
+        "tez",
+        "gpay",
+        "paytmmp",
+        "credpay",
+        "bhim",
       ],
       ITSAppUsesNonExemptEncryption: false,
       // Google sign-in redirect. expo-auth-session (SDK 56) completes the native

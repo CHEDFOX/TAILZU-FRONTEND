@@ -838,6 +838,14 @@ class SDUIRenderer(
         // Clear any pending long-press repeats attached to the previous view
         // tree so they don't fire against views that no longer exist.
         handler.removeCallbacksAndMessages(null)
+        // The faces of the tree being replaced are gone with it, and so are
+        // the bytes and the animation slots they were holding: the budgets are
+        // counted per BUILD, not per process, or a keyboard that rebuilds on
+        // every shift press would spend them in a minute.
+        facedKeys = 0
+        pendingFaces.clear()
+        pendingFaceReplaces.clear()
+        KbSkin.resetBudgets()
         // The keys the pop-up, tray and trackpad were tied to are going.
         focusByPlane.clear()
         keyPop?.clear()
@@ -1067,10 +1075,28 @@ class SDUIRenderer(
         for (c in node.children) render(c, ll)
     }
 
-    /** Key types the drawn path paints. Anything else sends the WHOLE row back
-     *  to the view path — all or nothing, never a mix. */
-    private fun isDrawableKey(t: String) = t == "LetterKey" || t == "ShiftKey" ||
-        t == "BackspaceKey" || t == "SpaceKey" || t == "ReturnKey" || t == "Spacer"
+    /**
+     * Keys the drawn path paints. Anything else sends the WHOLE row back to
+     * the view path — all or nothing, never a mix.
+     *
+     * A FACED KEY IS STILL DRAWABLE. The face is one Drawable and the plane
+     * paints it with the cap, so a print costs the fast path nothing and a row
+     * of printed keys is not pushed back to thirty Buttons. That is the whole
+     * point of making a face a Drawable rather than a View.
+     *
+     * It takes the NODE and not just the type because that is where a face
+     * lives, and because the next thing to land here is the animated face: a
+     * `program` needs the mark engine's own View with its own frame clock, and
+     * a drawn row has no child views to put one in, so that key's row will
+     * have to go back to the view path. In this build a `program` on an
+     * ordinary key draws its mark at rest (the budget's slots are claimed but
+     * nothing starts a display link), so nothing is excluded yet.
+     */
+    private fun isDrawableKey(c: KBNode): Boolean {
+        val t = c.type
+        return t == "LetterKey" || t == "ShiftKey" || t == "BackspaceKey" ||
+            t == "SpaceKey" || t == "ReturnKey" || t == "Spacer"
+    }
 
     /** Key rows that blur + stop taking touches while dictation is live. */
     private val lockableRows = ArrayList<TulmiKeyPlane>()
@@ -1127,7 +1153,7 @@ class SDUIRenderer(
      */
     private fun buildDrawnRow(node: KBNode, plane: TulmiKeyPlane): Boolean {
         if (node.children.isEmpty()) return false
-        if (node.children.any { !isDrawableKey(it.type) }) return false
+        if (node.children.any { !isDrawableKey(it) }) return false
         val dm = host.context().resources.displayMetrics
         val st = host.state()
         val keys = ArrayList<TulmiKeyPlane.DrawnKey>(node.children.size)
@@ -1191,9 +1217,26 @@ class SDUIRenderer(
                 }
             }
 
+            // Parsed once: faceOf() is capped per build, so asking twice can
+            // give two different answers at the boundary.
+            val keyFace = faceOf(c)
+            // The same one-legend rule as the view path: when the face has
+            // no legend of its own, the key's own title is the legend and
+            // takes the face's type, size and colour.
+            val faceTypeface = keyFace?.takeIf { it.restylesTitle }
+                ?.let { KbSkin.typeface(host.context(), it.font, it.weight) }
+            val faceLabelColor = keyFace?.takeIf { it.restylesTitle }?.color ?: labelColor
+            val faceSize = keyFace?.takeIf { it.restylesTitle && it.sizeSp > 0f }
+                ?.let { it.sizeSp * dm.scaledDensity } ?: size
+            val keyFaceDrawable = keyFace?.let {
+                val d = KbKeyFace.drawable(host.context(), it, faceLabelColor)
+                if (d == null) TulmiTelemetry.bump(TulmiTelemetry.FACE_DROPPED)
+                else { facedKeys += 1; TulmiTelemetry.bump(TulmiTelemetry.FACE_PAINTED) }
+                d
+            }
             key = TulmiKeyPlane.DrawnKey(
                 label = keyLabel, flex = flex, fixedWidthPx = fixedW,
-                fill = keyFill, textColor = labelColor, textSizePx = size, radiusPx = radius,
+                fill = keyFill, textColor = faceLabelColor, textSizePx = faceSize, radiusPx = radius,
                 onCommit = { hapticTap(plane, hapticIdFor(c, raw)); commit() },
                 onLongPress = when (c.type) {
                     // Hold shift = caps lock, as on the Button path.
@@ -1209,6 +1252,14 @@ class SDUIRenderer(
                 longPressMs = if (c.type == "ShiftKey") flagFloat("kb.shift.longPressMs", 500f).toLong() else 0L,
                 pressedFill = (c.style["pressedBg"] as? String)?.takeIf { it.isNotBlank() }?.let { parseHex(it) } ?: 0,
                 downCommit = c.type == "LetterKey" && typesOnContact(c, raw, c.bind["content"] != null),
+                // The print and the press effect, exactly as the view path
+                // gets them — the same parse, the same Drawable class, the
+                // same clamps. A row drawn on the fast path and the same row
+                // drawn as Buttons must not look different.
+                face = keyFaceDrawable,
+                faceReplacesLabel = keyFace?.replacesTitle == true,
+                typeface = faceTypeface,
+                press = pressOf(c.style),
             )
 
             // Backspace repeats while held. Wired through press start/end
@@ -2870,7 +2921,19 @@ class SDUIRenderer(
 
     /** Create a plain key button styled from theme.keyRadius/keyEffect. */
     private fun keyButton(label: String, node: KBNode): Button {
-        val b = Button(host.context())
+        // A `pop` key draws itself through KbPress.PopButton, which scales
+        // its own CANVAS. Transforming the key View instead would move the
+        // rect the rows hit-test with (getHitRect) and the frame the grid
+        // caches (getLocationInWindow), so a key that was still settling
+        // would be a few dp out until the next refresh — and the grid
+        // refreshes about every keystroke. Every other key stays a plain
+        // Button, so nothing changes for the keyboard shipping today.
+        val press = pressOf(node.style)
+        val b = if (press?.isPop == true) {
+            KbPress.PopButton(host.context()).also { it.popSpec = press }
+        } else {
+            Button(host.context())
+        }
         // The platform Button style upper-cases its text, which drew every
         // lowercase key as a capital and "return" as "RETURN" — the tree's
         // labels are exactly what it wants shown.
@@ -2888,7 +2951,107 @@ class SDUIRenderer(
         val fs = numFromStyle(node.style["fontSize"])
         if (fs != null) b.setTextSize(TypedValue.COMPLEX_UNIT_SP, fs)
         applyFontWeight(b, node.style["fontWeight"] as? String)
+        // style.fontFamily: a type token or a hooked font id. After the weight,
+        // because a face carries its own weight and must not be undone by it.
+        applyFontFamily(b, node.style)
+        // props.face: built here, where the node is, and installed at the end
+        // of addChildWithStyle, after the radius and border passes have had
+        // their way with the background. Installing it now would simply be
+        // thrown away by them.
+        prepareFace(b, node)
         return b
+    }
+
+    // -----------------------------------------------------------------------
+    // Key faces, fonts and press effects (KeySkin1). [native/SPEC.md §1.6, §4.4]
+    //
+    // The whole of the phone's half of skins is these three hooks plus
+    // KbKeyFace / KbPress / KbSkin. There is no resolver here and no
+    // precedence chain: the server expanded the person's pick into this tree
+    // before it sent it, so a key either carries a face or it does not.
+    // -----------------------------------------------------------------------
+
+    /**
+     * PLAIN MODE. The crash guard sets this for a config sha that has died
+     * twice: `face`, `press`, `fontFamily` and face art are ignored and the
+     * tree and colours — today's features, never the suspect — still draw.
+     * The service owns the decision; the renderer only obeys it.
+     */
+    var plainMode: Boolean = false
+
+    /** Faces waiting for their key to finish being styled. */
+    private val pendingFaces = java.util.WeakHashMap<View, android.graphics.drawable.Drawable>()
+    private val pendingFaceReplaces = java.util.WeakHashMap<View, Boolean>()
+
+    /** How many keys in this build already carry a face (the 64 cap). */
+    private var facedKeys = 0
+
+    /** `face` on this node, clamped, within the per-config cap. */
+    private fun faceOf(node: KBNode): KbKeyFace.Face? {
+        if (facedKeys >= KbSkin.LIMIT_FACED_KEYS) return null
+        return KbKeyFace.parse(node.props, plainMode)
+    }
+
+    /** style.press as pop or glow; null is today's fade, and plain mode. */
+    private fun pressOf(style: Map<String, Any?>): KbPress.Spec? {
+        if (plainMode) return null
+        return KbPress.parse(style, host.context().resources.displayMetrics.density)
+    }
+
+    private fun applyFontFamily(v: TextView, style: Map<String, Any?>) {
+        if (plainMode) return
+        val token = style["fontFamily"] as? String ?: return
+        val weight = (style["fontWeight"] as? String)?.toIntOrNull() ?: 0
+        KbSkin.typeface(host.context(), token, weight)?.let { v.typeface = it }
+    }
+
+    private fun prepareFace(v: TextView, node: KBNode) {
+        val face = faceOf(node) ?: return
+        // At most a handful of keys may ever move. The slot is claimed here,
+        // so a config that asks thirty keys to animate gets three answers and
+        // twenty-seven keys that draw their mark at rest — which is what every
+        // key does in this build anyway.
+        if (face.wantsMotion) KbSkin.claimAnimation()
+        // ONE LEGEND. When the face has no legend of its own, the key's own
+        // title IS the legend and simply takes the face's type — so it still
+        // follows shift and caps, and the cap never carries two words.
+        if (face.restylesTitle) restyleTitle(v, face)
+        val d = KbKeyFace.drawable(host.context(), face, v.currentTextColor)
+        if (d == null) {
+            TulmiTelemetry.bump(TulmiTelemetry.FACE_DROPPED)
+            return
+        }
+        facedKeys += 1
+        TulmiTelemetry.bump(TulmiTelemetry.FACE_PAINTED)
+        pendingFaces[v] = d
+        if (face.replacesTitle) pendingFaceReplaces[v] = true
+    }
+
+    /** The face's font, size, weight and colour on the key's own title. */
+    private fun restyleTitle(v: TextView, face: KbKeyFace.Face) {
+        KbSkin.typeface(host.context(), face.font, face.weight)?.let { v.typeface = it }
+        if (face.sizeSp > 0f) v.setTextSize(TypedValue.COMPLEX_UNIT_SP, face.sizeSp)
+        face.color?.let { v.setTextColor(it) }
+    }
+
+    /**
+     * Put the print under the key's own text, once the background is final.
+     *
+     * A LayerDrawable, not a foreground: a foreground draws OVER the label,
+     * and `layer: "behind"` means behind. `instead` clears the label instead
+     * of covering it, so talkback still reads the key from its content
+     * description rather than from a word nobody can see.
+     */
+    private fun installFace(v: View) {
+        val face = pendingFaces.remove(v) ?: return
+        val replaces = pendingFaceReplaces.remove(v) == true
+        val under = v.background
+        v.background = if (under == null) face
+        else android.graphics.drawable.LayerDrawable(arrayOf(under, face))
+        if (replaces && v is TextView) {
+            if (v.contentDescription.isNullOrEmpty()) v.contentDescription = v.text
+            v.text = ""
+        }
     }
 
     /**
@@ -3017,6 +3180,11 @@ class SDUIRenderer(
                 parent.addShadow(v, gd.cornerRadius, Color.alpha(gd.color?.defaultColor ?: 0))
             }
         }
+        // LAST, after the radius, the border and the shadow have all read the
+        // background back as a GradientDrawable: the print goes under the
+        // label, and the press effect is registered with the row that runs it.
+        installFace(v)
+        pressOf(style)?.let { (parent as? TulmiKeyPlane)?.setPressSpec(v, it) }
     }
 
     private fun applyTextStyle(v: TextView, style: Map<String, Any?>) {
@@ -3350,20 +3518,27 @@ class SDUIRenderer(
         TulmiLinks.openSettings(host.context())
     }
 
-    /** Open an arbitrary URL. Unlike iOS keyboard extensions (which can't launch
-     *  URLs and drop a tombstone), an Android IME can startActivity directly.
-     *  A URL on one of the app's own schemes (kb.deepLink.openUrlSchemes) opens
-     *  in the app, as on iOS, and pinned to it; anything else still opens
-     *  directly — iOS routes it through the app only because a keyboard there
-     *  may not open another app, and Android has no such rule and no note to
-     *  carry the URL across. `external` is implicit on Android. */
+    /**
+     * Open a URL — OURS, AND ONLY OURS. [native/SPEC.md §4.1, §6]
+     *
+     * This used to open anything: a URL on one of the app's own schemes went
+     * to the app, and everything else was handed to whatever app answered for
+     * it. An IME can startActivity, so that worked, and that is the problem —
+     * App Review 4.4.1 forbids a keyboard becoming a way to open other apps,
+     * and a config push was all it would have taken. The scheme list is now
+     * compiled in (KbSafety); kb.deepLink.openUrlSchemes can only narrow it.
+     *
+     * A key that names a web link now does nothing. The keyboard's own hops —
+     * the microphone permission, out of words — go through openApp and are
+     * unaffected, as on iOS.
+     */
     private fun openUrl(url: String) {
         if (url.isEmpty()) return
-        if (TulmiLinks.isOwnScheme(url)) {
-            if (TulmiLinks.treeMayOpenApp()) TulmiLinks.openOwn(host.context(), url)
+        if (!TulmiLinks.isOwnScheme(url)) {
+            Log.w("SDUI", "openUrl refused: only the app's own schemes open from a key")
             return
         }
-        TulmiLinks.openAny(host.context(), url)
+        if (TulmiLinks.treeMayOpenApp()) TulmiLinks.openOwn(host.context(), url)
     }
 
     /** The toast on screen, so a rebuild can carry it over (see redraw). */
@@ -4132,6 +4307,15 @@ class SDUIRenderer(
                 when (sh.kind) {
                     "rect" -> { cx = (o.optDouble("x") + o.optDouble("w") / 2).toFloat(); cy = (o.optDouble("y") + o.optDouble("h") / 2).toFloat() }
                     "circle" -> { cx = o.optDouble("cx").toFloat(); cy = o.optDouble("cy").toFloat() }
+                    // A path has no x1/y1, so without its own branch it was
+                    // tied to (0, 0) and flew home from the wrong place. The
+                    // centre of its bounding box, in viewBox units, is where
+                    // paintShapes turns and swells it too. [H10-Q6]
+                    "path" -> {
+                        val mid = KbPathCache.centre(o.optString("d", ""))
+                        cx = mid?.get(0) ?: cX
+                        cy = mid?.get(1) ?: cY
+                    }
                     else -> { cx = ((o.optDouble("x1") + o.optDouble("x2")) / 2).toFloat(); cy = ((o.optDouble("y1") + o.optDouble("y2")) / 2).toFloat() }
                 }
                 if (sh.id == keep && (sh.kind == "bars" || (sh.kind == "line" && o.optJSONArray("dash") != null))) { wave = Wave(i, cx, cy); return@forEachIndexed }
@@ -4607,7 +4791,12 @@ class SDUIRenderer(
                 for (i in 0 until raw.length()) {
                     val o = raw.optJSONObject(i) ?: continue
                     val kind = o.optString("kind")
-                    if (kind !in listOf("rect", "line", "circle", "bars")) continue
+                    // `path` belongs here too. It is one of the five shapes of
+                    // format 1 and KbKeyFace already draws it on an ordinary
+                    // key, so leaving it out meant a drawn curve in the MIC
+                    // key showed on iPhone and was simply missing on Android.
+                    // [H10-Q6]
+                    if (kind !in listOf("rect", "line", "circle", "bars", "path")) continue
                     if (kind == "bars" && (o.optJSONArray("heights")?.length() ?: 0) == 0) continue
                     val color = o.optString("color", "").takeIf { it.isNotEmpty() }?.let { parseHex(it) }
                     out += Shape(o.optString("id", "").takeIf { it.isNotEmpty() }, kind, o, color)
@@ -4641,6 +4830,14 @@ class SDUIRenderer(
             /** The artboard centred in w × h, then every shape. A round key fits
              *  the artboard by its DIAGONAL, so its corners touch the circle and
              *  no square is cut off at the rim; `fit: "box"` fits the sides. */
+            /** The `path` branch's working objects, reused frame after frame.
+             *  Only ever touched from paintShapes, which only ever runs on the
+             *  main thread inside a View's onDraw, and only ever between one
+             *  shape's `when` arm and its drawPath. */
+            private val pathMatrix = android.graphics.Matrix()
+            private val pathScratch = android.graphics.Path()
+            private val pathBounds = RectF()
+
             fun paintShapes(
                 c: Canvas, shapes: List<Shape>, vb: FloatArray, w: Float, h: Float,
                 tint: Int?, idle: List<JSONObject>, phase: Float, breath: Float, circle: Boolean = true, signal: Float = 0f,
@@ -4718,6 +4915,45 @@ class SDUIRenderer(
                             motionOf(c, o, cx, cy)
                             paint.style = Paint.Style.FILL
                             c.drawCircle(cx, cy, o.optDouble("r").toFloat() * s * sc, paint)
+                        }
+                        "path" -> {
+                            // The shared grammar (M L Q C Z O), in the mark's
+                            // own viewBox units, scaled and placed like every
+                            // other shape. Turn, swell and the physics act
+                            // about the box around the path, which is what
+                            // tie() hands the dispersal as its starting point.
+                            // Parsed ONCE, by KbPathCache, and placed into a
+                            // scratch path that is reused. This runs inside
+                            // the mic key's onDraw, which asks for the next
+                            // frame every time it draws: parsing the `d` and
+                            // allocating a Path, a Matrix and a RectF here
+                            // meant hundreds of each a second. The cached path
+                            // is the master and is never transformed in place.
+                            val src = KbPathCache.path(o.optString("d", ""))
+                            if (src != null) {
+                                val p = pathScratch
+                                pathMatrix.setScale(s, s)
+                                pathMatrix.postTranslate(ox, oy)
+                                src.transform(pathMatrix, p)
+                                val b = pathBounds
+                                p.computeBounds(b, true)
+                                c.scale(sc, sc, b.centerX(), b.centerY())
+                                motionOf(c, o, b.centerX(), b.centerY())
+                                val width = o.optDouble("width", 0.0).toFloat() * s
+                                if (width > 0f) {
+                                    paint.style = Paint.Style.STROKE
+                                    paint.strokeWidth = width
+                                    paint.strokeJoin = Paint.Join.ROUND
+                                    paint.strokeCap = when (o.optString("cap")) {
+                                        "round" -> Paint.Cap.ROUND
+                                        "square" -> Paint.Cap.SQUARE
+                                        else -> Paint.Cap.BUTT
+                                    }
+                                } else {
+                                    paint.style = Paint.Style.FILL
+                                }
+                                c.drawPath(p, paint)
+                            }
                         }
                         "_poly", "_pline" -> {
                             // The sea's facets and contours: made by the wave for one frame,
@@ -5146,7 +5382,12 @@ class SDUIRenderer(
          */
         // A3: key pop-ups, accent trays, the space-bar trackpad, double-space
         // full stop, and the mic hidden when focus moves into a password box.
-        const val BUILD_STAMP = "A4"
+        // A5: key faces (props.face), the `path` mark shape, style.press
+        // pop / glow, style.fontFamily and the font hook — the KeySkin1
+        // capability. Paired with iOS K45; keyboardFace.ts KEY_FACE_STAMPS
+        // names both, and config.ts gates on the can-list rather than on
+        // arithmetic over these numbers.
+        const val BUILD_STAMP = "A5"
 
         /** Tag on suggestion chips, so nothing mistakes a one-letter chip for a key. */
         const val CHIP_TAG = "tulmi.chip"

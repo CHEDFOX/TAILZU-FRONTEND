@@ -8,10 +8,20 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const LOOKS_SOURCE = resolve(HERE, "../../../../TAILZU-BACKEND/shared/bots/looks.json");
+export const PROJECT_SOURCE = resolve(HERE, "../../../../TAILZU-BACKEND/shared/bots/project.mjs");
+/** The format the copies are cut down to: what this build's core plays (core.ts LOOKS_FORMAT). */
+export const STARTER_FORMAT = 2;
+
+/** The one shared projection (anim/SPEC.md 5.1), so the copy is exactly what the server would serve this build. */
+async function projector() {
+  if (!existsSync(PROJECT_SOURCE)) throw new Error(`genStarter: ${PROJECT_SOURCE} is not beside this repo`);
+  const { projectLooks } = await import(pathToFileURL(PROJECT_SOURCE).href);
+  return projectLooks;
+}
 export const PHONE_OUT = join(HERE, "starter.ts");
 export const DESKTOP_OUT = resolve(HERE, "../../../../TAILZU-DESKTOP/botLooks.js");
 
@@ -34,16 +44,16 @@ const header = (source, body, how) => [
   "",
 ].join("\n");
 
-/** The phone's copy: a TypeScript module. */
-export function buildPhone(source) {
-  const json = JSON.stringify(JSON.parse(source));
+/** The phone's copy: a TypeScript module. `cut` is the catalog already cut down to this build's format. */
+export function buildPhone(source, cut) {
+  const json = JSON.stringify(cut ?? JSON.parse(source));
   const body = `export const STARTER: unknown = ${json};\n`;
   return header(source, body, "regenerate with `node src/botTiles/genStarter.mjs` in TAILZU-FRONTEND/app.") + body;
 }
 
 /** The window's copy: a script (window.TailzuBotLooks), or module.exports for node --test. */
-export function buildDesktop(source) {
-  const json = JSON.stringify(JSON.parse(source));
+export function buildDesktop(source, cut) {
+  const json = JSON.stringify(cut ?? JSON.parse(source));
   const body = [
     "(function (root) {",
     `  const looks = ${json};`,
@@ -58,10 +68,12 @@ export function buildDesktop(source) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const from = process.argv[2] ? resolve(process.argv[2]) : LOOKS_SOURCE;
   const source = readFileSync(from, "utf8");
-  writeFileSync(PHONE_OUT, buildPhone(source));
-  console.log(`genStarter: wrote ${PHONE_OUT}`);
+  const projectLooks = await projector();
+  const cut = projectLooks(JSON.parse(source), STARTER_FORMAT);
+  writeFileSync(PHONE_OUT, buildPhone(source, cut));
+  console.log(`genStarter: wrote ${PHONE_OUT} (format ${STARTER_FORMAT})`);
   if (existsSync(dirname(DESKTOP_OUT))) {
-    writeFileSync(DESKTOP_OUT, buildDesktop(source));
-    console.log(`genStarter: wrote ${DESKTOP_OUT}`);
+    writeFileSync(DESKTOP_OUT, buildDesktop(source, cut));
+    console.log(`genStarter: wrote ${DESKTOP_OUT} (format ${STARTER_FORMAT})`);
   }
 }

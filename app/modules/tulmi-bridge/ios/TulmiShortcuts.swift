@@ -119,6 +119,12 @@ final class TulmiShortcuts {
 }
 
 /// The app delegate's side: a press that launched the app (in its launch options), and one while it ran.
+///
+/// It also starts the "Bots at work" Live Activity observers. That job is younger than this class's name, and it lives
+/// here because this is the only subscriber the module registers (expo-module.config.json) and because the observers must
+/// start at LAUNCH: the module's OnCreate runs once the JavaScript engine is up, and again on every reload, so a token the
+/// OS hands over during a cold background wake would arrive before anything was listening — and a reload would start a
+/// second pair of loops. `observeStart` is once per process in any case.
 public class TulmiShortcutsAppDelegate: ExpoAppDelegateSubscriber {
   public func application(
     _ application: UIApplication,
@@ -127,6 +133,14 @@ public class TulmiShortcutsAppDelegate: ExpoAppDelegateSubscriber {
     if let item = launchOptions?[.shortcutItem] as? UIApplicationShortcutItem {
       TulmiShortcuts.queue(item)
     }
+    #if canImport(ActivityKit)
+    if #available(iOS 16.2, *) {
+      // An activity an earlier process of OURS left running, then the OS-wide observers: an activity the server started
+      // while the app was shut, and the push-to-start token itself (iOS 17.2 and later, asked for inside observeStart).
+      BotsLiveActivity.shared.adoptLaunch()
+      BotsLiveActivity.shared.observeStart()
+    }
+    #endif
     return true
   }
 

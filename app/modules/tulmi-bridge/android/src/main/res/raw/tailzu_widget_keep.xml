@@ -3,6 +3,17 @@
   The widgets and the app shortcuts find some drawables by name (the name the
   server sends, or a bot's face key: getIdentifier), which resource shrinking
   cannot see: kept, so a release build with shrinkResources still draws them.
+
+  The same is true of three more sets, which nothing in the code names either:
+    @layout/nl_*  the nlook kit. NLookRemote looks each fragment up by name
+                  (getIdentifier), so a shrinker sees no reference at all.
+    @font/*       the four faces the kit's text fragments name, and the two
+                  NLookPaint looks up by name for the stage bar's labels.
+    @raw/ofl_*    the SIL Open Font License texts that ship with those faces.
+                  Nothing references them, and nothing should: they are here
+                  because the apk is the copy of the font that travels (H18-Q4).
+  shrinkResources is off today. This file is what keeps turning it on from
+  quietly emptying the widget.
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/tailzu_wi_*,@drawable/tailzu_qa_*,@drawable/tailzu_widget_*,@drawable/tailzu_x0_*" />
+    tools:keep="@drawable/tailzu_wi_*,@drawable/tailzu_qa_*,@drawable/tailzu_widget_*,@drawable/tailzu_x0_*,@layout/nl_*,@font/*,@raw/ofl_*" />

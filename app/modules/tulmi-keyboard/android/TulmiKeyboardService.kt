@@ -456,6 +456,11 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
     }
 
     override fun onCreateInputView(): View {
+        // FIRST, before anything is read or built: a trial still open from a
+        // previous session is a keyboard that died with the config on screen.
+        // That is the strike, and it has to be counted before the same config
+        // is chosen again. [§3.7]
+        KbGuard.openSession(this)
         // Pick up shared prefs + preload cached config synchronously so we can
         // decide SDUI vs fallback BEFORE inflating anything.
         Net.load(this)
@@ -480,8 +485,8 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // shipped in the app. A candidate that will not render gives way to the
         // next; the old hand-built layout only if none will, which with the
         // bundled config means never.
-        for ((raw, cfg) in startupConfigs()) {
-            buildSduiInputView(raw, cfg)?.let { return it }
+        for ((raw, cfg, fromCache) in startupConfigs()) {
+            buildSduiInputView(raw, cfg, fromCache)?.let { return it }
         }
         return buildFallbackInputView()
     }
@@ -497,15 +502,20 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      * altogether, over one bad byte in a cache. Null only when a well-formed
      * config opts out of SDUI (the server's call) or nothing parses at all.
      */
-    private fun startupConfigs(): Sequence<Pair<String, KBConfig>> = sequence {
+    private fun startupConfigs(): Sequence<Triple<String, KBConfig, Boolean>> = sequence {
         val prefs = getSharedPreferences("tulmi_kb", Context.MODE_PRIVATE)
         prefs.getString("config_json", null)?.let { cached ->
             val cfg = parsedKeyboard(cached)
             // A cache that cannot draw the keyboard is no cache: it used to put
             // the old layout up until the next good fetch.
-            if (cfg != null) yield(cached to cfg) else prefs.edit().remove("config_json").apply()
+            if (cfg != null) yield(Triple(cached, cfg, true)) else prefs.edit().remove("config_json").apply()
         }
-        bundledConfig()?.let { b -> parsedKeyboard(b)?.let { yield(b to it) } }
+        // The third value says whether the guard may judge this config. The
+        // bundled snapshot is never on trial and can never be dropped: it has
+        // no faces, so it cannot be what is crashing, and dropping it lands on
+        // the legacy XML keyboard — a different keyboard altogether. iOS does
+        // the same: markConfigApplying takes only "cache" or "fetched".
+        bundledConfig()?.let { b -> parsedKeyboard(b)?.let { yield(Triple(b, it, false)) } }
     }
 
     /** The config parsed, when it draws the keyboard (a tree, SDUI on). */
@@ -537,7 +547,20 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
      */
     /** The SDUI keyboard for this config, or null when it will not render
      *  (the caller then tries the next config). */
-    private fun buildSduiInputView(rawJson: String, cfg: KBConfig): View? {
+    private fun buildSduiInputView(rawJson: String, cfg: KBConfig, judged: Boolean = true): View? {
+        // THE CRASH GUARD'S VERDICT, BEFORE ANYTHING IS BUILT. [§3.7]
+        // DROP means this config has killed the keyboard four times (or twice
+        // with no skin to blame): the caller tries the next candidate, which
+        // ends at the bundled snapshot — today's keyboard, with no faces.
+        val call = guardJudge(rawJson, judged)
+        if (call.verdict == KbGuard.Verdict.DROP) {
+            // Nothing is armed, marked or put on trial: this config is not
+            // going on screen, so none of it is its to answer for.
+            android.util.Log.w("SDUI", "config dropped by the crash guard, trying the next one")
+            return null
+        }
+        val verdict = call.verdict
+        armGuard(call)
         val container = FrameLayout(this)
         // A keyboard is left to right whatever the system language: on an
         // Arabic or Hebrew phone every row would otherwise lay out mirrored
@@ -554,6 +577,7 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         try {
             val renderer = SDUIRenderer(this, cfg, container)
             sduiRenderer = renderer
+            renderer.plainMode = verdict == KbGuard.Verdict.PLAIN
             cfg.root?.let { renderer.mount(it) }
         } catch (t: Throwable) {
             android.util.Log.w("SDUI", "render failed, trying the next config: ${t.message}")
@@ -561,11 +585,138 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             sduiRenderer = null
             return null
         }
+        // The config is on screen: open the trial and fetch the skin's files,
+        // once, in one batch, off the main thread.
+        openGuardTrial()
 
         // Kick off the background refresh — same policy as fallback.
         loadAndApplyConfig()
         setupTonePill() // no-op if pill isn't in the tree; harmless
         return container
+    }
+
+    // -----------------------------------------------------------------------
+    // THE KEYBOARD CRASH GUARD. [native/SPEC.md §3.7, §4.1]
+    //
+    // iOS has had one; Android has had none, so a config that killed the
+    // keyboard killed it again at every open, for ever. KbGuard keeps the
+    // ledger; these three methods are where the keyboard's own lifecycle
+    // touches it.
+    //
+    //   openSession   as the keyboard comes up: a trial still open belongs to
+    //                 a session that never finished — that is the strike.
+    //   openTrial     a config and its files are on screen.
+    //   finishTrial   onFinishInputView: a CLEAN finish, not a 20-second
+    //                 timer, which is the one change the spec asks for on
+    //                 both platforms. The deaths skins will actually cause —
+    //                 memory deaths once art and prints have built up — come
+    //                 later than any timer would have caught.
+    // -----------------------------------------------------------------------
+
+    /** The sha and skin of whatever is on screen, for the trial and header. */
+    private var guardSha = ""
+    private var guardSkinId = ""
+    private var guardSkinned = false
+
+    /** Whether a trial is open for this show already, so restarting the same
+     *  field does not write the marker again. */
+    private var guardTrialOpen = false
+
+    /** One config, judged and not yet acted on. [guardJudge] / [armGuard]. */
+    private class GuardCall(
+        val sha: String,
+        val skin: KbSkin.Info?,
+        val verdict: KbGuard.Verdict,
+    )
+
+    /**
+     * What this config WOULD be allowed to draw. Reads the ledger and changes
+     * nothing else — not the trial, not the armed skin, not the header, not
+     * telemetry. [armGuard] does all of that, and only for a config that is
+     * actually going on screen.
+     *
+     * THAT SPLIT IS THE WHOLE POINT. This used to arm the skin, mark the bad
+     * skin and tag the telemetry window before it returned, and only then did
+     * the caller see DROP and keep the config already drawing. So a dropped
+     * config left KbSkin pointing at ITS manifest and budget while another
+     * tree was on screen, the trial was opened against ITS sha, and the next
+     * clean finish wiped ITS strikes — which let a config that crashes every
+     * time cycle "crash twice, one clean session, crash twice" for ever
+     * instead of staying down. [H12-Q6.7]
+     *
+     * [judged] is false for the bundled snapshot, which is never on trial and
+     * can never be dropped.
+     */
+    private fun guardJudge(rawJson: String, judged: Boolean = true): GuardCall {
+        val sha = KbGuard.shaOf(rawJson)
+        val skin = KbSkin.parse(rawJson)
+        val verdict = if (judged) KbGuard.verdict(this, sha, skin != null) else KbGuard.Verdict.FULL
+        return GuardCall(if (judged) sha else "", skin, verdict)
+    }
+
+    /**
+     * This config IS going on screen: record it. Never called for a DROP.
+     *
+     * The skin is ARMED here. The budget the build is about to enforce and the
+     * manifest a face's art is checked against both live on KbSkin, and the
+     * build happens next: armed afterwards (which is where prefetch used to do
+     * it) the first build of a new config would police the previous skin's
+     * numbers.
+     *
+     * Also arms X-Tulmi-Keyboard-Bad when faces are refused, so the next
+     * config request already carries it — and lifts it first when the skin of
+     * that name has been republished with different bytes.
+     */
+    private fun armGuard(call: GuardCall) {
+        val skin = call.skin
+        guardSha = call.sha
+        guardSkinId = skin?.id.orEmpty()
+        guardSkinned = skin != null
+        KbSkin.arm(skin)
+        if (skin != null) KbGuard.noteSkinVersion(this, skin.id, skin.sha)
+        if (call.verdict == KbGuard.Verdict.PLAIN) {
+            TulmiTelemetry.bump(TulmiTelemetry.SKIN_PLAIN_SESSIONS)
+            if (guardSkinId.isNotEmpty()) {
+                KbGuard.markBadSkin(this, guardSkinId, skin?.sha.orEmpty())
+            }
+        }
+        // The header follows the ledger either way: a mark lifted by
+        // noteSkinVersion has to stop being sent too.
+        Net.setBadSkin(KbGuard.badSkin(this))
+        // A window of telemetry is tagged with the skin that drew ALL of it,
+        // and plain mode is not that skin drawing.
+        TulmiTelemetry.noteSkin(this, if (call.verdict == KbGuard.Verdict.PLAIN) null else guardSkinId)
+    }
+
+    /** The config is up. Mark the trial, then fetch the skin's files once. */
+    private fun openGuardTrial() {
+        KbGuard.beginTrial(this, guardSha)
+        guardTrialOpen = guardSha.isNotEmpty()
+        // ONE BATCH, right after the config, never on a key press. The
+        // renderer reads only the cache, so no request this keyboard makes can
+        // be lined up against a keystroke. The skin is the one armGuard
+        // already parsed and armed — this used to parse the config a second
+        // time to get back to the same object.
+        KbSkin.prefetch(this, KbSkin.current)
+    }
+
+    /**
+     * A clean finish. The trial closes, and a skin that drew a whole session
+     * without dying stops being suspect — otherwise one bad night would mark
+     * it for the life of the install.
+     */
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        try {
+            guardTrialOpen = false
+            // A clean finish also walks the strikes toward DROPPING back down:
+            // they have to come in a row, as they do on iOS.
+            KbGuard.finishTrial(this, guardSha, guardSkinned)
+            if (guardSkinId.isNotEmpty() && sduiRenderer?.plainMode != true) {
+                KbGuard.clearBadSkin(this, guardSkinId)
+                Net.setBadSkin("")
+            }
+        } catch (_: Throwable) { /* a guard that throws is worse than none */ }
     }
 
     /** Legacy hand-built keyboard — inflates keyboard.xml + Keyboard(qwerty). */
@@ -798,17 +949,36 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
                         // to be cached as is, and every open after that fell back
                         // to the legacy layout. The same bytes again change nothing.
                         if (json != appliedConfigJson && parsedKeyboard(json) != null) {
-                            prefs.edit().putString("config_json", json).apply()
-                            main.post { applyRawJson(json) }
+                            // A CONFIG THE GUARD HAS ALREADY DROPPED NEVER
+                            // BECOMES THE CACHE. It used to be written first
+                            // and judged second, so the next cold start read
+                            // it back, judged it fresh and died again — the
+                            // dropped config was the one on disk. The judging
+                            // is a preference read and a sha, both fine on
+                            // this thread, and neither arms nor marks
+                            // anything. [H12-Q6.7]
+                            val condemned = try {
+                                KbGuard.verdict(this, KbGuard.shaOf(json), KbSkin.parse(json) != null) ==
+                                    KbGuard.Verdict.DROP
+                            } catch (_: Throwable) { false }
+                            if (condemned) {
+                                android.util.Log.w("SDUI", "fetched config is one the crash guard has dropped, not caching it")
+                            } else {
+                                prefs.edit().putString("config_json", json).apply()
+                                main.post { applyRawJson(json) }
+                            }
                         }
                     } catch (_: Exception) { /* offline → keep cached/defaults */ }
                     // Piggyback the batch on the trip we were already making.
                     // Counters are cleared only once the POST succeeded, so a
                     // failed upload costs a window's delay rather than the data.
                     try {
-                        TulmiTelemetry.pendingUpload(this)?.let { (counters, windowMs) ->
-                            Net.postTelemetry(counters, windowMs, SDUIRenderer.BUILD_STAMP)
-                            TulmiTelemetry.commitUpload(this, counters)
+                        TulmiTelemetry.pendingUpload(this)?.let { batch ->
+                            // The skin tag was worked out when the batch was
+                            // taken, so nothing here reads the live skin off
+                            // the main thread.
+                            Net.postTelemetry(batch.counters, batch.windowMs, SDUIRenderer.BUILD_STAMP, batch.skin)
+                            TulmiTelemetry.commitUpload(this, batch.counters)
                         }
                     } catch (_: Exception) { /* keep the counters for the next window */ }
                 } finally {
@@ -845,6 +1015,17 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
             android.util.Log.w("SDUI", "config parse failed, keeping the last good one: ${t.message}")
             null
         } ?: return
+        // A config the guard has condemned never goes live, even mid-session:
+        // the keyboard keeps the one it is already drawing.
+        val call = guardJudge(json)
+        if (call.verdict == KbGuard.Verdict.DROP) {
+            // Keep the skin, the trial and the header exactly as the config
+            // ON SCREEN left them: this one is not drawing anything.
+            android.util.Log.w("SDUI", "new config dropped by the crash guard, keeping the last good one")
+            return
+        }
+        val verdict = call.verdict
+        armGuard(call)
         // Every non-renderer file reads its server values through KbKnobs.
         KbKnobs.update(json)
         appliedConfigJson = json
@@ -861,7 +1042,12 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         TulmiTone.sync(this, parsed.flags)
         if (sduiActive) {
             try {
+                sduiRenderer?.plainMode = verdict == KbGuard.Verdict.PLAIN
                 sduiRenderer?.updateConfig(parsed)
+                // The new config is what is on screen now: its sha is what a
+                // death from here counts against, and its files are fetched
+                // once, here, and nowhere else.
+                openGuardTrial()
             } catch (t: Throwable) {
                 android.util.Log.w("SDUI", "config apply failed: ${t.message}")
             }
@@ -1767,6 +1953,9 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // giving up decoded images — they redraw from the disk cache.
         if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
             TulmiImageLoader.purgeMemory()
+            // The parsed marks go with them; the next frame rebuilds the few
+            // the key on screen actually draws.
+            KbPathCache.clear()
         }
     }
 
@@ -1826,6 +2015,27 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
         // Confetti, the recording dots and the rows' fade end with the
         // keyboard, not seconds later behind it.
         try { sduiRenderer?.teardownEffects() } catch (_: Throwable) {}
+        // THE ONE REBUILD THE SKIN BATCH GETS. [§3.5, H12-Q5]
+        //
+        // Art is read from the cache at build time, so the first open after a
+        // skin is picked draws flat colours: the batch has not landed yet.
+        // Rebuilding when it lands would cancel a gesture and re-measure the
+        // grid at a moment nobody chose, so instead it happens here, with the
+        // keyboard off screen and nothing visible to disturb — and the second
+        // open is printed, every time.
+        //
+        // Here and not onFinishInputView, which also runs on a field switch
+        // with the keyboard still on screen.
+        try {
+            if (sduiActive && KbSkin.takeNewFiles()) {
+                // The same config, built again: updateConfig() is the ordinary
+                // rebuild, and it resets the per-build budgets and the faced-key
+                // count on the way through.
+                sduiConfig?.let { sduiRenderer?.updateConfig(it) }
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("SDUI", "skin rebuild while hidden failed: ${t.message}")
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -1837,6 +2047,18 @@ class TulmiKeyboardService : InputMethodService(), KeyboardView.OnKeyboardAction
 
     override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // EVERY SHOW IS GUARDED, not only the first. [§3.7, H12-Q6.2]
+        //
+        // The trial used to be opened at mount and when a new config arrived,
+        // and closed at every onFinishInputView — so after the first hide,
+        // every later show in the same process was outside a trial. Those are
+        // exactly the late deaths the guard exists for: the memory death once
+        // art and prints have built up. onStartInputView follows every
+        // onFinishInputView that leaves the keyboard up, a field switch
+        // included, which onWindowShown does not.
+        if (sduiActive && !guardTrialOpen && guardSha.isNotEmpty()) {
+            try { KbGuard.beginTrial(this, guardSha); guardTrialOpen = true } catch (_: Throwable) {}
+        }
         caretAt = info?.initialSelStart ?: -1
         caretWord = null
         unseenInserted = 0

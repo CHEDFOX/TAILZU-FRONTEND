@@ -29,6 +29,15 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  # Code shared between files by copy (marked BEGIN/END regions) must stay
+  # byte-identical. Cheap Linux job; Swift pairs only, Android checks its own.
+  marked-regions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shared regions identical (Swift)
+        run: node tools/ci/marked-regions.mjs --lang Swift
+
   typecheck:
     runs-on: macos-15
     steps:

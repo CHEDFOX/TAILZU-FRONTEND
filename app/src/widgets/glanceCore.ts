@@ -12,9 +12,13 @@
  *                    at a moment (the rule X0Glance.swift `asOf(_:)` and TailzuX0Widget.kt X0Doc apply), nextStepAt when it next changes
  *   glanceDue        whether to ask again now: the server's refreshAfterSec, sooner when something happened
  *   faceSources      the bot faces the widget will draw (face key → picture), and facesToFetch the ones not on the phone yet
- *   activityPlan     the "Bots at work" Live Activity (iOS) after a glance: start, update or end it, and what it shows
+ *   activityPlan     the "Bots at work" Live Activity (iOS) after a glance: start, update or end it, and what it shows; its body is
+ *                    clamped to the 3.5 KB the server and the phone's parse() also stop at, and carries the server design it names
+ *                    (`look`, from the glance's own `look.bots`) with the free `vars`, both only when a design is named
+ *   cleanLook        the glance's `look`, `palette` and `vars` (native/looksCore.ts): which server design each widget kind draws
  */
 import { isAppLink } from "./nowCore.ts";
+import { activityVars, cleanLook, fitActivityBody } from "../native/looksCore.ts";
 
 export type GlanceCase = "needs" | "working" | "done" | "quiet";
 export type BotState = "needs" | "working" | "done" | "failed" | "idle";
@@ -109,6 +113,15 @@ export interface Glance {
   words: Record<string, string>;
   /** Oldest first; empty for a server or a request without them. */
   steps: GlanceStep[];
+  /**
+   * THE SERVER-DRAWN LOOK (native/looksCore.ts; the backend's docs/native-looks.md): a design id per widget kind ({ x0: "x0.dusk" }),
+   * the palette its roles resolve against, and the free `vars` a design may bind. ABSENT IS THE NORMAL CASE: the server sends them only
+   * to a build that said NativeLook1 and sent the catalog version it holds, once its own switch is on. The widget then draws the view
+   * compiled into its own build, exactly as before.
+   */
+  look?: Record<string, string>;
+  palette?: string;
+  vars?: Record<string, string>;
 }
 
 type Obj = Record<string, unknown>;
@@ -349,6 +362,7 @@ export function cleanGlance(doc: unknown, now = Date.now()): Glance | null {
     links: { ask: link(links.ask), home: link(links.home), mic: link(links.mic) },
     words: cleanWords(doc.words),
     steps: cleanSteps(doc.steps, bots, time(doc.at) || now, now),
+    ...cleanLook(doc),
   };
   const said = CASES.includes(doc.case as GlanceCase) ? (doc.case as GlanceCase) : null;
   return { ...g, case: said && backs(said, g) ? said : pickCase(g) };
@@ -414,6 +428,15 @@ export interface BotsActivityState {
   /** done: how long the job took, in minutes. */
   minutes?: number;
   link: string;
+  /** The question's words are kept off the Lock Screen: `question` is absent and the view says only that the bot needs the person. */
+  private?: true;
+  /**
+   * THE SERVER DESIGN this activity draws, by id, and the free map it may bind. Both only with a design (the hand-drawn regions have
+   * no idea `vars` exist, so sending them would be bytes off the 4 KB for nothing), and neither is part of "has anything a person
+   * would see changed?" apart from the design's id.
+   */
+  look?: string;
+  vars?: Record<string, string>;
 }
 
 /** What crosses the bridge: the job, what to show, and for an end how long the done state stays (seconds; 0 = now). */
@@ -456,8 +479,28 @@ export function activityState(g: Glance): BotsActivityState | null {
     itemId: item.id,
     itemKind: item.kind,
     ...(item.decideLink ? { decideLink: item.decideLink } : {}),
-    ...(item.private ? {} : { question: item.question, choices: item.choices }),
+    ...(item.private ? { private: true as const } : { question: item.question, choices: item.choices }),
   };
+}
+
+/**
+ * The design the glance names for the activity, if any: `look.bots`, the key the server and both natives read it under. The glance
+ * names one only for a phone that said NativeLook1 and holds a catalog new enough, so a design named here is one already on disk.
+ */
+export const activityLook = (g: Pick<Glance, "look">): string | null => g.look?.bots ?? null;
+
+/** The state with its design and vars on, then held to the body cap in the order everyone gives things up in (looksCore fitActivityBody). */
+function dressed(g: Glance, state: BotsActivityState, now: number): BotsActivityState {
+  const look = activityLook(g);
+  const base: BotsActivityState = { ...state };
+  delete base.look;
+  delete base.vars;
+  if (look) {
+    base.look = look;
+    const vars = activityVars({ now, startedAt: base.startedAt, stage: base.stage, of: base.of, phase: base.phase });
+    if (vars) base.vars = vars;
+  }
+  return fitActivityBody(base as unknown as Record<string, unknown>).state as unknown as BotsActivityState;
 }
 
 /** The finished job's state: every stage done, what it finished, its PR. */
@@ -478,10 +521,15 @@ function doneState(g: Glance, last: BotsActivityState): BotsActivityState {
     ...(d.pr ? { pr: d.pr } : {}),
     ...(d.minutes > 0 ? { minutes: d.minutes } : {}),
     link: d.link || last.link,
+    ...(last.look ? { look: last.look } : {}),
   };
 }
 
-const same = (a: BotsActivityState, b: BotsActivityState): boolean => JSON.stringify(a) === JSON.stringify(b);
+/** Whether two states show the same thing: `vars` count minutes on, so they never are a reason to update on their own. */
+const same = (a: BotsActivityState, b: BotsActivityState): boolean => {
+  const bare = (s: BotsActivityState) => { const { vars: _vars, ...rest } = s; void _vars; return JSON.stringify(rest); };
+  return bare(a) === bare(b);
+};
 
 /**
  * The activity after a glance (contract §6): started when there is a job and none is running for it; updated whenever what it
@@ -493,12 +541,13 @@ export function activityPlan(g: Glance, memo: ActivityMemo | null, now: number, 
   const end = (m: ActivityMemo) => {
     if (g.lastDone && g.lastDone.id === m.jobId) {
       const left = g.lastDone.endedAt ? Math.round(doneSec - (now - g.lastDone.endedAt) / 1000) : doneSec;
-      ops.push({ op: "end", jobId: m.jobId, state: doneState(g, m.state), dismissAfterSec: Math.max(0, Math.min(doneSec, left)) });
+      ops.push({ op: "end", jobId: m.jobId, state: dressed(g, doneState(g, m.state), now), dismissAfterSec: Math.max(0, Math.min(doneSec, left)) });
     } else {
       ops.push({ op: "end", jobId: m.jobId, state: m.state, dismissAfterSec: 0 });
     }
   };
-  const state = activityState(g);
+  const shown = activityState(g);
+  const state = shown ? dressed(g, shown, now) : null;
   if (!state || !g.job) {
     if (memo) end(memo);
     return { ops, memo: null };

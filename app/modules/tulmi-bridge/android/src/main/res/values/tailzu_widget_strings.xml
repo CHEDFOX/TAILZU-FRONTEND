@@ -63,4 +63,30 @@
     <string name="tailzu_widget_people_preview2_who" translatable="false">Sam</string>
     <string name="tailzu_widget_people_preview2_when" translatable="false">1h</string>
     <string name="tailzu_widget_people_preview2_text">Running late, start without me</string>
+
+    <!--
+      X0 BOARD (TailzuX0Board.kt): the spare kind whose contents its owner picks.
+      These words are compiled in and a shipped widget kind can never be
+      removed, so every line has to stay true in every state the app is ever
+      in: before sign-in, while the look switch is off, and after new boards
+      arrive in the catalog. So the description promises only what the bundled
+      default board always draws (what needs you, who is working) plus the
+      choice the configure screen always offers. It deliberately does not
+      repeat X0's own line.
+    -->
+    <string name="tailzu_x0_board_label" translatable="false">X0 Board</string>
+    <string name="tailzu_x0_board_description">A board you choose. It starts with what needs you and who\'s working.</string>
+    <!-- The configure screen, reached from the launcher's reconfigure; placing the widget never opens it. -->
+    <string name="tailzu_x0_board_choose">Choose a board</string>
+    <!-- The compiled default row, which is in the list before any catalog has arrived. -->
+    <string name="tailzu_x0_board_default">Overview</string>
+
+    <!--
+      "Bots at work" (TailzuBotsUpdate.kt): the ongoing notice while a bot
+      works. Its own channel, so it can be turned off on its own without
+      silencing anything else, and named for what it shows rather than for the
+      app.
+    -->
+    <string name="tailzu_bots_channel">Bots at work</string>
+    <string name="tailzu_bots_channel_about">What a bot is doing, while it does it. No sound.</string>
 </resources>

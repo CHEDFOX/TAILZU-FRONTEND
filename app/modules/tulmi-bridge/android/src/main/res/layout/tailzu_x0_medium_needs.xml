@@ -41,7 +41,7 @@
                 android:contentDescription="@null"
                 android:importantForAccessibility="no"
                 android:scaleType="fitCenter"
-                android:src="@drawable/tailzu_x0_head_tailzu" />
+                android:src="@drawable/tailzu_widget_avatar" />
 
             <LinearLayout
                 android:id="@+id/tailzu_x0_lead"

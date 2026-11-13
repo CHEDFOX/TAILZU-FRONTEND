@@ -39,11 +39,13 @@ function recorder() {
 }
 
 /** A context that draws nothing and counts its calls. */
-function counter(): TileCtx & { calls: number } {
-  const c = { calls: 0, globalAlpha: 1, fillStyle: "#000" as unknown, strokeStyle: "#000" as unknown, lineWidth: 1, lineCap: "butt" as const, lineJoin: "miter" as const } as TileCtx & { calls: number };
-  for (const m of ["save", "restore", "translate", "beginPath", "closePath", "moveTo", "lineTo", "quadraticCurveTo", "arc", "fill", "stroke"]) {
+/** The phone's own context: Skia has every format-2 member, so a dot group is one call, as on a device. */
+function counter(): TileCtx & { calls: number; drawnDots: number } {
+  const c = { calls: 0, drawnDots: 0, globalAlpha: 1, fillStyle: "#000" as unknown, strokeStyle: "#000" as unknown, lineWidth: 1, lineCap: "butt" as const, lineJoin: "miter" as const } as TileCtx & { calls: number; drawnDots: number };
+  for (const m of ["save", "restore", "translate", "beginPath", "closePath", "moveTo", "lineTo", "quadraticCurveTo", "bezierCurveTo", "arc", "fill", "stroke", "clip", "rotate", "scale"]) {
     (c as unknown as Record<string, () => void>)[m] = () => { c.calls++; };
   }
+  c.dots = (_xy: Float32Array, n: number) => { c.calls++; c.drawnDots += n; };
   return c;
 }
 
@@ -234,6 +236,9 @@ test("every moment on every look, on a tile and on a page's stage: finite, insid
           }
         }
         assert.ok(worst < 900, `${id}/${av}: ${worst} calls in a frame`);
+        // A format-2 recipe whose scene does not fit this surface stops and plays its fallback act instead (SPEC 3.5).
+        const tooSmall = (t.looksReport().bad ?? []).some((b) => b.endsWith(":fit"));
+        if (tooSmall) { assert.ok(t.momentDone(), `${id}/${w}x${h}: it did not fit, so the act took over`); continue; }
         if (mode === "once") assert.ok(t.momentDone() && t.momentId() === "", `${id} once: over, and back to his own play`);
         else {
           assert.strictEqual(t.momentId(), id, `${id} loop: still at it`);
@@ -475,7 +480,7 @@ test("the store: the build's starter, a kept copy when newer, the server's when 
   assert.ok(await s.sync({ v: N, url: `/v1/bots/looks?v=${N}` }));
   assert.strictEqual(s.current.v, N);
   assert.strictEqual(told, 1);
-  assert.ok(kept && JSON.parse(kept).v === N, "kept for the next start");
+  assert.ok(kept && JSON.parse(kept).spec.v === N && JSON.parse(kept).f === 1, "kept for the next start, with the format it was cut to");
   assert.ok(!(await s.sync({ v: N, url: `/v1/bots/looks?v=${N}` })), "the same version: nothing to do");
   assert.strictEqual(fetched, 1);
   // The next start: the kept copy wins over the starter.
@@ -493,4 +498,31 @@ test("the store: the build's starter, a kept copy when newer, the server's when 
   // A version that is not what the flag said is refused too.
   server[`/v1/bots/looks?v=${B + 3}`] = next;
   assert.ok(!(await again.sync({ v: B + 3, url: `/v1/bots/looks?v=${B + 3}` })));
+});
+
+test("the kept copy is compared on (v, f): the starter's own format counts, and an older copy never wins on f alone", async () => {
+  // A phone updated from the store: its new starter is a format-2 catalog at v+1, and the copy it kept from before
+  // the update is the format-2 cut of v. The older copy must not come back (SPEC 2.7, looksStore take()).
+  const B = (STARTER as { v: number }).v;
+  const older = { ...(STARTER as object), v: B };
+  const starter = { ...(STARTER as object), v: B + 1 };
+  const kept = JSON.stringify({ f: 2, spec: older });
+  const io = { read: async () => kept, write: async () => {}, fetch: async () => null };
+  const s = new LooksStore(starter, io);
+  assert.strictEqual(s.currentF, (STARTER as { format?: number }).format ?? 1, "the starter's own format, not 1");
+  await s.restore();
+  assert.strictEqual(s.current.v, B + 1, "the newer starter stays");
+  // The same version, cut less far down, IS taken: that is what the (v, f) key is for.
+  const s2 = new LooksStore({ ...(STARTER as object), format: 1, scenes: undefined, v: B }, {
+    read: async () => JSON.stringify({ f: 2, spec: older }), write: async () => {}, fetch: async () => null,
+  });
+  assert.strictEqual(s2.currentF, 1);
+  await s2.restore();
+  assert.strictEqual(s2.currentF, 2, "the richer cut of the same version wins");
+  // And a newer copy still wins, whatever its format.
+  const s3 = new LooksStore(starter, {
+    read: async () => JSON.stringify({ f: 2, spec: { ...(STARTER as object), v: B + 2 } }), write: async () => {}, fetch: async () => null,
+  });
+  await s3.restore();
+  assert.strictEqual(s3.current.v, B + 2);
 });

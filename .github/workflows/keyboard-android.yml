@@ -24,12 +24,26 @@ on:
       - "app/app.config.ts"
       - "app/package.json"
       - "app/package-lock.json"
+      - "tools/ci/marked-regions.mjs"
       - ".github/workflows/keyboard-android.yml"
   workflow_dispatch: {}
 
 jobs:
+  # Code shared between files by copy (marked BEGIN/END regions) must stay
+  # byte-identical. Kotlin pairs only; the iOS workflow checks the Swift ones.
+  marked-regions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shared regions identical (Kotlin)
+        run: node tools/ci/marked-regions.mjs --lang Kotlin
+
   compile:
     runs-on: ubuntu-latest
+    # Secrets cannot be read in a step `if:`, so the optional read token goes
+    # through the job env. Without it the fixture test skips and says so.
+    env:
+      BACKEND_READ_TOKEN: ${{ secrets.BACKEND_READ_TOKEN }}
     defaults:
       run:
         working-directory: app
@@ -65,3 +79,20 @@ jobs:
         # testing a configuration nobody ships. The module declares its own
         # version now; if that ever regresses, this job is supposed to fail.
         run: ./gradlew :app:compileDebugKotlin --console=plain --stacktrace
+
+      # Must come after the repo's own checkout: a later checkout at the
+      # workspace root would clean backend/.
+      - name: Check out the shared fixtures (read-only)
+        if: env.BACKEND_READ_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: chedfox/tailzu-backend
+          token: ${{ env.BACKEND_READ_TOKEN }}
+          path: backend
+          sparse-checkout: shared/native/fixtures
+
+      - name: Native look planner unit tests (tulmi-bridge)
+        working-directory: app/android
+        env:
+          NLOOK_FIXTURES: ${{ github.workspace }}/backend/shared/native/fixtures
+        run: ./gradlew :tulmi-bridge:testDebugUnitTest --console=plain

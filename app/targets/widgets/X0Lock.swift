@@ -6,7 +6,8 @@ import WidgetKit
 // fades to a wash over a bright or busy wallpaper, so the hierarchy is the type's (the title semibold and accented, the line
 // regular) and the empty track and beads keep 40% and more. A locked phone is anyone's to read, so the words here are only the glance's
 // `lock` words (lock.inline, lock.title, lock.line), which the server makes safe: a private question's words never reach them.
-// A question's own text is never drawn here. Beside the words: a face, the stage bar or ring, the week's beads, the peek-bot key.
+// A question's own text is never drawn here. Beside the words: THE CARD'S OWN BOT (the bot asking, the bot working, the bot
+// that finished), the stage bar or ring, the week's beads. The peek-bot key is the quiet circle's, where there is no card.
 
 /// The line in the date: "● Code bot needs you", "Code bot · Build, 3 of 5", "X0 · 4 done this week".
 struct X0Inline: View {
@@ -38,8 +39,9 @@ struct X0Inline: View {
   }
 }
 
-/// The rectangle (160 x 72): the face and the safe line when something needs the person; the task and the stage bar while a
-/// job runs; the greeting and the week's beads when all is quiet.
+/// The rectangle (160 x 72): every card leads with its own bot's face — the bot asking with the safe line, the bot working
+/// with the task and the stage bar, the bot that finished with what it made; the greeting and the week's beads when all is
+/// quiet (no card, so no bot).
 struct X0Rectangle: View {
   let c: X0Context
   let lead: X0Lead
@@ -71,28 +73,34 @@ struct X0Rectangle: View {
         }
       }
     case .job(let j):
-      VStack(alignment: .leading, spacing: 0) {
-        Text(title.isEmpty ? j.task : title)
-          .font(.system(size: 13, weight: .semibold))
-          .lineLimit(1)
-          .widgetAccentable()
-        Text(line.isEmpty ? c.jobShortLine(j) : line)
-          .font(.system(size: 12))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-        StageBar(stage: j.stage, of: j.of, color: .white, track: Color.white.opacity(0.4), height: 5)
-          .padding(.top, 6)
+      HStack(alignment: .top, spacing: 7) {
+        c.face(j.bot, size: 26)
+        VStack(alignment: .leading, spacing: 0) {
+          Text(title.isEmpty ? j.task : title)
+            .font(.system(size: 13, weight: .semibold))
+            .lineLimit(1)
+            .widgetAccentable()
+          Text(line.isEmpty ? c.jobShortLine(j) : line)
+            .font(.system(size: 12))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+          StageBar(stage: j.stage, of: j.of, color: .white, track: Color.white.opacity(0.4), height: 5)
+            .padding(.top, 6)
+        }
       }
     case .bot(let b):
-      VStack(alignment: .leading, spacing: 0) {
-        Text(title.isEmpty ? b.name : title)
-          .font(.system(size: 13, weight: .semibold))
-          .lineLimit(1)
-          .widgetAccentable()
-        Text(line.isEmpty ? b.line : line)
-          .font(.system(size: 12))
-          .foregroundStyle(.primary)
-          .lineLimit(2)
+      HStack(alignment: .top, spacing: 7) {
+        c.face(b.slug, b.face, size: 26)
+        VStack(alignment: .leading, spacing: 0) {
+          Text(title.isEmpty ? b.name : title)
+            .font(.system(size: 13, weight: .semibold))
+            .lineLimit(1)
+            .widgetAccentable()
+          Text(line.isEmpty ? b.line : line)
+            .font(.system(size: 12))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+        }
       }
     case .done(let d):
       HStack(alignment: .top, spacing: 7) {

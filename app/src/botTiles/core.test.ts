@@ -14,7 +14,7 @@ import {
 } from "./core.ts";
 import { STARTER } from "./starter.ts";
 // @ts-expect-error a plain .mjs script, no types
-import { DEFAULT_OUT, SOURCE, hashesOf, sha } from "./genDesktop.mjs";
+import { DEFAULT_OUT, SERVER_OUT, SOURCES, hashesOf, readSources, sha } from "./genDesktop.mjs";
 
 const KINDS: BotKind[] = ["code", "keybot", "plan", "travel", "notes", "make", "custom"];
 const MOODS: BotMood[] = ["idle", "working", "needs"];
@@ -450,11 +450,24 @@ test("a line writes itself at dictation's pace: in order, uneven, a breath after
   assert.deepStrictEqual(writeOnTimes(words, 9), t);
 });
 
-test("the window's botTiles.js is generated from this core, unchanged", { skip: !existsSync(DEFAULT_OUT) && "TAILZU-DESKTOP is not beside this repo" }, () => {
+test("the window's botTiles.js is generated from this core and the scene engine, unchanged", { skip: !existsSync(DEFAULT_OUT) && "TAILZU-DESKTOP is not beside this repo" }, () => {
   const out = readFileSync(DEFAULT_OUT, "utf8");
   const h = hashesOf(out);
-  assert.strictEqual(h.src, sha(readFileSync(SOURCE, "utf8")), "core.ts changed: run `node src/botTiles/genDesktop.mjs` and commit TAILZU-DESKTOP/botTiles.js");
+  const sources = readSources() as string[];
+  assert.strictEqual(h.scene, sha(sources[0]!), "scene.ts changed: run `node src/botTiles/genDesktop.mjs` and commit TAILZU-DESKTOP/botTiles.js");
+  assert.strictEqual(h.src, sha(sources[sources.length - 1]!), "core.ts changed: run `node src/botTiles/genDesktop.mjs` and commit TAILZU-DESKTOP/botTiles.js");
   assert.strictEqual(h.actualBody, h.body, "TAILZU-DESKTOP/botTiles.js was edited by hand: regenerate it");
+  assert.strictEqual((SOURCES as string[]).length, 2, "two sources: scene.ts, then the core that reads it");
+});
+
+test("the server's checking engine (shared/bots/engines/f2.cjs) is the same build", { skip: !existsSync(SERVER_OUT) && "TAILZU-BACKEND is not beside this repo" }, () => {
+  const out = readFileSync(SERVER_OUT, "utf8");
+  const h = hashesOf(out);
+  const sources = readSources() as string[];
+  assert.strictEqual(h.scene, sha(sources[0]!), "run `node src/botTiles/genDesktop.mjs --server`");
+  assert.strictEqual(h.src, sha(sources[sources.length - 1]!), "run `node src/botTiles/genDesktop.mjs --server`");
+  assert.strictEqual(h.actualBody, h.body, "f2.cjs was edited by hand: regenerate it");
+  assert.strictEqual(readFileSync(DEFAULT_OUT, "utf8"), out, "the window and the server run the very same engine");
 });
 
 test("the motion language over a caller's own names (the desktop's Blip catalog): t and v, nothing else", () => {

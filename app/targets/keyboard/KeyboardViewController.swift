@@ -199,6 +199,9 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // one moment iOS asks for memory back was the one moment nothing gave any.
     // The disk cache survives, so every purged image redraws from disk.
     TulmiImageLoader.purgeMemory()
+    // The memoized UIFonts go too — they are cheap to work out again, and
+    // this is what KBFonts.forget is for.
+    KBFonts.forget()
     // And anything that only exists while open: a sheet, a tray, the balloon.
     sduiRenderer?.releaseTransientViews()
   }
@@ -445,7 +448,11 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private static let pendingConfigKey = "tulmi_kb_config_pending"
   private static let suspectKey = "tulmi_kb_config_suspect"
   private static let badKey = "tulmi_kb_config_bad"
-  private var survivalToken = 0
+  /// A SKINNED config that died once: the next death on the same bytes puts
+  /// that sha into plain mode rather than condemning the config.
+  private static let skinSuspectKey = "tulmi_kb_skin_suspect"
+  /// The config sha that draws WITHOUT faces, presses, fontFamily or art.
+  private static let plainKey = "tulmi_kb_skin_plain"
 
   private static func digest(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -472,6 +479,29 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // One strike could be the system killing the extension for its own
     // reasons; two in a row with the same bytes is the config.
     let hash = Self.digest(bytes)
+    // A SKINNED CONFIG GETS THE SKIN TAKEN AWAY FIRST. Faces, press effects,
+    // hooked fonts and art are the new things in this build and the likely
+    // cause of a death — most of all a memory death once art and animated
+    // keys have built up, which is why the trial is cleared on a clean
+    // finish and not on a timer. So the first two strikes switch this sha to
+    // plain mode (the tree and the colours stay: those are today's features,
+    // and they have never taken the keyboard down) and tell the server, with
+    // X-Tulmi-Keyboard-Bad, to send the unskinned tree. Only if it keeps
+    // dying after that does the config itself take the two strikes below and
+    // the keyboard fall back to the bundled snapshot.
+    if let skin = KBSkin.parse(bytes), d.string(forKey: Self.plainKey) != hash {
+      if d.string(forKey: Self.skinSuspectKey) == hash {
+        d.set(hash, forKey: Self.plainKey)
+        KBSkin.markBadSkin(skin.id)
+        d.removeObject(forKey: Self.skinSuspectKey)
+        NSLog("[Tailzu][kb] skin %@ is in plain mode after two strikes", skin.id)
+      } else {
+        d.set(hash, forKey: Self.skinSuspectKey)
+      }
+      // The bytes are kept: a plain-mode config still draws the keyboard.
+      if what != "fetched" { d.set(bytes, forKey: "tulmi_kb_config") }
+      return
+    }
     if d.string(forKey: Self.suspectKey) == hash {
       d.set(hash, forKey: Self.badKey)
       d.removeObject(forKey: Self.suspectKey)
@@ -486,12 +516,12 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     // A fetched config on trial outranks the cached one it replaces.
     if d.string(forKey: Self.applyingKey) == "fetched", what == "cache" { return }
     d.set(what, forKey: Self.applyingKey)
-    survivalToken &+= 1
-    let token = survivalToken
-    DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
-      guard let self = self, token == self.survivalToken else { return }
-      self.configSurvived()
-    }
+    // NO TIMER. The trial used to end 20 seconds after a config was applied,
+    // which meant the guard only ever caught a death in the first 20 seconds
+    // — a parse or a first layout. The deaths that matter now come LATER:
+    // memory deaths, once art and animated keys have built up over a long
+    // message. The trial now ends only on a clean finish
+    // (viewDidDisappear), so a session that ends by being killed is counted.
   }
 
   /// The config on trial ran a session without taking the keyboard down.
@@ -500,10 +530,49 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     guard let what = d.string(forKey: Self.applyingKey) else { return }
     d.removeObject(forKey: Self.applyingKey)
     d.removeObject(forKey: Self.suspectKey)
+    // The SKIN strike goes with it. Both guards mean "twice IN A ROW": a
+    // skinned config that died once and then ran a whole clean session is
+    // not on its second strike any more. Leaving this set made the strike
+    // immortal — one kill today and an unrelated one weeks later put the
+    // skin into plain mode for good and sent the Bad header for ever.
+    d.removeObject(forKey: Self.skinSuspectKey)
+    // A skin that ran a clean session is not the bad skin, whatever an
+    // older sha of the same id once did. (The server answers the Bad header
+    // with the unskinned tree, so this only fires when it has stopped doing
+    // so; the age check in KBSkin.badSkinId is what normally lets go.)
+    if let live = KBSkin.current, live.id == KBSkin.badSkinId, !KBSkin.plainMode {
+      KBSkin.clearBadSkin()
+    }
     if what == "fetched", let pending = d.data(forKey: Self.pendingConfigKey) {
       d.set(pending, forKey: "tulmi_kb_config")
     }
     d.removeObject(forKey: Self.pendingConfigKey)
+  }
+
+  /// THE SKIN BLOCK, AND THE ONE BATCH OF FETCHES.
+  ///
+  /// Called with every config the keyboard applies, cached or fresh. It reads
+  /// the skin's id, sha, budget and manifest; decides whether this sha draws
+  /// in plain mode (the guard above); registers the fonts bundled in this
+  /// extension; and kicks off the single batch that fetches every art file
+  /// and hooked font the manifest lists.
+  ///
+  /// That batch is the ONLY time this keyboard fetches a picture. Nothing is
+  /// fetched on a key press or a layout switch, so no request can ever be
+  /// tied to a keystroke, even when the art differs per key. A file that is
+  /// not there yet means the flat colour for this session.
+  private func adoptSkin(_ data: Data) {
+    KBFonts.registerBundled()
+    // NO FULL ACCESS, NO SKIN. The cached config lives in the extension's
+    // own defaults, which need no Full Access — so without it a skin
+    // received earlier went on drawing faces, press effects and hooked
+    // fonts. The spec (§1.6/§8) says: no Full Access, looks and types
+    // exactly like today. Plain mode is exactly that — the tree and the
+    // colours stay, face/press/fontFamily/art are ignored — and it skips
+    // the prefetch, which could not reach the network anyway.
+    let plain = !hasFullAccess
+      || UserDefaults.standard.string(forKey: Self.plainKey) == Self.digest(data)
+    KBSkin.adopt(configJSON: data, plain: plain)
   }
 
   private func loadAndApplyConfig() {
@@ -567,6 +636,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
           counters: pending.counters,
           windowMs: pending.windowMs,
           build: SDUIRenderer.buildStamp,
+          // The skin these counters were collected under — an id, nothing
+          // more, and only when the WHOLE window ran under that one skin.
+          // It comes with the counters rather than being read off
+          // `KBSkin.current` here: this closure is not the main thread, and
+          // a window can span half an hour and more than one skin. The
+          // speed counters (keyMs, keysOverFrame, remountMs) already exist;
+          // tagging them is how a skin that costs frames is found and
+          // stopped. A wrong tag would stop the wrong skin.
+          skin: pending.skin,
         ) { ok in
           // Clear ONLY on success, so a dropped request doesn't lose the data.
           if ok { KeyboardTelemetry.commitUpload(pending.counters) }
@@ -589,6 +667,7 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   private func applySDUIIfAvailable(_ data: Data) {
     // Every non-renderer file reads its server values through KBKnobs.
     KBKnobs.shared.update(configJSON: data)
+    adoptSkin(data)
     guard let kb = SDUIRenderer.decodeConfig(data),
           kb.features?.sdui == true,
           kb.root != nil
@@ -1896,10 +1975,17 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// The containing app's URL for a screen: kb.deepLink.urlTemplate with
   /// "{screen}" replaced — the renderer's openApp action builds it the same
   /// way. The app routes tulmi://s/<id> to that SDUI screen.
+  ///
+  /// The template is a SERVER knob, so it goes through the same own-scheme
+  /// test the renderer uses (SDUIRenderer.ownSchemeURL). A knob naming
+  /// anything but one of our own schemes falls back to the compiled
+  /// tulmi://s/<screen>: a keyboard may never open someone else's app
+  /// (App Review 4.4.1).
   private func appURL(screen: String) -> URL? {
     let enc = screen.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? screen
     let template = knobString("kb.deepLink.urlTemplate", "tulmi://s/{screen}")
-    return URL(string: template.replacingOccurrences(of: "{screen}", with: enc))
+    let built = template.replacingOccurrences(of: "{screen}", with: enc)
+    return SDUIRenderer.ownSchemeURL(built) ?? URL(string: "tulmi://s/\(enc)")
   }
 
   /// Best-effort open of the containing app.
@@ -1933,6 +2019,15 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// can display it in the field via kb.coldOpen.debugStatus.
   private func attemptOpenApp(_ url: URL?, completion: @escaping (Bool, String) -> Void) {
     guard let url = url else { completion(false, "no-url"); return }
+    // THE CHOKE POINT. Every caller builds its URL from a server knob
+    // (kb.deepLink.urlTemplate and friends), so the own-scheme lock is
+    // enforced here, once, where iOS is actually asked to switch apps —
+    // not in each of the three callers. App Review 4.4.1: a keyboard may
+    // open its OWN containing app and nothing else.
+    guard SDUIRenderer.isOwnSchemeURL(url) else {
+      NSLog("[Tailzu][kb] cold-open refused: not one of our own schemes.")
+      completion(false, "not-own-scheme"); return
+    }
     var depth = 0
     var responder: UIResponder? = self
     while let r = responder {
@@ -2001,6 +2096,13 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   /// opening the app by hand still arms Flow.
   @discardableResult
   private func openURLViaResponderChain(_ url: URL) -> Bool {
+    // The same own-scheme lock as attemptOpenApp. This one is reachable on
+    // its own (the mic hand-off passes its opener straight in), so the test
+    // sits here too rather than only at the one caller.
+    guard SDUIRenderer.isOwnSchemeURL(url) else {
+      NSLog("[Tailzu][kb] open refused: not one of our own schemes.")
+      return false
+    }
     // Walk the ENTIRE responder chain and call openURL: on EVERY responder that
     // services it — build 38's mechanism, made more reliable. Build 38 stopped
     // at the FIRST responder that answered, which is often NOT the real
@@ -2660,8 +2762,6 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
   // Stop any in-flight recording / timers if the keyboard goes away.
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
-    // A clean close: whatever config was on trial ran a whole session.
-    configSurvived()
     // The extension can be killed the moment it's dismissed, so write the tail
     // of this session's counters now instead of waiting for the throttle.
     KeyboardTelemetry.flushToDisk()
@@ -2694,6 +2794,19 @@ class KeyboardViewController: UIInputViewController, AVAudioRecorderDelegate {
     sduiRenderer?.reflectMicLevel(0)
     isHandoffActive = false
     sduiRenderer?.reflectDictating(false)
+  }
+
+  /// THE TRIAL ENDS HERE, and nowhere else.
+  ///
+  /// The keyboard was dismissed and the view is gone: the config on trial ran
+  /// a whole session without taking the extension down. viewWillDisappear is
+  /// too early to be a clean finish — the teardown below it (a recording
+  /// being stopped, an audio session going inactive, the tree being released)
+  /// is exactly where a session can still die — and the 20 second timer this
+  /// replaces could not see a memory death at all.
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
+    configSurvived()
   }
 }
 

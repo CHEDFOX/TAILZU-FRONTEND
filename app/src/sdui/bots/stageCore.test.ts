@@ -4,10 +4,10 @@
 // open box; the rest, listen, open (square and wide), low and full rects for a given screen; a tap against a double tap.
 import test from "node:test";
 import assert from "node:assert";
-import { trailRoom } from "../../botTiles/core.ts";
+import { BotTile, compileLooks, trailRoom } from "../../botTiles/core.ts";
 import {
   STAGE, fullRect, grownHeight, keyboardLift, listenRect, lowLayout, minStageHeight, pillBottom, pillBounds, pillRect, restHeight, squareRect,
-  stageAct, stageMode, tapDue, tapOn, walksLow, wideRect, type Win,
+  stageAct, stageMode, tapDue, tapInStage, tapOn, walksLow, wideRect, type Win,
 } from "./stageCore.ts";
 
 const PHONE: Win = { w: 390, h: 844, top: 47, bottom: 34 };
@@ -121,4 +121,50 @@ test("a tap and a double tap: without a double, a press at once; with one, the f
   assert.ok(!tapDue(t.pending, 5000));
   const late = tapOn(1000, 1300, true);
   assert.deepStrictEqual(late, { run: "wait", pending: 1300 }, "a second tap after 260 ms starts a new wait");
+});
+
+test("a tap inside a live scene's box goes to the scene, not to the stage's press (SPEC 3.6, 7)", () => {
+  // The stage's own Pressable fills the stage, so its locationX/Y are already stage pixels. His hit area is a
+  // separate view translated onto his body, so a tap there arrives relative to ITS corner and has to be moved back.
+  const L = compileLooks({
+    v: 9,
+    format: 2,
+    scenes: {
+      pool: { format: 2, box: [1.4, 0.8], still: 0.2, tap: true, els: [{ id: "w", kind: "shape", d: "O 0 -0.2 0.2", fill: "ink" }] },
+    },
+    moments: {
+      "m.pool": {
+        format: 2, dur: 6, mode: "loop", fallback: "survey", still: 0.2,
+        tracks: [{ do: "scene", scene: "pool", on: "ground", x: 0.6, y: 0, back: true, at: 0, to: 6 }],
+      },
+    },
+  });
+  assert.deepStrictEqual(L.errors, []);
+  const W = 340, H = 200;
+  const bot = new BotTile({ kind: "custom", color: "#4F7A3A", mood: "idle", seed: 3 });
+  bot.resize(W, H, H - 20);
+  assert.ok(bot.playMoment(L.moment("m.pool"), "loop"));
+  for (let f = 0; f < 30; f++) bot.step(1 / 60);
+  assert.ok(bot.scenesLive(), "the scene is playing");
+
+  // His hit area, placed as BotStage's placeHit does it.
+  const size = 46, hw = Math.round(size * 1.5), hh = Math.round(size * 1.9);
+  const corner = {
+    x: Math.max(0, Math.min(W - hw, bot.x[2]! - hw / 2)),
+    y: Math.max(0, Math.min(H - hh, bot.crown().y)),
+  };
+  // A point inside the scene's box, in stage pixels, and the same point as his hit area reports it.
+  const inBox = { x: bot.scOX[0]!, y: bot.scOY[0]! - 4 };
+  const local = { x: inBox.x - corner.x, y: inBox.y - corner.y };
+
+  const at = tapInStage(local.x, local.y, corner);
+  assert.ok(Math.abs(at.x - inBox.x) < 1e-9 && Math.abs(at.y - inBox.y) < 1e-9, "it comes back to the stage's own pixels");
+  assert.strictEqual(bot.cue("tap", at.x, at.y), true, "the scene takes it, so onPress does not run");
+  assert.strictEqual(bot.tapN, 1);
+  // The raw view coordinates land somewhere else entirely, which is the bug this guards.
+  assert.ok(corner.x > 1 || corner.y > 1, "his hit area really is away from the stage's corner");
+  assert.strictEqual(bot.cue("tap", local.x, local.y), false, "unmoved, the same tap misses the box");
+  // The stage's own Pressable needs no move, and a tap outside the box is the stage's press as before.
+  assert.strictEqual(tapInStage(inBox.x, inBox.y, null).x, inBox.x);
+  assert.strictEqual(bot.cue("tap", inBox.x + 9999, inBox.y), false);
 });

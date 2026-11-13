@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.text.format.DateFormat
@@ -35,8 +36,9 @@ import kotlin.math.min
  * button is the server's data, not code. Nothing here asks the server for rows.
  *
  * In the app's own look and the phone's theme (WidgetInk): white and ink with greys, the dark ink at night; the mark (the app
- * icon's bot) in the header; rows parted by hairlines, each with an avatar (the person's initial, or the row's mark ringed in
- * its bot's own colour, by the row's `bot`, the one place colour shows); buttons as capsules, a primary one ink-filled, a secondary one
+ * icon's bot) in the header; rows parted by hairlines, each with an avatar (the person's initial, or — for a bot's row, by the
+ * row's `bot` — THAT BOT itself, its still or its face or a disc in its own colour, ringed in that colour, the one place colour
+ * shows; never the mark, which stands for the app and not for the bot a card is about); buttons as capsules, a primary one ink-filled, a secondary one
  * a line-grey ring. The server's colours go over the palette's: the look's `colors` and `styles` for dark, `light` and
  * `lightStyles` for light.
  *
@@ -142,7 +144,7 @@ object TailzuQuick {
 
   // ------------------------------------------------------------------ the look
 
-  internal class Look(doc: JSONObject?, context: Context) {
+  internal class Look(doc: JSONObject?, private val context: Context) {
     private val look = doc?.optJSONObject("look")
     private val theme = obj(prefs(context).getString(THEME_KEY, null))
     // The server's colours for each theme: the rows' look first, then the widget theme.
@@ -150,10 +152,19 @@ object TailzuQuick {
     private val lights = listOf(look?.optJSONObject("light"), theme?.optJSONObject("light"))
     private val darkStyles = look?.optJSONObject("styles")
     private val lightStyles = look?.optJSONObject("lightStyles")
-    private val palette = WidgetInk.Palette(context)
+    // The catalog's palette when the phone holds one, so From your people and X0 keep one set of greys between them.
+    private val palette = WidgetInk.Palette(context, NLookStore.palette(context))
 
     /** The theme showing now (Android 12+ is handed both and the launcher picks). */
     val night = WidgetInk.isNight(context)
+
+    // Where a bot row's own picture comes from: the glance (its face key, its colour, whether it is working) and the art
+    // channel (its dotted still). Read lazily, so a widget with no bot row on it opens neither.
+    val glance: X0Doc? by lazy { X0Doc.load(context) }
+    val looks: NLookIndex? by lazy { NLookStore.index(context) }
+
+    /** One decode per bot per draw, however many of this widget's rows are that bot's. */
+    val faces = HashMap<String, Face>()
 
     /** The server's colour for a role, each theme, else the palette's. */
     fun color(key: String, role: String = key): Ink = WidgetInk.resolve(key, palette.role(role), lights, darks)
@@ -355,13 +366,17 @@ object TailzuQuick {
   }
 
   /**
-   * The avatar: a bot's row (it names its `bot`) is its mark ringed in that bot's colour; a person's is their initial; a row
+   * The avatar: A BOT'S ROW (it names its `bot`) IS THAT BOT, ringed in its own colour; a person's is their initial; a row
    * with neither its kind's drawable.
+   *
+   * The row used to draw the X0 mark there, because `androidIcon` falls back to it for every kind. A question is Code bot's
+   * and a yes is the bot whose app it is, so that put X0's mark on another bot's card — the one thing no card may do.
    */
   private fun avatar(v: RemoteViews, context: Context, row: JSONObject, look: Look) {
     val night = look.night
     WidgetInk.image(v, R.id.tailzu_row_avatar, look.surface, night)
-    val bot = botInk(row.optString("bot").trim(), look)
+    val slug = row.optString("bot").trim()
+    val bot = botInk(slug, look)
     val initial = row.optString("initial").trim()
     v.setViewVisibility(R.id.tailzu_row_ring, if (bot != null) View.VISIBLE else View.GONE)
     if (bot != null) WidgetInk.image(v, R.id.tailzu_row_ring, bot, night)
@@ -374,9 +389,61 @@ object TailzuQuick {
     }
     v.setViewVisibility(R.id.tailzu_row_initial, View.GONE)
     v.setViewVisibility(R.id.tailzu_row_icon, View.VISIBLE)
+    // The bot whose row this is, in the one order every card follows (X0Faces). A picture is drawn as it is painted, so
+    // nothing is tinted over it. X0 itself ("tailzu") keeps the mark: that IS its own face.
+    if (slug.isNotEmpty() && slug != "tailzu") {
+      when (val f = botFace(context, slug, look)) {
+        is Face.Res -> v.setImageViewResource(R.id.tailzu_row_icon, f.id)
+        is Face.Bmp -> v.setImageViewBitmap(R.id.tailzu_row_icon, f.bitmap)
+      }
+      return
+    }
     // A kind's own colour (the look's kinds.*.color), when the server gives one; else the ink.
     val tint = WidgetInk.hex(row.optString("color"))?.let { Ink(it, it) } ?: look.ink
     glyph(v, R.id.tailzu_row_icon, context, row.optString("androidIcon"), R.drawable.tailzu_widget_mark, tint, night)
+  }
+
+  /** The avatar slot is 16dp: a face decoded for a widget card (up to 256px) is brought down to it before it is parcelled. */
+  private const val AVATAR_PX = 96
+
+  /**
+   * THE BOT WHOSE ROW THIS IS, step for step the order X0's own cards and the "Bots at work" notice follow (X0Faces): its
+   * dotted still, else its downloaded face, else a built-in's bundled head, else a disc in its own colour with its initial.
+   * Never the X0 mark, which belongs where there is no card at all.
+   */
+  private fun botFace(context: Context, slug: String, look: Look): Face {
+    look.faces[slug]?.let { return it }
+    val bot = look.glance?.bot(slug)
+    // A bot at work is drawn working, as it is on X0, so the two surfaces show one bot doing one thing.
+    val moment = if (bot?.working == true) "work" else "rest"
+    val made = X0Faces.still(context, look.looks, slug, moment)?.let { Face.Bmp(fit(it)) }
+      ?: X0Faces.face(context, bot?.face)?.let { Face.Bmp(fit(it)) }
+      ?: bundled(context, bot?.face)
+      ?: bundled(context, slug)
+      ?: Face.Bmp(X0Faces.disc(botInk(slug, look)?.light ?: look.ink.light, bot?.name?.ifEmpty { null } ?: slug, AVATAR_PX))
+    look.faces[slug] = made
+    return made
+  }
+
+  /** A built-in bot's own head, shipped in the build. Keyed by that bot's face or slug, so it is never another bot's. */
+  private fun bundled(context: Context, key: String?): Face? {
+    val k = key?.let { X0Doc.face(it) } ?: return null
+    return try {
+      @Suppress("DiscouragedApi")
+      val id = context.resources.getIdentifier("tailzu_x0_head_" + k.replace('-', '_'), "drawable", context.packageName)
+      if (id == 0) null else Face.Res(id)
+    } catch (_: Throwable) {
+      null
+    }
+  }
+
+  /** A decoded face brought down to the avatar slot, so four rows of them stay well inside a widget's bitmap budget. */
+  private fun fit(b: Bitmap): Bitmap = try {
+    val edge = max(b.width, b.height)
+    if (edge <= AVATAR_PX || b.width <= 0 || b.height <= 0) b
+    else Bitmap.createScaledBitmap(b, max(1, b.width * AVATAR_PX / edge), max(1, b.height * AVATAR_PX / edge), true)
+  } catch (_: Throwable) {
+    b
   }
 
   private fun rowViews(
@@ -491,6 +558,27 @@ class TailzuPeopleWidget : AppWidgetProvider() {
 
   override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle?) {
     redraw(context, appWidgetManager, appWidgetId)
+  }
+
+  /**
+   * A draw now reads the glance and can decode a bot's own face, so it goes off the main thread on the widgets' one serial
+   * queue, exactly as X0's and the board's do (TailzuWork). Anything that is not a draw stays inline.
+   */
+  override fun onReceive(context: Context, intent: Intent) {
+    val app = context.applicationContext ?: context
+    val ids = TailzuWork.widgetIds(intent)
+    val manager = if (ids == null) null else AppWidgetManager.getInstance(app)
+    if (ids != null && manager != null) {
+      TailzuWork.receive(goAsync()) {
+        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED) {
+          onAppWidgetOptionsChanged(app, manager, ids[0], intent.extras?.getBundle(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS))
+        } else {
+          onUpdate(app, manager, ids)
+        }
+      }
+      return
+    }
+    super.onReceive(context, intent)
   }
 
   private fun redraw(context: Context, manager: AppWidgetManager, id: Int) {
