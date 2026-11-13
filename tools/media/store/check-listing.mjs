@@ -1,7 +1,9 @@
 // Checks docs/store-listing.md: every field's length against its store's limit, and the store rules.
 //
-//   node tools/media/store/check-listing.mjs           # check, print a table; exits 1 on any problem
-//   node tools/media/store/check-listing.mjs --write   # also rewrite each heading's count ("· 27 / 30")
+//   node tools/media/store/check-listing.mjs                      # check, print a table; exits 1 on any problem
+//   node tools/media/store/check-listing.mjs --write              # also rewrite each heading's count ("· 27 / 30")
+//   node tools/media/store/check-listing.mjs --android-health on  # check against a Health Connect Android build instead
+//                                                                 # of the one app/native-inputs.lock calls production
 //
 // A field is a heading "### <name> · <n> / <limit>" followed by a ```text block; the block's text is the field, exactly
 // (its last newline is not part of it). Characters are counted as the stores count them: one per character (code point),
@@ -13,6 +15,12 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DOC = path.resolve(HERE, "../../../docs/store-listing.md");
 const write = process.argv.includes("--write");
+/** `on` / `off` from the command line, else null: the lock decides. */
+const saidHealth = (() => {
+  const i = process.argv.indexOf("--android-health");
+  const v = i < 0 ? "" : String(process.argv[i + 1] ?? "").toLowerCase();
+  return v === "on" || v === "off" ? v : null;
+})();
 
 const src = fs.readFileSync(DOC, "utf8");
 const FIELD = /^(#{3,4}) (.+?) · (\d+) \/ (\d+)[ \t]*\n+```text\n([\s\S]*?)\n```/gm;
@@ -57,6 +65,65 @@ for (const f of fields) {
     if (again.length) problems.push(`${f.name}: words already in the name or subtitle (indexed there already): ${[...new Set(again)].join(", ")}`);
   }
   if (/url/i.test(f.name) && !/^https:\/\/\S+$/.test(f.body)) problems.push(`${f.name}: not one https link`);
+}
+
+// ------------------------------------------------------------------ what the build really asks for (docs: perms §7.5)
+//
+// A listing and a privacy answer that say the opposite of the binary are the two ways a store build is refused for something
+// nobody wrote down. So: if the build has a usage string for a thing, the listing and the privacy document must say the app
+// does it. HealthKit's own rule is explicit (App Review 2.5.1: apps "should indicate that integration in their app
+// description"); the rest follow the same logic.
+//
+// Both files are read where they are; a file that is missing is not a failure here, only a skipped check.
+const CONFIG = path.resolve(HERE, "../../../app/app.config.ts");
+const LOCK = path.resolve(HERE, "../../../app/native-inputs.lock");
+const PRIVACY = path.resolve(HERE, "../../../../TAILZU-BACKEND/docs/store-privacy.md");
+const read = (f) => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
+/** Whether the RELEASE build carries Health Connect, from the lock A8 writes. Null when there is no lock to read. */
+function lockedAndroidHealth() {
+  const raw = read(LOCK);
+  if (!raw) return null;
+  try { return JSON.parse(raw)?.androidHealth?.production === "on" ? "on" : "off"; } catch { return null; }
+}
+const bodyOf = (re) => fields.filter((f) => re.test(f.name)).map((f) => f.body).join("\n");
+
+const config = read(CONFIG);
+const privacy = read(PRIVACY);
+if (config) {
+  const appStore = bodyOf(/^(description|what's new)/i);
+  const play = bodyOf(/^(full description|release notes)/i);
+  // HealthKit in the binary -> the App Store description and What's New say so.
+  if (/\bHEALTH_USAGE\b/.test(config) && !/apple health/i.test(appStore)) {
+    problems.push("Description / What's New: the build has a Health usage string but the App Store text never says Apple Health (App Review 2.5.1)");
+  }
+  // HEALTH CONNECT IS CONDITIONAL, so the config alone cannot answer it: app.config.ts holds READ_STEPS and READ_EXERCISE
+  // inside `TULMI_ANDROID_HEALTH ? [...] : []`, so those words are in the file for EVERY build. What decides is the build
+  // profile's own switch, recorded in app/native-inputs.lock (androidHealth.production), or --android-health on the
+  // command line for another profile. Play wants the listing to represent the health access accurately either way, which
+  // cuts both ways: with the switch on the sentence must be there, and with it off it must NOT be, or the listing
+  // advertises Health Connect for a binary that has none (Play help 12991134).
+  const androidHealth = saidHealth ?? lockedAndroidHealth();
+  const saysHC = /health connect/i.test(play);
+  if (androidHealth === "on" && !saysHC) {
+    problems.push("Full description / Release notes: the Android build reads Health Connect but the Play text never says so (Play help 12991134)");
+  }
+  if (androidHealth === "off" && saysHC) {
+    problems.push("Full description / Release notes: the Play text promises Health Connect, but this Android build is built without it (app/native-inputs.lock androidHealth.production is off)");
+  }
+}
+if (privacy) {
+  // A usage string or permission in the build, and the privacy answers still calling it "not collected" or "never read".
+  // Each phrase is one a STALE document has and a true one does not. "Health info (only Fitness info above)" is Play's own
+  // category and stays true, so the health phrase is the whole "Health and fitness" category, as both forms spell it.
+  const stale = [
+    ["location", config && /NSLocationWhenInUseUsageDescription|ACCESS_COARSE_LOCATION/.test(config),
+      /(?:Location \((?:precise and coarse|approximate and precise)\))|(?:no location permission or API)|(?:health or fitness)/i],
+    ["health", config && /HEALTH_USAGE|READ_STEPS/.test(config), /\bHealth and [Ff]itness,/],
+    ["contacts", true, /(?:the phone's contacts are never read)|(?:No contacts, calendar or location permission is in the build)/i],
+  ];
+  for (const [what, inBuild, re] of stale) {
+    if (inBuild && re.test(privacy)) problems.push(`store-privacy.md: still says ${what} is not collected or never read, while the build has it (docs/store-privacy.md)`);
+  }
 }
 
 const pad = Math.max(...fields.map((f) => f.name.length));
