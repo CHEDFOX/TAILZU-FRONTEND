@@ -22,7 +22,7 @@ import { actKey } from "../widgets/nowCore";
 import { refreshGlance } from "../widgets/glance";
 import { refreshWidgetsNow } from "../widgets/now";
 import { currentCategories } from "./categories";
-import { callFor, owe, retryable, stillOwed, type Owed } from "./categoriesCore";
+import { answerKey, callFor, owe, retryable, stillOwed, type Owed } from "./categoriesCore";
 
 const OWED_KEY = "x0.push.owed";
 const HOUR = 3_600_000;
@@ -48,8 +48,10 @@ async function send(o: Owed): Promise<"done" | "again" | "refused"> {
     else await callEndpoint(o.call.method, o.call.path, o.call.body);
     return "done";
   } catch (e) {
-    const status = (e as { status?: unknown })?.status;
-    return retryable(typeof status === "number" ? status : undefined) ? "again" : "refused";
+    const err = e as { status?: unknown; server?: { code?: unknown } } | undefined;
+    const status = err?.status;
+    const code = err?.server?.code;
+    return retryable(typeof status === "number" ? status : undefined, typeof code === "string" ? code : undefined) ? "again" : "refused";
   }
 }
 
@@ -92,7 +94,10 @@ export async function handleNotificationAction(res: Notifications.NotificationRe
   if (!action) return "open";
   const content = res.notification?.request?.content;
   const data = (content?.data ?? {}) as Record<string, unknown>;
-  const call = callFor(action, data, typeof res.userText === "string" ? res.userText : "", actKey(), str("push.actions.path", "/v1/widgets/act"));
+  // One press, one key: the push and the button (categoriesCore.pressKey), so the same press handled twice (the background task and
+  // the running app) or sent again later is one answer, while the next push's Later is a new one. Typed replies keep a fresh key.
+  const key = answerKey(action, data, actKey);
+  const call = callFor(action, data, typeof res.userText === "string" ? res.userText : "", key, str("push.actions.path", "/v1/widgets/act"));
   if (call.kind === "open" || call.kind === "none") return call.kind === "none" && action.input ? "handled" : "open";
   const owed: Owed = { key: call.kind === "act" ? call.body.key : actKey(), call, at: Date.now(), tries: 0 };
   const work = beginBackgroundWork();

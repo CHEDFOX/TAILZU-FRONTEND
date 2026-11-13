@@ -7,6 +7,7 @@ import { initMeta } from "../../../telemetry/meta";
 import { initSentry } from "../../../telemetry/sentry";
 import { initBilling } from "../../../billing/purchases";
 import { registerForPushToken, addNotificationResponseListener, addNotificationArrivalListener } from "../../../notifications/push";
+import { clearRingingCalls } from "../../../notifications/calls";
 import { installLinkListener, parseLink } from "../../../deeplinks/router";
 import { refreshQuickAccess } from "../../../widgets/quickAccess";
 import { onQuickAction, takeQuickAction } from "../../../quickActions/quickActions";
@@ -36,6 +37,9 @@ export function useStartup({
     initMeta();
     void initBilling();
     void registerForPushToken();
+    // A call's ring left in the list from before this launch (notifications/calls.ts): only one past its window goes. A live
+    // ring stays, and the tapped call's own notifications go when the tap is handled (push.ts onTap).
+    void clearRingingCalls();
     // Warm heartbeat — tells the keyboard extension "the main app is alive
     // right now, handoff will be fast". Bumped on every foreground below;
     // this initial call covers cold starts.

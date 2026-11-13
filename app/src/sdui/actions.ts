@@ -49,6 +49,7 @@ import { runOutboxAction } from "./offline/offline";
 import { setSoundsOn } from "../media/sounds";
 import { listenStream, makeStreamId, StreamTap } from "./live/askStream";
 import { voiceLive, voiceStop } from "./voice/voiceLive";
+import { speakLine } from "./voice/speech";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -406,8 +407,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // via an OTA once the SDUI screen using it is authored.
       { const m = fillText(action.message, ctx); if (m) ctx.toast(m, "info"); }
       break;
+    // The phone's own voice (voice/speech.ts). "$state.x" in the words is filled in (a call's opening line is an answer's); loud
+    // and onDone (BOT_CALL_CAPABILITY) set the speaker first and run what comes next once it has been said.
     case "speak":
-      try { Speech.speak(action.text, { voice: action.voice }); } catch { /* no-op */ }
+      await speakLine({ ...action, text: fillText(action.text, ctx) }, { owner: ctx.store, run: (r) => runAction(r, ctx) });
       break;
     case "stopMedia":
       try { Speech.stop(); } catch { /* no-op */ }

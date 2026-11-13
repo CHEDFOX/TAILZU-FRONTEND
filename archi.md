@@ -82,7 +82,7 @@ src/
 ├─ media/                 media player and registry, uploads / audio / voice recording actions, the bots' sounds
 ├─ launch/                the launch curtain (the splash's art, animated) and its timing
 ├─ billing/               RevenueCat purchases, store prices, managing a subscription bought elsewhere
-├─ notifications/         push token, notification categories and buttons, the background task for them
+├─ notifications/         push token, notification categories and buttons, the background task for them, Plan Ease's calls
 ├─ widgets/               what the app hands the widgets: glance, now, quick access, Flow copy, theme
 ├─ quickActions/          the app icon's long-press items
 ├─ share/                 share-in: files from other apps to the backend, then the share screen
@@ -124,6 +124,8 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | Widget lines that switch on their own (the glance's `steps`: a leave-by, then the next thing) | `src/widgets/glanceCore.ts` (`cleanSteps`, `glanceAt`, the rule), `targets/widgets/X0Glance.swift` (`asOf`, `X0Provider`), `modules/tulmi-bridge/android/…/X0Steps.kt` and `TailzuX0Widget.kt` (the step alarm) |
 | What only the binary can promise the server (PushTimeSensitive with the push token, GlanceSteps in the bootstrap and `steps=1` on the glance) | `src/device/binaryCore.ts` (`binary.ts` reads the bridge's `binaryFeatures`, `TulmiBridgeModule.swift` / `.kt`); the Time Sensitive entitlement in `app.config.ts` |
 | Which notification button opened the app (`PushButton`): an opening button's id goes to the push's screen as its `button` param, a plain tap has none, so the server's hand-off screens open UPI, WhatsApp or Maps only for Pay, Send, No or Open map | `src/notifications/push.ts` onTap, `categoriesCore.ts` pressedButton; declared in `src/sdui/registry.ts` |
+| A notification button pressed once is answered once (Plan Ease follow-through): the act key is the push and the button (`pressKey`, from `data.pushId`, never the notification's identifier, which a follow's pushes share as their collapse id); a tap is remembered by notification, push and button (`tapSeenKey`); the same press still being answered by its other copy (409 in_progress) is tried again, not refused; the server's buttons registered on every bootstrap, the newest list last (`latestOnly`) | `src/notifications/categoriesCore.ts` (pressKey, answerKey, tapSeenKey, retryable, latestOnly), `actions.ts`, `push.ts` onTap, `categories.ts`; the bootstrap effect in `src/sdui/SduiApp.tsx` |
+| "X0 is calling" (a leave-by or a bill due today rings the phone): the token caps, Android's call channels, the iPhone's ringtone, clearing old rings; the call screen's pieces (speak loud / onDone, voiceLive duplex, Text "elapsed") | `src/notifications/calls.ts` + `callsCore.ts`, `ringtone.ios.ts` / `ringtone.ts` + `ringtoneCore.ts`, `assets/sounds/x0_ring_1.wav` (made by `tools/sounds/make_ring.py`); `src/sdui/voice/speech.ts`, `voice/voiceLive.ts`, `components/Text.tsx` + `elapsedCore.ts`; declared as `BotCall` in `src/sdui/registry.ts` |
 | Live Activities | `targets/widgets/BotsActivity.swift`, `FlowActivity.swift`, `SetupActivity.swift`; started from `modules/tulmi-bridge/ios/*LiveActivity.swift`; JS side `src/widgets/glance.ts`, `src/widgets/flow.ts` |
 | Live updates (screens refreshed from another device) | `src/sdui/live/` |
 | Offline page and outbox | `src/sdui/offline/` |
@@ -171,6 +173,24 @@ with the keyboards and widgets, the background Flow session that keeps the mic w
 Activities, Android widgets and shortcuts), `tulmi-stream` (live dictation), `tulmi-share`. Optional native modules
 are `require()`d inside functions on purpose, so a binary without one keeps working. The keyboards fetch their own
 SDUI config from the server and run in their own processes.
+
+**Calls.** Plan Ease can ring the phone for a leave-by or a bill due today instead of sending the push (the backend's
+`docs/plan-ease.md` "Calls" has the whole story). It is an ordinary notification, "<Name> is calling" with Answer and Not
+now (the server's categories `x0_call` and `x0_call_missed`, registered like any other), never CallKit or VoIP. The server
+rings only a token whose `caps` say `BotCall` (`push.ts` registerForPushToken, `callsCore.ts` callCaps): always on iOS, and on
+Android only when `calls.ts` makeCallChannels has made the `calls` channel (high importance, the default sound, a call-like
+vibration) and `calls_missed` (quiet), and the person has blocked neither Calls nor Reminders (`plan_reminders`). Without it
+the phone gets today's push. An iPhone also says `BotRingtone` once `ringtone.ios.ts` has copied the tone, shipped in the
+update as an asset, into the App Group container's `Library/Sounds` (the registration waits up to 2 s for it); only then
+does the server name `x0_ring_1.wav` as the push's sound. Android cannot play a sound an update brings (a notification
+sound is a `res/raw` resource), so `ringtone.ts` there says no, and the channel `calls_ring` is kept for a store build that
+packs `res/raw/x0_ring_1.wav` (a channel's sound is fixed once it is made). Every push of one call shares a collapse id and
+tag (`call-<id>`), so ring 2 and the missed call replace ring 1; what a device keeps anyway is cleared here: on launch and
+on coming to the front, a ring older than 50 s by its own delivery time (`clearRingingCalls`; never a live ring, never a
+missed call, never from a push's arrival), and on a tap or button on any of a call's notifications, all of that call's
+(`dismissCall`, from `push.ts` onTap). Answer, a tap and Call back open the server's `bots.plan.call` screen; Not now is a
+background `call` button. The screen relies on `speak` with `loud` and `onDone` (`voice/speech.ts`), `voiceLive` with
+`duplex`, and Text `format: "elapsed"`, which the bundle declares as `BotCall`.
 
 **The tile engine.** `src/botTiles/core.ts` is the living tiles' physics and drawing, shared with the desktop app:
 `node src/botTiles/genDesktop.mjs` writes `TAILZU-DESKTOP/botTiles.js` from it, and tests on both sides check the

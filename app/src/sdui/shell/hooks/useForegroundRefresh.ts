@@ -7,6 +7,7 @@ import { bool } from "../../knobs";
 import { setMediaRegistry, pickMediaRegistry } from "../../../media/resolveMedia";
 import { writeAppWarmHeartbeat } from "../../../../modules/tulmi-bridge";
 import { refreshQuickAccess } from "../../../widgets/quickAccess";
+import { clearRingingCalls } from "../../../notifications/calls";
 import type { NavItem, Phase, SetState, Ref } from "../types";
 import { transientScreenIds } from "../transientScreens";
 
@@ -45,6 +46,9 @@ export function useForegroundRefresh({
       // (recording indicator + battery), so it's a backend flag, OFF unless the
       // backend explicitly turns it on.
       if (phase === "ready") void armIfAllowed();
+      // A call's ring whose window is over goes from the list (notifications/calls.ts), whatever the boot phase. Only a stale
+      // one: unlocking an iPhone with X0 in front also lands here, and a ring still ringing must survive that.
+      void clearRingingCalls();
       if (phase !== "ready") return;
       // Consume whatever the keyboard left (mic-handoff record request or a
       // deep-link tombstone — it can't call openURL itself, so it drops a target

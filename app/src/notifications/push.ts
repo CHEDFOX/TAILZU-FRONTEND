@@ -17,9 +17,12 @@ import Constants from "expo-constants";
 import { APP_VERSION, callEndpoint } from "../sdui/client";
 import { bool, list, str, txt } from "../sdui/knobs";
 import { handleNotificationAction } from "./actions";
-import { pressedButton } from "./categoriesCore";
+import { TAP_SEEN_CAP, pressedButton, tapSeenKey } from "./categoriesCore";
 import { binaryFeatures } from "../device/binary";
 import { pushCaps } from "../device/binaryCore";
+import { dismissCall, makeCallChannels } from "./calls";
+import { callCaps, callOf } from "./callsCore";
+import { ringtoneReady } from "./ringtone";
 
 /** A channel the server lists (push.android.channels): its id, the name and line Android's settings show. */
 interface AndroidChannel { id: string; name: string; description?: string; importance?: "min" | "low" | "default" | "high"; sound?: boolean }
@@ -111,12 +114,19 @@ export async function registerForPushToken(): Promise<string | null> {
         }).catch(() => { /* one channel that could not be made leaves the others */ });
       }
     }
+    // "X0 is calling" (calls.ts): Android's two call channels, made here and never by the server, then read back. False on iOS,
+    // and on an Android phone where they are missing or the person blocked Calls or Reminders: that phone keeps today's push.
+    const channels = await makeCallChannels();
 
     const tokenData = expoProjectId
       ? await Notifications.getExpoPushTokenAsync({ projectId: expoProjectId })
       : await Notifications.getExpoPushTokenAsync();
     const token = tokenData.data;
     if (!token || token === lastToken) return token ?? null;
+
+    // The iPhone's ringtone copied into the App Group's Library/Sounds first (ringtone.ios.ts, at most 2 s), so the first
+    // registration of a launch already says it is there. False on Android, and on any failure.
+    const ring = await ringtoneReady().catch(() => false);
 
     // Best-effort — backend endpoint stores {token, platform, appVersion, caps}.
     // Only mark the token as "sent" AFTER a successful POST, so a failed
@@ -129,11 +139,14 @@ export async function registerForPushToken(): Promise<string | null> {
         // The binary's own version (see client.readAppVersion) — this said
         // "0.0.0" whenever the manifest had none.
         appVersion: APP_VERSION,
-        // What this phone's binary can do with a push (device/binaryCore.ts pushCaps): "PushTimeSensitive" when the Time
+        // What this phone can do with a push. The binary's (device/binaryCore.ts pushCaps): "PushTimeSensitive" when the Time
         // Sensitive entitlement is signed in, so the server marks a leave-by or a bill due today time-sensitive only for a phone
-        // that has it. Every launch sends it, so a phone updated from the store says so on its first launch. A server that does
-        // not read it drops it.
-        caps: pushCaps(binaryFeatures()),
+        // that has it. This JavaScript's (callsCore.ts callCaps): "BotCall", it takes Plan Ease's calls (always on iOS; on
+        // Android only with its call channels usable), and "BotRingtone", the iPhone has the ringtone where iOS plays it, so the
+        // server may name it. "PushTapSeen" (categoriesCore.ts TAP_SEEN_CAP): this JavaScript tells two pushes that share one
+        // notification id apart, so the server may give a follow's pushes one collapse id. Every launch sends them, so a phone
+        // updated from the store or by an update says so on its first launch. A server that does not read one drops it.
+        caps: [...pushCaps(binaryFeatures()), ...callCaps(Platform.OS, { ringtone: ring, channels }), TAP_SEEN_CAP],
       });
       lastToken = token;
     } catch { /* silent — retry on next boot / call */ }
@@ -148,14 +161,18 @@ export async function registerForPushToken(): Promise<string | null> {
 const handledTaps = new Set<string>();
 
 function onTap(res: Notifications.NotificationResponse, handler: (data: any) => void) {
-  const id = res?.notification?.request?.identifier;
-  // Once per notification AND button: a tap and a press on its Reply are two things.
-  const seen = id ? `${id}:${res?.actionIdentifier ?? ""}` : "";
+  const data = res?.notification?.request?.content?.data ?? {};
+  // Once per notification, push AND button: a tap and a press on its Reply are two things, and so are two pushes that share one
+  // identifier (a follow's, whose collapse id iOS makes the identifier), categoriesCore.tapSeenKey.
+  const seen = tapSeenKey(res?.notification?.request?.identifier, data, res?.actionIdentifier);
   if (seen) {
     if (handledTaps.has(seen)) return;
     handledTaps.add(seen);
   }
-  const data = res?.notification?.request?.content?.data ?? {};
+  // A call's notification, tapped or pressed (Answer, Not now, Call back): every notification of that call goes, so a late
+  // Answer leaves no missed call behind it (calls.ts).
+  const callId = callOf(data);
+  if (callId) void dismissCall(callId);
   // A button (Reply, Done, Yes, No…; the server's categories, categories.ts) answers without opening anything, unless the server
   // made it one that opens; a plain tap opens the push's screen, as ever. A button that opens says which it was (the `button` param,
   // capability PushButton), so the screen can tell "Pay" from a tap just to look.

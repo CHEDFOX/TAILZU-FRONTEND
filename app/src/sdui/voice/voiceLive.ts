@@ -10,9 +10,13 @@
  *
  * The capability is declared only by a binary that has the stream module (client/capabilities.ts), so a screen never asks a
  * phone that cannot.
+ *
+ * `duplex` (BOT_CALL_CAPABILITY: a call, which listens, answers out loud and listens again): the audio session is set to the
+ * category that can both hear and play before the stream opens (the "mic ready" step), and the stream is asked for one
+ * `.playAndRecord` session held between turns (modules/tulmi-stream StreamOptions.duplex), so iOS never refuses a handover.
  */
 import { AppState } from "react-native";
-import { AudioModule } from "expo-audio";
+import { AudioModule, setAudioModeAsync } from "expo-audio";
 import * as api from "../../api";
 import { isStreamAvailable, startStream, type StreamOptions } from "../../../modules/tulmi-stream";
 import { num, txt } from "../knobs";
@@ -32,6 +36,8 @@ export interface VoiceLiveSpec {
   onEnd?: ActionRef;
   onError?: ActionRef;
   onBlocked?: ActionRef;
+  /** One audio session that plays and records, held between turns (a screen that answers out loud). */
+  duplex?: boolean;
 }
 
 /** What the action needs of the screen that ran it. */
@@ -80,6 +86,11 @@ export async function voiceLive(a: VoiceLiveSpec, io: VoiceLiveIO): Promise<void
   try { cfg = await api.streamConfig(); } catch { await io.run(a.onError, failed); return; }
   // Whatever was playing stops: one sound at a time, and the microphone hears the person, not the phone.
   stopAudio();
+  // A call that has just spoken: back to the category that can hear, on the speaker, before anything listens. The stream
+  // module sets it too, on every turn.
+  if (a.duplex) {
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, shouldRouteThroughEarpiece: false }).catch(() => {});
+  }
 
   const owner = io.owner;
   let ended = false;
@@ -92,7 +103,7 @@ export async function voiceLive(a: VoiceLiveSpec, io: VoiceLiveIO): Promise<void
     graceMs: num("ui.VoiceLive.graceMs", 700),
   }, {
     open: (on) => {
-      const o: StreamOptions = { url: cfg.url, token: cfg.token };
+      const o: StreamOptions = { url: cfg.url, token: cfg.token, ...(a.duplex ? { duplex: true } : {}) };
       if (a.language) o.language = a.language;
       return startStream(o, {
         onPartial: on.partial,

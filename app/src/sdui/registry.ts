@@ -180,6 +180,14 @@ export const CORE_COMPONENTS = [
    * WhatsApp, UPI or Maps only for the button, and a tap just to look opens the Plan. Builds without it hand off on neither.
    */
   "PushButton",
+  /**
+   * NOT A COMPONENT — "X0 is calling" (notifications/calls.ts; the server's bots.plan.call screen). It promises the call screen's
+   * pieces: speak.loud (on the speaker even with the silent switch on) and speak.onDone (run once when said, stopped or failed),
+   * with "$state" filled in speak.text (sdui/voice/speech.ts); voiceLive.duplex (one audio session that plays and records, held
+   * between turns: voice/voiceLive.ts); and Text format "elapsed" ("0:12" since a start time, ticking: components/Text.tsx). The
+   * same name goes with the push token (callsCore.ts callCaps), where it says this JavaScript takes calls.
+   */
+  "BotCall",
 ] as const;
 
 export const CORE_ACTIONS = [
