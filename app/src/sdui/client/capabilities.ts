@@ -11,6 +11,7 @@ import { binaryFeatures } from "../../device/binary";
 import { featureCaps } from "../../device/binaryCore";
 import { permCaps } from "../../device/permCaps";
 import { looksReport } from "../../botTiles/looks";
+import { deviceOff, safetyReport } from "../safety";
 
 /**
  * Which JS bundle is actually running.
@@ -71,6 +72,21 @@ export function buildCapabilities() {
     // The bots' catalog as this phone really has it (botTiles/looks.ts): its version and format, whether it
     // compiled, and any scene that went wrong or was slowed. No person data; a few hundred bytes at most.
     looks: looksReport(),
+    /**
+     * THE SAFETY FLOOR (SPEC 5.2, 5.3; sdui/safety.ts). `safe: 1` is the promise itself: this build boundaries every
+     * node, honours `sdui.safe` / `sdui.off` / `sdui.motion`, and guards against a crash loop. A build that says
+     * nothing here has none of it, so the server knows which players it can send a new construction to at all.
+     *
+     * The rest is what happened on THIS launch: whether anything threw (`bad: <type>:<screen>`), whether the device
+     * put itself in safe mode, and why. Node types and screen ids only — nothing about the person, well under anim
+     * §3.9's 512 bytes.
+     */
+    sdui: safetyReport(),
+    /**
+     * What the DEVICE switched off for itself, and only that (SPEC 2.11): the screens two crashed launches took
+     * down. It never means "not built yet" — the components list above is what says that.
+     */
+    off: deviceOff(),
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
     device: {

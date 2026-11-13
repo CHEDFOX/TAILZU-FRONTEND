@@ -1987,6 +1987,10 @@
     "push.foreground.showList": true,
     "quota.exceeded": false,
     "quota.screenId": "paywall",
+    "sdui.cleanAfterMs": 4000,
+    "sdui.motion": "on",
+    "sdui.off": [],
+    "sdui.safe": false,
     "share.ext.cardColor": "#FFFFFF",
     "share.ext.closeMs": 1600,
     "share.ext.dimAlpha": 0.2,
@@ -2076,6 +2080,41 @@
     "ui.Image.aspectRatio": 1.6,
     "ui.Image.contentFit": "cover",
     "ui.Image.radius": 10,
+    "ui.Input.borderWidth": 1,
+    "ui.Input.chipDraftWidth": 90,
+    "ui.Input.chipGap": 8,
+    "ui.Input.chipPaddingHorizontal": 12,
+    "ui.Input.chipPaddingVertical": 6,
+    "ui.Input.chipRadius": 999,
+    "ui.Input.codeBox": 46,
+    "ui.Input.codeFontSize": 20,
+    "ui.Input.codeGap": 8,
+    "ui.Input.dateCell": 40,
+    "ui.Input.minHeight": 44,
+    "ui.Input.minHeightMultiline": 80,
+    "ui.Input.paddingHorizontal": 12,
+    "ui.Input.paddingVertical": 10,
+    "ui.Input.radius": 13,
+    "ui.Input.ratingGap": 6,
+    "ui.Input.ratingSize": 28,
+    "ui.Input.segmentPad": 3,
+    "ui.Input.segmentPaddingVertical": 8,
+    "ui.Input.segmentRadius": 999,
+    "ui.Input.slideHeight": 56,
+    "ui.Input.slideInset": 8,
+    "ui.Input.slideSettleMs": 120,
+    "ui.Input.sliderKnob": 24,
+    "ui.Input.sliderLiveMs": 100,
+    "ui.Input.sliderTrack": 4,
+    "ui.Input.stepperFontSize": 18,
+    "ui.Input.stepperGap": 10,
+    "ui.Input.stepperKey": 38,
+    "ui.Input.stepperRadius": 999,
+    "ui.Input.stepperValueWidth": 34,
+    "ui.Input.timeHeight": 160,
+    "ui.List.endSlop": 80,
+    "ui.List.endThreshold": 0.4,
+    "ui.List.spinnerPad": 18,
     "ui.LiveView.meta": "#5C5C5C",
     "ui.LiveView.outline": "#D4D4D4",
     "ui.LiveView.text": "#0A0A0A",
@@ -2457,6 +2496,54 @@
     "desktop.router.writeStart": {
       "kind": "list",
       "at": "../TAILZU-DESKTOP/src/dictation/router.js:213"
+    },
+    "gesture.doubleTapMs": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:62"
+    },
+    "gesture.longPressMs": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:63"
+    },
+    "gesture.projectMs": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:67"
+    },
+    "gesture.rubberPx": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:70"
+    },
+    "gesture.slopPx": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:64"
+    },
+    "gesture.springDamp": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:69"
+    },
+    "gesture.springK": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:68"
+    },
+    "gesture.swipeDistance": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:65"
+    },
+    "gesture.swipeVelocity": {
+      "kind": "num",
+      "at": "app/src/sdui/gesture/GestureView.tsx:66"
+    },
+    "motion.sharedDamp": {
+      "kind": "num",
+      "at": "app/src/sdui/motion/Shared.tsx:153"
+    },
+    "motion.sharedK": {
+      "kind": "num",
+      "at": "app/src/sdui/motion/Shared.tsx:152"
+    },
+    "motion.sharedMs": {
+      "kind": "num",
+      "at": "app/src/sdui/motion/Shared.tsx:156"
     },
     "postLanguageScreenId": {
       "kind": "str",

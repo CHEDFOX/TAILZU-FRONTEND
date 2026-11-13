@@ -3,6 +3,7 @@ import { LAST_BOOT_NOTE } from "../../client";
 import type { BootstrapResponse, ScreenResponse } from "../../types";
 import { num } from "../../knobs";
 import { getLastBoot, setLastBoot } from "../../../storage";
+import { lastBootNote } from "../../safety";
 import type { NavItem, Phase, Ref } from "../types";
 
 /** Where a boot got to, written as it goes, so the next launch can report a launch that hung. */
@@ -24,7 +25,11 @@ export function useBootBreadcrumbs({
   useEffect(() => {
     void (async () => {
       // Both never throw: diagnostics must never break a boot.
-      LAST_BOOT_NOTE.value = (await getLastBoot()) ?? "none";
+      // The safety floor's own record is synchronous, so it can name the screen a launch died on — which is the one
+      // thing this asynchronous crumb could never catch (sdui/safety.ts).
+      const crumb = (await getLastBoot()) ?? "none";
+      const died = lastBootNote();
+      LAST_BOOT_NOTE.value = died ? `${crumb} ${died}` : crumb;
       await setLastBoot("started");
     })();
   }, []);

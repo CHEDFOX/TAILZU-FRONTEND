@@ -215,3 +215,30 @@ export function readKnobSnapshotSync(): KnobSnapshot | null {
     return null;
   }
 }
+
+/**
+ * THE CRASH-LOOP RECORD, WRITTEN AND READ SYNCHRONOUSLY.
+ *
+ * The boot breadcrumb above goes to AsyncStorage, which is a promise: a launch that dies while drawing a screen dies
+ * before the write lands, so the one crumb that would name the screen is the one that never arrives. MMKV answers on
+ * the spot, so the safety floor (sdui/safety.ts) writes the screen it is about to draw before it draws it, and the
+ * NEXT launch reads what was left behind.
+ *
+ * Optional in every direction, exactly like the knob snapshot: no native module, an unreadable store or a malformed
+ * row all read as "nothing kept", and the app behaves as it did before this existed.
+ */
+const KEY_BOOT_GUARD = "tulmi.sdui.guard";
+
+export function readBootGuardSync(): string | null {
+  try {
+    return syncStore()?.getString(KEY_BOOT_GUARD) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeBootGuardSync(raw: string): void {
+  try {
+    syncStore()?.set(KEY_BOOT_GUARD, raw);
+  } catch { /* a guard that cannot be kept simply never fires */ }
+}

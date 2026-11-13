@@ -59,6 +59,7 @@ import {
 import { drawScene, makeKit, type SkiaLike } from "./pullBotDraw";
 import { runAction, type Ctx } from "../actions";
 import { color, num, obj, str, txt } from "../knobs";
+import { gesturesOn } from "../safety";
 import { haptic } from "../components/haptic";
 import { playPull, warmPull } from "../../media/sounds";
 import type { PullBotSpec, ScreenResponse } from "../types";
@@ -88,11 +89,17 @@ function gestures(): GestureLib | null {
   return gestureLib;
 }
 
-/** The spec when this Screen should pull a bot: on a phone that can, with an edge turned on. */
+/**
+ * The spec when this Screen should pull a bot: on a phone that can, with an edge turned on, with gestures live.
+ *
+ * Safe mode is "taps only" (SPEC 5.3), and the pull is a pan over the whole list — the longest-lived gesture in the
+ * app. Saying no here is the whole gate: the Screen then draws its plain ScrollView, with no pan built at all.
+ */
 export function usePullBot(): PullBotSpec | null {
   const spec = useContext(PullBotContext);
   if (Platform.OS === "web" || !spec || typeof spec !== "object") return null;
   if (spec.top !== true && spec.bottom !== true) return null;
+  if (!gesturesOn()) return null;
   return gestures() ? spec : null;
 }
 

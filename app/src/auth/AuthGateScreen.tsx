@@ -483,7 +483,20 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
 
   const onGoogle = useGoogleSignIn({ googlePrompt, googleRequest, googleResponse, googleViaWeb, googleWeb, flashError, onAuthed });
 
-  const sduiCtx = useAuthSduiCtx(authFlags, authLabels);
+  /**
+   * THE SERVER'S TREE GIVES UP, AND THE APP'S OWN SCREEN TAKES OVER.
+   *
+   * One handler, two ways in: the boundary around the whole tree below, and — since every node now has a boundary of
+   * its own and catches first — the ctx's `onNodeError`, which a node that threw with no `fallback` calls. Either
+   * way the look is dropped and the native screen draws, because the way in is the one thing this screen owes.
+   */
+  const dropSduiTree = useCallback(() => {
+    setSduiTree(null);
+    // Blip's overlay would otherwise keep paper over the native screen this
+    // drops to, waiting for a stage that is not coming.
+    abandonOnboard();
+  }, []);
+  const sduiCtx = useAuthSduiCtx(authFlags, authLabels, dropSduiTree);
   const translateY = arrival.interpolate({ inputRange: [0, 1], outputRange: [num("auth.anim.arrivalRise", 12), 0] });
   const onCode = phase === "verify" || phase === "verifying";
   // The onboarding run is a stage: it keeps its own steps, glides between them
@@ -592,15 +605,7 @@ export default function AuthGateScreen({ onAuthed }: { onAuthed: () => void }) {
               {/* A tree that throws while drawing drops to the native screen
                   instead of the app-wide error card: a bad tree costs someone
                   the look, never the way in. */}
-              <ErrorBoundary
-                fallback={null}
-                onError={() => {
-                  setSduiTree(null);
-                  // Blip's overlay would otherwise keep paper over the native
-                  // screen this drops to, waiting for a stage that is not coming.
-                  abandonOnboard();
-                }}
-              >
+              <ErrorBoundary fallback={null} onError={dropSduiTree}>
                 <RenderNode node={sduiTree} ctx={sduiCtx} />
               </ErrorBoundary>
             </Animated.View>

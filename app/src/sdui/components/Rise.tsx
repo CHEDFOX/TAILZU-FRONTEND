@@ -26,6 +26,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated } from "react-native";
 import type { CompProps } from "./props";
 import * as K from "../knobs";
+import { motionMode } from "../safety";
 
 export type RiseCfg = {
   /** Wait this long before starting. The ONLY thing that orders an entrance. */
@@ -67,7 +68,8 @@ export function RiseView({
   /** Where in the travel it has fully faded in, 0..1. */
   const fadeAt = K.num("ui.Rise.fadeAt", 0.35);
   const [askedReduce, setAskedReduce] = useState(false);
-  const still = reduce ?? askedReduce;
+  // The phone's Reduce Motion, or the server's: `sdui.motion` and safe mode land it in place too (safety.ts).
+  const still = (reduce ?? askedReduce) || motionMode() !== "on";
 
   useEffect(() => {
     if (reduce !== undefined) return;

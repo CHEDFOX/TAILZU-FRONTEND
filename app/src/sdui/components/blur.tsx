@@ -36,3 +36,37 @@ export function Blur(): React.ReactElement {
     </View>
   );
 }
+
+/**
+ * Backdrop blur for any box (spec 2.7, `style.blur`): fills its parent, blurs what is behind it. `intensity` 0..100 and
+ * `tint` come already clamped from paintCore. No veil, unlike <Blur>. A binary or runtime without the module draws nothing
+ * (the box keeps its own background), and a throw never escapes.
+ */
+export function BackdropBlur({ intensity, tint }: { intensity: number; tint: string }): React.ReactElement | null {
+  const ref = useRef<View>(null);
+  useEffect(() => {
+    if (!WEB) return;
+    const el = ref.current as unknown as { style?: Record<string, string> } | null;
+    if (el?.style) {
+      el.style.backdropFilter = `blur(${Math.round(intensity / 3)}px)`;
+      el.style.webkitBackdropFilter = `blur(${Math.round(intensity / 3)}px)`;
+    }
+  }, [intensity]);
+  const fill = { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 } as const;
+  if (WEB) return <View ref={ref} pointerEvents="none" style={fill} />;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { BlurView } = require("expo-blur") as typeof import("expo-blur");
+    return (
+      <BlurView
+        pointerEvents="none"
+        intensity={intensity}
+        tint={tint as any}
+        experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
+        style={fill}
+      />
+    );
+  } catch {
+    return null;
+  }
+}

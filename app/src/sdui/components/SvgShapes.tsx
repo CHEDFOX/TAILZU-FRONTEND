@@ -13,12 +13,13 @@ import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing } from "react-native";
 import Svg, { Circle, G, Path } from "react-native-svg";
 import type { SvgShape } from "../types";
+import { motionMode } from "../safety";
 
 const AnimatedG = Animated.createAnimatedComponent(G);
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-/** Reduce Motion, followed live. */
+/** Reduce Motion, followed live — the phone's own setting, or the server's `sdui.motion` / safe mode (safety.ts). */
 function useReduceMotion(): boolean {
   const [reduce, setReduce] = useState(false);
   useEffect(() => {
@@ -27,7 +28,7 @@ function useReduceMotion(): boolean {
     const sub = AccessibilityInfo.addEventListener("reduceMotionChanged", (v: boolean) => setReduce(!!v));
     return () => { live = false; sub?.remove?.(); };
   }, []);
-  return reduce;
+  return reduce || motionMode() !== "on";
 }
 
 function centreOf(sh: SvgShape, viewBox: string): [number, number] {

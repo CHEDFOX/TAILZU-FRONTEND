@@ -12,6 +12,7 @@ import { resolveStyle } from "./theme/style";
 import { useTheme } from "./theme/ThemeContext";
 import { Ctx, evalCondition, runAction } from "./actions";
 import { num, str } from "./knobs";
+import { motionMode, nodeOff, noteBadNode } from "./safety";
 
 // Conditions a style value can carry (a subset of the SDUI Condition keys).
 const STYLE_COND_KEYS = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains",
@@ -45,7 +46,64 @@ function resolveStyleConditionals(
   return out ?? style;
 }
 
+/**
+ * ONE BOUNDARY PER NODE — the safety floor's first piece (safety.ts, SPEC 5.2).
+ *
+ * Until this, the nearest boundary to a server-described node was the one at the root of the app: a single node that
+ * threw — a bad prop, a value the component did not expect, anything the server got wrong about one row of one card
+ * — unwound past everything else and left the person looking at the apology screen with no way on. One node, the
+ * whole app.
+ *
+ * Now a throw stops at the node. It draws that node's own `fallback` if the server gave it one, nothing if not, and
+ * its siblings and the rest of the screen draw as though nothing happened. The type and the screen go back on the
+ * next handshake (`bad: <type>:<screen>`), so the server learns what the person never had to see.
+ *
+ * It does NOT try again by itself. A node that throws throws on every render, so retrying in place is a loop; the
+ * fallback stands until the screen is left and come back to.
+ *
+ * ONE SCREEN NEEDS MORE THAN NOTHING. Catching here means an outer boundary never fires, and the sign-in gate had
+ * one: a tree that threw used to drop to the app's own sign-in screen, because a bad tree should cost someone the
+ * look and never the way in. A node that throws with no `fallback` therefore also tells the ctx (`onNodeError`), and
+ * the gate is the only place that passes one. Everywhere else it is absent and nothing changes.
+ */
+class NodeBoundary extends React.Component<
+  { node: Node; ctx: Ctx; children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    // Reporting must never become the next error.
+    const type = this.props.node?.type ?? "?";
+    try { noteBadNode(type, error); } catch { /* ignore */ }
+    if (!this.props.node?.fallback) {
+      try { this.props.ctx?.onNodeError?.(type, error); } catch { /* ignore */ }
+    }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    const fb = this.props.node?.fallback;
+    return fb ? <RenderNode node={fb} ctx={this.props.ctx} /> : null;
+  }
+}
+
+/** A node and everything under it, inside its own boundary. */
 export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
+  // The boundary wraps the BODY rather than sitting inside it, so a throw in the body's own hooks — an onAppear
+  // action, a style the theme cannot resolve — is caught too, not just one in the component it draws.
+  return (
+    <NodeBoundary node={node} ctx={ctx}>
+      <RenderNodeBody node={node} ctx={ctx} />
+    </NodeBoundary>
+  );
+}
+
+function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
   const theme = useTheme();
   useStoreVersion(ctx.store); // re-render when bound state changes
 
@@ -110,7 +168,10 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
 
   if (!visible) return null;
 
-  const Comp = REGISTRY[node.type];
+  // A type this build does not draw falls back — and so does one the server switched off (`sdui.off`) or one safe
+  // mode does not allow. "Off" and "never built" look the same from here on purpose: the fallback is the server's
+  // own answer for a player that cannot draw something, so a kill switch gets the same answer for free.
+  const Comp = nodeOff(node.type) ? undefined : REGISTRY[node.type];
   if (!Comp) {
     return node.fallback ? <RenderNode node={node.fallback} ctx={ctx} /> : null;
   }
@@ -163,17 +224,26 @@ export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
 }
 
 function Motion({ spec, children }: { spec: NonNullable<Node["motion"]>; children: React.ReactNode }) {
-  const v = useRef(new Animated.Value(0)).current;
+  // `sdui.motion`, and safe mode, which forces it off. Both mean here what Reduce Motion already means everywhere
+  // else in this app (Rise.tsx): the thing is simply there, at the end of its entrance, from the first frame.
+  //
+  // FROM THE FIRST FRAME means the value starts at 1, not at 0 with an effect to follow. Starting at 0 is starting
+  // invisible, and the effect only runs after the first paint — so every node with `motion.appear` flashed blank for
+  // a frame in the one mode whose whole point is not to move. The effect still sets it, for a mode that changes
+  // while the screen is up.
+  const mode = motionMode();
+  const v = useRef(new Animated.Value(mode === "on" ? 0 : 1)).current;
   useEffect(() => {
+    if (mode !== "on") { v.setValue(1); return; }
     Animated.timing(v, {
       toValue: 1,
       duration: spec.durationMs ?? num("motion.appear.durationMs", 260),
       delay: spec.delayMs ?? num("motion.appear.delayMs", 0),
       useNativeDriver: true,
     }).start();
-  }, [v, spec]);
+  }, [v, spec, mode]);
 
-  const travel = num("motion.appear.travel", 10);
+  const travel = mode === "on" ? num("motion.appear.travel", 10) : 0;
   const transform =
     spec.appear === "fadeInUp" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [travel, 0] }) }] :
     spec.appear === "fadeInDown" ? [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [-travel, 0] }) }] :

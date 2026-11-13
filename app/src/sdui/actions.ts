@@ -79,6 +79,15 @@ export interface Ctx {
   nav: NavApi;
   toast: (message: string, tone?: string) => void;
   event?: any;
+  /**
+   * A NODE THREW AND HAD NOTHING OF ITS OWN TO DRAW INSTEAD (Renderer.tsx, NodeBoundary).
+   *
+   * Nothing is the right answer almost everywhere: one row of one card goes missing and the screen carries on. The
+   * sign-in screen is the exception — a tree with no way in is worse than no tree — so the gate passes a handler
+   * that drops the whole thing and draws the app's own screen. Optional, and not called when the node has a
+   * `fallback`: the server already said what to put there.
+   */
+  onNodeError?: (type: string, err: unknown) => void;
 }
 
 /**
