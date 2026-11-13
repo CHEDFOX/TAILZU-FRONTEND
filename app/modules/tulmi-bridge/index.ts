@@ -94,6 +94,7 @@ interface TulmiBridgeNative {
     options?: FlowArmOptions,
   ): void;
   endFlowSession?(): void;
+  isFlowActive?(): boolean;
   setWidgetMonth?(json: string): void;
   setWidgetTheme?(json: string): void;
   setFlowActivityCopy?(json: string): void;
@@ -256,6 +257,21 @@ export function endFlowSession(): void {
     native?.endFlowSession?.();
   } catch {
     /* best-effort */
+  }
+}
+
+/**
+ * Is a Flow Session holding the mic right now? Asked before anything else in the app takes the microphone and the audio
+ * session — the live call does (src/sdui/voice/callRealtime.ts) — so an unarmed session is not ended for nothing: ending one
+ * deactivates the audio session and closes the keyboard's Live Activity.
+ *
+ * iOS only (there is no Flow Session on Android), and false on a build whose bridge does not have it.
+ */
+export function isFlowActive(): boolean {
+  try {
+    return native?.isFlowActive?.() === true;
+  } catch {
+    return false;
   }
 }
 

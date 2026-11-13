@@ -63,6 +63,17 @@ const metaPlugin: [string, Record<string, unknown>][] =
       ]]
     : [];
 
+// THE TWO STRINGS THE LIVE CALL'S PLUGIN ALSO WRITES. @config-plugins/react-native-webrtc
+// sets NSMicrophoneUsageDescription and NSCameraUsageDescription itself, and what it is
+// given wins over what ios.infoPlist says — so both are named here, once, and handed to
+// the plugin below as well as written into infoPlist. Change one, change nothing else: a
+// camera string that drifts is a new App Review question about a camera this app only ever
+// opens when the person picks a photo.
+const MIC_USAGE =
+  "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Plan Ease calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
+const CAMERA_USAGE =
+  "X0 Bot uses the camera when you choose to take a photo or video to give to a bot or send in a chat.";
+
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
   // iPhone Storage). `slug` and bundleIdentifier stay as "tulmi" because
@@ -222,12 +233,20 @@ const config: ExpoConfig = {
       // (FlowSessionManager, kb.flow.idleTimeoutMs) and the Live Activity has
       // an End button (targets/widgets/FlowActivity.swift). Voice notes and
       // videos the bots take as input use it too.
-      NSMicrophoneUsageDescription:
-        "X0 Bot uses the microphone to turn your speech into text. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.",
+      //
+      // AND THE CALL. Plan Ease calls about anything the call judge thinks
+      // matters, and always about a leave-by or a bill due today; in this build
+      // answering it is a conversation: the microphone is open
+      // while the call is on, in the app, in the foreground, and only after the
+      // person agreed to AI processing (src/sdui/voice/callRealtime.ts). The
+      // string says so, because a purpose string that does not name the feature
+      // is a 5.1.1 rejection. Keep this text and the plugin entry below in step:
+      // the react-native-webrtc plugin is handed this very string.
+      NSMicrophoneUsageDescription: MIC_USAGE,
       // A photo or video taken to give a bot or send in a chat (media.ts
-      // uploadFile pick "camera", pickImage source "camera").
-      NSCameraUsageDescription:
-        "X0 Bot uses the camera when you choose to take a photo or video to give to a bot or send in a chat.",
+      // uploadFile pick "camera", pickImage source "camera"). UNCHANGED by the
+      // live call: it is handed to that plugin so the plugin cannot replace it.
+      NSCameraUsageDescription: CAMERA_USAGE,
       // A photo, video or file picked to give a bot or share in a chat
       // (media.ts uploadFile, pickImage; the photoLibrary permission action).
       NSPhotoLibraryUsageDescription:
@@ -408,11 +427,17 @@ const config: ExpoConfig = {
     // (Android 14's partial photo access, for reading the library, which
     // nothing does): blocked too. Saving a picture to the gallery needs no
     // permission on Android 10+, and the system photo picker none at all.
+    // SYSTEM_ALERT_WINDOW: react-native-webrtc's plugin asks for it (its screen-sharing
+    // path draws over other apps). The live call is audio only and nothing in this app
+    // draws over anything, and "display over other apps" is a permission Play looks
+    // hard at. Blocked, like the media ones. The plugin's other new permissions are
+    // WAKE_LOCK and BLUETOOTH, both normal, neither asked of the person.
     blockedPermissions: [
       "android.permission.READ_MEDIA_IMAGES",
       "android.permission.READ_MEDIA_VIDEO",
       "android.permission.READ_MEDIA_AUDIO",
       "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+      "android.permission.SYSTEM_ALERT_WINDOW",
     ],
     // Android masks the icon into whatever shape the launcher wants (circle,
     // squircle, teardrop) and shows only the middle 72/108 of the canvas.
@@ -511,6 +536,23 @@ const config: ExpoConfig = {
     // step; the runtime SDK still reports errors normally. Once you have a
     // Sentry project, flip this back OFF and add the three env vars.
     ["@sentry/react-native/expo", { disableAutoUpload: true }],
+    // PLAN EASE'S LIVE CALL (src/sdui/voice/callRealtime.ts). The client is native, so
+    // this is a store build and nothing else: the call is offered only to a binary whose
+    // bridge says "realtimeCall" (device/binaryCore.ts), and the same JavaScript on an
+    // older binary keeps today's turn-by-turn call.
+    //
+    // Both permission strings are passed in because the plugin writes them itself and
+    // what it is given wins; they are the same two constants infoPlist uses above, so
+    // the camera string stays exactly as it was.
+    [
+      "@config-plugins/react-native-webrtc",
+      { cameraPermission: CAMERA_USAGE, microphonePermission: MIC_USAGE },
+    ],
+    // ...and the two things only the generated native projects can carry: the library's
+    // screen-sharing foreground service taken out of the merged Android manifest, and one
+    // named libwebrtc on both phones instead of the floating versions it asks for.
+    "./plugins/withNoWebrtcFgs",
+    "./plugins/withWebrtcPin",
     "./modules/tulmi-keyboard/plugin/withTulmiKeyboard",
     // Tailzu in Android's Share menu (ACTION_SEND / SEND_MULTIPLE on MainActivity).
     // iOS's share extension is targets/share, picked up by apple-targets below.

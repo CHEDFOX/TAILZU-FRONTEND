@@ -30,6 +30,9 @@ import {
   MAX_BYTES, cleanName, every, fillPath, isApiPath, joinWords, levelOf, nameFor, playStateOf, progressOf, refusalWords, soundSource,
   type PickKind,
 } from "./mediaCore";
+// A live call (sdui/voice/callRealtime.ts) holds the microphone and the speaker together. Only its rules file is imported here,
+// never the call itself: the live client is native and may not be loaded on an older binary.
+import { callOn } from "../sdui/voice/callRealtimeCore";
 
 /** What a media action needs from the screen that ran it (actions.ts builds one from its Ctx). */
 export interface MediaIO {
@@ -234,6 +237,9 @@ export async function playAudio(a: PlaySpec, io: MediaIO): Promise<void> {
   const url = fillPath(String(a.url ?? ""), (path) => io.get(path));
   const src = soundSource(url);
   const failed = txt("media.playFailed", "Couldn't play that. Try again.");
+  // NOT WHILE A LIVE CALL IS ON. Playing sets the audio session, and setting it under the call's own session is what takes a
+  // call's voice away mid-sentence. The screen's onError runs instead, so nothing waits on a sound that will not come.
+  if (callOn()) { await io.run(a.onError, txt("media.onCall", "Not while you're on a call.")); return; }
   if (!src) { await io.run(a.onError, failed); return; }
   // Shown at once, so the press is answered while the sound is fetched.
   if (a.statePath) io.set(a.statePath, playStateOf(id, 0, 0));
@@ -283,7 +289,8 @@ interface Listening {
 let heard: Listening | null = null;
 
 // The bots' little sounds (sounds.ts) never cut into a sound of ours or the microphone, nor touch the session meanwhile.
-yieldSoundsTo(() => !!playing || !!pending || !!heard);
+// A live call counts too: a sound sets the session (sounds.ts SFX_MODE) and would set it under the call's own.
+yieldSoundsTo(() => !!playing || !!pending || !!heard || callOn());
 
 /** The app's recording format (the one VoiceButton sends), with the level metered for the bars. */
 function recordingOptions(): Record<string, unknown> {
@@ -314,6 +321,8 @@ export async function recordVoice(a: RecordSpec, io: MediaIO): Promise<void> {
   }
   if (heard) cancelRecording();
   const off = txt("media.micOff", "X0 Bot needs the microphone to hear you.");
+  // The live call has the microphone, for the same reason playAudio stands aside (and it sets the session here too).
+  if (callOn()) { await io.run(a.onError, txt("media.onCall", "Not while you're on a call.")); return; }
   try {
     const perm = await AudioModule.requestRecordingPermissionsAsync();
     if (!perm.granted) {

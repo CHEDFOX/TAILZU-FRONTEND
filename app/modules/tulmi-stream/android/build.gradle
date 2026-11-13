@@ -16,6 +16,9 @@ android {
   namespace "expo.modules.tulmistream"
   defaultConfig {
     minSdkVersion 24
+    // What R8 may not rename away: the live client's options class, which the
+    // call's echo canceller reaches by name (consumer-rules.pro).
+    consumerProguardFiles 'consumer-rules.pro'
   }
 }
 
@@ -23,4 +26,10 @@ dependencies {
   // OkHttp ships with React Native; pin it so this library module compiles
   // standalone. Gradle resolves to a single version on the app classpath.
   implementation "com.squareup.okhttp3:okhttp:4.12.0"
+
+  // NO DEPENDENCY ON THE LIVE CALL'S CLIENT, on purpose. The software echo
+  // canceller (CallAec.kt) reaches react-native-webrtc's options
+  // object by name, through reflection, so this module — which is the keyboard
+  // and dictation module too — keeps compiling whether or not that client is in
+  // the build, and a build without it simply keeps the phone's own canceller.
 }

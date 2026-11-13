@@ -13,6 +13,8 @@
 import * as Speech from "expo-speech";
 import { setAudioModeAsync } from "expo-audio";
 import type { ActionRef } from "../types";
+// A live call (callRealtime.ts) holds the microphone and the speaker together; only its rules file is imported, never the call.
+import { callOn } from "./callRealtimeCore";
 
 export interface SpeakLine {
   text: string;
@@ -44,6 +46,9 @@ const watchdogMs = (text: string) => Math.max(4000, 90 * text.length + 3000);
 
 export async function speakLine(a: SpeakLine, io: SpeakIO): Promise<void> {
   const text = typeof a.text === "string" ? a.text : String(a.text ?? "");
+  // NOT WHILE A LIVE CALL IS ON. The bot is already talking, live, and this voice would set the audio session under the call's
+  // own. `onDone` still runs, so a screen waiting to listen next is never stranded.
+  if (callOn()) { await io.run(a.onDone); return; }
   // Today's speak, untouched: no audio session change, nothing run after.
   if (!a.loud && !a.onDone) {
     try { Speech.speak(text, { voice: a.voice }); } catch { /* no-op */ }

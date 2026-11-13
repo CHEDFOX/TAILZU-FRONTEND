@@ -1,5 +1,6 @@
 /**
- * THE VOICE OF THE SESSION ON SHOW, OUTSIDE THE SCREEN'S STATE (voiceLive.ts writes it; BotStage and LiveWords read it).
+ * THE VOICE OF THE SESSION ON SHOW, OUTSIDE THE SCREEN'S STATE (voiceLive.ts and callRealtime.ts write it; BotStage and
+ * LiveWords read it).
  *
  * The level changes a dozen times a second and the words with every partial. On the phone a Store write re-renders every
  * node of the screen, so neither goes into state: BotStage reads the level every frame (his bubbles pulse with it, his
@@ -38,7 +39,11 @@ export function voiceWords(owner: object): string {
   return buses.get(owner)?.words ?? "";
 }
 
-/** The voice level, 0..1 (made up from the words: voiceLiveCore.ts). */
+/**
+ * The voice level, 0..1. Turn by turn it is made up from the words (voiceLiveCore.ts), because the dictation stream sends none.
+ * On a live call it is the real thing: the connection's own audioLevel, the bot's while he speaks and the person's while she
+ * is heard (callRealtime.ts). Either way the stage reads it the same way.
+ */
 export function setVoiceLevel(owner: object, v: number): void {
   busOf(owner).level = v;
 }

@@ -30,6 +30,22 @@ test("Time Sensitive is iOS's alone: an Android binary that said it would still 
   assert.deepStrictEqual(pushCaps(f), []);
 });
 
+test("a store build with the live call: VoiceRealtime on either platform, and nothing extra on the push token", () => {
+  for (const platform of ["ios", "android"]) {
+    const f = cleanFeatures(["realtimeCall", "glanceSteps"], platform);
+    assert.deepStrictEqual(f, ["glanceSteps", "realtimeCall"]);
+    assert.ok(featureCaps(f).includes("VoiceRealtime"));
+    // The ring is an ordinary notification either way: a live call changes nothing about how the push is sent.
+    assert.deepStrictEqual(pushCaps(f), []);
+  }
+});
+
+test("an older binary says no realtimeCall, so an update written for the live call promises nothing", () => {
+  const f = cleanFeatures(["timeSensitive", "glanceSteps"], "ios");
+  assert.ok(!f.includes("realtimeCall"));
+  assert.ok(!featureCaps(f).includes("VoiceRealtime"));
+});
+
 test("names this JavaScript does not know, and non-strings, are dropped (a newer binary's feature waits for its update)", () => {
   assert.deepStrictEqual(cleanFeatures(["liveActivityLeave", 7, null, "glanceSteps", "toString", "__proto__"], "ios"), ["glanceSteps"]);
 });

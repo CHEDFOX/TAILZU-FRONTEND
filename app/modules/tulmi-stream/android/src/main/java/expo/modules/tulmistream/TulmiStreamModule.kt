@@ -1,5 +1,6 @@
 package expo.modules.tulmistream
 
+import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -26,11 +27,45 @@ import kotlin.concurrent.thread
  */
 class TulmiStreamModule : Module() {
   private var streamer: Streamer? = null
+  private var route: CallRoute? = null
 
   override fun definition() = ModuleDefinition {
     Name("TulmiStream")
 
-    Events("onReady", "onPartial", "onFinal", "onError", "onClosed")
+    Events("onReady", "onPartial", "onFinal", "onError", "onClosed", "onInterrupted")
+
+    // THE PHONE'S AUDIO FOR PLAN EASE'S LIVE CALL (src/sdui/voice/callRealtime.ts).
+    //
+    //   prepare  which echo canceller the call wants (CallAec). React builds the
+    //            live client's audio as the app starts, before any JS runs, so the
+    //            ask is remembered and applied at the next start (CallAec, and
+    //            TulmiStreamPackage's application listener).
+    //   begin    communication mode, audio focus, and the loudspeaker unless a
+    //            headset is the route; focus lost is reported as an interruption.
+    //   end      all of it given back.
+    //
+    // Every op answers which canceller this process really HAS ("soft" or "hw"),
+    // never what was asked for: a call that wanted the software one and did not
+    // get it stays a turn call rather than let the bot hear itself.
+    Function("callAudio") { op: String, options: Map<String, Any?> ->
+      val ctx = appContext.reactContext
+      when (op) {
+        "prepare" -> {
+          val want = if (options["aec"] == "soft") "soft" else "hw"
+          if (ctx != null) CallAec.remember(ctx, want)
+          android.util.Log.i("TulmiStream", "call echo canceller: asked for $want, using ${CallAec.applied()}")
+        }
+        "begin" -> {
+          route?.end()
+          route = ctx?.let { c -> CallRoute(c) { sendEvent("onInterrupted", emptyMap()) }.also { it.begin() } }
+        }
+        "end" -> {
+          route?.end()
+          route = null
+        }
+      }
+      CallAec.has()
+    }
 
     Function("start") { options: Map<String, Any?> ->
       val url = options["url"] as? String ?: ""
@@ -56,7 +91,121 @@ class TulmiStreamModule : Module() {
     OnDestroy {
       streamer?.cancel()
       streamer = null
+      route?.end()
+      route = null
     }
+  }
+}
+
+/**
+ * THE AUDIO ROUTE FOR A LIVE CALL, and the one notice the call needs.
+ *
+ * The live client (react-native-webrtc) opens the microphone itself. What this adds is what the client leaves to the app:
+ *
+ *   * COMMUNICATION MODE AND FOCUS, so the phone treats the call as a call: the earpiece/speaker path, the in-call volume
+ *     keys, and other apps ducked while it runs.
+ *   * THE LOUDSPEAKER, unless a headset is the route — someone wearing one chose it. The item card has to stay in view, as it
+ *     does on today's call. From API 31 the system picks the call's device and knows Bluetooth and LE Audio headsets; below
+ *     it, only a wired one turns the loudspeaker off, because a call reaches Bluetooth there only over SCO, which we do not
+ *     start: counting one would leave the call in the earpiece with the phone on the table.
+ *   * FOCUS LOST (a cellular call, an alarm): the call stops its live part and waits for a tap, the same as the app going to
+ *     the background (src/sdui/voice/callRealtime.ts).
+ *
+ * The echo canceller is not here: it has to be chosen as the app starts, before React builds the live client's audio, so it
+ * lives in CallAec.kt and TulmiStreamPackage.kt.
+ */
+private class CallRoute(
+  private val ctx: Context,
+  private val interrupted: () -> Unit,
+) {
+  private val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+  private var focus: Any? = null
+  private var listener: android.media.AudioManager.OnAudioFocusChangeListener? = null
+  private var wasMode = android.media.AudioManager.MODE_NORMAL
+
+  @Suppress("DEPRECATION") // the pre-26 focus request and the pre-31 speakerphone switch; minSdk is 24
+  fun begin() {
+    wasMode = audio.mode
+    val l = android.media.AudioManager.OnAudioFocusChangeListener { change ->
+      if (change == android.media.AudioManager.AUDIOFOCUS_LOSS ||
+        change == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+      ) {
+        interrupted()
+      }
+    }
+    listener = l
+    try {
+      if (android.os.Build.VERSION.SDK_INT >= 26) {
+        val attrs = android.media.AudioAttributes.Builder()
+          .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+          .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+          .build()
+        val request = android.media.AudioFocusRequest
+          .Builder(android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+          .setAudioAttributes(attrs)
+          .setOnAudioFocusChangeListener(l)
+          .build()
+        focus = request
+        audio.requestAudioFocus(request)
+      } else {
+        audio.requestAudioFocus(l, android.media.AudioManager.STREAM_VOICE_CALL, android.media.AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+      }
+      audio.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+      toSpeaker()
+    } catch (e: Exception) {
+      android.util.Log.w("TulmiStream", "call audio begin: ${e.message}")
+    }
+  }
+
+  @Suppress("DEPRECATION") // the pre-26 focus request and the pre-31 speakerphone switch; minSdk is 24
+  fun end() {
+    try {
+      if (android.os.Build.VERSION.SDK_INT >= 31) {
+        audio.clearCommunicationDevice()
+      } else {
+        audio.isSpeakerphoneOn = false
+      }
+      audio.mode = wasMode
+      val f = focus
+      if (android.os.Build.VERSION.SDK_INT >= 26 && f is android.media.AudioFocusRequest) {
+        audio.abandonAudioFocusRequest(f)
+      } else {
+        listener?.let { audio.abandonAudioFocus(it) }
+      }
+    } catch (e: Exception) {
+      android.util.Log.w("TulmiStream", "call audio end: ${e.message}")
+    }
+    focus = null
+    listener = null
+  }
+
+  /** A headset if one is there, the built-in speaker otherwise. */
+  @Suppress("DEPRECATION") // the pre-31 speakerphone switch; minSdk is 24
+  private fun toSpeaker() {
+    // Plugged in: the sound goes there by itself, so the loudspeaker stays off.
+    val wired = setOf(
+      android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+      android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+      android.media.AudioDeviceInfo.TYPE_USB_HEADSET,
+    )
+    if (android.os.Build.VERSION.SDK_INT >= 31) {
+      // From 31 the system routes a call for us, and it knows about Bluetooth and LE Audio headsets too.
+      val headsets = wired + setOf(
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+      )
+      val devices = audio.availableCommunicationDevices
+      val pick = devices.firstOrNull { headsets.contains(it.type) }
+        ?: devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+      if (pick != null) audio.setCommunicationDevice(pick)
+      return
+    }
+    // Below 31 a call reaches a Bluetooth headset only over SCO, and we do not start SCO: counting one as a headset would
+    // leave the call in the earpiece with the phone on the table. A wired one is the only one that turns the speaker off.
+    val outs = audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+    val onWired = outs.any { wired.contains(it.type) }
+    audio.isSpeakerphoneOn = !onWired
   }
 }
 

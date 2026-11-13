@@ -673,6 +673,13 @@ export const PUSH_BUTTON_CAPABILITY = "PushButton";
 export const BOT_CALL_CAPABILITY = "BotCall";
 // Text props, format "elapsed" (BOT_CALL_CAPABILITY; components/Text.tsx, elapsedCore.ts): content is a start time (epoch ms, or
 // ISO); shows "m:ss" (or "h:mm:ss" past an hour) since then, ticking every second; never negative.
+/**
+ * NOT A COMPONENT (the phone): the actions voiceCall and voiceCallSet — Plan Ease's call as a live conversation instead of turn by
+ * turn (sdui/voice/callRealtime.ts). SAID ONLY BY THE BINARY, never by this list: the live client is native code, so the name comes
+ * from the bridge's `binaryFeatures` ("realtimeCall" → device/binaryCore.ts), and every older binary running the same JavaScript
+ * says nothing and is sent today's turn call.
+ */
+export const VOICE_REALTIME_CAPABILITY = "VoiceRealtime";
 
 export interface PersonBotProps {
   /** Who he is (the person's id): what staggers his idling, so two of them never blink together. */
@@ -842,6 +849,22 @@ export type ActionSpec =
       duplex?: boolean }
   /** Stop the voice session on this screen; the words of the turn not yet sent are dropped. */
   | { kind: "voiceStop" }
+  // a live voice call (VOICE_REALTIME_CAPABILITY; voice/callRealtime.ts, its rules in callRealtimeCore.ts)
+  /** VOICE_REALTIME_CAPABILITY. A live voice call: POST `path` {sdp, resume} -> {sdp, maxSec}; then POST `${path}/ready`; leaving
+   *  the app or an audio interruption is POST `${path}/stop`. Writes the phase into `phasePath` (connecting | speaking |
+   *  listening | thinking | idle | ended), the bot's words as they are spoken into `saidPath`, the person's last words into
+   *  `heardPath`, and {spoke} into `statePath`. After a tool turn it re-reads `viewPath` and sets each `actedState[action]` key to
+   *  true for every action in the view's `acted`. Ends on voiceCallSet end, leaving the screen (another screen id or params; a
+   *  refresh of the same screen keeps it), the app going to the background or an audio interruption (then onIdle), the reply's
+   *  maxSec + 10 s, or the server hanging up (re-reads viewPath: ended -> onEnded, answered -> onFallback). onBlocked: no
+   *  microphone permission. Any throw while loading the native module or opening the mic -> onFallback. The level never goes into
+   *  state: the stage reads it. */
+  | { kind: "voiceCall"; path: string; viewPath: string; resume?: boolean;
+      statePath: string; phasePath: string; saidPath: string; heardPath: string; actedState?: Record<string, string>;
+      onEnded?: ActionRef; onIdle?: ActionRef; onFallback?: ActionRef; onBlocked?: ActionRef }
+  /** VOICE_REALTIME_CAPABILITY. warm: get the mic and the offer ready while the call is answered (only if mic permission is
+   *  already granted). end: the live call on this screen ends now. */
+  | { kind: "voiceCallSet"; op: "warm" | "end" }
   // the outbox (offline.tsx; backend shared/types/sdui.ts section 3e)
   | { kind: "outbox"; op: "add" | "remove" | "retry" | "clear"; path?: string; body?: Record<string, unknown>; label?: string; sub?: string; id?: string }
   /** A setting kept on this device (sounds.ts): "sounds" on or off; `value` may be "$state.x". BOT_SOUNDS_CAPABILITY. */

@@ -69,7 +69,9 @@ src/
 │  │                      BotCrowd (a box of tiny bots), PersonBot (a person as their own tiny bot, idling; personBotCore.ts
 │  │                      his box, his idle and the one loop every PersonBot shares)
 │  ├─ voice/              live words turn by turn (voiceLive / voiceStop: voiceLive.ts on tulmi-stream, voiceLiveCore.ts the loop),
-│  │                      and the voice bus (voiceBus.ts: the words and the level, kept out of the screen's state)
+│  │                      Plan Ease's call as a live conversation (voiceCall / voiceCallSet: callRealtime.ts on one WebRTC
+│  │                      connection to the voice service, callRealtimeCore.ts its rules), and the voice bus (voiceBus.ts:
+│  │                      the words and the level, kept out of the screen's state)
 │  ├─ live/               live updates over the socket, and an answer's words streamed into state (askStream)
 │  └─ offline/            the connection, the Offline page switch, the outbox, the can't-reach-the-server card
 ├─ auth/                  sign-in
@@ -88,7 +90,7 @@ src/
 ├─ share/                 share-in: files from other apps to the backend, then the share screen
 ├─ deeplinks/             tulmi:// and universal-link parsing
 ├─ device/                device signals (microphone, keyboard enabled / full access); what the binary can do that an
-│                         update cannot add (binaryCore.ts: Time Sensitive pushes, the widget's steps)
+│                         update cannot add (binaryCore.ts: Time Sensitive pushes, the widget's steps, the live call)
 └─ telemetry/             Sentry, PostHog analytics, Meta ads
 ```
 
@@ -109,6 +111,8 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | A person as their own tiny bot (section 3j: no initials anywhere in Spaces), in the "@" list too | `sdui/bots/PersonBot.tsx` (the node, PersonBotView for a list drawn from data), `sdui/bots/personBotCore.ts` (his box, his idle recipe and gestures, the one loop; tested on the real engine) |
 | The messages' face (Bricolage Grotesque, capability FontBricolage) | no file of its own: the bootstrap's `fonts` names "Tailzu Bricolage", "… Medium", "… SemiBold" for a build that declares it, and `theme/remoteFonts.ts` registers them as it does Geist (the files and their licence are the server's, TAILZU-BACKEND tulmi/fonts) |
 | Talking to a bot (voiceLive, voiceStop) | `sdui/voice/voiceLive.ts` (the microphone, the screen's actions), `voiceLiveCore.ts` (turns, pauses, the made-up level), `voiceBus.ts` |
+| Plan Ease's call as a live conversation (`voiceCall`, `voiceCallSet`; capability `VoiceRealtime`, a store build only): one WebRTC connection from the phone straight to the voice service, our server doing the handshake with its own key and holding the session beside it, the data channel read only | `sdui/voice/callRealtime.ts` (the microphone, the connection, the screen's actions; the one guarded `require` of `react-native-webrtc`), `callRealtimeCore.ts` (phases, the words kept, the write throttle, the timers, the echo-canceller list, which screen holds the call) + `.test.ts`, `callRealtime.imports.test.ts` (no file imports the client), `callRealtime.turns.test.ts` (one microphone at a time: End
+mid-open, two taps, the warm-up still opening, the app going behind something while it connects, a brief ICE "disconnected"); the phone's call audio in `modules/tulmi-stream` (`callAudio`: speaker, focus, interruptions; the software echo canceller in `CallAec.kt` + `TulmiStreamPackage.kt`, applied at the start of the app, `android/consumer-rules.pro`); the binary's own promise in `src/device/binaryCore.ts` (`realtimeCall`); the call ended with the screen in `sdui/shell/ScreenHost.tsx` and the Flow question in `modules/tulmi-bridge/index.ts` (`isFlowActive`); the native config in `app.config.ts`, `plugins/withNoWebrtcFgs.js` and `plugins/withWebrtcPin.js`; the protocol in `docs/STREAMING.md` |
 | A dotted border with round corners; the screen behind an overlay, blurred | `sdui/components/dotted.tsx` (Stack draws it), `sdui/components/blur.tsx` (BotCard, BotStage) |
 | Actions (what a tap does) | `src/sdui/actions.ts`; media actions in `src/media/media.ts` |
 | What the build declares to the server | `src/sdui/registry.ts` |
@@ -122,7 +126,7 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | Android keyboard | `app/modules/tulmi-keyboard/android/` |
 | Widgets (iOS / Android) | `app/targets/widgets/` / `modules/tulmi-bridge/android/…/TailzuX0Widget.kt`; data from `src/widgets/` |
 | Widget lines that switch on their own (the glance's `steps`: a leave-by, then the next thing) | `src/widgets/glanceCore.ts` (`cleanSteps`, `glanceAt`, the rule), `targets/widgets/X0Glance.swift` (`asOf`, `X0Provider`), `modules/tulmi-bridge/android/…/X0Steps.kt` and `TailzuX0Widget.kt` (the step alarm) |
-| What only the binary can promise the server (PushTimeSensitive with the push token, GlanceSteps in the bootstrap and `steps=1` on the glance) | `src/device/binaryCore.ts` (`binary.ts` reads the bridge's `binaryFeatures`, `TulmiBridgeModule.swift` / `.kt`); the Time Sensitive entitlement in `app.config.ts` |
+| What only the binary can promise the server (PushTimeSensitive with the push token, GlanceSteps in the bootstrap and `steps=1` on the glance, VoiceRealtime for the live call) | `src/device/binaryCore.ts` (`binary.ts` reads the bridge's `binaryFeatures`, `TulmiBridgeModule.swift` / `.kt`); the Time Sensitive entitlement in `app.config.ts` |
 | Which notification button opened the app (`PushButton`): an opening button's id goes to the push's screen as its `button` param, a plain tap has none, so the server's hand-off screens open UPI, WhatsApp or Maps only for Pay, Send, No or Open map | `src/notifications/push.ts` onTap, `categoriesCore.ts` pressedButton; declared in `src/sdui/registry.ts` |
 | A notification button pressed once is answered once (Plan Ease follow-through): the act key is the push and the button (`pressKey`, from `data.pushId`, never the notification's identifier, which a follow's pushes share as their collapse id); a tap is remembered by notification, push and button (`tapSeenKey`); the same press still being answered by its other copy (409 in_progress) is tried again, not refused; the server's buttons registered on every bootstrap, the newest list last (`latestOnly`) | `src/notifications/categoriesCore.ts` (pressKey, answerKey, tapSeenKey, retryable, latestOnly), `actions.ts`, `push.ts` onTap, `categories.ts`; the bootstrap effect in `src/sdui/SduiApp.tsx` |
 | "X0 is calling" (a leave-by or a bill due today rings the phone): the token caps, Android's call channels, the iPhone's ringtone, clearing old rings; the call screen's pieces (speak loud / onDone, voiceLive duplex, Text "elapsed") | `src/notifications/calls.ts` + `callsCore.ts`, `ringtone.ios.ts` / `ringtone.ts` + `ringtoneCore.ts`, `assets/sounds/x0_ring_1.wav` (made by `tools/sounds/make_ring.py`); `src/sdui/voice/speech.ts`, `voice/voiceLive.ts`, `components/Text.tsx` + `elapsedCore.ts`; declared as `BotCall` in `src/sdui/registry.ts` |
@@ -170,7 +174,8 @@ outbox and are sent in order once the phone is back.
 
 **Native.** JavaScript reaches native code through the local modules: `tulmi-bridge` (App Group / Keychain shared
 with the keyboards and widgets, the background Flow session that keeps the mic warm for the keyboards, Live
-Activities, Android widgets and shortcuts), `tulmi-stream` (live dictation), `tulmi-share`. Optional native modules
+Activities, Android widgets and shortcuts), `tulmi-stream` (live dictation, and the phone's audio for a live call:
+`callAudio`), `tulmi-share`. A store build also links `react-native-webrtc` for the live call. Optional native modules
 are `require()`d inside functions on purpose, so a binary without one keeps working. The keyboards fetch their own
 SDUI config from the server and run in their own processes.
 
@@ -191,6 +196,36 @@ missed call, never from a push's arrival), and on a tap or button on any of a ca
 (`dismissCall`, from `push.ts` onTap). Answer, a tap and Call back open the server's `bots.plan.call` screen; Not now is a
 background `call` button. The screen relies on `speak` with `loud` and `onDone` (`voice/speech.ts`), `voiceLive` with
 `duplex`, and Text `format: "elapsed"`, which the bundle declares as `BotCall`.
+
+**A call that is a conversation.** The call above is turn by turn: the bot speaks, then listens, then speaks. A STORE BUILD
+can answer it live instead — one WebRTC connection from the phone straight to the voice service, both sides talking, either
+able to interrupt (`voiceCall` / `voiceCallSet`, `sdui/voice/callRealtime.ts`; `docs/STREAMING.md` has the protocol and the
+rest of the reasoning). Our server does the handshake with its own key and holds a second connection beside the call for the
+tools, the record and the endings, so the phone never holds a credential and the data channel it reads is read only. Because
+the client (`react-native-webrtc`) is native, the capability `VoiceRealtime` is NOT in `registry.ts`: it comes from the
+bridge's `binaryFeatures` (`realtimeCall`), so the very same update on an older binary says nothing, is sent no live call, and
+keeps the turn-by-turn one. The one `require` of the client is behind that feature and inside try/catch, and
+`callRealtime.imports.test.ts` fails if any file imports it instead. While a call is on — from the moment the audio session
+is asked for, a warmed-up microphone included — `media.ts` (sounds, playback, dictation), `media/sounds.ts` (the bots' little
+sounds) and `voice/speech.ts` stand aside rather than take the audio session from under it, and leaving the screen ends the
+call with it (`ScreenHost.tsx` → `callRealtimeCore.ts` `leaveCall`, beside `leaveMedia` / `leaveVoice` / `leaveSpeech`). One
+microphone opens at a time: the warm-up (`voiceCallSet` `warm`, which returns at once so the answer goes out beside it), the
+call, and a second tap each wait for the one in front instead of opening their own, and an End mid-open ends whatever holds
+the call (`endCallNow`) — the three races are in `callRealtime.turns.test.ts`, with the phone stood in for. A
+Flow session is asked about before the microphone is opened (`modules/tulmi-bridge` `isFlowActive`) and ended if one holds
+it; one that will not let go means no live call. The native side of it is `modules/tulmi-stream`'s `callAudio` (loudspeaker,
+communication mode and focus, interruptions). The software echo canceller for phones whose own one is weak cannot be chosen
+when a call starts — React builds the live client's audio as the app starts, before any JS runs — so `prepare` remembers what
+`SOFT_AEC_MODELS` asked for and `CallAec.kt` applies it at the next start of the app, from `TulmiStreamPackage.kt`'s
+application listener; it reaches the client by name, which `android/consumer-rules.pro` keeps, and loads nothing of the
+client on a phone that does not need it. Because of that, `callAudio` answers which canceller the process really has, and a
+call that needs the software one and has the phone's own stays a turn call (`openMic`, before anything is sent to the server):
+on those models the bot hears itself and could answer its own read-back. `openMic` is also the ONLY place the ask is written, on
+purpose: it runs only for people the server sent a live call to, so a phone pays that start-up load only if someone on it really
+gets live calls. The store build's config is `app.config.ts` plus
+`plugins/withNoWebrtcFgs.js` (no screen-sharing foreground service in the merged manifest) and `plugins/withWebrtcPin.js`
+(one named libwebrtc on both phones, instead of the floating versions the library asks for), with `SYSTEM_ALERT_WINDOW`
+blocked. `runtimeVersion` is unchanged, following commit 63e40b4: new native code, gated on a binary feature.
 
 **The tile engine.** `src/botTiles/core.ts` is the living tiles' physics and drawing, shared with the desktop app:
 `node src/botTiles/genDesktop.mjs` writes `TAILZU-DESKTOP/botTiles.js` from it, and tests on both sides check the

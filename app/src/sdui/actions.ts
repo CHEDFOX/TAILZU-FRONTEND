@@ -49,6 +49,7 @@ import { runOutboxAction } from "./offline/offline";
 import { setSoundsOn } from "../media/sounds";
 import { listenStream, makeStreamId, StreamTap } from "./live/askStream";
 import { voiceLive, voiceStop } from "./voice/voiceLive";
+import { voiceCall, voiceCallSet } from "./voice/callRealtime";
 import { speakLine } from "./voice/speech";
 
 export interface NavApi {
@@ -528,6 +529,23 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       });
       break;
     case "voiceStop": voiceStop(ctx.store); break;
+    // A live voice call (voice/callRealtime.ts): it returns once the call is up or has fallen back, not when the call ends.
+    // Only a binary that has the live client is ever sent it (VoiceRealtime); on any other it falls back to the turn call.
+    case "voiceCall":
+      await voiceCall(action, {
+        owner: ctx.store,
+        set: (path, value) => ctx.store.set(path, value),
+        run: (r, event) => runAction(r, event === undefined ? ctx : { ...ctx, event }),
+      });
+      break;
+    // Warm or end: it returns at once, so the answer that follows a warm in a sequence is not held up by the microphone.
+    case "voiceCallSet":
+      voiceCallSet(action.op, {
+        owner: ctx.store,
+        set: (path, value) => ctx.store.set(path, value),
+        run: (r, event) => runAction(r, event === undefined ? ctx : { ...ctx, event }),
+      });
+      break;
     // Keep an ask to send once the phone is online, take one out, try one again (offline.tsx).
     case "outbox": await runOutboxAction(action, ctx); break;
     // A setting kept on this phone (sounds.ts): the Sounds switch, honoured at once.

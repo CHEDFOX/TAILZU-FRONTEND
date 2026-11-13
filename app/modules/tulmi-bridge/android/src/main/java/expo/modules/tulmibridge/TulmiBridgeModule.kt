@@ -147,9 +147,12 @@ class TulmiBridgeModule : Module() {
     // reaches binaries built before these existed, so the app tells the server
     // only what the binary says here (src/device/binaryCore.ts). glanceSteps:
     // the X0 widget switches its lines on its own at the glance's `steps`
-    // (TailzuX0Widget.kt). Time Sensitive is iOS's alone; a leave-by already
-    // wakes an Android phone through its high priority and channel.
-    Function("binaryFeatures") { listOf("glanceSteps") }
+    // (TailzuX0Widget.kt). realtimeCall: this build links the live voice client
+    // (react-native-webrtc) and TulmiStream's callAudio, so Plan Ease's call can
+    // be a real conversation instead of turn by turn (callRealtime.ts). Time
+    // Sensitive is iOS's alone; a leave-by already wakes an Android phone
+    // through its high priority and channel.
+    Function("binaryFeatures") { listOf("glanceSteps", "realtimeCall") }
 
     // Whether the Tulmi IME is enabled (and currently selected). Android IMEs
     // get network via the manifest, so there's no separate "Full Access" — being

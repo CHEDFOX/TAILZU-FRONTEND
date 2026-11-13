@@ -9,6 +9,11 @@ import type { EventSubscription } from "expo-modules-core";
  * The native module exists only in dev/prod builds (not in Expo Go). We resolve
  * it lazily so the JS app still runs everywhere; callers check isStreamAvailable()
  * and fall back to the file-based path when it's absent.
+ *
+ * It also sets the phone's audio up for Plan Ease's live call (callAudio below),
+ * which is the only other thing in the app that holds the microphone and the
+ * speaker at once. That part exists only in a binary that has the live call
+ * (device/binaryCore.ts "realtimeCall"), so it is guarded on its own.
  */
 
 export interface StreamOptions {
@@ -66,10 +71,27 @@ export interface LiveSession {
   cancel(): void;
 }
 
+/** What a live call asks of the phone's audio before and after it (callAudio below). */
+export type CallAudioOp = "prepare" | "begin" | "end";
+
+export interface CallAudioOptions {
+  /**
+   * Which echo canceller the call wants: the phone's own ("hw", the default) or the live client's software one ("soft", for
+   * models whose hardware canceller is weak). Only read by `prepare`, and only on Android, where it has to be set before the
+   * live client is first loaded. The list of models is JavaScript's (sdui/voice/callRealtimeCore.ts SOFT_AEC_MODELS).
+   */
+  aec?: "hw" | "soft";
+}
+
+/** Which echo canceller a call on this process really gets. Android alone answers; iOS has nothing to choose and answers nothing. */
+export type CallAecHas = "hw" | "soft";
+
 interface TulmiStreamNative {
   start(options: StreamOptions): void;
   stop(): void;
   cancel(): void;
+  /** Only in a binary that has the live call (device/binaryCore.ts "realtimeCall"); absent in every older one. */
+  callAudio?(op: CallAudioOp, options: CallAudioOptions): CallAecHas | null | undefined;
   addListener(eventName: string, listener: (event: any) => void): EventSubscription;
 }
 
@@ -83,6 +105,55 @@ try {
 /** True when the native streaming module is available (a dev/prod build). */
 export function isStreamAvailable(): boolean {
   return native != null;
+}
+
+/** True when this binary's module can set the phone's audio up for a live call. Older binaries have no such function. */
+export function isCallAudioAvailable(): boolean {
+  return typeof native?.callAudio === "function";
+}
+
+/**
+ * THE PHONE'S AUDIO FOR A LIVE CALL (sdui/voice/callRealtime.ts). The call is on the loudspeaker, like today's call, so the
+ * item card stays in view; a wired or Bluetooth headset keeps the route it has.
+ *
+ *   prepare  before the live client is loaded: which echo canceller it should use (`aec`). Android remembers the ask for the next
+ *            start of the app, because the client builds its audio once, as the app starts.
+ *   begin    take the session for a call: the loudspeaker on iOS, communication mode and audio focus on Android, and the
+ *            listeners that say when something interrupts (onCallInterrupted below).
+ *   end      give it all back.
+ *
+ * Android answers which canceller this process REALLY has, so a call that needs the software one and did not get it can stay a
+ * turn call instead of letting the bot hear itself; iOS has nothing to choose and answers nothing.
+ *
+ * Never throws: a binary without the function, or a phone that refuses, leaves the call on whatever route it has.
+ */
+export function callAudio(op: CallAudioOp, options: CallAudioOptions = {}): CallAecHas | null {
+  try {
+    const has = native?.callAudio?.(op, options);
+    return has === "soft" || has === "hw" ? has : null;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(`[stream] callAudio ${op} failed: ${String((e as { message?: unknown })?.message ?? e)}`);
+    return null;
+  }
+}
+
+/**
+ * Something took the audio away mid-call: a cellular call or any iOS interruption, or Android audio focus lost. The call
+ * treats it as the app going to the background (it stops the live part and waits for a tap). Returns the way to stop listening.
+ */
+export function onCallInterrupted(fn: () => void): () => void {
+  const mod = native;
+  if (!mod) return () => {};
+  let sub: EventSubscription | null = null;
+  try {
+    sub = mod.addListener("onInterrupted", () => fn());
+  } catch {
+    return () => {};
+  }
+  return () => {
+    try { sub?.remove(); } catch { /* gone */ }
+  };
 }
 
 /** Failures the device reports itself; there is no server sentence behind them. */

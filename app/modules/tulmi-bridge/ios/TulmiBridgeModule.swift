@@ -436,9 +436,14 @@ public class TulmiBridgeModule: Module {
     //                  as an ordinary push
     //   glanceSteps    the X0 widget switches its lines on its own at the
     //                  glance's `steps` (X0Glance.swift `asOf(_:)`, X0Provider)
+    //   realtimeCall   this build links the live voice client (react-native-webrtc)
+    //                  and TulmiStream's callAudio, so Plan Ease's call can be a
+    //                  real conversation instead of turn by turn; the server draws
+    //                  the call screen's realtime mode only for a phone that says
+    //                  this (src/sdui/voice/callRealtime.ts)
     // A name is added here only in the same build as what it promises.
     Function("binaryFeatures") { () -> [String] in
-      ["timeSensitive", "glanceSteps"]
+      ["timeSensitive", "glanceSteps", "realtimeCall"]
     }
 
     // A quick action pressed while the app runs: JS is told, and consumes it.

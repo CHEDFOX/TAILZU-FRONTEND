@@ -9,11 +9,39 @@ import AVFoundation
 /// to JS. See STREAMING.md for the wire protocol.
 public class TulmiStreamModule: Module {
   private var streamer: Streamer?
+  private var callRoute: CallRoute?
 
   public func definition() -> ModuleDefinition {
     Name("TulmiStream")
 
-    Events("onReady", "onPartial", "onFinal", "onError", "onClosed")
+    Events("onReady", "onPartial", "onFinal", "onError", "onClosed", "onInterrupted")
+
+    // THE PHONE'S AUDIO FOR PLAN EASE'S LIVE CALL (src/sdui/voice/callRealtime.ts).
+    // The live client runs its own voice-processing session; all this adds is the
+    // loudspeaker, so the item card stays in view as it does on today's call, and
+    // the one notice the call needs: something took the audio away.
+    //
+    //   prepare  nothing to do on iOS: voice processing is the session's own, and
+    //            `aec` is Android's hook. Kept so both platforms take the same calls.
+    //   begin    playAndRecord in voiceChat, speaker unless a headset is the route,
+    //            re-applied when the route changes; interruptions reported.
+    //   end      the override dropped, the session handed back politely.
+    Function("callAudio") { (op: String, options: [String: Any]) in
+      switch op {
+      case "prepare":
+        break
+      case "begin":
+        self.callRoute?.end()
+        let r = CallRoute { [weak self] in self?.sendEvent("onInterrupted", [:]) }
+        self.callRoute = r
+        r.begin()
+      case "end":
+        self.callRoute?.end()
+        self.callRoute = nil
+      default:
+        break
+      }
+    }
 
     Function("start") { (options: [String: Any]) in
       let url = options["url"] as? String ?? ""
@@ -293,5 +321,106 @@ private final class Streamer: NSObject {
       emit("onError", payload)
     default: break
     }
+  }
+}
+
+/// THE AUDIO ROUTE FOR A LIVE CALL, and the one notice the call needs.
+///
+/// The live client (react-native-webrtc) takes the session itself and runs iOS's
+/// own voice processing in it, which is where the echo cancellation comes from —
+/// so this does not fight it for the category. What it adds is the two things
+/// the client does not do:
+///
+///   * the LOUDSPEAKER. `.playAndRecord` otherwise routes playback to the
+///     earpiece, and a call you can only hear with the phone against your head
+///     is not the call Plan Ease makes: the item card has to stay in view. A
+///     wired or Bluetooth headset keeps the route it has — someone wearing one
+///     chose it. The override is re-applied when the route changes under us
+///     (the client setting its own category counts as a change).
+///
+///   * INTERRUPTIONS. A cellular call, Siri, an alarm: the call stops its live
+///     part and waits for a tap, the same as the app going to the background
+///     (src/sdui/voice/callRealtime.ts). Without this the microphone would come
+///     back to a session nobody is listening to.
+private final class CallRoute: NSObject {
+  private let interrupted: () -> Void
+  private var observing = false
+
+  init(interrupted: @escaping () -> Void) {
+    self.interrupted = interrupted
+    super.init()
+  }
+
+  func begin() {
+    let audio = AVAudioSession.sharedInstance()
+    do {
+      try audio.setCategory(
+        .playAndRecord, mode: .voiceChat,
+        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+      )
+      try audio.setActive(true)
+    } catch {
+      // The client takes the session for itself a moment later anyway; the route
+      // below is the part that matters, and it is tried regardless.
+      NSLog("TulmiStream callAudio begin: %@", error.localizedDescription)
+    }
+    toSpeaker()
+    if !observing {
+      observing = true
+      let c = NotificationCenter.default
+      c.addObserver(
+        self, selector: #selector(routeChanged(_:)),
+        name: AVAudioSession.routeChangeNotification, object: nil
+      )
+      c.addObserver(
+        self, selector: #selector(wasInterrupted(_:)),
+        name: AVAudioSession.interruptionNotification, object: nil
+      )
+    }
+  }
+
+  func end() {
+    if observing {
+      observing = false
+      NotificationCenter.default.removeObserver(self)
+    }
+    let audio = AVAudioSession.sharedInstance()
+    try? audio.overrideOutputAudioPort(AVAudioSession.PortOverride.none)
+    // Politely: without notifyOthersOnDeactivation whatever was playing before
+    // the call is left paused.
+    try? audio.setActive(false, options: .notifyOthersOnDeactivation)
+  }
+
+  /// A headset is the person's own choice of route; the speaker is for everyone else.
+  private func onHeadset() -> Bool {
+    let wired: Set<AVAudioSession.Port> = [
+      .headphones, .headsetMic, .bluetoothHFP, .bluetoothA2DP, .bluetoothLE, .usbAudio, .carAudio,
+    ]
+    return AVAudioSession.sharedInstance().currentRoute.outputs.contains { wired.contains($0.portType) }
+  }
+
+  private func toSpeaker() {
+    guard !onHeadset() else { return }
+    try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
+  }
+
+  @objc private func routeChanged(_ note: Notification) {
+    let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+    guard let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else { return }
+    // A category change is the live client setting up its own session: the
+    // override goes with it, so it is put back. A headset plugged in or out is
+    // handled by onHeadset() on the next pass.
+    switch reason {
+    case .categoryChange, .override, .oldDeviceUnavailable, .newDeviceAvailable:
+      toSpeaker()
+    default:
+      break
+    }
+  }
+
+  @objc private func wasInterrupted(_ note: Notification) {
+    let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 0
+    guard AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
+    interrupted()
   }
 }
