@@ -2,6 +2,8 @@
 
 > **Before you start:** read `WORKING-ON.md` in the repo root. It says what other sessions are building right now and which
 > files they hold. Add your own item when you start something big, and remove it when it lands.
+> Building a screen, a visual or anything the app draws? Read `TAILZU-BACKEND/docs/renderer.md` first: build it as server
+> data with the existing blocks and catalogs, not as a new client component.
 
 X0 Bot (the Bots app) is the phone client of Tailzu: an Expo / React Native app in TypeScript for iOS and
 Android, plus the native parts JavaScript cannot be: two system keyboards, the widgets and Live Activities, the

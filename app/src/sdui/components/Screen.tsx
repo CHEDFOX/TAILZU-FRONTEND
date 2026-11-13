@@ -9,6 +9,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { usePullBot, PullBotScroll } from "../bots/PullBot";
 import type { CompProps } from "./props";
 import { pageScrolled, pageTouched } from "./pageBus";
+import { publishScroll, useScrollInto } from "../motion/scroll";
 
 /**
  * HOW TALL ONE SCREENFUL ACTUALLY IS.
@@ -162,7 +163,10 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     },
     content,
   ];
-  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); };
+  // Scroll offset as a `ui.*` value, when the screen asked for one (`scrollInto`): a motion can then drive off
+  // it (sdui/motion/scroll.ts). Nothing is published for a screen that did not ask.
+  const into = useScrollInto(props);
+  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); if (into) publishScroll(into, y); };
   /**
    * STARTS AT ITS END (KitExtras `startAtEnd`: a space's feed, newest at the bottom). It opens scrolled to the end; while the
    * person is within 80 px of the end, content that grows (a new message) or a view that gets shorter (the composer opening

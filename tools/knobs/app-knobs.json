@@ -2112,6 +2112,7 @@
     "ui.Input.stepperRadius": 999,
     "ui.Input.stepperValueWidth": 34,
     "ui.Input.timeHeight": 160,
+    "ui.Input.timeRow": 34,
     "ui.List.endSlop": 80,
     "ui.List.endThreshold": 0.4,
     "ui.List.spinnerPad": 18,
@@ -2535,15 +2536,15 @@
     },
     "motion.sharedDamp": {
       "kind": "num",
-      "at": "app/src/sdui/motion/Shared.tsx:153"
+      "at": "app/src/sdui/motion/Shared.tsx:214"
     },
     "motion.sharedK": {
       "kind": "num",
-      "at": "app/src/sdui/motion/Shared.tsx:152"
+      "at": "app/src/sdui/motion/Shared.tsx:213"
     },
     "motion.sharedMs": {
       "kind": "num",
-      "at": "app/src/sdui/motion/Shared.tsx:156"
+      "at": "app/src/sdui/motion/Shared.tsx:217"
     },
     "postLanguageScreenId": {
       "kind": "str",
