@@ -36,7 +36,6 @@ import { Vanish } from "./Vanish";
 import { MentionField } from "./MentionField";
 import { LiveWords } from "./LiveWords";
 import { PersonBot } from "../bots/PersonBot";
-import { DotArt } from "../bots/DotArt";
 
 export { ThemeContext } from "../theme/ThemeContext";
 export { typeRole } from "../theme/typeRole";
@@ -73,6 +72,4 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   BotStage, BotCrowd, Vanish, MentionField, LiveWords,
   // A person, as their own tiny bot (types.ts 3j).
   PersonBot,
-  // What a bot draws under its words, as dots that obey physics (types.ts DotArtProps).
-  DotArt,
 };

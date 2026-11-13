@@ -175,12 +175,6 @@ export const CORE_COMPONENTS = [
    */
   "PersonBot",
   /**
-   * What a bot draws under its words, as dots that obey physics (types.ts DotArtProps; bots/DotArt.tsx, dotArtCore.ts): springs
-   * home, damping, gravity for a fall, an impulse where a finger lands, a push while it stays, heat for a tremble; asleep once
-   * settled. The server sends a chart, a meter or a drawing this way only to a build that says it; others get the same dots, still.
-   */
-  "DotArt",
-  /**
    * NOT A COMPONENT — the messages' face: "Tailzu Bricolage", "Tailzu Bricolage Medium" and "Tailzu Bricolage SemiBold"
    * (Bricolage Grotesque 400, 500, 600). Loaded as the Geist faces are, from the bootstrap's `fonts` (theme/remoteFonts.ts), which
    * the server fills with them for a build that says this; others get the same nodes in Geist.
