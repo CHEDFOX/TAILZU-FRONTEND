@@ -42,6 +42,51 @@ function runtimeString() {
   return m[1];
 }
 
+/**
+ * The Android health build switch, per EAS build profile (app/eas.json's env).
+ * It decides whether Health Connect is in the Android binary at all, which no
+ * package version or module function shows, so the lock records it: a profile
+ * flipped without the lock being refreshed is caught here, and anyone reading
+ * the lock can see which profile ships health. It needs no runtime bump — the
+ * modules are reached through src/device/natives.ts, so an older binary finds
+ * nothing and declares nothing.
+ */
+function androidHealth() {
+  const path = join(app, "eas.json");
+  if (!exists(path)) return {};
+  const profiles = json(path).build ?? {};
+  const out = {};
+  for (const name of Object.keys(profiles).sort()) {
+    const value = (profiles[name]?.env?.TULMI_ANDROID_HEALTH ?? "").trim().toLowerCase();
+    out[name] = value === "on" ? "on" : "off";
+  }
+  return out;
+}
+
+/**
+ * `throughNatives`: the native packages and local modules that came AFTER the
+ * binary people are running, so an older binary does not have them.
+ *
+ * It is hand-kept, because nothing in the tree can tell them from the packages
+ * that shipped with that binary — which is the whole point. A top-level import
+ * of one of these would crash the running build over the air, so they may only
+ * be reached through app/src/device/natives.ts, which asks for them by name and
+ * handles a missing module (perms/SPEC.md rule 6, 5.2; pure §2.11). The scan in
+ * src/device/natives.test.ts reads this field and keeps those names out of the
+ * list it treats as safe to import anywhere. `--write` carries it over
+ * untouched; add a name here by hand when a new package or module lands, and
+ * clear the list when the runtime changes, because every binary then has them.
+ */
+function checkThroughNatives(cur) {
+  const problems = [];
+  for (const name of cur.throughNatives ?? []) {
+    if (!(name in cur.packages) && !(name in cur.modules)) {
+      problems.push(`${name} is in throughNatives but is neither an installed native package nor a local module.`);
+    }
+  }
+  return problems;
+}
+
 function isNative(dir) {
   if (exists(join(dir, "ios")) || exists(join(dir, "android")) || exists(join(dir, "expo-module.config.json"))) return true;
   return readdirSync(dir).some((f) => f.endsWith(".podspec"));
@@ -88,6 +133,11 @@ function compute(prev) {
     expoSdk: expo ? expo.split(".")[0] : null,
     reactNative: rn ?? null,
     reanimatedStaticFlags: json(join(app, "package.json")).reanimated?.staticFeatureFlags ?? {},
+    androidHealth: androidHealth(),
+    // Hand-kept, so --write carries it over instead of rebuilding it: nothing
+    // in the tree tells an addition the running binary does not have from a
+    // package that shipped with it. See the field's note below.
+    throughNatives: prev?.throughNatives ?? [],
     packages,
     modules,
     sourcesSha256: h.digest("hex"),
@@ -113,6 +163,9 @@ const add = []; // additions or source-only change: lock refresh only
 if (cur.expoSdk !== prev.expoSdk) bad.push(`Expo SDK changed ${prev.expoSdk} -> ${cur.expoSdk}.`);
 if (cur.reactNative !== prev.reactNative) bad.push(`react-native changed ${prev.reactNative} -> ${cur.reactNative}.`);
 if (JSON.stringify(cur.reanimatedStaticFlags) !== JSON.stringify(prev.reanimatedStaticFlags)) bad.push("Reanimated static feature flags changed.");
+if (JSON.stringify(cur.androidHealth) !== JSON.stringify(prev.androidHealth ?? {})) {
+  add.push(`The Android health build switch changed: ${JSON.stringify(cur.androidHealth)}.`);
+}
 for (const [n, v] of Object.entries(prev.packages)) {
   if (!(n in cur.packages)) bad.push(`Native package ${n} was removed.`);
   else if (cur.packages[n] !== v) bad.push(`Native package ${n} changed ${v} -> ${cur.packages[n]}.`);
@@ -126,6 +179,11 @@ for (const [m, fns] of Object.entries(cur.modules)) {
   const old = prev.modules[m] ?? [];
   for (const f of fns) if (!old.includes(f)) add.push(`Local module ${m} gained function ${f}.`);
   if (!(m in prev.modules)) add.push(`New local module ${m}.`);
+}
+const stale = checkThroughNatives(cur);
+if (stale.length) {
+  for (const p of stale) console.log(`::error::${p} Fix the list in app/native-inputs.lock.`);
+  process.exit(1);
 }
 const bumped = cur.runtime !== prev.runtime;
 const srcChanged = cur.sourcesSha256 !== prev.sourcesSha256;

@@ -9,6 +9,7 @@ import { APP_VERSION } from "./version";
 import { isStreamAvailable } from "../../../modules/tulmi-stream";
 import { binaryFeatures } from "../../device/binary";
 import { featureCaps } from "../../device/binaryCore";
+import { permCaps } from "../../device/permCaps";
 import { looksReport } from "../../botTiles/looks";
 
 /**
@@ -41,11 +42,12 @@ export function runningBundle(): string {
  * What this build draws and does, as the registry says, less what this binary cannot back: live words need the stream
  * module (a store build has it, Expo Go does not), so VoiceLive is said only when it is there. Plus what only the binary can
  * promise (device/binaryCore.ts: PushTimeSensitive, GlanceSteps), said only when the native bridge says so, because an update
- * also reaches binaries built before them.
+ * also reaches binaries built before them. Location1, ContactPick1 and Health1 are said the VoiceLive way: only when the module's
+ * function is there (device/permCaps.ts, through natives.ts), so an older binary running this bundle says none of them.
  */
 function declared(): readonly string[] {
   const js = isStreamAvailable() ? CORE_COMPONENTS : CORE_COMPONENTS.filter((n) => n !== "VoiceLive");
-  return [...js, ...featureCaps(binaryFeatures())];
+  return [...js, ...featureCaps(binaryFeatures()), ...permCaps()];
 }
 
 export function buildCapabilities() {

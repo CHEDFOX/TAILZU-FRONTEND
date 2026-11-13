@@ -4,17 +4,22 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
+import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
+import java.io.File
 import org.json.JSONArray
 
 /**
  * LONG-PRESS THE APP ICON (Android app shortcuts): Ask, Dictate, New to-do, Spaces, as the server lists them
  * (app.quickActions.android; src/quickActions in the app), set on every launch the list changed. Each opens its link through the
- * app's own deep-link intent filter, so it arrives like any link (the app's router decides what it may open). The icon is a
- * drawable by the server's name (tailzu_qa_* ship with the bridge: the glyph in the theme's ink on its surface grey, an adaptive
- * icon from Android 8), else the app's own icon. Android 7.1 and later.
+ * app's own deep-link intent filter, so it arrives like any link (the app's router decides what it may open). The icon is the
+ * picture at the server's `iconFile` if there is one (a PNG the app downloaded into its own files; Android 8 and later, drawn as
+ * an adaptive icon so the launcher masks it like any other), else a drawable by the server's name (tailzu_qa_* ship with the
+ * bridge: the glyph in the theme's ink on its surface grey, an adaptive icon from Android 8), else the app's own icon. So a new
+ * glyph is a catalog change, not a store release — and a binary from before this line simply ignores the field and uses the
+ * named drawable, which is why the server always sends both. Android 7.1 and later.
  *
  * The label is the item's title, short and long alike: a launcher shows the long one where it has the room, and Android has no
  * line under it, so an iOS-style subtitle ("Family and friends") would stand in for the name ("Spaces") rather than under it.
@@ -41,11 +46,12 @@ object TailzuShortcuts {
         if (id.isEmpty() || title.isEmpty()) continue
         val intent = TailzuQuick.openIntent(context, url) ?: continue
         val iconRes = TailzuQuick.drawable(context, o.optString("icon"), context.applicationInfo.icon)
+        val icon = bitmapIcon(o.optString("iconFile")) ?: Icon.createWithResource(context, iconRes)
         out.add(
           ShortcutInfo.Builder(context, "x0_$id")
             .setShortLabel(title.take(25))
             .setLongLabel(title.take(40))
-            .setIcon(Icon.createWithResource(context, iconRes))
+            .setIcon(icon)
             .setIntent(Intent(Intent.ACTION_VIEW, intent.data ?: Uri.parse(url)).setPackage(context.packageName))
             .setRank(out.size)
             .build()
@@ -54,6 +60,24 @@ object TailzuShortcuts {
       if (out.isEmpty()) manager.removeAllDynamicShortcuts() else manager.setDynamicShortcuts(out)
     } catch (_: Exception) {
       // Rate-limited, or a launcher that refused: the app opens as ever.
+    }
+  }
+
+  /**
+   * The picture the app downloaded for this item, as an adaptive icon, or null to fall back to a named drawable.
+   * Adaptive is what the launcher wants from Android 8: it masks the middle 72/108, so the art has to keep its drawing
+   * inside that, which is the server's side of the bargain. Android 7.1 has no adaptive icon, so it gets the drawable.
+   */
+  private fun bitmapIcon(path: String?): Icon? {
+    if (path.isNullOrEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+    return try {
+      val file = File(Uri.parse(path).path ?: path)
+      if (!file.isFile) return null
+      val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+      Icon.createWithAdaptiveBitmap(bitmap)
+    } catch (_: Exception) {
+      // An unreadable or half-written file is not worth losing the shortcut over.
+      null
     }
   }
 }

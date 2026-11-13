@@ -24,6 +24,7 @@ on:
       - "app/modules/tulmi-bridge/ios/**"
       - "app/targets/share/**"
       - "app/modules/tulmi-share/ios/**"
+      - "app/modules/tulmi-perms/ios/**"
       - "tools/ci/**"
       - ".github/workflows/keyboard-ios.yml"
   workflow_dispatch: {}
@@ -232,3 +233,39 @@ jobs:
             -typecheck \
             app/modules/tulmi-share/ios/*.swift
           echo "✅ Share module type-checks cleanly."
+
+  # The contact picker and the one location fix (modules/tulmi-perms). ContactsUI,
+  # Contacts and CoreLocation are all in the simulator SDK, so this is a real
+  # semantic check of the delegates and the placemark reading; ExpoModulesCore is
+  # the same stand-in the bridge and share modules use.
+  perms:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode 16
+        run: |
+          XC=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+          swiftc -version
+
+      - name: Type-check the perms module (stand-in ExpoModulesCore)
+        run: |
+          set -euo pipefail
+          SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          STUB=$(mktemp -d)
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name ExpoModulesCore \
+            -parse-as-library \
+            -emit-module -emit-module-path "$STUB/ExpoModulesCore.swiftmodule" \
+            tools/ci/ExpoModulesCoreStub.swift
+          swiftc \
+            -sdk "$SDK" \
+            -target arm64-apple-ios15.1-simulator \
+            -module-name TulmiPerms \
+            -I "$STUB" \
+            -typecheck \
+            app/modules/tulmi-perms/ios/*.swift
+          echo "✅ Perms module type-checks cleanly."

@@ -14,6 +14,47 @@
   -->
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
 
+  <!--
+    WHAT THIS APP MAY SEE OF THE OTHER APPS ON THE PHONE. From Android 11 an app
+    is shown only the apps it declares an interest in, and an undeclared scheme
+    makes canOpenURL say false and resolveActivity return nothing — so the app
+    reports "no UPI app" on a phone that has four, and a tel: or mailto: link
+    looks dead before it is even tried.
+
+    One entry per scheme the app actually opens, and nothing wider: no
+    QUERY_ALL_PACKAGES (which Play treats as a last resort and reviews), and no
+    package names. `upi` is the pay hand-off (the iPhone's half is
+    LSApplicationQueriesSchemes in app.config.ts); tel, sms and mailto are the
+    links a plan item or an invite can carry; https is the browser, for the
+    policy, the stores and a bot's links.
+
+    It is declared here, in this module's own manifest, because this module is
+    where the app's own opening goes through (TailzuQuick.openIntent). It is
+    merged into the app's manifest with the library.
+  -->
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="upi" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="tel" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="sms" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="mailto" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="https" />
+    </intent>
+  </queries>
+
   <application>
     <!--
       X0, the home-screen widget (TailzuX0Widget.kt): one entry in the picker,

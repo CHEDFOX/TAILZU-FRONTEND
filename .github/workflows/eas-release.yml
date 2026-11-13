@@ -167,7 +167,9 @@ jobs:
             echo "::warning::No earlier commit to compare with, so no update was sent. Run the workflow by hand."
             echo "send=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          hit=$(git diff --name-only "$BEFORE" HEAD | grep -E '^app/(targets|modules|plugins|ios|android)/|^app/(app\.config\.ts|package\.json|package-lock\.json|eas\.json)$' || true)
+          # react-native.config.js is on the list because it decides whether
+          # Health Connect is linked into the Android binary at all.
+          hit=$(git diff --name-only "$BEFORE" HEAD | grep -E '^app/(targets|modules|plugins|ios|android)/|^app/(app\.config\.ts|react-native\.config\.js|package\.json|package-lock\.json|eas\.json)$' || true)
           if [ -n "$hit" ]; then
             echo "::warning::Native files changed, so this needs a store build, not an update. No update was sent."
             echo "$hit"

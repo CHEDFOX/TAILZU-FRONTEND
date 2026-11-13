@@ -573,12 +573,20 @@ export function setWidgetToken(info: WidgetTokenInfo | null): void {
  * a screen (tulmi://screen/<id>); `arm`, iOS only, names the screen the
  * keyboard's App Group tombstone opens instead (the microphone's arming
  * screen, which a link may never open).
+ *
+ * `iconFile` is Android's way out of shipping a drawable per glyph: the path
+ * of a PNG the app has already downloaded into its own files, drawn as an
+ * adaptive icon from Android 8 (TailzuShortcuts.kt). The server sends `icon`
+ * as well and always should — a binary from before that line, and Android 7.1,
+ * ignore the file and use the named drawable.
  */
 export interface QuickActionItem {
   id: string;
   title: string;
   subtitle?: string;
   icon?: string;
+  /** Android only: a local PNG path (file:// or plain) for the shortcut's icon. */
+  iconFile?: string;
   url: string;
   arm?: string;
 }

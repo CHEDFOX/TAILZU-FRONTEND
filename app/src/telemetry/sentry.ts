@@ -5,6 +5,7 @@
 import Constants from "expo-constants";
 import * as Sentry from "@sentry/react-native";
 import { num } from "../sdui/knobs";
+import { scrubEvent } from "./scrubCore";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string>;
 const DSN = extra.sentryDsn ?? "";
@@ -24,6 +25,8 @@ export function initSentry(): void {
       tracesSampleRate: num("telemetry.sentry.tracesSampleRate", 0.05),
       // Attach basic context — the RN SDK auto-captures OS + app version.
       environment: process.env.NODE_ENV ?? "production",
+      // No health number and no named area ever leaves on a crash report (scrubCore.ts; perms/SPEC.md 4.6).
+      beforeSend: (event) => scrubEvent(event),
     });
   } catch {
     /* silent — never block boot */

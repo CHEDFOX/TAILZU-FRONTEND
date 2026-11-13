@@ -530,6 +530,11 @@ export const DOUBLE_TAP_CAPABILITY = "DoubleTap";
 export const KIT_EXTRAS_CAPABILITY = "KitExtras";
 /** NOT A COMPONENT, the window only: ScreenResponse.talkTo. Never declared by a phone. */
 export const DESK_TALK_TO_CAPABILITY = "DeskTalkTo";
+/** NOT A COMPONENT: the location.area, contact.pick and health.sync actions. SAID ONLY BY THE BINARY'S MODULES (device/permCaps.ts:
+ *  a JS check that the native function is there), never by the registry, so an older binary running this JavaScript says none. */
+export const LOCATION_CAPABILITY = "Location1";
+export const CONTACT_PICK_CAPABILITY = "ContactPick1";
+export const HEALTH_CAPABILITY = "Health1";
 
 /** How a bot wanders: walk to a random spot in `span` (fractions of the stage's width), pause, play a random moment, again. */
 export interface BotRoam {
@@ -784,7 +789,7 @@ export type ActionSpec =
   | { kind: "switchTab"; tabId: string }
   /** `handoff: true`: an assistant's answer, opened only if it is on the hand-off list (security.isHandoffUrl). */
   | { kind: "openUrl"; url: string; external?: boolean; handoff?: boolean }
-  | { kind: "openSettings"; target?: "app" | "keyboard" }
+  | { kind: "openSettings"; target?: "app" | "keyboard" | "healthConnect" }
   | { kind: "openInAppBrowser"; url: string }
   | { kind: "dismiss" }
   // data & network
@@ -877,6 +882,19 @@ export type ActionSpec =
   | { kind: "outbox"; op: "add" | "remove" | "retry" | "clear"; path?: string; body?: Record<string, unknown>; label?: string; sub?: string; id?: string }
   /** A setting kept on this device (sounds.ts): "sounds" on or off; `value` may be "$state.x". BOT_SOUNDS_CAPABILITY. */
   | { kind: "devicePref"; key: "sounds"; value: unknown }
+  // location, contacts, health (perms/SPEC.md 5.1). Declared by device/permCaps.ts only when the native module is there.
+  /** Phone, Location1. One foreground fix, named by the phone's OS geocoder (which sends the point to Apple or Google); only the
+   *  area's words reach `assignTo`. Asks the system first only when `ask` (the card's Continue). The point never reaches JavaScript. */
+  | { kind: "location.area"; assignTo: string; ask?: boolean;
+      onFound?: ActionRef; onNone?: ActionRef; onDenied?: ActionRef; onBlocked?: ActionRef; onError?: ActionRef }
+  /** Phone, ContactPick1. The system's own contact picker; no permission. Only the ONE email tapped reaches `assignTo`. */
+  | { kind: "contact.pick"; assignTo: string; onPicked?: ActionRef; onCancel?: ActionRef; onError?: ActionRef }
+  /** Phone, Health1. Reads daily step totals and workouts for `days` (max 31), sums them on the phone, POSTs to `path`, which
+   *  must match /^\/v1\/bots\/[a-z0-9]+(?:-[a-z0-9]+)*\/health\/days$/ (else refused before any read).
+   *  Asks only when `ask`; `enable` rides on the first POST. No health value reaches state. */
+  | { kind: "health.sync"; path: string; days?: number; ask?: boolean; enable?: boolean;
+      onSynced?: ActionRef; onEmpty?: ActionRef; onDenied?: ActionRef; onBlocked?: ActionRef;
+      onUnavailable?: ActionRef; onError?: ActionRef }
   // permissions
   | {
       kind: "requestPermission";

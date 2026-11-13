@@ -231,6 +231,9 @@ export const CORE_ACTIONS = [
   "devicePref",
   // permissions
   "requestPermission", "checkPermission",
+  // location, contacts, health: running them is this bundle's promise; whether the binary can is the module's (permCaps.ts:
+  // Location1, ContactPick1, Health1), and without it the server sends none of them.
+  "location.area", "contact.pick", "health.sync",
   // auth
   "biometricPrompt", "signOut",
   // IAP

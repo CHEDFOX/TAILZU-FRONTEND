@@ -1779,6 +1779,7 @@
       40,
       15
     ],
+    "health.syncEveryMs": 3600000,
     "iap.packageFallback": "first",
     "kb.flow.armOnForeground": false,
     "kb.flow.armScreenId": "flow_arm",

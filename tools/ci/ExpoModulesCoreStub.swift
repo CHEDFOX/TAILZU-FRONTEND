@@ -1,6 +1,7 @@
 // A compile-only stand-in for the slice of ExpoModulesCore that
-// app/modules/tulmi-bridge/ios/TulmiBridgeModule.swift uses, so CI can
-// type-check the bridge module without CocoaPods. Never shipped.
+// app/modules/tulmi-bridge/ios/TulmiBridgeModule.swift and
+// app/modules/tulmi-perms/ios/TulmiPermsModule.swift use, so CI can type-check
+// both without CocoaPods. Never shipped.
 //
 // The declarations mirror expo-modules-core's own (Module is the same
 // protocol composition, Function takes the same parameter-pack closure with
@@ -35,7 +36,25 @@ public struct ModuleDefinitionBuilder {
   }
 }
 
-public final class AppContext {}
+#if canImport(UIKit)
+/// Looking up the screen a module may present on (Utilities/Utilities.swift).
+public final class Utilities {
+  public func currentViewController() -> UIViewController? { nil }
+}
+#endif
+
+public final class AppContext {
+  #if canImport(UIKit)
+  public var utilities: Utilities? = Utilities()
+  #endif
+}
+
+/// What an AsyncFunction answers with (Core/Promise.swift). Resolving with nothing is `null`.
+public final class Promise {
+  public func resolve(_ value: Any? = nil) {}
+  public func reject(_ error: Error) {}
+  public func reject(_ code: String, _ description: String) {}
+}
 
 public protocol AnyModule: AnyObject {
   init(appContext: AppContext)
@@ -44,7 +63,9 @@ public protocol AnyModule: AnyObject {
 }
 
 open class BaseModule {
-  public let appContext: AppContext
+  // Weak and optional, exactly as Core/Modules/Module.swift has it, so a body
+  // that writes appContext?.something here needs the same `?` against the pod.
+  public private(set) weak var appContext: AppContext?
   public required init(appContext: AppContext) { self.appContext = appContext }
   /// Sends an event to JavaScript listeners (Module.swift).
   public func sendEvent(_ eventName: String, _ body: [String: Any?] = [:]) {}
@@ -69,6 +90,23 @@ public func Function<R>(
 public func Function<R, A0: AnyArgument, each A: AnyArgument>(
   _ name: String,
   @_implicitSelfCapture _ closure: @escaping (A0, repeat each A) throws -> R
+) -> AnyDefinition { FunctionDefinition() }
+
+/// The async half (Core/Functions): the closure's last argument may be a Promise, and it
+/// runs off the JavaScript thread, so anything touching UIKit dispatches to main itself.
+public func AsyncFunction(
+  _ name: String,
+  @_implicitSelfCapture _ closure: @escaping (Promise) -> Void
+) -> AnyDefinition { FunctionDefinition() }
+
+public func AsyncFunction<A0: AnyArgument>(
+  _ name: String,
+  @_implicitSelfCapture _ closure: @escaping (A0, Promise) -> Void
+) -> AnyDefinition { FunctionDefinition() }
+
+public func AsyncFunction<R>(
+  _ name: String,
+  @_implicitSelfCapture _ closure: @escaping () throws -> R
 ) -> AnyDefinition { FunctionDefinition() }
 
 struct EventsDefinition: AnyDefinition {}

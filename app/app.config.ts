@@ -35,6 +35,17 @@ const EAS_PROJECT_ID =
 // does nothing — the same bundle runs on either binary.
 const META_APP_ID = (process.env.META_APP_ID ?? "").trim();
 const META_CLIENT_TOKEN = (process.env.META_CLIENT_TOKEN ?? "").trim();
+
+// THE ANDROID HEALTH BUILD SWITCH. Read like META_APP_ID above, recorded per build
+// profile in native-inputs.lock, and "on" in exactly one place: an Android build that
+// carries Health Connect. On, it links react-native-health-connect, adds READ_STEPS and
+// READ_EXERCISE, raises the Android minimum to 8.0 (API 26, Health Connect's floor, which
+// drops Android 7.0-7.1 for the whole app), and declares the rationale screen. Off — the
+// default, and what the release candidate is built with unless Play has approved the Health
+// Connect form by release-candidate day — none of that happens, the package stays installed
+// but unlinked (react-native.config.js and modules/tulmi-perms' plugin), and the JS check
+// declares no Health1 on that build. iPhone health is not affected either way.
+const TULMI_ANDROID_HEALTH = (process.env.TULMI_ANDROID_HEALTH ?? "").trim().toLowerCase() === "on";
 const metaPlugin: [string, Record<string, unknown>][] =
   /^\d+$/.test(META_APP_ID) && META_CLIENT_TOKEN
     ? [[
@@ -73,6 +84,25 @@ const MIC_USAGE =
   "X0 Bot uses the microphone to turn your speech into text, and to talk with your bots by voice, including when Plan Ease calls you. If you start a Flow session, the microphone stays on in the background so you can dictate from the X0 Bot keyboard, and iOS shows the recording indicator the whole time. It turns off by itself after a few minutes without use, and you can end it anytime from the Lock Screen.";
 const CAMERA_USAGE =
   "X0 Bot uses the camera when you take a photo or video, or scan a code, to give to a bot or send in a chat.";
+// LOCATION AND HEALTH, each written for one data type and one purpose, and each with a working
+// screen in this same binary (no dark declarations).
+//
+// Location is one foreground fix, taken only when the person taps "Use my location" on Plan
+// Ease's "Where does your day start?" card. The phone's own map service names the point; X0 Bot
+// keeps the area's name and never the point, and never looks again on its own. Arrival reminders
+// would need Always, which is not in this build, so no NSLocationAlways* key is here.
+//
+// Health is read-only, steps and workouts, for a fitness bot the person made and switched on
+// themselves. Keep these two in step with the card words the server sends
+// (screens/permitWords.ts) and the store documents: a purpose string that drifts from the screen
+// is a 5.1.1 rejection. HEALTH_USAGE is handed to the HealthKit plugin below as well, so the
+// plugin cannot replace it with its own default.
+const LOCATION_USAGE =
+  "X0 Bot uses your location when you tap Use my location, to fill in a place for you, like the area your day starts " +
+  "from, so it can work out your travel times. It keeps the area's name, not your exact location.";
+const HEALTH_USAGE =
+  "X0 Bot reads your steps and workouts when you connect Apple Health to a fitness bot you made, so the bot can count " +
+  "your active days and keep your streak. It reads nothing else and never uses it for ads.";
 
 const config: ExpoConfig = {
   // User-visible name (under the home-screen icon + in Settings → General →
@@ -195,19 +225,34 @@ const config: ExpoConfig = {
       // the app asks for it, or will (image and video bots: a photo as input,
       // saving what they make), or when a linked module calls its API.
       //
-      // REMOVED (Oct 2026), each because nothing in the app or its keyboard,
-      // share and widget extensions asks for it, and no linked code calls its
-      // permission API (checked in node_modules' iOS sources and in targets/
-      // and modules/): calendars and reminders (expo-calendar is gone: the app
-      // keeps its own calendar on the server, actions.ts calendar.addEvent),
-      // contacts (expo-contacts is gone), location (no CLLocationManager
-      // anywhere; expo-notifications only names CLRegion types), motion (only
-      // CMMotionManager, which needs no key; no activity, pedometer or
-      // altimeter), Apple Music (only Now Playing and remote commands, no media
-      // library), Bluetooth (no CoreBluetooth), local network (a release build
-      // talks only to https on x0bot.com; expo-dev-launcher adds its own key to
-      // development builds and strips it from release ones). Re-add a key in
-      // the SAME release that ships a feature asking for it.
+      // STILL OUT (the Oct 2026 clear-out), each because nothing in the app or
+      // its keyboard, share and widget extensions asks for it, and no linked
+      // code calls its permission API (checked in node_modules' iOS sources and
+      // in targets/ and modules/): calendars and reminders (expo-calendar is
+      // gone: the app keeps its own calendar on the server, actions.ts
+      // calendar.addEvent), motion (only CMMotionManager, which needs no key;
+      // no activity, pedometer or altimeter), Apple Music (only Now Playing and
+      // remote commands, no media library), Bluetooth (no CoreBluetooth), local
+      // network (a release build talks only to https on x0bot.com;
+      // expo-dev-launcher adds its own key to development builds and strips it
+      // from release ones).
+      //
+      // BACK, each with its screen in this same binary: LOCATION and HEALTH.
+      // Location is one foreground fix behind "Use my location" on Plan Ease's
+      // day-starts card (modules/tulmi-perms, CLLocationManager.requestLocation
+      // plus CLGeocoder) — When In Use only, so no NSLocationAlways* key, no
+      // region monitoring and no motion. Health is read-only steps and workouts
+      // behind a switch on a fitness bot the person made
+      // (@kingstinct/react-native-healthkit).
+      //
+      // CONTACTS STAYS OUT, and the feature still ships: "Add from contacts"
+      // uses the system picker (CNContactPickerViewController in
+      // modules/tulmi-perms), which runs outside the app and returns the one
+      // email tapped. CNContactStore is what would need the key, and nothing
+      // touches it. Asking for the whole address book to read one address is
+      // exactly what 5.1.1(iii) refuses.
+      //
+      // Re-add a key in the SAME release that ships a feature asking for it.
       // Every key here is read by the Expo permission plugins in preference
       // to their generic defaults (IOSConfig.Permissions.applyPermissions).
       //
@@ -244,6 +289,23 @@ const config: ExpoConfig = {
       // servers; nothing asks for Apple's speech recognition.
       NSSpeechRecognitionUsageDescription:
         "X0 Bot turns your speech into text on its own servers. It doesn't use Apple's speech recognition.",
+      // ONE FIX WHEN THE PERSON TAPS "Use my location" (botsPlaces.ts's
+      // day-starts card). While Using only: there is no Always key here and no
+      // background location in the binary, so iOS never offers "Always".
+      NSLocationWhenInUseUsageDescription: LOCATION_USAGE,
+      // The prompt opens on APPROXIMATE, matching Android asking for COARSE
+      // only and the label, which claims no Precise Location. A person can
+      // still switch it to Precise, and either way only the area's name is
+      // kept, never a point. If Bengaluru neighbourhoods come out wrong too
+      // often, this key goes and nothing else changes.
+      NSLocationDefaultAccuracyReduced: true,
+      // READ-ONLY steps and workouts for a fitness bot the person made and
+      // switched on. Nothing is ever written to Apple Health, so there is no
+      // NSHealthUpdateUsageDescription (the library's plugin is told to skip
+      // it), no clinical-records key, and no healthkit entry in
+      // UIRequiredDeviceCapabilities — a phone without HealthKit simply never
+      // shows the switch.
+      NSHealthShareUsageDescription: HEALTH_USAGE,
       // The biometricPrompt action (expo-local-authentication): the Code
       // bot's and connected apps' approvals ask for Face ID before a bot acts.
       // SecureStore links LocalAuthentication too.
@@ -388,6 +450,15 @@ const config: ExpoConfig = {
       // push token), so an over-the-air update to an older binary changes
       // nothing. EAS turns the capability on for the App ID from this key.
       "com.apple.developer.usernotifications.time-sensitive": true,
+      // HEALTHKIT, read only. The library's plugin writes this key too; it is
+      // named here as well so the entitlement is visible beside the others and
+      // cannot quietly disappear with a plugin change. Deliberately NOT here:
+      // com.apple.developer.healthkit.background-delivery (the plugin is passed
+      // background:false, and nothing in src/ may call the background APIs) and
+      // healthkit.access (no clinical records). EAS turns the capability on for
+      // the App ID from this key, as it did for time-sensitive; if its sync
+      // fails, the App ID gets it by hand in the day-1 signing session.
+      "com.apple.developer.healthkit": true,
     },
   },
   android: {
@@ -421,6 +492,17 @@ const config: ExpoConfig = {
       // matching service + use-declaration. Re-add (with the declaration) only
       // if a real foreground mic service ships.
       "com.android.vending.BILLING",
+      // ONE COARSE FIX when the person taps "Use my location". Approximate only:
+      // an area name is all that is wanted, FINE is blocked below, and there is
+      // no background location and no location foreground service in the binary.
+      "android.permission.ACCESS_COARSE_LOCATION",
+      // Health Connect, and only with the build switch on (see TULMI_ANDROID_HEALTH
+      // at the top). Two read permissions, nothing else and nothing written. Both
+      // are declared to Play on the Health Connect form with a reason each, and a
+      // build without the switch carries neither.
+      ...(TULMI_ANDROID_HEALTH
+        ? ["android.permission.health.READ_STEPS", "android.permission.health.READ_EXERCISE"]
+        : []),
     ],
     // `permissions` ADDS. It cannot take away what a library merges in.
     //
@@ -460,6 +542,32 @@ const config: ExpoConfig = {
       "android.permission.READ_MEDIA_AUDIO",
       "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
       "android.permission.SYSTEM_ALERT_WINDOW",
+      // LOCATION, CONTACTS AND ACTIVITY, blocked so no library can merge them in
+      // behind the app's back. The app asks for COARSE and nothing else: FINE
+      // would offer Precise the app never uses and never stores; BACKGROUND
+      // needs Play's declaration with a video and a human review, and nothing
+      // here reads location while the app is closed; FOREGROUND_SERVICE_LOCATION
+      // has no service to match. READ/WRITE_CONTACTS: the picker runs outside
+      // the app (ACTION_PICK), so neither is needed, and declaring them is what
+      // Play's 2027 picker rule and Apple's 5.1.1(iii) both refuse.
+      // ACTIVITY_RECOGNITION: Health Connect's steps come from Health Connect,
+      // not from the phone's own step sensor, so nothing may ask for it.
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_BACKGROUND_LOCATION",
+      "android.permission.FOREGROUND_SERVICE_LOCATION",
+      "android.permission.READ_CONTACTS",
+      "android.permission.WRITE_CONTACTS",
+      "android.permission.ACTIVITY_RECOGNITION",
+      // The two health reads, blocked whenever the build switch is OFF. The
+      // `permissions` list above only ADDS, so with the switch off nothing
+      // removes them: a library could merge them in, and a prebuild run after
+      // an ON prebuild without --clean would keep yesterday's entries. Blocking
+      // them writes tools:node="remove", which takes them out of the merged
+      // manifest either way. With the switch on they are declared above and
+      // must not appear here.
+      ...(TULMI_ANDROID_HEALTH
+        ? []
+        : ["android.permission.health.READ_STEPS", "android.permission.health.READ_EXERCISE"]),
     ],
     // Android masks the icon into whatever shape the launcher wants (circle,
     // squircle, teardrop) and shows only the middle 72/108 of the canvas.
@@ -510,9 +618,18 @@ const config: ExpoConfig = {
     "expo-document-picker",
     "expo-local-authentication",
     "expo-notifications",
-    // No expo-contacts or expo-calendar: neither is installed any more (their
-    // plugins added the contacts, calendars and reminders strings, and
-    // READ/WRITE_CONTACTS and READ/WRITE_CALENDAR on Android).
+    // Still no expo-contacts, expo-calendar or expo-location, and all three
+    // features they would carry are in this build anyway:
+    //  - contacts is the system picker (modules/tulmi-perms), so no permission
+    //    at all; expo-contacts' plugin adds READ_CONTACTS *and* WRITE_CONTACTS,
+    //    and its picker needs READ_CONTACTS on Android.
+    //  - location is one fix in that same module, about 150 lines;
+    //    expo-location's plugin writes NSLocationAlways* and
+    //    NSMotionUsageDescription unless each is passed false, merges
+    //    ACCESS_FINE_LOCATION and a LocationTaskService with
+    //    foregroundServiceType="location", and links the Always/background
+    //    APIs, which is the ITMS-90683 refusal this file warns about above.
+    //  - the app keeps its own calendar on the server.
     "expo-video",
     // Splash / launch screen: the app icon's Blip, small, in ink, hanging upside
     // down from a piece of bar by his robot hands, shades on, his feelers
@@ -579,6 +696,33 @@ const config: ExpoConfig = {
     // Tailzu in Android's Share menu (ACTION_SEND / SEND_MULTIPLE on MainActivity).
     // iOS's share extension is targets/share, picked up by apple-targets below.
     "./modules/tulmi-share/plugin/withTulmiShare",
+    // APPLE HEALTH, read only. The two option names are the plugin's own
+    // (app.plugin.ts): the share string is handed in so the plugin cannot
+    // replace it with "X0 Bot wants to read your health data", `false` skips
+    // the update string entirely (nothing is ever written to Health), and
+    // background:false leaves out the background-delivery entitlement, so the
+    // core pod's launch hook has no type to observe. The package has no Android
+    // code; Health Connect is the Android half, behind the build switch.
+    [
+      "@kingstinct/react-native-healthkit",
+      {
+        NSHealthShareUsageDescription: HEALTH_USAGE,
+        NSHealthUpdateUsageDescription: false,
+        background: false,
+      },
+    ],
+    // Health Connect needs Android 8.0 (API 26), so the minimum moves ONLY in a
+    // build that carries it. Off, the app's minimum stays where it is and
+    // Android 7 phones keep the app. react-native-health-connect's own plugin
+    // is deliberately not listed: it points the rationale screens at
+    // MainActivity, which cannot show the policy. The library links itself.
+    ...(TULMI_ANDROID_HEALTH
+      ? ([["expo-build-properties", { android: { minSdkVersion: 26 } }]] as [string, Record<string, unknown>][])
+      : []),
+    // The rationale screen when the switch is on, and taking Health Connect's
+    // Expo half out of the build when it is off (react-native.config.js takes
+    // out the React Native half; the two have to go together).
+    ["./modules/tulmi-perms/plugin/withTulmiPerms", { androidHealth: TULMI_ANDROID_HEALTH }],
     "./modules/withPrivacyManifest",
     "@bacons/apple-targets",
     ...metaPlugin,

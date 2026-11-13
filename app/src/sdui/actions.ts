@@ -51,6 +51,9 @@ import { listenStream, makeStreamId, StreamTap } from "./live/askStream";
 import { voiceLive, voiceStop } from "./voice/voiceLive";
 import { voiceCall, voiceCallSet } from "./voice/callRealtime";
 import { speakLine } from "./voice/speech";
+import { locationGranted, locationRequest, runLocateArea } from "../device/locate";
+import { runContactPick } from "../device/contact";
+import { openHealthConnectSettings, runHealthSync } from "../device/health";
 
 export interface NavApi {
   push: (screenId: string, params?: Record<string, any>) => void;
@@ -248,6 +251,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       const failed = () => ctx.toast(txt("toast.openSettingsFailed", "Couldn't open Settings"), "error");
       if (Platform.OS === "android" && action.target === "keyboard") {
         Linking.sendIntent("android.settings.INPUT_METHOD_SETTINGS").catch(() => Linking.openSettings().catch(failed));
+      } else if (Platform.OS === "android" && action.target === "healthConnect" && openHealthConnectSettings()) {
+        // Health Connect's own page opened
       } else {
         Linking.openSettings().catch(failed);
       }
@@ -594,7 +599,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
           case "contacts":
           case "calendar":
-            // NOT IN THIS BUILD: neither module is linked (see the imports).
+            // NOT IN THIS BUILD: neither module is linked (see the imports). Contacts has no permission at all: the
+            // contact.pick action uses the system picker.
             // Denied, so onDenied fires instead of the screen waiting.
             console.warn(`[sdui] requestPermission('${action.permission}'): not built in — treating as denied`);
             granted = false;
@@ -614,14 +620,13 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             console.warn('[sdui] requestPermission("tracking"): not built in — treating as denied');
             granted = false;
             break;
-          case "location":
-            // expo-location is NOT a dependency in this build. Wiring a real
-            // location prompt needs that native module added (a native change),
-            // so we can't grant here — fall through as denied (onDenied fires)
-            // instead of silently doing nothing. See report: needs expo-location.
-            console.warn("[sdui] requestPermission('location'): expo-location not installed — treating as denied");
-            granted = false;
+          case "location": {
+            // While using the app only, approximate first (device/locate.ts). The coordinate never reaches JS.
+            const r = await locationRequest();
+            granted = r.granted;
+            blocked = r.blocked;
             break;
+          }
         }
         // onBlocked falls back to onDenied, so a screen that has not been
         // taught the difference behaves exactly as it does today.
@@ -657,9 +662,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           case "notifications": granted = (await Notifications.getPermissionsAsync()).granted; break;
           case "photoLibrary": granted = (await MediaLibrary.getPermissionsAsync()).granted; break;
           // None is built in — see requestPermission for why. Not granted.
+          case "location": granted = await locationGranted(); break;
           case "contacts":
           case "calendar":
-          case "location":
           case "tracking": granted = false; break;
         }
       } catch {
@@ -668,6 +673,49 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       }
       if (action.assignTo) ctx.store.set(action.assignTo, granted);
       await runAction(granted ? action.onGranted : action.onDenied, ctx);
+      break;
+    }
+
+    // LOCATION, CONTACTS, HEALTH (perms/SPEC.md). Each one action, so no raw value ever sits in state: location puts only the
+    // area's WORDS in `assignTo`, the picker only the ONE email tapped, and health goes from the phone straight to the server.
+    // The screen draws the buttons only when the binary said Location1 / ContactPick1 / Health1 (device/permCaps.ts).
+    // Analytics carry the outcome name and nothing else; nothing here is logged with a value.
+    case "location.area": {
+      const r = await runLocateArea(action.ask);
+      trackEvent("location_area", { outcome: r.outcome });
+      if (r.outcome === "found" && r.label) {
+        ctx.store.set(action.assignTo, r.label);
+        await runAction(action.onFound, ctx);
+      } else if (r.outcome === "none") await runAction(action.onNone, ctx);
+      else if (r.outcome === "denied") await runAction(action.onDenied, ctx);
+      else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
+      else await runAction(action.onError, ctx);
+      break;
+    }
+    case "contact.pick": {
+      const r = await runContactPick();
+      trackEvent("contact_pick", { outcome: r.outcome });
+      if (r.outcome === "picked" && r.email) {
+        ctx.store.set(action.assignTo, r.email);
+        await runAction(action.onPicked, ctx);
+      } else if (r.outcome === "cancel") await runAction(action.onCancel, ctx);
+      else await runAction(action.onError, ctx);
+      break;
+    }
+    case "health.sync": {
+      // The path is pinned and the read is summed on the phone (device/health.ts, healthCore.ts). No health value comes back.
+      const r = await runHealthSync(
+        action,
+        (path, body) => callEndpoint("POST", path, body),
+        num("health.syncEveryMs", 3600000),
+      );
+      if (r.outcome !== "skipped") trackEvent("health_sync", { outcome: r.outcome });
+      if (r.outcome === "synced") await runAction(action.onSynced, ctx);
+      else if (r.outcome === "empty") await runAction(action.onEmpty ?? action.onSynced, ctx);
+      else if (r.outcome === "denied") await runAction(action.onDenied, ctx);
+      else if (r.outcome === "blocked") await runAction(action.onBlocked ?? action.onDenied, ctx);
+      else if (r.outcome === "unavailable") await runAction(action.onUnavailable ?? action.onError, ctx);
+      else if (r.outcome === "error") await runAction(action.onError, ctx);
       break;
     }
 

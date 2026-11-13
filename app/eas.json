@@ -11,7 +11,8 @@
       "android": { "buildType": "apk" },
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
-        "SENTRY_ALLOW_FAILURE": "true"
+        "SENTRY_ALLOW_FAILURE": "true",
+        "TULMI_ANDROID_HEALTH": "off"
       }
     },
     "preview": {
@@ -20,7 +21,8 @@
       "android": { "buildType": "apk" },
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
-        "SENTRY_ALLOW_FAILURE": "true"
+        "SENTRY_ALLOW_FAILURE": "true",
+        "TULMI_ANDROID_HEALTH": "off"
       }
     },
     "production": {
@@ -29,7 +31,17 @@
       "environment": "production",
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
-        "SENTRY_ALLOW_FAILURE": "true"
+        "SENTRY_ALLOW_FAILURE": "true",
+        "TULMI_ANDROID_HEALTH": "off"
+      }
+    },
+    "n0": {
+      "extends": "production",
+      "channel": "n0",
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "SENTRY_ALLOW_FAILURE": "true",
+        "TULMI_ANDROID_HEALTH": "on"
       }
     }
   },

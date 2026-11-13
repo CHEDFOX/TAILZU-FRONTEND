@@ -20,11 +20,24 @@ on:
       - "app/modules/tulmi-stream/android/**"
       - "app/modules/tulmi-share/android/**"
       - "app/modules/tulmi-share/plugin/**"
+      # tulmi-perms: the contact picker, the one location fix and Health
+      # Connect's rationale screen. Its plugin decides, from the Android health
+      # build switch, whether Health Connect is linked at all — so a change to
+      # either has to go through a real prebuild and Kotlin compile.
+      - "app/modules/tulmi-perms/android/**"
+      - "app/modules/tulmi-perms/plugin/**"
+      - "app/react-native.config.js"
       - "app/android/**"
       - "app/app.config.ts"
       - "app/package.json"
       - "app/package-lock.json"
+      # eas.json carries TULMI_ANDROID_HEALTH per build profile, so it decides
+      # which shape each profile ships; the two checks below read app.config.ts
+      # and the plugin for both values of it.
+      - "app/eas.json"
       - "tools/ci/marked-regions.mjs"
+      - "tools/ci/check-health-switch.mjs"
+      - "tools/ci/check-config-shape.mjs"
       - ".github/workflows/keyboard-android.yml"
   workflow_dispatch: {}
 
@@ -63,6 +76,23 @@ jobs:
 
       - name: Install JS deps
         run: npm ci
+
+      # The Android health build switch has to leave Health Connect either
+      # wholly in or wholly out. Its Expo half (android-expo, the permission
+      # delegate) declares `implementation project(':react-native-health-connect')`,
+      # so linking one half without the other fails Gradle at configuration
+      # time — on the ON build, which this job does not compile. Both lists are
+      # read here in seconds instead.
+      - name: The health switch links both halves, or neither
+        run: node ../tools/ci/check-health-switch.mjs
+
+      # Every permission, usage string and entitlement the two switch values
+      # resolve to, read out of the plugin chain itself. The Kotlin compile
+      # below only ever sees the switch-off shape, and the prebuild after it
+      # only one manifest, so nothing else would notice a conditional that
+      # stopped firing or a library plugin that put a key back.
+      - name: app.config.ts resolves to the declared shape, both switch values
+        run: node ../tools/ci/check-config-shape.mjs
 
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install

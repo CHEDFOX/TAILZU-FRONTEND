@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Nothing of its own, on purpose.
+
+    No permission: the contact picker is ACTION_PICK, which hands back one row
+    the app may read once and needs no READ_CONTACTS, and ACCESS_COARSE_LOCATION
+    belongs to the app's own list (app.config.ts), where it can be seen beside
+    the blocked ones.
+
+    HealthRationaleActivity is in this module's Kotlin but is NOT declared here:
+    plugin/withTulmiPerms.js writes the activity and its VIEW_PERMISSION_USAGE
+    alias into the app's manifest only when the Android health build switch is
+    on. A build without Health Connect must have no health entry at all.
+  -->
+</manifest>
