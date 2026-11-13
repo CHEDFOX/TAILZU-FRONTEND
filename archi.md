@@ -67,7 +67,8 @@ src/
 │  ├─ bots/               the Bots app's living components: BotTiles, BotCard, BotBuddy, Home's header, pull-a-bot, BotStage
 │  │                      (a bot with a thought; stageCore.ts its geometry and taps; thought.ts what a field in it may ask),
 │  │                      BotCrowd (a box of tiny bots), PersonBot (a person as their own tiny bot, idling; personBotCore.ts
-│  │                      his box, his idle and the one loop every PersonBot shares)
+│  │                      his box, his idle and the one loop every PersonBot shares), DotArt (what a bot draws, as monochrome
+│  │                      dots that obey physics; dotArtCore.ts the rules, shared with the window by genDotArt.mjs)
 │  ├─ voice/              live words turn by turn (voiceLive / voiceStop: voiceLive.ts on tulmi-stream, voiceLiveCore.ts the loop),
 │  │                      Plan Ease's call as a live conversation (voiceCall / voiceCallSet: callRealtime.ts on one WebRTC
 │  │                      connection to the voice service, callRealtimeCore.ts its rules), and the voice bus (voiceBus.ts:
@@ -109,6 +110,7 @@ Tests sit beside their modules as `*.test.ts` (Node's test runner over the pure 
 | The Bots kit (tiles, cards, buddy, Home's header, pull-a-bot) | `src/sdui/bots/`; engine in `src/botTiles/` |
 | Spaces' pieces (section 3i): a bot with a thought, a crowd, a vanishing row, the @ and / field, live words | `sdui/bots/BotStage.tsx` + `stageCore.ts`, `sdui/bots/BotCrowd.tsx`, `sdui/components/Vanish.tsx`, `sdui/components/MentionField.tsx` + `mentionCore.ts`, `sdui/components/LiveWords.tsx` + `liveWordsCore.ts`; walking, roaming, listening, the thought's trail and follow in `src/botTiles/core.ts` |
 | A person as their own tiny bot (section 3j: no initials anywhere in Spaces), in the "@" list too | `sdui/bots/PersonBot.tsx` (the node, PersonBotView for a list drawn from data), `sdui/bots/personBotCore.ts` (his box, his idle recipe and gestures, the one loop; tested on the real engine) |
+| What a bot draws under its words, as dots that obey physics (DotArt, section 3k): springs home, damping, gravity for a fall, an impulse where a finger lands, a push while it stays, heat, asleep once settled | `sdui/bots/DotArt.tsx` (the node: the tiles' surface, one loop, a touch the scroll may take over, kept by key), `sdui/bots/dotArtCore.ts` (the physics and the drawing, no imports) + `.test.ts`; `sdui/bots/genDotArt.mjs` writes `TAILZU-DESKTOP/dotArt.js` from it (the test fails while the copy is behind); declared as `DotArt` in `src/sdui/registry.ts` |
 | The messages' face (Bricolage Grotesque, capability FontBricolage) | no file of its own: the bootstrap's `fonts` names "Tailzu Bricolage", "… Medium", "… SemiBold" for a build that declares it, and `theme/remoteFonts.ts` registers them as it does Geist (the files and their licence are the server's, TAILZU-BACKEND tulmi/fonts) |
 | Talking to a bot (voiceLive, voiceStop) | `sdui/voice/voiceLive.ts` (the microphone, the screen's actions), `voiceLiveCore.ts` (turns, pauses, the made-up level), `voiceBus.ts` |
 | Plan Ease's call as a live conversation (`voiceCall`, `voiceCallSet`; capability `VoiceRealtime`, a store build only): one WebRTC connection from the phone straight to the voice service, our server doing the handshake with its own key and holding the session beside it, the data channel read only | `sdui/voice/callRealtime.ts` (the microphone, the connection, the screen's actions; the one guarded `require` of `react-native-webrtc`), `callRealtimeCore.ts` (phases, the words kept, the write throttle, the timers, the echo-canceller list, which screen holds the call) + `.test.ts`, `callRealtime.imports.test.ts` (no file imports the client), `callRealtime.turns.test.ts` (one microphone at a time: End
@@ -285,6 +287,7 @@ language can express is a server push, not a release.
 - `tools/knobs/app-knobs.json` (and `keyboard-knobs.json`) are read by the backend's `tulmi/scripts/sync-knobs.mjs`.
   Regenerate with `node tools/knobs/extract.mjs` (and `extract-keyboard.mjs`) after adding knobs.
 - `TAILZU-DESKTOP/botTiles.js` is generated from `src/botTiles/core.ts` (header carries both hashes).
+- `TAILZU-DESKTOP/dotArt.js` is generated from `src/sdui/bots/dotArtCore.ts` (`node src/sdui/bots/genDotArt.mjs`; header carries both hashes).
 - `src/sdui/types.ts` and `src/api.ts` mirror `TAILZU-BACKEND/shared/types/sdui.ts` and `api.ts` by hand;
   `src/botTiles/starter.ts` is generated from `TAILZU-BACKEND/shared/bots/looks.json`.
 - The backend's render check (`tulmi/scripts/bots-render`) bundles this app's renderer through
