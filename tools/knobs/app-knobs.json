@@ -36,6 +36,8 @@
     "billing.elsewhere.unknown": "This account already has an active subscription.",
     "billing.elsewhere.web.go": "Email support",
     "billing.elsewhere.web.name": "the web",
+    "blocks.reopen": "Open X0 again to see this",
+    "blocks.update": "Update X0 to see this",
     "boot.failure.body": "Something failed before the app could draw anything. The detail below says what.",
     "boot.failure.title": "X0 Bot couldn't start",
     "desktop.agent.approveElsewhere": "I need your OK in X0 Bot first.",
@@ -89,6 +91,9 @@
     "desktop.billing.storeWeb": "the web",
     "desktop.billing.subscribed": "You're subscribed. Thank you.",
     "desktop.billing.unavailable": "Subscriptions aren't set up for the desktop app yet.",
+    "desktop.blocks.download": "Download the new version",
+    "desktop.blocks.missing": "This page needs {blocks}, which this version doesn't have yet.",
+    "desktop.blocks.update": "Update X0 to see this.",
     "desktop.button.label": "Continue",
     "desktop.chat.pickLabel": "Tap the one that sounds like you",
     "desktop.files.aFile": "a file",
@@ -237,6 +242,7 @@
     "desktop.guide.showing": "Here",
     "desktop.guide.thinking": "Looking",
     "desktop.guide.yes": "Do it",
+    "desktop.input.slide": "Slide to confirm",
     "desktop.mast.unlimited": "Unlimited",
     "desktop.mast.words": "{used} / {of} words",
     "desktop.media.shotOff": "Screen Recording is off for X0 Bot, so pick a picture instead.",
@@ -623,6 +629,19 @@
     "widget.month.wordsThisMonth": "Words this month"
   },
   "flags": {
+    "9": {
+      "min": 0,
+      "max": 5
+    },
+    "-2": {
+      "min": -5
+    },
+    "1.239": {
+      "decimals": 2
+    },
+    "1.5": {
+      "decimals": 0
+    },
     "ads.meta.enabled": true,
     "ads.meta.ios.enabled": false,
     "analytics.enabled": false,
@@ -1172,6 +1191,7 @@
     "desktop.bars.height": 110,
     "desktop.bars.minPct": 2,
     "desktop.bars.radius": 3,
+    "desktop.blocks.downloadUrl": "",
     "desktop.blur.divisor": 3,
     "desktop.blur.intensity": 60,
     "desktop.bootstrap.refreshMs": 600000,

@@ -5,17 +5,18 @@
  * come from, what a page of rows does to the rows already held, and which child of a Screen becomes the screen's own
  * scroller. No React and no react-native, so it runs under `node --test` and reads the same on the desktop.
  *
- * The caps are pure/SPEC.md 5.1's, written here as constants until K1's kernel exports them (this block may not import
- * the kernel yet). They are the device's own floor: the server lints the same numbers, and a server that forgets is
- * still clamped here.
+ * The caps are pure/SPEC.md 5.1's: the two the kernel names are read from it (src/sdui/kernel/limits.ts), and the
+ * rest are this block's own. They are the device's own floor: the server lints the same numbers, and a server that
+ * forgets is still clamped here.
  */
+import { LIMITS } from "../kernel/limits.ts";
 
 /** pure/SPEC.md 5.1, the list row. */
 export const LIST_LIMITS = {
   /** Rows one page may bring. More than this is cut. */
-  pageMax: 100,
+  pageMax: LIMITS.pageItems,
   /** Rows a list holds at once. Full means the list stops asking for more. */
-  heldMax: 2000,
+  heldMax: LIMITS.listItems,
   /** Copies `Each` will make. A hard cap: `Each` is for small arrays, `List` is for long ones. */
   eachMax: 200,
   /** Rows a list draws when it is NOT the scroller (no virtualisation, so nothing off-screen is free). */

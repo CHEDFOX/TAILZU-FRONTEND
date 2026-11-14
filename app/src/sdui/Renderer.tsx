@@ -1,18 +1,35 @@
 /**
  * The renderer — walks a Node tree and draws it via the component registry,
  * resolving data bindings, visibility, events, and entry motion.
+ *
+ * VOCAB 2 (pure/SPEC.md 2.2-2.12) rides on top of all of that, and only for a screen that asked for it:
+ *   - `{ "$": … }` values and `{ "$t": … }` texts are worked out by the kernel before a prop reaches a component,
+ *     against a scope of state, device, local, item, index, args and ui. A bare string is never touched.
+ *   - a node that uses one re-renders only when a path it reads changes; every other node keeps today's
+ *     behaviour, a re-render on any store write.
+ *   - `motion` and `gestures` wrap what the node drew (gesture outside, motion inside, so a scale never moves the
+ *     box that takes the finger); `paint` lets the style keys through and draws a backdrop blur.
+ *   - a node's own `rules` run while it is visible.
+ * None of it costs a screen that states no `needs`: `ctx.blocks` is empty and every branch below is skipped.
  */
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Animated } from "react-native";
-import type { Node, NodeEvent } from "./types";
-import { useStoreVersion } from "./state";
+import type { MotionSpec, Node, NodeEvent } from "./types";
+import { useStoreWatch } from "./state";
 import { REGISTRY } from "./components";
 import type { CompProps } from "./components/props";
-import { resolveStyle } from "./theme/style";
+import { resolveStyle, resolvePaintBlur } from "./theme/style";
+import { BackdropBlur } from "./components/blur";
 import { useTheme } from "./theme/ThemeContext";
 import { Ctx, evalCondition, runAction } from "./actions";
 import { num, str } from "./knobs";
-import { motionMode, nodeOff, noteBadNode } from "./safety";
+import { gesturesOn, motionMode, nodeOff, noteBadNode, rulesOn } from "./safety";
+import { usesMotion, wrapMotion, type MotionHost } from "./motion";
+import { usesGesture, wrapGesture, type GestureHost } from "./gesture";
+import { NO_EXPRESSIONS, compileNode, kernelScope, resolveInto, scopeFor, type RenderScope } from "./blocks/nodeCore.ts";
+import { baseScope, useFactsWatch } from "./blocks/scope";
+import { useRules } from "./blocks/useRules";
+import { blockForType } from "./blocks/registry";
 
 // Conditions a style value can carry (a subset of the SDUI Condition keys).
 const STYLE_COND_KEYS = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains",
@@ -93,19 +110,53 @@ class NodeBoundary extends React.Component<
 }
 
 /** A node and everything under it, inside its own boundary. */
-export function RenderNode({ node, ctx }: { node: Node; ctx: Ctx }) {
+export function RenderNode({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: RenderScope }) {
   // The boundary wraps the BODY rather than sitting inside it, so a throw in the body's own hooks — an onAppear
   // action, a style the theme cannot resolve — is caught too, not just one in the component it draws.
   return (
     <NodeBoundary node={node} ctx={ctx}>
-      <RenderNodeBody node={node} ctx={ctx} />
+      <RenderNodeBody node={node} ctx={ctx} scope={scope} />
     </NodeBoundary>
   );
 }
 
-function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
+/** True when this block is live on the screen being drawn. Empty `blocks` is a vocab-1 screen: nothing is live. */
+const on = (ctx: Ctx, block: string): boolean => !!ctx.blocks && ctx.blocks.includes(block);
+
+/** Every path this node reads: its expressions', its rules', and the dot-paths its `bind` names. */
+function depsOf(node: Node, exprDeps: readonly string[]): string[] {
+  const out = [...exprDeps];
+  if (node.bind) {
+    for (const k of Object.keys(node.bind)) {
+      const p = node.bind[k];
+      if (typeof p === "string" && p && !out.includes(`state.${p}`)) out.push(`state.${p}`);
+    }
+  }
+  // A node with rules is redrawn on any write: its `when` is looked at by the rule host, not by this render, and
+  // what the rule does is usually a state write the node itself draws.
+  return out;
+}
+
+function RenderNodeBody({ node, ctx, scope }: { node: Node; ctx: Ctx; scope?: RenderScope }) {
   const theme = useTheme();
-  useStoreVersion(ctx.store); // re-render when bound state changes
+
+  // VOCAB 2, only where the screen asked for it. `compileNode` is cached on the node object, so a screen's tree
+  // compiles once and every render after this is a lookup.
+  const exprOn = on(ctx, "expr");
+  // A screen that did not ask for `expr` is not even looked at for one: its props are data, as they always were.
+  const compiled = exprOn ? compileNode(node) : NO_EXPRESSIONS;
+  const live = compiled.live;
+  if (live && compiled.errors.length > 0) reportOnce(node, compiled.errors);
+  const deps = useMemo(
+    () => (live ? depsOf(node, compiled.deps) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [node, live],
+  );
+  // One watcher either way: null deps is exactly today's behaviour (re-render on any write), a list of paths is
+  // the new one. The hook is always called, so a node that gains an expression cannot change the hook order.
+  useStoreWatch(ctx.store, deps);
+  // `device.*` and `local.*` are not in the store, so they are watched separately — and only when read.
+  useFactsWatch(deps);
 
   // Node lifecycle: fire onAppear when this node becomes visible and
   // onDisappear when it stops being visible. Backend screens rely on this —
@@ -125,7 +176,18 @@ function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
   //
   // A node with no visibleIf is visible from its first render, so it fires once
   // on mount exactly as before.
-  const visible = evalCondition(node.visibleIf, ctx);
+  // `visibleIf` is either today's Condition or the kernel's `{ expr }` (SPEC 2.2). A condition the kernel cannot
+  // work out hides the node, which is what a condition that cannot be read has always meant here.
+  let visible = true;
+  if (live && compiled.visible) {
+    try {
+      visible = !!compiled.visible.run(kernelScope(baseScope(ctx), scope));
+    } catch {
+      visible = false;
+    }
+  } else {
+    visible = evalCondition(node.visibleIf, ctx);
+  }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!visible) return;
@@ -140,7 +202,7 @@ function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
    * ONE `fire` PER NODE, FOR THE LIFE OF THE NODE.
    *
    * It used to be a fresh arrow on every render, and every node re-renders on
-   * every store write (useStoreVersion above subscribes to the whole store).
+   * every store write (useStoreWatch above, with no paths, is that subscription).
    * For anything that draws, a new function per render costs nothing. For a
    * component that puts `fire` in a dependency array it is fatal, and the
    * spoken screen is exactly that: VoiceSession's effect owns the microphone,
@@ -166,14 +228,23 @@ function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
     void runAction(nodeRef.current.on?.[event], { ...ctxRef.current, event: value });
   }, []);
 
+  // A NODE'S OWN RULES (SPEC 2.4), live only while the node is. Called unconditionally, and does nothing at all
+  // when the node has none or the screen did not ask for `rules`.
+  useRules((node as { rules?: unknown }).rules, ctx, on(ctx, "rules") && rulesOn(), visible);
+
   if (!visible) return null;
 
   // A type this build does not draw falls back — and so does one the server switched off (`sdui.off`) or one safe
   // mode does not allow. "Off" and "never built" look the same from here on purpose: the fallback is the server's
   // own answer for a player that cannot draw something, so a kill switch gets the same answer for free.
-  const Comp = nodeOff(node.type) ? undefined : REGISTRY[node.type];
+  //
+  // A type that belongs to a block is only this screen's to draw when the screen said it needs that block: the
+  // registry is one list for the whole launch, the gate is per screen (SPEC 2.0, principle 2).
+  const fromBlock = blockForType(node.type);
+  const blocked = fromBlock !== null && !on(ctx, fromBlock);
+  const Comp = nodeOff(node.type) || blocked ? undefined : REGISTRY[node.type];
   if (!Comp) {
-    return node.fallback ? <RenderNode node={node.fallback} ctx={ctx} /> : null;
+    return node.fallback ? <RenderNode node={node.fallback} ctx={ctx} scope={scope} /> : null;
   }
 
   // Resolve props: literal props + bound props (bind: { prop -> statePath }).
@@ -205,6 +276,14 @@ function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
   // `autoplay: false` and never starts. Keep the literal when the store has
   // nothing to say; a screen that does declare the key still wins, including
   // when it declares it false.
+  //
+  // ---------------------------------------------------------------------------------------------------------
+  // THE KERNEL'S TURN (SPEC 2.2). Only `{ "$": … }` and `{ "$t": … }` props are worked out; every other prop is
+  // already in `props`, exactly as the server wrote it, which is how a note title that happens to read
+  // "{{ state.token }}" draws as those characters. It runs AFTER the catalog pass, so a value an expression built
+  // is never read back as an "@key", and BEFORE `bind`, which keeps its old last word.
+  const kScope = live ? kernelScope(baseScope(ctx), scope) : null;
+  if (kScope && compiled.props.length > 0) resolveInto(props, compiled.props, kScope, badValue(node));
   if (node.bind) {
     for (const k of Object.keys(node.bind)) {
       const v = ctx.store.get(node.bind[k]);
@@ -212,18 +291,72 @@ function RenderNodeBody({ node, ctx }: { node: Node; ctx: Ctx }) {
     }
   }
 
-  const style = resolveStyle(resolveStyleConditionals(node.style, ctx), theme);
+  // The same for the style's own values, before the theme reads it.
+  let styleSrc = node.style;
+  if (kScope && compiled.style.length > 0) {
+    styleSrc = resolveInto({ ...(node.style ?? {}) }, compiled.style, kScope, badValue(node));
+  }
+  // `paint` (B7) is the server's own style keys — gradients, shadows, filters, blend — and they are let through
+  // only for a screen that asked for the block.
+  const paintOn = on(ctx, "paint");
+  const style = resolveStyle(resolveStyleConditionals(styleSrc, ctx), theme, paintOn);
+  const blur = resolvePaintBlur(styleSrc, paintOn);
 
-  const children = (node.children ?? []).map((child, i) => <RenderNode key={i} node={child} ctx={ctx} />);
+  // Children are drawn in the scope this node makes: a template's `$args` worked out here, so a row reads its own
+  // arguments (kernel defs.ts leaves the frames; nodeCore turns them into a scope).
+  const kidScope = live ? scopeFor(compiled, baseScope(ctx), scope, badValue(node)) : scope;
+  const children = (node.children ?? []).map((child, i) => (
+    <RenderNode key={i} node={child} ctx={ctx} scope={kidScope} />
+  ));
+  // A backdrop blur sits under everything the node draws; the box needs `overflow: hidden` for it to follow the
+  // node's own corners, which is the server's to say.
+  const kids = blur
+    ? [<BackdropBlur key="__blur" intensity={blur.intensity} tint={blur.tint} />, ...children]
+    : children;
 
-  const bag: CompProps = { node, props, style, store: ctx.store, children, fire, ctx };
-  const rendered = <Comp {...bag} />;
+  const bag: CompProps = { node, props, style, store: ctx.store, children: kids, fire, ctx };
+  let rendered: React.ReactNode = <Comp {...bag} />;
 
-  // Fire onAppear once, and wrap in entry motion if requested.
-  return node.motion?.appear ? <Motion spec={node.motion}>{rendered}</Motion> : rendered;
+  // GESTURE OUTSIDE, MOTION INSIDE (V2's hand-off): a motion that scales or moves a node must not move the box
+  // that takes the finger. Both return the child untouched when the node asks for nothing.
+  if (on(ctx, "motion") && usesMotion(node)) {
+    rendered = wrapMotion(node, rendered, ctx.hosts?.motion as MotionHost | undefined);
+  }
+  if (on(ctx, "gesture") && gesturesOn() && usesGesture(node)) {
+    rendered = wrapGesture(node, rendered, ctx.hosts?.gesture as GestureHost | undefined);
+  }
+
+  // Fire onAppear once, and wrap in entry motion if requested (the seven vocab-1 presets, unchanged: a format-2
+  // motion is an object of style keys and has no `appear`, so the two never meet).
+  const preset = node.motion as MotionSpec | undefined;
+  return preset?.appear ? <Motion spec={preset}>{rendered}</Motion> : rendered;
 }
 
-function Motion({ spec, children }: { spec: NonNullable<Node["motion"]>; children: React.ReactNode }) {
+/**
+ * WHAT WOULD NOT COMPILE, SAID ONCE (SPEC 2.11, `sdui.bad`).
+ *
+ * A node that throws is reported by its boundary; an expression that will not compile throws nothing at all —
+ * the prop simply keeps what the server wrote. So it is reported here instead, once per node object, because a
+ * node re-renders and the report is news only the first time.
+ */
+const told = new WeakSet<object>();
+
+function reportOnce(node: Node, errors: readonly string[]): void {
+  if (told.has(node)) return;
+  told.add(node);
+  for (const why of errors.slice(0, 2)) {
+    try { noteBadNode(`${node.type}:${why.slice(0, 30)}`); } catch { /* reporting is never the next error */ }
+  }
+}
+
+/** Anything an expression on this node could not work out, reported once per node type (SPEC 2.11, `sdui.bad`). */
+function badValue(node: Node): (why: string) => void {
+  return (why) => {
+    try { noteBadNode(`${node.type}:${why.slice(0, 30)}`); } catch { /* reporting is never the next error */ }
+  };
+}
+
+function Motion({ spec, children }: { spec: MotionSpec; children: React.ReactNode }) {
   // `sdui.motion`, and safe mode, which forces it off. Both mean here what Reduce Motion already means everywhere
   // else in this app (Rise.tsx): the thing is simply there, at the end of its entrance, from the first frame.
   //

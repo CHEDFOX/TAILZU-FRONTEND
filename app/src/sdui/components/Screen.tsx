@@ -10,6 +10,8 @@ import { usePullBot, PullBotScroll } from "../bots/PullBot";
 import type { CompProps } from "./props";
 import { pageScrolled, pageTouched } from "./pageBus";
 import { publishScroll, useScrollInto } from "../motion/scroll";
+import { ScreenScrollerContext } from "./v3Host";
+import { screenListPlan } from "./listCore";
 
 /**
  * HOW TALL ONE SCREENFUL ACTUALLY IS.
@@ -88,7 +90,7 @@ export function KeyboardAbove({ style, children }: { style: any; children: React
   );
 }
 
-export const Screen = ({ props, children, style, ctx }: CompProps) => {
+export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   const [vh, setVh] = useState(0);
   // Pull-a-bot, when the screen on show asks for it (ScreenResponse.pullBot): the same scroll, with a bot in its pull.
   const pull = usePullBot();
@@ -206,6 +208,36 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     directionalLockEnabled: hold,
     keyboardShouldPersistTaps: "handled" as const,
   };
+  // A SCREEN WHOSE BODY HOLDS A LIST STOPS SCROLLING (pure/SPEC.md 2.6, agreed with V3).
+  //
+  // A FlatList inside a ScrollView is a nested VirtualizedList, and React Native turns windowing off — so the
+  // one screen most likely to need it loses it. The List becomes the screen's scroller instead: the nodes above
+  // it are its header, the nodes below are its footer, and it takes the Screen's padding, background, its
+  // `startAtEnd` and its scroll offset. The children are drawn in the same order as `node.children`, so the
+  // plan's indices address them directly.
+  const listPlan = screenListPlan(node?.children);
+  if (listPlan) {
+    const kids = React.Children.toArray(children);
+    return (
+      <ScreenViewport.Provider value={vh}>
+        <ScreenScrollerContext.Provider
+          value={{
+            header: listPlan.header.map((i) => kids[i]),
+            footer: listPlan.footer.map((i) => kids[i]),
+            contentStyle,
+            backgroundColor: backgroundColor ?? theme.color.bg,
+            startAtEnd: atEnd,
+            onScrollY,
+            // PullBot's own control belongs here when `pull` is set; that half is PLAYER-UI's (PullBot.tsx).
+            refreshControl: undefined,
+          }}
+        >
+          {kids[listPlan.index]}
+        </ScreenScrollerContext.Provider>
+      </ScreenViewport.Provider>
+    );
+  }
+
   return (
     <ScreenViewport.Provider value={vh}>
     {pull ? (

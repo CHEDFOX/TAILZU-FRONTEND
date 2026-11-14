@@ -12,6 +12,9 @@ import { featureCaps } from "../../device/binaryCore";
 import { permCaps } from "../../device/permCaps";
 import { looksReport } from "../../botTiles/looks";
 import { deviceOff, safetyReport } from "../safety";
+import { VOCAB } from "../kernel/index.ts";
+import { kernelFingerprint } from "../blocks/blocksCore.ts";
+import { appRuntime, clientBlocks } from "../blocks/declared";
 
 /**
  * Which JS bundle is actually running.
@@ -69,6 +72,21 @@ export function buildCapabilities() {
     // flag to flip: a constant, true of every bundle that has this line.
     googleWeb: true,
     components: declared(),
+    /**
+     * THE VOCABULARY, AND WHICH BLOCKS OF IT THIS CLIENT REALLY HAS (pure/SPEC.md 2.0 principle 2, 2.11).
+     *
+     * `vocab: 2` says the kernel is here — expressions, templates, rules, limits and paths. It does NOT say the
+     * blocks are: they arrive over several updates, so one number could never say which a phone holds, and
+     * `blocks` is the honest list. A name is in it only when its own code registered and no kill switch turned
+     * it off, so the server may send a construction that needs it. `kernel` is a fingerprint of the vocabulary
+     * number, the block names, every limit and every function an expression may call, so the two sides can tell
+     * at a glance whether they agree about the language; `runtime` is this binary's, which is how the server
+     * tells "open X0 again" from "update X0" for a screen this client cannot draw (SPEC 2.12).
+     */
+    vocab: VOCAB,
+    kernel: kernelFingerprint(),
+    blocks: clientBlocks(),
+    runtime: appRuntime(),
     // The bots' catalog as this phone really has it (botTiles/looks.ts): its version and format, whether it
     // compiled, and any scene that went wrong or was slowed. No person data; a few hundred bytes at most.
     looks: looksReport(),

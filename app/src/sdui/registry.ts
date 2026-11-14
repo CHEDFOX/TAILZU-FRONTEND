@@ -229,6 +229,10 @@ export const CORE_ACTIONS = [
   "voiceCall", "voiceCallSet",
   // a setting kept on this phone: the Sounds switch (sounds.ts)
   "devicePref",
+  // what this phone remembers, and a live topic written into state (pure/SPEC.md 2.9, 2.10). Running them is
+  // this bundle's promise; whether a SCREEN may use one is the `local` / `data` block in the handshake's
+  // `blocks`, and a screen that does not name the block never gets them.
+  "local.set", "local.remove", "subscribe",
   // permissions
   "requestPermission", "checkPermission",
   // location, contacts, health: running them is this bundle's promise; whether the binary can is the module's (permCaps.ts:

@@ -21,21 +21,22 @@
  * Degrade rule (SPEC 2.0 principle 5): nothing here throws. An unknown field is ignored, a bad number falls back
  * or clamps, and what could not be read is named in `bad` so the handshake can carry it home.
  */
+import { LIMITS } from "../kernel/limits.ts";
 
 // ===================================================================== limits
 
 /**
- * The motion numbers from SPEC 5.1. They are the kernel's (src/sdui/kernel/limits.ts) and this is a copy, because
- * this block is written beside the kernel and may not import it yet. When V1 wires the kernel in, these three
- * should come from LIMITS and this table should go.
+ * The motion numbers from SPEC 5.1, read from the kernel (src/sdui/kernel/limits.ts) now that V1 has wired it
+ * in: three of them are the kernel's own, and the two below it are this block's alone. One set of numbers, so
+ * the device and the server lint can only disagree by a missed generate.
  */
 export const MOTION_LIMITS = {
   /** Keys in one animated value. */
-  keyframes: 64,
+  keyframes: LIMITS.keyframes,
   /** Animated nodes alive at once. */
-  nodes: 64,
+  nodes: LIMITS.motionNodes,
   /** Shared moves running together. */
-  sharedMoves: 2,
+  sharedMoves: LIMITS.sharedMoves,
   /** Animated style keys in one node's motion, across every section. */
   tracks: 16,
   /** The longest clock a keyframe track may run, in seconds. A typo of 1e9 is a node that never settles. */

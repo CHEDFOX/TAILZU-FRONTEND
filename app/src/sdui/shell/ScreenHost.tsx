@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { AppState } from "react-native";
 import { RenderNode } from "../Renderer";
+import { ScreenTree } from "../blocks/ScreenTree";
 import { Store } from "../state";
 import { keptStore, liveShowing } from "../live/live";
 import { PullBotContext } from "../bots/PullBot";
@@ -109,9 +110,12 @@ export function ScreenHost({
     return screen.root.fallback ? <RenderNode node={screen.root.fallback} ctx={ctx} /> : null;
   }
   // Pull-a-bot, when the screen asks for it: its Screen pulls a bot (PullBot.tsx).
+  // The tree, through the blocks gate (blocks/ScreenTree.tsx): what the screen says it needs, its templates
+  // expanded, its rules running, and its hosts in place. A screen that states no `needs` comes out the other
+  // side as the same `<RenderNode node={screen.root} ctx={ctx}/>` it always was.
   return (
     <PullBotContext.Provider value={screen.pullBot ?? null}>
-      <RenderNode node={screen.root} ctx={ctx} />
+      <ScreenTree screen={screen} ctx={ctx} />
     </PullBotContext.Provider>
   );
 }

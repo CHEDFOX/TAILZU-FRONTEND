@@ -237,7 +237,19 @@ export type NodeEvent =
   | "onSwipeLeft" | "onSwipeRight"
   | "onScroll" | "onScrollEnd"
   | "onSelect" | "onDismiss" | "onComplete"
-  | "onResult" | "onError";
+  | "onResult" | "onError"
+  /**
+   * VOCAB 2 (pure/SPEC.md 2.6, 2.8, 2.10). The list, input and media nodes fired the nearest old name while this
+   * union was closed, which made `onResult` mean three things at once. Each now has its own:
+   *   onPage        a list page arrived      { count, more }
+   *   onScan        a code was read          { type, data }
+   *   onCapture     a picture was taken      { uri, width, height }
+   *   onCommit      a slide-to-confirm went through, or a slider was let go
+   *   onPermission  the camera's answer      "granted" | "unasked" | "blocked"
+   *   onPlay / onPause / onEnd / onReady     a player's own moments
+   */
+  | "onPage" | "onScan" | "onCapture" | "onCommit"
+  | "onPermission" | "onPlay" | "onPause" | "onEnd" | "onReady";
 
 export type MotionPreset =
   | "fade" | "fadeInUp" | "fadeInDown" | "scaleIn"
@@ -259,8 +271,19 @@ export interface Node {
   children?: Node[];
   bind?: Record<string, string>;
   on?: Partial<Record<NodeEvent, ActionRef>>;
-  motion?: MotionSpec;
-  visibleIf?: Condition;
+  /**
+   * The seven vocab-1 presets, frozen, OR a format-2 motion: a map of style keys with keyframes, springs,
+   * `drive`, `loop` and `shared` (pure/SPEC.md 2.5, B4; src/sdui/motion/spec.ts has the exact shape). The two are
+   * disjoint in practice — a preset is a string under `appear`, a format-2 section is a map — and the renderer
+   * sends each to the half that understands it. New screens use format 2; the presets became server kit helpers.
+   */
+  motion?: MotionSpec | Record<string, unknown>;
+  /** Gestures on this node, into the screen's `ui.*` (SPEC 2.5, B5; src/sdui/gesture/spec.ts). */
+  gestures?: unknown[];
+  /** This node's own rules, live only while it is visible (SPEC 2.4, B3; the shape is kernel/rules.ts RuleSpec). */
+  rules?: unknown[];
+  /** Today's condition, or the kernel's `{ expr: "…" }` (SPEC 2.2). */
+  visibleIf?: Condition | { expr: string };
   fallback?: Node;
 }
 
@@ -312,6 +335,17 @@ export interface ScreenResponse {
   pullBot?: PullBotSpec;
   /** The window's one key (DESK_TALK_TO_CAPABILITY, the window only): a phone never declares it and is never sent it. */
   talkTo?: TalkTo;
+  /**
+   * THE BLOCKS THIS SCREEN NEEDS (pure/SPEC.md 2.0 principle 2, 2.12): `["expr", "list"]`. Every block is OFF for
+   * a screen that does not name one, so a screen with no `needs` draws exactly as it always did. A screen that
+   * needs a block this client does not have is not drawn at all: its `root.fallback` is, or the player's own
+   * "open X0 again / update X0" card. Never half of it.
+   */
+  needs?: string[];
+  /** This screen's own templates, for `Use` and `Slot` (SPEC 2.3; needs the `defs` block). */
+  defs?: Record<string, { params?: string[]; root: Node }>;
+  /** The screen's rules and timers (SPEC 2.4; needs the `rules` block). The shape is kernel/rules.ts RuleSpec. */
+  rules?: unknown[];
 }
 
 /**
@@ -784,7 +818,17 @@ export type ActionSpec =
   /** `replace: true` swaps the top of the stack instead of pushing onto it —
    *  so there is nothing behind to go back to. What a step in a linear flow
    *  wants: onboarding must not be walkable backwards. */
-  | { kind: "navigate"; screenId: string; params?: Record<string, any>; replace?: boolean }
+  | {
+      kind: "navigate"; screenId: string; params?: Record<string, any>; replace?: boolean;
+      /** How it comes up (SPEC 2.10, the `shell` block). Missing or unknown means `push`, as it always did. */
+      presentation?: "push" | "sheet" | "modal" | "overlay" | "fade";
+      /** A sheet's stops: names ("small" | "half" | "large" | "full") or fractions 0.1..1. */
+      detents?: unknown[];
+      /** "default" | "slide" | "fade" | "none", or a format-2 motion value. */
+      transition?: unknown;
+      /** A sheet or modal the person may close by themselves. Default true. */
+      dismissible?: boolean;
+    }
   | { kind: "navigateBack" }
   | { kind: "switchTab"; tabId: string }
   /** `handoff: true`: an assistant's answer, opened only if it is on the hand-off list (security.isHandoffUrl). */
@@ -805,6 +849,22 @@ export type ActionSpec =
       stream?: string;
       /** KIT_EXTRAS: the window does not fetch the screen again after this write. The phone never does, so it ignores it. */
       stay?: boolean;
+      /**
+       * THE `data` BLOCK'S OPTIONS (SPEC 2.10). Each is read only by a client that has the block and a screen
+       * that said it needs it; the exact shapes and their caps are in src/sdui/client/endpointCore.ts.
+       *   multipart     { files: [{ field, uri, name?, type? }], fields? } — a picked file, sent as it is
+       *   progressInto  a state path that gets { loaded, total, pct } while it uploads
+       *   retry         { times, backoff, idempotent? } — a POST retries only when it says it is safe to
+       *   queue         "outbox": kept while offline and sent in order
+       *   cache         { key, ttlMs } — GET only, emptied by any successful write and by signing out
+       *   optimistic    { path, value } — written at once, put back if the call fails
+       */
+      multipart?: unknown;
+      progressInto?: string;
+      retry?: unknown;
+      queue?: "outbox";
+      cache?: unknown;
+      optimistic?: { path: string; value: unknown };
     }
   | { kind: "refresh" }
   // local state
@@ -817,6 +877,15 @@ export type ActionSpec =
   | { kind: "appendState"; path: string; value: unknown; max?: number }
   | { kind: "incrementState"; path: string; by?: number }
   | { kind: "clearState"; path: string }
+  /**
+   * WHAT THIS PHONE REMEMBERS (SPEC 2.9, the `local` block): a hint dismissed, a draft, the last thing chosen.
+   * Its own namespace, 256 KB in all, cleared on sign-out, and never a secret — a name that looks like one
+   * (token, key, password…) is refused and `onError` runs with the reason in `$state.lastError.reason`.
+   */
+  | { kind: "local.set"; path: string; value: unknown; onError?: ActionRef }
+  | { kind: "local.remove"; path: string; onError?: ActionRef }
+  /** Listen to a live topic and write what arrives into state (SPEC 2.10, the `data` block). */
+  | { kind: "subscribe"; topic: string; into: string; mode?: "replace" | "append" | "merge"; max?: number }
   // feedback
   | { kind: "haptic"; style: HapticStyle }
   | { kind: "toast"; message: string; tone?: "info" | "success" | "error" }
@@ -906,6 +975,11 @@ export type ActionSpec =
       /** The system will not ask again — the answer is already on record and
        *  only Settings can change it. Falls back to onDenied when unset. */
       onBlocked?: ActionRef;
+      /** This binary cannot grant this kind at all (contacts, calendar, tracking; photos on Android). Falls back
+       *  to onDenied, so a screen written before this behaves as it did. */
+      onUnsupported?: ActionRef;
+      /** Optional: the whole answer as a word — "granted" | "denied" | "blocked" | "unsupported". */
+      statusTo?: string;
     }
   // Read a permission WITHOUT asking for it. Same shape as requestPermission,
   // but it never shows a system dialog — so a screen can react to a permission
@@ -920,6 +994,10 @@ export type ActionSpec =
       onDenied?: ActionRef;
       /** Optional: also write the boolean answer to this state path. */
       assignTo?: string;
+      /** This binary cannot grant this kind at all. Falls back to onDenied. */
+      onUnsupported?: ActionRef;
+      /** Optional: the whole answer as a word — "granted" | "denied" | "unsupported". */
+      statusTo?: string;
     }
   // auth
   /** `onUnavailable` runs when the phone has no Face ID, fingerprint or

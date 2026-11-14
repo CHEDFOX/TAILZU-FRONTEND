@@ -18,8 +18,24 @@ export interface Scope {
   event?: any;
 }
 
+/**
+ * THE ESCAPE (pure/SPEC.md 2.2, "Today's fillText has the same weakness").
+ *
+ * `fillText` fills every `$state.` token it finds ANYWHERE inside an action's string — which is right for a
+ * sentence the server wrote, and wrong for a sentence that has somebody's own words in it. A note titled
+ * "$state.user.email" baked into a toast's literal would otherwise pull that value out of the store and put it
+ * in front of whoever is looking.
+ *
+ * So the server's kit escapes a `$` in text that came from a person: it sends `\$`, and this is the only place
+ * that reads it — `\$` becomes a plain `$` and the token after it is NOT filled. A backslash before anything
+ * else is left exactly as it is, because people type backslashes.
+ */
+const ESCAPED = "\\$";
+
 /** Resolve "$state.x" / "$event" / "$flags.x" placeholders inside any value. */
 export function resolveValue(value: any, ctx: Scope): any {
+  // An escaped reference is the characters themselves, not a reference: "\$state.x" is the text "$state.x".
+  if (typeof value === "string" && value.startsWith(ESCAPED)) return value.slice(1);
   if (typeof value === "string" && value.startsWith("$")) {
     if (value === "$event") return ctx.event;
     if (value === "$state") return ctx.store.snapshot();
@@ -46,7 +62,7 @@ export function resolveValue(value: any, ctx: Scope): any {
  * shows nothing rather than an identifier. Only the ACTION's own literal is
  * looked up: a row's text that starts with "@" is a sentence, not a key.
  */
-export function fillText(value: any, ctx: Scope): string {
+export function fillText(value: any, ctx: Scope, opts?: { encode?: boolean }): string {
   if (typeof value !== "string") {
     const v = resolveValue(value, ctx);
     return v == null ? "" : typeof v === "string" ? v : String(v);
@@ -56,9 +72,14 @@ export function fillText(value: any, ctx: Scope): string {
     const v = resolveValue(value, ctx);
     return v == null ? "" : String(v);
   }
-  return value.replace(/\$(state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]/g, (m) => {
+  // `encode` is for an address (openUrl, openInAppBrowser): a value filled INTO a longer URL is encoded, so a
+  // value holding "&", "#" or a space cannot change where the link goes. A whole-value reference is the URL
+  // itself and is handled above, unencoded.
+  return value.replace(/\\\$|\$(?:state|flags)\.[A-Za-z0-9_.]*[A-Za-z0-9_]/g, (m) => {
+    if (m === ESCAPED) return "$";
     const v = resolveValue(m, ctx);
-    return v == null ? "" : String(v);
+    if (v == null) return "";
+    return opts?.encode ? encodeURIComponent(String(v)) : String(v);
   });
 }
 

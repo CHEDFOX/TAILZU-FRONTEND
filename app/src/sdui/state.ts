@@ -2,7 +2,8 @@
  * Per-screen state store. Holds the screen's `state` object, supports dot-path
  * get/set, and notifies subscribers so bound Nodes re-render.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { pathsTouch } from "./kernel/paths.ts";
 
 export function getPath(obj: any, path: string): any {
   // An empty path means "no binding" — return undefined, NOT the whole state
@@ -31,8 +32,10 @@ function setPath(obj: any, path: string, value: any): void {
 
 export class Store {
   private data: Record<string, any>;
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(path: string) => void>();
   version = 0;
+  /** The path of the last write, for the nodes that only re-render when something they read changes (SPEC 2.2). */
+  lastPath = "";
 
   constructor(initial: Record<string, any> = {}) {
     this.data = JSON.parse(JSON.stringify(initial));
@@ -44,7 +47,7 @@ export class Store {
 
   set(path: string, value: any): void {
     setPath(this.data, path, value);
-    this.emit();
+    this.emit(path);
   }
 
   toggle(path: string): void {
@@ -55,14 +58,16 @@ export class Store {
     return this.data;
   }
 
-  subscribe(fn: () => void): () => void {
+  /** Every write tells its listeners WHICH path moved; a listener that does not care may ignore it. */
+  subscribe(fn: (path: string) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
 
-  private emit(): void {
+  private emit(path = ""): void {
     this.version++;
-    this.listeners.forEach((fn) => fn());
+    this.lastPath = path;
+    this.listeners.forEach((fn) => fn(path));
   }
 }
 
@@ -70,5 +75,35 @@ export class Store {
 export function useStoreVersion(store: Store): number {
   const [, force] = useState(0);
   useEffect(() => store.subscribe(() => force((n) => n + 1)), [store]);
+  return store.version;
+}
+
+/**
+ * RE-RENDER ONLY WHEN SOMETHING THIS NODE READS CHANGES (pure/SPEC.md 2.2, "Dependency tracking").
+ *
+ * `deps` null keeps exactly today's behaviour: every write re-renders, which is what every node written before
+ * the kernel expects (`MentionField`, `VoiceButton` and `BotStage` read the store directly, so nothing of theirs
+ * may become quieter). A node that uses `$`, `$t` or rules passes the paths its expressions read — as the kernel
+ * spells them, `state.…` — and a write anywhere else costs it nothing.
+ *
+ * One hook either way, so a node that gains or loses an expression between renders cannot change the hook order.
+ */
+export function useStoreWatch(store: Store, deps: readonly string[] | null): number {
+  const [, force] = useState(0);
+  const depsRef = useRef(deps);
+  depsRef.current = deps;
+  useEffect(
+    () => store.subscribe((path: string) => {
+      const d = depsRef.current;
+      if (d) {
+        const changed = path ? `state.${path}` : "state";
+        let touched = false;
+        for (const dep of d) if (pathsTouch(dep, changed)) { touched = true; break; }
+        if (!touched) return;
+      }
+      force((n) => n + 1);
+    }),
+    [store],
+  );
   return store.version;
 }

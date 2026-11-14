@@ -19,24 +19,24 @@
  * Degrade rule (SPEC 2.0 principle 5): nothing here throws. A gesture that cannot be read is left out and named
  * in `bad`; the others still work.
  */
+import { LIMITS } from "../kernel/limits.ts";
 
 // ===================================================================== limits and defaults
 
 /**
- * SPEC 5.1's gesture and path numbers. They are the kernel's (src/sdui/kernel/limits.ts) and this is a copy,
- * because this block is written beside the kernel and may not import it yet. When V1 wires the kernel in, these
- * should come from LIMITS and this table should go.
+ * SPEC 5.1's gesture and path numbers, read from the kernel (src/sdui/kernel/limits.ts) now that V1 has wired
+ * it in. `perNode` and `snaps` are this block's own: SPEC 5.1 does not name them.
  */
 export const GESTURE_LIMITS = {
   /** Live gestures on one screen. */
-  perScreen: 12,
+  perScreen: LIMITS.gestures,
   /** Gestures on one node. */
   perNode: 6,
   /** Snap points in one drag. */
   snaps: 16,
   /** A state path: segments and characters. */
-  pathSegments: 12,
-  pathChars: 128,
+  pathSegments: LIMITS.pathSegments,
+  pathChars: LIMITS.pathChars,
 } as const;
 
 /**

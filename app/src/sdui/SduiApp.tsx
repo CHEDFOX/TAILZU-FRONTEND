@@ -7,14 +7,14 @@
  * a hook in ./shell/hooks, called in a fixed order (effects run in the order
  * their hooks are called), and the pieces it draws are in ./shell.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { peekScreen, APP_VERSION } from "./client";
 import { ThemeContext } from "./theme/ThemeContext";
 import { typeRole } from "./theme/typeRole";
 import { useLiveUpdates } from "./live/live";
-import type { NavApi } from "./actions";
+import type { NavApi, PresentSpec } from "./actions";
 import type { BootstrapResponse, LaunchCard, ScreenResponse, ThemeTokens } from "./types";
 import { setKnobs, txt, num, str, color } from "./knobs";
 import OfflineScreen from "./offline/OfflineScreen";
@@ -54,9 +54,52 @@ import { useBootBreadcrumbs } from "./shell/hooks/useBootBreadcrumbs";
 import { useSplashGate } from "./shell/hooks/useSplashGate";
 import { useDeepLinkActions } from "./shell/hooks/useDeepLinkActions";
 import { useScreenTheme } from "./shell/hooks/useScreenTheme";
+// The blocks (pure/SPEC.md 2.0): turned on once, here, and nowhere else. Everything below them stays off until
+// a screen says it needs one — see blocks/ScreenTree.tsx.
+import { setupBlocks } from "./blocks/registry";
+import { SharedOverlay } from "./motion";
+import { FactsInsetsSync, startDeviceFacts } from "./device/facts";
+import { hydrateLocal } from "./local";
+import { clientBlocks, appRuntime } from "./blocks/declared";
+import { SheetTree, ModalTree } from "./shell/blocks/trees";
+
+// At module load, before the first handshake is built: the handshake has to name the blocks that are really on.
+setupBlocks();
+
+/**
+ * HOW A SCREEN COMES UP (pure/SPEC.md 2.10, the `shell` block).
+ *
+ * `push` is what every screen has always done and what anything unknown falls back to, so this returns the tree
+ * untouched unless a `navigate` asked for something else AND the client has the shell block to draw it. A sheet
+ * and a modal are closed by the person, which is a `back`.
+ */
+function present(tree: React.ReactNode, spec: PresentSpec | undefined, back: () => void): React.ReactNode {
+  if (!spec || spec.presentation === "push") return tree;
+  if (spec.presentation === "sheet") {
+    return <SheetTree detents={spec.detents} dismissible={spec.dismissible} onClose={back}>{tree}</SheetTree>;
+  }
+  if (spec.presentation === "modal") {
+    return <ModalTree dismissible={spec.dismissible} onClose={back}>{tree}</ModalTree>;
+  }
+  // `overlay` and `fade` are the screen itself, drawn where it always is; the difference is the transition the
+  // shell plays, which is V5's to add. Drawing it plainly is the honest degrade until then.
+  return tree;
+}
 
 export default function SduiApp() {
   const [boot, setBoot] = useState<BootstrapResponse | null>(null);
+  /**
+   * THE THINGS A BLOCK NEEDS THAT LIVE ABOVE EVERY SCREEN (pure/SPEC.md 2.5, 2.9).
+   *
+   * The device facts start reading and watching (insets, keyboard, permissions, what can be opened), and the
+   * phone's own values are loaded off disk. Both are idempotent, and neither asks for a permission: `device.*`
+   * reads what has already been answered.
+   */
+  useEffect(() => {
+    const stop = startDeviceFacts({ blocks: [...clientBlocks()], runtime: appRuntime() });
+    void hydrateLocal();
+    return stop;
+  }, []);
   // Every knob (labels, flags) reads from the bootstrap in hand. Set during
   // render, before any child reads one, so nothing draws with a stale value.
   setKnobs(boot);
@@ -375,6 +418,8 @@ export default function SduiApp() {
 
   return (
     <View style={[styles.app, { backgroundColor: theme.color.bg }]}>
+      {/* `device.insets`, kept in step with rotation (SPEC 2.9). Draws nothing. */}
+      <FactsInsetsSync />
       {!hideHeader && <Header canGoBack={canGoBack} nav={nav} theme={theme} shown={shown} />}
 
       <View style={{ flex: 1 }}>
@@ -400,9 +445,13 @@ export default function SduiApp() {
               length of a fetch, and keying from the stack rebuilt the old
               screen from scratch during it.
             */}
-            <ScreenHost
-              key={shownKey}
-              screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />
+            {present(
+              <ScreenHost
+                key={shownKey}
+                screen={shown} nav={nav} flags={boot?.flags ?? {}} labels={boot?.labels ?? {}} toast={showToast} />,
+              stack[stack.length - 1]?.present,
+              nav.back,
+            )}
           </ThemeContext.Provider>
         ) : screenError ? (
           // Never-loaded-once + failure: render a real error card with a
@@ -480,6 +529,16 @@ export default function SduiApp() {
       {/* Backend-driven edge-swipe-back zone (left edge). Rendered last so it
           sits above the screen content; null when there's no back / disabled. */}
       {edgeZone}
+
+      {/*
+        THE ONE LAYER A SHARED MOVE FLIES ON (pure/SPEC.md 2.5, B4).
+
+        Two nodes on two screens with the same `shared` id: the outgoing one is measured, a copy is drawn HERE —
+        above both screens, which is the whole reason it is mounted at the app's root and not inside one — and
+        Reanimated flies it to where the incoming one is. It draws nothing at all when no move is in flight, and
+        a client without the motion block never starts one.
+      */}
+      <SharedOverlay />
 
       {/* The card the app opens with, LAST in the list and last in the queue.
           Everything above it is something the user must deal with — signing

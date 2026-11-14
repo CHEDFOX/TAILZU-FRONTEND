@@ -17,6 +17,37 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// THE KERNEL AND THE PURE GLUE ARE THE REAL ONES. They are free of React Native, so Node loads them as they
+// are, and the transpiled files below reach them through this bridge rather than through a stand-in — which is
+// the point: what is proved here is the real expression evaluator, the real template expansion and the real
+// dependency tracking, wired into the real renderer.
+import { NO_EXPRESSIONS, compileNode, kernelScope, resolveInto, scopeFor } from "./blocks/nodeCore.ts";
+import { blocksForScreen, missingForScreen, screenNeeds, updateTree } from "./blocks/blocksCore.ts";
+import { expandTree } from "./kernel/defs.ts";
+import { KernelError } from "./kernel/expr.ts";
+import { pathsTouch } from "./kernel/paths.ts";
+
+/** What the stand-ins hand the transpiled modules in place of the real imports. */
+const bridge = {
+  NO_EXPRESSIONS, compileNode, kernelScope, resolveInto, scopeFor,
+  blocksForScreen, missingForScreen, screenNeeds, updateTree,
+  expandTree, KernelError, pathsTouch,
+};
+(globalThis as unknown as { __bridge: typeof bridge }).__bridge = bridge;
+
+/** What the test says this client has, and what a node's scope reads. The stand-ins below read these. */
+const world = {
+  blocks: [] as string[],
+  device: { perm: { mic: "granted" }, platform: "ios" } as Record<string, unknown>,
+  local: { seen: true } as Record<string, unknown>,
+  /** Which block each node type came from, as the real registry's map would say. */
+  nodeBlock: { List: "list", Input: "input" } as Record<string, string>,
+  /** Every call the renderer made to the rules hook, so the wiring can be checked. */
+  rules: [] as Array<{ raw: unknown; on: boolean; visible: boolean }>,
+  /** How many times the counting node drew. */
+  draws: 0,
+};
+(globalThis as unknown as { __world: typeof world }).__world = world;
 
 const require = createRequire(import.meta.url);
 const APP = fileURLToPath(new URL("../../", import.meta.url));
@@ -39,20 +70,82 @@ exports.Animated = {
 };
 exports.AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) };
 
-// --- state, theme, actions
-exports.useStoreVersion = () => {};
-exports.resolveStyle = (s) => s;
+// --- theme, actions
+exports.resolveStyle = (s, _theme, paint) => ({ ...(s ?? {}), ...(paint ? { __paint: 1 } : {}) });
+exports.resolvePaintBlur = (s, paint) => (paint && s && s.blur ? { intensity: 20, tint: "light" } : null);
+exports.BackdropBlur = ({ intensity }) => React.createElement("blur", { intensity });
 exports.useTheme = () => ({});
 exports.evalCondition = (c) => c === undefined || c !== false;
 exports.runAction = async () => {};
 
+// --- the kernel and the pure glue: the real ones, through the bridge
+const B = globalThis.__bridge;
+exports.NO_EXPRESSIONS = B.NO_EXPRESSIONS;
+exports.compileNode = B.compileNode;
+exports.kernelScope = B.kernelScope;
+exports.resolveInto = B.resolveInto;
+exports.scopeFor = B.scopeFor;
+exports.pathsTouch = B.pathsTouch;
+exports.expandTree = B.expandTree;
+exports.KernelError = B.KernelError;
+exports.blocksForScreen = B.blocksForScreen;
+exports.missingForScreen = B.missingForScreen;
+exports.screenNeeds = B.screenNeeds;
+exports.updateTree = B.updateTree;
+
+// --- where the roots come from on a phone (device facts, the phone's own values, the clock)
+const W = globalThis.__world;
+exports.baseScope = (ctx) => ({
+  get state() { return ctx.store.snapshot(); },
+  get device() { return W.device; },
+  get local() { return W.local; },
+  get ui() { return ctx.store.get("ui"); },
+  get env() { return { locale: "en-US", now: Date.now() }; },
+  text: (k) => k,
+});
+exports.useFactsWatch = () => {};
+exports.watchFacts = () => () => {};
+// The rules hook is checked as WIRING here (does the renderer drive a node's rules, and only while it is
+// visible); what a rule actually does is rulesHost.test.ts, where the clock belongs to the test.
+exports.useRules = (raw, _ctx, on, visible) => { if (raw !== undefined) W.rules.push({ raw, on, visible }); };
+exports.blockForType = (type) => W.nodeBlock[type] ?? null;
+exports.setupBlocks = () => W.blocks;
+exports.clientBlocks = () => W.blocks;
+exports.registeredBlocks = () => W.blocks;
+
+// --- motion and gesture: the wrap, as the real ones do it (child untouched when the node asks for nothing)
+exports.usesMotion = (n) => !!n?.motion && typeof n.motion === "object" && !n.motion.appear;
+exports.wrapMotion = (n, child) => React.createElement("motion", null, child);
+exports.usesGesture = (n) => Array.isArray(n?.gestures) && n.gestures.length > 0;
+exports.wrapGesture = (n, child) => React.createElement("gesture", null, child);
+exports.SharedOverlay = () => null;
+
+// --- the hosts, the live socket and the shell: nothing this harness draws needs them
+exports.StateMirror = class { value() { return null; } sync() {} stop() {} };
+exports.makeMotionHost = () => ({});
+exports.makeGestureHost = () => ({});
+exports.makeShellHost = () => ({});
+exports.makeSubscribeHost = () => ({});
+exports.makeV3Host = () => ({});
+exports.itemBool = () => false;
+exports.bindSubscribeHost = () => {};
+exports.subscribeHub = () => null;
+exports.V3HostContext = React.createContext(null);
+
 // --- the registry, with the three kinds of node a boundary has to survive
-const Text = ({ props }) => React.createElement("text", null, String(props?.text ?? ""));
+const Text = ({ props }) => {
+  const v = props?.text ?? props?.content;
+  // Only a value the server could have MEANT as text is drawn: an unresolved { $: … } object is nothing here.
+  return React.createElement("text", null, typeof v === "string" || typeof v === "number" ? String(v) : "");
+};
 const Stack = ({ children }) => React.createElement("stack", null, children);
 const Boom = () => { throw new Error("boom in render"); };
 const Bang = () => { throw new Error("bang in render"); };
 const HookBoom = () => { React.useEffect(() => { throw new Error("boom in effect"); }, []); return null; };
-exports.REGISTRY = { Text, Stack, Screen: Stack, Boom, Bang, HookBoom };
+// Counts its own draws, so "re-renders only when a path it reads changes" can be measured.
+const Counter = ({ props }) => { W.draws += 1; return React.createElement("text", null, String(props?.content ?? "")); };
+const List = ({ props }) => React.createElement("list", null, String(props?.content ?? "list"));
+exports.REGISTRY = { Text, Stack, Screen: Stack, Boom, Bang, HookBoom, Counter, List };
 
 // --- storage: the synchronous crash-guard store (MMKV on a phone)
 let guardRaw = null;
@@ -65,13 +158,39 @@ exports.__guard = () => (guardRaw ? JSON.parse(guardRaw) : null);
 const SOURCES: Record<string, [string, Record<string, string>]> = {
   "renderer.cjs": ["src/sdui/Renderer.tsx", {
     "react-native": "./stubs.cjs",
-    "./state": "./stubs.cjs",
+    "./state": "./state.cjs",
     "./components": "./stubs.cjs",
+    "./components/blur": "./stubs.cjs",
     "./theme/style": "./stubs.cjs",
     "./theme/ThemeContext": "./stubs.cjs",
     "./actions": "./stubs.cjs",
     "./knobs": "./knobs.cjs",
     "./safety": "./safety.cjs",
+    "./motion": "./stubs.cjs",
+    "./gesture": "./stubs.cjs",
+    "./blocks/nodeCore.ts": "./stubs.cjs",
+    "./blocks/scope": "./stubs.cjs",
+    "./blocks/useRules": "./stubs.cjs",
+    "./blocks/registry": "./stubs.cjs",
+  }],
+  // The real store, so dependency tracking is measured and not described.
+  "state.cjs": ["src/sdui/state.ts", { "./kernel/paths.ts": "./stubs.cjs" }],
+  // The gate, the templates and the hosts, for one screen.
+  "screenTree.cjs": ["src/sdui/blocks/ScreenTree.tsx", {
+    "../Renderer": "./renderer.cjs",
+    "../actions": "./stubs.cjs",
+    "../knobs": "./knobs.cjs",
+    "../safety": "./safety.cjs",
+    "./blocksCore.ts": "./stubs.cjs",
+    "./registry": "./stubs.cjs",
+    "./declared.ts": "./stubs.cjs",
+    "./hosts": "./stubs.cjs",
+    "./scope": "./stubs.cjs",
+    "./useRules": "./stubs.cjs",
+    "../components/v3Host": "./stubs.cjs",
+    "../live/subscribe": "./stubs.cjs",
+    "../kernel/defs.ts": "./stubs.cjs",
+    "../kernel/index.ts": "./stubs.cjs",
   }],
   "safety.cjs": ["src/sdui/safety.ts", {
     "react-native": "./stubs.cjs",
@@ -111,7 +230,9 @@ function build(seed: string | null) {
   return {
     stubs,
     safety: require(join(dir, "safety.cjs")),
+    Store: require(join(dir, "state.cjs")).Store as new (initial?: Record<string, unknown>) => never,
     RenderNode: require(join(dir, "renderer.cjs")).RenderNode as (p: unknown) => unknown,
+    ScreenTree: require(join(dir, "screenTree.cjs")).ScreenTree as (p: unknown) => unknown,
   };
 }
 
@@ -180,7 +301,12 @@ const dump = (n: any): string =>
     : n.type === "text" ? n.children.map(dump).join("")
       : `${n.type ?? "root"}${n.o === undefined ? "" : `@${n.o}`}(${n.children.map(dump).join(",")})`;
 
-const CTX = { store: {}, actions: {}, flags: {}, labels: {}, nav: {}, toast() {} };
+// The renderer now watches the store itself (dependency tracking, SPEC 2.2), so even the vocab-1 tests need one
+// that can be subscribed to. This is the smallest store that answers: the real one is used from `v2` below.
+const CTX = {
+  store: { get: () => undefined, set() {}, snapshot: () => ({}), subscribe: () => () => {} },
+  actions: {}, flags: {}, labels: {}, nav: {}, toast() {},
+};
 const T = (text: string) => ({ type: "Text", props: { text } });
 
 // ---------------------------------------------------------------------------
@@ -322,4 +448,152 @@ test("the handshake declares the floor, and what this device turned off for itse
   const src = readFileSync(new URL("./client/capabilities.ts", import.meta.url), "utf8");
   assert.match(src, /sdui: safetyReport\(\)/, "SPEC 2.11: `sdui`, with `safe: 1` inside it");
   assert.match(src, /off: deviceOff\(\)/, "SPEC 2.11: only what the device switched off, never what was never built");
+});
+
+// ---------------------------------------------------------------------------
+// VOCAB 2, THROUGH THE REAL RENDERER (pure/SPEC.md 2.2, 2.3, 2.4, 2.12).
+//
+// The kernel is the real one and so is the store, so what is measured here is the wiring: which blocks a screen
+// is given, what a prop comes to, what a person's own words come to, and how little re-renders.
+
+/** A fresh build with a real store, and `blocks` live for the screen being drawn. */
+function v2(blocks: string[], state: Record<string, unknown> = {}) {
+  world.blocks = blocks;
+  world.rules = [];
+  world.draws = 0;
+  const app2 = build(null);
+  app2.safety.noteScreen("v2");
+  const store = new app2.Store(state) as unknown as {
+    get(p: string): unknown; set(p: string, v: unknown): void; snapshot(): Record<string, unknown>;
+  };
+  const ctx = { ...CTX, store, blocks, screenId: "v2" };
+  return { app: app2, store, ctx, draw: (node: unknown, scope?: unknown) => render(React.createElement(app2.RenderNode as any, { node, ctx, scope })) };
+}
+
+test("a $ value and a $t text are worked out before they reach the component", () => {
+  const { draw } = v2(["expr"], { items: [1, 2, 3], total: 4, busy: true });
+  const r = draw({
+    type: "Text",
+    props: { content: { $t: "{{ count(state.items) }} of {{ state.total }} done" } },
+    style: { opacity: { $: "state.busy ? 0.4 : 1" } },
+  });
+  assert.strictEqual(r.out, "root(3 of 4 done)");
+});
+
+test("a note's own title is drawn as written, even when it looks exactly like a template", () => {
+  const { draw } = v2(["expr"], { secret: "shh" });
+  // The same characters a `$t` would be written with, as a bare string: the server puts people's words here.
+  const r = draw({ type: "Text", props: { content: "{{ state.secret }} is mine" } });
+  assert.strictEqual(r.out, "root({{ state.secret }} is mine)", "SPEC 2.2 principle 4");
+});
+
+test("a screen that did not ask for `expr` gets no expressions at all", () => {
+  const { draw } = v2([], { who: "Blip" });
+  const r = draw({ type: "Text", props: { content: { $: "state.who" } } });
+  assert.strictEqual(r.out, "root()", "the object is not a string, and it is certainly not evaluated");
+});
+
+test("a node re-renders when a path it reads changes, and not when anything else does", () => {
+  const { store, draw } = v2(["expr"], { a: "one", b: "x" });
+  draw({ type: "Counter", props: { content: { $: "state.a" } } });
+  const first = world.draws;
+  R.flushSyncFromReconciler(() => store.set("b", "y"));
+  assert.strictEqual(world.draws, first, "a write it does not read costs it nothing");
+  R.flushSyncFromReconciler(() => store.set("a", "two"));
+  assert.ok(world.draws > first, "a write it does read draws it again");
+});
+
+test("`visibleIf: { expr }` hides and shows, and an expression it cannot work out hides", () => {
+  const { draw } = v2(["expr"], { ready: false });
+  assert.strictEqual(draw({ type: "Text", props: { content: "hi" }, visibleIf: { expr: "state.ready" } }).out, "root()");
+  const { draw: draw2 } = v2(["expr"], { ready: true });
+  assert.strictEqual(draw2({ type: "Text", props: { content: "hi" }, visibleIf: { expr: "state.ready" } }).out, "root(hi)");
+});
+
+test("Use and Slot expand, and a row reads its own arguments", () => {
+  const { ctx, app: appV } = v2(["expr", "defs"], { rows: [{ name: "Blip" }] });
+  // The kernel expands the screen once; the renderer then works the arguments out per node.
+  const expanded = expandTree(
+    { type: "Stack", children: [{ type: "Use", def: "row", args: { bot: { $: "state.rows[0]" } }, slots: { trail: { type: "Text", props: { content: "›" } } } }] },
+    { row: { params: ["bot"], root: { type: "Stack", children: [{ type: "Text", props: { content: { $: "args.bot.name" } } }, { type: "Slot", name: "trail" }] } } },
+  );
+  const r = render(React.createElement(appV.RenderNode as any, { node: expanded.node, ctx }));
+  assert.strictEqual(r.out, "root(stack(stack(Blip,›)))");
+});
+
+test("a node's rules are driven, and only while the node is on screen", () => {
+  const { draw } = v2(["expr", "rules"], { ready: false });
+  const rules = [{ id: "go", when: { expr: "state.ready" }, do: { kind: "navigate" } }];
+  draw({ type: "Text", props: { content: "hi" }, rules, visibleIf: { expr: "state.ready" } });
+  const call = world.rules.at(-1)!;
+  assert.strictEqual(call.on, true, "the screen asked for `rules` and the floor allows them");
+  assert.strictEqual(call.visible, false, "the node is hidden, so its rules are not live");
+  // And a screen that did not ask for the block gets them switched off.
+  const off = v2(["expr"], {});
+  off.draw({ type: "Text", props: { content: "hi" }, rules });
+  assert.strictEqual(world.rules.at(-1)!.on, false);
+});
+
+test("gesture outside, motion inside, and neither when the screen did not ask", () => {
+  const node = { type: "Text", props: { content: "x" }, motion: { opacity: { k: [[0, 0]] } }, gestures: [{ kind: "tap" }] };
+  assert.strictEqual(v2(["expr", "motion", "gesture"]).draw(node).out, "root(gesture(motion(x)))");
+  assert.strictEqual(v2(["expr", "motion"]).draw(node).out, "root(motion(x))", "no gesture block, no detector");
+  assert.strictEqual(v2(["expr"]).draw(node).out, "root(x)", "and a screen that asked for neither pays nothing");
+});
+
+test("paint is let through, and its backdrop blur drawn, only for a screen that asked", () => {
+  const node = { type: "Stack", style: { blur: 20 }, children: [{ type: "Text", props: { content: "a" } }] };
+  assert.strictEqual(v2(["paint"]).draw(node).out, "root(stack(blur(),a))", "the blur sits under the children");
+  assert.strictEqual(v2([]).draw(node).out, "root(stack(a))");
+});
+
+test("a node type that belongs to a block the screen did not ask for draws its fallback", () => {
+  const node = { type: "List", props: { content: "rows" }, fallback: { type: "Text", props: { content: "instead" } } };
+  assert.strictEqual(v2(["list"]).draw(node).out, "root(list(rows))", "asked for, and drawn");
+  assert.strictEqual(v2(["expr"]).draw(node).out, "root(instead)", "not asked for: the server's own answer");
+});
+
+// --- the gate, one screen at a time
+
+function screen(blocks: string[], s: Record<string, unknown>) {
+  const made = v2(blocks, (s.state as Record<string, unknown>) ?? {});
+  return render(React.createElement(made.app.ScreenTree as any, { screen: s, ctx: made.ctx }));
+}
+
+test("a screen needing a block this client lacks draws the server's fallback, never half of itself", () => {
+  const out = screen(["expr"], {
+    screenId: "pay", needs: ["expr", "gesture"],
+    root: { type: "Stack", children: [{ type: "Text", props: { content: "slide to pay" } }], fallback: { type: "Text", props: { content: "server says: update" } } },
+  }).out;
+  assert.strictEqual(out, "root(server says: update)");
+});
+
+test("…and the player's own card when the server gave no fallback, naming the block", () => {
+  const out = screen(["expr"], {
+    screenId: "pay", needs: ["gesture"],
+    root: { type: "Stack", children: [{ type: "Text", props: { content: "slide to pay" } }] },
+  }).out;
+  assert.match(out, /stack\(.*gesture\)/, `the card says which block is missing: ${out}`);
+  assert.ok(!out.includes("slide to pay"), "and nothing of the screen itself");
+});
+
+test("a screen with no `needs` draws exactly as it always did", () => {
+  const out = screen(["expr", "list"], {
+    screenId: "home",
+    root: { type: "Stack", children: [{ type: "Text", props: { content: "home" } }] },
+  }).out;
+  assert.strictEqual(out, "root(stack(home))");
+});
+
+test("under sdui.safe every block is off, so a screen that needs one gets the update card", () => {
+  // Safe mode is the device's own answer; `clientBlocks` takes the floor off whatever registered.
+  world.blocks = [];
+  const safe = build(JSON.stringify({ open: true, screen: "pay", loopScreen: "pay", crashes: 1, off: [] }));
+  assert.strictEqual(safe.safety.safeMode(), true);
+  const store = new safe.Store({}) as unknown as { get(p: string): unknown };
+  const out = render(React.createElement(safe.ScreenTree as any, {
+    screen: { screenId: "feed", needs: ["list"], root: { type: "Stack", children: [{ type: "Text", props: { content: "rows" } }], fallback: { type: "Text", props: { content: "frozen" } } } },
+    ctx: { ...CTX, store, blocks: [], screenId: "feed" },
+  })).out;
+  assert.strictEqual(out, "root(frozen)");
 });
