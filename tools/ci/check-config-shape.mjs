@@ -33,14 +33,15 @@ const ALWAYS_REMOVED = [
 ];
 
 // Keys that must never reach Info.plist: the app has no Always location, no
-// motion use, no address-book read and writes nothing to Apple Health, so each
-// would be a declaration with no screen behind it.
+// motion use and no address-book read, so each would be a declaration with no
+// screen behind it. (NSHealthUpdateUsageDescription is present on purpose: Apple's
+// upload check demands it because the Health library contains save calls; its
+// text says nothing is written, and write access is never requested.)
 const FORBIDDEN_PLIST = [
   "NSLocationAlwaysUsageDescription",
   "NSLocationAlwaysAndWhenInUseUsageDescription",
   "NSContactsUsageDescription",
   "NSMotionUsageDescription",
-  "NSHealthUpdateUsageDescription",
   "NSHealthClinicalHealthRecordsShareUsageDescription",
 ];
 
