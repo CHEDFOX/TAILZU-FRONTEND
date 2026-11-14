@@ -47,7 +47,7 @@ A team of bots, each great at one thing. Speak and Keybot writes. Plan keeps you
 keyboard,voice,dictation,typing,languages,planner,calendar,todo,trip,meeting,notes,family,chat
 ```
 
-### Description · 3492 / 4000
+### Description · 3993 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
@@ -73,6 +73,9 @@ Make a space for home, for friends or for a team. Share lists, trips, plans and 
 YOUR OWN BOTS
 Describe a bot in a sentence: "a bot that plans my workouts around my calendar and reminds me the night before." X0 Bot drafts it with a name, its rules and what it may use. Try it, change it, and it joins your team. You can also add bots that others have made. Connect Apple Health to a fitness bot you make, so it counts your steps, your workouts and how you slept.
 
+FROM YOUR PHONE, ONLY IF YOU TURN IT ON
+With your OK, Plan can read when you're busy in your calendar (never what the events are), add a plan to your calendar, keep one Reminders list in step, hold its calls during a Focus or while you're driving, and remind you when you reach a place. A fitness bot you make can count your steps with Motion & Fitness. The X0 widget and Live Activities show your bots on your Home Screen and Lock Screen, and X0 Bot in the Share menu hands what you share to a bot.
+
 ASK ANY BOT
 One place to start. Type, or hold to speak, add a photo or a file, and X0 Bot hands it to the bot that fits. Activity shows what every bot did and what is waiting for you.
 
@@ -92,10 +95,10 @@ Privacy policy: https://x0bot.com/privacy
 Questions: support@x0bot.com
 ```
 
-### What's New in this version · 1579 / 4000
+### What's New in this version · 1659 / 4000
 
 ```text
-New in 8.9.1: add a plan to your calendar, plan around the times you're busy, keep a Reminders list in step with Plan Ease, hold Plan Ease's calls during a Focus, get reminded when you reach a place, and count your sleep on a fitness bot. Each one is off until you turn it on, and each says what it reads before your phone asks you anything.
+New in 8.9.1: add a plan to your calendar, plan around the times you're busy, keep a Reminders list in step with Plan Ease, hold Plan Ease's calls during a Focus or while you're driving, get reminded when you reach a place, and let a fitness bot count your steps with Motion & Fitness and your sleep from Apple Health. Each one is off until you turn it on, and each says what it reads before your phone asks you anything.
 
 A new X0 Bot.
 
@@ -136,41 +139,44 @@ https://x0bot.com
 https://x0bot.com/privacy
 ```
 
-### App Review notes · 3993 / 4000
+### App Review notes · 3924 / 4000
 
 ```text
-SIGN IN AND WHAT THE APP IS
-Use the review account in App Store Connect (App Review Information): on the first screen tap "I already have an account" and sign in. You land on Bots (Home): a team of bots, each for one kind of job. A tap opens one, "Ask any bot…" goes to the one that fits, and Activity shows what needs a decision.
+SIGN IN
+The review account is in App Review Information. On the first screen tap Start, type the User Name (an email) in the email field and tap Send code, then type the Password where the app asks for the code. You land on Bots (Home).
+
+AI PERMISSION (5.1.2(i))
+Bots, dictation and Ask send what a person types, says or shares to third-party AI services: OpenAI, Anthropic, Google, Groq, Deepgram, Sarvam AI, and other model makers through OpenRouter. Nothing is sent until they agree. Home shows that card first — its title reads "Terms and privacy" or "AI services and your data" — so please tap Agree, or most features wait. On or off anytime: You › Privacy. Health data, busy times, Focus and driving answers never go to AI.
 
 KEYBOT (voice keyboard)
-Home › Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot, and allow Full Access, which only sends the voice to our server and brings the text back; it listens only while the mic key is held. A keyboard extension cannot record audio itself, so the app keeps a microphone session it uses: iOS shows the microphone indicator and a Live Activity, and either can stop it.
+Home › Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot. It types without Full Access. With Full Access, holding the mic key sends the voice to our server and the text comes back, with the text already in the field as context; the Refine key sends the field's text to be rewritten (never from password fields); and it fetches its settings along with counts of key presses, never the keys. A keyboard extension cannot record audio itself, so the app keeps the microphone session for it: iOS shows the indicator and a Live Activity, and either stops it.
 
 SUBSCRIPTIONS
-Lite and Elite are auto-renewable monthly subscriptions (In-App Purchase, one group). You › Plan and billing › See plans shows each with the App Store's own price, the renewal terms, and links to the Terms and the Privacy policy.
+Lite and Elite: auto-renewable monthly subscriptions, one group. The review account has no active plan, so You › Plan and billing › See plans shows the whole flow: the App Store's own price, the renewal terms, Restore Purchases, Terms and Privacy.
 
 REPORTING AND BLOCKING
-In Spaces people share lists, files and messages with people they invite. Report and Block are on every chat (the header button, and under each message), on each member's page and on each shared item.
+Spaces: Report and Block on every chat (the header, and under each message), each member's page and each shared item. Blocked people: You › Blocked people.
 
-PERMISSIONS, AND WHERE TO SEE EACH ONE
-Each is off until the person turns it on, and one card (Continue only) stands before every system prompt. None of it is used for ads.
-- Use my location: Plan Ease › "Where does your day start?". While Using only; the phone's own geocoder names the area, so we get no coordinate, only the words saved.
-- Add from contacts: Spaces › Review Family › Invite. The system picker: nothing is asked and no contacts permission is in the build. Only the email tapped fills the field, and nothing is sent until Send the invite.
-- Count my workouts: Bots › Gym Buddy › Edit. Steps and workouts only, read-only, while that bot is open; daily totals for 31 days; deleted when the switch goes off.
-- Also count my sleep: the sub-row under it, with its own prompt, so refusing sleep leaves steps working. Minutes a night only: no bed or wake times, no stages.
-- Count my steps with Motion & Fitness: the same row, when Apple Health is not used. Daily steps, and walks, runs or rides of 10 minutes or more.
-- Add to my calendar: Plan Ease › "Pick up dry cleaning". No permission: iOS's own editor opens out of process, filled in. We read nothing and hear only that you saved it.
-- Plan around my calendar: Plan Ease › From this phone. Reads only when events start and end; never names, places or attendees. Full access is iOS's only read grant, and we never write.
-- Sync with Reminders: the row under it. Opens only the X0 Bot list it makes. Its items become Plan Ease to-dos, which its AI reads only for people who agreed to the app's AI permission (5.1.2(i)); the card says so.
-- Hold calls during a Focus: You › What pings you, then Settings › Focus › Focus Filters › Add Filter › X0 Bot. No permission: iOS's filter says a Focus started or ended, never which.
-- Wait while I'm driving: the row under it. An "in a car?" check just before each call, answered yes or no, not kept.
-- Remind me when I get there: the same item. iOS's own location trigger with While Using: the system watches the place, the app is not woken, and we are never told of an arrival. No Always.
-- App Attest and DeviceCheck: no prompt, no screen. Only against fraud and free-plan abuse, not tracking.
-- The review account runs "Review Family", has "Gym Buddy", and has "Pick up dry cleaning" every day at 9:30 pm in Bengaluru, so those two routes are there on any day.
+EVERY PERMISSION, AND WHERE TO SEE IT
+Each is off until turned on; one card (Continue only) comes before every system prompt; none is used for ads. The account runs "Review Family", has the bot "Gym Buddy", and has "Pick up dry cleaning" daily at 9:30 pm in Bengaluru.
+- Use my location: Plan Ease › "Where does your day start?". While Using only; the phone's own geocoder names the area, so we get no coordinate.
+- Add from contacts: Spaces › Review Family › Invite. The system picker, so no contacts permission is in the build.
+- Count my workouts from Apple Health: Bots › Gym Buddy › Edit. Steps and workouts, read only, 31 days of daily totals.
+- Also count my sleep: appears under it once that row is on, with its own prompt, so refusing sleep leaves steps working. Minutes a night only.
+- Count my steps with Motion & Fitness instead: the same row, when Apple Health is not used.
+- Add to my calendar: Plan Ease › "Pick up dry cleaning". No permission: iOS's own editor, out of process, filled in.
+- Plan around my calendar: Plan Ease › From this phone. Reads only when events start and end. Full access is iOS's only read grant; we never write.
+- Sync with Reminders: the row under it. Only the X0 Bot list it makes.
+- Hold calls during a Focus: You › What pings you, then Settings › Focus › pick a Focus › Focus Filters › Add Filter › X0 Bot. No permission.
+- Wait while I'm driving: the row under it. One Motion "in a car?" check just before a call; not kept.
+- Remind me when I get there: on "Pick up dry cleaning". iOS's own location trigger, While Using: the system watches the place, and we are never told of an arrival. No Always.
+- App Attest and DeviceCheck: no screen; only against fraud and free-plan abuse, never tracking.
 
 ACCOUNT AND DATA
-Delete account: You › Your data › Delete account. Download or delete: You › Your data, which holds the days a bot counted and the busy times read from the phone; Delete my data removes both and switches every row off.
+Delete account: You › Your data › Delete account. You › Your data also downloads or deletes what a bot counted and the busy times. Bots ask before they book, pay or message anyone.
 
-Bots ask before they book, pay or message anyone: bookings open the provider's site, payments the person's own app.
+SERVICES AND TESTING
+The AI services above; Supabase (sign-in), RevenueCat (subscriptions). The same in every region. Tested on: [device, iOS version].
 
 Contact: support@x0bot.com
 ```
@@ -312,10 +318,10 @@ A new X0 Bot: a team of bots, each great at one thing.
 Lite and Elite: two monthly plans.
 ```
 
-### App access instructions (Play Console) · 1365 / 4000
+### App access instructions (Play Console) · 1809 / 4000
 
 ```text
-Sign in with the review account given in this App access section. On the first screen tap "I already have an account" and sign in with it; you land on Bots (Home).
+Sign in with the review account given in this App access section. On the first screen tap Start, type the user name (an email) in the email field and tap Send code, then type the password where the app asks for the code; you land on Bots (Home). Home shows a card about your data and AI first: please tap Agree, or most features wait. Bots, dictation and Ask send what a person types, says or shares to third-party AI services (OpenAI, Anthropic, Google, Groq, Deepgram, Sarvam AI, and other model makers through OpenRouter); nothing is sent until they agree, and it goes on or off anytime in You › Privacy.
 
 Each bot is a tile on Home; Search (top right) finds any bot by name, and "Ask any bot…" at the bottom sends a request to the bot that fits. Keybot is the keyboard: Keybot › Turn on Keybot shows how to switch it on in Settings. Spaces and chats: You › Spaces and chats. Notes: the Notes strip on Home (meetings are noted by X0 Bot on a computer).
 
@@ -541,7 +547,25 @@ Your own calendar and to-do list, inside the app. Say "dentist Friday 5 pm" or "
 ## Before you submit
 
 - **Review account.** The app signs in with a one-time code. Make an account for review whose sign-in works without a
-  live inbox, and put its details in App Store Connect (App Review Information) and Play Console (App access).
+  live inbox, and put its details in App Store Connect (App Review Information) and Play Console (App access). The
+  review sign-in only works while the server has BOTH `REVIEW_EMAIL` and `REVIEW_CODE` set (unset is the normal state
+  in production), and they have to match the User Name and Password in those two forms and stay set until the app is
+  approved. The notes say to type the Password where the app asks for the code, because the app's own screen calls it
+  a code and a reviewer who looks for a password field finds none.
+- **Fill in "Tested on"** in the App Review notes with the device and iOS version you signed in on. The notes end with
+  `Tested on: [device, iOS version]`, and `check-listing.mjs` counts characters, not placeholders: pasted as it is, the
+  reviewer reads the brackets. Apple's complete-review page asks for the devices and OS versions tested.
+- **The AI permission comes first.** Home asks it before anything else, and most bots, dictation and Ask wait for
+  Agree. The review notes say so and ask the reviewer to tap Agree; a reviewer who taps the other way finds the bots
+  idle and the app looks broken (App Review 5.1.2(i)).
+- **The features the notes name have to be on.** Every 8.9.1 row is behind a server switch, and most ship off. Turn
+  them on for the account that reviews before submitting, and sign in on TestFlight and tap every row the notes name
+  (the backend's `docs/owner-8.9.1.md` section 7 has the command). A row the notes name and the reviewer cannot
+  reach is 2.1; a feature in the binary the notes never name is 2.3.1(a).
+- **What's New promises sleep and the driving check.** Both are in this build, and both are behind their own server
+  switch. Either widen them for everyone on release day (`PERM_HEALTH_SLEEP_IOS_USERS` emptied, `PERM_MOTION_DRIVE`
+  on) or take their words out of What's New, the Description and the review notes before the build — a listing that
+  offers what the switch withholds is 2.3.
 - **Account deletion on the phone.** Done: You › Your data › Delete account on the phone, and You, Privacy and Settings
   on the computer (`bots.delete-account`). The review notes point there.
 - **Support URL.** It is https://x0bot.com/faq, which answers today (x0bot.com/support does not). Once the server is deployed, use

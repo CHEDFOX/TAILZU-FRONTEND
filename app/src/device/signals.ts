@@ -21,13 +21,21 @@
  * So this reports the raw reading — including "the bridge did not answer" as
  * null, distinct from "it answered no" — and each caller picks its own default.
  * Collapsing that distinction here is how one of those two would end up wrong.
+ *
+ * AND ONE OF THE TWO MAY NOT LEAVE THE PHONE. On the iPhone, `enabled` is partly
+ * the SYSTEM's keyboard list, which the privacy manifest declares under reasons
+ * 54BD.1 and 3EC4.1 — both of which forbid sending that reading, or anything
+ * derived from it, off-device. So screen state may use `enabled`; the bootstrap
+ * may not, and goes through keyboardEnabledOffDevice (signalsCore.ts), which
+ * answers from the keyboard's own App Group heartbeat instead.
  */
 import { getKeyboardStatus } from "../../modules/tulmi-bridge";
 import { num } from "../sdui/knobs";
+import type { KeyboardReading } from "./signalsCore";
 
 export type DeviceSignals = {
-  /** Null when the native bridge is absent (Expo Go, or a failed link). */
-  keyboard: { enabled: boolean; fullAccess: boolean } | null;
+  /** Null when the native bridge is absent (Expo Go, or a failed link). `enabled` is ON-PHONE ONLY on the iPhone. */
+  keyboard: KeyboardReading | null;
   /** True only for an explicit grant. Undetermined and denied both read false. */
   micGranted: boolean;
 };
@@ -61,7 +69,9 @@ export async function refreshDeviceSignals(): Promise<DeviceSignals> {
     // reporting a revocation that did not happen.
   }
   snapshot = {
-    keyboard: keyboard ? { enabled: keyboard.enabled, fullAccess: keyboard.fullAccess } : null,
+    keyboard: keyboard
+      ? { enabled: keyboard.enabled, fullAccess: keyboard.fullAccess, lastActiveMs: keyboard.lastActiveMs }
+      : null,
     micGranted,
   };
   return snapshot;

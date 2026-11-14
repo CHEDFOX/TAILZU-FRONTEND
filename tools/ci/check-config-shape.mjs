@@ -158,7 +158,8 @@ function introspect(health, sleep, extra = {}) {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     // Every switch is set EXPLICITLY, so a value left in the shell cannot change
-    // what a check sees.
+    // what a check sees. The two Meta variables included: an id left in the shell
+    // would otherwise put Meta in the shape every other run reads.
     env: {
       ...process.env,
       TULMI_ANDROID_HEALTH: health ? "on" : "",
@@ -166,11 +167,34 @@ function introspect(health, sleep, extra = {}) {
       TULMI_ANDROID_CALENDAR: extra.calendar ? "on" : "",
       TULMI_ANDROID_MOTION: extra.motion ? "on" : "",
       TULMI_ANDROID_ARRIVAL: extra.arrival ? "on" : "",
+      META_APP_ID: extra.metaAppId ?? "",
+      META_CLIENT_TOKEN: extra.metaAppId ? "test-client-token" : "",
     },
     stdio: ["ignore", "pipe", "ignore"],
   });
   return JSON.parse(out);
 }
+
+// META IS AN ANDROID-ONLY SDK (app/plugins/withNoMetaIos.js). Every Info.plist key
+// the two Meta plugins write, and which must not be in an iPhone build whatever
+// META_APP_ID is set to: a binary that CAN ask to track and never asks is App
+// Review 2.5.19, the manifest says NSPrivacyTracking false, the App Privacy
+// answers say "Data Used to Track You: none" and the policy says the iPhone shows
+// no tracking prompt. This is the check that keeps all four true.
+const META_PLIST = [
+  "FacebookAppID",
+  "FacebookClientToken",
+  "FacebookDisplayName",
+  "FacebookAutoInitEnabled",
+  "FacebookAutoLogAppEventsEnabled",
+  "FacebookAdvertiserIDCollectionEnabled",
+  "NSUserTrackingUsageDescription",
+];
+/** Meta's SKAdNetwork ids and the query schemes its SDK adds. `fb-messenger` is the app's own (the share sheet). */
+const META_SKADNETWORK = ["v9wttpbfk9.skadnetwork", "n38lu8286q.skadnetwork"];
+const META_QUERY_SCHEMES = ["fbapi", "fb-messenger-api", "fbauth2", "fbshareextension"];
+/** A plausible Meta app id for the proof run. Not a real one: nothing is built, only the config resolved. */
+const META_TEST_APP_ID = "1234567890";
 
 const bad = [];
 
@@ -311,9 +335,57 @@ for (const run of RUNS) {
   console.log(`${where}: read ${asked.length} permissions, ${removed.length} removed, minSdk ${minSdk ?? "default"}.`);
 }
 
+// A SEVENTH RUN, FOR META. Every run above leaves META_APP_ID empty, which is
+// what the release is built with — so none of them would notice the day someone
+// sets it for an iPhone build. This one sets it, and proves the iPhone shape is
+// the same either way: no Facebook key, no tracking string, no Meta SKAdNetwork
+// id, no fb scheme, while the Android half is still written. App Review 2.5.19,
+// and the privacy manifest, the App Privacy answers and the policy all say the
+// iPhone app has no tracking in it.
+{
+  const where = "META_APP_ID set";
+  const say = (message) => bad.push(`${where}: ${message}`);
+  const config = introspect(false, false, { metaAppId: META_TEST_APP_ID });
+  const mods = config._internal.modResults;
+  const plist = mods.ios.infoPlist;
+
+  for (const key of META_PLIST) {
+    if (key in plist) say(`${key} is in Info.plist, and Meta ships on Android only.`);
+  }
+  for (const item of plist.SKAdNetworkItems ?? []) {
+    const id = String(item?.SKAdNetworkIdentifier ?? "").toLowerCase();
+    if (META_SKADNETWORK.includes(id)) say(`SKAdNetworkItems carries Meta's ${id}.`);
+  }
+  for (const scheme of plist.LSApplicationQueriesSchemes ?? []) {
+    if (META_QUERY_SCHEMES.includes(String(scheme))) say(`LSApplicationQueriesSchemes carries the SDK's ${scheme}.`);
+  }
+  for (const entry of plist.CFBundleURLTypes ?? []) {
+    for (const scheme of entry?.CFBundleURLSchemes ?? []) {
+      if (/^fb\d+$/.test(String(scheme))) say(`CFBundleURLTypes carries the Meta scheme ${scheme}.`);
+    }
+  }
+  // The app's own share-sheet scheme is NOT the SDK's, and must survive.
+  if (!(plist.LSApplicationQueriesSchemes ?? []).includes("fb-messenger")) {
+    say("fb-messenger is gone from LSApplicationQueriesSchemes, and that one is the share sheet's.");
+  }
+  // ...and Android still gets Meta, exactly as before. The app id string is the
+  // plugin's Android half; losing it would break ad attribution there silently.
+  const strings = mods.android.strings?.resources?.string ?? [];
+  const named = strings.map((s) => s?.$?.name);
+  for (const name of ["facebook_app_id", "facebook_client_token"]) {
+    if (!named.includes(name)) say(`Android's ${name} string is missing, so Meta is off Android too.`);
+  }
+  const androidAsked = (mods.android.manifest.manifest["uses-permission"] ?? [])
+    .filter((p) => !p.$["tools:node"]).map((p) => p.$["android:name"]);
+  if (!androidAsked.includes("com.google.android.gms.permission.AD_ID")) {
+    say("Android's AD_ID permission is missing, so the advertising id Meta credits installs with is gone.");
+  }
+  console.log(`${where}: iPhone carries no Meta or tracking key; Android keeps its app id string and AD_ID.`);
+}
+
 for (const line of bad) console.log(`::error::${line}`);
 if (bad.length) {
   console.log(`::error::app/app.config.ts and its plugins resolve to the wrong shape (${bad.length} problems).`);
   process.exit(1);
 }
-console.log("All six switch combinations resolve to the shape perms/SPEC.md 6.3, perms2/SPEC.md 10.1 and perms2/ANDROID-WIRING.md describe.");
+console.log("All six switch combinations resolve to the shape perms/SPEC.md 6.3, perms2/SPEC.md 10.1 and perms2/ANDROID-WIRING.md describe, and Meta stays off the iPhone.");

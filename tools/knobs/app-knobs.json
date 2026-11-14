@@ -638,7 +638,6 @@
   },
   "flags": {
     "ads.meta.enabled": true,
-    "ads.meta.ios.enabled": false,
     "analytics.enabled": false,
     "analytics.posthogHost": "https://us.i.posthog.com",
     "app.boot.breadcrumbMs": 6000,
