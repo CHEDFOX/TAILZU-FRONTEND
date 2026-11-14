@@ -27,7 +27,7 @@ import {
 
 // ===================================================== the little of the live client this file uses
 
-interface TrackLike { kind: string; enabled: boolean; stop(): void; _switchCamera?: () => void }
+interface TrackLike { kind: string; enabled: boolean; readyState: string; stop(): void; _switchCamera?: () => void }
 interface StreamLike { id: string; getTracks(): TrackLike[]; getAudioTracks(): TrackLike[]; getVideoTracks(): TrackLike[] }
 interface TransceiverLike { mid: string | null; receiver: { track: TrackLike | null }; sender: { track: TrackLike | null; replaceTrack(t: TrackLike | null): Promise<void> }; stop?: () => void }
 interface PeerLike {
@@ -131,6 +131,8 @@ export class CallSession {
   private stopped = false;
   private appSub: { remove(): void } | null = null;
   private readonly now: () => number;
+  /** The transceivers this person's own microphone and camera were published on, so turning one back on needs no new offer. */
+  private readonly sent = new Map<"mic" | "cam", TransceiverLike>();
 
   constructor(private readonly rtc: Webrtc, private readonly api: SessionApi) {
     this.now = api.now ?? Date.now;
@@ -277,21 +279,94 @@ export class CallSession {
 
   async set(op: "mic" | "cam" | "speaker" | "flip", value?: boolean): Promise<void> {
     const on = (was: boolean) => (value === undefined ? !was : value);
-    if (op === "mic") {
-      this.micOn = on(this.micOn);
-      for (const t of this.mine?.getAudioTracks() ?? []) t.enabled = this.micOn;
-    } else if (op === "cam") {
-      this.camOn = on(this.camOn);
-      for (const t of this.mine?.getVideoTracks() ?? []) t.enabled = this.camOn;
-    } else if (op === "speaker") {
+    if (op === "speaker") {
       this.speakerOn = on(this.speakerOn);
-    } else if (op === "flip") {
+      this.push();
+      return;
+    }
+    if (op === "flip") {
       this.frontOn = !this.frontOn;
       this.mine?.getVideoTracks()[0]?._switchCamera?.();
+      this.push();
+      return;
     }
+    const want = on(op === "mic" ? this.micOn : this.camOn);
+    if (want) {
+      const opened = await this.openDevice(op);
+      if (!opened) return;              // refused, or it would not publish: nothing changes, and onBlocked has run
+    } else {
+      this.shut(op);
+    }
+    if (op === "mic") this.micOn = want; else this.camOn = want;
     this.push();
-    // The others learn from the next heartbeat what we are sending now; this makes it the next one rather than in two seconds.
-    if (op === "mic" || op === "cam") await this.step(() => this.beatOnce()).catch(() => undefined);
+    // The others learn what we are sending from the next heartbeat; this makes it now rather than in two seconds.
+    await this.step(() => this.beatOnce()).catch(() => undefined);
+  }
+
+  /**
+   * A microphone or a camera opened for the first time, and published. Opening is what asks the device, so it happens here and never
+   * at joining; turning the same one on again later only re-enables the track that is already there.
+   */
+  private async openDevice(op: "mic" | "cam"): Promise<boolean> {
+    const pc = this.pc;
+    if (!pc) return false;
+    const already = (op === "mic" ? this.mine?.getAudioTracks() : this.mine?.getVideoTracks())?.find((t) => t.readyState !== "ended");
+    if (already) { already.enabled = true; return true; }
+
+    let got: StreamLike;
+    try {
+      got = await this.rtc.mediaDevices.getUserMedia(
+        op === "mic" ? { audio: true } : { video: { facingMode: this.frontOn ? "user" : "environment" } },
+      );
+    } catch {
+      this.api.onBlocked?.();
+      return false;
+    }
+    const track = (op === "mic" ? got.getAudioTracks() : got.getVideoTracks())[0];
+    if (!track) return false;
+    // One stream holds whatever this person is sending, so their own tile has it all in one place.
+    const kept = (this.mine?.getTracks() ?? []).filter((t) => t.readyState !== "ended");
+    this.mine = new this.rtc.MediaStream([...kept, track]);
+
+    try {
+      // The camera may be coming back to an m-line that is already there, which needs no new offer at all.
+      // Coming back to the m-line it was published on: the track is simply put back, with no new offer and nothing for the server.
+      const spare = this.sent.get(op);
+      if (spare) {
+        await spare.sender.replaceTrack(track);
+        return true;
+      }
+      const t = pc.addTransceiver(track, { direction: "sendonly" });
+      this.sent.set(op, t);
+      await pc.setLocalDescription(await pc.createOffer({}));
+      await this.gathered(pc);
+      const out = await this.api.post<{ answer: string }>(`${SEAT}/publish`, {
+        seat: this.seat,
+        sdp: pc.localDescription?.sdp ?? "",
+        ...(op === "mic" ? { audioMid: t.mid ?? "0" } : { videoMid: t.mid ?? "0" }),
+      });
+      await pc.setRemoteDescription(new this.rtc.RTCSessionDescription({ type: "answer", sdp: out.answer }));
+      return true;
+    } catch {
+      try { track.stop(); } catch { /* already stopped */ }
+      this.api.onError?.();
+      return false;
+    }
+  }
+
+  /**
+   * Turned off. The microphone's track is disabled, so turning it back on is instant; the camera's is really let go, because its
+   * light has to go out. The m-line it was on stays, so the camera coming back needs no new offer.
+   */
+  private shut(op: "mic" | "cam"): void {
+    if (op === "mic") {
+      for (const t of this.mine?.getAudioTracks() ?? []) t.enabled = false;
+      return;
+    }
+    void this.sent.get("cam")?.sender.replaceTrack(null).catch(() => undefined);
+    for (const t of this.mine?.getVideoTracks() ?? []) { try { t.stop(); } catch { /* already stopped */ } }
+    const left = (this.mine?.getTracks() ?? []).filter((t) => t.readyState !== "ended");
+    this.mine = left.length ? new this.rtc.MediaStream(left) : null;
   }
 
   /** Away: the camera is closed, the sound carries on. Back: the camera again. */
@@ -322,6 +397,7 @@ export class CallSession {
     try { this.pc?.close(); } catch { /* already closed */ }
     this.pc = null;
     this.byMid.clear();
+    this.sent.clear();
     this.held = [];
     this.people = [];
     this.waiting = [];
