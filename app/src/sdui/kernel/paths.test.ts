@@ -115,7 +115,8 @@ test("the limits table is frozen, so a screen can never raise one", () => {
 
 test("the blocks are a closed list, and vocab 2 is what this kernel speaks", () => {
   assert.strictEqual(VOCAB, 2);
-  assert.strictEqual(BLOCKS.length, 13);
+  assert.strictEqual(BLOCKS.length, 14);
+  assert.ok(isBlock("call"), "one of our own calls (TAILZU-BACKEND/docs/rooms.md)");
   assert.ok(isBlock("expr"));
   assert.ok(!isBlock("scene"), "the standalone drawing node belongs to the animation spec's format 3");
   assert.ok(LATER_BLOCKS.includes("scene"));

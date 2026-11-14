@@ -27,6 +27,9 @@ export const BLOCKS = Object.freeze([
   "media",
   "data",
   "shell",
+  // One of our own calls, held for a screen (TAILZU-BACKEND/docs/rooms.md): take a seat, change the microphone and camera, leave,
+  // and a `Caller` node that draws one person. The phone says it only where its binary links the live client; the window always can.
+  "call",
 ] as const);
 
 export type BlockName = (typeof BLOCKS)[number];
