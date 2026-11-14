@@ -45,6 +45,10 @@ const walk = (p) => {
     return;
   }
   if (p.includes("node_modules") || p.includes(`${path.sep}dist${path.sep}`)) return;
+  // A TEST IS NOT A KNOB READ. `num("1.239", { decimals: 2 })` inside an input test is a test case, not a
+  // setting the server may send — and taking them for knobs put "9", "-2", "1.239" and "1.5" in the manifest,
+  // which sync-knobs would have pushed to the server as real flags.
+  if (/\.test\.|\.spec\./.test(path.basename(p))) return;
   if (/\.(ts|tsx|js|html)$/.test(p) && !/knobs\.(ts|js)$/.test(p) && !/gen-\w+\.js$/.test(p)) files.push(p);
 };
 roots.forEach(walk);

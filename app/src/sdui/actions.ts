@@ -52,13 +52,33 @@ import { voiceLive, voiceStop } from "./voice/voiceLive";
 import { voiceCall, voiceCallSet } from "./voice/callRealtime";
 import { speakLine } from "./voice/speech";
 import { locationGranted, locationRequest, runLocateArea } from "../device/locate";
+// Vocab 2 (pure/SPEC.md 2.2, 2.9, 2.10): the kernel's condition shape, the phone's own values, and the options
+// `callEndpoint` gained. Each is reached only by an action that asks for it, so a screen that does not pays nothing.
+import { LIMITS, compileProp, isEvaluable, networkPathOk, runProp, tryCompileExpr } from "./kernel/index.ts";
+import type { CompiledProp } from "./kernel/index.ts";
+import { scopeOf } from "./blocks/scope";
+import { permCaps } from "../device/permCaps";
+import { LOCATION_CAPABILITY } from "./types";
+import { clearLocal, removeLocal, setLocal } from "./local";
+import { applyOptimistic, progressSink } from "./client/endpointCore";
+import type { CallOptions } from "./client/endpointCore";
+import { normalizePresentation } from "./shell/blocks/presentation";
+import { noteBadNode } from "./safety";
+import { subscribeHub } from "./live/subscribe";
 import { runContactPick } from "../device/contact";
 import { openHealthConnectSettings, runHealthSync } from "../device/health";
 
+/**
+ * HOW A SCREEN COMES UP (pure/SPEC.md 2.10): pushed, as a sheet, a modal, an overlay or a cross-fade. `push` is
+ * the default and what every screen written before this gets, so nothing changes for them. The shell draws the
+ * other four (shell/blocks/trees.tsx) for a client that has the `shell` block.
+ */
+export type { PresentSpec } from "./shell/blocks/presentation";
+
 export interface NavApi {
-  push: (screenId: string, params?: Record<string, any>) => void;
+  push: (screenId: string, params?: Record<string, any>, present?: import("./shell/blocks/presentation").PresentSpec) => void;
   /** Swap the top of the stack, leaving nothing behind to go back to. */
-  replace: (screenId: string, params?: Record<string, any>) => void;
+  replace: (screenId: string, params?: Record<string, any>, present?: import("./shell/blocks/presentation").PresentSpec) => void;
   back: () => void;
   switchTab: (tabId: string) => void;
   reloadCurrent: () => void;
@@ -79,6 +99,72 @@ export interface Ctx {
   nav: NavApi;
   toast: (message: string, tone?: string) => void;
   event?: any;
+  /**
+   * A NODE THREW AND HAD NOTHING OF ITS OWN TO DRAW INSTEAD (Renderer.tsx, NodeBoundary).
+   *
+   * Nothing is the right answer almost everywhere: one row of one card goes missing and the screen carries on. The
+   * sign-in screen is the exception — a tree with no way in is worse than no tree — so the gate passes a handler
+   * that drops the whole thing and draws the app's own screen. Optional, and not called when the node has a
+   * `fallback`: the server already said what to put there.
+   */
+  onNodeError?: (type: string, err: unknown) => void;
+  /**
+   * THE BLOCKS LIVE ON THIS SCREEN (pure/SPEC.md 2.0, principle 2): what the screen said it needs, kept to what
+   * this client really has. Absent or empty on every screen written before vocab 2, which is what makes them
+   * behave exactly as they did — no expressions, no rules, no new node types.
+   */
+  blocks?: readonly string[];
+  /** The screen being drawn, for the reports the device sends back. */
+  screenId?: string;
+  /**
+   * What the motion and gesture blocks were given to talk to the renderer with (blocks/hosts.ts). Typed loosely
+   * here so this file does not have to import a block it only passes through.
+   */
+  hosts?: { motion?: unknown; gesture?: unknown };
+  /**
+   * WHAT THIS SCREEN MAY SPEND (pure/SPEC.md 5.1): the expression and ops budget `ScreenBudget` keeps. Made once
+   * per screen by ScreenTree; typed loosely here so this file does not import the renderer's glue.
+   */
+  budget?: unknown;
+  /**
+   * HOW DEEP ONE ACTION HAS CHAINED INTO ANOTHER (SPEC 5.1: at most 16). `runAction` puts the next number here
+   * before it runs anything, so every `onSuccess`, `sequence` and `condition` under it carries the count and a
+   * chain that points at itself stops instead of running out of stack.
+   */
+  depth?: number;
+  /** The kernel, for `{ $ }` and `{ $t }` inside an action's own values (fill.ts). Set by `runAction`. */
+  expr?: (value: unknown, opts?: { encode?: boolean }) => unknown;
+}
+
+/**
+ * ONE EXPRESSION INSIDE AN ACTION (pure/SPEC.md 2.2), compiled once per source string.
+ *
+ * A rule's `value: { "$": "now()" }` and a call's `path: { "$t": "/v1/notes/{{ state.note.id }}" }` are the
+ * SPEC's own examples, and neither worked: `resolveValue` only ever rewrote the `$state.` references, so the
+ * object itself was stored, and a path that was not a string threw before the call was made.
+ *
+ * Small and bounded: a screen has a handful of action expressions, not one per row.
+ */
+const actionExprs = new Map<string, CompiledProp | null>();
+
+function actionExpr(value: unknown, ctx: Ctx, opts?: { encode?: boolean }): unknown {
+  const src = JSON.stringify(value) + (opts?.encode ? "#e" : "");
+  let compiled = actionExprs.get(src);
+  if (compiled === undefined) {
+    try { compiled = compileProp(value, { encode: opts?.encode === true }); } catch { compiled = null; }
+    if (actionExprs.size > 128) actionExprs.clear();
+    actionExprs.set(src, compiled);
+  }
+  if (!compiled) {
+    try { noteBadNode("action:expr"); } catch { /* reporting is never the next error */ }
+    return undefined;
+  }
+  try {
+    return runProp(compiled, scopeOf(ctx));
+  } catch {
+    try { noteBadNode("action:expr"); } catch { /* ignore */ }
+    return undefined;
+  }
 }
 
 /**
@@ -106,13 +192,23 @@ function elsewhere(ctx: Ctx): boolean {
   return true;
 }
 
-export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
+export function evalCondition(cond: Condition | { expr: string } | undefined, ctx: Ctx): boolean {
   if (!cond) return true;
   // A malformed condition from the backend (e.g. `{ in: ["x"] }` missing its
   // array operand → `undefined.includes`) is evaluated at RENDER time inside
   // RenderNode. An uncaught throw there unwinds to the root and blanks the
   // whole screen, so any parse failure resolves to `false` (node hides) instead.
   try {
+    // THE KERNEL'S OWN CONDITION SHAPE (SPEC 2.2), wherever a Condition was expected — INSIDE the try, and only
+    // for a screen that asked for `expr`.
+    //
+    // `"expr" in cond` sat outside it, so `visibleIf: true`, or a condition the server sent as a string, threw a
+    // TypeError where the old code caught it and hid the node: in render that reached NodeBoundary, and in the
+    // sign-in gate it dropped the whole tree to the native screen. And it ran the evaluator for a screen that
+    // never asked for the block, which "every block is OFF unless needed" forbids (SPEC 2.0 principle 2).
+    if (typeof cond === "object" && !Array.isArray(cond) && "expr" in cond) {
+      return ctx.blocks?.includes("expr") ? evalAnyCondition(cond, ctx) : true;
+    }
     if ("eq" in cond) return resolveValue(`$state.${cond.eq[0]}`, ctx) === cond.eq[1];
     if ("neq" in cond) return resolveValue(`$state.${cond.neq[0]}`, ctx) !== cond.neq[1];
     if ("gt" in cond) return Number(resolveValue(`$state.${cond.gt[0]}`, ctx)) > cond.gt[1];
@@ -142,6 +238,29 @@ export function evalCondition(cond: Condition | undefined, ctx: Ctx): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * A CONDITION IN EITHER LANGUAGE (pure/SPEC.md 2.2).
+ *
+ * `commitIf` on a gesture, and anything else a block has to ask the screen, can be written as today's `Condition`
+ * or as the kernel's `{ expr }`. Both are answered here, with `ui.*` — where the gesture just ended — in scope.
+ * A condition this cannot work out is FALSE, never a throw: a slide-to-confirm that cannot be asked must not fire.
+ */
+export function evalAnyCondition(cond: unknown, ctx: Ctx): boolean {
+  if (cond === undefined || cond === null) return true;
+  if (typeof cond !== "object" || Array.isArray(cond)) return false;
+  const src = (cond as { expr?: unknown }).expr;
+  if (typeof src === "string") {
+    try {
+      const made = tryCompileExpr(src);
+      if (!made.ok) return false;
+      return !!made.expr.run(scopeOf(ctx));
+    } catch {
+      return false;
+    }
+  }
+  return evalCondition(cond as Condition, ctx);
 }
 
 const linkFailed = (ctx: Ctx) => ctx.toast(txt("toast.openLinkFailed", "Couldn't open link"), "error");
@@ -203,6 +322,106 @@ async function getCameraPermission(): Promise<{ granted: boolean }> {
   }
 }
 
+/**
+ * THE OPTIONS `callEndpoint` GAINED (pure/SPEC.md 2.10, the `data` block).
+ *
+ * Built from the action's own keys and nothing else, and only when it carries one of them: an action without
+ * them is sent down exactly the path it took before any of this existed. Every value is checked by
+ * `client/endpointCore.ts` (the retry's shape, the cache's ttl, the multipart's files, the state paths), so this
+ * only maps names onto names and fills in the two pieces that need the screen: where progress is written, and
+ * the optimistic write to put back if it fails.
+ */
+/**
+ * THE PATH AN ACTION NAMES, FILLED IN AND CHECKED (pure/SPEC.md 2.2, 5.1).
+ *
+ * Three ways in, one way out: today's `"/v1/history/$state.item.id"` tokens, the kernel's `{ "$t": … }` with its
+ * holes encoded, and a plain literal. Null means it may not be called — which is the honest answer for a path
+ * that came out with a scheme, a host, `..` or no `/v1/` at all, however it was spelled.
+ */
+function callPath(raw: unknown, ctx: Ctx): string | null {
+  let path: unknown = raw;
+  if (isEvaluable(raw)) {
+    if (!ctx.blocks?.includes("expr")) return null;
+    path = actionExpr(raw, ctx, { encode: true });
+  } else if (typeof raw === "string" && raw.includes("$state.")) {
+    path = raw.replace(/\$state\.[A-Za-z0-9_.]+/g, (m) => {
+      const v = ctx.store.get(m.slice("$state.".length));
+      return v == null ? "" : encodeURIComponent(String(v));
+    });
+  }
+  if (typeof path !== "string" || !path) return null;
+  // A path the server wrote by hand and has always sent is left alone; only a path something was PUT INTO is
+  // held to the full rule, so this cannot refuse a call that works today.
+  if (path !== raw && !networkPathOk(path)) return null;
+  return path;
+}
+
+function callOptions(
+  action: Extract<ActionSpec, { kind: "callEndpoint" }>,
+  ctx: Ctx,
+): { call: CallOptions; undo: (() => void) | null; sink: ReturnType<typeof progressSink> | null } | null {
+  const a = action as unknown as Record<string, unknown>;
+  const wants = ["multipart", "progressInto", "retry", "cache", "optimistic"].some((k) => a[k] !== undefined);
+  if (!wants) return null;
+  const call: CallOptions = {};
+  if (a.retry !== undefined) call.retry = a.retry as CallOptions["retry"];
+  if (a.cache !== undefined) call.cache = a.cache as CallOptions["cache"];
+  if (a.multipart !== undefined) call.multipart = resolveValue(a.multipart, ctx) as CallOptions["multipart"];
+  let sink: ReturnType<typeof progressSink> | null = null;
+  if (a.progressInto !== undefined) {
+    sink = progressSink((p, v) => ctx.store.set(p, v), a.progressInto);
+    call.onProgress = sink.push;
+  }
+  const undo = a.optimistic !== undefined
+    ? applyOptimistic(ctx.store, resolveValue(a.optimistic, ctx) as { path?: unknown; value?: unknown })
+    : null;
+  return { call, undo, sink };
+}
+
+/**
+ * AN ACTION THIS SCREEN MAY NOT RUN (pure/SPEC.md 2.0 principle 2, 5.3).
+ *
+ * Running an action is this bundle's promise; whether a SCREEN may use one belongs to the block it came from.
+ * A screen that did not name the block — or one whose block a kill switch turned off — gets the action's own
+ * `onError`, which is where the server says what to do instead, and the server hears what it sent.
+ */
+/**
+ * IS THERE LOCATION IN THIS BINARY AT ALL (perms/SPEC.md 5.2; pure/SPEC.md 3.4 point 5)?
+ *
+ * One JS check of the module's presence, the same one the server reads as `Location1`. Without it iOS has no
+ * `locationAsk` to call and an older Android binary has no coarse permission in its manifest, so both answer
+ * "denied" or "blocked" for something that was never built — and a screen then offers Settings for a switch that
+ * does not exist.
+ */
+const hasLocation = (): boolean => permCaps().includes(LOCATION_CAPABILITY);
+
+async function refuseBlock(block: string, action: unknown, ctx: Ctx): Promise<void> {
+  try { noteBadNode(`block:${block}`); } catch { /* reporting is never the next error */ }
+  ctx.store.set("lastError", { reason: `${block} is not on for this screen` });
+  await runAction((action as { onError?: ActionRef }).onError, ctx);
+}
+
+/**
+ * THE APP'S OWN CARD BEFORE EVERY SYSTEM PROMPT (pure/SPEC.md 3.4 point 4; Apple 5.1.1(iv), task #113).
+ *
+ * The server sets `primed: true` on a `requestPermission` that its own Continue button fired, and lint refuses
+ * `primed: true` anywhere else. Everything else — a construction written in a hurry, a rule, a gesture — has to
+ * be shown the app's card first, whatever tree the server sent. "Continue" and nothing else: an alert with a
+ * "Not now" beside it is the exact shape the guideline forbids.
+ */
+function primedCard(permission: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const once = (v: boolean) => { if (!done) { done = true; resolve(v); } };
+    Alert.alert(
+      txt(`perm.${permission}.title`, txt("perm.card.title", "One permission first")),
+      txt(`perm.${permission}.body`, txt("perm.card.body", "The next screen is your phone asking. Nothing is used until you allow it.")),
+      [{ text: txt("perm.card.continue", "Continue"), onPress: () => once(true) }],
+      { cancelable: false, onDismiss: () => once(false) },
+    );
+  });
+}
+
 /** What a media action needs of the screen that ran it; a follow-up runs with `event` as its $event. */
 function mediaIO(ctx: Ctx): MediaIO {
   return {
@@ -213,10 +432,28 @@ function mediaIO(ctx: Ctx): MediaIO {
   };
 }
 
-export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<void> {
+export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise<void> {
   if (!ref) return;
-  const action = spec(ref, ctx);
+  const action = spec(ref, outer);
   if (!action) return;
+
+  // HOW DEEP, AND WHAT THE KERNEL MAY DO HERE (pure/SPEC.md 5.1, 2.2).
+  //
+  // One object, made once, and every nested `runAction` below passes it on — so the depth counts itself and a
+  // chain of sixteen is the end of it (an action that runs itself used to run until the stack gave out). The
+  // kernel is put in the same place, and only for a screen that asked for `expr`: `fill.ts` then works out a
+  // `{ $ }` or `{ $t }` wherever an action carries a value, which is every example in SPEC 2.2 and 2.4.
+  const depth = typeof outer.depth === "number" ? outer.depth : 0;
+  if (depth >= LIMITS.actionDepth) {
+    try { noteBadNode(`action:${LIMITS.actionDepth} deep`); } catch { /* ignore */ }
+    return;
+  }
+  const wantsExpr = !outer.expr && !!outer.blocks?.includes("expr");
+  const ctx: Ctx = {
+    ...outer,
+    depth: depth + 1,
+    ...(wantsExpr ? { expr: (v: unknown, o?: { encode?: boolean }) => actionExpr(v, outer, o) } : null),
+  };
 
   switch (action.kind) {
     // ------------------------------------------------------------------- nav
@@ -227,8 +464,11 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // that says it can (ActionParams in the registry).
     case "navigate": {
       const params = navParams(action.params, ctx);
-      if (action.replace) ctx.nav.replace(action.screenId, params);
-      else ctx.nav.push(action.screenId, params);
+      // How it comes up (SPEC 2.10). Normalised here — a presentation this build does not know becomes `push`,
+      // which is the one that always works — and only passed on for a screen whose client has the shell block.
+      const present = ctx.blocks?.includes("shell") ? normalizePresentation(action) : undefined;
+      if (action.replace) ctx.nav.replace(action.screenId, params, present);
+      else ctx.nav.push(action.screenId, params, present);
       break;
     }
     case "navigateBack":
@@ -239,10 +479,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // cannot be written into the screen. Resolved here, then held to the same
     // checks as a literal one (openExternal / isWebUrl), so a state value
     // opens nothing a typed address could not.
-    case "openUrl": openExternal(fillText(action.url, ctx), ctx, action.handoff === true); break;
+    case "openUrl": openExternal(fillText(action.url, ctx, { encode: true }), ctx, action.handoff === true); break;
     case "openInAppBrowser":
       try {
-        const url = fillText(action.url, ctx);
+        const url = fillText(action.url, ctx, { encode: true });
         if (!isWebUrl(url)) throw new Error("not a web page");
         await WebBrowser.openBrowserAsync(url);
       } catch { linkFailed(ctx); }
@@ -270,6 +510,9 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "callEndpoint": {
       // `stream`: the answer's words, written into state as they come over the live socket (askStream.ts).
       let unlisten: (() => void) | null = null;
+      // An optimistic write to put back if the call fails, and the progress sink to flush when it ends (SPEC 2.10).
+      let undo: (() => void) | null = null;
+      let sink: { push(p: { loaded: number; total: number; pct: number }): void; flush(): void } | null = null;
       try {
         let body = action.body != null ? resolveValue(action.body, ctx) : undefined;
         const streamPath = typeof action.stream === "string" && action.stream ? action.stream : "";
@@ -287,13 +530,46 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // list row that meant deleting the row hit /v1/history/$state.item.id
         // and 404'd. Tokens run to the first character that cannot be part of a
         // path segment.
-        const path = action.path.includes("$state.")
-          ? action.path.replace(/\$state\.[A-Za-z0-9_.]+/g, (m) => {
-              const v = ctx.store.get(m.slice("$state.".length));
-              return v == null ? "" : encodeURIComponent(String(v));
-            })
-          : action.path;
-        const res = await callEndpoint(action.method, path, body);
+        //
+        // AND A PATH CAN BE AN EXPRESSION (SPEC 2.2): `path: { "$t": "/v1/notes/{{ state.note.id }}" }`, with
+        // every hole encoded. `action.path.includes` on an object threw, so the SPEC's own example never made a
+        // call at all; and whichever way it was written the result is checked before it is sent, so a filled
+        // value holding ".." or a host cannot climb out of our API (SPEC 5.1, network).
+        const path = callPath(action.path, ctx);
+        if (path === null) {
+          try { noteBadNode("action:path"); } catch { /* ignore */ }
+          await runAction(action.onError, ctx);
+          break;
+        }
+        // THE OPTIONS THE DATA BLOCK ADDED (SPEC 2.10): multipart, progress, retry, cache and an optimistic
+        // write. Built only when the action carries one of them and the screen has the block, so every call
+        // written before this takes the same no-options path it always did.
+        // KEPT UNTIL THE PHONE CAN SEND IT (SPEC 2.10: `queue: "outbox"`, "which subsumes Outbox").
+        //
+        // Nothing read `queue` at all, although the contract and the data block's own spec both promise it — so a
+        // write made with no connection was sent into nothing and lost, which is the one thing the outbox exists
+        // to stop. The outbox sends at once when there IS a connection and keeps the order when there is not.
+        // `onSuccess` runs on the keeping, not on the answer: a queued write has no answer yet, and `assignTo`
+        // therefore gets nothing.
+        const dataOn = ctx.blocks?.includes("data");
+        const queued = dataOn && (action as { queue?: unknown }).queue === "outbox"
+          && (action.method ?? "GET").toUpperCase() !== "GET";
+        if (queued) {
+          const a = action as { queueLabel?: unknown; queueSub?: unknown };
+          await runOutboxAction({
+            op: "add",
+            path,
+            body: body ?? {},
+            label: typeof a.queueLabel === "string" && a.queueLabel ? a.queueLabel : txt("outbox.queued", "Waiting to send"),
+            sub: typeof a.queueSub === "string" ? a.queueSub : "",
+          }, ctx);
+          await runAction(action.onSuccess, ctx);
+          break;
+        }
+        const opts = dataOn ? callOptions(action, ctx) : null;
+        if (opts?.undo) undo = opts.undo;
+        sink = opts?.sink ?? null;
+        const res = await callEndpoint(action.method, path, body, opts?.call);
         // Any write can change what a screen renders. Dropping every cached
         // screen after one is the difference between a settings toggle that
         // sticks and one that appears to revert when you navigate back.
@@ -319,6 +595,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // that is what a user who had simply run out of free words was told —
         // so the one thing that would have helped, the paywall, was the one
         // thing they never saw.
+        // An optimistic write is put back the moment the call fails (SPEC 2.10), before anything else is decided.
+        if (undo) { try { undo(); } catch { /* the store is already back or gone */ } undo = null; }
         if (err instanceof QuotaExceededError) {
           // The bootstrap still says there are words left; let the next
           // foreground ask again instead of waiting out its TTL.
@@ -333,6 +611,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       } finally {
         // A moment more: the last words can come over the socket just after the answer.
         if (unlisten) setTimeout(unlisten, 600);
+        // The last progress reading is written even when it was held back by the every-100-ms rule.
+        if (sink) { try { sink.flush(); } catch { /* the screen may already be gone */ } }
       }
       break;
     }
@@ -557,6 +837,33 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     case "devicePref":
       if (action.key === "sounds") setSoundsOn(resolveValue(action.value, ctx) !== false);
       break;
+    // WHAT THIS PHONE REMEMBERS (SPEC 2.9, the `local` block): a hint dismissed, a draft, a last choice. Its own
+    // namespace, capped, never a secret, and cleared on sign-out — localCore.ts holds every one of those rules,
+    // and says why when it refuses, which is what the action's own `onError` is told.
+    //
+    // AND ONLY FOR A SCREEN THAT NAMED THE BLOCK. The registry's own comment says "a screen that does not name
+    // the block never gets them", and nothing checked — so `sdui.off: ["local"]` stopped nothing, and a screen
+    // written before any of this could write to the phone's memory.
+    case "local.set": {
+      if (!ctx.blocks?.includes("local")) { await refuseBlock("local", action, ctx); break; }
+      const r = setLocal((action as { path: string }).path, resolveValue((action as { value?: unknown }).value, ctx));
+      if (!r.ok) { ctx.store.set("lastError", { reason: r.reason }); await runAction((action as { onError?: ActionRef }).onError, ctx); }
+      break;
+    }
+    // LISTEN TO A TOPIC (SPEC 2.10, the `data` block): what arrives on the live socket is written into state,
+    // replacing, appending or merging. The hub holds the screen's own rules (4 topics, 64 KB a message, 20
+    // merges a second) and drops them all when the screen goes; a screen without the block subscribes to nothing.
+    case "subscribe": {
+      if (!ctx.blocks?.includes("data")) break;
+      subscribeHub()?.add(ctx.screenId ?? "", action);
+      break;
+    }
+    case "local.remove": {
+      if (!ctx.blocks?.includes("local")) { await refuseBlock("local", action, ctx); break; }
+      const r = removeLocal((action as { path: string }).path);
+      if (!r.ok) { ctx.store.set("lastError", { reason: r.reason }); await runAction((action as { onError?: ActionRef }).onError, ctx); }
+      break;
+    }
     case "scanQR":
       // Full QR scanning requires the Camera component mounted in-screen with
       // a barcode callback. The action here requests the permission so the
@@ -586,6 +893,18 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
         // it can offer Settings instead of asking again for something the
         // system will not ask for.
         let blocked = false;
+        // AND A THIRD ANSWER: NOT IN THIS BINARY (SPEC 2.9, V0's contract reconcile). Contacts, calendar and
+        // tracking have no module here, and photos has none on Android, so "denied" was a lie: it reads as "the
+        // person said no", and a screen then offers Settings for a switch that is not there. `unsupported` is
+        // the truth, and `onUnsupported` falls back to `onDenied`, so a screen that has not been taught the
+        // difference behaves exactly as it does today.
+        let unsupported = false;
+        // ONE APP CARD BEFORE THE SYSTEM PROMPT (SPEC 3.4 point 4). `primed: true` means the server's own card's
+        // Continue button fired this, so the card has already been shown; without it, ours is.
+        if ((action as { primed?: unknown }).primed !== true) {
+          const went = await primedCard(String(action.permission));
+          if (!went) break;
+        }
         switch (action.permission) {
           case "microphone": {
             const AudioMod = await import("expo-audio");
@@ -596,14 +915,20 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           }
           case "camera": granted = (await requestCameraPermission()).granted; break;
           case "notifications": granted = (await Notifications.requestPermissionsAsync()).granted; break;
-          case "photoLibrary": granted = (await MediaLibrary.requestPermissionsAsync()).granted; break;
+          case "photoLibrary":
+            // Android's system picker needs no permission and READ_MEDIA_* is blocked on purpose (app.config.ts),
+            // so there is nothing here to grant.
+            if (Platform.OS === "android") { unsupported = true; break; }
+            granted = (await MediaLibrary.requestPermissionsAsync()).granted;
+            break;
           case "contacts":
           case "calendar":
             // NOT IN THIS BUILD: neither module is linked (see the imports). Contacts has no permission at all: the
             // contact.pick action uses the system picker.
-            // Denied, so onDenied fires instead of the screen waiting.
-            console.warn(`[sdui] requestPermission('${action.permission}'): not built in — treating as denied`);
-            granted = false;
+            // `unsupported`, so a screen can say "this build cannot" rather than offering Settings for a switch
+            // that is not there; it falls back to onDenied, which is what fired here before.
+            console.warn(`[sdui] requestPermission('${action.permission}'): not built in — unsupported`);
+            unsupported = true;
             break;
           case "tracking":
             // NOT IN THIS BUILD, deliberately. Shipping the ATT prompt means
@@ -613,14 +938,19 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             // does. Nothing has ever sent permission:"tracking" either, so the
             // key bought a blocked submission and no feature.
             //
-            // Denied rather than silent, so onDenied fires and a caller learns
-            // the answer instead of waiting. Restoring it is the plugin, the
-            // usage string, and a new build — plus a truthful tracking
-            // declaration, which is the part that should give anyone pause.
-            console.warn('[sdui] requestPermission("tracking"): not built in — treating as denied');
-            granted = false;
+            // `unsupported` rather than silent, so a caller learns the answer instead of waiting. Restoring it is
+            // the plugin, the usage string, and a new build — plus a truthful tracking declaration, which is the
+            // part that should give anyone pause.
+            console.warn('[sdui] requestPermission("tracking"): not built in — unsupported');
+            unsupported = true;
             break;
           case "location": {
+            // NOT IN EVERY BINARY (SPEC 3.4 point 5). Without TulmiPerms.locationArea there is no location in
+            // this build at all: on iOS `ask()` answers "denied" because the module function is missing, and on
+            // an older Android binary the coarse permission is not in the manifest, so the request comes back
+            // never_ask_again — which reads as "blocked" and makes a screen offer Settings for a switch that
+            // does not exist. The capability is the honest test, and `unsupported` the honest answer.
+            if (!hasLocation()) { unsupported = true; break; }
             // While using the app only, approximate first (device/locate.ts). The coordinate never reaches JS.
             const r = await locationRequest();
             granted = r.granted;
@@ -628,11 +958,16 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
             break;
           }
         }
-        // onBlocked falls back to onDenied, so a screen that has not been
-        // taught the difference behaves exactly as it does today.
+        // onBlocked and onUnsupported both fall back to onDenied, so a screen that has not been taught the
+        // difference behaves exactly as it does today.
+        const a = action as { onBlocked?: unknown; onUnsupported?: unknown; statusTo?: unknown };
+        const status = granted ? "granted" : unsupported ? "unsupported" : blocked ? "blocked" : "denied";
+        if (typeof a.statusTo === "string" && a.statusTo) ctx.store.set(a.statusTo, status);
         const next = granted
           ? action.onGranted
-          : (blocked ? ((action as { onBlocked?: unknown }).onBlocked ?? action.onDenied) : action.onDenied);
+          : unsupported ? (a.onUnsupported ?? action.onDenied)
+            : blocked ? (a.onBlocked ?? action.onDenied)
+              : action.onDenied;
         await runAction(next as any, ctx);
       } catch { await runAction(action.onDenied, ctx); }
       break;
@@ -650,6 +985,8 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
     // permission reads as denied, which is the honest answer: we do not have it.
     case "checkPermission": {
       let granted = false;
+      // The same third answer as requestPermission: a kind this binary cannot grant at all (SPEC 2.9).
+      let unsupported = false;
       try {
         switch (action.permission) {
           case "microphone": {
@@ -660,19 +997,34 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
           }
           case "camera": granted = (await getCameraPermission()).granted; break;
           case "notifications": granted = (await Notifications.getPermissionsAsync()).granted; break;
-          case "photoLibrary": granted = (await MediaLibrary.getPermissionsAsync()).granted; break;
-          // None is built in — see requestPermission for why. Not granted.
-          case "location": granted = await locationGranted(); break;
+          case "photoLibrary":
+            if (Platform.OS === "android") { unsupported = true; break; }
+            granted = (await MediaLibrary.getPermissionsAsync()).granted;
+            break;
+          // The same third answer as requestPermission (SPEC 3.4 point 5): reading never prompts, and a "no"
+          // from a binary that has no location module at all is not a no — it is `unsupported`, so a screen says
+          // "this build cannot" instead of offering Settings for a switch that is not there.
+          case "location": granted = await locationGranted(); unsupported = !granted && !hasLocation(); break;
+          // None is built in — see requestPermission for why.
           case "contacts":
           case "calendar":
-          case "tracking": granted = false; break;
+          case "tracking": unsupported = true; break;
         }
       } catch {
         // A module that will not load cannot tell us we have the permission.
         granted = false;
       }
+      // `assignTo` keeps the boolean it has always been; `statusTo` is where the whole answer goes, so a screen
+      // written for the old shape reads exactly what it read before.
       if (action.assignTo) ctx.store.set(action.assignTo, granted);
-      await runAction(granted ? action.onGranted : action.onDenied, ctx);
+      const c = action as { statusTo?: unknown; onUnsupported?: unknown };
+      if (typeof c.statusTo === "string" && c.statusTo) {
+        ctx.store.set(c.statusTo, granted ? "granted" : unsupported ? "unsupported" : "denied");
+      }
+      await runAction(
+        (granted ? action.onGranted : unsupported ? (c.onUnsupported ?? action.onDenied) : action.onDenied) as any,
+        ctx,
+      );
       break;
     }
 
@@ -744,6 +1096,10 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       // widgets' own token is revoked on the server the same way (both
       // bounded: signing out never waits on the network).
       await Promise.all([unregisterPushToken(), signingOut()]);
+      // What this phone remembered for this person goes with them (SPEC 2.9: `local` is cleared on sign-out).
+      // Done here as well as on the SIGNED_OUT event, because a sign-out that fails to reach Supabase must still
+      // not leave the next person on this phone holding the last one's drafts.
+      try { clearLocal(); } catch { /* nothing kept is worth failing a sign-out for */ }
       await supabase.auth.signOut();
       break;
 
@@ -925,5 +1281,21 @@ export async function runAction(ref: ActionRef | undefined, ctx: Ctx): Promise<v
       else if (action.level === "warn") console.warn(action.message);
       else console.log(action.message);
       break;
+
+    /**
+     * AN ACTION THIS BUILD DOES NOT KNOW (pure/SPEC.md 2.0, principle 5).
+     *
+     * It used to be silence: a tap that did nothing, with nothing anywhere saying why. Now it runs the action's
+     * own `onError` — which is where the server says what to do instead — and goes back with the handshake, so
+     * the server learns it sent something this player never had.
+     */
+    default: {
+      const unknown = action as { kind?: unknown; onError?: ActionRef };
+      const kind = typeof unknown.kind === "string" ? unknown.kind : "?";
+      try { noteBadNode(`action:${kind.slice(0, 32)}`); } catch { /* reporting is never the next error */ }
+      console.warn(`[sdui] action "${kind}" is not in this build`);
+      await runAction(unknown.onError, ctx);
+      break;
+    }
   }
 }

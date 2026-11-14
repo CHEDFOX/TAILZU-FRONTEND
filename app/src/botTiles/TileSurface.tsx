@@ -17,6 +17,7 @@
  */
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { AppState, Dimensions, Platform, View } from "react-native";
+import { motionMode } from "../sdui/safety";
 import type { TileCtx } from "./core";
 
 /** Anything the core draws: a tile's bot, the living mark. */
@@ -149,7 +150,14 @@ export function useTileLoop(io: LoopIO, run: boolean, host: React.RefObject<View
   }, [run, host]);
 }
 
-/** Reduce Motion, as the system says it now (and when it changes). */
+/**
+ * Reduce Motion, as the system says it now (and when it changes) — and as the server may say it too.
+ *
+ * Every bot animation in the app asks this one hook: the tiles, the card, the stage, the crowd, the buddy, Home's
+ * head, a person's bot, the vanish and the pull. It is the heaviest motion there is, a Skia loop per surface, so
+ * `sdui.motion` and a safe-mode rescue have to reach it or they do not mean what they say (SPEC 5.3: "no motion").
+ * Either answer stills the loop; only the system's own takes time to arrive, which is what `null` is still for.
+ */
 export function useReducedMotion(): boolean | null {
   const [on, setOn] = React.useState<boolean | null>(null);
   useEffect(() => {
@@ -160,5 +168,5 @@ export function useReducedMotion(): boolean | null {
     const sub = AccessibilityInfo.addEventListener?.("reduceMotionChanged", (v: boolean) => setOn(!!v));
     return () => { live = false; sub?.remove?.(); };
   }, []);
-  return on;
+  return motionMode() !== "on" ? true : on;
 }

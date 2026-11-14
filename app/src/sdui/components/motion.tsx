@@ -18,6 +18,7 @@
 import React, { useCallback, useRef } from "react";
 import { Animated, Pressable, StyleProp, StyleSheet, ViewStyle, PressableProps } from "react-native";
 import { haptic as playHaptic } from "./haptic";
+import { motionMode } from "../safety";
 import * as K from "../knobs";
 
 // Tuned to feel snappy but never abrupt. Spring, not linear — a linear
@@ -86,7 +87,10 @@ export function SpringPressable(props: SpringPressableProps): React.ReactElement
   const pressIn = useCallback(() => {
     if (disabled) return;
     if (haptic) playHaptic(K.str("app.haptics.press.in", "selection"));
-    Animated.spring(scale, { toValue: pressScale ?? K.num("motion.pressScale", 0.94), ...springDown() }).start();
+    // `sdui.motion: "off"`, and safe mode, take the press-scale with them — the haptic and the flash stay, so a tap
+    // still answers. "reduced" keeps the spring: it is feedback for a finger, not decoration (safety.ts).
+    const squash = motionMode() === "off" ? 1 : (pressScale ?? K.num("motion.pressScale", 0.94));
+    Animated.spring(scale, { toValue: squash, ...springDown() }).start();
     if (flashColor) {
       Animated.timing(flash, { toValue: 1, duration: K.num("motion.flashInMs", 60), useNativeDriver: true }).start();
     }

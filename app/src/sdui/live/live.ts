@@ -24,6 +24,7 @@ import type { Store } from "../state";
 import type { ScreenResponse } from "../types";
 import { hears, LiveClient, mergeLiveState, ReloadScheduler, wsUrlOf, type LiveSocket } from "./liveCore";
 import { streamEvent } from "./askStream";
+import { subscribeEvent } from "./subscribe";
 
 type Target = { screenId: string; params?: Record<string, any> };
 
@@ -113,7 +114,13 @@ export function useLiveUpdates(o: {
       url: async () => wsUrlOf(await getBaseUrl(), str("live.path", "/v1/live")),
       token: () => token(),
       // An answer's words as they come (askStream.ts) are for the call that asked, never a reload.
-      onEvent: (topic, m) => { if (streamEvent(topic, m.data)) return; if (hears(listening(), topic)) scheduler.poke(); },
+      // A screen that subscribed to this topic takes the message straight into its own state (SPEC 2.10, the
+      // `data` block) and the screen is NOT reloaded for it: that is the whole point of a subscription.
+      onEvent: (topic, m) => {
+        if (streamEvent(topic, m.data)) return;
+        if (subscribeEvent(topic, m.data)) return;
+        if (hears(listening(), topic)) scheduler.poke();
+      },
       onResume: () => { if (listening()?.length) scheduler.poke(); },
     });
     // "inactive" is a moment (a sheet over the app, the switcher): only the background closes the socket.

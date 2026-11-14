@@ -36,6 +36,13 @@ import { Vanish } from "./Vanish";
 import { MentionField } from "./MentionField";
 import { LiveWords } from "./LiveWords";
 import { PersonBot } from "../bots/PersonBot";
+// Lists, inputs and media (pure/SPEC.md 2.6, 2.8, 2.10). Registered by registerListsInputsMedia below, not here.
+import { List } from "./List";
+import { Each } from "./Each";
+import { Input } from "./input/Input";
+import { Video } from "./Video";
+import { AudioNode } from "./Audio";
+import { Camera } from "./Camera";
 
 export { ThemeContext } from "../theme/ThemeContext";
 export { typeRole } from "../theme/typeRole";
@@ -73,3 +80,28 @@ export const REGISTRY: Record<string, React.ComponentType<CompProps>> = {
   // A person, as their own tiny bot (types.ts 3j).
   PersonBot,
 };
+
+/**
+ * LISTS, INPUTS AND MEDIA — OFF UNTIL THE RENDERER TURNS THEM ON (pure/SPEC.md 2.0, principle 2; 2.6, 2.8, 2.10).
+ *
+ * These six node types are not in REGISTRY above, on purpose. A block must be off for a screen unless the client
+ * declared it and the screen asked for it, and what the client declares is built from what the registry holds — so
+ * adding them here would declare them to the server before the renderer can draw them (they need the host in
+ * v3Host.ts to render a row, write a value or fetch a page, and that is V1's to provide).
+ *
+ * V1 calls this once, with the real host in place. Then, and only then, does the phone say it has `list`, `input`
+ * and `media`. The contract for all six is in v3Spec.ts.
+ */
+export function registerListsInputsMedia(registry: Record<string, React.ComponentType<CompProps>>): void {
+  registry.List = List;
+  registry.Each = Each;
+  registry.Input = Input;
+  registry.Video = Video;
+  registry.Audio = AudioNode;
+  registry.Camera = Camera;
+}
+
+export { SPEC as LISTS_INPUTS_MEDIA_SPEC, BLOCK_NODES } from "./v3Spec";
+export { V3HostContext, ScreenScrollerContext } from "./v3Host";
+export type { V3Host, ListHost, InputHost, MediaHost, ItemScope, ScreenScrollerSlot } from "./v3Host";
+export { screenListPlan } from "./listCore";

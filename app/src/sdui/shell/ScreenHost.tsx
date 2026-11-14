@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { AppState } from "react-native";
 import { RenderNode } from "../Renderer";
+import { ScreenTree } from "../blocks/ScreenTree";
 import { Store } from "../state";
 import { keptStore, liveShowing } from "../live/live";
 import { PullBotContext } from "../bots/PullBot";
@@ -13,6 +14,7 @@ import { leaveSpeech } from "../voice/speech";
 import { leaveCall } from "../voice/callRealtimeCore";
 import type { ScreenResponse } from "../types";
 import { num } from "../knobs";
+import { noteScreen, screenOff } from "../safety";
 import { useOfflineState } from "../offline/offline";
 import { refreshDeviceSignals } from "../../device/signals";
 
@@ -97,10 +99,23 @@ export function ScreenHost({
 
   // A screen is a full `root` tree; one without draws nothing.
   if (!screen.root) return null;
+
+  // THE CRASH-LOOP BREADCRUMB (safety.ts). Written here, in the render, BEFORE the tree below it draws — an effect
+  // would run after the screen that is about to take the launch down has already tried to. Synchronous, and a no-op
+  // once this screen is the one already noted, so it costs a string compare per render.
+  noteScreen(screen.screenId);
+  // A screen the server switched off, or one two crashed launches put on this device's own off list, draws its
+  // root's `fallback` and nothing else — the same answer a node the player cannot draw gets.
+  if (screenOff(screen.screenId)) {
+    return screen.root.fallback ? <RenderNode node={screen.root.fallback} ctx={ctx} /> : null;
+  }
   // Pull-a-bot, when the screen asks for it: its Screen pulls a bot (PullBot.tsx).
+  // The tree, through the blocks gate (blocks/ScreenTree.tsx): what the screen says it needs, its templates
+  // expanded, its rules running, and its hosts in place. A screen that states no `needs` comes out the other
+  // side as the same `<RenderNode node={screen.root} ctx={ctx}/>` it always was.
   return (
     <PullBotContext.Provider value={screen.pullBot ?? null}>
-      <RenderNode node={screen.root} ctx={ctx} />
+      <ScreenTree screen={screen} ctx={ctx} />
     </PullBotContext.Provider>
   );
 }

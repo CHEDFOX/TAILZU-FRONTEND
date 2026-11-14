@@ -47,7 +47,7 @@ A team of bots, each great at one thing. Speak and Keybot writes. Plan keeps you
 keyboard,voice,dictation,typing,languages,planner,calendar,todo,trip,meeting,notes,family,chat
 ```
 
-### Description · 3386 / 4000
+### Description · 3472 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
@@ -71,7 +71,7 @@ SPACES · FAMILY AND FRIENDS
 Make a space for home, for friends or for a team. Share lists, trips, plans and files, chat one-to-one or in groups, and give someone a task that lands on their day. You choose what each person can do, and reporting and blocking are built in.
 
 YOUR OWN BOTS
-Describe a bot in a sentence: "a bot that plans my workouts around my calendar and reminds me the night before." X0 Bot drafts it with a name, its rules and what it may use. Try it, change it, and it joins your team. You can also add bots that others have made.
+Describe a bot in a sentence: "a bot that plans my workouts around my calendar and reminds me the night before." X0 Bot drafts it with a name, its rules and what it may use. Try it, change it, and it joins your team. You can also add bots that others have made. Connect Apple Health to a fitness bot you make, so it counts your steps and workouts.
 
 ASK ANY BOT
 One place to start. Type, or hold to speak, add a photo or a file, and X0 Bot hands it to the bot that fits. Activity shows what every bot did and what is waiting for you.
@@ -92,7 +92,7 @@ Privacy policy: https://x0bot.com/privacy
 Questions: support@x0bot.com
 ```
 
-### What's New in this version · 1130 / 4000
+### What's New in this version · 1216 / 4000
 
 ```text
 A new X0 Bot.
@@ -105,7 +105,7 @@ The keyboard you know is now one player on a team of bots, each great at one thi
 • Notes: meetings noted on your computer, written up with decisions and to-dos.
 • Code bot: build and fix code by asking. Nothing goes live until you say yes.
 • Spaces: share with family and friends, chat one-to-one or in groups, and give tasks.
-• Your own bots: describe one in a sentence and it joins your team.
+• Your own bots: describe one in a sentence and it joins your team. Connect Apple Health to a fitness bot you make, so it counts your steps and workouts.
 • Ask any bot, by voice or by typing, and the right one picks it up.
 • Activity: everything your bots did, and what is waiting for you.
 • Usage: a simple meter that shows how much you have used.
@@ -134,34 +134,38 @@ https://x0bot.com
 https://x0bot.com/privacy
 ```
 
-### App Review notes · 2532 / 4000
+### App Review notes · 3995 / 4000
 
 ```text
 SIGN IN
-Use the review account in App Store Connect (App Review Information). On the first screen tap "I already have an account" and sign in with it. You land on Bots (Home).
+Use the review account in App Store Connect (App Review Information): on the first screen tap "I already have an account" and sign in. You land on Bots (Home).
 
 WHAT THE APP IS
-X0 Bot is a team of bots, each for one kind of job. They live on Home; a tap opens one. Search (magnifier, top right) finds any bot by name, and "Ask any bot…" at the bottom sends a request to the bot that fits.
+X0 Bot is a team of bots, each for one kind of job. They live on Home; a tap opens one. Search (top right) finds any bot by name, and "Ask any bot…" at the bottom sends a request to the bot that fits.
 
 WHERE EACH BOT IS
-- Keybot (voice keyboard): Home › Keybot, or Search "Keybot". To type with it in other apps: Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot, and allow Full Access. Full Access is used only to send the voice to our server and bring the text back; it listens only while the mic key is held. A keyboard extension cannot record audio itself, so the app keeps a microphone session that the keyboard uses. While it is on, iOS shows the microphone indicator and a Live Activity, and it can be stopped from there or in the app at any time.
-- Plan, Travel and Code bot: their tiles on Home, or Search by name. Code bot works on code projects you connect; "Start a new project from scratch" works without connecting anything.
+- Keybot (voice keyboard): Home › Keybot. To type with it elsewhere: Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot, and allow Full Access. Full Access only sends the voice to our server and brings the text back; it listens only while the mic key is held. A keyboard extension cannot record audio itself, so the app keeps a microphone session the keyboard uses. While it is on, iOS shows the microphone indicator and a Live Activity, and it can be stopped from there or in the app.
+- Plan, Travel and Code bot: their tiles on Home, or Search by name. Code bot works on projects you connect; "Start a new project from scratch" needs none.
 - Notes: the Notes strip on Home. Meetings are noted by X0 Bot on a computer; the phone shows them.
-- Spaces and chats: You › Spaces and chats.
-- Make your own bot: the "Make a bot" tile on Home.
+- Spaces and chats: You › Spaces and chats. Make your own bot: the "Make a bot" tile on Home.
 - Activity tab: what the bots did and what needs a decision.
 
 SUBSCRIPTIONS
-Lite and Elite are auto-renewable monthly subscriptions (In-App Purchase, one subscription group). The purchase screen is You › Plan and billing › See plans (also reached from You › Usage when the allowance runs low). It shows each plan with the App Store's own price for it, the renewal terms, and links to the Terms of use and the Privacy policy. Without a subscription, every bot works with a smaller monthly allowance.
+Lite and Elite are auto-renewable monthly subscriptions (In-App Purchase, one subscription group). The purchase screen is You › Plan and billing › See plans (also from You › Usage when the allowance runs low). It shows each plan with the App Store's own price, the renewal terms, and links to the Terms of use and the Privacy policy. Without a subscription every bot works, with a smaller monthly allowance.
 
 USER CONTENT, REPORTING AND BLOCKING
-In Spaces, people share lists, files and messages with people they invite. Report and Block are on every chat (the button in a chat's header, and Report under each message), on each member's page and on each shared item. Blocked people are listed in You › Blocked people.
+In Spaces, people share lists, files and messages with people they invite. Report and Block are on every chat (the header button, and Report under each message), on each member's page and on each shared item. Blocked people are in You › Blocked people.
 
+NEW IN THIS BUILD, AND WHERE TO SEE IT
+- Use my location: Plan Ease › "Where does your day start?" › Use my location. One card (Continue), the system prompt, then the area's name to check and Save. While Using only, the prompt starts on approximate, and the phone's own geocoder names the area: our servers never get a coordinate, only the words saved. Typing it still works.
+- Add from contacts: Spaces › Review Family › Invite › Add from contacts (also on Spaces' start screen). The system contact picker: no permission is asked and none is in the build. Only the one email tapped fills the field, and nothing is sent until Send the invite. Under the field the invite is previewed as the recipient will read it: the sender, the subject, and the body behind "See the whole email". The device needs one contact with an email address.
+- Count my workouts: Bots › Gym Buddy › Edit › Count my workouts from Apple Health. One card (Continue), then the Health sheet. Steps and workouts only, read-only, while that bot is open; shown on its page; daily totals for 31 days; deleted when the switch goes off and from our encrypted backups within 30 days; never sent to AI services, never for ads, never in iCloud. To see one counted, add a workout in Health (Browse › Activity › Workouts › Add Data). With none, the bot says "Nothing from Apple Health yet": HealthKit never reports a refused read, so we never show a zero.
+- The review account runs the space "Review Family" and has the bot "Gym Buddy".
 ACCOUNT AND DATA
-Delete account: You › Your data › Delete account. Download or delete data: You › Your data.
+Delete account: You › Your data › Delete account. Download or delete data: You › Your data, which includes the days a fitness bot counted; Delete my data removes them and switches the row off.
 
 NOTHING HAPPENS WITHOUT A YES
-Bots ask before they book, pay or message anyone. Bookings open the provider's own site, and payments open the person's own payment app; X0 Bot never pays by itself.
+Bots ask before they book, pay or message anyone. Bookings open the provider's own site and payments open the person's own payment app; X0 Bot never pays by itself.
 
 Contact: support@x0bot.com
 ```
@@ -225,7 +229,31 @@ Privacy policy: https://x0bot.com/privacy
 Questions: support@x0bot.com
 ```
 
-### Release notes · 478 / 500
+### Add only when androidHealth.production is on
+
+**The Play text above is the OFF variant, and it is the default**, because `androidHealth.production` in
+`app/native-inputs.lock` is `off`: the release candidate is built without Health Connect unless Google has approved the
+form by release-candidate day, and a listing that promises Health Connect for a binary that has none is the same mistake
+as one that hides it. Play asks the listing and the in-app disclosures to represent the health access accurately either
+way (Play help 12991134).
+
+When the Android build being uploaded WAS built with Health Connect (`TULMI_ANDROID_HEALTH=on`, which the lock records
+per build profile), make these three changes and run
+`node tools/media/store/check-listing.mjs --android-health on --write`:
+
+1. **Full description**, at the end of YOUR OWN BOTS, after "You can also add bots that others have made.":
+   > Connect Health Connect to a fitness bot you make, so it counts your steps and workouts.
+2. **Release notes**, in place of "• Make your own bot, or add one someone else made":
+   > • Make your own bot; a fitness one counts your workouts
+3. **App access instructions**, in place of the last sentence of the third paragraph:
+   > Count my workouts: Bots › Gym Buddy › Edit › Count my workouts from Health Connect (steps and exercise only, 31 days,
+   > deleted when switched off). The review account runs the space "Review Family", already has the bot "Gym Buddy", and is
+   > on the allowlist that shows the Health Connect row while Google's own list is still propagating.
+
+The App Store text is NOT conditional: the Apple Health sentence is in the Description and What's New whenever the build
+carries `HEALTH_USAGE`, and the checker fails without it (App Review 2.5.1).
+
+### Release notes · 494 / 500
 
 ```text
 A new X0 Bot: a team of bots, each great at one thing.
@@ -235,16 +263,18 @@ A new X0 Bot: a team of bots, each great at one thing.
 • Notes: meetings written up, with decisions and to-dos
 • Code bot: build and fix code by asking
 • Spaces: share, chat and give tasks to family and friends
-• Make your own bot in a sentence
+• Make your own bot, or add one someone else made
 Lite and Elite: two monthly plans.
 ```
 
-### App access instructions (Play Console) · 872 / 4000
+### App access instructions (Play Console) · 1365 / 4000
 
 ```text
 Sign in with the review account given in this App access section. On the first screen tap "I already have an account" and sign in with it; you land on Bots (Home).
 
 Each bot is a tile on Home; Search (top right) finds any bot by name, and "Ask any bot…" at the bottom sends a request to the bot that fits. Keybot is the keyboard: Keybot › Turn on Keybot shows how to switch it on in Settings. Spaces and chats: You › Spaces and chats. Notes: the Notes strip on Home (meetings are noted by X0 Bot on a computer).
+
+This build adds three things to see. Use my location: Plan Ease › "Where does your day start?" › Use my location (one card, then the system prompt; approximate location only, and only the area's name is saved). Add from contacts: Spaces › Review Family › Invite › Add from contacts, and the email box on Spaces' start screen — this is the system contact picker, so no contacts permission is in the build. The review account runs the space "Review Family" and already has the bot "Gym Buddy".
 
 Lite and Elite are monthly subscriptions bought through Play Billing on You › Plan and billing › See plans. Report and Block are on every chat, member page and shared item in Spaces; blocked people are in You › Blocked people. Delete account: You › Your data › Delete account. Bots ask before they book, pay or message anyone, and X0 Bot never pays by itself.
 ```

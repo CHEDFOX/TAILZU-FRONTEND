@@ -1,8 +1,10 @@
 /** The shell's own shapes: a stack entry, a toast, the boot phase, and the hook plumbing types. */
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { PresentSpec } from "../actions";
 import type { consumeKeyboardRecordRequest } from "../../../modules/tulmi-bridge";
 
-export interface NavItem { screenId: string; params?: Record<string, any> }
+/** `present` is how this entry came up (pure/SPEC.md 2.10): absent means pushed, as every screen always was. */
+export interface NavItem { screenId: string; params?: Record<string, any>; present?: PresentSpec }
 export interface Toast { message: string; tone?: string }
 
 /** Where the shell is: booting, showing screens, unable to reach the server, or at the sign-in gate. */

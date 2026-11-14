@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import { syncKeyboardCredentials, forgetAccountData, primeKnobsFromDisk } from "../../client";
 import type { ScreenResponse } from "../../types";
 import { outbox } from "../../offline/offline";
+import { setLocalAccount } from "../../local";
 import { isFreshInstall } from "../../../storage";
 import { endFlowSession } from "../../../../modules/tulmi-bridge";
 import { supabaseAuth } from "../../../auth/supabaseClient";
@@ -76,6 +77,10 @@ export function useAuthSession({
         : null;
       // Tie RevenueCat purchases/entitlements to the signed-in user so they
       // restore across devices (was never identified → anonymous-only).
+      // WHOSE VALUES THESE ARE (pure/SPEC.md 2.9: `local` has its own namespace). Nothing ever named the
+      // account, so every person who signed in on this phone shared the "anon" namespace — and a draft one of
+      // them left was the next one's draft. Said at launch and at every session change below.
+      setLocalAccount(restored?.state === "in" ? restored.session?.user?.id ?? null : null);
       if (restored?.state === "in" && restored.session?.user?.id) void identifyBilling(restored.session.user.id);
       if (restored?.state === "out") setPhase("auth");
       else await loadBoot();
@@ -87,6 +92,8 @@ export function useAuthSession({
       // Supabase's autoRefreshToken fires TOKEN_REFRESHED before expiry; this
       // handler forwards each refresh straight to the keyboard.
       const { data: { subscription } } = supabaseAuth.onAuthStateChange((e, s) => {
+        // The phone's own values belong to whoever is signed in (SPEC 2.9), before anything else reads them.
+        setLocalAccount(s?.user?.id ?? null);
         // Signed out (or the account deleted): the background microphone goes
         // with the session — nothing may stay armed for nobody — and so does
         // everything else the account left on the phone.

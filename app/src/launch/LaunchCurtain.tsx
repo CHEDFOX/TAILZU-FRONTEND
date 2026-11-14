@@ -12,15 +12,23 @@
  * for the pull-in), his gloves (in front, each its own half: gripping, slipping behind the bar after him, grabbing its
  * middle again, from above and below, and twisting as the bar is pulled in to them).
  *
+ * WHAT EACH LAYER DOES IS THE SERVER'S (launchMotion.ts): the motion is data the server sends, so a new launch
+ * reaches every phone without an app update. It always starts on the splash's own frame, and it never holds the app
+ * shut: a launch that will not compile is not played (the copy the build carries is), and whatever it says, the app
+ * opens by app.splash.maxHoldMs. This file only draws the layers and keys them; where a part moves is the launch's.
+ * The curtain draws behind a boundary of its own (the default export, at the end), because it sits outside the app's:
+ * a launch that still found a way to throw costs the launch and nothing else.
+ *
  * LaunchStill is the same picture standing still: the boot view between the launch and a first screen.
  */
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Image, StyleSheet, View } from "react-native";
 import { num } from "../sdui/knobs";
 import {
-  BAR, BAR_MID, BAR_TOP, COME_BACK, COME_BACK_MS, FADE_MS, GLOVES, GONE_AT, GRIP_AT, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, PINCH_AT, SPLASH_PT,
-  STRIPS, SUCK_AT, U, barDy, degKeys, feeler, feelersShown, glove, head, hideNativeSplash, isLifted, keys, liftLaunch, onLift, strip,
+  BAR, BAR_MID, BAR_TOP, BUILT_IN, GLOVES, GRIP_AT, GROUND, SPLASH_PT, STRIPS, U,
+  asDeg, feeler, feelerWindow, feelersShown, hideNativeSplash, isLifted, keys, launchWindow, liftLaunch, onLift, partKeys, playMs, type Launch,
 } from "./launchCore";
+import { launchNow } from "./launchMotion";
 import { FEELER_ART } from "./feelerArt";
 
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -43,37 +51,34 @@ const Z = SPLASH_PT;
 /** The head's clip reaches past the art on both sides: his sway may take an ear over its edge. */
 const WIDE = 60;
 
-/** When the last of the bar, and the gloves with it, are gone. */
-const END = GONE_AT;
-
-/** Every key, sampled once. The strips only move from the pinch on, so theirs start there. */
-const K = {
-  bar: keys(barDy, 0, PINCH_AT),
-  head: { dy: keys((t) => head(t).dy, 0, 900), sway: degKeys((t) => head(t).sway, 0, 900), sq: keys((t) => head(t).sq, 0, 900),
-    shut: keys((t) => head(t).shut, 0, 700), shown: keys((t) => head(t).shown, 880, 900, 20) },
-  // Blip's feelers: each piece's turn from rest (the physics, launchCore feelerTrack), and how much of them shows
-  feelers: {
-    L: [degKeys((t) => feeler("l1", t), 0, 900), degKeys((t) => feeler("l2", t), 0, 900)],
-    R: [degKeys((t) => feeler("r1", t), 0, 900), degKeys((t) => feeler("r2", t), 0, 900)],
-    shown: keys(feelersShown, 0, 900),
-  },
-  gloves: ([0, 1] as const).map((s) => {
-    const k = (f: (g: ReturnType<typeof glove>) => number, from: number, to: number) => keys((t) => f(glove(s, t)), from, to);
-    return {
-      grip: k((g) => g.grip, 0, COME_BACK[s] + COME_BACK_MS + 110), dy: k((g) => g.dy, LET_GO[s], COME_BACK[s]),
-      edge: k((g) => g.edge, LET_GO[s], COME_BACK[s]), lift: k((g) => g.lift, COME_BACK[s] - 10, COME_BACK[s] + COME_BACK_MS),
-      flip: k((g) => g.flip, COME_BACK[s] - 10, COME_BACK[s]), gx: k((g) => g.gx, COME_BACK[s] - 10, END),
-      turn: degKeys((t) => glove(s, t).turn, SUCK_AT, END), size: k((g) => g.size, END - 160, END),
-      shown: k((g) => g.shown, LET_GO[s] + LET_GO_MS - 10, END),
-    };
-  }),
-  whole: { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [1, 1, 0] },
-  strips: Array.from({ length: STRIPS }, (_, i) => ({
-    dx: keys((t) => strip(i, STRIPS, t).dx, SUCK_AT, END), sx: keys((t) => strip(i, STRIPS, t).sx, SUCK_AT, END),
-    sy: keys((t) => strip(i, STRIPS, t).sy, PINCH_AT, END), shown: keys((t) => strip(i, STRIPS, t).shown, PINCH_AT, END, 5),
-  })),
-};
-const SHOW_STRIPS = { inputRange: [0, PINCH_AT - 1, PINCH_AT], outputRange: [0, 0, 1] };
+/**
+ * Every key the curtain draws with, sampled once from the launch that is playing (launchMotion.ts): the server's
+ * motion, or the copy this build carries. A part is sampled over the whole launch and the flat stretches are
+ * trimmed away (launchCore keys), because where a part moves is the launch's business, not this file's. The bar is
+ * sampled up to the pinch and the strips from it: until then the bar is drawn whole.
+ */
+function tracks(L: Launch) {
+  const { end, pinch } = launchWindow(L);
+  const feelers = feelerWindow(L).end;
+  const h = partKeys((t) => L.head(t), 0, end);
+  return {
+    bar: keys((t) => L.bar(t), 0, pinch),
+    head: { dy: h.dy, sway: asDeg(h.sway), sq: h.sq, shut: h.shut, shown: h.shown },
+    // Blip's feelers: each piece's turn from rest (the physics, launchCore feelerTrack), and how much of them shows
+    feelers: {
+      L: [asDeg(keys((t) => feeler("l1", t, L), 0, feelers)), asDeg(keys((t) => feeler("l2", t, L), 0, feelers))],
+      R: [asDeg(keys((t) => feeler("r1", t, L), 0, feelers)), asDeg(keys((t) => feeler("r2", t, L), 0, feelers))],
+      shown: keys((t) => feelersShown(t, L), 0, feelers),
+    },
+    gloves: ([0, 1] as const).map((s) => {
+      const g = partKeys((t) => L.glove(s, t), 0, end);
+      return { ...g, turn: asDeg(g.turn) };
+    }),
+    whole: { inputRange: [0, pinch - 1, pinch], outputRange: [1, 1, 0] },
+    showStrips: { inputRange: [0, pinch - 1, pinch], outputRange: [0, 0, 1] },
+    strips: Array.from({ length: STRIPS }, (_, i) => partKeys((t) => L.strip(i, STRIPS, t), pinch, end)),
+  };
+}
 
 /** The splash's picture, still, where the splash has it. */
 export function LaunchStill() {
@@ -84,8 +89,17 @@ export function LaunchStill() {
   );
 }
 
-export default function LaunchCurtain() {
+function Curtain() {
   const [gone, setGone] = useState(isLifted);
+  // The launch the server sent, or the copy this build carries: worked out and keyed once, before the first frame.
+  // Keying is the first thing that reads what the server sent at every moment rather than at one, so a launch that
+  // gets past launchMotion and still cannot be keyed drops to the motion this build was cut with, here and now.
+  const { L, K } = useMemo(() => {
+    try { const picked = launchNow(); return { L: picked, K: tracks(picked) }; }
+    catch { return { L: BUILT_IN, K: tracks(BUILT_IN) }; }
+  }, []);
+  // When the app opens whatever the launch is doing: a broken or endless launch never holds it.
+  const capMs = num("app.splash.maxHoldMs", 7000);
   const t = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(1)).current;
   const loads = useRef(0);
@@ -95,7 +109,7 @@ export default function LaunchCurtain() {
   const up = useRef(false);
   const letGo = useRef(() => {
     if (!over.current || !up.current) return;
-    Animated.timing(fade, { toValue: 0, duration: FADE_MS, useNativeDriver: true }).start(() => setGone(true));
+    Animated.timing(fade, { toValue: 0, duration: L.fade, useNativeDriver: true }).start(() => setGone(true));
   }).current;
 
   // The art is on screen: the native splash can go, and the bot can move.
@@ -106,7 +120,10 @@ export default function LaunchCurtain() {
       hideNativeSplash();
       AccessibilityInfo.isReduceMotionEnabled().catch(() => false).then((still) => {
         if (still || isLifted()) { over.current = true; letGo(); return; }
-        Animated.timing(t, { toValue: LAUNCH_MS, duration: LAUNCH_MS, easing: Easing.linear, useNativeDriver: true })
+        // Never longer than the moment the app opens whatever happens: a launch the server made too long plays
+        // as much of itself as fits, and the cap below lifts it.
+        const ms = playMs(L, capMs);
+        Animated.timing(t, { toValue: ms, duration: ms, easing: Easing.linear, useNativeDriver: true })
           .start(() => { over.current = true; letGo(); });
       });
     });
@@ -118,7 +135,7 @@ export default function LaunchCurtain() {
     const late = setTimeout(start, 500);   // art that never says it loaded still lets the native splash go
     // Nothing holds the launch forever: the app's own floor (SduiApp) lifts it, and so does this, should the app
     // never get that far.
-    const cap = setTimeout(() => { over.current = true; liftLaunch(); }, num("app.splash.maxHoldMs", 7000));
+    const cap = setTimeout(() => { over.current = true; liftLaunch(); }, capMs);
     const off = onLift(() => { up.current = true; letGo(); });
     return () => { clearTimeout(late); clearTimeout(cap); off(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -155,7 +172,7 @@ export default function LaunchCurtain() {
         </Animated.View>
         {/* The bar: whole, until it pinches; then in strips, each pulled in to the middle. */}
         <Animated.Image source={ART.bar} style={[styles.layer, { opacity: at(K.whole), transform: [{ translateY: bar }] }]} onLoad={loaded} />
-        <Animated.View style={[styles.layer, { opacity: t.interpolate({ ...SHOW_STRIPS, extrapolate: "clamp" }), transform: [{ translateY: bar }] }]}>
+        <Animated.View style={[styles.layer, { opacity: at(K.showStrips), transform: [{ translateY: bar }] }]}>
           {K.strips.map((s, i) => {
             const left = BAR.x0 * U + i * stripW;
             return (
@@ -191,6 +208,32 @@ export default function LaunchCurtain() {
       </View>
     </Animated.View>
   );
+}
+
+/**
+ * The curtain, behind a boundary of its own.
+ *
+ * It is drawn over the whole app and OUTSIDE the app's ErrorBoundary (App.tsx), from the very first render, before
+ * any effect has run and before the app has fetched anything. A throw while it draws would take the root down with
+ * nothing to catch it — and because the launch that caused it is kept on the device, it would do so again at every
+ * start. So whatever goes wrong in here, the launch is lifted and the curtain simply draws nothing: the app opens.
+ */
+export default class LaunchCurtain extends Component<Record<string, never>, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(e: unknown) {
+    // eslint-disable-next-line no-console
+    console.warn("[Tailzu] the launch could not be drawn:", e);
+    liftLaunch();   // nothing else would: the native splash is still up under this.
+  }
+
+  render() {
+    return this.state.failed ? null : <Curtain />;
+  }
 }
 
 const fill = { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 } as const;

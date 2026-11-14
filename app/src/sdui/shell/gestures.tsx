@@ -23,6 +23,7 @@ import React, { useMemo, useRef } from "react";
 import { PanResponder, StyleSheet, View } from "react-native";
 import { haptic } from "../components/haptic";
 import { bool, num, str } from "../knobs";
+import { gesturesOn } from "../safety";
 
 export interface EdgeSwipeConfig {
   enabled: boolean;
@@ -43,7 +44,8 @@ export interface EdgeSwipeConfig {
  */
 export function resolveEdgeSwipe(flags?: Record<string, unknown>): EdgeSwipeConfig {
   return {
-    enabled: bool("gestures.swipeBack", true) && flags?.["gestures.swipeBack"] !== "false",
+    // Safe mode drops every gesture (safety.ts): a rescue launch is taps only.
+    enabled: gesturesOn() && bool("gestures.swipeBack", true) && flags?.["gestures.swipeBack"] !== "false",
     edgeWidth: num("gestures.swipeBackEdge", 30),
     distance: num("gestures.swipeBackDistance", 64),
     velocity: num("gestures.swipeBackVelocity", 600),

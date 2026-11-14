@@ -11,6 +11,10 @@ import { binaryFeatures } from "../../device/binary";
 import { featureCaps } from "../../device/binaryCore";
 import { permCaps } from "../../device/permCaps";
 import { looksReport } from "../../botTiles/looks";
+import { deviceOff, safetyReport } from "../safety";
+import { VOCAB } from "../kernel/index.ts";
+import { kernelFingerprint } from "../blocks/blocksCore.ts";
+import { appRuntime, clientBlocks } from "../blocks/declared";
 
 /**
  * Which JS bundle is actually running.
@@ -68,9 +72,47 @@ export function buildCapabilities() {
     // flag to flip: a constant, true of every bundle that has this line.
     googleWeb: true,
     components: declared(),
+    /**
+     * THE VOCABULARY, AND WHICH BLOCKS OF IT THIS CLIENT REALLY HAS (pure/SPEC.md 2.0 principle 2, 2.11).
+     *
+     * `vocab: 2` says the kernel is here — expressions, templates, rules, limits and paths. It does NOT say the
+     * blocks are: they arrive over several updates, so one number could never say which a phone holds, and
+     * `blocks` is the honest list. A name is in it only when its own code registered and no kill switch turned
+     * it off, so the server may send a construction that needs it. `kernel` is a fingerprint of the vocabulary
+     * number, the block names, every limit and every function an expression may call, so the two sides can tell
+     * at a glance whether they agree about the language; `runtime` is this binary's, which is how the server
+     * tells "open X0 again" from "update X0" for a screen this client cannot draw (SPEC 2.12).
+     */
+    vocab: VOCAB,
+    kernel: kernelFingerprint(),
+    blocks: clientBlocks(),
+    runtime: appRuntime(),
     // The bots' catalog as this phone really has it (botTiles/looks.ts): its version and format, whether it
     // compiled, and any scene that went wrong or was slowed. No person data; a few hundred bytes at most.
     looks: looksReport(),
+    /**
+     * THE SAFETY FLOOR (SPEC 5.2, 5.3; sdui/safety.ts). `safe: 1` is the promise itself: this build boundaries every
+     * node, honours `sdui.safe` / `sdui.off` / `sdui.motion`, and guards against a crash loop. A build that says
+     * nothing here has none of it, so the server knows which players it can send a new construction to at all.
+     *
+     * The rest is what happened on THIS launch: whether anything threw (`bad: <type>:<screen>`), whether the device
+     * put itself in safe mode, and why. Node types and screen ids only — nothing about the person, well under anim
+     * §3.9's 512 bytes.
+     */
+    sdui: safetyReport(),
+    /**
+     * What the DEVICE switched off for itself, and only that (SPEC 2.11): the screens two crashed launches took
+     * down. It never means "not built yet" — the components list above is what says that.
+     */
+    off: deviceOff(),
+    /**
+     * ONE APP CARD BEFORE EVERY SYSTEM PROMPT (pure/SPEC.md 3.4 point 4; Apple 5.1.1(iv)).
+     *
+     * The server sets `primed: true` on a `requestPermission` its own Continue button fired; anything else shows
+     * the app's own card first, whatever tree was sent. Declared so the server's lint can rely on it rather than
+     * hope for it: a player that says nothing here has no card of its own, and the server must send one.
+     */
+    primed: true,
     actions: CORE_ACTIONS,
     templates: CORE_TEMPLATES,
     device: {

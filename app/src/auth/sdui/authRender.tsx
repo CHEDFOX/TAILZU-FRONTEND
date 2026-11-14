@@ -15,6 +15,7 @@
 import { useMemo } from "react";
 import { Store } from "../../sdui/state";
 import { REGISTRY } from "../../sdui/components";
+import { nodeOff } from "../../sdui/safety";
 import type { Ctx } from "../../sdui/actions";
 import type { Node } from "../../sdui/types";
 
@@ -31,6 +32,11 @@ import type { Node } from "../../sdui/types";
  *
  * So the app decides, not the flag. If anything in the tree is unknown here,
  * the native screen draws instead and the switch is simply ignored.
+ *
+ * A type the SAFETY FLOOR switched off (`sdui.off`, or a rescue launch's vocab-1 list) counts as unknown too. It is
+ * the same hole by a different route: the renderer would draw that control as its `fallback` or as nothing, and a
+ * sign-in screen missing its sign-in control is the state nobody can leave. Switching one off takes the whole tree
+ * down to the native screen, which is what the switch is for.
  */
 export function missingComponents(node: unknown, found: string[] = []): string[] {
   if (Array.isArray(node)) {
@@ -39,7 +45,7 @@ export function missingComponents(node: unknown, found: string[] = []): string[]
   }
   if (!node || typeof node !== "object") return found;
   const n = node as Node & Record<string, unknown>;
-  if (typeof n.type === "string" && !REGISTRY[n.type] && !found.includes(n.type)) {
+  if (typeof n.type === "string" && (!REGISTRY[n.type] || nodeOff(n.type)) && !found.includes(n.type)) {
     found.push(n.type);
   }
   // `fallback` is deliberately not walked: it is what runs WHEN the type above
@@ -57,6 +63,7 @@ export function missingComponents(node: unknown, found: string[] = []): string[]
 export function useAuthSduiCtx(
   flags?: Record<string, unknown> | null,
   labels?: Record<string, string> | null,
+  onNodeError?: (type: string, err: unknown) => void,
 ): Ctx {
   const store = useMemo(() => new Store({}), []);
   return useMemo(() => {
@@ -66,6 +73,15 @@ export function useAuthSduiCtx(
       actions: {},
       flags: flags ?? {},
       labels: labels ?? {},
+      /**
+       * THE WAY IN COMES BEFORE THE LOOK.
+       *
+       * Every node now sits in its own boundary (Renderer.tsx), so a throw stops there and the screen carries on
+       * drawing without it — right everywhere but here, where "without it" can mean without the sign-in button.
+       * The gate hands in a handler that drops the server's tree for this launch, and the app's own sign-in screen
+       * takes over. Only nodes with no `fallback` of their own reach it.
+       */
+      onNodeError,
       nav: { push: noop, back: noop, switchTab: noop, replace: noop },
       /**
        * THE ESCAPE HATCH THAT WAS MISSING ONE.
@@ -87,5 +103,5 @@ export function useAuthSduiCtx(
       refresh: noop,
       reloadScreen: noop,
     } as unknown as Ctx;
-  }, [store, flags, labels]);
+  }, [store, flags, labels, onNodeError]);
 }

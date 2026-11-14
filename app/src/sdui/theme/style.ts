@@ -5,6 +5,7 @@
 import type { ThemeTokens } from "../types";
 import { getPath } from "../state";
 import * as K from "../knobs";
+import { isPaintKey, paintBlur, resolvePaint, type PaintBlur } from "./paintCore";
 
 /** Resolve a "$color.primary"-style token against the theme, else pass through. */
 function tok(value: any, theme: ThemeTokens): any {
@@ -42,7 +43,12 @@ const JUSTIFY: Record<string, any> = {
   start: "flex-start", center: "center", end: "flex-end", between: "space-between", around: "space-around",
 };
 
-export function resolveStyle(style: Record<string, any> | undefined, theme: ThemeTokens): any {
+/**
+ * `paint` is true only when the screen stated it needs the paint block and this client declared it (spec 2.0). Off, the
+ * paint keys are dropped, so a screen that never asked for them can never reach them through the passthrough.
+ * `blur` (backdrop blur) is not a React Native style: ask for it with resolvePaintBlur and draw <BackdropBlur>.
+ */
+export function resolveStyle(style: Record<string, any> | undefined, theme: ThemeTokens, paint = false): any {
   if (!style) return {};
   const s = style;
   const out: Record<string, any> = {};
@@ -117,7 +123,7 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   // scalars, and without it no backend-authored node could rotate, scale or
   // translate at all — which is the whole of the You tab's card deck.
   for (const k of Object.keys(s)) {
-    if (out[k] !== undefined || RESHAPED.has(k)) continue;
+    if (out[k] !== undefined || RESHAPED.has(k) || isPaintKey(k)) continue;
     out[k] = typeof s[k] === "string" && s[k].startsWith("$") ? tok(s[k], theme) : s[k];
   }
   // Typography, borders and shadows the backend could not reach before.
@@ -149,5 +155,12 @@ export function resolveStyle(style: Record<string, any> | undefined, theme: Them
   if (s.elevation != null) out.elevation = s.elevation;
   if (s.rowGap != null) out.rowGap = tok(s.rowGap, theme);
   if (s.columnGap != null) out.columnGap = tok(s.columnGap, theme);
+  // Paint (B7): gradients, shadows, filters, blend, checked and clamped by paintCore. Last, so it wins over a plain key.
+  if (paint) Object.assign(out, resolvePaint(s, (v) => tok(v, theme)).style);
   return out;
+}
+
+/** The backdrop blur a box asked for, or null (also null when paint is off). The box draws <BackdropBlur> behind its children. */
+export function resolvePaintBlur(style: Record<string, any> | undefined, paint: boolean): PaintBlur | null {
+  return paint && style ? paintBlur(style.blur) : null;
 }

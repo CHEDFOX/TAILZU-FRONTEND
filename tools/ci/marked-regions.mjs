@@ -10,6 +10,12 @@
 //   NLookPathCore          the `M L Q C Z O` path parser, in the widget renderer and in the keyboard. A path drawn for an
 //                          animation scene has to stay drawable as a widget shape and as a key print; two parsers that
 //                          disagree is two different drawings of one design.
+//   CoreExprGrammar        the numeric expression grammar, in the bot tiles' core and in the screen kernel. A number
+//                          means the same thing in a bot's moment and on a screen, or one of the two is wrong.
+//
+// A pair's file is usually marked at both ends. One may instead be named with `{ file, from, to }`: the region is the
+// text from `from` to the end of `to`, both of which must appear exactly once. That is for a file nobody may touch —
+// `src/botTiles/core.ts` is frozen by its own sha chain, so the kernel carries the marked copy and core.ts carries none.
 //
 // Each pair has one owner (OWNERSHIP.md): IOS-WIDGETS holds the pen on the nlook copies and on both copies of the
 // attributes; IOS-KEYBOARD and ANDROID-KEYBOARD hold their own path copies. This only checks.
@@ -20,6 +26,8 @@
 //   node tools/ci/marked-regions.mjs                 every pair, for a local run
 //   node tools/ci/marked-regions.mjs --lang Swift    only the Swift pairs
 //   node tools/ci/marked-regions.mjs --lang Kotlin   only the Kotlin pairs
+//   node tools/ci/marked-regions.mjs --lang TS       only the TypeScript pairs (eas-release.yml's marked-regions-ts job
+//                                                    runs this one, and so does the phone's own `npm test`)
 //
 // Each workflow runs the pairs its own `paths` watch, so an iOS push is never failed by a Kotlin drift it did not cause
 // and the Android workflow actually runs the Kotlin one.
@@ -54,6 +62,19 @@ const PAIRS = [
     ],
     why: "The same two parsers on Android. The widget copy (NLookPaint.kt) is the master; the keyboard copies it.",
   },
+  {
+    marker: "CoreExprGrammar",
+    lang: "TS",
+    files: [
+      "app/src/sdui/kernel/coreGrammar.ts",
+      {
+        file: "app/src/botTiles/core.ts",
+        from: "// ---- the expression language (the mic program's, motionLang.ts on the server: same grammar, numbers only)",
+        to: "  return s[0]!;\n}",
+      },
+    ],
+    why: "One numeric grammar for the bot's moments and for a screen's expressions. core.ts is the master and carries no markers: it is frozen by its own sha chain, so the kernel holds the marked copy.",
+  },
 ];
 
 /// `--lang Swift` / `--lang Kotlin`, or nothing for every pair.
@@ -78,6 +99,25 @@ function region(path, marker) {
   return text.slice(begin, end + `// END ${marker}`.length);
 }
 
+/// A file named with `{ file, from, to }`: the region is its text from `from` to the end of `to`, wrapped in the
+/// markers the other copy carries, so the two compare as they are written. Null when either anchor is not there
+/// exactly once — a moved or copied anchor must fail, not quietly check half a file.
+function anchored(entry, marker) {
+  const text = readFileSync(entry.file, "utf8");
+  const first = text.indexOf(entry.from);
+  const last = text.indexOf(entry.to);
+  if (first === -1 || last === -1 || last < first) return null;
+  if (text.indexOf(entry.from, first + 1) !== -1 || text.indexOf(entry.to, last + 1) !== -1) return null;
+  const body = text.slice(first, last + entry.to.length);
+  return `// BEGIN ${marker}\n${body}\n// END ${marker}`;
+}
+
+/// The path of a pair's file, however it was named.
+const pathOf = (entry) => (typeof entry === "string" ? entry : entry.file);
+
+/// A pair's file as it compares: a marked region, or an anchored slice wrapped in the same markers.
+const bodyOf = (entry, marker) => (typeof entry === "string" ? region(entry, marker) : anchored(entry, marker));
+
 const lang = wantedLang(process.argv.slice(2));
 const pairs = lang ? PAIRS.filter((p) => p.lang === lang) : PAIRS;
 let failed = false;
@@ -88,7 +128,7 @@ for (const pair of pairs) {
   const name = `${pair.marker} (${pair.lang})`;
   let broke = false;
 
-  const missing = pair.files.filter((f) => !existsSync(f));
+  const missing = pair.files.map(pathOf).filter((f) => !existsSync(f));
   if (missing.length) {
     failed = true;
     console.error(`FAIL ${name}: ${missing.join(", ")} is not there. Both copies of a marked region must exist.`);
@@ -96,12 +136,13 @@ for (const pair of pairs) {
     continue;
   }
 
-  const regions = pair.files.map((f) => ({ file: f, body: region(f, pair.marker) }));
+  const regions = pair.files.map((f) => ({ file: pathOf(f), anchors: typeof f !== "string", body: bodyOf(f, pair.marker) }));
   const empty = regions.filter((r) => r.body === null);
   if (empty.length) {
     failed = true;
     for (const r of empty) {
-      console.error(`FAIL ${name}: ${r.file} has no "// BEGIN ${pair.marker}" / "// END ${pair.marker}" region.`);
+      if (r.anchors) console.error(`FAIL ${name}: ${r.file} does not hold this pair's two anchor lines exactly once.`);
+      else console.error(`FAIL ${name}: ${r.file} has no "// BEGIN ${pair.marker}" / "// END ${pair.marker}" region.`);
     }
     console.error(`     ${pair.why}`);
     continue;

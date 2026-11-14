@@ -31,18 +31,18 @@ export function useNavApi({
       // prompt is dropped rather than landing on top of it. The server will
       // ask again on a later launch; interrupting is the one thing it must
       // not do.
-      push: (screenId, params) => {
+      push: (screenId, params, present) => {
         cancelArrivalPrompt();
-        setStack((s) => [...s, { screenId, params }]);
+        setStack((s) => [...s, { screenId, params, present }]);
       },
       // Swap the top rather than stack on it. A linear flow — onboarding — is
       // a sequence of steps, not a place you browse: pushing left every step
       // behind the next one, so an edge swipe walked back into a permission
       // screen that had already been answered. Replacing means each step is
       // the only thing on the stack and there is nothing to go back to.
-      replace: (screenId, params) => {
+      replace: (screenId, params, present) => {
         cancelArrivalPrompt();
-        setStack((s) => (s.length ? [...s.slice(0, -1), { screenId, params }] : [{ screenId, params }]));
+        setStack((s) => (s.length ? [...s.slice(0, -1), { screenId, params, present }] : [{ screenId, params, present }]));
       },
       back: () => {
         cancelArrivalPrompt();

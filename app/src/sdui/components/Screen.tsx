@@ -9,6 +9,11 @@ import { useTheme } from "../theme/ThemeContext";
 import { usePullBot, PullBotScroll } from "../bots/PullBot";
 import type { CompProps } from "./props";
 import { pageScrolled, pageTouched } from "./pageBus";
+import { publishScroll, useScrollInto } from "../motion/scroll";
+import { ScreenScrollerContext } from "./v3Host";
+import { screenListPlan } from "./listCore";
+// The one thing the hand-off has to ask: is this screen's List going to draw at all (SPEC 5.3)?
+import { nodeOff } from "../safety";
 
 /**
  * HOW TALL ONE SCREENFUL ACTUALLY IS.
@@ -87,7 +92,7 @@ export function KeyboardAbove({ style, children }: { style: any; children: React
   );
 }
 
-export const Screen = ({ props, children, style, ctx }: CompProps) => {
+export const Screen = ({ node, props, children, style, ctx }: CompProps) => {
   const [vh, setVh] = useState(0);
   // Pull-a-bot, when the screen on show asks for it (ScreenResponse.pullBot): the same scroll, with a bot in its pull.
   const pull = usePullBot();
@@ -162,7 +167,10 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     },
     content,
   ];
-  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); };
+  // Scroll offset as a `ui.*` value, when the screen asked for one (`scrollInto`): a motion can then drive off
+  // it (sdui/motion/scroll.ts). Nothing is published for a screen that did not ask.
+  const into = useScrollInto(props);
+  const onScrollY = (y: number) => { scrolled.current = y; pageScrolled(y); if (into) publishScroll(into, y); };
   /**
    * STARTS AT ITS END (KitExtras `startAtEnd`: a space's feed, newest at the bottom). It opens scrolled to the end; while the
    * person is within 80 px of the end, content that grows (a new message) or a view that gets shorter (the composer opening
@@ -202,6 +210,51 @@ export const Screen = ({ props, children, style, ctx }: CompProps) => {
     directionalLockEnabled: hold,
     keyboardShouldPersistTaps: "handled" as const,
   };
+  // A SCREEN WHOSE BODY HOLDS A LIST STOPS SCROLLING (pure/SPEC.md 2.6, agreed with V3).
+  //
+  // A FlatList inside a ScrollView is a nested VirtualizedList, and React Native turns windowing off — so the
+  // one screen most likely to need it loses it. The List becomes the screen's scroller instead: the nodes above
+  // it are its header, the nodes below are its footer, and it takes the Screen's padding, background, its
+  // `startAtEnd` and its scroll offset.
+  //
+  // ONLY WHEN THE LIST IS REALLY GOING TO DRAW. The plan used to be made from the child's TYPE alone, so a
+  // Screen gave its scroll away to a List that was never drawn — a screen with a List but no `list` in its
+  // `needs`, one under `sdui.off: ["List"]` (the SPEC 5.3 example), one in safe mode. The List drew its
+  // fallback, the header and the footer went into a context nobody read, and nothing scrolled: half a screen,
+  // which is the one answer the fail-safe rules forbid.
+  //
+  // AND THE INDEXES ARE THE NODE'S OWN CHILDREN. A backdrop blur (paint, `style.blur` on the Screen) is drawn
+  // as one more child in front of them, which shifted every index by one — the header became the blur and the
+  // List became the first real node. The blur is taken out here and kept at the back of the header, which is
+  // where it belongs anyway.
+  const canList = !!ctx?.blocks?.includes("list") && !nodeOff("List");
+  const listPlan = canList ? screenListPlan(node?.children) : null;
+  if (listPlan) {
+    const all = React.Children.toArray(children);
+    const isBlur = (k: React.ReactNode): boolean =>
+      React.isValidElement(k) && typeof k.key === "string" && k.key.includes("__blur");
+    const blurs = all.filter(isBlur);
+    const kids = all.filter((k) => !isBlur(k));
+    return (
+      <ScreenViewport.Provider value={vh}>
+        <ScreenScrollerContext.Provider
+          value={{
+            header: [...blurs, ...listPlan.header.map((i) => kids[i])],
+            footer: listPlan.footer.map((i) => kids[i]),
+            contentStyle,
+            backgroundColor: backgroundColor ?? theme.color.bg,
+            startAtEnd: atEnd,
+            onScrollY,
+            // PullBot's own control belongs here when `pull` is set; that half is PLAYER-UI's (PullBot.tsx).
+            refreshControl: undefined,
+          }}
+        >
+          {kids[listPlan.index]}
+        </ScreenScrollerContext.Provider>
+      </ScreenViewport.Provider>
+    );
+  }
+
   return (
     <ScreenViewport.Provider value={vh}>
     {pull ? (

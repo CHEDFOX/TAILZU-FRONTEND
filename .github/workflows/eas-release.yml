@@ -148,8 +148,18 @@ jobs:
           pod --version
           fastlane --version | tail -n 1
 
+  # The TypeScript marked regions: the bot tiles' numeric grammar and the screen kernel's copy of it
+  # (tools/ci/marked-regions.mjs). It lives here because this workflow is the one that watches `app/**`, which is
+  # where both copies are, and it needs no EXPO_TOKEN — so it also runs on a repo with no release secrets.
+  # `update` waits for it, so an over-the-air update can never ship a drifted copy.
+  marked-regions-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node tools/ci/marked-regions.mjs --lang TS
+
   update:
-    needs: gate
+    needs: [gate, marked-regions-ts]
     if: needs.gate.outputs.ok == 'true' && (github.event_name == 'push' || inputs.update)
     runs-on: ubuntu-latest
     steps:
