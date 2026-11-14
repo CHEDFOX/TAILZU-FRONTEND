@@ -1,6 +1,6 @@
 # Being built right now (read before you start)
 
-Updated 14 Nov 2026, 03:10 UTC. One session is building the items below. Do not edit the files they hold until the item is
+Updated 14 Nov 2026, 15:50 UTC. One session is building the items below. Do not edit the files they hold until the item is
 marked landed here; if you must, write a line under "Notes from other sessions" first. Remove an item when it lands.
 
 **How to build things now:** read `TAILZU-BACKEND/docs/renderer.md` before adding any screen, visual, animation or widget
@@ -21,22 +21,56 @@ look. The apps are renderers: build server data with the existing blocks and cat
 - **Paint, device facts, phone-local values, shell and data blocks**, frontend `7ddcf31`. Not switched on until V1: no
   screen can reach them.
 
-## In progress (build 8.9.1, started 14 Nov 2026)
+## Landed: build 8.9.1 (14 Nov 2026, every switch off)
 
-Calendar, reminders, focus, motion, sleep, arrival reminders, abuse-prevention signals (server now; App Attest / DeviceCheck /
-Play Integrity in the app), and their Android halves. Six jobs hold:
-- **Server, abuse prevention:** `tulmi/src/trust/**` (new), `tulmi/src/routes/trust/**`, `tulmi/src/routes/admin/trust.ts`,
-  `tulmi/src/routes/app/appScreens.ts`, `tulmi/src/http/hooks.ts`, `tulmi/src/guard/limiter.ts`, `tulmi/src/http/plugins.ts`,
-  `tulmi/src/you/usage.ts`, `tulmi/src/usage/allowance.ts`, `tulmi/src/you/deletion.ts`, `tulmi/src/observability.ts`,
-  `tulmi/src/auth/deviceLink.ts`, `tulmi/src/control/**`, the `TRUST*` lines of `config.ts`, migration 0093.
-- **Server, phone features:** `shared/types/sdui.ts`, `tulmi/src/experience/bots/kit.ts`, the `PERM_*` lines of `config.ts`,
-  plan screens and routes (planHome, planItem, planCall, planBusy, planReminders, planFocus), `bots/health*`, `routines` not
-  touched, `privacy.ts`, `you.ts`, deletion texts, docs/store-privacy.md, docs/perms.md, migration 0094.
-- **Phone:** `app/src/**` (device, sdui actions/types/registry, notifications), `app/app.config.ts`, `app/eas.json`,
-  `app/modules/tulmi-perms/**`, `app/assets/PrivacyInfo.xcprivacy`, `tools/ci/check-*.mjs`, `app/native-inputs.lock`.
-- **Android additions:** new files only under `app/modules/tulmi-perms/android/` and `app/src/device/android*`.
+- **Build 8.9.1** (backend `e296bff`, frontend `84b67b0`). Calendar busy times and adding through the system editor, one
+  "X0 Bot" Reminders list, the Focus Filter (iPhone) and Do Not Disturb (Android), steps and the driving check, sleep (Health /
+  Health Connect), arrival reminders, App Attest / DeviceCheck / Play Integrity, and the server's abuse and fraud prevention
+  signals (`docs/trust.md`; `TRUST` off, then shadow, then on; counted, never joined). The Android calendar, motion and arrival
+  halves are behind build switches `TULMI_ANDROID_CALENDAR` / `_MOTION` / `_ARRIVAL` (off in every shipping profile; `n0` is the
+  proof build) and their own server switches `PERM_*_ANDROID`. Migrations **0093** and **0094**. Owner steps:
+  `TAILZU-BACKEND/docs/owner-8.9.1.md`. Every file it held is free again.
+  Open, a decision and not a bug: a server permission card is followed by the phone's own "One permission first" card, because
+  `app/src/sdui/actions.ts` skips its `primedCard` only on `primed: true` and the server never sends it (not in the contract).
+  One card too many, still one Continue path; adding `primed` is a contract field plus a lint rule.
+
+## In progress
+
+- **Lingo, the language bot** (`docs/lingo.md`; switch `LINGO`, off). Re-added after a merge took it: the whole section was rewritten
+  for 8.9.1 and git kept that side, so this entry went with it. Nothing of 8.9.1's is held here.
+  ON MAIN and tested, nothing user-visible: the scheduler (FSRS), marking done on the SERVER and never in the app, the store, a
+  session's seven kinds and the order they are asked in, sets whose difficulty follows the person, the shared sentence bank, the
+  language picker (85 languages, the list is the server's), and seven routes under `/v1/lingo/`. 165 tests.
+  Holds: `tulmi/src/lingo/**`, `tulmi/src/routes/bots/lingo.ts`, `tulmi/scripts/lingo-seed.ts`, `tulmi/tests/lingo-*.test.ts`,
+  migrations **0087**, **0089**, **0092**.
+  Next, none of it client code: Lingo's `l.*` moments as data in `shared/bots/looks.json` (one gesture per grader reason, so the
+  movement carries the information: the missing accent plucked out of the air and set over the word, the wrong letter spat out and
+  the right one caught, two cards swapped for the wrong order, the right word mouthed slowly, a hand cupped to the ear when nothing
+  was heard), then its screens in `experience/bots/screens/bots/lingoPage.ts`, **vocabulary 1** so a lesson can never answer
+  "Open X0 again", then sentences from the bank into sessions.
+  **A colour question that was open here is now answered and done** (`6222f21`): `bots/builtin.ts` and `experience/bots/palette.ts`
+  each carried their own copy of the four shipped bots' colours and had disagreed for as long as both existed — builtin.ts said Xode
+  was pine while palette.ts drew it moss. palette.ts keeps the icons and reads the colour from builtin.ts now, and builtin.ts was set
+  to the colours people actually SEE, so nothing shipped changed appearance; the API stopped contradicting the screen. Meetings moved
+  off moss to pine, and Lingo wears `ash`, a neutral kept in `SHIPPED_ONLY` and out of `PALETTE` so it is never offered to anybody —
+  in the palette it would change which colour `colourFor` hands every future bot a person makes. **The Oracle and the meeting bot
+  still have no icon of their own** and get the generic `spark`: one line each in `palette.ts` `BUILTIN_ICON` when somebody wants to
+  choose them. Not mine to pick.
 
 ## Landed 14 Nov 2026 (all switched off)
+
+- **The window's terms and permissions, after onboarding** (`docs/window-setup.md`). A window finished its onboarding having agreed
+  to nothing and granted nothing: `postAuthSteps` left Make me yours out ("the OS asks") and the AI permission is asked for by a Home
+  card a window that lands on the desk never sees, so the first thing the person tried was refused by the gate. Two steps of the same
+  stage Blip already walks through, between Languages and Try it — **Terms and privacy** (`onboard/terms.ts`: the phone's two answers
+  and the same `PUT /v1/you/ai-consent`; Not now skips Try it, which the gate would refuse) and **Let me in, once**
+  (`onboard/perms.ts`: a row each for the microphone, the camera, Accessibility and Screen recording, drawn only where the window
+  declared the capability that reads it, and the Mac's two only on a Mac) — plus **Send to AI services** in the desk's
+  Settings › Privacy and data, so the terms' promise is true there. Nothing is drawn or asked for on a phone; Make me yours, the Home
+  card and the phone's permissions are exactly as they were.
+  In the window: `NSCameraUsageDescription` and the camera entitlement (without which a hardened build is refused the camera, so the
+  video half of a call could not work there at all), `app:camStatus` and `app:seeStatus` in the main process, `camReading`/`camFollow`,
+  `seeReading`/`seeFollow` and `askCam` in the renderer, and the capabilities `DeskCamAsk` and `DeskSeeState`.
 
 - **Calls, end to end** (`docs/rooms.md`): our own video and audio calls from the mail bot, on Cloudflare's Realtime SFU, and the
   **`call` block** (the 14th) that lets the apps be in one. Migration **0091**; settings `SFU_APP_ID` / `SFU_APP_SECRET` / `ROOM_*`,
@@ -64,11 +98,15 @@ Play Integrity in the app), and their Android halves. Six jobs hold:
 
 ## Numbers in use
 
-- Migrations: 0087 lingo, 0088 native looks, 0089 lingo sentences, 0090 bot health days, 0091 rooms. Next free: **0092**. Take the next free number and
+- Migrations: 0087 lingo, 0088 native looks, 0089 lingo sentences, 0090 bot health days, 0091 rooms, 0092 lingo left,
+  0093 trust signals, 0094 phone things. Next free: **0095**. Take the next free number and
   check `git log origin/main -- tulmi/supabase/migrations` first: two sessions have collided twice today.
 - Phone runtime: `tailzu-2026-11-x0-blip`. Do not change it.
 
 ## Notes from other sessions
+
+- **14 Nov, from the window-permissions session:** the `perm-words.test.ts` failure over `NSHealthUpdateUsageDescription` is
+  fixed by 8.9.1: the test now expects the string and checks it says only that nothing is written.
 
 - **The bot drawings stay vocabulary 1, and that is now a decision, not a wait.** Yesterday's note said they would move to the
   `motion` block as soon as it could reach a screen. Reading `sdui2/gate.ts`: `needs` is worked out per SCREEN and a client
