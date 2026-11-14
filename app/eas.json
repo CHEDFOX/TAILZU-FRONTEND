@@ -12,7 +12,11 @@
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SENTRY_ALLOW_FAILURE": "true",
-        "TULMI_ANDROID_HEALTH": "off"
+        "TULMI_ANDROID_HEALTH": "off",
+        "TULMI_ANDROID_HEALTH_SLEEP": "off",
+        "TULMI_ANDROID_CALENDAR": "off",
+        "TULMI_ANDROID_MOTION": "off",
+        "TULMI_ANDROID_ARRIVAL": "off"
       }
     },
     "preview": {
@@ -22,7 +26,11 @@
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SENTRY_ALLOW_FAILURE": "true",
-        "TULMI_ANDROID_HEALTH": "off"
+        "TULMI_ANDROID_HEALTH": "off",
+        "TULMI_ANDROID_HEALTH_SLEEP": "off",
+        "TULMI_ANDROID_CALENDAR": "off",
+        "TULMI_ANDROID_MOTION": "off",
+        "TULMI_ANDROID_ARRIVAL": "off"
       }
     },
     "production": {
@@ -32,7 +40,11 @@
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SENTRY_ALLOW_FAILURE": "true",
-        "TULMI_ANDROID_HEALTH": "off"
+        "TULMI_ANDROID_HEALTH": "off",
+        "TULMI_ANDROID_HEALTH_SLEEP": "off",
+        "TULMI_ANDROID_CALENDAR": "off",
+        "TULMI_ANDROID_MOTION": "off",
+        "TULMI_ANDROID_ARRIVAL": "off"
       }
     },
     "n0": {
@@ -41,7 +53,11 @@
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "SENTRY_ALLOW_FAILURE": "true",
-        "TULMI_ANDROID_HEALTH": "on"
+        "TULMI_ANDROID_HEALTH": "on",
+        "TULMI_ANDROID_HEALTH_SLEEP": "on",
+        "TULMI_ANDROID_CALENDAR": "on",
+        "TULMI_ANDROID_MOTION": "on",
+        "TULMI_ANDROID_ARRIVAL": "on"
       }
     }
   },

@@ -1108,6 +1108,7 @@
     "cache.persistMaxScreens": 80,
     "cache.screenTtlCapSeconds": 900,
     "calendar.defaultDurationMs": 3600000,
+    "calendar.syncEveryMs": 3600000,
     "deeplink.actionPrefix": "action",
     "deeplink.allowedActions": [
       "iap.restore",
@@ -2002,6 +2003,7 @@
     "push.foreground.showList": true,
     "quota.exceeded": false,
     "quota.screenId": "paywall",
+    "reminders.syncEveryMs": 900000,
     "sdui.cleanAfterMs": 4000,
     "sdui.motion": "on",
     "sdui.off": [],
@@ -2021,6 +2023,7 @@
     "share.uploadPath": "/v1/files",
     "telemetry.sentry.tracesSampleRate": 0.05,
     "textDirection": "ltr",
+    "trust.installId": false,
     "ui.AppleSignIn.buttonStyle": "WHITE",
     "ui.AppleSignIn.buttonType": "SIGN_IN",
     "ui.AppleSignIn.size": 52,

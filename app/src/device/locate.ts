@@ -42,6 +42,14 @@ export function runLocateArea(ask: boolean | undefined): Promise<{ outcome: Loca
   return locateArea({ ask }, deps);
 }
 
+/**
+ * The location permission as it stands, without prompting. Arrival reminders need it too (device/arrival.ts), and they need to
+ * tell "not asked yet" from "refused for good", which a boolean cannot.
+ */
+export async function locationStatus(): Promise<LocStatus> {
+  try { return await status(); } catch { return "denied"; }
+}
+
 /** checkPermission "location": never prompts. */
 export async function locationGranted(): Promise<boolean> {
   try { return (await status()) === "granted"; } catch { return false; }

@@ -22,17 +22,27 @@ export const MAX_DAYS = 31;
 export const MAX_STEPS = 200_000;
 export const MAX_WORKOUTS_PER_DAY = 8;
 export const MAX_MINUTES = 600;
+/** A night is at most a whole day of sleep; the server checks the same bound. */
+export const MAX_SLEEP_MINUTES = 1440;
 
 export interface HealthDay {
   day: string;
   steps: number;
   workouts: { kind: WorkoutKind; minutes: number }[];
+  /** Minutes asleep that night (perms2 6), only when the person turned sleep on for this bot. No stages, no bed or wake time. */
+  sleepMinutes?: number;
 }
 
 export interface HealthPayload {
   enable?: true;
   tz: string;
   days: HealthDay[];
+  /** This request is the sleep one (perms2 6.1): it asked the phone for the sleep type, so the server may keep the nightly
+   *  minutes in `days` and turn the bot's sleep switch on. Without it the server drops every `sleepMinutes` it is sent. */
+  sleep?: true;
+  /** Where the steps came from: Apple Health / Health Connect ("health", the default and not sent) or the iPhone's own step
+   *  counter ("motion", perms2 5.1). The server keeps one source per bot. */
+  source?: "motion";
 }
 
 const table = (kind: WorkoutKind, ids: number[]): [number, WorkoutKind][] => ids.map((i) => [i, kind]);
@@ -108,6 +118,117 @@ export function durationMinutes(q: { quantity?: unknown; unit?: unknown } | null
 
 export interface WorkoutIn { day: string; kind: WorkoutKind; minutes: number }
 
+// ---------------------------------------------------------------------------------------------------------------------------
+// SLEEP (perms2 6): minutes asleep per night, and nothing else. No stages, no bed or wake time, nothing finer than a night.
+// ---------------------------------------------------------------------------------------------------------------------------
+
+/** HKCategoryValueSleepAnalysis: 1 asleep (unspecified), 3 core, 4 deep, 5 REM. In bed (0) and awake (2) are not sleep. */
+export const HK_ASLEEP = new Set([1, 3, 4, 5]);
+
+/** Health Connect sleep stages that are NOT sleep: awake (1), out of bed (3), awake in bed (7). */
+export const HC_AWAKE_STAGES = new Set([1, 3, 7]);
+
+/** One span of sleep, as either platform reports it. */
+export interface SleepSpan { start: number; end: number }
+
+/**
+ * Overlapping spans merged, so a night recorded by both a Watch and the phone is counted once. Oldest first; spans that touch
+ * are joined.
+ */
+export function mergeSpans(spans: readonly SleepSpan[]): SleepSpan[] {
+  const ok = spans
+    .filter((s) => Number.isFinite(s.start) && Number.isFinite(s.end) && s.end > s.start)
+    .sort((a, b) => a.start - b.start);
+  const out: SleepSpan[] = [];
+  for (const s of ok) {
+    const last = out[out.length - 1];
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else out.push({ start: s.start, end: s.end });
+  }
+  return out;
+}
+
+/**
+ * Spans closer together than this are the same night: a short stretch awake does not end one night and start another. Watch
+ * data is full of them, and one just before midnight used to cut a night in two and file half of it on the day before.
+ */
+export const NIGHT_GAP_MS = 3 * 3600_000;
+
+/**
+ * Minutes asleep per LOCAL DAY from merged spans. The spans are first grouped into NIGHTS, and a whole night belongs to the day
+ * its last span ends on, which is how a person talks about it ("I slept seven hours last night"); each day is held to a whole
+ * day of sleep at most. Only the sleeping stretches are counted, so a night's awake gaps are not slept minutes.
+ */
+export function sleepByDayFrom(spans: readonly SleepSpan[], offsetMin: number): Map<string, number> {
+  const out = new Map<string, number>();
+  let slept = 0;
+  let endedAt = 0;
+  let open = false;
+  const file = () => {
+    if (!open) return;
+    open = false;
+    const day = dayKey(endedAt, offsetMin);
+    const minutes = Math.round(slept / 60_000);
+    slept = 0;
+    if (!day || minutes <= 0) return;
+    out.set(day, Math.min(MAX_SLEEP_MINUTES, (out.get(day) ?? 0) + minutes));
+  };
+  for (const s of mergeSpans(spans)) {
+    if (open && s.start - endedAt >= NIGHT_GAP_MS) file();
+    slept += s.end - s.start;
+    endedAt = s.end;
+    open = true;
+  }
+  file();
+  return out;
+}
+
+/** Apple Health's sleep samples (value, start, end) as spans: the asleep values only. */
+export function sleepSpansFromHK(
+  samples: readonly { value?: unknown; startDate?: unknown; endDate?: unknown }[],
+): SleepSpan[] {
+  const out: SleepSpan[] = [];
+  for (const s of samples) {
+    if (!HK_ASLEEP.has(Number(s?.value))) continue;
+    const start = new Date(s.startDate as string).getTime();
+    const end = new Date(s.endDate as string).getTime();
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) out.push({ start, end });
+  }
+  return out;
+}
+
+/**
+ * Health Connect's sleep sessions as spans: the session, less its awake stretches. A session with no stages counts whole, which
+ * is what Health Connect's own duration says.
+ */
+export function sleepSpansFromHC(
+  records: readonly {
+    startTime?: unknown; endTime?: unknown; stages?: readonly { stage?: unknown; startTime?: unknown; endTime?: unknown }[];
+  }[],
+): SleepSpan[] {
+  const out: SleepSpan[] = [];
+  for (const r of records) {
+    const start = new Date(r?.startTime as string).getTime();
+    const end = new Date(r?.endTime as string).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    const stages = Array.isArray(r.stages) ? r.stages : [];
+    const awake = mergeSpans(
+      stages
+        .filter((st) => HC_AWAKE_STAGES.has(Number(st?.stage)))
+        .map((st) => ({ start: new Date(st.startTime as string).getTime(), end: new Date(st.endTime as string).getTime() })),
+    );
+    // Awake stretches cut the session into the parts that were really sleep, each ending where the next awake stretch begins.
+    let at = start;
+    for (const a of awake) {
+      const cut = Math.max(start, Math.min(end, a.start));
+      if (cut > at) out.push({ start: at, end: cut });
+      at = Math.max(at, Math.min(end, a.end));
+    }
+    if (end > at) out.push({ start: at, end });
+  }
+  return out;
+}
+
 /**
  * The payload from what was read. `stepsByDay` is each local day's step total; `workouts` each workout with its local day. Every
  * day of the window is sent (zeros included), steps whole and within 0..200000, at most 8 workouts a day of 1..600 minutes.
@@ -120,6 +241,12 @@ export function buildPayload(opts: {
   workouts: readonly WorkoutIn[];
   offsetMin: number;
   enable?: boolean;
+  /** Minutes asleep per local day, only when the person turned sleep on and the read was allowed. */
+  sleepByDay?: ReadonlyMap<string, number> | null;
+  /** True when this request asked the phone for sleep and may say so: `sleep: true` rides on the payload. */
+  sleep?: boolean;
+  /** "motion" rides on the payload so the server knows which source these days came from. */
+  source?: "health" | "motion";
 }): { payload: HealthPayload; empty: boolean } {
   const inWindow = new Set(opts.window);
   const per = new Map<string, HealthDay["workouts"]>();
@@ -137,9 +264,22 @@ export function buildPayload(opts: {
     const steps = Number.isFinite(raw) ? Math.max(0, Math.min(MAX_STEPS, Math.round(raw))) : 0;
     const workouts = per.get(day) ?? [];
     if (steps > 0 || workouts.length) empty = false;
-    return { day, steps, workouts };
+    const out: HealthDay = { day, steps, workouts };
+    const slept = opts.sleepByDay ? Number(opts.sleepByDay.get(day)) : NaN;
+    if (Number.isFinite(slept) && slept > 0) {
+      out.sleepMinutes = Math.max(0, Math.min(MAX_SLEEP_MINUTES, Math.round(slept)));
+      empty = false;
+    }
+    return out;
   });
-  const payload: HealthPayload = { ...(opts.enable ? { enable: true as const } : {}), tz: tzString(opts.offsetMin), days };
+  const payload: HealthPayload = {
+    ...(opts.enable ? { enable: true as const } : {}),
+    tz: tzString(opts.offsetMin),
+    days,
+    // The server keeps a night only when the request says it is the sleep one, and turns the switch on nowhere else.
+    ...(opts.sleep ? { sleep: true as const } : {}),
+    ...(opts.source === "motion" ? { source: "motion" as const } : {}),
+  };
   return { payload, empty };
 }
 
@@ -163,6 +303,14 @@ export interface HealthDeps {
   read: (from: Date, to: Date, offsetMin: number) => Promise<{ stepsByDay: Map<string, number>; workouts: WorkoutIn[] }>;
   /** POST the payload to the (already pinned) path. */
   post: (path: string, body: HealthPayload) => Promise<unknown>;
+  /**
+   * Sleep, asked for in ITS OWN request (perms2 6.1), so the steps-and-workouts grant is not shown again and a refusal of sleep
+   * leaves steps working. Missing on a binary that has no sleep string: then `sleep: true` reads steps as usual and sends no
+   * nightly minutes.
+   */
+  prepareSleep?: (ask: boolean) => Promise<HealthReady>;
+  /** Minutes asleep per local day, a night counted on the day it ends. */
+  readSleep?: (from: Date, to: Date, offsetMin: number) => Promise<Map<string, number>>;
   /** ask:false runs closer together than this many ms apart (per path) are skipped. 0 or less turns it off. */
   everyMs: number;
   lastAt: Map<string, number>;
@@ -174,7 +322,7 @@ export interface HealthDeps {
  * rides on the first POST even when the answer is empty, so a switch turned on never reads as off.
  */
 export async function healthSync(
-  action: { path: string; days?: number; ask?: boolean; enable?: boolean },
+  action: { path: string; days?: number; ask?: boolean; enable?: boolean; source?: "health" | "motion"; sleep?: boolean },
   deps: HealthDeps,
 ): Promise<{ outcome: HealthOutcome }> {
   if (!healthPathOk(action.path)) return { outcome: "error" };
@@ -197,7 +345,21 @@ export async function healthSync(
     const [y, m, d] = first.split("-").map(Number);
     const from = new Date(Date.UTC(y, m - 1, d) - off * 60_000);
     const read = await deps.read(from, now, off);
-    const { payload, empty } = buildPayload({ window, stepsByDay: read.stepsByDay, workouts: read.workouts, offsetMin: off, enable });
+    // SLEEP IS ITS OWN REQUEST. It is asked for separately and read separately, so a refused or missing sleep grant leaves the
+    // steps and workouts of this very sync untouched.
+    let sleepByDay: Map<string, number> | null = null;
+    if (action.sleep === true && deps.prepareSleep && deps.readSleep) {
+      try {
+        if ((await deps.prepareSleep(ask)) === "ready") sleepByDay = await deps.readSleep(from, now, off);
+      } catch { sleepByDay = null; }
+    }
+    const { payload, empty } = buildPayload({
+      window, stepsByDay: read.stepsByDay, workouts: read.workouts, offsetMin: off, enable, sleepByDay,
+      // `sleep: true` goes up only when sleep was really asked for AND the read was allowed, because it is what lets the
+      // server keep the nights and turn the bot's sleep switch on (perms2 6.1).
+      sleep: sleepByDay !== null,
+      source: action.source === "motion" ? "motion" : "health",
+    });
     if (empty && !enable) return { outcome: "empty" };
     await deps.post(action.path, payload);
     deps.lastAt.set(action.path, t0);

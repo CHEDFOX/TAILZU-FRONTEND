@@ -20,6 +20,8 @@ import { handleNotificationAction } from "./actions";
 import { TAP_SEEN_CAP, pressedButton, tapSeenKey } from "./categoriesCore";
 import { binaryFeatures } from "../device/binary";
 import { pushCaps } from "../device/binaryCore";
+import { permPushCaps } from "../device/permCaps";
+import { arrivalOpening } from "../device/arrivalCore";
 import { dismissCall, makeCallChannels } from "./calls";
 import { callCaps, callOf } from "./callsCore";
 import { ringtoneReady } from "./ringtone";
@@ -146,7 +148,9 @@ export async function registerForPushToken(): Promise<string | null> {
         // server may name it. "PushTapSeen" (categoriesCore.ts TAP_SEEN_CAP): this JavaScript tells two pushes that share one
         // notification id apart, so the server may give a follow's pushes one collapse id. Every launch sends them, so a phone
         // updated from the store or by an update says so on its first launch. A server that does not read one drops it.
-        caps: [...pushCaps(binaryFeatures()), ...callCaps(Platform.OS, { ringtone: ring, channels }), TAP_SEEN_CAP],
+        // "CallCheck1" (device/permCaps.ts): this JavaScript answers the pre-ring check (docs: perms2 5.3), said only when this
+        // phone also declared Motion1 or Focus1, because without one there is nothing to answer with.
+        caps: [...pushCaps(binaryFeatures()), ...callCaps(Platform.OS, { ringtone: ring, channels }), TAP_SEEN_CAP, ...permPushCaps()],
       });
       lastToken = token;
     } catch { /* silent — retry on next boot / call */ }
@@ -176,11 +180,16 @@ function onTap(res: Notifications.NotificationResponse, handler: (data: any) => 
   // A button (Reply, Done, Yes, No…; the server's categories, categories.ts) answers without opening anything, unless the server
   // made it one that opens; a plain tap opens the push's screen, as ever. A button that opens says which it was (the `button` param,
   // capability PushButton), so the screen can tell "Pay" from a tap just to look.
+  // AN ARRIVAL REMINDER THE PHONE SHOWED ITSELF (docs: perms2 7.2). iOS scheduled it and iOS noticed the arrival, so its data
+  // carries the item's own screen rather than a screenId; a tap opens that screen, and THE SCREEN ID IS ALL THAT GOES — the
+  // rest of the notification's `userInfo` would become the screen's params, which fetchScreen POSTs to /v1/app/screen
+  // (arrivalCore.ts arrivalOpening says why). Nothing about the arrival is sent anywhere, and there is no analytics event.
+  const opening = arrivalOpening(data) ?? data;
   const pressed = pressedButton(res?.actionIdentifier, Notifications.DEFAULT_ACTION_IDENTIFIER);
-  const params = pressed ? { ...data, button: pressed } : data;
+  const params = pressed ? { ...opening, button: pressed } : opening;
   void handleNotificationAction(res)
     .then((r) => { if (r === "open") handler(params); })
-    .catch(() => handler(data));
+    .catch(() => handler(opening));
 }
 
 /**

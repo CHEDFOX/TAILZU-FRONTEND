@@ -95,6 +95,13 @@ export function retryable(method: string, status: number | undefined, idempotent
   return false;
 }
 
+/**
+ * An answer that carries no body at all, so there is nothing to parse. HTTP says so for 204 and 205, and the abuse-prevention
+ * routes answer 204 (docs: perms2 9.3). React Native's `fetch` reads `json()` as text then `JSON.parse`, so parsing an empty
+ * body THROWS — and a thrown success is worse than a failure: the trust step reported itself failed and posted a second time.
+ */
+export const emptyAnswer = (status: number): boolean => status === 204 || status === 205;
+
 export interface RetryIO { sleep: (ms: number) => Promise<void>; random?: () => number }
 
 /** Mark a failure as "no answer came" (the only kind of status-less failure that may be retried). */

@@ -78,12 +78,22 @@ for (const f of fields) {
 const CONFIG = path.resolve(HERE, "../../../app/app.config.ts");
 const LOCK = path.resolve(HERE, "../../../app/native-inputs.lock");
 const PRIVACY = path.resolve(HERE, "../../../../TAILZU-BACKEND/docs/store-privacy.md");
+/** The privacy manifest, which from 8.9.1 declares Device ID: the store answers may not then call it "not collected". */
+const PRIVACY_MANIFEST = path.resolve(HERE, "../../../app/assets/PrivacyInfo.xcprivacy");
 const read = (f) => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
 /** Whether the RELEASE build carries Health Connect, from the lock A8 writes. Null when there is no lock to read. */
 function lockedAndroidHealth() {
+  return lockedSwitch("androidHealth");
+}
+/**
+ * One of the lock's per-profile Android switches, for the `production` profile: "on", "off", or null when there is no lock.
+ * `app.config.ts` holds every one of these permissions inside `SWITCH ? [...] : []`, so the words are in the file for EVERY
+ * build and the config alone can never answer the question. The lock is what records which build is really being uploaded.
+ */
+function lockedSwitch(name) {
   const raw = read(LOCK);
   if (!raw) return null;
-  try { return JSON.parse(raw)?.androidHealth?.production === "on" ? "on" : "off"; } catch { return null; }
+  try { return JSON.parse(raw)?.[name]?.production === "on" ? "on" : "off"; } catch { return null; }
 }
 const bodyOf = (re) => fields.filter((f) => re.test(f.name)).map((f) => f.body).join("\n");
 
@@ -110,6 +120,31 @@ if (config) {
   if (androidHealth === "off" && saysHC) {
     problems.push("Full description / Release notes: the Play text promises Health Connect, but this Android build is built without it (app/native-inputs.lock androidHealth.production is off)");
   }
+
+  // THE THREE ANDROID HALVES OF 8.9.1 (docs: perms2). Each is its own build switch, its own permission and its own line in
+  // the listing, and each cuts both ways for the same reason Health Connect does: a listing that promises a thing the
+  // binary cannot do, and a binary that does a thing the listing never mentions, are the same mistake (Play help 12991134).
+  // Arrival is the one Play reviews by hand, so its line is also what the background-location declaration and the demo
+  // video have to say; the Play reviewer reads it in App access instructions, which is where each line goes.
+  const access = bodyOf(/^app access instructions/i);
+  const HALVES = [
+    ["androidCalendar", "the phone's calendars", /plan around my calendar/i,
+      "Plan around my calendar (READ_CALENDAR)"],
+    ["androidMotion", "the phone's step counter", /step counter|physical activity/i,
+      "Count my steps (ACTIVITY_RECOGNITION)"],
+    ["androidArrival", "background location", /when the app is closed or not in use/i,
+      "Remind me when I get there (ACCESS_BACKGROUND_LOCATION, and Play's background-location declaration)"],
+  ];
+  for (const [lockKey, , says, what] of HALVES) {
+    const on = lockedSwitch(lockKey);
+    const said = says.test(access);
+    if (on === "on" && !said) {
+      problems.push(`App access instructions: the Android build has ${what}, but the Play text never says so (Play help 12991134)`);
+    }
+    if (on === "off" && said) {
+      problems.push(`App access instructions: the Play text describes ${what}, but this Android build is built without it (app/native-inputs.lock ${lockKey}.production is off)`);
+    }
+  }
 }
 if (privacy) {
   // A usage string or permission in the build, and the privacy answers still calling it "not collected" or "never read".
@@ -120,6 +155,24 @@ if (privacy) {
       /(?:Location \((?:precise and coarse|approximate and precise)\))|(?:no location permission or API)|(?:health or fitness)/i],
     ["health", config && /HEALTH_USAGE|READ_STEPS/.test(config), /\bHealth and [Ff]itness,/],
     ["contacts", true, /(?:the phone's contacts are never read)|(?:No contacts, calendar or location permission is in the build)/i],
+    // BUILD 8.9.1 (docs: perms2 §11.5). Each phrase is one a STALE document has and a true one does not.
+    // The busy-times read: with the calendar key in the build, the document may not still say the phone's calendars are never read.
+    ["calendars", config && /NSCalendarsFullAccessUsageDescription/.test(config),
+      /the phone's calendars or reminders \(the\s+app keeps its own calendar on the server\)|never reads the phone's calendars/i],
+    // The one Reminders list: the same, for reminders.
+    ["reminders", config && /NSRemindersFullAccessUsageDescription/.test(config), /reminders are never read|never reads your reminders/i],
+    // Motion: the document said "motion data" was not collected, which stops being true with the key in the build.
+    ["motion", config && /NSMotionUsageDescription/.test(config), /(?:^|[^w])\bmotion data\b/i],
+    // THE ANDROID HALVES OF 8.9.1: once the uploaded build carries one, the store answers may not still say the permission
+    // is blocked. The lock is the only thing that knows, for the reason `lockedSwitch` gives.
+    ["the Android calendar read", lockedSwitch("androidCalendar") === "on",
+      /`READ_CALENDAR` and `WRITE_CALENDAR` stay blocked|No calendar permission is in the build/i],
+    ["the Android step counter", lockedSwitch("androidMotion") === "on", /and `ACTIVITY_RECOGNITION`, so no library/i],
+    ["Android background location", lockedSwitch("androidArrival") === "on",
+      /So are `ACCESS_FINE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`|no background location, and no geofence of our own(?![\s\S]{0,400}Android)/i],
+    // Device ID: declared from 8.9.1 (attestation, and the install number), so it may not also be in the "not collected" line.
+    ["the Device ID", config && /NSPrivacyCollectedDataTypeDeviceID/.test(read(PRIVACY_MANIFEST) ?? ""),
+      /Identifiers'\s*\*\*Device ID\*\*|Device ID \(no IDFA/i],
   ];
   for (const [what, inBuild, re] of stale) {
     if (inBuild && re.test(privacy)) problems.push(`store-privacy.md: still says ${what} is not collected or never read, while the build has it (docs/store-privacy.md)`);

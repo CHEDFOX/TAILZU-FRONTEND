@@ -9,6 +9,30 @@
     "preview": "off",
     "production": "off"
   },
+  "androidHealthSleep": {
+    "development": "off",
+    "n0": "on",
+    "preview": "off",
+    "production": "off"
+  },
+  "androidCalendar": {
+    "development": "off",
+    "n0": "on",
+    "preview": "off",
+    "production": "off"
+  },
+  "androidMotion": {
+    "development": "off",
+    "n0": "on",
+    "preview": "off",
+    "production": "off"
+  },
+  "androidArrival": {
+    "development": "off",
+    "n0": "on",
+    "preview": "off",
+    "production": "off"
+  },
   "throughNatives": [
     "@kingstinct/react-native-healthkit",
     "@react-native-healthkit/core",
@@ -134,10 +158,35 @@
     ],
     "tulmi-keyboard": [],
     "tulmi-perms": [
+      "abilities",
+      "arrivalArm",
+      "arrivalClear",
+      "arrivalList",
+      "attestAssert",
+      "attestForget",
+      "attestKey",
+      "calendarAsk",
+      "calendarBusy",
+      "calendarEditor",
+      "calendarStatus",
+      "deviceCheckToken",
+      "focusState",
+      "integrityPrepare",
+      "integrityToken",
       "locationArea",
       "locationAsk",
       "locationStatus",
-      "pickEmail"
+      "motionAsk",
+      "motionDays",
+      "motionDriving",
+      "motionForget",
+      "motionStatus",
+      "motionWatch",
+      "pickEmail",
+      "remindersApply",
+      "remindersAsk",
+      "remindersRead",
+      "remindersStatus"
     ],
     "tulmi-share": [
       "consumeShared",
@@ -150,5 +199,5 @@
       "stop"
     ]
   },
-  "sourcesSha256": "ff80d6f9eb6bf121674d0fabfad8a50964f5f6c0d5da891292c1efc192ed8eb7"
+  "sourcesSha256": "cc7ad6f6eed9695816e5ec7509c6e5b68e7d0a92d69e519a7092dfe652c06b54"
 }

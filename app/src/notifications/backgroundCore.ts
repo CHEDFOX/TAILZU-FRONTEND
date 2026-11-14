@@ -11,6 +11,9 @@
  *   { kind: "bots.update", event, state, look? }       Android: repost or end the ongoing "Bots at work" notice with this state
  *                                                      (the same ContentState the iPhone's Live Activity is pushed). Data only, high
  *                                                      priority; a force-stopped app receives nothing, and that is right
+ *   { kind: "plan_call_check", call, want }            about 30 s before a Plan Ease call would ring: answer whether the phone is
+ *                                                      in a car and whether a Focus is on (docs: perms2 5.3), as yes or no and
+ *                                                      nothing else. No answer is fine: the server rings as it does today
  *
  * Anything else is not ours and is ignored. The state of a notice push is checked like a Live Activity's own: a job is a few short
  * strings and numbers, and the whole body is held to the same 3.5 KB, in the same order of what is given up.
@@ -19,6 +22,30 @@ import { clampVars, fitActivityBody } from "../native/looksCore.ts";
 
 export const NOTICE_KIND = "bots.update";
 export const LOOKS_KIND = "native.looks";
+export const CALL_CHECK_KIND = "plan_call_check";
+
+/** The call this check is about: the server's own id, nothing else (so a push can never point the answer at another route). */
+const CALL_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** What the check may be asked for. Anything else is ignored, so a push can never ask for a new kind of answer. */
+const WANTED = ["driving", "focus"] as const;
+export type CallCheckWant = (typeof WANTED)[number];
+
+/** The one path a check may answer on, built from the call's id. null when the id is not one. */
+export function callCheckPath(call: unknown): string | null {
+  return typeof call === "string" && CALL_ID.test(call) ? `/v1/botsapp/plan/calls/${call}/check` : null;
+}
+
+/** The answer's body: only what was asked for, and only what this phone could really tell. */
+export function callCheckBody(
+  want: readonly CallCheckWant[],
+  answers: { driving?: boolean | null; focus?: boolean | null },
+): { driving?: boolean; focus?: boolean } {
+  const out: { driving?: boolean; focus?: boolean } = {};
+  if (want.includes("driving") && typeof answers.driving === "boolean") out.driving = answers.driving;
+  if (want.includes("focus") && typeof answers.focus === "boolean") out.focus = answers.focus;
+  return out;
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -58,7 +85,8 @@ export const isPress = (payload: unknown): boolean => isObj(payload) && "actionI
 
 export type Nudge =
   | { kind: "looks"; v: number | null }
-  | { kind: "notice"; event: "update" | "end"; json: string | null };
+  | { kind: "notice"; event: "update" | "end"; json: string | null }
+  | { kind: "callCheck"; path: string; want: CallCheckWant[] };
 
 /** What a data push asks for, or null for anything that is not ours. */
 export function nudgeOf(payload: unknown): Nudge | null {
@@ -74,6 +102,13 @@ export function nudgeOf(payload: unknown): Nudge | null {
     if (event === "end") return { kind: "notice", event, json: null };
     const state = noticeState(d.state, typeof d.look === "string" ? d.look : null);
     return state ? { kind: "notice", event, json: JSON.stringify(state) } : null;
+  }
+  if (d.kind === CALL_CHECK_KIND) {
+    const path = callCheckPath(d.call);
+    if (!path) return null;
+    const asked = Array.isArray(d.want) ? d.want : [];
+    const want = WANTED.filter((w) => asked.includes(w));
+    return want.length ? { kind: "callCheck", path, want: [...want] } : null;
   }
   return null;
 }

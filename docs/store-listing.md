@@ -47,7 +47,7 @@ A team of bots, each great at one thing. Speak and Keybot writes. Plan keeps you
 keyboard,voice,dictation,typing,languages,planner,calendar,todo,trip,meeting,notes,family,chat
 ```
 
-### Description · 3472 / 4000
+### Description · 3492 / 4000
 
 ```text
 X0 Bot is a team of bots: players that make your life easy. Each one is great at one thing. Say what you need, by voice or by typing, in the languages you mix every day, and the right bot picks it up.
@@ -71,7 +71,7 @@ SPACES · FAMILY AND FRIENDS
 Make a space for home, for friends or for a team. Share lists, trips, plans and files, chat one-to-one or in groups, and give someone a task that lands on their day. You choose what each person can do, and reporting and blocking are built in.
 
 YOUR OWN BOTS
-Describe a bot in a sentence: "a bot that plans my workouts around my calendar and reminds me the night before." X0 Bot drafts it with a name, its rules and what it may use. Try it, change it, and it joins your team. You can also add bots that others have made. Connect Apple Health to a fitness bot you make, so it counts your steps and workouts.
+Describe a bot in a sentence: "a bot that plans my workouts around my calendar and reminds me the night before." X0 Bot drafts it with a name, its rules and what it may use. Try it, change it, and it joins your team. You can also add bots that others have made. Connect Apple Health to a fitness bot you make, so it counts your steps, your workouts and how you slept.
 
 ASK ANY BOT
 One place to start. Type, or hold to speak, add a photo or a file, and X0 Bot hands it to the bot that fits. Activity shows what every bot did and what is waiting for you.
@@ -92,9 +92,11 @@ Privacy policy: https://x0bot.com/privacy
 Questions: support@x0bot.com
 ```
 
-### What's New in this version · 1216 / 4000
+### What's New in this version · 1579 / 4000
 
 ```text
+New in 8.9.1: add a plan to your calendar, plan around the times you're busy, keep a Reminders list in step with Plan Ease, hold Plan Ease's calls during a Focus, get reminded when you reach a place, and count your sleep on a fitness bot. Each one is off until you turn it on, and each says what it reads before your phone asks you anything.
+
 A new X0 Bot.
 
 The keyboard you know is now one player on a team of bots, each great at one thing. Home is your bots: what they are working on, and the one tap each needs from you.
@@ -105,7 +107,7 @@ The keyboard you know is now one player on a team of bots, each great at one thi
 • Notes: meetings noted on your computer, written up with decisions and to-dos.
 • Code bot: build and fix code by asking. Nothing goes live until you say yes.
 • Spaces: share with family and friends, chat one-to-one or in groups, and give tasks.
-• Your own bots: describe one in a sentence and it joins your team. Connect Apple Health to a fitness bot you make, so it counts your steps and workouts.
+• Your own bots: describe one in a sentence and it joins your team. Connect Apple Health to a fitness bot you make, so it counts your steps, your workouts and how you slept.
 • Ask any bot, by voice or by typing, and the right one picks it up.
 • Activity: everything your bots did, and what is waiting for you.
 • Usage: a simple meter that shows how much you have used.
@@ -134,38 +136,41 @@ https://x0bot.com
 https://x0bot.com/privacy
 ```
 
-### App Review notes · 3995 / 4000
+### App Review notes · 3993 / 4000
 
 ```text
-SIGN IN
-Use the review account in App Store Connect (App Review Information): on the first screen tap "I already have an account" and sign in. You land on Bots (Home).
+SIGN IN AND WHAT THE APP IS
+Use the review account in App Store Connect (App Review Information): on the first screen tap "I already have an account" and sign in. You land on Bots (Home): a team of bots, each for one kind of job. A tap opens one, "Ask any bot…" goes to the one that fits, and Activity shows what needs a decision.
 
-WHAT THE APP IS
-X0 Bot is a team of bots, each for one kind of job. They live on Home; a tap opens one. Search (top right) finds any bot by name, and "Ask any bot…" at the bottom sends a request to the bot that fits.
-
-WHERE EACH BOT IS
-- Keybot (voice keyboard): Home › Keybot. To type with it elsewhere: Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot, and allow Full Access. Full Access only sends the voice to our server and brings the text back; it listens only while the mic key is held. A keyboard extension cannot record audio itself, so the app keeps a microphone session the keyboard uses. While it is on, iOS shows the microphone indicator and a Live Activity, and it can be stopped from there or in the app.
-- Plan, Travel and Code bot: their tiles on Home, or Search by name. Code bot works on projects you connect; "Start a new project from scratch" needs none.
-- Notes: the Notes strip on Home. Meetings are noted by X0 Bot on a computer; the phone shows them.
-- Spaces and chats: You › Spaces and chats. Make your own bot: the "Make a bot" tile on Home.
-- Activity tab: what the bots did and what needs a decision.
+KEYBOT (voice keyboard)
+Home › Keybot › Turn on Keybot, then Settings › General › Keyboard › Keyboards › Add New Keyboard › X0 Bot, and allow Full Access, which only sends the voice to our server and brings the text back; it listens only while the mic key is held. A keyboard extension cannot record audio itself, so the app keeps a microphone session it uses: iOS shows the microphone indicator and a Live Activity, and either can stop it.
 
 SUBSCRIPTIONS
-Lite and Elite are auto-renewable monthly subscriptions (In-App Purchase, one subscription group). The purchase screen is You › Plan and billing › See plans (also from You › Usage when the allowance runs low). It shows each plan with the App Store's own price, the renewal terms, and links to the Terms of use and the Privacy policy. Without a subscription every bot works, with a smaller monthly allowance.
+Lite and Elite are auto-renewable monthly subscriptions (In-App Purchase, one group). You › Plan and billing › See plans shows each with the App Store's own price, the renewal terms, and links to the Terms and the Privacy policy.
 
-USER CONTENT, REPORTING AND BLOCKING
-In Spaces, people share lists, files and messages with people they invite. Report and Block are on every chat (the header button, and Report under each message), on each member's page and on each shared item. Blocked people are in You › Blocked people.
+REPORTING AND BLOCKING
+In Spaces people share lists, files and messages with people they invite. Report and Block are on every chat (the header button, and under each message), on each member's page and on each shared item.
 
-NEW IN THIS BUILD, AND WHERE TO SEE IT
-- Use my location: Plan Ease › "Where does your day start?" › Use my location. One card (Continue), the system prompt, then the area's name to check and Save. While Using only, the prompt starts on approximate, and the phone's own geocoder names the area: our servers never get a coordinate, only the words saved. Typing it still works.
-- Add from contacts: Spaces › Review Family › Invite › Add from contacts (also on Spaces' start screen). The system contact picker: no permission is asked and none is in the build. Only the one email tapped fills the field, and nothing is sent until Send the invite. Under the field the invite is previewed as the recipient will read it: the sender, the subject, and the body behind "See the whole email". The device needs one contact with an email address.
-- Count my workouts: Bots › Gym Buddy › Edit › Count my workouts from Apple Health. One card (Continue), then the Health sheet. Steps and workouts only, read-only, while that bot is open; shown on its page; daily totals for 31 days; deleted when the switch goes off and from our encrypted backups within 30 days; never sent to AI services, never for ads, never in iCloud. To see one counted, add a workout in Health (Browse › Activity › Workouts › Add Data). With none, the bot says "Nothing from Apple Health yet": HealthKit never reports a refused read, so we never show a zero.
-- The review account runs the space "Review Family" and has the bot "Gym Buddy".
+PERMISSIONS, AND WHERE TO SEE EACH ONE
+Each is off until the person turns it on, and one card (Continue only) stands before every system prompt. None of it is used for ads.
+- Use my location: Plan Ease › "Where does your day start?". While Using only; the phone's own geocoder names the area, so we get no coordinate, only the words saved.
+- Add from contacts: Spaces › Review Family › Invite. The system picker: nothing is asked and no contacts permission is in the build. Only the email tapped fills the field, and nothing is sent until Send the invite.
+- Count my workouts: Bots › Gym Buddy › Edit. Steps and workouts only, read-only, while that bot is open; daily totals for 31 days; deleted when the switch goes off.
+- Also count my sleep: the sub-row under it, with its own prompt, so refusing sleep leaves steps working. Minutes a night only: no bed or wake times, no stages.
+- Count my steps with Motion & Fitness: the same row, when Apple Health is not used. Daily steps, and walks, runs or rides of 10 minutes or more.
+- Add to my calendar: Plan Ease › "Pick up dry cleaning". No permission: iOS's own editor opens out of process, filled in. We read nothing and hear only that you saved it.
+- Plan around my calendar: Plan Ease › From this phone. Reads only when events start and end; never names, places or attendees. Full access is iOS's only read grant, and we never write.
+- Sync with Reminders: the row under it. Opens only the X0 Bot list it makes. Its items become Plan Ease to-dos, which its AI reads only for people who agreed to the app's AI permission (5.1.2(i)); the card says so.
+- Hold calls during a Focus: You › What pings you, then Settings › Focus › Focus Filters › Add Filter › X0 Bot. No permission: iOS's filter says a Focus started or ended, never which.
+- Wait while I'm driving: the row under it. An "in a car?" check just before each call, answered yes or no, not kept.
+- Remind me when I get there: the same item. iOS's own location trigger with While Using: the system watches the place, the app is not woken, and we are never told of an arrival. No Always.
+- App Attest and DeviceCheck: no prompt, no screen. Only against fraud and free-plan abuse, not tracking.
+- The review account runs "Review Family", has "Gym Buddy", and has "Pick up dry cleaning" every day at 9:30 pm in Bengaluru, so those two routes are there on any day.
+
 ACCOUNT AND DATA
-Delete account: You › Your data › Delete account. Download or delete data: You › Your data, which includes the days a fitness bot counted; Delete my data removes them and switches the row off.
+Delete account: You › Your data › Delete account. Download or delete: You › Your data, which holds the days a bot counted and the busy times read from the phone; Delete my data removes both and switches every row off.
 
-NOTHING HAPPENS WITHOUT A YES
-Bots ask before they book, pay or message anyone. Bookings open the provider's own site and payments open the person's own payment app; X0 Bot never pays by itself.
+Bots ask before they book, pay or message anyone: bookings open the provider's site, payments the person's own app.
 
 Contact: support@x0bot.com
 ```
@@ -250,8 +255,48 @@ per build profile), make these three changes and run
    > deleted when switched off). The review account runs the space "Review Family", already has the bot "Gym Buddy", and is
    > on the allowlist that shows the Health Connect row while Google's own list is still propagating.
 
+**Sleep has its OWN switch, and its own line** (build 8.9.1, `TULMI_ANDROID_HEALTH_SLEEP`, which is on only when BOTH it and
+`TULMI_ANDROID_HEALTH` are, and only once Play has approved the refiled Health Connect form with Sleep on it). The lock
+records it per profile beside `androidHealth`. Only when the build being uploaded has `READ_SLEEP`:
+
+4. **Full description**, after the Health Connect sentence above:
+   > It can count how long you sleep, too, if you turn that on.
+5. **App access instructions**, after the Count my workouts sentence:
+   > Also count my sleep: the sub-row under it, asked in its own Health Connect prompt, so refusing sleep leaves steps
+   > working. Minutes slept per night only: no bed or wake times and no stages. The same account is on the sleep allowlist.
+
+With the sleep switch off, neither line may be there: a listing that promises sleep for a binary with no `READ_SLEEP` is the
+same mistake as one that hides it (Play help 12991134).
+
 The App Store text is NOT conditional: the Apple Health sentence is in the Description and What's New whenever the build
 carries `HEALTH_USAGE`, and the checker fails without it (App Review 2.5.1).
+
+### Add only when an Android half of 8.9.1 is on
+
+**The Play text above is the OFF variant for these three too**, and it is the default: `androidCalendar`, `androidMotion` and
+`androidArrival` are all `off` for `production` in `app/native-inputs.lock`. Each is a separate build switch and a separate
+line here, so one can go on without the others — and the Play listing must describe the build being uploaded and no other
+(Play help 12991134). `node tools/media/store/check-listing.mjs` reads the lock and fails both ways round: a line that is there
+for a build without the switch, and a switch with no line.
+
+**`TULMI_ANDROID_CALENDAR`** (`READ_CALENDAR`, read only, no Play declaration at all). Add to **App access instructions**:
+> Plan around my calendar: Plan Ease › Plan around my calendar. One card, then Android's calendar prompt. It reads only when
+> events start and end, for two weeks; never a name, place, note or guest. Switching it off deletes them.
+
+**`TULMI_ANDROID_MOTION`** (`ACTIVITY_RECOGNITION`, no Play declaration). Add to **App access instructions**:
+> Count my steps: Bots › Gym Buddy › Edit › Count my steps with the phone's step counter. One card, then Android's physical
+> activity prompt. Daily step totals only, no workouts, 31 days, deleted when switched off. Wait while I'm driving: You ›
+> What pings you uses the same grant for one "in a car?" answer just before a call, which is not kept.
+
+**`TULMI_ANDROID_ARRIVAL`** (`ACCESS_FINE_LOCATION` + `ACCESS_BACKGROUND_LOCATION`: **Play's background-location declaration,
+a demo video and a human review**, which is why this one waits). Add to **App access instructions**:
+> Remind me when I get there: Plan Ease › "Pick up dry cleaning" › Remind me when I get there. A card explains that X0 Bot
+> uses location in the background, even when the app is closed or not in use, only to show the arrival reminders you turn on;
+> then the precise-location prompt, then a second card and Android's own location page for "Allow all the time". The phone
+> watches the place and shows the reminder; nothing about where you are or that you arrived is ever sent to us.
+
+Those are also the words of the **background-location declaration and the demo video**: the video must show that card before
+the prompt, and the declaration must say the same use and no other. the backend repo's `docs/owner-8.9.1.md` has the full wording.
 
 ### Release notes · 494 / 500
 

@@ -4,8 +4,8 @@
 import test from "node:test";
 import assert from "node:assert";
 import {
-  applyOptimistic, normalizeCache, normalizeMultipart, normalizeRetry, pinned, progressSink, ResponseCache, retryable, retryDelayMs,
-  safeStatePath, toProgress, withRetry, asNetworkError,
+  applyOptimistic, emptyAnswer, normalizeCache, normalizeMultipart, normalizeRetry, pinned, progressSink, ResponseCache, retryable,
+  retryDelayMs, safeStatePath, toProgress, withRetry, asNetworkError,
 } from "./endpointCore.ts";
 
 const sleeps = () => { const l: number[] = []; return { l, io: { sleep: async (ms: number) => { l.push(ms); }, random: () => 1 } }; };
@@ -194,4 +194,13 @@ test("the cache hands out copies, so a local edit never reaches the kept answer"
 test("state paths follow the kernel's segment rule", () => {
   for (const bad of ["a b", "x[0]", "@key", "a/b", "$state", "a..b", ""]) assert.ok(!safeStatePath(bad), bad);
   assert.ok(safeStatePath("a-b.c_1"));
+});
+
+test("a 204 or 205 carries no body, so nothing is parsed", async () => {
+  // React Native's fetch reads json() as text() then JSON.parse, so parsing an empty body throws and a route that answers
+  // "done, nothing to say" (the trust routes) looked like a failed call to its caller.
+  assert.ok(emptyAnswer(204));
+  assert.ok(emptyAnswer(205));
+  for (const s of [200, 201, 202, 400, 500]) assert.ok(!emptyAnswer(s), String(s));
+  await assert.rejects(() => new Response(null, { status: 204 }).json());
 });

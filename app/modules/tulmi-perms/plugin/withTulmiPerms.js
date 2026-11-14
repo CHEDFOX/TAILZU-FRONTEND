@@ -1,8 +1,12 @@
 /**
- * Expo config plugin: the Android half of the health build switch.
+ * Expo config plugin: the Android half of the build switches.
  *
- * Two things, both only on Android, both driven by one flag the app config
- * hands in (`androidHealth`, which is TULMI_ANDROID_HEALTH === "on"):
+ * Three flags the app config hands in, one per switch: `androidHealth`
+ * (TULMI_ANDROID_HEALTH === "on"), and from 8.9.1 `androidMotion` and
+ * `androidArrival`. The health flag drives the two things below; the other two
+ * each declare one receiver, and both write their value into
+ * android/gradle.properties so Gradle's source-set choice can never disagree
+ * with what this manifest says (see the 8.9.1 block further down).
  *
  *  SWITCH ON — the rationale screen is declared. Health Connect shows a "why
  *  does this app want this?" link beside its permission sheet (Android 13 and
@@ -38,7 +42,7 @@
  * app.config.ts and the library's plugin, and the contact picker and location
  * need no manifest entry on either phone.
  */
-const { withAndroidManifest, withSettingsGradle } = require("@expo/config-plugins");
+const { withAndroidManifest, withGradleProperties, withSettingsGradle } = require("@expo/config-plugins");
 
 const RATIONALE_ACTION = "androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE";
 const RATIONALE_ACTIVITY = "expo.modules.tulmiperms.HealthRationaleActivity";
@@ -79,6 +83,95 @@ function usageAlias() {
     ],
   };
 }
+
+// ---------------------------------------------------------------------------------------- 8.9.1
+
+const MOTION_RECEIVER = "expo.modules.tulmiperms.TulmiMotionReceiver";
+const MOTION_ACTION = "expo.modules.tulmiperms.ACTIVITY_TRANSITION";
+const ARRIVAL_RECEIVER = "expo.modules.tulmiperms.TulmiArrivalReceiver";
+const ARRIVAL_ACTION = "expo.modules.tulmiperms.GEOFENCE";
+
+/**
+ * The motion transition receiver (TULMI_ANDROID_MOTION). NOT exported: Play services broadcasts to
+ * this package's own action, so nothing outside the app can reach it, and it reads nothing it is
+ * given beyond the transition type.
+ *
+ * The BOOT_COMPLETED filter is there because a reboot DROPS the activity-transition registration —
+ * Play services keeps no PendingIntent across one — and nothing else would ever put it back: the
+ * person turned "Wait while I'm driving" on weeks ago. Without it the driving check answers
+ * "unknown" for ever after the first restart. The permission it needs is already in every build
+ * (expo-notifications declares RECEIVE_BOOT_COMPLETED; this app neither adds nor blocks it).
+ */
+function motionReceiver() {
+  return {
+    $: { "android:name": MOTION_RECEIVER, "android:exported": "false" },
+    "intent-filter": [
+      { action: [{ $: { "android:name": MOTION_ACTION } }] },
+      { action: [{ $: { "android:name": "android.intent.action.BOOT_COMPLETED" } }] },
+    ],
+  };
+}
+
+/**
+ * The geofence + boot receiver (TULMI_ANDROID_ARRIVAL). The geofence action is this package's own
+ * and the receiver is not exported; BOOT_COMPLETED is delivered by the system, which is why the
+ * boot filter is there at all — Android drops every geofence on restart, so without it an arrival
+ * reminder silently stops working after the first reboot. It reads nothing it is given: on arrival
+ * it looks the item up by the geofence's request id, which is a string this app chose, and shows the
+ * reminder. The person's position is never read, passed on or written down.
+ */
+function arrivalReceiver() {
+  return {
+    $: { "android:name": ARRIVAL_RECEIVER, "android:exported": "false" },
+    "intent-filter": [
+      { action: [{ $: { "android:name": ARRIVAL_ACTION } }] },
+      { action: [{ $: { "android:name": "android.intent.action.BOOT_COMPLETED" } }] },
+    ],
+  };
+}
+
+/** Declares a receiver, idempotently; a second prebuild over the same manifest adds nothing. */
+const withReceiver = (config, name, make) =>
+  withAndroidManifest(config, (cfg) => {
+    const application = cfg.modResults.manifest.application?.[0];
+    if (!application) return cfg;
+    application.receiver = application.receiver || [];
+    if (!named(application.receiver, name)) application.receiver.push(make());
+    return cfg;
+  });
+
+/** Takes a receiver back out, for a manifest an earlier ON prebuild wrote. */
+const withNoReceiver = (config, name) =>
+  withAndroidManifest(config, (cfg) => {
+    const application = cfg.modResults.manifest.application?.[0];
+    if (!application) return cfg;
+    if (application.receiver) {
+      application.receiver = application.receiver.filter((e) => e.$?.["android:name"] !== name);
+    }
+    return cfg;
+  });
+
+/**
+ * ONE SOURCE OF TRUTH FOR THE TWO SOURCE-SET SWITCHES.
+ *
+ * The receivers above are written at PREBUILD time from app.config.ts's env. Gradle runs later, and
+ * can run with a different environment: a developer who prebuilds with TULMI_ANDROID_ARRIVAL=on and
+ * then runs ./gradlew with it unset gets a manifest that declares TulmiArrivalReceiver and a build
+ * that compiled src/arrivalOff instead — the class is not there, and the first reboot crashes the
+ * app with ClassNotFoundException. So the plugin writes what it decided into gradle.properties, in
+ * the same pass, and modules/tulmi-perms/android/build.gradle reads it from there instead of from
+ * the environment.
+ */
+const withSwitchProperties = (config, motion, arrival) =>
+  withGradleProperties(config, (cfg) => {
+    const want = { "tulmi.androidMotion": motion ? "on" : "off", "tulmi.androidArrival": arrival ? "on" : "off" };
+    for (const [key, value] of Object.entries(want)) {
+      const had = cfg.modResults.find((e) => e.type === "property" && e.key === key);
+      if (had) had.value = value;
+      else cfg.modResults.push({ type: "property", key, value });
+    }
+    return cfg;
+  });
 
 /** The exclude block the off branch writes, and the on branch takes back out. */
 const EXCLUDE_BLOCK =
@@ -140,9 +233,24 @@ const withHealthConnectLinked = (config) =>
 
 module.exports = function withTulmiPerms(config, props) {
   const androidHealth = !!(props && props.androidHealth);
-  return androidHealth
+  const androidMotion = !!(props && props.androidMotion);
+  const androidArrival = !!(props && props.androidArrival);
+  let out = androidHealth
     ? withHealthConnectLinked(withHealthRationale(config))
     : withNoHealthRationale(withNoHealthConnect(config));
+  // Each branch undoes the other, as the health ones do: a developer machine runs prebuild over
+  // native folders that are already there, and a flipped switch must not leave a receiver behind
+  // for a feature that is no longer in the binary.
+  out = androidMotion
+    ? withReceiver(out, MOTION_RECEIVER, motionReceiver)
+    : withNoReceiver(out, MOTION_RECEIVER);
+  out = androidArrival
+    ? withReceiver(out, ARRIVAL_RECEIVER, arrivalReceiver)
+    : withNoReceiver(out, ARRIVAL_RECEIVER);
+  // Written here, read by modules/tulmi-perms/android/build.gradle, so the manifest's receivers and
+  // the compiled source sets can never disagree — whatever environment Gradle is later run with.
+  out = withSwitchProperties(out, androidMotion, androidArrival);
+  return out;
 };
 
 // tools/ci/check-health-switch.mjs runs this plugin's settings mod over the
