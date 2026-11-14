@@ -57,11 +57,13 @@ export const STRIPS = 48;
 //          sway, his head going up behind the bar · 690 / 740 his gloves let go, left then right, while he is still
 //          rising: each slips behind the bar after him, fingers first, and is gone as his head is
 //   900    the bar springs back up, free of him, and settles; half a second with nobody there
-//   1400 / 1450  his gloves come back to the bar's middle, side by side and close up (twice the size, on the bar's
-//          face, so their white shows on its black): the left in from above, turned over, the right in from below;
-//          each squeezes as it lands, and the bar gives
-//   1730   the bar's middle pinches · 1810 it is pulled in to its middle, faster and faster, into his gloves there,
-//          the two twisting against each other as it goes · 1970 they close on the middle · 2120 gone · 2200 white
+//   1400 / 1450  his gloves come back to the bar's middle, side by side, sat on the bar's face so their white shows
+//          on its black: the left in from above, the right in from below; the bar gives as each lands
+//   1730   the bar's middle pinches · 1810 it is pulled in to its middle, faster and faster, into his gloves there
+//          · 1970 they close on the middle, fading · 2120 gone · 2200 white
+//   The gloves only ever SLIDE (move and fade): no squeeze, no turning over, no twist, no shrinking. Builds up to 8.9.1
+//   turned and squeezed every layer about a point far off screen (LaunchCurtain.tsx pivot), so on those phones any of
+//   these took the gloves away; the server's launch (docs/launch.md) keeps to sliding while those builds are about.
 
 /** His head at a moment: how far it has gone up (points), its sway (degrees), its squash, the blink, and whether it shows. */
 export interface HeadPose { dy: number; sway: number; sq: number; shut: number; shown: number }
@@ -106,10 +108,7 @@ export const LET_GO = [690, 740] as const;
 /** How long a glove takes to slip behind the bar, ms (and to come back from behind it). */
 export const LET_GO_MS = 140;
 
-/**
- * When each glove comes back, ms: to the bar's middle, side by side, the left in from above to grip its top (turned over,
- * fingers down its face), the right in from below to grip its bottom.
- */
+/** When each glove comes back, ms: to the bar's middle, side by side, the left in from above, the right in from below. */
 export const COME_BACK = [1400, 1450] as const;
 export const COME_BACK_MS = 200;
 
@@ -126,7 +125,7 @@ export const SLIP = BAR.y1 * U - BAR_TOP;
 /** How far a glove comes in from, points: the left from above the bar, the right from below it. */
 export const FROM = SPLASH_PT * 0.25;
 
-/** How far a glove's clip edge goes up as it comes back, points: out of its way (the left comes in from above, and close up both reach above the bar's top). */
+/** How far a glove's clip edge goes up as it comes back, points: out of its way (the left comes in from above, and sat on the bar both reach above its top). */
 export const OPEN = SPLASH_PT * 0.45;
 
 /** The bar's middle, top to bottom, points from the art's top: the left glove is turned over about it. */
@@ -135,10 +134,10 @@ export const BAR_MID = (BAR.y0 + BAR.y1) / 2 * U;
 /** The last of it, ms: the gloves close on the middle and are gone with the bar. */
 export const CLOSE_MS = 150;
 
-/** How big his gloves are when they come back: close up, so they show (white on white, at their own size, they did not). */
-export const BACK_SIZE = 2;
-
-/** How far a glove that comes back sits up into the bar, points: the art's glove middle onto the bar's middle, on its face. */
+/**
+ * How far a glove that comes back sits up into the bar, points: the art's glove middle onto the bar's middle, on its face,
+ * so the white glove shows on the black bar (hanging below it, on the white ground, it did not).
+ */
 export const SIT = 31 * U;
 
 /** Each glove in the art: its middle and half its width, points (launch.mjs; the hands layer's bounds, each side). */
@@ -156,7 +155,7 @@ export function pulled(x: number, t: number): number {
 }
 
 /** Where a glove grips the bar when it comes back, points across the art: the bar's middle, the two side by side. */
-export const heldAt = (side: 0 | 1): number => (side ? MID + GLOVES[1].half * BACK_SIZE + 1 : MID - GLOVES[0].half * BACK_SIZE - 1);
+export const heldAt = (side: 0 | 1): number => (side ? MID + GLOVES[1].half + 1 : MID - GLOVES[0].half - 1);
 
 /** Where a glove's middle is at t, points across the art: where he held the bar; then the middle; closing on it at the end. */
 export function gloveX(side: 0 | 1, t: number): number {
@@ -166,34 +165,32 @@ export function gloveX(side: 0 | 1, t: number): number {
 }
 
 /**
- * A glove at t (side 0 left, 1 right).
+ * A glove at t (side 0 left, 1 right). It only slides: grip, flip, turn and size stay at rest (see the beats above).
  *
- * Holding and letting go: grip, a squeeze toward the bar; dy, how far it has gone up into the bar; edge, how far the edge
- * it is clipped at has come down the bar's face (the fingers going behind it).
+ * Letting go: dy, how far it has gone up into the bar; edge, how far the edge it is clipped at has come down the bar's
+ * face (the fingers going behind it).
  *
- * Coming back, out of sight until then, close up (size BACK_SIZE) and sitting on the bar's face (dy, SIT), so the white
- * glove shows on the black bar: lift, how far it still is from the bar (the left above it, the right below it), fading
- * in (shown) as it comes, quick out and slow in; flip, -1 for the left, turned over about the bar's middle so it grips
- * the top, fingers down; edge, opened up out of its way. Each squeezes as it lands, and the bar gives.
+ * Coming back, out of sight until then, and sitting on the bar's face (dy, SIT), so the white glove shows on the black
+ * bar: lift, how far it still is from the bar (the left above it, the right below it), fading in (shown) as it comes,
+ * quick out and slow in; edge, opened up out of its way.
  *
- * Then gx, how far it is from where the art has it; turn, the two twisting against each other as the bar is pulled in to
- * them (degrees); size, down to nothing as they close on the middle at the end.
+ * Then gx, how far it is from where the art has it, closing on the middle at the end as it fades out with the bar.
  */
 export function glove(side: 0 | 1, t: number): GlovePose {
   const away = ease(K(t, LET_GO[side], LET_GO[side] + LET_GO_MS));
   const c = COME_BACK[side], landed = c + COME_BACK_MS, back = out(K(t, c, landed));
-  const close = ease(K(t, GONE_AT - CLOSE_MS, GONE_AT)), wring = K(t, SUCK_AT, GONE_AT);
+  const close = ease(K(t, GONE_AT - CLOSE_MS, GONE_AT));
   const coming = t >= c, gone = t >= LET_GO[side] + LET_GO_MS;
   return {
-    grip: ease(K(t, 560, 680)) * 0.22 + Math.sin(K(t, landed - 30, landed + 110) * Math.PI) * 0.12,
+    grip: 0,
     dy: coming ? -SIT : -away * SPLASH_PT * 0.06,
     edge: coming ? -OPEN : away * SLIP,
     lift: coming ? (1 - back) * FROM * (side ? 1 : -1) : 0,
-    flip: coming && !side ? -1 : 1,
+    flip: 1,
     gx: gloveX(side, t) - GLOVES[side].cx,
-    turn: Math.sin(wring * Math.PI * 2) * (1 - close) * 10 * (side ? 1 : -1),
-    size: coming ? BACK_SIZE * (1 - close) : 1,
-    shown: t >= GONE_AT ? 0 : !gone ? 1 : !coming ? 0 : K(t, c, c + COME_BACK_MS * 0.5),
+    turn: 0,
+    size: 1,
+    shown: t >= GONE_AT ? 0 : !gone ? 1 : !coming ? 0 : K(t, c, c + COME_BACK_MS * 0.5) * (1 - close),
   };
 }
 

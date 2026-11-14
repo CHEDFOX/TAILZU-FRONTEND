@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { BACK_SIZE, BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, BAR_MID, CLOSE_MS, FROM, GONE_AT, OPEN, PINCH_AT, SIT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
+import { BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, BAR_MID, CLOSE_MS, FROM, GONE_AT, OPEN, PINCH_AT, SIT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url));
 
@@ -69,38 +69,46 @@ test("a glove letting go never grows back and never crosses the bar's face: it g
   }
 });
 
-test("his gloves come back to the bar's middle, the left in from above to grip its top, the right in from below", () => {
+test("his gloves come back to the bar's middle, the left in from above, the right in from below, sat on its face", () => {
   for (const s of [0, 1] as const) {
     assert.ok(COME_BACK[s] - 900 >= 500, "he is gone first (900), and half a second passes with nobody there");
     // Not drawn from the moment they are gone until they come back: the move to the middle happens out of sight.
     for (let t = LET_GO[s] + LET_GO_MS; t < COME_BACK[s]; t += 5) assert.equal(glove(s, t).shown, 0, `glove ${s} shows at ${t}`);
     const back = glove(s, COME_BACK[s] + COME_BACK_MS);
-    assert.deepEqual([back.lift, back.shown, back.flip, back.size], [0, 1, s ? 1 : -1, BACK_SIZE], `glove ${s} all the way back, close up`);
-    // At the middle, side by side, not over each other, at the size they came back at.
+    assert.deepEqual([back.lift, back.shown, back.flip, back.size], [0, 1, 1, 1], `glove ${s} all the way back, at its own size`);
+    // At the middle, side by side, not over each other.
     assert.ok(Math.abs(GLOVES[s].cx + back.gx - heldAt(s)) < 1e-9);
-    assert.ok(heldAt(1) - heldAt(0) >= (GLOVES[0].half + GLOVES[1].half) * BACK_SIZE);
-    // It squeezes as it lands, then settles to its grip.
-    const landed = COME_BACK[s] + COME_BACK_MS;
-    assert.ok(glove(s, landed + 40).grip > glove(s, landed - 60).grip && glove(s, landed + 200).grip < glove(s, landed + 40).grip);
+    assert.ok(heldAt(1) - heldAt(0) >= GLOVES[0].half + GLOVES[1].half);
   }
-  // Halfway in: the left still above the bar, turned over; the right still below it. Close up, both reach above the
-  // bar's top, so both clip edges are out of their way.
+  // Halfway in: the left still above the bar; the right still below it. Sat on the bar, both reach above its top, so both
+  // clip edges are out of their way.
   const left = glove(0, COME_BACK[0] + COME_BACK_MS / 2), right = glove(1, COME_BACK[1] + COME_BACK_MS / 2);
-  assert.ok(left.lift < 0 && left.flip === -1 && left.edge === -OPEN && left.shown === 1 && left.size === BACK_SIZE);
-  assert.ok(right.lift > 0 && right.edge === -OPEN && right.shown === 1 && right.size === BACK_SIZE);
-  // Sat on the bar's face: the glove's middle (the hands art runs 167 to 228 px down) on the bar's middle, so most of
-  // the white glove is over the black bar. White on the white ground, at their own size, they did not show.
-  const HANDS_TOP = 167 * U, HANDS_BOTTOM = 228 * U, big = (y: number) => BAR_MID + (y - BAR_MID) * BACK_SIZE;
+  assert.ok(left.lift < 0 && left.flip === 1 && left.edge === -OPEN && left.shown === 1 && left.size === 1);
+  assert.ok(right.lift > 0 && right.edge === -OPEN && right.shown === 1 && right.size === 1);
+  // Sat on the bar's face: the glove's middle (the hands art runs 167 to 228 px down) on the bar's middle, so the white
+  // glove is over the black bar. Hanging below it, on the white ground, they did not show.
+  const HANDS_TOP = 167 * U, HANDS_BOTTOM = 228 * U;
   assert.ok(Math.abs((HANDS_TOP + HANDS_BOTTOM) / 2 - SIT - BAR_MID) < 0.5);
-  // Each, turned over or not, close up and lifted, is all inside its clip: nothing of it is cut off.
-  assert.ok(big(2 * BAR_MID - (HANDS_BOTTOM - SIT)) - FROM >= BAR_TOP - OPEN, "the left glove's clip is open far enough");
-  assert.ok(big(HANDS_TOP - SIT) >= BAR_TOP - OPEN, "and the right's");
+  // Each, lifted, is all inside its clip: nothing of it is cut off.
+  assert.ok(HANDS_TOP - SIT - FROM >= BAR_TOP - OPEN, "the left glove's clip is open far enough");
+  assert.ok(HANDS_TOP - SIT >= BAR_TOP - OPEN, "and the right's");
 });
 
-test("they twist against each other as the bar goes, and are still when it is gone", () => {
-  const mid = (SUCK_AT + GONE_AT) / 2 - 85;
-  assert.ok(Math.sign(glove(0, mid).turn) === -Math.sign(glove(1, mid).turn) && Math.abs(glove(0, mid).turn) > 3);
-  assert.ok(Math.abs(glove(0, GONE_AT).turn) < 1e-9);
+test("the gloves only ever slide: never squeezed, turned over, twisted or shrunk, which builds up to 8.9.1 drew far off screen", () => {
+  for (let t = 0; t <= LAUNCH_MS; t += 5) for (const s of [0, 1] as const) {
+    const g = glove(s, t);
+    assert.deepEqual([g.grip, g.flip, g.turn, g.size], [0, 1, 0, 1], `glove ${s} at ${t}`);
+  }
+});
+
+test("they close on the middle as the bar goes, fading out with it, and are gone when it is", () => {
+  for (const s of [0, 1] as const) {
+    const g = glove(s, GONE_AT - 1);
+    assert.ok(Math.abs(GLOVES[s].cx + g.gx - SPLASH_PT / 2) < 0.5, `glove ${s} at the middle`);
+    assert.ok(glove(s, GONE_AT - CLOSE_MS).shown === 1 && g.shown < 0.05, `glove ${s} fades as it closes`);
+    assert.equal(glove(s, GONE_AT).shown, 0);
+    assert.ok(glove(s, (SUCK_AT + GONE_AT) / 2).shown === 1, "whole while the bar is pulled in");
+  }
   assert.ok(Math.abs(barDy(PINCH_AT)) < 1e-9, "the bar has settled after they grab it, before it is pulled in");
 });
 
@@ -163,6 +171,20 @@ test("the feelers stand above the bar, so they go as he starts up: shown at rest
   assert.equal(feelersShown(FEELERS_OUT[0]), 1);
   assert.equal(feelersShown(FEELERS_OUT[1]), 0);
   assert.ok(FEELERS_OUT[1] < 900, "before the head goes");
+});
+
+test("every pivot the curtain turns or squeezes about is numbers, never a string a phone would misread", async () => {
+  // React Native's own transformOrigin parser (node_modules/react-native/Libraries/StyleSheet/processTransformOrigin.js) takes
+  // no decimals: "39.75px 5.49px" reaches the phone as 75px and 49px. Every part turned about such a point was flung off screen
+  // on a phone while a browser drew it right, so the curtain passes arrays of numbers, which are not parsed at all.
+  const curtain = read("./LaunchCurtain.tsx").toString();
+  const origins = curtain.match(/transformOrigin:\s*[^,}\n]+/g) ?? [];
+  assert.ok(origins.length >= 6, "the head, both feeler pieces and the gloves' three layers");
+  for (const o of origins) assert.match(o, /transformOrigin:\s*pivot\(/, `${o}: a string here is misread on a phone`);
+  // And the parser really does drop the decimals, so this is not a style rule but the bug itself.
+  const parse = /(top|bottom|left|right|center|\d+(?:%|px)|0)/gi;
+  const rn = fs.readFileSync(new URL("../../node_modules/react-native/Libraries/StyleSheet/processTransformOrigin.js", import.meta.url), "utf8");
+  if (rn.includes(String(parse))) assert.deepEqual("39.75px 5.49px".match(parse), ["75px", "49px"]);
 });
 
 test("the splash is the launch's layers stacked at rest, feelers and all: one picture, so the motion carries on from it", () => {
