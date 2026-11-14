@@ -6,7 +6,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import fs from "node:fs";
-import { BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, BAR_MID, CLOSE_MS, FROM, GONE_AT, OPEN, PINCH_AT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
+import { BACK_SIZE, BAR, BAR_TOP, COME_BACK, COME_BACK_MS, GLOVES, GROUND, LAUNCH_MS, LET_GO, LET_GO_MS, BAR_MID, CLOSE_MS, FROM, GONE_AT, OPEN, PINCH_AT, SIT, SLIP, SUCK_AT, gloveX, heldAt, SPLASH_PT, STRIPS, U, barDy, glove, head, isLifted, keys, liftLaunch, onLift, strip } from "./launchCore.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(p, import.meta.url));
 
@@ -75,21 +75,26 @@ test("his gloves come back to the bar's middle, the left in from above to grip i
     // Not drawn from the moment they are gone until they come back: the move to the middle happens out of sight.
     for (let t = LET_GO[s] + LET_GO_MS; t < COME_BACK[s]; t += 5) assert.equal(glove(s, t).shown, 0, `glove ${s} shows at ${t}`);
     const back = glove(s, COME_BACK[s] + COME_BACK_MS);
-    assert.deepEqual([back.lift, back.shown, back.flip], [0, 1, s ? 1 : -1], `glove ${s} all the way back`);
-    // At the middle, side by side, not over each other.
+    assert.deepEqual([back.lift, back.shown, back.flip, back.size], [0, 1, s ? 1 : -1, BACK_SIZE], `glove ${s} all the way back, close up`);
+    // At the middle, side by side, not over each other, at the size they came back at.
     assert.ok(Math.abs(GLOVES[s].cx + back.gx - heldAt(s)) < 1e-9);
-    assert.ok(heldAt(1) - heldAt(0) >= GLOVES[0].half + GLOVES[1].half);
+    assert.ok(heldAt(1) - heldAt(0) >= (GLOVES[0].half + GLOVES[1].half) * BACK_SIZE);
     // It squeezes as it lands, then settles to its grip.
     const landed = COME_BACK[s] + COME_BACK_MS;
     assert.ok(glove(s, landed + 40).grip > glove(s, landed - 60).grip && glove(s, landed + 200).grip < glove(s, landed + 40).grip);
   }
-  // Halfway in: the left still above the bar, turned over, its clip edge out of its way; the right still below it.
+  // Halfway in: the left still above the bar, turned over; the right still below it. Close up, both reach above the
+  // bar's top, so both clip edges are out of their way.
   const left = glove(0, COME_BACK[0] + COME_BACK_MS / 2), right = glove(1, COME_BACK[1] + COME_BACK_MS / 2);
-  assert.ok(left.lift < 0 && left.flip === -1 && left.edge === -OPEN && left.shown === 1);
-  assert.ok(right.lift > 0 && right.edge === 0 && right.shown === 1);
-  // The left, turned over about the bar's middle and lifted, is all inside its clip: nothing of it is cut off.
-  const HANDS_BOTTOM = 222 * U, top = 2 * BAR_MID - HANDS_BOTTOM;
-  assert.ok(top - FROM >= BAR_TOP - OPEN, "the left glove's clip is open far enough");
+  assert.ok(left.lift < 0 && left.flip === -1 && left.edge === -OPEN && left.shown === 1 && left.size === BACK_SIZE);
+  assert.ok(right.lift > 0 && right.edge === -OPEN && right.shown === 1 && right.size === BACK_SIZE);
+  // Sat on the bar's face: the glove's middle (the hands art runs 167 to 228 px down) on the bar's middle, so most of
+  // the white glove is over the black bar. White on the white ground, at their own size, they did not show.
+  const HANDS_TOP = 167 * U, HANDS_BOTTOM = 228 * U, big = (y: number) => BAR_MID + (y - BAR_MID) * BACK_SIZE;
+  assert.ok(Math.abs((HANDS_TOP + HANDS_BOTTOM) / 2 - SIT - BAR_MID) < 0.5);
+  // Each, turned over or not, close up and lifted, is all inside its clip: nothing of it is cut off.
+  assert.ok(big(2 * BAR_MID - (HANDS_BOTTOM - SIT)) - FROM >= BAR_TOP - OPEN, "the left glove's clip is open far enough");
+  assert.ok(big(HANDS_TOP - SIT) >= BAR_TOP - OPEN, "and the right's");
 });
 
 test("they twist against each other as the bar goes, and are still when it is gone", () => {
