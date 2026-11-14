@@ -174,6 +174,9 @@ exports.registerShell = (r) => r.register(
   { TabBar: () => null, Header: () => null, Toast: () => null, Modal: () => null, Sheet: () => null },
   { present: () => {} },
 );
+// One of our own calls: the block registers its one node, and says it is available, as the real one does on a binary with the client.
+exports.registerCall = (r) => r.register("call", { block: "call", nodes: { Caller: {} } }, { Caller: () => null }, {});
+exports.callAvailable = () => true;
 exports.registerListsInputsMedia = (reg) => { reg.List = List; reg.Each = () => null; reg.Input = () => null; };
 exports.LISTS_INPUTS_MEDIA_SPEC = { List: { block: "list" } };
 exports.BLOCK_NODES = { list: ["List", "Each"], input: ["Input"], media: ["Video", "Audio", "Camera"] };
@@ -272,6 +275,7 @@ const SOURCES: Record<string, [string, Record<string, string>]> = {
     "../local": "./stubs.cjs",
     "../data": "./stubs.cjs",
     "../shell/blocks": "./stubs.cjs",
+    "../call": "./stubs.cjs",
     "../kernel/index.ts": "./stubs.cjs",
     "./declared.ts": "./stubs.cjs",
   }],
@@ -795,10 +799,11 @@ test("registering the blocks adds only the node types a block declared as nodes"
   const before = Object.keys(fresh.stubs.REGISTRY);
   fresh.registry.setupBlocks();
   const added = Object.keys(fresh.stubs.REGISTRY).filter((k) => !before.includes(k));
-  assert.deepStrictEqual(added.sort(), ["Each", "Input", "TabBar", "Header", "Toast", "Modal", "Sheet"].sort());
+  assert.deepStrictEqual(added.sort(), ["Each", "Input", "TabBar", "Header", "Toast", "Modal", "Sheet", "Caller"].sort());
   assert.strictEqual(fresh.registry.blockForType("bindSubscribeHost"), null, "never a node type");
   assert.strictEqual(fresh.registry.blockForType("subscribeEvent"), null);
   assert.strictEqual(fresh.registry.blockForType("TabBar"), "shell");
+  assert.strictEqual(fresh.registry.blockForType("Caller"), "call");
   assert.ok(world.registered.includes("data"), "the block is still declared; only its helpers are not drawable");
 });
 

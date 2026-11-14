@@ -893,6 +893,12 @@ export type ActionSpec =
   | { kind: "local.remove"; path: string; onError?: ActionRef }
   /** Listen to a live topic and write what arrives into state (SPEC 2.10, the `data` block). */
   | { kind: "subscribe"; topic: string; into: string; mode?: "replace" | "append" | "merge"; max?: number }
+  // One of our own calls (the `call` block; TAILZU-BACKEND/docs/rooms.md). The block takes a seat, holds the connection and writes
+  // who is in the call into `statePath`; the seat itself never reaches the screen's state.
+  | { kind: "call.join"; join: string; statePath: string; knock?: string; video?: boolean;
+      onEnd?: ActionRef; onBlocked?: ActionRef; onError?: ActionRef }
+  | { kind: "call.set"; op: "mic" | "cam" | "speaker" | "flip"; value?: boolean }
+  | { kind: "call.leave" }
   // feedback
   | { kind: "haptic"; style: HapticStyle }
   | { kind: "toast"; message: string; tone?: "info" | "success" | "error" }

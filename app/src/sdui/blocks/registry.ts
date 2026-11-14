@@ -23,6 +23,7 @@ import { registerDevice } from "../device/facts";
 import { registerLocal } from "../local";
 import { registerData, SPEC as DATA_SPEC } from "../data";
 import { registerShell, SPEC as SHELL_SPEC } from "../shell/blocks";
+import { registerCall, callAvailable } from "../call";
 import { LIMITS, VOCAB } from "../kernel/index.ts";
 import type { BlockRegistry } from "../blockRegistry";
 import { setRegisteredBlocks } from "./declared.ts";
@@ -127,6 +128,9 @@ export function setupBlocks(): readonly string[] {
   turnOn("local", () => registerLocal(adapter));
   turnOn("data", () => registerData(adapter));
   turnOn("shell", () => registerShell(adapter));
+  // A call is the live client's: a binary without react-native-webrtc can draw a tile and never put anyone in it, so it must not
+  // promise `call` (the same rule gesture follows above).
+  if (callAvailable()) turnOn("call", () => registerCall(adapter));
   // Lists, inputs and media are node types rather than a spec object, and all three arrive together.
   turnOn("list", () => {
     registerListsInputsMedia(REGISTRY);

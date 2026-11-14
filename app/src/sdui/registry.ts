@@ -233,6 +233,9 @@ export const CORE_ACTIONS = [
   // this bundle's promise; whether a SCREEN may use one is the `local` / `data` block in the handshake's
   // `blocks`, and a screen that does not name the block never gets them.
   "local.set", "local.remove", "subscribe",
+  // one of our own calls (pure/SPEC.md 2.13, the `call` block; TAILZU-BACKEND/docs/rooms.md). Running them is this bundle's promise;
+  // whether this BINARY can hold a call is the live client's, so the block is registered only where it loads (blocks/registry.ts).
+  "call.join", "call.set", "call.leave",
   // permissions
   "requestPermission", "checkPermission",
   // location, contacts, health: running them is this bundle's promise; whether the binary can is the module's (permCaps.ts:

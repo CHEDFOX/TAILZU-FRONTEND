@@ -61,6 +61,7 @@ import { permCaps } from "../device/permCaps";
 import { LOCATION_CAPABILITY } from "./types";
 import { clearLocal, removeLocal, setLocal } from "./local";
 import { applyOptimistic, progressSink } from "./client/endpointCore";
+import { runCallJoin, runCallLeave, runCallSet } from "./call";
 import type { CallOptions } from "./client/endpointCore";
 import { normalizePresentation } from "./shell/blocks/presentation";
 import { noteBadNode } from "./safety";
@@ -856,6 +857,31 @@ export async function runAction(ref: ActionRef | undefined, outer: Ctx): Promise
     case "subscribe": {
       if (!ctx.blocks?.includes("data")) break;
       subscribeHub()?.add(ctx.screenId ?? "", action);
+      break;
+    }
+    // ONE OF OUR OWN CALLS (the `call` block, TAILZU-BACKEND/docs/rooms.md). The block takes a seat, holds the connection, and writes
+    // who is in the call into the screen's state; the screen's own words, tiles and buttons are expressions over that. The seat is a
+    // bearer and never reaches the state. Leaving the screen hangs up (ScreenHost), so a microphone is never left open behind a screen.
+    case "call.join": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      const a = action as unknown as import("./call").JoinAction;
+      await runCallJoin(a, {
+        post: (path, body) => callEndpoint("POST", path, body),
+        write: (path, value) => ctx.store.set(path, value),
+        screenId: ctx.screenId ?? "",
+        run: (ref) => runAction(ref as ActionRef, ctx),
+      });
+      break;
+    }
+    case "call.set": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      const a = action as unknown as { op: "mic" | "cam" | "speaker" | "flip"; value?: boolean };
+      await runCallSet(a.op, a.value);
+      break;
+    }
+    case "call.leave": {
+      if (!ctx.blocks?.includes("call")) { await refuseBlock("call", action, ctx); break; }
+      await runCallLeave();
       break;
     }
     case "local.remove": {
