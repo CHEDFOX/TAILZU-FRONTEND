@@ -9,7 +9,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { existsSync, readFileSync } from "node:fs";
 import {
-  BotTile, BotTilesWorld, CARRY, FOLLOW, Fabric, LiveMark, Peek, Roam, STEP, TRAIL, checkExpression, compileLooks, compileWith, followStep, gridWorld, rng,
+  BotTile, BotTilesWorld, CARRY, FOLLOW, Fabric, LiveMark, MARK, Mark, Peek, Roam, STEP, TRAIL, checkExpression, compileLooks, compileWith, followStep, gridWorld, rng,
   thoughtTrail, trailRoom, writeOnTimes, type BotKind, type BotMood, type BuddyAct, type FollowState, type PeekState, type TileCtx,
 } from "./core.ts";
 import { STARTER } from "./starter.ts";
@@ -575,6 +575,48 @@ test("Roam: walks to spots in his span and plays moments; the same seed, the sam
   t.setAct("play");
   r.pause(true);
   for (let f = 0; f < 60 * 8; f++) { t.step(1 / 60); r.step(1 / 60); assert.ok(!t.walking() && !t.mo, "paused: nothing"); }
+});
+
+test("Mark: it rides over him on a spring, its edge wobbles and settles, and urgent rings leave it and die", () => {
+  const m = new Mark({ dots: 2, urgent: false, r: 13 }, 5);
+  // it follows where it is told, late, and settles there
+  for (let f = 0; f < 240; f++) m.step(1 / 60, 100, 40);
+  assert.ok(Math.hypot(m.x - 100, m.y - 40) < 0.5, `it settles over him (${m.x.toFixed(1)}, ${m.y.toFixed(1)})`);
+  const far = (() => { let worst = 0; for (let f = 0; f < 60; f++) { m.step(1 / 60, 220, 40); worst = Math.max(worst, 220 - m.x); } return worst; })();
+  assert.ok(far > 20, `it lags behind a jump (${far.toFixed(0)} px)`);
+  for (let f = 0; f < 600; f++) m.step(1 / 60, 220, 40);
+  assert.ok(Math.hypot(m.x - 220, m.y - 40) < 0.5, "and catches up");
+  // a knock runs round the edge and dies out
+  const flat = () => Math.max(...Array.from(m.rr, Math.abs));
+  assert.ok(flat() < 0.5, "at rest the edge is round");
+  m.knock();
+  let peak = 0;
+  for (let f = 0; f < 60; f++) { m.step(1 / 60, 220, 40); peak = Math.max(peak, flat()); }
+  assert.ok(peak > 1, `a knock shows on the edge (${peak.toFixed(2)} px)`);
+  for (let f = 0; f < 900; f++) m.step(1 / 60, 220, 40);
+  assert.ok(flat() < 0.5, `and dies out (${flat().toFixed(2)} px)`);
+  assert.ok(Array.from(m.rr).every(Number.isFinite) && Number.isFinite(m.x), "finite");
+  // quiet: no rings at all. urgent: they leave, and none of them lives past its reach
+  assert.equal(m.rings.length, 0, "quiet: no rings");
+  const u = new Mark({ dots: 1, urgent: true, r: 13 }, 5);
+  let most = 0;
+  for (let f = 0; f < 60 * 20; f++) { u.step(1 / 60, 50, 50); most = Math.max(most, u.rings.length); for (const r of u.rings) assert.ok(r <= MARK.pingMax + 1, "no ring outlives its reach"); }
+  assert.ok(most >= 1, "urgent: rings leave it");
+  // the same seed, the same wobble
+  const a = new Mark({ dots: 1, urgent: true, r: 13 }, 7), b = new Mark({ dots: 1, urgent: true, r: 13 }, 7);
+  for (let f = 0; f < 300; f++) { a.step(1 / 60, 60, 20); b.step(1 / 60, 60, 20); }
+  assert.deepStrictEqual(Array.from(a.rr), Array.from(b.rr), "deterministic");
+  // and it draws in a handful of calls, whatever it is doing
+  const c = counter();
+  let worst = 0;
+  for (let f = 0; f < 600; f++) { a.step(1 / 60, 60 + (f % 40), 20); c.calls = 0; a.draw(c, "#0a0a0a", "#ffffff"); worst = Math.max(worst, c.calls); }
+  assert.ok(worst > 0 && worst < 420, `${worst} calls in a frame`);
+  // nothing to carry, nothing drawn
+  const none = new Mark({ dots: 0, urgent: false, r: 13 }, 1);
+  none.step(1 / 60, 10, 10);
+  c.calls = 0;
+  none.draw(c, "#0a0a0a", "#ffffff");
+  assert.equal(c.calls, 0, "no dots, no drawing");
 });
 
 test("Peek: he lives behind the bar, jumps the ledge into full view, stays a few moments and drops back", () => {

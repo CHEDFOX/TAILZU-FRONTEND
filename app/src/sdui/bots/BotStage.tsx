@@ -35,7 +35,7 @@ import type { CompProps } from "../components/props";
 import { evalCondition } from "../actions";
 import * as K from "../knobs";
 import type { BotRoam, BotThoughtSpec, Condition } from "../types";
-import { BotTile, INK, Peek, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
+import { BotTile, INK, Mark, Peek, Roam, followStep, kindOf, thoughtTrail, trailRoom, type BotKind, type FollowState, type TileCtx, type TrailBubble } from "../../botTiles/core";
 import { TileSurface, useReducedMotion, useTileLoop, type Drawable, type Painter } from "../../botTiles/TileSurface";
 import { noteScenes, useLooks } from "../../botTiles/looks";
 import { Blur } from "../components/blur";
@@ -59,6 +59,8 @@ interface Life {
   roam: Roam | null;
   /** His comings and goings over the bar at the foot of the page (`stand: "peek"`); null on a stage he stands on. */
   peek: Peek | null;
+  /** The mark he carries at rest when the server sends one instead of words; null when he carries words, or nothing. */
+  mark: Mark | null;
   follow: FollowState;
   /** His crown's height over his floor as he stands (measured once he is placed): the pill sits the trail's room over it. */
   crownH: number;
@@ -86,7 +88,7 @@ function lifeOf(life: string, kind: BotKind, color: string, size: number, toys: 
     // seconds on pages people sit on (Home, a space's feed), where a sneeze or a clap each time would be noise.
     bot.cloth = 0;
     if (LIVES.size > 24) LIVES.clear();
-    l = { bot, roam: null, peek: null, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
+    l = { bot, roam: null, peek: null, mark: null, follow: { x: NaN, v: 0, target: NaN }, crownH: 0, mode: "rest", cheer: null, out: null, outAt: "right", standUntil: 0, glide: false };
     LIVES.set(key, l);
   }
   return l;
@@ -118,6 +120,8 @@ class Scene implements Drawable {
   ox = 0;
   oy = 0;
   bubbles: TrailBubble[] = [];
+  /** The mark he carries at rest, when the server sends one instead of words (core.ts Mark). */
+  mark: Mark | null = null;
   draw(ctx: TileCtx): void {
     if (this.bot && this.showBot) {
       ctx.save();
@@ -126,6 +130,12 @@ class Scene implements Drawable {
       ctx.restore();
     }
     drawTrail(ctx, this.bubbles);
+    if (this.mark) {
+      ctx.save();
+      ctx.translate(this.ox, this.oy);
+      this.mark.draw(ctx, INK, PAPER);
+      ctx.restore();
+    }
   }
 }
 
@@ -196,6 +206,11 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const toys = props?.toys !== false;
   const th: BotThoughtSpec | null = props?.thought && typeof props.thought === "object" && typeof props.thought.openPath === "string" ? (props.thought as BotThoughtSpec) : null;
   const restText = th && typeof th.restText === "string" ? th.restText : "";
+  // A mark instead of words: a soft blob of ink dots riding over him, holding one dot for each thing that wants them, drawn on
+  // his own canvas with the rest of him (core.ts Mark). It takes the pill's place entirely — nothing is written at rest.
+  const markSpec = th && th.restMark && typeof th.restMark === "object" && Number(th.restMark.dots) > 0 ? th.restMark : null;
+  const marking = !!markSpec && bots;
+  const markR = markSpec ? 12 + Math.min(3, Number(markSpec.dots) || 1) * 1.8 : 0;
   const veil = !!th?.veil;
   const low = th?.place === "low";
   const home = th?.style === "home";
@@ -229,8 +244,8 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   // Peeking, the bar under the stage keeps the bottom of him, so the stage itself is that much shorter — the page gets the room
   // back — but never shorter than him whole on the ledge with the room his jump needs over it.
   const restH = peeks
-    ? peekHeight(Number(props?.height) || 0, size, !!restText)
-    : restHeight(Number(props?.height) || 0, size, !!restText);
+    ? peekHeight(Number(props?.height) || 0, size, !!restText || marking, marking ? 2 * (markR + 7) : 0)
+    : restHeight(Number(props?.height) || 0, size, !!restText || marking);
   const [contentH, setContentH] = useState(0);
   const boxTarget = useRef<Rect | null>(null);
   const [inlineBoxH, setInlineBoxH] = useState(0);
@@ -257,6 +272,11 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       life.peek.spec = spec;
       bot.floor = life.peek.state === "up" ? spec.ledge : spec.hidden;
     } else life.peek = null;
+    if (marking && markSpec) {
+      const spec = { dots: Math.max(1, Math.min(3, Number(markSpec.dots) || 1)), urgent: markSpec.urgent !== false, r: markR };
+      if (!life.mark) life.mark = new Mark(spec, (bot.seed ^ 0x4d17) >>> 0);
+      else { const was = life.mark.spec; life.mark.spec = spec; if (was.dots !== spec.dots || was.urgent !== spec.urgent) life.mark.knock(); }
+    } else life.mark = null;
     if (roamSpec) {
       if (!life.roam) life.roam = new Roam(bot, L, roamSpec, W, (bot.seed ^ 0x9e37) >>> 0);
       life.roam.spec = roamSpec;
@@ -378,9 +398,9 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   /** The pill's rect on the window (where the veiled box grows from and shrinks back to). */
   const restOnWindow = useCallback((): Rect => {
     const sw = stageWin.current ?? { x: 0, y: 0 };
-    const r = restText ? restRect() : (() => { const c = bot.placed ? bot.crown() : { x: W / 2, y: floor - life.crownH }; return { x: c.x - 20, y: c.y - 60, w: 40, h: 40 }; })();
+    const r = restText ? restRect() : life.mark && marking ? life.mark.rect() : (() => { const c = bot.placed ? bot.crown() : { x: W / 2, y: floor - life.crownH }; return { x: c.x - 20, y: c.y - 60, w: 40, h: 40 }; })();
     return { x: r.x + sw.x, y: r.y + sw.y, w: r.w, h: r.h };
-  }, [restText, restRect, bot, W, floor, life]);
+  }, [restText, restRect, bot, W, floor, life, marking]);
 
   // The mode changes: the box grows, shrinks or moves (from where it is: a repaint never replays it).
   const firstMode = useRef(true);
@@ -572,8 +592,8 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
     if (crown && th && !layerOn) {
       const m = modeRef.current;
       // (At rest, once the pill's words are measured: no trail to a pill not yet drawn.)
-      const r = m === "rest" ? (restTextRef.current && !bot.isOut && pillWRef.current > 2 * STAGE.pillPad + 2 ? restRect() : null) : (() => { const c = box.cur.current; return { x: c.x, y: stageHRef.current - bottomOffRef.current - c.h, w: c.w, h: c.h }; })();
-      if (r && r.w > 0) S.bubbles = thoughtTrail(crown, r, t, level);
+      const r = m === "rest" ? (markRef.current && life.mark && !bot.isOut ? life.mark.rect() : restTextRef.current && !bot.isOut && pillWRef.current > 2 * STAGE.pillPad + 2 ? restRect() : null) : (() => { const c = box.cur.current; return { x: c.x, y: stageHRef.current - bottomOffRef.current - c.h, w: c.w, h: c.h }; })();
+      if (r && r.w > 0) S.bubbles = thoughtTrail(crown, r, t, level, trailKRef.current);
     }
     painter.current?.paint(S);
     if (layerOn) {
@@ -608,6 +628,11 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const modeRef = useRef(mode); modeRef.current = mode;
   const listeningRef = useRef(listening); listeningRef.current = listening;
   const restTextRef = useRef(restText); restTextRef.current = restText;
+  const markRef = useRef(marking); markRef.current = marking;
+  // The mark rides a short trail over where his head is when he stands on the ledge — it does not bob with his jumps.
+  const trailK = peeks && marking ? PEEK.trail : 1;
+  const trailKRef = useRef(trailK); trailKRef.current = trailK;
+  const markYRef = useRef(0); markYRef.current = marking ? floor - life.crownH - trailRoom(trailK) - markR : pillBot - markR;
   const stageHRef = useRef(stageH); stageHRef.current = stageH;
   const bottomOffRef = useRef(bottomOff); bottomOffRef.current = bottomOff;
   const pillWRef = useRef(pillW); pillWRef.current = pillW;
@@ -618,6 +643,10 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
       bot.step(dt);
       life.roam?.step(dt);
       life.peek?.step(dt);
+      if (life.mark) {
+        const b = pillBounds(W, markRef.current ? 2 * (life.mark.spec.r + 6) : 0);
+        life.mark.step(dt, Math.min(Math.max(bot.x[2]!, b.lo), b.hi), markYRef.current);
+      }
       const m = modeRef.current;
       const headX = bot.x[2]!;
       // the pill follows him at rest (gliding back over him after a thought)
@@ -667,7 +696,7 @@ function Stage({ node, props, ctx, store, children, fire, bots }: CompProps & { 
   const thought = <ThoughtContext.Provider value={control}>{children}</ThoughtContext.Provider>;
 
   const label = typeof props?.label === "string" ? props.label : "";
-  const restBox = !!th && !!restText && !layered && shown === "none" && !(still && bot.isOut) && W > 0 && textW > 0;
+  const restBox = !!th && !!restText && !marking && !layered && shown === "none" && !(still && bot.isOut) && W > 0 && textW > 0;
   const contentW = mode === "listen" ? Math.min(K.num("ui.BotStage.pillMax", 260), W - 2 * STAGE.gutter) : W - 2 * STAGE.gutter;
 
   return (

@@ -6277,6 +6277,154 @@ export class Peek {
   }
 }
 
+/**
+ * THE MARK HE CARRIES AT REST (BotThoughtSpec.restMark, docs/home-updates.md).
+ *
+ * Not a box with words in it: a soft blob of ink dots riding over him, holding one dot for each thing that wants them. It is
+ * matter, not a shape — a ring of points, each sprung back to its resting radius and tied to its neighbours, so a knock
+ * travels round the edge as a wave and dies out. It is knocked by its own travel: the side facing the way it moves is pushed
+ * in, which is why it wobbles when he turns, lands or jumps, and settles when he stands.
+ *
+ * When something is waiting on them a ring leaves it now and then — dots again, thinning as they spread (the same energy
+ * round a longer circle) — and the blob takes the kick back.
+ *
+ * step(dt, x, y) with where it should ride, then draw(ctx). Its own random numbers: the same seed, the same wobble.
+ */
+export interface MarkSpec {
+  /** How many dots it holds: 1..3 (0: nothing to carry, nothing drawn). */
+  dots: number;
+  /** Something is waiting on them: the dots are full, and a ring leaves it now and then. */
+  urgent: boolean;
+  /** Its radius at rest, in px. */
+  r: number;
+}
+
+/** n: points round the edge. k/c: each one's spring back and its damping. wave: how fast a knock runs round. */
+export const MARK = {
+  n: 24, k: 70, c: 4.2, wave: 90, push: 0.055, cap: 7,
+  follow: 120, drag: 9,
+  edge: 1.45, inner: 3.3, quiet: 2.2,
+  pingEvery: 2.9, pingSpeed: 30, pingMax: 26, pingDots: 18, kick: 55,
+};
+
+export class Mark {
+  spec: MarkSpec;
+  /** Each edge point's offset from the resting radius, and how fast it is moving. */
+  rr: Float64Array;
+  rv: Float64Array;
+  /** Where it rides, and how fast: a weight on a spring, so it is always a little behind him. */
+  x = NaN;
+  y = NaN;
+  vx = 0;
+  vy = 0;
+  /** The rings on their way out, each a radius. */
+  rings: number[] = [];
+  since = 0;
+  rand: () => number;
+  private xy = new Float32Array(MARK.pingDots * 2);
+
+  constructor(spec: MarkSpec, seed = 1) {
+    this.spec = spec;
+    this.rr = new Float64Array(MARK.n);
+    this.rv = new Float64Array(MARK.n);
+    this.rand = rng((seed >>> 0) ^ 0x7a31c5);
+    this.since = this.rand() * MARK.pingEvery;
+  }
+
+  /** Something landed: the whole edge is knocked at once, and it bobs. */
+  knock(): void {
+    for (let i = 0; i < MARK.n; i++) this.rv[i] = this.rv[i]! - 55 * Math.cos((i / MARK.n) * Math.PI * 2 - Math.PI / 2);
+    this.vy -= 110;
+  }
+
+  /** A ring leaves it, and it takes the kick back. */
+  ping(): void {
+    this.rings.push(this.spec.r * 0.4);
+    this.vy += MARK.kick;
+  }
+
+  step(dt: number, x: number, y: number): void {
+    if (this.x !== this.x) { this.x = x; this.y = y; }
+    // where it rides: a weight on a spring, so it lags him and settles after he stops
+    this.vx += (-MARK.follow * (this.x - x) - MARK.drag * this.vx) * dt;
+    this.vy += (-MARK.follow * (this.y - y) - MARK.drag * this.vy) * dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    // the edge answers that travel, and the knock runs round it
+    const sp = Math.hypot(this.vx, this.vy), ang = Math.atan2(this.vy, this.vx), n = MARK.n;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const push = Math.cos(a - ang) * sp * MARK.push;
+      const wave = (this.rr[(i - 1 + n) % n]! + this.rr[(i + 1) % n]! - 2 * this.rr[i]!) * MARK.wave;
+      this.rv[i] = this.rv[i]! + (-MARK.k * this.rr[i]! - MARK.c * this.rv[i]! + wave - push * 9) * dt;
+      this.rr[i] = clamp(this.rr[i]! + this.rv[i]! * dt, -MARK.cap, MARK.cap);
+    }
+    // the rings on their way out, and the next one
+    for (let i = 0; i < this.rings.length; i++) this.rings[i] = this.rings[i]! + MARK.pingSpeed * dt;
+    while (this.rings.length && this.rings[0]! > MARK.pingMax) this.rings.shift();
+    if (this.spec.urgent) {
+      this.since += dt;
+      if (this.since >= MARK.pingEvery) { this.since = 0; this.ping(); }
+    } else this.rings.length = 0;
+  }
+
+  /** Where it stands now, for the trail to meet it and a finger to find it. */
+  rect(): { x: number; y: number; w: number; h: number } {
+    const r = this.spec.r + MARK.cap;
+    return { x: this.x - r, y: this.y - r, w: r * 2, h: r * 2 };
+  }
+
+  /** A point on the edge as it is now. */
+  private at(i: number): [number, number] {
+    const a = (i / MARK.n) * Math.PI * 2, rr = this.spec.r + this.rr[i % MARK.n]!;
+    return [this.x + Math.cos(a) * rr, this.y + Math.sin(a) * rr * 0.94];
+  }
+
+  draw(ctx: TileCtx, ink: string, paper: string): void {
+    if (this.spec.dots <= 0 || this.x !== this.x) return;
+    const n = MARK.n;
+    // what is inside it is white, so the page does not read through: the wavy edge, filled
+    ctx.fillStyle = paper;
+    ctx.beginPath();
+    const first = this.at(0), last = this.at(n - 1);
+    ctx.moveTo((last[0] + first[0]) / 2, (last[1] + first[1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const c = this.at(i), p = this.at(i + 1);
+      ctx.quadraticCurveTo(c[0], c[1], (c[0] + p[0]) / 2, (c[1] + p[1]) / 2);
+    }
+    ctx.closePath();
+    ctx.fill();
+    // the edge itself: ink dots, which is the whole of the drawing language
+    ctx.fillStyle = ink;
+    for (let i = 0; i < n; i++) {
+      const p = this.at(i);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], MARK.edge, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // what it holds: one dot for each, side by side
+    const k = Math.min(3, this.spec.dots), r = this.spec.urgent ? MARK.inner : MARK.quiet;
+    for (let i = 0; i < k; i++) {
+      ctx.beginPath();
+      ctx.arc(this.x + (i - (k - 1) / 2) * (r * 2.6), this.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // the rings on their way out: dots again, thinning as they spread
+    for (const rad of this.rings) {
+      const a = clamp(1 - rad / MARK.pingMax, 0, 1);
+      if (a <= 0.02) continue;
+      ctx.globalAlpha = a * 0.5;
+      for (let i = 0; i < MARK.pingDots; i++) {
+        const t = (i / MARK.pingDots) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(this.x + Math.cos(t) * rad, this.y + Math.sin(t) * rad * 0.94, 0.9 + a * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 /** One bubble of his thought's trail: its centre, radius and ink outline (px), and how much it shows (0..1). */
 export interface TrailBubble { x: number; y: number; r: number; stroke: number; alpha: number }
 
